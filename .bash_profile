@@ -9,6 +9,9 @@ esac
 # Path to the bash it configuration
 export BASH_IT=".bash_it"
 
+# Path to custom bash-it aliases, plugins, etc.
+export BASH_IT_CUSTOM=".bash_it_custom"
+
 # Lock and Load a custom theme file.
 # Leave empty to disable theming.
 # location /.bash_it/themes/
