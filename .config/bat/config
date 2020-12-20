@@ -1,0 +1,9 @@
+# fix ANSI escape codes instead of colors according to https://github.com/sharkdp/bat#configuration-file
+--wrap=never
+--pager="less -SR"
+
+# use italic text on the terminal (not supported on all terminals)
+--italic-text=always
+
+# use theme that works in vim popup too
+--theme="Solarized (dark)"
