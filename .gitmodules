@@ -104,5 +104,5 @@
 	path = .vim/pack/plugins/opt/vim-bracketed-paste
 	url = https://github.com/ConradIrwin/vim-bracketed-paste
 [submodule "bash-it"]
-	path = /Users/bob/.bash_it
+	path = .bash_it
 	url = https://github.com/Bash-it/bash-it.git
