@@ -1,0 +1,94 @@
+" VIFM COLORS
+" solarized dark
+" based on: https://github.com/istib/dotfiles/blob/master/vifm/vifm-colors
+
+" Default = -1 = None, can be used for transparency or default color
+" Black = 0
+" Red = 1
+" Green = 2
+" Yellow = 3
+" Blue = 4
+" Magenta = 5
+" Cyan = 6
+" White = 7
+
+" STYLES
+" bold
+" underline
+" reverse or inverse
+" standout
+" none
+
+" From [Solarized Home](https://ethanschoonover.com/solarized/)
+"
+" SOLARIZED CTERM
+" --------- -----
+" base03    234
+" base02    235
+" base01    240
+" base00    241
+" base0     244
+" base1     245
+" base2     254
+" base3     230
+" yellow    136
+" orange    166
+" red       160
+" magenta   125
+" violet     61
+" blue       33
+" cyan       37
+" green      64
+
+
+highlight clear
+
+highlight Win             cterm=none ctermfg=244    ctermbg=230
+
+highlight TopLine         cterm=none ctermfg=33       ctermbg=254
+highlight TopLineSel      cterm=none ctermfg=33       ctermbg=254
+highlight StatusLine      cterm=none ctermfg=33       ctermbg=254
+highlight Border          cterm=none ctermfg=33       ctermbg=254
+
+highlight Selected        cterm=bold ctermfg=137    ctermbg=241
+highlight CurrLine        cterm=bold ctermfg=234    ctermbg=249
+highlight OtherLine       cterm=underline,bold
+
+highlight WildMenu        cterm=underline,reverse ctermfg=245 ctermbg=254
+highlight CmdLine         cterm=none ctermfg=245 ctermbg=254
+highlight ErrorMsg        cterm=none ctermfg=160 ctermbg=254
+
+highlight Directory       cterm=none ctermfg=244 ctermbg=230
+highlight Link            cterm=none ctermfg=166 ctermbg=230
+highlight BrokenLink      cterm=none ctermfg=160 ctermbg=230
+highlight Socket          cterm=none ctermfg=125 ctermbg=230
+highlight Device          cterm=none ctermfg=160 ctermbg=230
+highlight Fifo            cterm=none ctermfg=37 ctermbg=230
+highlight Executable      cterm=none ctermfg=64 ctermbg=230
+
+highlight {*.loop.md}
+        \ cterm=bold ctermfg=125 ctermbg=228
+highlight {*.bm.md}
+        \ cterm=none ctermfg=75 ctermbg=230
+highlight {COPYRIGHT,COPYING*,BUGS,ChangeLog*,FAQ,INSTALL*,LICENSE,NEWS,README*,AUTHORS,TODO,THANKS,*.msg,*.eml}
+        \ cterm=none ctermfg=136 ctermbg=230
+highlight {Makefile,Makefile.am,Makefile.in,Makefile.win,*.mak,*.mk,CMakeLists.txt}
+        \ cterm=none ctermfg=64 ctermbg=230
+highlight {*.7z,*.ace,*.arj,*.bz2,*.cpio,*.deb,*.dz,*.gz,*.jar,*.lzh,*.lzma,*.rar,*.rpm,*.rz,*.tar,*.taz,*.tb2,*.tbz,*.tbz2,*.tgz,*.tlz,*.trz,*.txz,*.tz,*.tz2,*.xz,*.z,*.zip,*.zoo}
+        \ cterm=none ctermfg=166 ctermbg=230
+highlight {*.djvu,*.htm,*.html,*.shtml,*.php,*.css,*.markdown,*.md,*[^0-9].[1-9],*.mkd,*.org,*.pandoc,*.pdc,*.pdf,*.epub,*.tex,*.txt,*.xhtml,*.xml}
+        \ cterm=none ctermfg=61 ctermbg=230
+highlight {*.doc,*docx,*.dot,*.odt}
+        \ cterm=none ctermfg=33 ctermbg=230
+highlight {*.ppt,*pptx}
+        \ cterm=none ctermfg=127 ctermbg=230
+highlight {*.csv,*.ods,*.xls,*xls[mx]}
+        \ cterm=none ctermfg=64 ctermbg=230
+highlight {*.aac,*.anx,*.asf,*.au,*.avi,*.ts,*.axa,*.axv,*.divx,*.flac,*.m2a,*.m2v,*.m4a,*.m4p,*.m4v,*.mid,*.midi,*.mka,*.mkv,*.mov,*.mp3,*.mp4,*.flv,*.mp4v,*.mpc,*.mpeg,*.mpg,*.nuv,*.oga,*.ogg,*.ogv,*.ogx,*.pbm,*.pgm,*.qt,*.ra,*.ram,*.rm,*.spx,*.vob,*.wav,*.wma,*.wmv,*.xvid,*.ac3}
+        \ cterm=none ctermfg=37 ctermbg=230
+highlight {*.bmp,*.gif,*.jpeg,*.jpg,*.ico,*.png,*.ppm,*.svg,*.svgz,*.tga,*.tif,*.tiff,*.xbm,*.xcf,*.xpm,*.xspf,*.xwd}
+        \ cterm=none ctermfg=33 ctermbg=230
+highlight {*.bat,*.btm,*.cmd,*.com,*.dll,*.exe,*.run,*.msu,*.msi,*.sh,*.bash}
+        \ cterm=none ctermfg=160 ctermbg=230
+highlight {*.patch,*.diff,*.py,*.[ch]pp,*.mk,*.c,*.h,*.[ch]pp,*.cc,*.hs}
+        \ cterm=none ctermfg=125 ctermbg=230
