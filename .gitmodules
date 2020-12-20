@@ -1,0 +1,108 @@
+[submodule "vim-airline"]
+	path = .vim/pack/plugins/opt/vim-airline
+	url = https://github.com/vim-airline/vim-airline
+[submodule "vim-airline-themes"]
+	path = .vim/pack/plugins/opt/vim-airline-themes
+	url = https://github.com/vim-airline/vim-airline-themes
+[submodule "bullets"]
+	path = .vim/pack/plugins/opt/bullets
+	url = https://github.com/dkarter/bullets.vim
+[submodule "vim-devicons"]
+	path = .vim/pack/plugins/opt/vim-devicons
+	url = https://github.com/ryanoasis/vim-devicons
+[submodule "vim-gitgutter"]
+	path = .vim/pack/plugins/opt/vim-gitgutter
+	url = https://github.com/airblade/vim-gitgutter
+[submodule "vim-argwrap"]
+	path = .vim/pack/plugins/opt/vim-argwrap
+	url = https://github.com/foosoft/vim-argwrap
+[submodule "nerdcommenter"]
+	path = .vim/pack/plugins/opt/nerdcommenter
+	url = https://github.com/preservim/nerdcommenter
+[submodule "loupe"]
+	path = .vim/pack/plugins/opt/loupe
+	url = https://github.com/wincent/loupe
+[submodule "vim-repeat"]
+	path = .vim/pack/plugins/opt/vim-repeat
+	url = https://github.com/tpope/vim-repeat
+[submodule "replay"]
+	path = .vim/pack/plugins/opt/replay
+	url = https://github.com/wincent/replay
+[submodule "scalpel"]
+	path = .vim/pack/plugins/opt/scalpel
+	url = https://github.com/wincent/scalpel
+[submodule "vim-surround"]
+	path = .vim/pack/plugins/opt/vim-surround
+	url = https://github.com/tpope/vim-surround
+[submodule "vim-highlightedyank"]
+	path = .vim/pack/plugins/opt/vim-highlightedyank
+	url = https://github.com/machakann/vim-highlightedyank
+[submodule "NeoSolarized"]
+	path = .vim/pack/plugins/opt/NeoSolarized
+	url = https://github.com/iCyMind/NeoSolarized
+[submodule "indentLine"]
+	path = .vim/pack/plugins/opt/indentLine
+	url = https://github.com/Yggdroot/indentLine
+[submodule "ctrlp.vim"]
+	path = .vim/pack/plugins/opt/ctrlp.vim
+	url = https://github.com/ctrlpvim/ctrlp.vim
+[submodule "fzf"]
+	path = .vim/pack/plugins/opt/fzf
+	url = https://github.com/junegunn/fzf
+[submodule "fzf.vim"]
+	path = .vim/pack/plugins/opt/fzf.vim
+	url = https://github.com/junegunn/fzf.vim
+[submodule "vim-tmux-navigator"]
+	path = .vim/pack/plugins/opt/vim-tmux-navigator
+	url = https://github.com/christoomey/vim-tmux-navigator
+[submodule "vim-vinegar"]
+	path = .vim/pack/plugins/opt/vim-vinegar
+	url = https://github.com/tpope/vim-vinegar
+[submodule "vim-fugitive"]
+	path = .vim/pack/plugins/opt/vim-fugitive
+	url = https://github.com/tpope/vim-fugitive
+[submodule "vim-polyglot"]
+	path = .vim/pack/plugins/opt/vim-polyglot
+	url = https://github.com/sheerun/vim-polyglot
+[submodule "SimpylFold"]
+	path = .vim/pack/plugins/opt/SimpylFold
+	url = https://github.com/tmhedberg/SimpylFold
+[submodule "bullets.vim"]
+	path = .vim/pack/plugins/opt/bullets.vim
+	url = https://github.com/dkarter/bullets.vim
+[submodule "vim-tmux-focus-events"]
+	path = .vim/pack/plugins/opt/vim-tmux-focus-events
+	url = https://github.com/tmux-plugins/vim-tmux-focus-events
+[submodule "markdown-preview.nvim"]
+	path = .vim/pack/plugins/opt/markdown-preview.nvim
+	url = https://github.com/iamcco/markdown-preview.nvim
+[submodule "nerdtree"]
+	path = .vim/pack/plugins/opt/nerdtree
+	url = https://github.com/preservim/nerdtree
+[submodule "Join"]
+	path = .vim/pack/plugins/opt/Join
+	url = https://github.com/sk1418/Join
+[submodule "pear-tree"]
+	path = .vim/pack/plugins/opt/pear-tree
+	url = https://github.com/tmsvg/pear-tree
+[submodule "vim-isort"]
+	path = .vim/pack/plugins/opt/vim-isort
+	url = https://github.com/fisadev/vim-isort
+[submodule "ale"]
+	path = .vim/pack/plugins/opt/ale
+	url = https://github.com/dense-analysis/ale
+[submodule "asyncomplete.vim"]
+	path = .vim/pack/plugins/opt/asyncomplete.vim
+	url = https://github.com/prabirshrestha/asyncomplete.vim
+[submodule "vim-lsp"]
+	path = .vim/pack/plugins/opt/vim-lsp
+	url = https://github.com/prabirshrestha/vim-lsp
+[submodule "asyncomplete-lsp.vim"]
+	path = .vim/pack/plugins/opt/asyncomplete-lsp.vim
+	url = https://github.com/prabirshrestha/asyncomplete-lsp.vim
+[submodule "vim-bracketed-paste"]
+	path = .vim/pack/plugins/opt/vim-bracketed-paste
+	url = https://github.com/ConradIrwin/vim-bracketed-paste
+[submodule "bash-it"]
+	path = /Users/bob/.bash_it
+	url = https://github.com/Bash-it/bash-it.git
