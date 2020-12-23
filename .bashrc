@@ -70,5 +70,10 @@ export BASH_IT_AUTOMATIC_RELOAD_AFTER_CONFIG_CHANGE=1
 # Uncomment this to make Bash-it create alias reload.
 # export BASH_IT_RELOAD_LEGACY=1
 
+# Start with tmux default session
+if [ "$TMUX" = "" ]; then
+    tmux new -As default
+fi
+
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
