@@ -171,7 +171,7 @@ colors:
   # Default colors
   primary:
     background: '0x002b36'
-    foreground: '0x839496'
+    foreground: '0x93a1a1'
 
   # Normal colors
   normal:
