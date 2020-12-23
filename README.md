@@ -1,4 +1,4 @@
-# Bob's Universal and Very Intelligent System home directory
+# Bob's Universal and Very Intelligent System
 
 This contains more than my dotfiles, so I don't stick to the convention of naming this repo "dotfiles".
 
