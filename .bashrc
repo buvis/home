@@ -81,5 +81,9 @@ SCM_THEME_PROMPT_DIRTY_COLOR=${POWERLINE_SCM_DIRTY_COLOR:=52}
 SCM_THEME_PROMPT_STAGED_COLOR=${POWERLINE_SCM_STAGED_COLOR:=24}
 SCM_THEME_PROMPT_UNSTAGED_COLOR=${POWERLINE_SCM_UNSTAGED_COLOR:=56}
 
+# Load asdf
+source "${HOME}/.asdf/asdf.sh"
+source "${HOME}/.asdf/completions/asdf.bash"
+
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
