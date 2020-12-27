@@ -70,20 +70,16 @@ export BASH_IT_AUTOMATIC_RELOAD_AFTER_CONFIG_CHANGE=1
 # Uncomment this to make Bash-it create alias reload.
 # export BASH_IT_RELOAD_LEGACY=1
 
-# Start with tmux default session
-if [ "$TMUX" = "" ]; then
-    tmux new -As default
-fi
-
 # Use darker background for git status
 SCM_THEME_PROMPT_CLEAN_COLOR=${POWERLINE_SCM_CLEAN_COLOR:=22}
 SCM_THEME_PROMPT_DIRTY_COLOR=${POWERLINE_SCM_DIRTY_COLOR:=52}
 SCM_THEME_PROMPT_STAGED_COLOR=${POWERLINE_SCM_STAGED_COLOR:=24}
 SCM_THEME_PROMPT_UNSTAGED_COLOR=${POWERLINE_SCM_UNSTAGED_COLOR:=56}
 
-# Load asdf
-source "${HOME}/.asdf/asdf.sh"
-source "${HOME}/.asdf/completions/asdf.bash"
-
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
+
+# Start with tmux default session
+if [ "$TMUX" = "" ]; then
+    tmux new -As default
+fi
