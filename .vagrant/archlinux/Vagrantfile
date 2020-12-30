@@ -67,4 +67,11 @@ Vagrant.configure("2") do |config|
   #   apt-get update
   #   apt-get install -y apache2
   # SHELL
+
+  # Enable Anker SD Card Reader
+  config.vm.provider "virtualbox" do |vb|
+    vb.customize ["modifyvm", :id, "--usb", "on"]
+    vb.customize ["modifyvm", :id, "--usbxhci", "on"]
+    vb.customize ["usbfilter", "add", "0", "--target", :id, "--name", "Anker SD Card Reader", "--vendorid", "0x0BDA", "--productid", "0x0306"]
+  end
 end
