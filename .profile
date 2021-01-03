@@ -24,3 +24,6 @@ export FZF_DEFAULT_OPTS='--bind "F1:toggle-preview" --preview "rougify {} 2> /de
 # From https://github.com/junegunn/fzf/wiki/Configuring-shell-key-bindings
 # Bind F1 key to toggle preview window on/off
 export FZF_CTRL_R_OPTS='--bind "F1:toggle-preview" --preview "echo {}" --preview-window down:3:hidden:wrap'
+
+# Fix locale when sshing
+export LANG=en_US.UTF-8
