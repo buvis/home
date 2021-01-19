@@ -2,10 +2,7 @@ if type "bat" &> /dev/null; then
     alias cat="bat --paging never"
 fi
 
-#if type "lsd" &> /dev/null; then
-    #alias ls="lsd"
-#fi
-
+alias ls="ls --color"
 alias l="ls -l"
 alias la="ls -a"
 alias ll="ls -la"
