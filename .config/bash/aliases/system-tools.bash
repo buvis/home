@@ -6,7 +6,7 @@ alias ls="ls --color"
 alias l="ls -l"
 alias la="ls -a"
 alias ll="ls -la"
-alias lt="ls --tree"
+alias lt="ls -lrt"
 
 if hash most 2>/dev/null; then export PAGER="most"; fi
 
