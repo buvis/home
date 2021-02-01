@@ -112,6 +112,6 @@
 [submodule "tpm"]
 	path = .tmux/plugins/tpm
 	url = https://github.com/tmux-plugins/tpm
-[submodule "openssl.vim"]
-	path = .vim/pack/plugins/opt/openssl.vim
-	url = https://github.com/vim-scripts/openssl.vim
+[submodule "vim-gnupg"]
+	path = .vim/pack/plugins/opt/vim-gnupg
+	url = https://github.com/jamessan/vim-gnupg
