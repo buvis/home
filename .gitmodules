@@ -115,3 +115,4 @@
 [submodule "vim-gnupg"]
 	path = .vim/pack/plugins/opt/vim-gnupg
 	url = https://github.com/jamessan/vim-gnupg
+    branch = main
