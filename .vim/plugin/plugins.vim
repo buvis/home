@@ -24,3 +24,7 @@ nmap <C-m> <Plug>MarkdownPreview
 "   1. ''bat --config-file''
 "   2. add --theme="Solarized (dark)" in it
 let g:fzf_layout = { 'window': { 'width': 0.9, 'height': 0.6  }  }
+
+" vim-gnupg
+"   prefer symmetric encryption
+let g:GPGPreferSymmetric = 1
