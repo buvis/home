@@ -124,6 +124,10 @@ packadd! nerdtree
 " https://github.com/tpope/vim-fugitive
 packadd! vim-fugitive
 
+" file encryption
+" https://github.com/vim-scripts/openssl.vim
+packadd! openssl.vim
+
 " a solid language pack
 " https://github.com/sheerun/vim-polyglot
 packadd! vim-polyglot
