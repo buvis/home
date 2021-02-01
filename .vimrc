@@ -125,8 +125,8 @@ packadd! nerdtree
 packadd! vim-fugitive
 
 " file encryption
-" https://github.com/vim-scripts/openssl.vim
-packadd! openssl.vim
+" https://github.com/jamessan/vim-gnupg
+packadd! vim-gnupg
 
 " a solid language pack
 " https://github.com/sheerun/vim-polyglot
