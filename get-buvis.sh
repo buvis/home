@@ -53,7 +53,7 @@ if [[ $? = 0 ]]; then
     cfg submodule update --init && cfg submodule update --remote --merge
     # Track master for pull/push
     cfg push -u origin master
-    # Only keep README.md in remote (it is meant for public, but I don't need it on my machines)
-    rm ~/README.md
-    cfg update-index --skip-worktree README.md
+    # Keep README.md and get-buvis.sh in remote only (it is meant for public, and I don't need it on my machines)
+    rm ~/README.md ~/get-buvis.sh
+    cfg update-index --skip-worktree README.md get-buvis.sh
 fi
