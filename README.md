@@ -29,4 +29,4 @@ I always appreciate any opportunity to learn. Thank you!
     
 ## Configure
 
-Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in `.config` directory.
+Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
