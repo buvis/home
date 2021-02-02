@@ -1,1 +1,4 @@
 README.md
+.gitsecret/keys/random_seed
+!*.secret
+secret-file
