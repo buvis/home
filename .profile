@@ -8,6 +8,9 @@ export PATH="$PATH:${HOME}/bin/doogat/pingl:${HOME}/bin/doogat/doo"
 # My scripts
 export PATH="$PATH:${HOME}/bin/script"
 
+# Avoid ./ to run scripts in current directory
+export PATH=$PATH:.
+
 # Set my editor and git editor
 export EDITOR="vim"
 export GIT_EDITOR='vim'
