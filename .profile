@@ -6,7 +6,7 @@ export DOOGAT_CFG="${HOME}/.doogat/config.yml"
 export PATH="$PATH:${HOME}/bin/doogat/pingl:${HOME}/bin/doogat/doo"
 
 # My scripts
-export PATH="$PATH:${HOME}/bin/script"
+export PATH="$PATH:${HOME}/bin"
 
 # Avoid ./ to run scripts in current directory
 export PATH=$PATH:.
