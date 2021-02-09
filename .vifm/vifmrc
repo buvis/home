@@ -160,9 +160,9 @@ command! mkcd :mkdir %a | cd %a
 command! vgrep vim "+grep %a"
 command! reload :write | restart
 if has('win')
-    command! slugren !python $HOME/bin/script/slugren.py -p "%f" &
+    command! slugren !python $HOME/bin/slugren.py -p "%f" &
 else
-    command! slugren !~/bin/script/slugren.py -p "%f" &
+    command! slugren !~/bin/slugren.py -p "%f" &
 endif
 command! wslfixperm !chmod -R a-x+X,u-x+rwX,go-wx+rX * &
 command! bb !~/bin/doogat/doo/doo create bookmark
