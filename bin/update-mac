@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# inspired by https://www.arp242.net/tmux.html
+
+SESSION="update-mac"
+set -euC
+
+cd ~
+
+attach() {
+    [ -n "${TMUX:-}" ] &&
+        tmux switch-client -t '='$SESSION ||
+        tmux attach-session -t '='$SESSION
+}
+
+runwait() {
+    win_name=$1
+    cmd=$2"; [ $? -eq 0 ] && exit"
+    tmux new-window -d -t '='$SESSION -n $win_name
+    tmux send-keys -t '='$SESSION':'$win_name "$cmd" Enter
+}
+
+runnowait() {
+    cmd=$1
+    tmux new-window -d -t '='$SESSION $cmd
+}
+
+if tmux has-session -t '='$SESSION 2> /dev/null; then
+    attach
+    exit 0
+fi
+
+tmux new-session -d -s $SESSION -n cfg
+
+# Update dot files and vim plugins
+tmux send-keys -t '='$SESSION':=cfg' 'cfgl; '
+tmux send-keys -t '='$SESSION':=cfg' '[ $(tmux list-windows | wc -l | xargs) -gt 1 ] && printf "Check other windows for progress or errors"; '
+tmux send-keys -t '='$SESSION':=cfg' 'while [ $(tmux list-windows | wc -l | xargs) -gt 1 ]; '
+tmux send-keys -t '='$SESSION':=cfg' 'do printf "."; sleep 10; done; printf "\n"; cfgapa'
+tmux send-keys -t '='$SESSION':=cfg' Enter
+
+#Update alacritty terminfo
+runnowait "curl https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info -o ~/.config/alacritty/alacritty.info"
+
+# Update brew and backup the list of installed packages
+runwait "brew" "brew update; brew upgrade; brew upgrade --cask; brew update; brew upgrade; brew upgrade --cask; brew cleanup; cd ~/.config/brew; brew bundle --force dump; cd -"
+
+#Update tmux plugins
+runwait "tmux-tpm" "/Users/bob/.tmux/plugins/tpm/scripts/update_plugin_prompt_handler.sh all"
+
+#Update asdf plugins
+runwait "asdf" "asdf plugin update --all"
+
+#Update helm repos
+runwait "helm" "helm repo update"
+
+#Update node packages
+runwait "npm" "npm-check -gy"
+runwait "yarn" "yarn global upgrade --latest"
+
+attach
