@@ -119,21 +119,22 @@ endif
 
 " :mark mark /full/directory/path [filename]
 
-mark B ~/reference/b/book
-mark H ~/reference/h/hrsp/6.9.0-03_Mar'20-Apr'20
 mark a ~/archive
 mark b ~/bin/
+mark B ~/reference/b/book
 mark c ~/reference/c/completed
 mark C ~/reference/c/contact
 mark d ~/Downloads
 mark g ~/git/src/gitlab.com
 mark h ~/
+mark H ~/reference/h/hrsp/6.12.1-01_Jan'21-Feb'21
 mark i ~/reference/i/invoice
 mark j ~/reference/j/journal/time-blocks-planner
 mark m ~/reference/m/non-project-meeting
 mark n ~/reference/n/newsletter
 mark o ~/reference/o/order
 mark r ~/reference
+mark R ~/reference/r/receipt
 mark w ~/workspace
 mark W ~/reference/w/wiki
 
