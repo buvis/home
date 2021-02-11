@@ -19,9 +19,10 @@ case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
     ;;
 esac
 
-# Prefer GNU utils (coreutils) on Mac
+# Prefer GNU utils on Mac
 if [[ $IS_MAC ]]; then
-    export PATH=/usr/local/opt/coreutils/libexec/gnubin:$PATH
+    export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
+    export PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
 fi
 
 if [[ -f "${HOME}/.profile" ]]; then
