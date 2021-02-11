@@ -1,6 +1,6 @@
 if [[ $(command -v bat) ]]; then alias cat="bat --paging never"; fi
 
-alias ls="ls --color"
+alias ls="ls --color=auto"
 alias l="ls -l"
 alias la="ls -a"
 alias ll="ls -la"
