@@ -82,6 +82,9 @@ source "${HOME}/.asdf/asdf.sh"
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
 
+# Use gpg-agent for ssh
+export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+
 # Start with tmux default session
 if [ "$TMUX" = "" ]; then
     tmux new -As default
