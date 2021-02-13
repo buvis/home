@@ -25,6 +25,11 @@ if [[ $IS_MAC ]]; then
     export PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
 fi
 
+# Use gpg with ssh
+export GPG_TTY=$(tty)
+export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+gpgconf --launch gpg-agent
+
 if [[ -f "${HOME}/.profile" ]]; then
     source "${HOME}/.profile"
 fi
