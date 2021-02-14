@@ -12,6 +12,9 @@ nnoremap Y "*y
 " show NERDTree (through vim-vinegar)
 nmap = <Plug>VinegarUp
 
+" fix dot moving the cursor
+nmap . .`[
+
 " make folding shortcut easy to remember
 nnoremap <Tab> za
 vnoremap <Tab> za
