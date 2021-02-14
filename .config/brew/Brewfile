@@ -23,6 +23,7 @@ brew "most"
 brew "pinentry-mac"
 brew "pipenv"
 brew "qemu"
+brew "recode"
 brew "ruby"
 brew "rust"
 brew "syncthing", restart_service: true
