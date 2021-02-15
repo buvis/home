@@ -22,11 +22,13 @@ The configuration file `mopidy.conf` must exist in the same folder as Dockerfile
 2. `sudo chown -R 105:staff /var/local/docker/mopidy`
 
 ### Afterwards
-`docker run --detach --restart=always \
+```
+docker run --detach --restart=always \
   -p 6680:6680 -p 6600:6600 \
   --device /dev/snd \
   --mount type=bind,source=/var/local/docker/mopidy/media,target=/var/lib/mopidy/media,readonly \
   --mount type=bind,source=/var/local/docker/mopidy/local,target=/var/lib/mopidy/local \
   --mount type=bind,source=/var/local/docker/mopidy/playlists,target=/var/lib/mopidy/playlists \
   --name mopidy \
-   mopidy`
+   mopidy
+```
