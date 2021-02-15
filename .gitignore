@@ -3,3 +3,4 @@ README.md
 !*.secret
 .ssh/config
 .ssh/known_hosts
+.kube/config
