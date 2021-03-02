@@ -175,6 +175,7 @@ command! pp !~/bin/doogat/doo/doo create loop
 command! qq !~/bin/doogat/doo/doo create quote
 command! ss !~/bin/doogat/doo/doo create snippet
 command! ww !~/bin/doogat/doo/doo create wiki_article
+command! wwff !~/bin/doogat/doo/doo create wiki_article --file %"f:p
 command! winlink !powershell create-shortcut.ps1 '%"f:p' '%"D:p/%"f:t.lnk' &
 
 " ------------------------------------------------------------------------------
