@@ -59,4 +59,3 @@ cask "webcatalog"
 cask "whatsapp"
 cask "xnviewmp"
 cask "zoom"
-mas "SmugMug", id: 1115348888
