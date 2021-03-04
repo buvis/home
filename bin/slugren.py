@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 # slugren.py
+
+# This is my file renamer. It slugifies, extracts timestamp from emails, etc.
+# to get the filename compliant with my conventions.
+# It can be called automatically by Hazel as embedded script:
+# fname=$1
+# /Users/bob/.asdf/shims/python3 ~/bin/slugren.py -p "${fname//[ ]/\\ }"
+
 import os
 import platform
 import re
