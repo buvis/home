@@ -10,6 +10,7 @@
 import os
 import platform
 import re
+import unidecode
 from argparse import ArgumentParser
 from datetime import datetime, timezone
 from email.utils import mktime_tz, parsedate_tz
@@ -38,6 +39,8 @@ def normalize(text):
     normalized_text = re.sub("-{2,}", "-", normalized_text)
     # remove extra characters
     normalized_text = normalized_text.lstrip(".-").rstrip(".-")
+    # remove diacritics
+    normalized_text = unidecode.unidecode(normalized_text)
 
     return normalized_text
 
