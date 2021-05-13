@@ -42,7 +42,7 @@ tmux send-keys -t '='$SESSION':=cfg' Enter
 runnowait "curl https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info -o ~/.config/alacritty/alacritty.info"
 
 # Update brew and backup the list of installed packages
-runwait "brew" "brew update; brew upgrade; brew upgrade --cask; brew update; brew upgrade; brew upgrade --cask; brew cleanup; cd ~/.config/brew; brew bundle --force dump; cd -"
+runwait "brew" "brew update; brew upgrade; brew upgrade --cask; brew update; brew upgrade; brew upgrade --cask; brew upgrade --greedy; brew cleanup; cd ~/.config/brew; brew bundle --force dump; cd -"
 
 #Update tmux plugins
 runwait "tmux-tpm" "/Users/bob/.tmux/plugins/tpm/scripts/update_plugin_prompt_handler.sh all"
