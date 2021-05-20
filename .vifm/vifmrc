@@ -126,17 +126,19 @@ mark c ~/archive/completed
 mark C ~/reference/contact
 mark d ~/Downloads
 mark g ~/git/src/gitlab.com
+mark f ~/reference/gtd-following
 mark h ~/
 mark H ~/reference/hrsp/6.12.1-01_Jan'21-Feb'21
 mark i ~/reference/invoice
 mark j ~/reference/journal/time-blocks-planner
+mark l ~/reference/gtd-later
 mark m ~/reference/non-project-meeting
 mark n ~/reference/newsletter
 mark o ~/reference/order
 mark p ~/Photography
 mark r ~/reference
 mark R ~/reference/receipt
-mark s ~/reference/someday-maybe
+mark s ~/reference/gtd-someday
 mark w ~/workspace
 mark W ~/reference/wiki
 
