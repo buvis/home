@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-kubectl rollout restart deployment mopidy-hall -n mopidy
