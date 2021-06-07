@@ -8,7 +8,7 @@ alias lt="ls -lrt"
 
 if [[ $(command -v most) ]]; then export PAGER="most"; fi
 
-alias ssh="TERM=xterm-256color ssh"
+alias ssh="LC_CTYPE=\"en_US.UTF-8\" TERM=xterm-256color ssh"
 
 if [[ $(command -v vim) ]]; then alias vi="vim"; fi
 
