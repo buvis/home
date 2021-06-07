@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-ssh thorne 'docker logs $(docker ps -f name=mopidy | cut -d " " -f1 | tail -n 1)'
