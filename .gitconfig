@@ -12,3 +12,5 @@
 	rebase = false
 [core]
 	fileMode = false
+[commit]
+	gpgSign = true
