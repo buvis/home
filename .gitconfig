@@ -3,6 +3,7 @@
 # Please adapt and uncomment the following lines:
 	name = Tomáš Bouška
 	email = tomas@buvis.net
+	signingKey = 9C861295C71FF0EBE7FE857ED1BCFE7035C136D1
 [merge]
 	tool = vimdiff
 	conflictstyle = diff3
