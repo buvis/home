@@ -20,6 +20,7 @@ The configuration file `mopidy.conf` must exist in the same folder as Dockerfile
 ### Before the first execution
 1. `sudo mkdir -p {/var/local/docker/mopidy/local,/var/local/docker/mopidy/media,/var/local/docker/mopidy/playlists}`
 2. `sudo chown -R 105:staff /var/local/docker/mopidy`
+3. `aws configure`
 
 ### Afterwards
 ```
