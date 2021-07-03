@@ -30,10 +30,10 @@ function print-mopidy-log () {
 function update-mopidy () {
     case $1 in
         # hall is managed by kubernetes
-        hall)
-            kubectl rollout restart deployment mopidy-hall -n mopidy
-            ;;
-            # other players aren't part of cluster (for now)
+        #hall)
+            #kubectl rollout restart deployment mopidy-hall -n mopidy
+            #;;
+            ## other players aren't part of cluster (for now)
         *)
             # Archive current image
             ssh $1 "docker stop mopidy;\
