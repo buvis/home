@@ -5,6 +5,7 @@ export BUVIS_AWS_ACCOUNT=473900256917
 export BUVIS_AWS_REGION=eu-west-1
 export BUVIS_AWS_ECR=${BUVIS_AWS_ACCOUNT}.dkr.ecr.${BUVIS_AWS_REGION}.amazonaws.com
 export BUVIS_MOPIDY_IMAGE=${BUVIS_AWS_ECR}/mopidy
+# arm64 not supported, because libspotify isn't available: https://github.com/mopidy/mopidy-spotify/issues/304
 export BUVIS_MOPIDY_PLATFORM=linux/arm/v6,linux/amd64
 
 # build mopidy image to buvis AWS ECR
