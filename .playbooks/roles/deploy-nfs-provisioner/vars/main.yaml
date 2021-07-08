@@ -1,0 +1,7 @@
+# vars/main.yml
+
+helm_repository_name: nfs-subdir-external-provisioner
+helm_repository_url: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+helm_chart_ref: nfs-subdir-external-provisioner/nfs-subdir-external-provisioner
+app_namespace: kube-system
+app_name: nfs-subdir-external-provisioner

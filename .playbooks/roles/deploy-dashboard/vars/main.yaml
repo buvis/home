@@ -1,0 +1,7 @@
+# vars/main.yaml
+
+helm_repository_name: kubernetes-dashboard
+helm_repository_url: https://kubernetes.github.io/dashboard/
+helm_chart_ref: kubernetes-dashboard/kubernetes-dashboard
+app_namespace: kubernetes-dashboard
+app_name: kubernetes-dashboard

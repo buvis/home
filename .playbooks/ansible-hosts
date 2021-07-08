@@ -1,0 +1,34 @@
+---
+
+all:
+  hosts:
+  children:
+    rancher:
+      hosts:
+        domum
+
+    control_plane:
+      children:
+        chief:
+        manager:
+
+    chief:
+      hosts:
+        columbus:
+
+    manager:
+      hosts:
+        nimitz:
+
+    worker:
+      hosts:
+        braun:
+        hawking:
+        planck:
+        feynman:
+        einstein:
+
+    player:
+      hosts:
+        hall:
+        higgs:

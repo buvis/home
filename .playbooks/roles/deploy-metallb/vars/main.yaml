@@ -1,0 +1,7 @@
+# vars/main.yaml
+
+helm_repository_name: metallb
+helm_repository_url: https://metallb.github.io/metallb
+helm_chart_ref: metallb/metallb
+app_namespace: kube-system
+app_name: metallb

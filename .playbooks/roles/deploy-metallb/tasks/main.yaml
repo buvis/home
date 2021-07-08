@@ -1,0 +1,46 @@
+---
+# main task file for roles/deploy-metallb
+
+- name: create manifests directory for deployment
+  become: false
+  file:
+    path: "/home/{{ default_user }}/.kube/manifests/{{ app_name }}"
+    state: directory
+
+- name: copy manifests
+  become: false
+  copy:
+    src: files/
+    dest: "/home/{{ default_user }}/.kube/manifests/{{ app_name }}/"
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: "0700"
+
+- name: add {{ helm_repository_name }} repo
+  kubernetes.core.helm_repository:
+    name: "{{ helm_repository_name }}"
+    repo_url: "{{ helm_repository_url }}"
+
+- name: uninstall {{ app_namespace }}/{{ app_name }}
+  kubernetes.core.helm:
+    release_namespace: "{{ app_namespace }}"
+    release_name: "{{ app_name }}"
+    state: absent
+    wait: yes
+  ignore_errors: yes
+
+- name: deploy {{ app_namespace }}/{{ app_name }}
+  kubernetes.core.helm:
+    chart_ref: "{{ helm_chart_ref }}"
+    create_namespace: yes
+    release_namespace: "{{ app_namespace }}"
+    release_name: "{{ app_name }}"
+    values_files:
+      - "/home/{{ default_user }}/.kube/manifests/{{ app_name }}/values.yaml"
+    update_repo_cache: yes
+    atomic: yes
+    wait: yes
+
+- name: wait for {{ app_namespace }}/{{ app_name }} pods to come up
+  shell: k3s kubectl wait --namespace {{ app_namespace }} --for=condition=ready pod --selector=app.kubernetes.io/name={{ app_name }} --timeout=300s
+  become: yes

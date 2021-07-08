@@ -1,0 +1,70 @@
+---
+# 07-configure-os tasks file for roles/flash-alarm-node
+
+- name: disable audio
+  lineinfile:
+    path: "{{ dir_install }}/sd-root/boot/config.txt"
+    regexp: "^dtparam=audio=on"
+    state: absent
+
+- name: grant minimum RAM to GPU
+  lineinfile:
+    path: "{{ dir_install }}/sd-root/boot/config.txt"
+    line: "gpu_mem=16"
+    state: present
+
+- name: quiet poe hat fan
+  blockinfile:
+    path: "{{ dir_install }}/sd-root/boot/config.txt"
+    block: |
+      dtoverlay=rpi-poe
+      dtparam=poe_fan_temp0=60000
+      dtparam=poe_fan_temp1=63000
+      dtparam=poe_fan_temp2=66000
+      dtparam=poe_fan_temp3=69000
+      dtoverlay=rpi-poe-plus
+      dtparam=poe_fan_temp0=60000
+      dtparam=poe_fan_temp1=63000
+      dtparam=poe_fan_temp2=66000
+      dtparam=poe_fan_temp3=69000
+    state: present
+
+- name: set hostname to {{ sd_hostname }}
+  shell: "echo {{ sd_hostname }} > {{ dir_install }}/sd-root/etc/hostname"
+
+- name: set timezone
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"ln -sf /usr/share/zoneinfo/Europe/Prague /etc/localtime\""
+
+- name: enable time syncing
+  shell: "/usr/bin/systemctl enable systemd-timesyncd --root={{ dir_install }}/sd-root"
+  args:
+    executable: /usr/bin/bash
+
+- name: set locale
+  lineinfile:
+    path: "{{ dir_install }}/sd-root/etc/locale.gen"
+    state: present
+    line: "en_US.UTF-8 UTF-8"
+    create: yes
+
+- name: generate locale
+  shell: "chroot {{ dir_install }}/sd-root locale-gen"
+
+- name: create alacritty config directory
+  file:
+    path: "{{ dir_install }}/sd-root/home/{{ default_user }}/.config/alacritty"
+    state: directory
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: '0700'
+
+- name: get alacritty TERMINFO
+  get_url:
+    url: https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info
+    dest: "{{ dir_install }}/sd-root/home/{{ default_user }}/.config/alacritty/alacritty.info"
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: '0700'
+
+- name: install alacritty TERMINFO
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"tic -xe alacritty,alacritty-direct /home/{{ default_user }}/.config/alacritty/alacritty.info\""

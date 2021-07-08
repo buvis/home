@@ -5,3 +5,4 @@
 .ssh/known_hosts
 .kube/config
 .dockerfiles/mopidy/mopidy.conf
+.playbooks/.vault-pwd
