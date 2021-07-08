@@ -1,0 +1,62 @@
+# 05-install-os tasks file for roles/flash-alarm-node
+
+- name: copy root to SD card
+  shell: "bsdtar -xpf {{ dir_install }}/alarm.tar.gz -C {{ dir_install }}/sd-root"
+
+- name: sync cache to SD card
+  shell: "sync"
+
+- name: mount temporary API filesystems
+  shell: "mount -t proc /proc {{ dir_install }}/sd-root/proc/ && mount --rbind /sys {{ dir_install }}/sd-root/sys/ && mount --rbind /dev {{ dir_install }}/sd-root/dev/"
+  args:
+    warn: false
+
+- name: protect host from modifications in chroot
+  shell: "mount --make-rslave {{ dir_install }}/sd-root/proc/ && mount --make-rslave {{ dir_install }}/sd-root/sys/ && mount --make-rslave {{ dir_install }}/sd-root/dev/"
+  args:
+    warn: false
+
+- name: enable eu mirror
+  lineinfile:
+    path: "{{ dir_install }}/sd-root/etc/pacman.d/mirrorlist"
+    regexp: '^# Server = http:\/\/eu\.mirror\.archlinuxarm\.org\/\$arch\/\$repo'
+    line: "Server = http://eu.mirror.archlinuxarm.org/$arch/$repo"
+
+- name: disable global mirror
+  lineinfile:
+    path: "{{ dir_install }}/sd-root/etc/pacman.d/mirrorlist"
+    regexp: '^Server = http:\/\/mirror\.archlinuxarm\.org\/\$arch\/\$repo'
+    line: "# Server = http://mirror.archlinuxarm.org/$arch/$repo"
+
+- name: initialize pacman keyring
+  shell: "chroot {{ dir_install }}/sd-root pacman-key --init"
+
+- name: populate Arch Linux ARM package signing keys
+  shell: "chroot {{ dir_install }}/sd-root pacman-key --populate archlinuxarm"
+
+- name: remove default resolv.conf
+  file:
+    path: "{{ dir_install }}/sd-root/etc/resolv.conf"
+    state: absent
+
+- name: copy host's resolv.conf
+  copy:
+    src: /etc/resolv.conf
+    dest: "{{ dir_install }}/sd-root/etc/resolv.conf"
+    remote_src: yes
+
+- name: update all packages
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm -Syu"
+
+- name: switch to RPi4 kernel
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"yes | pacman -S linux-raspberrypi4\""
+  when: image_choice == "4"
+
+- name: install necessary packages to be manageable by ansible
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S python3 nfs-utils sudo vim which"
+
+- name: install prerequisites for Longhorn
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S curl grep awk open-iscsi"
+
+- name: enable Open-iSCSI for Longhorn
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"ln -sf /etc/systemd/system/multi-user.target.wants/iscsid.service /usr/lib/systemd/system/iscsid.service; ln -sf /etc/systemd/system/sockets.target.wants/iscsid.socket /usr/lib/systemd/system/iscsid.socket\""

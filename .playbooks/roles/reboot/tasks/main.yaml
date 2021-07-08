@@ -1,0 +1,13 @@
+---
+# tasks file for role/reboot
+
+- name: reboot
+  reboot:
+
+- name: wait for boot
+  wait_for:
+    port: 22
+    host: "{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}"
+    delay: 30
+    sleep: 5
+    timeout: 600

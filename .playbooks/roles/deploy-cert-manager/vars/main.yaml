@@ -1,0 +1,7 @@
+# vars/main.yml
+
+helm_repository_name: jetstack
+helm_repository_url: https://charts.jetstack.io
+helm_chart_ref: jetstack/cert-manager
+app_namespace: kube-system
+app_name: cert-manager
