@@ -119,28 +119,28 @@ endif
 
 " :mark mark /full/directory/path [filename]
 
-mark a ~/archive
+mark a ~/z/archive
 mark b ~/bin/
-mark B ~/reference/book
-mark c ~/archive/completed
-mark C ~/reference/contact
+mark B ~/z/reference/book
+mark c ~/z/completed
+mark C ~/z/reference/contact
 mark d ~/Downloads
 mark g ~/git/src/gitlab.com
-mark f ~/reference/gtd-following
+mark f ~/z/reference/gtd-following
 mark h ~/
-mark H ~/reference/hrsp/6.12.1-01_Jan'21-Feb'21
-mark i ~/reference/invoice
-mark j ~/reference/journal/time-blocks-planner
-mark l ~/reference/gtd-later
-mark m ~/reference/non-project-meeting
-mark n ~/reference/newsletter
-mark o ~/reference/order
+mark H ~/z/reference/hrsp/6.12.1-01_Jan'21-Feb'21
+mark i ~/z/reference/invoice
+mark j ~/z/reference/journal/time-blocks-planner
+mark l ~/z/reference/gtd-later
+mark m ~/z/reference/non-project-meeting
+mark n ~/z/reference/newsletter
+mark o ~/z/reference/order
 mark p ~/Photography
-mark r ~/reference
-mark R ~/reference/receipt
-mark s ~/reference/gtd-someday
-mark w ~/workspace
-mark W ~/reference/wiki
+mark r ~/z/reference
+mark R ~/z/reference/receipt
+mark s ~/z/reference/gtd-someday
+mark w ~/z/workspace
+mark W ~/z/reference/wiki
 
 " ------------------------------------------------------------------------------
 
