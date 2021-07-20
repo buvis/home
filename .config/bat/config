@@ -6,4 +6,4 @@
 --italic-text=always
 
 # use theme that works in vim popup too
---theme="Solarized (dark)"
+--theme="my-solarized"
