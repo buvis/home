@@ -40,17 +40,21 @@ function update-mopidy () {
             docker stop mopidy-prev;\
             docker rm -v mopidy-prev;\
             docker rename mopidy mopidy-prev"
-
-            # Run with new image
-            ssh $1 "\$(aws ecr get-login --no-include-email --region ${BUVIS_AWS_REGION}) && \
-            docker pull ${BUVIS_MOPIDY_IMAGE} && \
-            docker run --detach --restart=always \
-            -p 6680:6680 -p 6600:6600 \
-            --device /dev/snd \
-            --mount type=bind,source=/var/local/docker/mopidy/media,target=/var/lib/mopidy/media,readonly \
-            --mount type=bind,source=/var/local/docker/mopidy/local,target=/var/lib/mopidy/local \
-            --mount type=bind,source=/var/local/docker/mopidy/playlists,target=/var/lib/mopidy/playlists \
-            --name mopidy ${BUVIS_MOPIDY_IMAGE}"
+            # Run mopidy with new image
+            run-mopidy $1
             ;;
     esac
+}
+
+# run mopidy at remote machine
+function run-mopidy () {
+    ssh $1 "\$(aws ecr get-login --no-include-email --region ${BUVIS_AWS_REGION}) && \
+    docker pull ${BUVIS_MOPIDY_IMAGE} && \
+    docker run --detach --restart=always \
+    -p 6680:6680 -p 6600:6600 \
+    --device /dev/snd \
+    --mount type=bind,source=/var/local/docker/mopidy/media,target=/var/lib/mopidy/media,readonly \
+    --mount type=bind,source=/var/local/docker/mopidy/local,target=/var/lib/mopidy/local \
+    --mount type=bind,source=/var/local/docker/mopidy/playlists,target=/var/lib/mopidy/playlists \
+    --name mopidy ${BUVIS_MOPIDY_IMAGE}"
 }
