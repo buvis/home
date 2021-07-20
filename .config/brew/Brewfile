@@ -25,6 +25,7 @@ brew "pinentry-mac"
 brew "pipenv"
 brew "qemu"
 brew "recode"
+brew "ripgrep"
 brew "ruby"
 brew "rust"
 brew "syncthing", restart_service: true
