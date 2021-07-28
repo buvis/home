@@ -1,0 +1,24 @@
+---
+# main task file for roles/deploy-rancher-ui-ingress
+
+- name: create manifests directory for deployment
+  become: no
+  file:
+    path: "/home/{{ default_user }}/.kube/manifests/{{ app_name }}"
+    state: directory
+
+- name: copy manifests
+  become: false
+  copy:
+    src: files/
+    dest: "/home/{{ default_user }}/.kube/manifests/{{ app_name }}/"
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: "0700"
+
+- name: create service, endpoint and ingress
+  become: yes
+  shell: "k3s kubectl apply -f /home/{{ default_user }}/.kube/manifests/{{ app_name }}/{{ item }}.yaml;"
+  with_items:
+    - service
+    - ingress
