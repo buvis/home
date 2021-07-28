@@ -1,5 +1,5 @@
 ---
-# main task file for roles/deploy-metallb
+# main task file for roles/deploy-dashboard
 
 - name: create {{ app_namespace }} namespace
   become: yes
@@ -52,6 +52,8 @@
     create_namespace: yes
     release_namespace: "{{ app_namespace }}"
     release_name: "{{ app_name }}"
+    values_files:
+      - /home/{{ default_user }}/.kube/manifests/{{ app_name }}/values.yaml
     update_repo_cache: yes
     atomic: yes
     wait: yes
