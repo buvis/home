@@ -11,7 +11,6 @@ export BUVIS_MOPIDY_PLATFORM=linux/arm/v6,linux/amd64
 # build mopidy image to buvis AWS ECR
 function build-mopidy () {
     aws ecr get-login-password --region ${BUVIS_AWS_REGION} | docker login --username AWS --password-stdin ${BUVIS_AWS_ECR}
-    docker buildx use multiarch # use a newer builder to support multi-arch images. If builder doesn't exist, create it: docker buildx create --name multiarch
     docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
     docker buildx build \
         --no-cache \
