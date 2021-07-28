@@ -1,0 +1,7 @@
+# vars/main.yml
+
+helm_repository_name: openfaas
+helm_repository_url: https://openfaas.github.io/faas-netes/
+helm_chart_ref: openfaas/openfaas
+app_namespace: openfaas
+app_name: openfaas

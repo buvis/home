@@ -1,0 +1,3 @@
+functionNamespace: openfaas-fn
+generateBasicAuth: true
+serviceType: LoadBalancer
