@@ -1,0 +1,7 @@
+# vars/main.yml
+
+helm_repository_name: k8s-at-home
+helm_repository_url: https://k8s-at-home.com/charts/
+helm_chart_ref: k8s-at-home/oauth2-proxy
+app_namespace: kube-system
+app_name: oauth2-proxy
