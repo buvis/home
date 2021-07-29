@@ -1,4 +1,0 @@
-creation_rules:
-  - path_regex: .*.yaml
-    encrypted_regex: ^(clientID|clientSecret|cookieSecret)$
-    pgp: D2692898F83D5282BCB37D915C2069935D86C4E1
