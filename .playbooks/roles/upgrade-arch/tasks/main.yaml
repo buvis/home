@@ -1,8 +1,0 @@
----
-# tasks file for roles/upgrade-arch
-
-- name: upgrade system
-  pacman:
-    update_cache: yes
-    upgrade: yes
-  notify: "reboot"

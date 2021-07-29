@@ -1,12 +1,12 @@
-Upgrade Arch OS
-===============
+Upgrade nodes
+=============
 
-This role updates Arch Linux system packages.
+This role upgrades system packages.
 
 Requirements
 ------------
 
-Host must be running Arch Linux ;)
+None.
 
 Role Variables
 --------------
@@ -28,8 +28,7 @@ Example Playbook
   gather_facts: true
 
   roles:
-    - role: upgrade-arch
-      when: ansible_distribution == "Archlinux"
+    - role: upgrade-nodes
 ```
 
 License
