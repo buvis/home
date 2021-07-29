@@ -11,7 +11,10 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: jetstack
-  install: {}
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   interval: 10m
   values:
     installCRDs: true
