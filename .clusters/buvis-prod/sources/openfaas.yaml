@@ -6,5 +6,5 @@ metadata:
   namespace: openfaas
 spec:
   interval: 10m
-  url: https://metallb.github.io/metallb
+  url: https://openfaas.github.io/faas-netes/
   timeout: 3m
