@@ -6,6 +6,3 @@
   roles:
     - role: upgrade-arch
       when: ansible_distribution == "Archlinux"
-      register: arch_packages
-    - role: reboot
-      when: arch_packages is changed
