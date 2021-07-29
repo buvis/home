@@ -1,3 +1,0 @@
-nfs:
-  server: 10.7.0.111
-  path: /mnt/tank/pv
