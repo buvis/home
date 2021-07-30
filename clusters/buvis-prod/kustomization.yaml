@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- apps/openfaas/namespace.yaml
+- apps/openfaas/openfaas/ingress.yaml
+- apps/openfaas/openfaas/openfaas.yaml
+- apps/playground/podinfo-kustomization.yaml
+- core/kube-system/cert-manager/cert-manager.yaml
+- core/kube-system/cert-manager/letsencrypt-prod.yaml
+- core/kube-system/cert-manager/letsencrypt-staging.yaml
+- core/kube-system/ingress-nginx/ingress-nginx.yaml
+- core/kube-system/metallb/metallb.yaml
+- core/kube-system/nfs-subdir-external-provisioner/nfs-subdir-external-provisioner.yaml
+- core/kube-system/redirect-rancher-ui/ingress.yaml
+- core/kube-system/redirect-rancher-ui/service.yaml
+- core/kubernetes-dashboard/kubernetes-dashboard/dashboard-admin.yaml
+- core/kubernetes-dashboard/kubernetes-dashboard/kubernetes-dashboard.yaml
+- core/kubernetes-dashboard/namespace.yaml
+- flux-system
+- sources/ingress-nginx.yaml
+- sources/jetstack.yaml
+- sources/k8s-at-home.yaml
+- sources/kubernetes-dashboard.yaml
+- sources/metallb.yaml
+- sources/nfs-subdir-external-provisioner.yaml
+- sources/openfaas.yaml
+- sources/podinfo-source.yaml
