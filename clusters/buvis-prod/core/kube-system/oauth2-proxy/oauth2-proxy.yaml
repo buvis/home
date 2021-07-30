@@ -1,40 +1,41 @@
+---
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-    name: oauth2-proxy
-    namespace: kube-system
+  name: oauth2-proxy
+  namespace: kube-system
 spec:
-    chart:
-        spec:
-            chart: oauth2-proxy
-            sourceRef:
-                kind: HelmRepository
-                name: k8s-at-home
-    install: {}
-    interval: 10m
-    values:
-      config:
-        clientID: ${clientID}
-        clientSecret: ${clientSecret}
-        cookieSecret: ${cookieSecret}
-      extraArgs:
-          whitelist-domain: .int.buvis.net
-          cookie-domain: .int.buvis.net
-          provider: github
-      authenticatedEmailsFile:
-          enabled: true
-          restricted_access: tomas@buvis.net
-      ingress:
-          enabled: true
-          path: /
+  chart:
+    spec:
+      chart: oauth2-proxy
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home
+  install: {}
+  interval: 10m
+  values:
+    config:
+      clientID: ${clientID}
+      clientSecret: ${clientSecret}
+      cookieSecret: ${cookieSecret}
+    extraArgs:
+      whitelist-domain: .int.buvis.net
+      cookie-domain: .int.buvis.net
+      provider: github
+    authenticatedEmailsFile:
+      enabled: true
+      restricted_access: tomas@buvis.net
+    ingress:
+      enabled: true
+      path: /
+      hosts:
+        - auth.int.buvis.net
+      annotations:
+        kubernetes.io/ingress.class: nginx
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      tls:
+        - secretName: oauth2-proxy-https-cert
           hosts:
-              - auth.int.buvis.net
-          annotations:
-              kubernetes.io/ingress.class: nginx
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-          tls:
-              - secretName: oauth2-proxy-https-cert
-                hosts:
-                  - auth.int.buvis.net
-      image:
-          tag: latest-arm64
+            - auth.int.buvis.net
+    image:
+      tag: latest-arm64
