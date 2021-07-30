@@ -11,14 +11,6 @@ spec:
   secretRef:
     name: flux-system
   url: ssh://git@github.com/tbouska/buvis
-  ignore: |
-    # exclude all
-    /*
-    # include deploy dir
-    !/clusters
-    # exclude file extensions from deploy dir
-    /clusters/**/*.md
-    /clusters/**/*.tmpl
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
@@ -33,7 +25,3 @@ spec:
     kind: GitRepository
     name: flux-system
   validation: client
-  decryption:
-  provider: sops
-  secretRef:
-    name: sops-gpg
