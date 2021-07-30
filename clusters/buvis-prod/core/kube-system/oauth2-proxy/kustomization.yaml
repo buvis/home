@@ -2,7 +2,6 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
   name: oauth2-proxy
-  namespace: kube-system
 spec:
   interval: 10m
   postBuild:
