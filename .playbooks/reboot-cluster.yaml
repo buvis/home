@@ -1,0 +1,11 @@
+- hosts:
+  - chief
+  - manager
+  - worker
+  remote_user: "{{ default_user }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+  - name: reboot
+    reboot:
