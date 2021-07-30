@@ -15,9 +15,9 @@ spec:
   interval: 10m
   values:
     config:
-      clientID: "${SECRET_OAUTH2_PROXY_CLIENTID}"
-      clientSecret: "${SECRET_OAUTH2_PROXY_CLIENTSECRET}"
-      cookieSecret: "${SECRET_OAUTH2_PROXY_COOKIESECRET}"
+      clientID: ${SECRET_OAUTH2_PROXY_CLIENTID}
+      clientSecret: ${SECRET_OAUTH2_PROXY_CLIENTSECRET}
+      cookieSecret: ${SECRET_OAUTH2_PROXY_COOKIESECRET}
     extraArgs:
       whitelist-domain: .int.buvis.net
       cookie-domain: .int.buvis.net
