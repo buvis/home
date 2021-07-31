@@ -1,0 +1,18 @@
+{
+  "extends": [
+    "config:base"
+  ],
+  "kubernetes": {
+    "fileMatch": ["clusters/.+\\.yaml$"]
+  },
+  "helm-values": {"fileMatch": ["clusters/.+helmrelease\\.yaml$"]},
+  "regexManagers": [
+    {
+      "fileMatch": ["clusters/.+helmrelease\\.yaml$"],
+      "matchStrings": [
+        "registryUrl=(?<registryUrl>.*?)\n *chart: (?<depName>.*?)\n *version: (?<currentValue>.*)\n"
+      ],
+      "datasourceTemplate": "helm"
+    }
+  ]
+}
