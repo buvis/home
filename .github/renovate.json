@@ -2,6 +2,8 @@
   "extends": [
     "config:base"
   ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dashboard",
   "kubernetes": {
     "fileMatch": ["clusters/.+\\.yaml$"]
   },
