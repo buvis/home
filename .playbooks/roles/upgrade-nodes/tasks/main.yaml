@@ -9,7 +9,7 @@
   retries: 5
   until: pacman_upgrade is success
   notify: "reboot"
-  when: ansible_distribution == "ArchLinux"
+  when: ansible_distribution == "Archlinux"
 
 - name: upgrade by apt
   apt:
