@@ -5,6 +5,7 @@ resources:
 - gotk-sync.yaml
 - slack-provider.yaml
 - slack-alerts.yaml
+- cluster-secrets.yaml
 - sources.yaml
 patchesStrategicMerge:
 - gotk-patches.yaml
