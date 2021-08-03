@@ -1,7 +1,0 @@
-# vars/main.yml
-
-helm_repository_name: mojo2600
-helm_repository_url: https://mojo2600.github.io/pihole-kubernetes/
-helm_chart_ref: mojo2600/pihole
-app_namespace: pihole
-app_name: pihole
