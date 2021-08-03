@@ -20,7 +20,7 @@ spec:
     loki:
       persistence:
         enabled: true
-        storageClassName: standard
+        storageClassName: longhorn
         size: 5Gi
     prometheus:
       enabled: true
