@@ -27,6 +27,7 @@ spec:
           http:
             port: 4000
       dns:
+        enabled: true
         type: LoadBalancer
         loadBalancerIP:
         - {$SVC_BLOCKY_ADDRESS}
@@ -35,9 +36,11 @@ spec:
           metallb.universe.tf/allow-shared-ip: blocky
         ports:
           tcp:
+            enabled: true
             protocol: TCP
             port: 53
           udp:
+            enabled: true
             protocol: UDP
             port: 53
     prometheus:
