@@ -17,6 +17,20 @@ spec:
   values:
     grafana:
       enabled: true
+      service:
+        type: LoadBalancer
+        externalPort: 443
+      ingress:
+        enabled: true
+        annotations:
+          kubernetes.io/ingress.class: "nginx"
+          cert-manager.io/cluster-issuer: "letsencrypt-prod"
+        hosts:
+        - status.buvis.net
+        tls:
+        - hosts:
+          - status.buvis.net
+          secretName: grafana-crt
     loki:
       persistence:
         enabled: true
