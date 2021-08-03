@@ -32,7 +32,7 @@ spec:
           enabled: false
       kubeStateMetrics:
         image:
-          tag: v2.0.0-beta
+          tag: v2.1.0
     promtail:
       extraScrapeConfigs:
       - job_name: syslog
