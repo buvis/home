@@ -26,22 +26,32 @@ spec:
         ports:
           http:
             port: 4000
-      dns:
+      dns-tcp:
         enabled: true
         type: LoadBalancer
-        loadBalancerIP: {$SVC_BLOCKY_ADDRESS}
-        externalTrafficPolicy: Local
+        loadBalancerIP: ${SVC_BLOCKY_ADDRESS}
         annotations:
           metallb.universe.tf/allow-shared-ip: blocky
+        externalTrafficPolicy: Local
         ports:
-          tcp:
+          dns-tcp:
             enabled: true
+            port: 53
             protocol: TCP
-            port: 53
-          udp:
+            targetPort: 53
+      dns-udp:
+        enabled: true
+        type: LoadBalancer
+        loadBalancerIP: ${SVC_BLOCKY_ADDRESS}
+        annotations:
+          metallb.universe.tf/allow-shared-ip: blocky
+        externalTrafficPolicy: Local
+        ports:
+          dns-udp:
             enabled: true
-            protocol: UDP
             port: 53
+            protocol: UDP
+            targetPort: 53
     prometheus:
       serviceMonitor:
         enabled: true
