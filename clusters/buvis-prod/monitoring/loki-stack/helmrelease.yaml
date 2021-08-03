@@ -39,3 +39,6 @@ spec:
             job: syslog
       syslogService:
         enabled: true
+    kube-state-metrics:
+      image:
+        tag: v2.0.0-beta # this one is multiarch
