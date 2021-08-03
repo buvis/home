@@ -75,6 +75,7 @@ spec:
         whiteLists:
           ads:
           - https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt
+          - https://raw.githubusercontent.com/tbouska/buvis/master/clusters/buvis-prod/network/blocky/whitelist.txt
         clientGroupsBlock:
           default:
           - ads
