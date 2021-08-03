@@ -5,5 +5,5 @@ metadata:
   name: cluster-config
   namespace: flux-system
 data:
-  GATEWAY_ADDR: "10.7.0.1"
-  SVC_BLOCKY_ADDR: "10.7.0.74"
+  GATEWAY_ADDRESS: "10.7.0.1"
+  SVC_BLOCKY_ADDRESS: "10.7.0.74"
