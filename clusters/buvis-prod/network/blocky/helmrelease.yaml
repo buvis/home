@@ -28,7 +28,8 @@ spec:
             port: 4000
       dns:
         type: LoadBalancer
-        loadBalancerIP: {$SVC_BLOCKY_ADDRESS}
+        loadBalancerIP:
+        - {$SVC_BLOCKY_ADDRESS}
         externalTrafficPolicy: Local
         annotations:
           metallb.universe.tf/allow-shared-ip: blocky
