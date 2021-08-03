@@ -30,6 +30,9 @@ spec:
       server:
         persistentVolume:
           enabled: false
+      kubeStateMetrics:
+        image:
+          tag: v2.0.0-beta
     promtail:
       extraScrapeConfigs:
       - job_name: syslog
@@ -39,6 +42,3 @@ spec:
             job: syslog
       syslogService:
         enabled: true
-    kube-state-metrics:
-      image:
-        tag: v2.0.0-beta # this one is multiarch
