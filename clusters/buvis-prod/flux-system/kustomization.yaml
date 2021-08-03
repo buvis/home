@@ -6,6 +6,7 @@ resources:
 - slack-provider.yaml
 - slack-alerts.yaml
 - cluster-secrets.yaml
+- cluster-config.yaml
 - sources.yaml
 patchesStrategicMerge:
 - gotk-patches.yaml
