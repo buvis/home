@@ -27,6 +27,7 @@ spec:
     persistence:
       defaultClassReplicaCount: 2
     defaultSettings:
+      defaultDataPath: /mnt/lh01
       defaultReplicaCount: 2
       defaultLonghornStaticStorageClass: longhorn
       backupTarget: ${NFS_SERVER_LONGHORN_BACKUP_PATH}
