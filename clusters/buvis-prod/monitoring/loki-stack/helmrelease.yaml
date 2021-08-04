@@ -24,6 +24,11 @@ spec:
         existingSecret: admin-credentials
         userKey: ADMIN_USER
         passwordKey: ADMIN_PASSWORD
+      persistence:
+        enabled: true
+        type: pvc
+        existingClaim: grafana-persistence
+        storageClassName: longhorn
       service:
         type: LoadBalancer
         externalPort: 443
