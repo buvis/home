@@ -73,6 +73,7 @@ spec:
       blocking:
         blackLists:
           ads:
+          - https://raw.githubusercontent.com/tbouska/buvis/master/clusters/buvis-prod/network/blocky/blacklist.txt
           - https://dbl.oisd.nl/
           - http://sysctl.org/cameleon/hosts
           - https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
