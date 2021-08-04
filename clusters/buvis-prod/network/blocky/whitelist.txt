@@ -1,1 +1,2 @@
+edge-chat.facebook.com
 files.slack.com
