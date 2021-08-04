@@ -7,9 +7,9 @@ metadata:
 spec:
   interval: 5m
   dependsOn:
-  - ingress-nginx
-  - oauth2-proxy
-  - cert-manager
+    - name: ingress-nginx
+    - name: oauth2-proxy
+    - name: cert-manager
   chart:
     spec:
       # renovate: registryUrl=https://charts.longhorn.io
