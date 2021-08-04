@@ -7,3 +7,5 @@ metadata:
 data:
   GATEWAY_ADDRESS: "10.7.0.1"
   SVC_BLOCKY_ADDRESS: "10.7.0.74"
+  NFS_SERVER_ADDRESS: "10.7.0.111"
+  NFS_SERVER_LONGHORN_BACKUP_PATH: "/mnt/tank/pv/longhorn-backup"
