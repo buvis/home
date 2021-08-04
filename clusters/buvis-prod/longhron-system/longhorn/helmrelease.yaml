@@ -7,9 +7,15 @@ metadata:
 spec:
   interval: 5m
   dependsOn:
-    - name: kube-system/ingress-nginx
-    - name: kube-system/oauth2-proxy
-    - name: kube-system/cert-manager
+    ingress-nginx:
+      - name: ingress-nginx
+      - namespace: kube-system
+    oauth2-proxy:
+      - name: oauth2-proxy
+      - namespace: kube-system
+    cert-manager:
+      - name: cert-manager
+      - namespace: kube-system
   chart:
     spec:
       # renovate: registryUrl=https://charts.longhorn.io
