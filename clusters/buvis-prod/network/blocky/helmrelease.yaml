@@ -73,17 +73,21 @@ spec:
       blocking:
         blackLists:
           ads:
-          # https://oisd.nl/
-          - https://raw.githubusercontent.com/ookangzheng/dbl-oisd-nl/master/dbl.txt
-          - https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt
-          - https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
-          - https://mirror1.malwaredomains.com/files/justdomains
+          - https://dbl.oisd.nl/
           - http://sysctl.org/cameleon/hosts
-          - https://zeustracker.abuse.ch/blocklist.php?download=domainblocklist
+          - https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+          - https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt
           - https://s3.amazonaws.com/lists.disconnect.me/simple_tracking.txt
+          - https://hosts.anudeep.me/mirror/adservers.txt
+          - https://hosts.anudeep.me/mirror/facebook.txt
+          - https://raw.githubusercontent.com/hl2guide/Filterlist-for-AdGuard/master/Blocklist/filter_blocklist1.txt
+          - https://raw.githubusercontent.com/hl2guide/Filterlist-for-AdGuard/master/Blocklist/filter_blocklist2.txt
+          - https://raw.githubusercontent.com/hl2guide/Filterlist-for-AdGuard/master/Blocklist/filter_blocklist3.txt
+          - https://raw.githubusercontent.com/hl2guide/Filterlist-for-AdGuard/master/Blocklist/filter_blocklist4.txt
         whiteLists:
           ads:
           - https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt
+          - https://raw.githubusercontent.com/hl2guide/Filterlist-for-AdGuard/master/filter_whitelist.txt
           - https://raw.githubusercontent.com/tbouska/buvis/master/clusters/buvis-prod/network/blocky/whitelist.txt
         clientGroupsBlock:
           default:
