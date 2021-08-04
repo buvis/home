@@ -20,6 +20,10 @@ spec:
   values:
     grafana:
       enabled: true
+      admin:
+        existingSecret: admin-credentials
+        userKey: ADMIN_USER
+        passwordKey: ADMIN_PASSWORD
       service:
         type: LoadBalancer
         externalPort: 443
