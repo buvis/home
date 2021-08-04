@@ -6,7 +6,7 @@ metadata:
 spec:
   interval: 5m
   dependsOn:
-    - name: longhorn
+    - name: longhorn-system/longhorn
   chart:
     spec:
       # renovate: registryUrl=https://grafana.github.io/helm-charts
