@@ -26,7 +26,7 @@ spec:
     defaultSettings:
       defaultReplicaCount: 2
       defaultLonghornStaticStorageClass: longhorn
-      backupTarget: nfs://{$NFS_SERVER_ADDRESS}:${NFS_SERVER_LONGHORN_BACKUP_PATH}
+      backupTarget: "nfs://{$NFS_SERVER_ADDRESS}:${NFS_SERVER_LONGHORN_BACKUP_PATH}"
     ingress:
       enabled: true
       annotations:
