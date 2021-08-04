@@ -1,0 +1,42 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+spec:
+  interval: 5m
+  dependsOn:
+  - ingress-nginx
+  - oauth2-proxy
+  - cert-manager
+  chart:
+    spec:
+      # renovate: registryUrl=https://charts.longhorn.io
+      chart: longhorn
+      version: 1.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: longhorn
+        namespace: flux-system
+      interval: 5m
+  values:
+    persistence:
+      defaultClassReplicaCount: 2
+    defaultSettings:
+      defaultReplicaCount: 2
+      defaultLonghornStaticStorageClass: longhorn
+      backupTarget: nfs://{$NFS_SERVER_ADDRESS}:${NFS_SERVER_LONGHORN_BACKUP_PATH}
+    ingress:
+      enabled: true
+      annotations:
+        kubernetes.io/ingress.class: "nginx"
+        cert-manager.io/cluster-issuer: "letsencrypt-prod"
+        nginx.ingress.kubernetes.io/auth-url: "https://auth.int.buvis.net/oauth2/auth"
+        nginx.ingress.kubernetes.io/auth-signin: "https://auth.int.buvis.net/oauth2/start?rd=https%3A%2F%2F$host$request_uri"
+      hosts:
+      - longhorn.int.buvis.net
+      tls:
+      - hosts:
+        - longhorn.int.buvis.net
+        secretName: longhorn-dashboard-crt
