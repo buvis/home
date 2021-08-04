@@ -1,0 +1,34 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: transmission-openvpn
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://utkuozdemir.org/helm-charts
+      chart: transmission-openvpn
+      version: 1.0.9
+      sourceRef:
+        kind: HelmRepository
+        name: utkuozdemir
+        namespace: flux-system
+      interval: 5m
+  values:
+    service:
+      type: LoadBalancer
+      port: 80
+    persistence:
+      data:
+        enabled: true
+        existingClaim: nfs-media-pv
+    env:
+      LOCAL_NETWORK: 10.42.0.0/16
+      TRANSMISSION_SPEED_LIMIT_UP_ENABLED: true
+      TRANSMISSION_SPEED_LIMIT_UP: 2048
+      OPENVPN_PROVIDER: ${SECRET_TRANSMISSION_OPENVPN_PROVIDER}
+      OPENVPN_USERNAME: ${SECRET_TRANSMISSION_OPENVPN_USERNAME}
+    secretEnv:
+      OPENVPN_PASSWORD: ${SECRET_TRANSMISSION_OPENVPN_PASSWORD}
