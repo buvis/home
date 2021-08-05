@@ -19,8 +19,11 @@ spec:
   values:
     env:
       TZ: Europe/Berlin
-      PUID: 1001
-      PGID: 1001
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
     persistence:
       config:
         enabled: true
