@@ -23,7 +23,7 @@ spec:
     persistence:
       data:
         enabled: true
-        existingClaim: nfs-media-pv
+        existingClaim: nas-media
     env:
       LOCAL_NETWORK: 10.42.0.0/16
       TRANSMISSION_SPEED_LIMIT_UP_ENABLED: "true"
