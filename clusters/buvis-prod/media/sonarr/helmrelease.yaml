@@ -27,7 +27,7 @@ spec:
     persistence:
       config:
         enabled: true
-        existingClaim: lidarr-config
+        existingClaim: sonar-config
       media:
         enabled: true
         existingClaim: nas-media
