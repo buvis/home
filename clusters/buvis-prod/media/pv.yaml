@@ -3,7 +3,7 @@ kind: PersistentVolume
 metadata:
   name: nas-media
 spec:
-  storageClassName: manual
+  storageClassName: ""
   capacity:
     storage: 1Mi
   accessModes:
@@ -26,7 +26,7 @@ metadata:
   name: nas-media
   namespace: media
 spec:
-  storageClassName: manual
+  storageClassName: ""
   accessModes:
     - ReadWriteMany
   resources:
