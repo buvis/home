@@ -19,8 +19,8 @@ spec:
   values:
     env:
       TZ: Europe/Berlin
-      PUID: 1000
-      PGID: 1000
+      PUID: 1001
+      PGID: 1001
     persistence:
       config:
         enabled: true
