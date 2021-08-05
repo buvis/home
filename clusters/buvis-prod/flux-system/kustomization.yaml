@@ -7,6 +7,6 @@ resources:
 - gotk-components.yaml
 - gotk-sync.yaml
 - sources.yaml
-- extra
+- extras.yaml
 patchesStrategicMerge:
 - gotk-patches.yaml
