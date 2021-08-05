@@ -19,6 +19,11 @@ spec:
   - hard
   - noatime
   - nodiratime
+  claimRef:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      name: nas-media
+      namespace: media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -32,3 +37,4 @@ spec:
   resources:
     requests:
       storage: 1Mi
+  volumeName: nas-media
