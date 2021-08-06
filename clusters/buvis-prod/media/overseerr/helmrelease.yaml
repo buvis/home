@@ -34,14 +34,12 @@ spec:
         annotations:
           kubernetes.io/ingress.class: "nginx"
           cert-manager.io/cluster-issuer: "letsencrypt-prod"
-          nginx.ingress.kubernetes.io/auth-url: "https://auth.int.buvis.net/oauth2/auth"
-          nginx.ingress.kubernetes.io/auth-signin: "https://auth.int.buvis.net/oauth2/start?rd=https%3A%2F%2F$host$request_uri"
         hosts:
-          - host: requests.int.buvis.net
+          - host: requests.buvis.net
             paths:
             - path: /
               pathType: Prefix
         tls:
         - hosts:
-          - requests.int.buvis.net
+          - requests.buvis.net
           secretName: requests-crt
