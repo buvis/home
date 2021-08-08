@@ -48,4 +48,4 @@ spec:
         tls:
         - hosts:
           - radarr.int.buvis.net
-          secretName: raderr-crt
+          secretName: radarr-crt
