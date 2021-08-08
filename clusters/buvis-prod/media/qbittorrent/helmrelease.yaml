@@ -19,6 +19,18 @@ spec:
   values:
     env:
       TZ: Europe/Berlin
+    service:
+      bittorrent:
+        enabled: true
+        type: LoadBalancer
+        loadBalancerIP: ${SVC_BITTORRENT_ADDRESS}
+        externalTrafficPolicy: Local
+        ports:
+          bittorrent:
+            enabled: true
+            port: 50413
+            protocol: TCP
+            targetPort: 50413
     podSecurityContext:
       runAsUser: 568
       runAsGroup: 568
