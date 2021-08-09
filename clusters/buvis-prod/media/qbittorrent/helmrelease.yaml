@@ -28,9 +28,9 @@ spec:
         ports:
           bittorrent:
             enabled: true
-            port: 50413
-            protocol: UDP
-            targetPort: 50413
+            port: 6881
+            protocol: TCP
+            targetPort: 6881
     podSecurityContext:
       runAsUser: 568
       runAsGroup: 568
