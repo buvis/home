@@ -20,16 +20,31 @@ spec:
     env:
       TZ: Europe/Berlin
     service:
-      bittorrent:
+      bt-tcp:
         enabled: true
         type: LoadBalancer
         loadBalancerIP: ${SVC_BITTORRENT_ADDRESS}
+        annotations:
+          metallb.universe.tf/allow-shared-ip: qb
         externalTrafficPolicy: Local
         ports:
-          bittorrent:
+          dns-tcp:
             enabled: true
             port: 6881
             protocol: TCP
+            targetPort: 6881
+      bt-udp:
+        enabled: true
+        type: LoadBalancer
+        loadBalancerIP: ${SVC_BITTORRENT_ADDRESS}
+        annotations:
+          metallb.universe.tf/allow-shared-ip: qb
+        externalTrafficPolicy: Local
+        ports:
+          dns-udp:
+            enabled: true
+            port: 6881
+            protocol: UDP
             targetPort: 6881
     podSecurityContext:
       runAsUser: 568
