@@ -29,6 +29,17 @@
       dtparam=poe_fan_temp3=69000
     state: present
 
+- name: limit light pollution from LEDs
+  blockinfile:
+    path: "{{ dir_install }}/sd-root/boot/config.txt"
+    block: |
+      dtparam=pwr_led_trigger=none
+      dtparam=pwr_led_activelow=off
+      dtparam=act_led_trigger=none
+      dtparam=act_led_activelow=off
+      dtparam=eth_led0=4
+    state: present
+
 - name: set hostname to {{ sd_hostname }}
   shell: "echo {{ sd_hostname }} > {{ dir_install }}/sd-root/etc/hostname"
 
