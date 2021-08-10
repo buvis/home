@@ -44,5 +44,4 @@
       image_choice: "{{ image_choice.user_input }}"
 
   roles:
-    - upgrade-arch
     - flash-alarm-node
