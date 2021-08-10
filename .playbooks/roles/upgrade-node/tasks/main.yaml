@@ -1,0 +1,37 @@
+---
+# tasks file for roles/upgrade-node
+
+- name: upgrade by pacman
+  pacman:
+    update_cache: yes
+    upgrade: yes
+  register: pacman_upgrade
+  retries: 5
+  until: pacman_upgrade is success
+  notify: "reboot"
+  when: ansible_distribution == "Archlinux"
+
+- name: upgrade by apt
+  apt:
+    upgrade: full
+    update_cache: true
+    cache_valid_time: 3600
+    autoclean: true
+    autoremove: true
+  register: apt_upgrade
+  retries: 5
+  until: apt_upgrade is success
+  notify: "reboot"
+  when: ansible_distribution == "Ubuntu" or ansible_distribution == "Debian"
+
+- name: upgrade k3s-agent
+  shell: "curl -sfL https://get.k3s.io | K3S_URL={{ k3s_master_api }} K3S_TOKEN={{ vault_k3s_token }} sh -"
+  args:
+    warn: false
+  when: "'worker' in group_names"
+
+- name: upgrade k3s server
+  shell: "curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_EXEC=\"--server {{ k3s_master_api }} --no-deploy servicelb --no-deploy traefik --flannel-backend=host-gw --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes\" sh -"
+  args:
+    warn: false
+  when: "'control_plane' in group_names"
