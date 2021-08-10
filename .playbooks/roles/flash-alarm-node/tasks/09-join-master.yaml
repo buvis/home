@@ -18,13 +18,13 @@
   when: cmdline.stat.isreg is defined
 
 - name: install or upgrade k3s as worker
-  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_URL={{ k3s_master_api }} K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_VERSION={{ k3s_version }} sh -\""
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_URL={{ k3s_master_api }} K3S_TOKEN={{ vault_k3s_token }} sh -\""
   args:
     warn: false
   when: node_role == "w"
 
 - name: install or upgrade k3s server as additional master
-  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_EXEC='--server {{ k3s_master_api }} --no-deploy servicelb --no-deploy traefik --flannel-backend=host-gw --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes' INSTALL_K3S_VERSION={{ k3s_version }} sh -\""
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_EXEC='--server {{ k3s_master_api }} --no-deploy servicelb --no-deploy traefik --flannel-backend=host-gw --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes' sh -\""
   args:
     warn: false
   when: node_role == "m"

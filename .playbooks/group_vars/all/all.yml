@@ -9,6 +9,5 @@ ansible_user: "{{ default_user }}"
 #ansible_password: "{{ vault_default_password }}"
 
 # Global k3s cluster information
-k3s_version: "v1.20.6+k3s1" # I can't just use the latest version for Rancher to work (https://rancher.com/support-maintenance-terms/all-supported-versions/)
 k3s_master_api: "https://10.7.0.51:6443"
 k3s_datastore: "10.7.0.94:5432"
