@@ -23,6 +23,9 @@ spec:
       config:
         enabled: true
         existingClaim: hass-config
+    service:
+      main:
+        type: LoadBalancer
     ingress:
       main:
         enabled: true
