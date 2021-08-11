@@ -69,9 +69,9 @@ spec:
                 - path: /
                   pathType: Prefix
           tls:
-          - hosts:
+          - secretName: hass-editor-crt
+            hosts:
             - hass-editor.int.buvis.net
-              secretName: hass-editor-crt
         volumeMounts:
           - name: config
             mountPath: /config
