@@ -5,6 +5,7 @@ metadata:
   name: cert-manager
   namespace: kube-system
 spec:
+  intercal: 5m
   chart:
     spec:
       # renovate: registryUrl=https://charts.jetstack.io
@@ -14,10 +15,6 @@ spec:
         kind: HelmRepository
         name: jetstack
         namespace: flux-system
-  install:
-    crds: CreateReplace
-  upgrade:
-    crds: CreateReplace
-  interval: 10m
+      interval: 5m
   values:
     installCRDs: true
