@@ -44,6 +44,7 @@ RUN apt-get update \
  && python3 -m pip install \
         Mopidy-DefaultPlaylist \
         Mopidy-Iris \
+        Mopidy-MPD \
         Mopidy-Youtube \
  && apt-get autoremove -y \
  && apt-get clean -y \
