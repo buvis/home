@@ -8,6 +8,5 @@ resources:
 - gotk-sync.yaml
 - sources.yaml
 - extras.yaml
-- crds.yaml
 patchesStrategicMerge:
 - gotk-patches.yaml
