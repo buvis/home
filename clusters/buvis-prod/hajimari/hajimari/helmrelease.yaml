@@ -1,0 +1,52 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: hajimari
+  namespace: hajimari
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://hajimari.io
+      chart: hajimari
+      version: 1.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: hajimari
+        namespace: flux-system
+      interval: 5m
+  values:
+    env:
+      TZ: Europe/Berlin
+    hajimari:
+      defaultEnable: false
+      namespaceSelector:
+        matchNames:
+          - longhorn-system
+          - media
+          - monitoring
+          - network
+          - openfaas
+          - smarthome
+    persistence:
+      config:
+        enabled: true
+        existingClaim: hajimari-config
+    ingress:
+      main:
+        enabled: true
+        annotations:
+          kubernetes.io/ingress.class: "nginx"
+          cert-manager.io/cluster-issuer: "letsencrypt-prod"
+          nginx.ingress.kubernetes.io/auth-url: "https://auth.int.buvis.net/oauth2/auth"
+          nginx.ingress.kubernetes.io/auth-signin: "https://auth.int.buvis.net/oauth2/start?rd=https%3A%2F%2F$host$request_uri"
+        hosts:
+          - host: home.int.buvis.net
+            paths:
+            - path: /
+              pathType: Prefix
+        tls:
+        - hosts:
+          - home.int.buvis.net
+          secretName: hajimari-crt
