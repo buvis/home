@@ -116,3 +116,9 @@
 	path = .vim/pack/plugins/opt/vim-gnupg
 	url = https://github.com/jamessan/vim-gnupg
     branch = main
+[submodule "vim-markdown"]
+	path = .vim/pack/plugins/opt/vim-markdown
+	url = https://github.com/plasticboy/vim-markdown
+[submodule "tabular"]
+	path = .vim/pack/plugins/opt/tabular
+	url = https://github.com/godlygeek/tabular
