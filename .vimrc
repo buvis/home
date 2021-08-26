@@ -58,6 +58,10 @@ packadd! vim-surround
 " bracketed paste
 " https://github.com/ConradIrwin/vim-bracketed-paste
 packadd! vim-bracketed-paste
+
+" text aligning
+" https://github.com/godlygeek/tabular
+packadd! tabular
 " }}}
 
 " Look and feel {{{
@@ -164,6 +168,9 @@ packadd! SimpylFold
 " ATTENTION: run :call mkdp#util#install() before first use
 packadd! markdown-preview.nvim
 
+" Markdown: highlighting, matching and mappings
+" https://github.com/plasticboy/vim-markdown
+packadd! vim-markdown
 " }}}
 
 filetype indent plugin on
