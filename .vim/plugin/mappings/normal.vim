@@ -19,6 +19,9 @@ nmap . .`[
 nnoremap <Tab> za
 vnoremap <Tab> za
 
+" create new zettel
+nnoremap <leader>zn :ZettelNew<space>"insert title"
+
 " get highlight group under cursor
 map <F10> :echo "hi<" . synIDattr(synID(line("."),col("."),1),"name") . '> trans<'
 \ . synIDattr(synID(line("."),col("."),0),"name") . "> lo<"

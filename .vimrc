@@ -140,6 +140,10 @@ packadd! vim-polyglot
 " https://github.com/sk1418/Join
 packadd! Join
 
+" sync zettelkasten repo automatically
+" https://github.com/michal-h21/vimwiki-sync
+packadd! vimwiki-sync
+
 " }}}
 
 " Filetype specific {{{
@@ -167,6 +171,11 @@ packadd! SimpylFold
 " https://github.com/iamcco/markdown-preview.nvim
 " ATTENTION: run :call mkdp#util#install() before first use
 packadd! markdown-preview.nvim
+
+" Markdown: zettelkasten method
+" https://github.com/michal-h21/vim-zettel
+packadd! vimwiki
+packadd! vim-zettel
 
 " Markdown: highlighting, matching and mappings
 " https://github.com/plasticboy/vim-markdown

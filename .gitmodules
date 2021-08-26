@@ -122,3 +122,12 @@
 [submodule "tabular"]
 	path = .vim/pack/plugins/opt/tabular
 	url = https://github.com/godlygeek/tabular
+[submodule "vim-zettel"]
+	path = .vim/pack/plugins/opt/vim-zettel
+	url = https://github.com/michal-h21/vim-zettel
+[submodule "vimwiki"]
+	path = .vim/pack/plugins/opt/vimwiki
+	url = https://github.com/vimwiki/vimwiki
+[submodule "vimwiki-sync"]
+	path = .vim/pack/plugins/opt/vimwiki-sync
+	url = https://github.com/michal-h21/vimwiki-sync
