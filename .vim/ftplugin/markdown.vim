@@ -45,5 +45,5 @@ let g:vim_markdown_autowrite = 1
 " open links in tabs
 let g:vim_markdown_edit_url_in = 'tab'
 
-# hande anchors in URL
+" handle anchors in URL
 let g:vim_markdown_follow_anchor = 1
