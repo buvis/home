@@ -140,7 +140,7 @@ mark r ~/z/reference
 mark R ~/z/reference/receipt
 mark s ~/z/reference/gtd-someday
 mark w ~/z/workspace
-mark W ~/z/reference/wiki
+mark z ~/z/reference/note
 
 " ------------------------------------------------------------------------------
 
