@@ -20,7 +20,7 @@ nnoremap <Tab> za
 vnoremap <Tab> za
 
 " create new zettel
-nnoremap <leader>zn :ZettelNew<space>"insert title"
+nnoremap <leader>zn :ZettelNew<space>Insert title
 
 " find and open a zettel
 nnoremap <leader>zo :ZettelOpen<CR>

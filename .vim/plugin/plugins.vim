@@ -42,11 +42,11 @@ function! s:insert_id()
   endif
 endfunction
 
-let g:zettel_options = [
-  \  {"front_matter" : [
+let g:zettel_options = [{"template" : "zettel.tpl", "disable_front_matter": 1,
+  \  "front_matter" : [
       \ [ "id", function("s:insert_id")],
-      \ [ "type", "wiki" ],
-      \ [ "tags", "[]" ]]
+      \ [ "type", "wiki-article" ],
+      \ [ "tags", ":untagged:" ]]
   \ }]
 
 let g:zettel_format = "%Y%m%d%H%M%S"
