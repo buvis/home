@@ -2,10 +2,6 @@
 " markdown specific settings
 
 
-" color yaml frontmatter
-let g:vim_markdown_frontmatter = 1
-let g:vim_markdown_toml_frontmatter = 1
-
 " highlight code blocks for given languages
 let g:vim_markdown_fenced_languages = [
     \ 'html',
@@ -17,6 +13,7 @@ let g:vim_markdown_fenced_languages = [
     \ 'javascript',
     \ 'go',
     \ 'python',
+    \ 'ini',
     \ 'bash=sh',
     \ 'c',
     \ 'ruby'
