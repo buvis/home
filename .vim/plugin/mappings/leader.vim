@@ -28,9 +28,5 @@ nmap <Leader>r <Plug>(Scalpel)
 " strip whitespace
 nnoremap <silent> <Leader>ss :call buvis#functions#stripspaces()<CR>
 
-" browse/search wiki
-nnoremap <Leader>bw :CommandT ~/reference/w/wiki<CR>
-nnoremap <Leader>sw :vsplit <bar> :cd ~/reference/w/wiki <bar> :Ag<CR>
-
 " clear search highlights
 nmap <Leader><Space> <Plug>(LoupeClearHighlight)
