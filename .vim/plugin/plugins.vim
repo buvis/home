@@ -27,8 +27,11 @@ let g:fzf_layout = { 'window': { 'width': 0.9, 'height': 0.6  }  }
 
 " vimwiki
 let g:vimwiki_list = [
-  \  {'path':'~/z/reference/note/','ext':'.md','syntax':'markdown'}]
+  \  {'path':'~/z/reference/note/',
+  \   'ext':'.md',
+  \   'syntax':'markdown'}]
 let g:vimwiki_conceallevel = 0
+let g:vimwiki_markdown_link_ext = 1
 
 " vim-zettel
 function! s:insert_id()
