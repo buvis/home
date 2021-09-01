@@ -6,6 +6,8 @@ metadata:
   namespace: kube-system
 spec:
   dependsOn:
+    - name: flux-system
+      namespace: flux-system
     - name: cert-manager-crds
       namespace: kube-system
   path: ./clusters/buvis-prod/kube-system/cert-manager/operators
