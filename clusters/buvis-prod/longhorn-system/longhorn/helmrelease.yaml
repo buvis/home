@@ -5,6 +5,12 @@ metadata:
   name: longhorn
   namespace: longhorn-system
 spec:
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
   interval: 5m
   dependsOn:
     - name: ingress-nginx
