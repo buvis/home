@@ -8,7 +8,7 @@ spec:
   interval: 10m0s
   dependsOn:
     - name: cert-manager
-      namespace: flux-system
+      namespace: kube-system
   path: ./clusters/buvis-prod/kube-system/cert-manager/operators
   prune: true
   sourceRef:
