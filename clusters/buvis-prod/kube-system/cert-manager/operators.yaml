@@ -3,17 +3,14 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
   name: cert-manager-operators
-  namespace: kube-system
+  namespace: flux-system
 spec:
+  interval: 10m0s
   dependsOn:
-    - name: flux-system
+    - name: cert-manager
       namespace: flux-system
-    - name: cert-manager-crds
-      namespace: kube-system
   path: ./clusters/buvis-prod/kube-system/cert-manager/operators
+  prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
-  validation: client
-  interval: 5m
-  prune: false

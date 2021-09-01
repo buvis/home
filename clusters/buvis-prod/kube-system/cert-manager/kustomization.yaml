@@ -4,6 +4,5 @@ metadata:
   name: cert-manager
   namespace: kube-system
 resources:
-- crds.yaml
 - helmrelease.yaml
 - operators.yaml
