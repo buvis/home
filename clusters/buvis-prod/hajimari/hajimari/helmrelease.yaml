@@ -30,6 +30,11 @@ spec:
           - monitoring
           - openfaas
           - smarthome
+      groups:
+        - name: Hosting
+          links:
+            - name: AWS Console
+              url: "https://buvis.signin.aws.amazon.com/console"
     persistence:
       config:
         enabled: true
