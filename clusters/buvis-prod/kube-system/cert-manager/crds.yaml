@@ -5,9 +5,10 @@ metadata:
   name: cert-manager-crds
   namespace: kube-system
 spec:
-  interval: 10m0s
   path: ./clusters/buvis-prod/kube-system/cert-manager/crds
-  prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
+  validation: client
+  interval: 5m
+  prune: false
