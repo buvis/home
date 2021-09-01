@@ -56,3 +56,5 @@ spec:
         - hosts:
           - home.int.buvis.net
           secretName: hajimari-crt
+    podAnnotations:
+      configmap.reloader.stakater.com/reload: "hajimari-settings"
