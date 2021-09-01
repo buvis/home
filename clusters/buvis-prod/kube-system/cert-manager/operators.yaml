@@ -5,12 +5,13 @@ metadata:
   name: cert-manager-operators
   namespace: kube-system
 spec:
-  interval: 10m0s
   dependsOn:
     - name: cert-manager-crds
       namespace: kube-system
   path: ./clusters/buvis-prod/kube-system/cert-manager/operators
-  prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
+  validation: client
+  interval: 5m
+  prune: false
