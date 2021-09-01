@@ -35,6 +35,8 @@ spec:
           links:
             - name: AWS Console
               url: "https://buvis.signin.aws.amazon.com/console"
+            - name: Netlify
+              url: "https://netlify.com/"
     persistence:
       config:
         enabled: true
