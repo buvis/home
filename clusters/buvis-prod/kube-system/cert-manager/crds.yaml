@@ -5,6 +5,9 @@ metadata:
   name: cert-manager-crds
   namespace: kube-system
 spec:
+  dependsOn:
+    - name: flux-system
+      namespace: flux-system
   path: ./clusters/buvis-prod/kube-system/cert-manager/crds
   sourceRef:
     kind: GitRepository
