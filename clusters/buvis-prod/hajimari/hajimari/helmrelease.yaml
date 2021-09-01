@@ -42,7 +42,7 @@ spec:
             - name: AWS Console
               url: "https://buvis.signin.aws.amazon.com/console"
             - name: Netlify
-              url: "https://netlify.com/"
+              url: "https://app.netlify.com/teams/tbouska/overview"
     persistence:
       config:
         enabled: true
