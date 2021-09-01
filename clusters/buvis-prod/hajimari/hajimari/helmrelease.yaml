@@ -21,8 +21,6 @@ spec:
       TZ: Europe/Berlin
     hajimari:
       defaultEnable: true
-      namespaceSelector:
-        any: true
     persistence:
       config:
         enabled: true
