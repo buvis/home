@@ -21,6 +21,15 @@ spec:
       TZ: Europe/Berlin
     hajimari:
       defaultEnable: true
+      name: Bob
+      namespaceSelector:
+        matchNames:
+          - kubernetes-dashboard
+          - longhorn-system
+          - media
+          - monitoring
+          - openfaas
+          - smarthome
     persistence:
       config:
         enabled: true
