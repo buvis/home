@@ -31,6 +31,12 @@ spec:
           - openfaas
           - smarthome
       groups:
+        - name: Github
+          links:
+            - name: buvis
+              url: "ihttps://github.com/tbouska/buvis"
+            - name: Renovate Dashboard
+              url: "https://app.renovatebot.com/dashboard#github/tbouska/buvis"
         - name: Hosting
           links:
             - name: AWS Console
