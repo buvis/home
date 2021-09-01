@@ -20,15 +20,9 @@ spec:
     env:
       TZ: Europe/Berlin
     hajimari:
-      defaultEnable: false
+      defaultEnable: true
       namespaceSelector:
-        matchNames:
-          - longhorn-system
-          - media
-          - monitoring
-          - network
-          - openfaas
-          - smarthome
+        any: true
     persistence:
       config:
         enabled: true
