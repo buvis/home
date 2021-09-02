@@ -41,15 +41,11 @@ Return
   ClipSaved = ; Free the memory
 Return
 
-#space:: ; bring terminal
-    IfWinExist ahk_exe alacritty.exe
-        winactivate ahk_exe alacritty.exe
-    else
-        run, "C:\Users\tbouska\bin\scoop\alacritty\current\alacritty.exe", "-vv"
-    WinWait ahk_exe alacritty.exe
-    WinActivate ahk_exe alacritty.exe
-    WinWaitActive ahk_exe alacritty.exe
+!#t::
+  Send ^c  ; Copy service request number
+  Run "https://esicrm.esi.adp.com/siebel/app/callcenter_sso/enu/?SWECmd=GotoView&SWEView=Service+Request+Screen+Homepage+View&SWERF=1&SWEHo=esicrm.esi.adp.com&SWEBU=1&_tid=1622114720"  ; Open the browser
 Return
+
 
 !#s:: ; run favorite apps
 Input, key, L1 T1 ; now, wait 1s for keypress to determine what to run
@@ -57,19 +53,18 @@ If (ErrorLevel="Timeout")
     Return
 Else
     bin := "C:\Users\tbouska\bin\"
-    scoop := "C:\Users\tbouska\scoop\apps\"
-    If (key="c")
-        Run, %scoop%speedcrunch\current\speedcrunch.exe
-    Else If (key="d")
-        Run, %bin%td3.bat
+    If (key="d")
+        Run, %bin%\local\td3.bat
+    Else If (key="e")
+	Run, "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
     Else If (key="q")
-        Run, %bin%tq3.bat
-    Else If (key="f")
-        Run, %bin%start-firefox.bat
-    Else If (key="v")
-        Run, %scoop%vivaldi\current\Application\vivaldi.exe
+        Run, %bin%\local\tq3.bat
     Else If (key="k")
-        Run, %scoop%keepass\current\KeePass.exe
+        Run, "C:\Program Files (x86)\KeePass Password Safe 2\KeePass.exe"
     Else If (key="l")
-        Run, "C:\Users\tbouska\reference\l\list\adp-lists.xlsx"
+        Run, "C:\Users\tbouska\OneDrive - Automatic Data Processing Inc\z\reference\list\adp-lists.xlsx"
+Return
+
+#Space::
+    WinActivate, ahk_exe WindowsTerminal.exe
 Return

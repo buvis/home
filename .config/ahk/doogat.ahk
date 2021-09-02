@@ -46,7 +46,7 @@ Return
   text := Clipboard
   text = %text%
 
-  Run %DOO% edit loops --with "id or rto-tmpl or rto-reg or rto or ticket or incident or user-story or us or psd or commit or roadmap = '%text%'"
+  Run %DOO% edit loops --with "id or rto-tmpl or rto-reg or rto or ticket or ticket-related or incident or user-story or us or psd or commit or roadmap = '%text%'"
   
   ClipSaved = ; to free memory
 Return

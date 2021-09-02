@@ -52,6 +52,13 @@ Return
   Suspend Off
 Return
 
+; Reload
+#r::
+  Suspend On
+  Send ^r
+  Suspend Off
+Return
+
 ; Rather use save than Windows Search
 #s::
   Suspend On
@@ -63,6 +70,13 @@ Return
 #w::
   Suspend On
   Send ^w
+  Suspend Off
+Return
+
+; Close window
+#q::
+  Suspend On
+  Send !{f4}
   Suspend Off
 Return
 
