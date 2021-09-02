@@ -27,8 +27,8 @@ let g:fzf_layout = { 'window': { 'width': 0.9, 'height': 0.6  }  }
 
 " vimwiki
 let g:vimwiki_list = [
-  \  {'path':'~/z/reference/note/',
-  \   'path_html':'~/z/reference/note-html/',
+  \  {'path':'~/z/reference/notes/',
+  \   'path_html':'~/z/reference/notes-html/',
   \   'custom_wiki2html': '~/bin/vim_zettel_markdown/vim_zettel_markdown',
   \   'auto_export': 1,
   \   'ext':'.md',
