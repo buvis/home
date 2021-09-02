@@ -119,28 +119,41 @@ endif
 
 " :mark mark /full/directory/path [filename]
 
-mark a ~/z/archive
-mark b ~/bin/
-mark B ~/z/reference/book
-mark c ~/z/completed
-mark C ~/z/reference/contact
-mark d ~/Downloads
-mark g ~/git/src/gitlab.com
-mark f ~/z/reference/gtd-following
-mark h ~/
-mark H ~/z/reference/hrsp/6.12.1-01_Jan'21-Feb'21
-mark i ~/z/reference/invoice
-mark j ~/z/reference/journal/time-blocks-planner
-mark l ~/z/reference/gtd-later
-mark m ~/z/reference/non-project-meeting
-mark n ~/z/reference/newsletter
-mark o ~/z/reference/order
-mark p ~/Photography
-mark r ~/z/reference
-mark R ~/z/reference/receipt
-mark s ~/z/reference/gtd-someday
-mark w ~/z/workspace
-mark z ~/z/reference/note
+if has('win')
+    mark a "~/OneDrive - Automatic Data Processing Inc/z/archive"
+    mark b "~/bin/"
+    mark c "~/OneDrive - Automatic Data Processing Inc/z/completed"
+    mark C "~/OneDrive - Automatic Data Processing Inc/z/reference/contact"
+    mark d "~/Downloads"
+    mark g "~/git/src/gitlab.com"
+    mark h "~/"
+    mark H "~/OneDrive - Automatic Data Processing Inc/z/reference/hrsp"
+    mark j "~/OneDrive - Automatic Data Processing Inc/z/reference/journal/time-blocks-planner"
+    mark m "~/OneDrive - Automatic Data Processing Inc/z/reference/non-project-meeting"
+    mark n "~/OneDrive - Automatic Data Processing Inc/z/reference/newsletter"
+    mark r "~/OneDrive - Automatic Data Processing Inc/z/reference"
+    mark w "~/OneDrive - Automatic Data Processing Inc/z/workspace"
+    mark z "~/OneDrive - Automatic Data Processing Inc/z/reference/notes"
+else
+    mark a ~/z/archive
+    mark b ~/bin/
+    mark B ~/z/reference/book
+    mark c ~/z/completed
+    mark C ~/z/reference/contact
+    mark d ~/Downloads
+    mark g ~/git/src/gitlab.com
+    mark h ~/
+    mark i ~/z/reference/invoice
+    mark j ~/z/reference/journal/time-blocks-planner
+    mark m ~/z/reference/non-project-meeting
+    mark n ~/z/reference/newsletter
+    mark o ~/z/reference/order
+    mark p ~/Photography
+    mark r ~/z/reference
+    mark R ~/z/reference/receipt
+    mark w ~/z/workspace
+    mark z ~/z/reference/notes
+endif
 
 " ------------------------------------------------------------------------------
 
