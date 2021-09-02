@@ -54,6 +54,6 @@ if [[ $? = 0 ]]; then
     # Track master for pull/push
     cfg push -u origin master
     # Keep README.md and get-buvis.sh in remote only (it is meant for public, and I don't need it on my machines)
-    rm ~/README.md ~/get-buvis.sh
-    cfg update-index --skip-worktree README.md get-buvis.sh
+    rm ~/README.md ~/get-buvis.sh ~/get-buvis.bat
+    cfg update-index --skip-worktree README.md get-buvis.sh get-buvis.bat
 fi
