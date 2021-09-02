@@ -1,4 +1,4 @@
-﻿DOO := "C:/Users/tbouska/bin/doogat/doo/doo.exe"
+﻿DOO := "C:/Users/tbouska/.local/bin/doogat/doo/doo.exe"
 !#b:: ; bookmark URL
   ClipSaved := ClipboardAll  ; Save current clipboard content to renew it at the end
   Clipboard =  ; Start off empty to allow ClipWait to detect when the text has arrived
@@ -52,13 +52,13 @@ Input, key, L1 T1 ; now, wait 1s for keypress to determine what to run
 If (ErrorLevel="Timeout")
     Return
 Else
-    bin := "C:\Users\tbouska\bin\"
+    bin_locl := "C:\Users\tbouska\.local\bin\"
     If (key="d")
-        Run, %bin%\local\td3.bat
+        Run, %bin_locl%\td3.bat
     Else If (key="e")
-	Run, "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+        Run, "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
     Else If (key="q")
-        Run, %bin%\local\tq3.bat
+        Run, %bin_locl%\tq3.bat
     Else If (key="k")
         Run, "C:\Program Files (x86)\KeePass Password Safe 2\KeePass.exe"
     Else If (key="l")
