@@ -49,7 +49,7 @@ spec:
         volumeSpec:
           nfs:
             server: "${NFS_SERVER_ADDRESS}"
-            path: "${NFS_SERVER_PAPERLESS_PATH}/scans"
+            path: "${NFS_SERVER_PAPERLESS_INBOX_PATH}"
       export:
         enabled: true
         mountPath: /usr/src/paperless/export
