@@ -17,11 +17,14 @@ spec:
         namespace: flux-system
       interval: 5m
   # See https://github.com/k8s-at-home/charts/blob/master/charts/paperless/values.yaml
+  # for environment variables, see: https://paperless-ng.readthedocs.io/en/latest/configuration.html
   values:
     env:
       PAPERLESS_TIME_ZONE: Europe/Berlin
       PAPERLESS_OCR_LANGUAGES: ces+eng
-      PAPERLESS_OCR_LANGUAGE: ces+eng
+      PAPERLESS_OCR_LANGUAGE: ces
+      PAPERLESS_ADMIN_USER: ${SECRET_PAPERLESS_ADMIN_USER}
+      PAPERLESS_ADMIN_PASSWORD: ${SECRET_PAPERLESS_ADMIN_PASSWORD}
     persistence:
       data:
         enabled: true
