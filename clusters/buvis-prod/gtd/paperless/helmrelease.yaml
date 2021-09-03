@@ -20,7 +20,8 @@ spec:
   values:
     env:
       PAPERLESS_TIME_ZONE: Europe/Berlin
-      PAPERLESS_OCR_LANGUAGE: cze+eng
+      PAPERLESS_OCR_LANGUAGES: ces+eng
+      PAPERLESS_OCR_LANGUAGE: ces+eng
     persistence:
       data:
         enabled: true
