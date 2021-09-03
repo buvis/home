@@ -180,6 +180,13 @@ packadd! vim-zettel
 " Markdown: highlighting, matching and mappings
 " https://github.com/plasticboy/vim-markdown
 packadd! vim-markdown
+
+" YAML: highlighting, folding
+" https://github.com/stephpy/vim-yaml
+packadd! vim-yaml
+" https://github.com/pedrohdz/vim-yaml-folds
+packadd! vim-yaml-folds
+
 " }}}
 
 filetype indent plugin on
