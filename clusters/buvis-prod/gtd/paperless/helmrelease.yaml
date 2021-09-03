@@ -1,0 +1,73 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: paperless
+  namespace: gtd
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: paperless
+      version: 6.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home
+        namespace: flux-system
+      interval: 5m
+  # See https://github.com/k8s-at-home/charts/blob/master/charts/paperless/values.yaml
+  values:
+    env:
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+      PAPERLESS_OCR_LANGUAGE: cze+eng
+    persistence:
+      data:
+        enabled: true
+        mountPath: /usr/src/paperless/data
+        type: custom
+        volumeSpec:
+          nfs:
+            server: "${NFS_SERVER_ADDRESS}"
+            path: "${NFS_SERVER_PAPERLESS_PATH}/data"
+      media:
+        enabled: true
+        mountPath: /usr/src/paperless/media
+        type: custom
+        volumeSpec:
+          nfs:
+            server: "${NFS_SERVER_ADDRESS}"
+            path: "${NFS_SERVER_PAPERLESS_PATH}/media"
+      consume:
+        enabled: true
+        mountPath: /usr/src/paperless/consume
+        type: custom
+        volumeSpec:
+          nfs:
+            server: "${NFS_SERVER_ADDRESS}"
+            path: "${NFS_SERVER_PAPERLESS_PATH}/scans"
+      export:
+        enabled: true
+        mountPath: /usr/src/paperless/export
+        type: custom
+        volumeSpec:
+          nfs:
+            server: "${NFS_SERVER_ADDRESS}"
+            path: "${NFS_SERVER_PAPERLESS_PATH}/export"
+    ingress:
+      main:
+        enabled: true
+        annotations:
+          kubernetes.io/ingress.class: "nginx"
+          cert-manager.io/cluster-issuer: "letsencrypt-prod"
+          nginx.ingress.kubernetes.io/auth-url: "https://auth.int.buvis.net/oauth2/auth"
+          nginx.ingress.kubernetes.io/auth-signin: "https://auth.int.buvis.net/oauth2/start?rd=https%3A%2F%2F$host$request_uri"
+        hosts:
+          - host: paperless.int.buvis.net
+            paths:
+            - path: /
+              pathType: Prefix
+        tls:
+        - hosts:
+          - paperless.int.buvis.net
+          secretName: paperless-crt
