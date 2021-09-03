@@ -54,3 +54,8 @@ let g:zettel_options = [{"template" : "zettel.tpl", "disable_front_matter": 1,
 
 let g:zettel_format = "%Y%m%d%H%M%S"
 let g:zettel_date_format = "%Y-%m-%dT%H:%M:%S%z"
+
+" ALE
+let g:ale_echo_msg_format = '[%linter%] %s [%severity%]'
+let g:ale_sign_error = '✘'
+let g:ale_sign_warning = '⚠'
