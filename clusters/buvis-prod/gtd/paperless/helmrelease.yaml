@@ -25,6 +25,8 @@ spec:
       PAPERLESS_OCR_LANGUAGE: ces+eng  # these are the languages to use
       PAPERLESS_ADMIN_USER: ${SECRET_PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${SECRET_PAPERLESS_ADMIN_PASSWORD}
+      USERMAP_UID: ${NFS_SERVER_PAPERLESS_USER}
+      USERMAP_GID: ${NFS_SERVER_PAPERLESS_USER}
     persistence:
       data:
         enabled: true
