@@ -24,6 +24,7 @@ spec:
       name: Bob
       namespaceSelector:
         matchNames:
+          - gtd
           - kubernetes-dashboard
           - longhorn-system
           - media
