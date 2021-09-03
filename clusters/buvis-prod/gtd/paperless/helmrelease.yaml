@@ -21,8 +21,8 @@ spec:
   values:
     env:
       PAPERLESS_TIME_ZONE: Europe/Berlin
-      PAPERLESS_OCR_LANGUAGES: ces+eng
-      PAPERLESS_OCR_LANGUAGE: ces
+      PAPERLESS_OCR_LANGUAGES: ces     # this is additional language to install
+      PAPERLESS_OCR_LANGUAGE: ces+eng  # these are the languages to use
       PAPERLESS_ADMIN_USER: ${SECRET_PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${SECRET_PAPERLESS_ADMIN_PASSWORD}
     persistence:
