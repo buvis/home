@@ -14,3 +14,4 @@ data:
   NFS_SERVER_MEDIA_PATH: "/mnt/tank/media"
   NFS_SERVER_PAPERLESS_PATH: "/mnt/tank/pv/paperless"
   NFS_SERVER_PAPERLESS_INBOX_PATH: "/mnt/tank/homes/bob/z/reference/paperless-inbox"
+  NFS_SERVER_PAPERLESS_USER: 983   # this is id of NAS syncthing user
