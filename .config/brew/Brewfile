@@ -75,3 +75,7 @@ cask "vlc"
 cask "webex"
 cask "whatsapp"
 cask "zoom"
+mas "ApolloOne", id: 1044484672
+mas "Image2icon", id: 992115977
+mas "SmugMug", id: 1115348888
+mas "WireGuard", id: 1451685025
