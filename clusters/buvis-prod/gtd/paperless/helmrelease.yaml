@@ -23,6 +23,7 @@ spec:
       PAPERLESS_ADMIN_USER: ${SECRET_PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${SECRET_PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_CONSUMER_POLLING: 30
+      PAPERLESS_FILENAME_FORMAT: "{document_type}/{correspondent}/{created_year}{created_month}{created_day}-{correspondent}-{document_type}-{title}"
       PAPERLESS_OCR_LANGUAGE: ces+eng  # these are the languages to use
       PAPERLESS_OCR_LANGUAGES: ces     # this is additional language to install
       PAPERLESS_TIME_ZONE: Europe/Berlin
