@@ -32,6 +32,9 @@ spec:
         existingClaim: monica-config
     mariadb:
       enabled: true
+      image:
+        registry: docker.io
+        repository: mariadb
       primary:
         persistence:
           enabled: true
