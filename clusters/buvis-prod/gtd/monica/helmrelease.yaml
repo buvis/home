@@ -36,6 +36,9 @@ spec:
         registry: docker.io
         repository: mariadb
         tag: 10.5.12
+      env:
+        PUID: 1000
+        PGID: 1000
       primary:
         persistence:
           enabled: true
