@@ -10,7 +10,7 @@ spec:
     spec:
       # renovate: registryUrl=https://k8s-at-home.com/charts/
       chart: monica
-      version: 5.1.0
+      version: 6.1.0
       sourceRef:
         kind: HelmRepository
         name: k8s-at-home
@@ -35,7 +35,7 @@ spec:
       image:
         registry: docker.io
         repository: mariadb
-        tag: 10.5.12
+        tag: 10.6.4
       env:
         PUID: 1000
         PGID: 1000
