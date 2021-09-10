@@ -35,10 +35,10 @@ spec:
           kubernetes.io/ingress.class: "nginx"
           cert-manager.io/cluster-issuer: "letsencrypt-prod"
         hosts:
-          - host: requests.buvis.net
-            paths:
-            - path: /
-              pathType: Prefix
+        - host: requests.buvis.net
+          paths:
+          - path: /
+            pathType: Prefix
         tls:
         - hosts:
           - requests.buvis.net
