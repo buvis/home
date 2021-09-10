@@ -7,7 +7,7 @@ spec:
   capacity:
     storage: 1Mi
   accessModes:
-    - ReadWriteMany
+  - ReadWriteMany
   persistentVolumeReclaimPolicy: Retain
   nfs:
     server: ${NFS_SERVER_ADDRESS}
@@ -20,10 +20,10 @@ spec:
   - noatime
   - nodiratime
   claimRef:
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      name: nas-media
-      namespace: media
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: nas-media
+    namespace: media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -33,7 +33,7 @@ metadata:
 spec:
   storageClassName: ""
   accessModes:
-    - ReadWriteMany
+  - ReadWriteMany
   resources:
     requests:
       storage: 1Mi
