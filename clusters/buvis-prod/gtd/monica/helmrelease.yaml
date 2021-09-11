@@ -23,7 +23,7 @@ spec:
       APP_KEY: ${SECRET_MONICA_APP_KEY}
       APP_URL: https://crm.buvis.net
       DB_DATABASE: monica
-      DB_HOST: monica-mariadb
+      DB_HOST: monica-db
       DB_PASSWORD: ${SECRET_MONICA_DB_PASSWORD}
       DB_USERNAME: monica
       TZ: Europe/Berlin
@@ -32,28 +32,7 @@ spec:
         enabled: true
         existingClaim: monica-config
     mariadb:
-      enabled: true
-      image:
-        registry: docker.io
-        repository: mariadb
-        tag: 10.6.4
-      primary:
-        securityContex:
-          runAsUser: 1001
-          runAsGroup: 1001
-          fsGroup: 1001
-          fsGroupChangePolicy: "OnRootMismatch"
-        env:
-          PUID: 1001
-          PGID: 1001
-        persistence:
-          enabled: true
-          existingClaim: monica-db
-      auth:
-        database: monica
-        username: monica
-        password: ${SECRET_MONICA_DB_PASSWORD}
-        rootPassword: ${SECRET_MONICA_DB_ROOTPASSWORD}
+      enabled: false
     ingress:
       main:
         enabled: true
