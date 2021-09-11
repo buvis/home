@@ -26,3 +26,5 @@ spec:
       password: ${SECRET_MONICA_DB_PASSWORD}
     settings:
       rootPassword: ${SECRET_MONICA_DB_ROOTPASSWORD}
+    podSecurityContext:
+      fsGroup: 999
