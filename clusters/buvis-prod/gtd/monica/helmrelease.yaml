@@ -38,6 +38,14 @@ spec:
         repository: mariadb
         tag: 10.6.4
       primary:
+        securityContex:
+          runAsUser: 1001
+          runAsGroup: 1001
+          fsGroup: 1001
+          fsGroupChangePolicy: "OnRootMismatch"
+        env:
+          PUID: 1001
+          PGID: 1001
         persistence:
           enabled: true
           existingClaim: monica-db
