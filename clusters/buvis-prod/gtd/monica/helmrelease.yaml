@@ -41,6 +41,8 @@ spec:
         persistence:
           enabled: true
           existingClaim: monica-db
+      volumePermissions:
+        enabled: true
       auth:
         database: monica
         username: monica
