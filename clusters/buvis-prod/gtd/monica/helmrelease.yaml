@@ -41,6 +41,11 @@ spec:
         persistence:
           enabled: true
           existingClaim: monica-db
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
+          fsGroup: 1001
+          fsGroupChangePolicy: "OnRootMismatch"
       auth:
         database: monica
         username: monica
