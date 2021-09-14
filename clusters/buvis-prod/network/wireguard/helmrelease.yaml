@@ -27,6 +27,7 @@ spec:
     wireguard:
       config:
         privateKey: ${SECRET_WIREGUARD_PRIVATE_KEY}
+        adminPassword: ${SECREAT_WIREGUARD_ADMIN_PASSWORD}
       service:
         type: "LoadBalancer"
         loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
