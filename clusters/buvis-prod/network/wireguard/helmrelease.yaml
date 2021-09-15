@@ -25,9 +25,3 @@ spec:
     securityContext:
       runAsUser: 568
       runAsGroup: 568
-    networkPolicy:
-      enabled: true
-      egress:
-      - to:
-        - ipBlock:
-          cidr: 0.0.0.0/0
