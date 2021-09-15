@@ -1,0 +1,58 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wireguard
+  namespace: network
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wireguard
+  template:
+    metadata:
+      labels:
+        app: wireguard
+    spec:
+      containers:
+      - name: wireguard
+        image: ghcr.io/linuxserver/wireguard:version-v1.0.20210914
+        env:
+          SERVERURL: vpn.buvis.net
+          SERVERPORT: 51820
+          PEERS: 2
+          ALLOWEDIPS: 0.0.0.0/0, ::/0
+          INTERNAL_SUBNET: 10.6.0.0
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - SYS_MODULE
+          privileged: true
+        volumeMounts:
+        - name: wg-config
+          mountPath: /config
+        - name: host-volumes
+          mountPath: /lib/modules
+        ports:
+        - containerPort: 51820
+          protocol: UDP
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 100m
+          limits:
+            memory: 128Mi
+            cpu: 200m
+      volumes:
+      - name: wg-config
+        persistentVolumeClaim:
+          claimName: wireguard-config
+      - name: host-volumes
+        hostPath:
+          path: /lib/modules
+          type: Directory
+      securityContext:
+        sysctls:
+        - name: net.ipv4.ip_forward
+          value: 1
