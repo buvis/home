@@ -6,4 +6,3 @@
 .kube/config
 .dockerfiles/mopidy/mopidy.conf
 .playbooks/.vault-pwd
-clusters/buvis-prod/network/wireguard/wg0.conf
