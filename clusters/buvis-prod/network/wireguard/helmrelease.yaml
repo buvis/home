@@ -25,6 +25,7 @@ spec:
     securityContext:
       runAsUser: 568
       runAsGroup: 568
+      privileged: true
     service:
       main:
         enabled: true
