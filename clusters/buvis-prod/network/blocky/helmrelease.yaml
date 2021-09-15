@@ -66,6 +66,18 @@ spec:
         initialDelaySeconds: 5
         failureThreshold: 30
         periodSeconds: 10
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                - blocky
+            topologyKey: kubernetes.io/hostname
     config: |
       upstream:
         externalResolvers:
