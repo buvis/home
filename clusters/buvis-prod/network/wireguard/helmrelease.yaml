@@ -27,6 +27,14 @@ spec:
       runAsGroup: 568
     service:
       main:
+        enabled: true
         type: LoadBalancer
         externalTrafficPolicy: Local
         loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
+        ports:
+          http:
+            enabled: false
+          vpn:
+            enabled: true
+            port: 51820
+            protocol: UDP
