@@ -24,6 +24,8 @@ spec:
       service:
         type: "LoadBalancer"
         loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
+      annotations:
+        metallb.universe.tf/allow-shared-ip: wireguard
       config:
         adminUsername: bob
         adminPassword: ${SECRET_WIREGUARD_ADMIN_PASSWORD}
@@ -33,6 +35,8 @@ spec:
       service:
         type: "LoadBalancer"
         loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
+      annotations:
+        metallb.universe.tf/allow-shared-ip: wireguard
       persistence:
         enabled: true
       ingress:
