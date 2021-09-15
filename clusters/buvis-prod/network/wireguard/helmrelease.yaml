@@ -8,40 +8,15 @@ spec:
   interval: 5m
   chart:
     spec:
-      # renovate: registryUrl=https://place1.github.io/wg-access-server
-      chart: wg-access-server
-      version: v0.4.6
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: wireguard
+      version: 1.0.0
       sourceRef:
         kind: HelmRepository
-        name: wg-access-server
+        name: k8s-at-home
         namespace: flux-system
       interval: 5m
   values:
-    config:
-      wireguard:
-        externalHost: ${SVC_WIREGUARD_ADDRESS}
-    web:
-      service:
-        type: "LoadBalancer"
-        loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
-      annotations:
-        metallb.universe.tf/allow-shared-ip: wireguard
-      config:
-        adminUsername: bob
-        adminPassword: ${SECRET_WIREGUARD_ADMIN_PASSWORD}
-    wireguard:
-      config:
-        privateKey: ${SECRET_WIREGUARD_PRIVATE_KEY}
-      service:
-        type: "LoadBalancer"
-        loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
-      annotations:
-        metallb.universe.tf/allow-shared-ip: wireguard
-      persistence:
-        enabled: true
-      ingress:
-        enabled: true
-        hosts: ["vpn.buvis.net"]
-        tls:
-        - hosts: ["vpn.buvis.net"]
-          secretName: "tls-wg-access-server"
+    env:
+      TZ: "Europe/Berlin"
+    configSecret: ${SECRET_WIREGUARD_WG0_CONF}
