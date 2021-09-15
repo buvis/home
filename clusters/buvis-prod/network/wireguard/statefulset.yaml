@@ -1,10 +1,13 @@
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: wireguard
   namespace: network
+  labels:
+    app: wireguard
 spec:
+  serviceName: wireguard
   replicas: 1
   selector:
     matchLabels:
@@ -16,13 +19,10 @@ spec:
     spec:
       containers:
       - name: wireguard
-        image: ghcr.io/linuxserver/wireguard:version-v1.0.20210914
-        env:
-          SERVERURL: vpn.buvis.net
-          SERVERPORT: 51820
-          PEERS: 2
-          ALLOWEDIPS: 0.0.0.0/0, ::/0
-          INTERNAL_SUBNET: 10.6.0.0
+        image: ghcr.io/linuxserver/wireguard:v1.0.20210914-ls41
+        envFrom:
+        - configMapRef:
+            name: wireguard-configmap
         securityContext:
           capabilities:
             add:
@@ -40,10 +40,10 @@ spec:
         resources:
           requests:
             memory: 64Mi
-            cpu: 100m
+            cpu: 10m
           limits:
             memory: 128Mi
-            cpu: 200m
+            cpu: 100m
       volumes:
       - name: wg-config
         persistentVolumeClaim:
@@ -52,7 +52,3 @@ spec:
         hostPath:
           path: /lib/modules
           type: Directory
-      securityContext:
-        sysctls:
-        - name: net.ipv4.ip_forward
-          value: 1
