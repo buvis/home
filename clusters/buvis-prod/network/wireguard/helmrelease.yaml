@@ -19,4 +19,6 @@ spec:
   values:
     env:
       TZ: "Europe/Berlin"
-    configSecret: ${SECRET_WIREGUARD_WG0_CONF}
+    configSecret:
+      enabled: true
+      config: ${SECRET_WIREGUARD_WG0_CONF}
