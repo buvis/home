@@ -13,6 +13,7 @@ spec:
     # exclude file extensions from deploy dir
     /clusters/**/*.md
     /clusters/**/*.tmpl
+    /clusters/buvis-prod/kube-system/system-upgrade-controller/plans/*.yaml
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
