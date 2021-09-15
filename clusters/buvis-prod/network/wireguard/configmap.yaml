@@ -10,7 +10,7 @@ data:
   TZ: Europe/Berlin
   SERVERPORT: 51820
   SERVERURL: vpn.buvis.net
-  PEERS: 5
+  PEERS: "maxwell, kao"
   PEERDNS: ${SVC_BLOCKY_ADDRESS}
   ALLOWEDIPS: 0.0.0.0/0, ::/0
   INTERNAL_SUBNET: 10.6.0.0
