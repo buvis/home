@@ -26,11 +26,7 @@ spec:
       runAsUser: 568
       runAsGroup: 568
     service:
-      type: LoadBalancer
-      externalTrafficPolicy: Local
-      externalIPs:
-      - ${SVC_WIREGUARD_ADDRESS}
-      ports:
-      - port: 51820
-        targetPort: 51820
-        protocol: UDP
+      main:
+        type: LoadBalancer
+        externalTrafficPolicy: Local
+        loadBalancerIP: ${SVC_WIREGUARD_ADDRESS}
