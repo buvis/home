@@ -1,5 +1,5 @@
 ---
-# handler for role upgrade-node
+# handler for role upgrade-host
 
 - name: reboot
   reboot:

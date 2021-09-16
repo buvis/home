@@ -56,7 +56,7 @@
     path: "{{ dir_install }}/sd-root/etc/locale.gen"
     state: present
     line: "en_US.UTF-8 UTF-8"
-    create: yes
+    create: true
 
 - name: generate locale
   shell: "chroot {{ dir_install }}/sd-root locale-gen"

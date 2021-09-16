@@ -1,10 +1,10 @@
 ---
-# tasks file for roles/upgrade-node
+# tasks file for roles/upgrade-host
 
 - name: upgrade by pacman
   pacman:
-    update_cache: yes
-    upgrade: yes
+    update_cache: true
+    upgrade: true
   register: pacman_upgrade
   retries: 5
   until: pacman_upgrade is success

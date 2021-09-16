@@ -1,3 +1,4 @@
+---
 # Use python3
 ansible_python_interpreter: /usr/bin/env python3
 
@@ -6,7 +7,7 @@ default_user: bob
 
 # Ansible credentials
 ansible_user: "{{ default_user }}"
-#ansible_password: "{{ vault_default_password }}"
+# ansible_password: "{{ vault_default_password }}"
 
 # Global k3s cluster information
 k3s_master_api: "https://10.7.0.51:6443"

@@ -1,5 +1,5 @@
-Upgrade nodes
-=============
+Upgrade host
+============
 
 This role upgrades system packages.
 
@@ -22,13 +22,13 @@ Example Playbook
 ----------------
 
 ```
-- hosts: all
+- hosts: standalone
   remote_user: "{{ default_user }}"
   become: true
   gather_facts: true
 
   roles:
-    - role: upgrade-nodes
+  - role: upgrade-host
 ```
 
 License
