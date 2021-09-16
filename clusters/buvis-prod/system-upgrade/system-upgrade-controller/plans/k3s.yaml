@@ -43,7 +43,6 @@ spec:
     image: rancher/k3s-upgrade
     args: ["prepare", "k3s-server"]
   drain:
-    force: true
-    skipWaitForDeleteTimeout: 60
+    force: false
   upgrade:
     image: rancher/k3s-upgrade

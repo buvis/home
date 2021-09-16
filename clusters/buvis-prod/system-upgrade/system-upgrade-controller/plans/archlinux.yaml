@@ -46,8 +46,7 @@ spec:
   - name: archlinux
     path: /host/run/system-upgrade/secrets/archlinux
   drain:
-    force: true
-    skipWaitForDeleteTimeout: 60
+    force: false
   upgrade:
     image: agners/archlinuxarm
     command: ["chroot", "/host"]
