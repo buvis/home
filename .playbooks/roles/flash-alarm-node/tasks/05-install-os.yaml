@@ -53,7 +53,7 @@
   when: image_choice == "4"
 
 - name: install necessary packages to be manageable by ansible
-  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S python3 nfs-utils sudo vim which"
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S python3 nfs-utils sudo which"
 
 - name: install prerequisites for Longhorn
   shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S curl grep awk open-iscsi"
