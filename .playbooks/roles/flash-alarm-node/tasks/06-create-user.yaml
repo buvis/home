@@ -9,7 +9,7 @@
     path: "{{ dir_install }}/sd-root/etc/sudoers.d/{{ default_user }}-allow-to-sudo"
     state: present
     line: "{{ default_user }} ALL=(ALL) NOPASSWD: ALL"
-    create: yes
+    create: true
 
 - name: lock default users
   shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"passwd -l alarm; passwd -l root\""

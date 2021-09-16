@@ -1,3 +1,4 @@
+---
 - hosts: chief
   remote_user: "{{ default_user }}"
   become: true
@@ -44,4 +45,4 @@
       image_choice: "{{ image_choice.user_input }}"
 
   roles:
-    - flash-alarm-node
+  - flash-alarm-node

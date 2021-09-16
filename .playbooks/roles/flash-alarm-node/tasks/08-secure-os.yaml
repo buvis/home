@@ -10,7 +10,7 @@
   copy:
     src: "/home/{{ default_user }}/.ssh/authorized_keys"
     dest: "{{ dir_install }}/sd-root/home/{{ default_user }}/.ssh/authorized_keys"
-    remote_src: yes
+    remote_src: true
 
 - name: ChallengeResponseAuthentication no
   lineinfile:

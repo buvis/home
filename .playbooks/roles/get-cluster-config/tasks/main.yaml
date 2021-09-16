@@ -19,7 +19,7 @@
   fetch:
     src: ~/.kube/config
     dest: ~/.kube/config
-    flat: yes
+    flat: true
 
 - name: secure config
   become: false

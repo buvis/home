@@ -12,29 +12,29 @@
 
 - name: install and initialize Arch Linux ARM
   block:
-    - name: mount SD card
-      include_tasks: 04-mount-sd-card.yaml
+  - name: mount SD card
+    include_tasks: 04-mount-sd-card.yaml
 
-    - name: install OS
-      include_tasks: 05-install-os.yaml
+  - name: install OS
+    include_tasks: 05-install-os.yaml
 
-    - name: create default user
-      include_tasks: 06-create-user.yaml
+  - name: create default user
+    include_tasks: 06-create-user.yaml
 
-    - name: configure OS
-      include_tasks: 07-configure-os.yaml
+  - name: configure OS
+    include_tasks: 07-configure-os.yaml
 
-    - name: secure OS
-      include_tasks: 08-secure-os.yaml
+  - name: secure OS
+    include_tasks: 08-secure-os.yaml
 
-    - name: join master node
-      include_tasks: 09-join-master.yaml
+  - name: join master node
+    include_tasks: 09-join-master.yaml
 
-    - name: fix permissions
-      include_tasks: 10-fix-permissions.yaml
+  - name: fix permissions
+    include_tasks: 10-fix-permissions.yaml
 
-    - name: move boot to separate partition
-      include_tasks: 11-move-boot-partition.yaml
+  - name: move boot to separate partition
+    include_tasks: 11-move-boot-partition.yaml
   always:
-    - name: unmount SD card
-      include_tasks: 12-umount-sd-chroot.yaml
+  - name: unmount SD card
+    include_tasks: 12-umount-sd-chroot.yaml
