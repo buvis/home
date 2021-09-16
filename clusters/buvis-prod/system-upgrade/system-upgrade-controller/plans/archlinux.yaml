@@ -1,0 +1,54 @@
+# Adapted from example at https://github.com/rancher/system-upgrade-controller/blob/master/examples/ubuntu/bionic.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: archlinux
+  namespace: system-upgrade
+type: Opaque
+stringData:
+  version: "20210916"
+  upgrade.sh: |
+    #!/bin/sh
+
+    # Exit on error
+    set -e
+
+    # Force packages database sync
+    pacman -Syy
+
+    # Check if there are any updates to installed packages
+    [ $(pacman -Su --print | wc -c) == 0 ] && { echo "No updates available"; exit 0; }
+
+    # Apply updates and trigger reboot
+    # see https://github.com/rancher/system-upgrade-controller/issues/23
+    pacman -Syy && pacman -Su --noconfirm && nsenter -a -t 1 -- reboot
+
+    exit 0
+---
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: archlinux
+  namespace: system-upgrade
+spec:
+  version: latest
+  concurrency: 1
+  nodeSelector:
+    matchExpressions:
+    - key: plan.upgrade.cattle.io/archlinux
+      operator: Exists
+  tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  serviceAccountName: system-upgrade
+  secrets:
+  - name: archlinux
+    path: /host/run/system-upgrade/secrets/archlinux
+  drain:
+    force: true
+    skipWaitForDeleteTimeout: 60
+  upgrade:
+    image: agners/archlinuxarm
+    command: ["chroot", "/host"]
+    args: ["sh", "/run/system-upgrade/secrets/archlinux/upgrade.sh"]
