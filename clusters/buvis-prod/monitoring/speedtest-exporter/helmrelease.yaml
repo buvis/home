@@ -17,6 +17,10 @@ spec:
         namespace: flux-system
       interval: 5m
   values:
+    env:
+      TZ: Europe/Berlin
+    metrics:
+      enabled: true
     prometheus:
       podMonitor:
         enabled: true
