@@ -3,9 +3,9 @@
 all:
   hosts:
   children:
-    rancher:
-      hosts:
-        domum
+    cluster:
+      control_plane:
+      worker:
 
     control_plane:
       children:
@@ -27,6 +27,14 @@ all:
         planck:
         feynman:
         einstein:
+
+    standalone:
+      db:
+      player:
+
+    db:
+      hosts:
+        domum
 
     player:
       hosts:
