@@ -164,3 +164,9 @@ spec:
             memory: 3072Mi
           limits:
             memory: 4096Mi
+        additionalScrapeConfigs:
+        - job_name: 'speedtest-exporter'
+          scrape_interval: 1h
+          scrape_timeout: 1m
+          static_configs:
+          - targets: ['speedtest-exporter:9798']
