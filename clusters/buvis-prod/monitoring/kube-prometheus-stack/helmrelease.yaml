@@ -81,16 +81,12 @@ spec:
           cert-manager.io/cluster-issuer: "letsencrypt-prod"
           nginx.ingress.kubernetes.io/auth-url: "https://auth.buvis.net/oauth2/auth"
           nginx.ingress.kubernetes.io/auth-signin: "https://auth.buvis.net/oauth2/start?rd=https%3A%2F%2F$host$request_uri"
-
         hosts:
-        - host: alertmanager.buvis.net
-          paths:
-          - path: /
-            pathType: Prefix
+        - alertmanager.buvis.net
         tls:
-        - hosts:
+        - secretName: alertmanager-crt
+          hosts:
           - alertmanager.buvis.net
-          secretName: alertmanager-crt
       alertmanagerSpec:
         storage:
           volumeClaimTemplate:
@@ -144,14 +140,11 @@ spec:
           nginx.ingress.kubernetes.io/auth-url: "https://auth.buvis.net/oauth2/auth"
           nginx.ingress.kubernetes.io/auth-signin: "https://auth.buvis.net/oauth2/start?rd=https%3A%2F%2F$host$request_uri"
         hosts:
-        - host: prometheus.buvis.net
-          paths:
-          - path: /
-            pathType: Prefix
+        - prometheus.buvis.net
         tls:
-        - hosts:
+        - secretName: prometheus-crt
+          hosts:
           - prometheus.buvis.net
-          secretName: prometheus-crt
       thanosService:
         enabled: false
       prometheusSpec:
