@@ -25,18 +25,6 @@ spec:
           cpu: 25m
         limits:
           memory: 2000Mi
-      securityContext:
-        runAsUser: 1000
-        runAsNonRoot: true
-        runAsGroup: 65534
-        fsGroup: 2000
-    prometheusOperator:
-      createCustomResource: true
-      configReloaderCpu: 200m
-      tls:
-        enabled: false
-      admissionWebhooks:
-        enabled: false
     alertmanager:
       config:
         global:
