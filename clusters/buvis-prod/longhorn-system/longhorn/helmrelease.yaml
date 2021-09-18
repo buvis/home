@@ -32,6 +32,7 @@ spec:
   values:
     persistence:
       defaultClassReplicaCount: 2
+      defaultFsType: ext4
     defaultSettings:
       defaultDataPath: /mnt/lh01
       defaultReplicaCount: 2
