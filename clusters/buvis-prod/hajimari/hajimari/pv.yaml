@@ -18,6 +18,11 @@ spec:
       staleReplicaTimeout: "30"
     volumeHandle: hajimari-config
   storageClassName: longhorn
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: hajimari-config
+    namespace: hajimari
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

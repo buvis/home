@@ -18,6 +18,11 @@ spec:
       staleReplicaTimeout: "30"
     volumeHandle: monica-config
   storageClassName: longhorn
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: monica-config
+    namespace: gtd
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

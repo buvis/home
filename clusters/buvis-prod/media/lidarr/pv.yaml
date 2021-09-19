@@ -18,6 +18,11 @@ spec:
       staleReplicaTimeout: "30"
     volumeHandle: lidarr-config
   storageClassName: longhorn
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: lidarr-config
+    namespace: media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

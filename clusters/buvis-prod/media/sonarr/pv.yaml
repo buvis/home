@@ -18,6 +18,11 @@ spec:
       staleReplicaTimeout: "30"
     volumeHandle: sonarr-config
   storageClassName: longhorn
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: sonarr-config
+    namespace: media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
