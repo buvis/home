@@ -36,6 +36,16 @@ spec:
       namespace: monitoring
       pools:
       - servers: 1
+        volumeClaimTemplate:
+          metadata:
+            name: data
+          spec:
+            storageClassName: longhorn
+            accessModes:
+            - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
       secrets:
         enabled: true
         name: minio-thanos
