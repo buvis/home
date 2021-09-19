@@ -14,8 +14,8 @@ spec:
     driver: driver.longhorn.io
     fsType: ext4
     volumeAttributes:
-      numberOfReplicas: 2
-      staleReplicaTimeout: 30
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "30"
     volumeHandle: lidarr-config
   storageClassName: longhorn
 ---
