@@ -141,7 +141,9 @@ spec:
           hosts:
           - prometheus.buvis.net
       thanosService:
-        enabled: false
+        enabled: true
+      thanosServiceMonitor:
+        enabled: true
       prometheusSpec:
         replicas: 1
         replicaExternalLabelName: "replica"
@@ -164,6 +166,12 @@ spec:
             memory: 3072Mi
           limits:
             memory: 4096Mi
+        thanos:
+          image: raspbernetes/thanos:v0.22.0
+          version: v0.22.0
+          objectStorageConfig:
+            name: thanos-objstore-secret
+            key: objstore.yml
         additionalScrapeConfigs:
         - job_name: 'speedtest-exporter'
           scrape_interval: 1h
