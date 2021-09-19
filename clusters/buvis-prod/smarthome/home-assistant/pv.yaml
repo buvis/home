@@ -1,5 +1,25 @@
 ---
 apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: hass-config
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "30"
+    volumeHandle: hass-config
+  storageClassName: longhorn
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: hass-config

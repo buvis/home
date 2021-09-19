@@ -18,7 +18,6 @@ spec:
       staleReplicaTimeout: "30"
     volumeHandle: jackett-config
   storageClassName: longhorn
-
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
