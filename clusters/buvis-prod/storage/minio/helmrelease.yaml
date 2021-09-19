@@ -21,7 +21,7 @@ spec:
     - name: thanos-storage
       namespace: monitoring
       pools:
-        servers: 1
+      - servers: 1
       secrets:
         enabled: true
         name: minio-thanos
