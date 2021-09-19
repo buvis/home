@@ -18,6 +18,11 @@ spec:
       staleReplicaTimeout: "30"
     volumeHandle: overseerr-config
   storageClassName: longhorn
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: overseerr-config
+    namespace: media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
