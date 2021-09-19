@@ -22,7 +22,7 @@ spec:
     apiVersion: v1
     kind: PersistentVolumeClaim
     name: wireguard-config
-    namespace: media
+    namespace: network
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
