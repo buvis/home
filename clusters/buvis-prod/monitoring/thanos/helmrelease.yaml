@@ -40,7 +40,7 @@ spec:
       type: S3
       config:
         bucket: "thanos"
-        endpoint: "thanos-storage-hl.monitoring:9000"
+        endpoint: "minio.monitoring.svc.cluster.local"
         insecure: true
         access_key: "${SECRET_MINIO_THANOS_ACCESSKEY}"
         secret_key: "${SECRET_MINIO_THANOS_SECRETKEY}"
