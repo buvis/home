@@ -144,6 +144,7 @@ else
     mark i ~/z/reference/paperless-inbox
     mark n ~/z/reference/newsletter
     mark p ~/Photography
+    mark P ~/Paperless
     mark r ~/z/reference
     mark w ~/z/workspace
     mark z ~/z/reference/notes
