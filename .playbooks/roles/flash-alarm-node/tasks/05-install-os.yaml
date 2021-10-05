@@ -53,8 +53,11 @@
   shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"yes | pacman -S linux-raspberrypi4\""
   when: image_choice == "4"
 
-- name: install necessary packages to be manageable by ansible
-  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S python3 nfs-utils sudo which"
+- name: install necessary packages for system administration
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S python3 sudo vim which"
+
+- name: install cluster apps dependencies
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S python3 nfs-utils wget"
 
 - name: install prerequisites for Longhorn
   shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S curl grep awk open-iscsi"
