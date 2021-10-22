@@ -17,7 +17,7 @@ Role Variables
 
 - **dev_sd** variable must be set and point to SD card's device, for example: /dev/sdc
 - **sd_hostname** variable must be set to desired hostname of the node
-- **node_role** variable must be set to desired node's role (m for manager, w for worker, anything else for standalone node not connected to cluster)
+- **node_role** variable must be set to desired node's role (c for first manager, m for additional manager, w for worker, anything else for standalone node not connected to cluster)
 - **image_choice** variable must be set to select the image to flash:
   2 = RPi 2 or RPi 3 with full HW support
   3 = RPi 3 with generic kernel

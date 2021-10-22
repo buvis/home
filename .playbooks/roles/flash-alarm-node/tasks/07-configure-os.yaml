@@ -40,6 +40,17 @@
       #dtparam=eth_led0=4
     #state: present
 
+- name: limit writes to SD card
+  blockinfile:
+    path: "{{ dir_install }}/sd-root/etc/fstab"
+    block: |
+      # limit writes to SD card
+      tmpfs    /tmp        tmpfs    defaults,noatime,nosuid,size=100m           0 0
+      tmpfs    /var/tmp    tmpfs    defaults,noatime,nosuid,size=30m            0 0
+      tmpfs    /var/log    tmpfs    defaults,noatime,nosuid,mode=0755,size=100m 0 0
+      tmpfs    /var/run    tmpfs    defaults,noatime,nosuid,mode=0755,size=2m   0 0
+    state: present
+
 - name: set hostname to {{ sd_hostname }}
   shell: "echo {{ sd_hostname }} > {{ dir_install }}/sd-root/etc/hostname"
 

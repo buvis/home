@@ -12,3 +12,4 @@ ansible_user: "{{ default_user }}"
 # Global k3s cluster information
 k3s_master_api: "https://10.7.0.51:6443"
 k3s_datastore: "10.7.0.94:5432"
+k3s_version: "v1.22.2+k3s2"
