@@ -47,7 +47,7 @@
     remote_src: true
 
 - name: update all packages
-  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm -Syu"
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm -Syyuu"
 
 #- name: switch to RPi4 kernel
   #shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"yes | pacman -S linux-raspberrypi4\""

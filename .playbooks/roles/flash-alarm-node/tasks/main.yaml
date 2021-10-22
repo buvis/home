@@ -28,7 +28,7 @@
     include_tasks: 08-secure-os.yaml
 
   - name: join master node
-    include_tasks: 09-join-master.yaml
+    include_tasks: 09-join-cluster.yaml
 
   - name: fix permissions
     include_tasks: 10-fix-permissions.yaml
