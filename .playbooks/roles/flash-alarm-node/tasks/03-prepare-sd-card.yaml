@@ -8,6 +8,9 @@
 - name: create new partitions on SD card
   shell: /bin/echo -e "n\np\n1\n\n+300M\nn\np\n2\n\n\nt\n1\nc\nw\n" | fdisk "{{ dev_sd }}"
 
+- name: update partitions table
+  shell: partprobe "{{ dev_sd }}"
+
 - name: find SD card's boot partition
   shell: boot=$(lsblk "{{ dev_sd }}" | head -n 3 | tail -1 | cut -d ' ' -f 1 | cut -c 3-); echo "/dev/$boot"
   register: dev_sd_boot_output

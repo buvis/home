@@ -54,6 +54,9 @@
 - name: set hostname to {{ sd_hostname }}
   shell: "echo {{ sd_hostname }} > {{ dir_install }}/sd-root/etc/hostname"
 
+- name: resolve localhost
+  shell: "echo $'127.0.0.1        localhost\n::1              localhost\n127.0.0.1        {{ sd_hostname }}' >> {{ dir_install }}/sd-root/etc/hosts"
+
 - name: set timezone
   shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"ln -sf /usr/share/zoneinfo/Europe/Prague /etc/localtime\""
 

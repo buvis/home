@@ -17,11 +17,11 @@
   args:
     warn: false
 
-- name: enable eu mirror
+- name: enable closer mirror
   lineinfile:
     path: "{{ dir_install }}/sd-root/etc/pacman.d/mirrorlist"
-    regexp: '^# Server = http:\/\/eu\.mirror\.archlinuxarm\.org\/\$arch\/\$repo'
-    line: "Server = http://eu.mirror.archlinuxarm.org/$arch/$repo"
+    regexp: '^# Server = http:\/\/de3\.mirror\.archlinuxarm\.org\/\$arch\/\$repo'
+    line: "Server = http://de3.mirror.archlinuxarm.org/$arch/$repo"
 
 - name: disable global mirror
   lineinfile:
