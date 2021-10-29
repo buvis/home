@@ -1,0 +1,8 @@
+---
+- hosts: hawking
+  remote_user: "{{ default_user }}"
+  become: true
+  gather_facts: true
+
+  roles:
+  - join-k3s-as-worker

@@ -1,7 +1,7 @@
 ---
 # 02-prepare-root tasks file for roles/flash-alarm-node
 
-- name: unmount SD card
+- name: Prepare root filesystem | unmount SD card
   mount:
     path: "{{ item }}"
     state: unmounted
@@ -9,7 +9,7 @@
   - "{{ dir_install }}/sd-boot"
   - "{{ dir_install }}/sd-root"
 
-- name: remove previous mount points
+- name: Prepare root filesystem | remove previous mount points
   file:
     path: "{{ item }}"
     state: absent
@@ -17,7 +17,7 @@
   - "{{ dir_install }}/sd-boot"
   - "{{ dir_install }}/sd-root"
 
-- name: create temporary working directory
+- name: Prepare root filesystem | create temporary working directory
   file:
     path: "{{ item }}"
     state: directory
@@ -26,14 +26,14 @@
   - "{{ dir_install }}/sd-boot"
   - "{{ dir_install }}/sd-root"
 
-- name: download latest image from {{ image['url'] }}
+- name: Prepare root filesystem | download latest image from {{ image['url'] }}
   get_url:
     url: "{{ image['url'] }}"
     dest: "{{ dir_install }}/alarm.tar.gz"
     checksum: "md5:{{ image['md5'] }}"
   when: image['md5'] != ""
 
-- name: download latest image from {{ image['url'] }}
+- name: Prepare root filesystem | download latest image from {{ image['url'] }}
   get_url:
     url: "{{ image['url'] }}"
     dest: "{{ dir_install }}/alarm.tar.gz"

@@ -1,46 +1,31 @@
 ---
 # 07-configure-os tasks file for roles/flash-alarm-node
 
-- name: disable audio
+- name: Configure OS | disable audio
   lineinfile:
     path: "{{ dir_install }}/sd-root/boot/config.txt"
     regexp: "^dtparam=audio=on"
     state: absent
 
-- name: grant minimum RAM to GPU
+- name: Configure OS | grant minimum RAM to GPU
   lineinfile:
     path: "{{ dir_install }}/sd-root/boot/config.txt"
     line: "gpu_mem=16"
     state: present
 
-#- name: quiet poe hat fan
-  #blockinfile:
-    #path: "{{ dir_install }}/sd-root/boot/config.txt"
-    #block: |
-      #dtoverlay=rpi-poe
-      #dtparam=poe_fan_temp0=60000
-      #dtparam=poe_fan_temp1=63000
-      #dtparam=poe_fan_temp2=66000
-      #dtparam=poe_fan_temp3=69000
-      #dtoverlay=rpi-poe-plus
-      #dtparam=poe_fan_temp0=60000
-      #dtparam=poe_fan_temp1=63000
-      #dtparam=poe_fan_temp2=66000
-      #dtparam=poe_fan_temp3=69000
-    #state: present
+- name: Configure OS | limit light pollution from LEDs
+  blockinfile:
+    path: "{{ dir_install }}/sd-root/boot/config.txt"
+    block: |
+      dtparam=pwr_led_trigger=none
+      dtparam=pwr_led_activelow=off
+      dtparam=act_led_trigger=none
+      dtparam=act_led_activelow=off
+      dtparam=eth_led0=4
+      dtparam=eth_led1=0
+    state: present
 
-#- name: limit light pollution from LEDs
-  #blockinfile:
-    #path: "{{ dir_install }}/sd-root/boot/config.txt"
-    #block: |
-      #dtparam=pwr_led_trigger=none
-      #dtparam=pwr_led_activelow=off
-      #dtparam=act_led_trigger=none
-      #dtparam=act_led_activelow=off
-      #dtparam=eth_led0=4
-    #state: present
-
-- name: limit writes to SD card
+- name: Configure OS | limit writes to SD card
   blockinfile:
     path: "{{ dir_install }}/sd-root/etc/fstab"
     block: |
@@ -51,31 +36,31 @@
       tmpfs    /var/run    tmpfs    defaults,noatime,nosuid,mode=0755,size=2m   0 0
     state: present
 
-- name: set hostname to {{ sd_hostname }}
+- name: Configure OS | set hostname to {{ sd_hostname }}
   shell: "echo {{ sd_hostname }} > {{ dir_install }}/sd-root/etc/hostname"
 
-- name: resolve localhost
+- name: Configure OS | resolve localhost
   shell: "echo $'127.0.0.1        localhost\n::1              localhost\n127.0.0.1        {{ sd_hostname }}' >> {{ dir_install }}/sd-root/etc/hosts"
 
-- name: set timezone
+- name: Configure OS | set timezone
   shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"ln -sf /usr/share/zoneinfo/Europe/Prague /etc/localtime\""
 
-- name: enable time syncing
+- name: Configure OS | enable time syncing
   shell: "/usr/bin/systemctl enable systemd-timesyncd --root={{ dir_install }}/sd-root"
   args:
     executable: /usr/bin/bash
 
-- name: set locale
+- name: Configure OS | set locale
   lineinfile:
     path: "{{ dir_install }}/sd-root/etc/locale.gen"
     state: present
     line: "en_US.UTF-8 UTF-8"
     create: true
 
-- name: generate locale
+- name: Configure OS | generate locale
   shell: "chroot {{ dir_install }}/sd-root locale-gen"
 
-- name: create alacritty config directory
+- name: Configure OS | create alacritty config directory
   file:
     path: "{{ dir_install }}/sd-root/home/{{ default_user }}/.config/alacritty"
     state: directory
@@ -83,7 +68,7 @@
     group: "{{ default_user }}"
     mode: '0700'
 
-- name: get alacritty TERMINFO
+- name: Configure OS | get alacritty TERMINFO
   get_url:
     url: https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info
     dest: "{{ dir_install }}/sd-root/home/{{ default_user }}/.config/alacritty/alacritty.info"
@@ -91,5 +76,5 @@
     group: "{{ default_user }}"
     mode: '0700'
 
-- name: install alacritty TERMINFO
+- name: Configure OS | install alacritty TERMINFO
   shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"tic -xe alacritty,alacritty-direct /home/{{ default_user }}/.config/alacritty/alacritty.info\""
