@@ -18,19 +18,19 @@
   when: cmdline.stat.isreg is defined
 
 - name: Join cluster | install or upgrade k3s as worker
-  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_URL={{ k3s_master_api }} K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_VERSION={{ k3s_version }} sh -\""
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_URL={{ k3s_master_api }} K3S_TOKEN={{ vault_k3s_token }} sh -\""
   args:
     warn: false
   when: node_role == "w"
 
 - name: Join cluster | install or upgrade k3s server as additional master
-  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_VERSION={{ k3s_version }} INSTALL_K3S_EXEC='--server {{ k3s_master_api }} --no-deploy servicelb --flannel-backend=none --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --disable-network-policy --disable=traefik --disable=metrics-server --disable=local-storage --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes' sh -\""
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_EXEC='--server {{ k3s_master_api }} --no-deploy servicelb --flannel-backend=none --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --disable-network-policy --disable=traefik --disable=metrics-server --disable=local-storage --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes' sh -\""
   args:
     warn: false
   when: node_role == "m"
 
 - name: Join cluster | install or upgrade k3s server as first master
-  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_VERSION={{ k3s_version }} INSTALL_K3S_EXEC='--no-deploy servicelb --flannel-backend=none --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --disable-network-policy --disable=traefik --disable=metrics-server --disable=local-storage --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes' sh -\""
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"curl -sfL https://get.k3s.io | K3S_TOKEN={{ vault_k3s_token }} INSTALL_K3S_EXEC='--no-deploy servicelb --flannel-backend=none --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --disable-network-policy --disable=traefik --disable=metrics-server --disable=local-storage --write-kubeconfig ~/.kube/config --write-kubeconfig-mode 644 --datastore-endpoint=postgres://k3s:{{ vault_datastore_password }}@{{ k3s_datastore }}/kubernetes' sh -\""
   args:
     warn: false
   when: node_role == "c"
