@@ -23,6 +23,7 @@ brew "helm"
 brew "howdoi"
 brew "jq"
 brew "kubernetes-cli", link: false
+brew "krew"
 brew "kustomize"
 brew "mas"
 brew "most"
