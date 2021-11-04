@@ -49,34 +49,31 @@
 - name: Install OS | upgrade OS on SD card
   shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm -Syyuu"
 
-- name: Install OS | switch to RPi4 kernel
-  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"yes | pacman -S linux-raspberrypi4\""
-  when: image_choice == "4"
+#- name: Install OS | switch to RPi4 kernel
+  #shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"yes | pacman -S linux-raspberrypi4\""
+  #when: image_choice == "4"
 
-# ARCHIVE: using generic kernel
-# I think it causes problems with openebs, but will keep it here just in case I want to revert)
-#
 #- name: fix /etc/fstab
   #shell: "sed -i 's/mmcblk0/mmcblk1/g' {{ dir_install }}/sd-root/etc/fstab"
 
 # https://archlinuxarm.org/forum/viewtopic.php?f=67&t=15422&hilit=error+5+whilst+initialising+SD+card&start=10#p67207
-#- name: fix boot.txt for RaspberryPi 4 rev 1.4 (first line)
-  #replace:
-    #path: "{{ dir_install }}/sd-root/boot/boot.txt"
-    #regexp: 'booti \$\{kernel_addr_r\} \$\{ramdisk_addr_r\}:\$\{filesize\} \$\{fdt_addr_r\};'
-    #replace: "booti ${kernel_addr_r} ${ramdisk_addr_r}:${filesize} ${fdt_addr};"
+- name: fix boot.txt for RaspberryPi 4 rev 1.4 (first line)
+  replace:
+    path: "{{ dir_install }}/sd-root/boot/boot.txt"
+    regexp: 'booti \$\{kernel_addr_r\} \$\{ramdisk_addr_r\}:\$\{filesize\} \$\{fdt_addr_r\};'
+    replace: "booti ${kernel_addr_r} ${ramdisk_addr_r}:${filesize} ${fdt_addr};"
 
-#- name: fix boot.txt for RaspberryPi 4 rev 1.4 (second line)
-  #replace:
-    #path: "{{ dir_install }}/sd-root/boot/boot.txt"
-    #regexp: 'booti \$\{kernel_addr_r\} - \$\{fdt_addr_r\};'
-    #replace: "booti ${kernel_addr_r} - ${fdt_addr};"
+- name: fix boot.txt for RaspberryPi 4 rev 1.4 (second line)
+  replace:
+    path: "{{ dir_install }}/sd-root/boot/boot.txt"
+    regexp: 'booti \$\{kernel_addr_r\} - \$\{fdt_addr_r\};'
+    replace: "booti ${kernel_addr_r} - ${fdt_addr};"
 
-#- name: install uboot-tools to regenerate boot.scr
-  #shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S uboot-tools"
+- name: install uboot-tools to regenerate boot.scr
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S uboot-tools"
 
-#- name: regenerate boot.scr
-  #shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"cd boot;mkimage -A arm -T script -O linux -d boot.txt boot.scr\""
+- name: regenerate boot.scr
+  shell: "chroot {{ dir_install }}/sd-root /bin/bash -c \"cd boot;mkimage -A arm -T script -O linux -d boot.txt boot.scr\""
 
 - name: Install OS | install required packages
-  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S awk curl grep gptfdisk nfs-utils parted python3 sudo vim wget which"
+  shell: "chroot {{ dir_install }}/sd-root pacman --noconfirm --needed -S awk curl grep gptfdisk lvm2 nfs-utils parted python3 sudo vim wget which"
