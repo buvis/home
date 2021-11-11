@@ -6,6 +6,8 @@ case $- in
     *) return;;
 esac
 
+echo "I run bashrc"
+
 # Path to the bash it configuration
 export BASH_IT="${HOME}/.bash_it"
 

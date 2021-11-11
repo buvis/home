@@ -29,3 +29,42 @@ export FZF_CTRL_R_OPTS='--bind "F1:toggle-preview" --preview "echo {}" --preview
 
 # Fix locale when sshing
 export LANG=en_US.UTF-8
+
+# Detect OS
+UNAME_BIN=$(command -v uname)
+
+case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
+  linux*)
+    if [[ $("${UNAME_BIN}" -r) =~ microsoft ]]; then
+        IS_WSL=true
+    else
+        IS_LINUX=true
+    fi
+    ;;
+  darwin*)
+    IS_MAC=true
+    ;;
+  msys*|cygwin*|mingw*|nt|win*)
+    IS_WIN=true
+    ;;
+esac
+
+# Use ADP proxy in WSL
+if [[ $IS_WSL ]]; then
+   PROXY='http://:@websurfing1-tin1.esi.adp.com:8080'
+   export HTTP_PROXY="$PROXY"
+   export HTTPS_PROXY="$PROXY"
+fi
+
+# Prefer GNU utils on Mac
+if [[ $IS_MAC ]]; then
+   export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
+   export PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
+fi
+
+# Use gpg with ssh
+if [[ $IS_MAC ]]; then
+   export GPG_TTY=$(tty)
+   export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+   gpgconf --launch gpg-agent
+fi
