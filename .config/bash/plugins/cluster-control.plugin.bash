@@ -38,3 +38,8 @@ function buvis-delete-namespace () {
         fi
     fi
 }
+
+function buvis-get-rbd-image-for-pvc () {
+    PVC=$1
+    kubectl get pv/$(kubectl get pv | grep ${PVC} | awk -F' ' '{print $1}') -n home -o json | jq -r '.spec.csi.volumeAttributes.imageName'
+}
