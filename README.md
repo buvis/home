@@ -26,6 +26,19 @@ I always appreciate any opportunity to learn. Thank you!
 
 1. Shared core: `curl -Ls https://tinyurl.com/get-buvis | /usr/bin/env bash`
 2. TODO: OS and/or machine specific setup scripts
+
+### WSL
+WSL home directory is different from Windows user's home. To use buvis dotfiles inside WSL you need to add
+```bash
+if [[ -f "<PATH_TO_WINDOWS_USER_HOME>/.profile" ]]; then
+  source <PATH_TO_WINDOWS_USER_HOME>/.profile
+fi
+
+if [[ -f "<PATH_TO_WINDOWS_USER_HOME>/.bashrc" ]]; then
+  source <PATH_TO_WINDOWS_USER_HOME>/.bashrc
+fi
+```
+to WSL's generated `~/.bashrc`.
     
 ## Configure
 
