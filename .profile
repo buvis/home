@@ -1,15 +1,45 @@
-export PATH="$HOME/.cargo/bin:$PATH"
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
+# Detect OS
+UNAME_BIN=$(command -v uname)
+
+case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
+  linux*)
+    if [[ $("${UNAME_BIN}" -r) =~ microsoft ]]; then
+        export IS_WSL=true
+    else
+        export IS_LINUX=true
+    fi
+    ;;
+  darwin*)
+    export IS_MAC=true
+    ;;
+  msys*|cygwin*|mingw*|nt|win*)
+    export IS_WIN=true
+    ;;
+esac
+
+# Determine dotfiles root
+if [[ $IS_WSL ]]; then
+    WINHOME=$(wslvar USERPROFILE)
+    export DOTFILES_ROOT=$(wslpath "${WINHOME}")
+else
+    export DOTFILES_ROOT=${HOME}
+fi
+
+export PATH="$DOTFILES_ROOT/.cargo/bin:$PATH"
+export PATH="$DOTFILES_ROOT/.yarn/bin:$DOTFILES_ROOT/.config/yarn/global/node_modules/.bin:$PATH"
 
 # Doogat
-export DOOGAT_CFG="${HOME}/.doogat/config.yml"
-export PATH="$PATH:${HOME}/.local/bin/doogat/pingl:${HOME}/.local/bin/doogat/doo"
+export DOOGAT_CFG="${DOTFILES_ROOT}/.doogat/config.yml"
+export PATH="$PATH:${DOTFILES_ROOT}/.local/bin/doogat/pingl:${DOTFILES_ROOT}/.local/bin/doogat/doo"
 
 # My scripts
-export PATH="$PATH:${HOME}/bin"
+export PATH="$PATH:${DOTFILES_ROOT}/bin"
 
 # Avoid ./ to run scripts in current directory
 export PATH=$PATH:.
+
+# Support kubectl plugins
+export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 
 # Set my editor and git editor
 export EDITOR="vim"
@@ -30,24 +60,6 @@ export FZF_CTRL_R_OPTS='--bind "F1:toggle-preview" --preview "echo {}" --preview
 # Fix locale when sshing
 export LANG=en_US.UTF-8
 
-# Detect OS
-UNAME_BIN=$(command -v uname)
-
-case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
-  linux*)
-    if [[ $("${UNAME_BIN}" -r) =~ microsoft ]]; then
-        IS_WSL=true
-    else
-        IS_LINUX=true
-    fi
-    ;;
-  darwin*)
-    IS_MAC=true
-    ;;
-  msys*|cygwin*|mingw*|nt|win*)
-    IS_WIN=true
-    ;;
-esac
 
 # Use ADP proxy in WSL
 if [[ $IS_WSL ]]; then

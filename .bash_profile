@@ -7,6 +7,3 @@ fi
 if [[ -f "${HOME}/.bashrc" ]]; then
   source "${HOME}/.bashrc"
 fi
-
-# Support kubectl plugins
-export PATH="${PATH}:${HOME}/.krew/bin"
