@@ -6,13 +6,13 @@ case $- in
     *) return;;
 esac
 
-echo "I run bashrc"
+# Get dotfiles root
 
 # Path to the bash it configuration
-export BASH_IT="${HOME}/.bash_it"
+export BASH_IT="${DOTFILES_ROOT}/.bash_it"
 
 # Path to custom bash-it aliases, plugins, etc.
-export BASH_IT_CUSTOM="${HOME}/.config/bash"
+export BASH_IT_CUSTOM="${DOTFILES_ROOT}/.config/bash"
 
 # Lock and Load a custom theme file.
 # Leave empty to disable theming.
@@ -43,7 +43,7 @@ export TODO="t"
 # Set this to false to turn off version control status checking within the prompt for all themes
 export SCM_CHECK=true
 # Set to actual location of gitstatus directory if installed
-#export SCM_GIT_GITSTATUS_DIR="$HOME/gitstatus"
+#export SCM_GIT_GITSTATUS_DIR="$DOTFILES_ROOT/gitstatus"
 # per default gitstatus uses 2 times as many threads as CPU cores, you can change this here if you must
 #export GITSTATUS_NUM_THREADS=8
 
@@ -82,7 +82,7 @@ SCM_THEME_PROMPT_UNSTAGED_COLOR=${POWERLINE_SCM_UNSTAGED_COLOR:=56}
 export OPENFAAS_URL=https://fn.buvis.net
 
 # Load asdf
-source "${HOME}/.asdf/asdf.sh"
+source "${DOTFILES_ROOT}/.asdf/asdf.sh"
 
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
