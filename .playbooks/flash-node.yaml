@@ -21,7 +21,7 @@
     register: sd_hostname
 
   - pause:
-      prompt: Choose node role (m = manager, w = worker, anything else = standalone node not connected to cluster)
+      prompt: Choose node role (c = first manager m = additional manager, w = worker, anything else = standalone node not connected to cluster)
     register: node_role
 
   - pause:

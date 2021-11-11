@@ -2,7 +2,7 @@
 # task file for roles/get-cluster-conf
 
 - name: wait for k3s configuration
-  become: false
+  become: true
   wait_for:
     path: ~/.kube/config
 
@@ -15,7 +15,7 @@
     mode: 0700
 
 - name: download cluster config
-  become: false
+  become: true
   fetch:
     src: ~/.kube/config
     dest: ~/.kube/config
