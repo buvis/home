@@ -9,21 +9,21 @@ function packadd () {
     url=$1
     # extract the plugin name (part after last /)
     pname=$(expr "$url" : '.*/\(.*\)')
-    cd $HOME
-    /usr/bin/git --git-dir=$HOME/.buvis/ --work-tree=$HOME submodule add --name $pname $url $BUVIS_VIMPACKDIR$pname
+    cd $DOTFILES_ROOT
+    /usr/bin/git --git-dir=$DOTFILES_ROOT/.buvis/ --work-tree=$DOTFILES_ROOT submodule add --name $pname $url $BUVIS_VIMPACKDIR$pname
     cd -
 }
 
 # update plugins
 function packup () {
-    /usr/bin/git --git-dir=$HOME/.buvis/ --work-tree=$HOME submodule update --remote --merge
+    /usr/bin/git --git-dir=$DOTFILES_ROOT/.buvis/ --work-tree=$DOTFILES_ROOT submodule update --remote --merge
 }
 
 # remove plugin
 function packrm () {
-    cd $HOME
-    /usr/bin/git --git-dir=$HOME/.buvis/ --work-tree=$HOME submodule deinit -f -- $BUVIS_VIMPACKDIR$1
-    /usr/bin/git --git-dir=$HOME/.buvis/ --work-tree=$HOME rm -f $BUVIS_VIMPACKDIR$1
-    rm -rf $HOME/.buvis/modules/$1
+    cd $DOTFILES_ROOT
+    /usr/bin/git --git-dir=$DOTFILES_ROOT/.buvis/ --work-tree=$DOTFILES_ROOT submodule deinit -f -- $BUVIS_VIMPACKDIR$1
+    /usr/bin/git --git-dir=$DOTFILES_ROOT/.buvis/ --work-tree=$DOTFILES_ROOT rm -f $BUVIS_VIMPACKDIR$1
+    rm -rf $DOTFILES_ROOT/.buvis/modules/$1
     cd -
 }

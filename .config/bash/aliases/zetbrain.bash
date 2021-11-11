@@ -1,1 +1,1 @@
-alias z="cd $HOME/z/reference/notes"
+alias z="cd $DOTFILES_ROOT/z/reference/notes"
