@@ -34,11 +34,13 @@ endif
 autocmd InsertLeave,CompleteDone * if pumvisible() == 0 | pclose | endif
 
 " yank to Windows host clipboard from WSL
-if system('uname -r') =~ "Microsoft"
-    augroup Yank
-        autocmd!
-        autocmd TextYankPost * :call system('clip.exe ',@")
-    augroup END
+if has("unix")
+    if system('uname -r') =~ "Microsoft"
+        augroup Yank
+            autocmd!
+            autocmd TextYankPost * :call system('clip.exe ',@")
+        augroup END
+    endif
 endif
 
 " register python language server for asyncomplete
