@@ -66,5 +66,5 @@ Else
 Return
 
 #Space::
-    WinActivate, ahk_exe WindowsTerminal.exe
+    WinActivate, ahk_exe C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe
 Return
