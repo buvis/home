@@ -137,7 +137,7 @@ else
     mark b ~/bin/
     mark B ~/z/reference/book
     mark c ~/z/completed
-    mark C ~/git/src/github.com/tbouska/buvis-cluster
+    mark C ~/git/src/github.com/buvis-net/cluster
     mark d ~/Downloads
     mark g ~/git/src/gitlab.com
     mark h ~/
