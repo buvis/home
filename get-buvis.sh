@@ -6,7 +6,7 @@ rm -rf $REPO
 
 cd $HOME
 
-git clone --bare https://github.com/tbouska/buvis.git $REPO
+git clone --bare https://github.com/buvis-net/home.git $REPO
 
 function cfg {
     /usr/bin/git --git-dir=$REPO --work-tree=$HOME $@
