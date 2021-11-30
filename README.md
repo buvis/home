@@ -24,7 +24,7 @@ I always appreciate any opportunity to learn. Thank you!
 
 ## Install
 
-1. Shared core: `curl -Ls https://tinyurl.com/get-buvis | /usr/bin/env bash`
+1. Shared core: `curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash`
 2. TODO: OS and/or machine specific setup scripts
 
 ### WSL
