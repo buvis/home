@@ -420,7 +420,7 @@ colors:
 #   - (Linux/BSD) user login shell
 #   - (Windows) powershell
 shell:
-  program: pwsh.exe
+  program: wsl
 #  args:
 #    - --login
 
