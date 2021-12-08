@@ -1,6 +1,6 @@
 ﻿!#i::
 {
-	ClipSaved := ClipboardAll  ; Save current clipboard content to renew it at the end
+	ClipSaved := ClipboardAll()  ; Save current clipboard content to renew it at the end
 	A_Clipboard := "" ; Start off empty to allow ClipWait to detect when the text has arrived
 	Send "^c"  ; Copy the highlighted text to clipboard
 	ClipWait  ; Wait for the clipboard to contain text.
@@ -16,7 +16,7 @@
 
 !#o::
 {
-	ClipSaved := ClipboardAll  ; Save current clipboard content to renew it at the end
+	ClipSaved := ClipboardAll()  ; Save current clipboard content to renew it at the end
 	A_Clipboard := "" ; Start off empty to allow ClipWait to detect when the text has arrived
 	Send "^c"  ; Copy the highlighted text to clipboard
 	ClipWait  ; Wait for the clipboard to contain text.
