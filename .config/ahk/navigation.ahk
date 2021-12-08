@@ -63,11 +63,10 @@
 
 #Space::
 {
-	Suspend(True)
+	Send "{Blind}{vkE8}"
 	If WinExist("ahk_exe alacritty.exe")
 		WinActivate "ahk_exe alacritty.exe"
 	Else
 		Run "C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe"
-	Suspend(False)
 	Return
 }
