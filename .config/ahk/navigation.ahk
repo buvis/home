@@ -63,9 +63,11 @@
 
 #Space::
 {
-	If WinActive("ahk_exe C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe")
-		WinActivate "ahk_exe C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe"
+	Suspend(True)
+	If WinExist("ahk_exe alacritty.exe")
+		WinActivate "ahk_exe alacritty.exe"
 	Else
 		Run "C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe"
+	Suspend(False)
 	Return
 }
