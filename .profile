@@ -3,7 +3,7 @@ UNAME_BIN=$(command -v uname)
 
 case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
   linux*)
-    if [[ $("${UNAME_BIN}" -r) =~ microsoft ]]; then
+    if [[ $("${UNAME_BIN}" -r) =~ Microsoft ]]; then
         export IS_WSL=true
     else
         export IS_LINUX=true
