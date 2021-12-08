@@ -111,4 +111,4 @@
 ~LWin::Send "{Blind}{vkE8}"
 
 ; Use the better windows switching
-LWin & Tab::AltTab
+; LWin & Tab::AltTab
