@@ -37,6 +37,7 @@ brew "recode"
 brew "ripgrep"
 brew "ruby"
 brew "rust"
+brew "rustfmt"
 brew "sops"
 brew "syncthing", restart_service: true
 brew "the_silver_searcher"
