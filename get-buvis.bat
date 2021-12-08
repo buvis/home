@@ -1,3 +1,4 @@
+@echo off
 Rem Remove any previous installations
 cd %HOME%
 set REPO=%HOME%\.buvis
@@ -31,5 +32,11 @@ del %HOME%\get-buvis.sh
 del %HOME%\get-buvis.bat
 git --git-dir=%REPO% --work-tree=%HOME% update-index --skip-worktree README.md get-buvis.sh get-buvis.bat
 
-Rem Create symlinks
-mklink /d %APPDATA%\alacritty %HOME%\.config\alacritty
+Rem Print instructions to link alacritty config
+echo Start cmd as Administrator and run:
+echo.
+echo 1. cd %APPDATA%
+echo 2. mkdir alacritty
+echo 3. mklink %APPDATA%\alacritty\alacritty.yml %HOME%\.config\alacritty\alacritty-windows.yml
+echo 4. mklink %APPDATA%\alacritty\alacritty.info %HOME%\.config\alacritty\alacritty.info
+pause > nul
