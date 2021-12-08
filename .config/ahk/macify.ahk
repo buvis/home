@@ -1,96 +1,114 @@
 ﻿; Copy & paste, but don't break Windows Terminal
 #c::
-WinGet, ActiveID, ID, A
-WinGet, ActivePName, ProcessName, ahk_id %ActiveID%
-if (ActivePName = "WindowsTerminal.exe")
 {
-  Send ^+c
-} else {
-  Suspend On
-  Send ^c
-  Suspend Off
+	ActivePName := WinGetProcessName("A")
+	if (ActivePName = "WindowsTerminal.exe")
+	{
+	  Send "^+c"
+	} else {
+	  Suspend(True)
+	  Send "^c"
+	  Suspend(False)
+	}
+	Return
 }
-Return
 
 #v::
-WinGet, ActiveID, ID, A
-WinGet, ActivePName, ProcessName, ahk_id %ActiveID%
-if (ActivePName = "WindowsTerminal.exe")
 {
-  Send ^+v
-} else {
-  Suspend On
-  Send ^v
-  Suspend Off
+	ActivePName := WinGetProcessName("A")
+	if (ActivePName = "WindowsTerminal.exe")
+	{
+	  Send "^+v"
+	} else {
+	  Suspend(True)
+	  Send "^v"
+	  Suspend(False)
+	}
+	Return
 }
-Return
 
 #x::
-WinGet, ActiveID, ID, A
-WinGet, ActivePName, ProcessName, ahk_id %ActiveID%
-if (ActivePName = "WindowsTerminal.exe")
 {
-  Send ^+x
-} else {
-  Suspend On
-  Send ^x
-  Suspend Off
+	ActivePName := WinGetProcessName("A")
+	if (ActivePName = "WindowsTerminal.exe")
+	{
+	  Send "^+x"
+	} else {
+	  Suspend(True)
+	  Send "^x"
+	  Suspend(False)
+	}
+	Return
 }
-Return
 
 ; Select all
 #a::
-  Suspend On
-  Send ^a
-  Suspend Off
-Return
+{
+	Suspend(True)
+	Send "^a"
+	Suspend(False)
+	Return
+}
 
 ; Search function
 #f::
-  Suspend On
-  Send ^f
-  Suspend Off
-Return
+{
+	Suspend(True)
+	Send "^f"
+	Suspend(False)
+	Return
+}
 
 ; Reload
 #r::
-  Suspend On
-  Send ^r
-  Suspend Off
-Return
+{
+	Suspend(True)
+	Send "^r"
+	Suspend(False)
+	Return
+}
 
 ; Rather use save than Windows Search
 #s::
-  Suspend On
-  Send ^s
-  Suspend Off
-Return
+{
+	Suspend(True)
+	Send "^s"
+	Suspend(False)
+	Return
+}
 
 ; Close tabs in browsers
 #w::
-  Suspend On
-  Send ^w
-  Suspend Off
-Return
+{
+	Suspend(True)
+	Send "^w"
+	Suspend(False)
+	Return
+}
 
 ; Close window
 #q::
-  Suspend On
-  Send !{f4}
-  Suspend Off
-Return
+{
+	Suspend(True)
+	Send "!{f4}"
+	Suspend(False)
+	Return
+}
 
 ; Move on line
-#Left::Send, {Home}
-#Right::Send, {End}
+#Left::Send "{Home}"
+#Right::Send "{End}"
 
 ; Language switching
 ^Space::
-  Send, {Ctrl down}{Shift}{Ctrl up}
-Return
+{
+	Send "{Ctrl down}{Shift}{Ctrl up}"
+	Return
+}
 
 ; Disable alone press of windows key
-;LWin Up:: Return
+; https://stackoverflow.com/questions/69143107/how-to-disable-the-win-key-if-its-the-only-key-being-pressed-using-autohotkey
+~LWin::Send "{Blind}{vkE8}"
 
 ; Use the better windows switching
-;LWin & Tab::AltTab
+LWin & Tab::AltTab
