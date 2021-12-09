@@ -57,3 +57,5 @@ if [[ $? = 0 ]]; then
     rm ~/README.md ~/get-buvis.sh ~/get-buvis.bat
     cfg update-index --skip-worktree README.md get-buvis.sh get-buvis.bat
 fi
+
+pip install -r bin/requirements.txt
