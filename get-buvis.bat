@@ -32,6 +32,9 @@ del %HOME%\get-buvis.sh
 del %HOME%\get-buvis.bat
 git --git-dir=%REPO% --work-tree=%HOME% update-index --skip-worktree README.md get-buvis.sh get-buvis.bat
 
+Rem Install requirements for python scripts
+pip install -r bin\requirements.txt
+
 Rem Print instructions to link alacritty config
 echo Start cmd as Administrator and run:
 echo.
