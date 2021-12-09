@@ -33,16 +33,6 @@ endif
 " hide completion window automatically
 autocmd InsertLeave,CompleteDone * if pumvisible() == 0 | pclose | endif
 
-" yank to Windows host clipboard from WSL
-if has("unix")
-    if system('uname -r') =~ "Microsoft"
-        augroup Yank
-            autocmd!
-            autocmd TextYankPost * :call system('clip.exe ',@")
-        augroup END
-    endif
-endif
-
 " register python language server for asyncomplete
 if executable('pyls')
     " pip install python-language-server
