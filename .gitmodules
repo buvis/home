@@ -128,9 +128,6 @@
 [submodule "vimwiki"]
 	path = .vim/pack/plugins/opt/vimwiki
 	url = https://github.com/vimwiki/vimwiki
-[submodule "vimwiki-sync"]
-	path = .vim/pack/plugins/opt/vimwiki-sync
-	url = https://github.com/michal-h21/vimwiki-sync
 [submodule "vim-yaml"]
 	path = .vim/pack/plugins/opt/vim-yaml
 	url = https://github.com/stephpy/vim-yaml
