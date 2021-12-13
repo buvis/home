@@ -140,10 +140,6 @@ packadd! vim-polyglot
 " https://github.com/sk1418/Join
 packadd! Join
 
-" sync zettelkasten repo automatically
-" https://github.com/michal-h21/vimwiki-sync
-packadd! vimwiki-sync
-
 " }}}
 
 " Filetype specific {{{
