@@ -48,7 +48,7 @@ brew "watch"
 brew "xh"
 brew "yamllint"
 brew "yarn"
-brew "fluxcd/tap/flux", link: false
+brew "fluxcd/tap/flux"
 brew "johanhaleby/kubetail/kubetail"
 cask "1password"
 cask "adobe-acrobat-reader"
