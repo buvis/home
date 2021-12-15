@@ -20,6 +20,6 @@ if has("unix")
             let result = getreg("x")
             return result
         endfunc
-        vnoremap Y :call system('clip.exe', GetSelectedText())<CR>
+        vnoremap Y :call system('/mnt/c/Windows/System32/clip.exe', GetSelectedText())<CR>
     endif
 endif
