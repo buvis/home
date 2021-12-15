@@ -63,7 +63,8 @@ export LANG=en_US.UTF-8
 
 # Use ADP proxy in WSL
 if [[ $IS_WSL ]]; then
-   PROXY='http://:@websurfing1-tin1.esi.adp.com:8080'
+   #PROXY='http://:@websurfing1-tin1.esi.adp.com:8080'
+   PROXY='http://127.0.0.1:3131'
    export HTTP_PROXY="$PROXY"
    export HTTPS_PROXY="$PROXY"
 fi
