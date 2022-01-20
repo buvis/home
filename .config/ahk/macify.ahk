@@ -77,6 +77,15 @@
 	Return
 }
 
+; Open new tab in browsers
+#t::
+{
+	Suspend(True)
+	Send "^t"
+	Suspend(False)
+	Return
+}
+
 ; Close tabs in browsers
 #w::
 {
