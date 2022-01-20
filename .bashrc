@@ -84,6 +84,9 @@ export OPENFAAS_URL=https://fn.buvis.net
 # Load asdf
 source "${DOTFILES_ROOT}/.asdf/asdf.sh"
 
+# Load direnv
+eval "$(direnv hook bash)"
+
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
 
