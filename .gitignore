@@ -1,4 +1,5 @@
 /README.md
+.config/yarn
 .gitsecret/keys/random_seed
 !*.secret
 .ssh/config
