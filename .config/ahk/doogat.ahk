@@ -50,10 +50,10 @@
     Send "^c"  ; Copy the highlighted text to clipboard
     ClipWait  ; Wait for the clipboard to contain text.
 
-    text := A_Clipboard
-    text := %text%
-
-    Run DOO "edit loops --with `"id or rto-tmpl or rto-reg or rto or ticket or ticket-related or incident or user-story or us or psd or commit or roadmap = '%text%'`""
+    search_string := A_Clipboard
+    command := "edit loops --with `"id or rto-tmpl or rto-reg or rto or ticket or ticket-related or incident or user-story or us or psd or commit or roadmap = '" search_string "'`""
+ 
+    Run DOO command
 
     A_Clipboard := ClipSaved
     ClipSaved := "" ; to free memory
