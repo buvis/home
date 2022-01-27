@@ -19,6 +19,9 @@ nnoremap <Leader>e :edit <C-R>=expand('%:p:h') . '/'<CR>
 " fuzzy find inside project files
 nnoremap <Leader>ff :Ag<CR>
 
+" git send
+nnoremap <silent> <Leader>gs :call buvis#functions#gitsend()<CR>
+
 " join all lines using ; (eg. to email list of people)
 nnoremap <Leader>J :%s/\n/;/g<CR>
 
