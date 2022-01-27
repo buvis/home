@@ -1,5 +1,6 @@
 /README.md
 .config/brew/Brewfile.lock.json
+.config/configstore
 .config/yarn
 .gitsecret/keys/random_seed
 !*.secret

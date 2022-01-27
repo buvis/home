@@ -15,3 +15,18 @@ function! buvis#functions#stripspaces()
     let @/=_s
     call cursor(l, c)
 endfunction
+
+" send changes to git repository
+function! buvis#functions#gitsend(...)
+    if a:0 > 0 && a:1 != ""
+        let commit_message = a:1
+    else
+        let commit_message = input("Enter commit message: ")
+    endif
+
+    if commit_message != ""
+        execute "! git add . && git commit -m \"". commit_message ."\" && git pull && git push"
+    else
+        echo "Cancelled"
+    endif
+endfunction
