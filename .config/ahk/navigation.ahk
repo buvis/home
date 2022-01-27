@@ -64,9 +64,9 @@
 #Space::
 {
 	Send "{Blind}{vkE8}"
-	If WinExist("ahk_exe alacritty.exe")
-		WinActivate "ahk_exe alacritty.exe"
+	If WinExist("ahk_exe WindowsTerminal.exe")
+		WinActivate "ahk_exe WindowsTerminal.exe"
 	Else
-		Run "C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe"
+		Run "C:/Users/tbouska/scoop/apps/windows-terminal/current/WindowsTerminal.exe"
 	Return
 }
