@@ -140,12 +140,14 @@ else
     mark d ~/Downloads
     mark g ~/git/src/
     mark h ~/
-    mark i ~/z/reference/paperless-inbox
+    mark i ~/z/reference/invoice
     mark k ~/git/src/github.com/buvis-net/clusters
     mark n ~/z/reference/newsletter
+    mark o ~/z/reference/order
     mark p ~/Photography
     mark P ~/Paperless
     mark r ~/z/reference
+    mark R ~/z/reference/receipt
     mark w ~/z/workspace
     mark z ~/z/reference/notes
 endif
