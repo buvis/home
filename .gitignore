@@ -8,7 +8,6 @@
 .ssh/known_hosts
 .ssh/known_hosts.old
 .kube/config
-.dockerfiles/mopidy/mopidy.conf
 .playbooks/.vault-pwd
 /get-buvis.sh
 /get-buvis.bat
