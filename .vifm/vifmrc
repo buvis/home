@@ -127,7 +127,7 @@ if has('win')
     mark g "~/git/src/"
     mark h "~/"
     mark H "~/OneDrive - Automatic Data Processing Inc/z/reference/hrsp"
-    mark m "~/OneDrive - Automatic Data Processing Inc/z/reference/non-project-meeting"
+    mark m "~/OneDrive - Automatic Data Processing Inc/z/reference/meeting"
     mark n "~/OneDrive - Automatic Data Processing Inc/z/reference/newsletter"
     mark r "~/OneDrive - Automatic Data Processing Inc/z/reference"
     mark w "~/OneDrive - Automatic Data Processing Inc/z/workspace"
@@ -142,6 +142,7 @@ else
     mark h ~/
     mark i ~/z/reference/invoice
     mark k ~/git/src/github.com/buvis-net/clusters
+    mark m ~/z/reference/meeting
     mark n ~/z/reference/newsletter
     mark o ~/z/reference/order
     mark p ~/Photography
