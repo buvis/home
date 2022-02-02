@@ -140,6 +140,7 @@ else
     mark d ~/Downloads
     mark g ~/git/src/
     mark h ~/
+    mark H ~/z/reference/hrsp
     mark i ~/z/reference/invoice
     mark k ~/git/src/github.com/buvis-net/clusters
     mark m ~/z/reference/meeting
