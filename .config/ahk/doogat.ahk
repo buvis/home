@@ -47,9 +47,10 @@
 {
     A_Clipboard := "" ; Start off empty to allow ClipWait to detect when the text has arrived
     Send "^c"  ; Copy the highlighted text to clipboard
-    ClipWait  ; Wait for the clipboard to contain text.
+    ClipWait ; Wait for the clipboard to contain text.
 
-    search_string := A_Clipboard
+    search_string := Trim(A_Clipboard, " `n`r`t")
+
     command := "edit loops --with `"id or rto-tmpl or rto-reg or rto or ticket or ticket-related or incident or user-story or us or psd or commit or roadmap = '" search_string "'`""
 
     Run DOO command
