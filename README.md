@@ -15,6 +15,7 @@ I always appreciate any opportunity to learn. Thank you!
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf
 2. Install python and pip
+3. Install libffi-dev
 
 ### macOS
 
