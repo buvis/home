@@ -43,12 +43,17 @@ Note: Install buvis to Windows host to share the configuration between host and 
 1. Copy `get-buvis.bat` from here
 2. Run `get-buvis.bat` in `cmd`
 
-## Configure
+## Post-install
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
-### WSL
+### Install asdf managed python
 
+1. Install asdf python plugin: `asdf plugin add python`
+2. Build python with PyInstaller support: `env PYTHON_CONFIGURE_OPTS="--enable-shared" asdf install python <version>`
+
+### Fix WSL issues
+ 
 1. Link WSL home directory to Windows user's home
    1. Use buvis dotfiles inside WSL, add this to WSL's generated `~/.bashrc`:
    ```bash
