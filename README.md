@@ -83,3 +83,6 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
       ```
    2. Restart WSL: run `wsl --terminate Ubuntu` in `cmd`, then start WSL
    3. Run `chmod -R a-x+X,u-x+rwX,go-wx+rX *` in directory where you want to fix the file coloring in vifm
+3. Fix asdf
+   1. Make `utils.bash` executable: `chmod a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/utils.bash`
+   2. Make `commands` executable: `chmod -R a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands`
