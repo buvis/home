@@ -421,7 +421,11 @@ if executable('open')
     " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
     filetype * open
 else
-    filetype * /mnt/c/Windows/explorer.exe %"c &
+    if has('win')
+        filetype * explorer.exe %"c &
+    else
+        filetype * /mnt/c/Windows/explorer.exe %"c &
+    endif
 endif
 
 " ------------------------------------------------------------------------------
