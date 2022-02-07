@@ -1,0 +1,30 @@
+---
+directory: ~/media/music
+library: ~/media/music/beets.db
+import:
+  move: true
+asciify_paths: true
+group_albums: true
+per_disc_numbering: true
+paths:
+  default: '$albumartist/[%if{$year,$year,0000}] $album %aunique{}/%if{$multidisc,$disc-}$track - $title'
+  albumtype:soundtrack: 'Soundtracks/$album %aunique{} [%if{$year,$year,0000}]/%if{$multidisc,$disc-}$track - $title'
+  comp: 'Compilations/$album %aunique{} [%if{$year,$year,0000}]/%if{$multidisc,$disc-}$track - %if{$artist,$artist - }$title'
+plugins:
+- albumtypes  # https://beets.readthedocs.io/en/stable/plugins/albumtypes.html
+- discogs  # https://beets.readthedocs.io/en/stable/plugins/discogs.html
+- chroma  # https://beets.readthedocs.io/en/stable/plugins/chroma.html
+- fetchart  # https://beets.readthedocs.io/en/stable/plugins/fetchart.html
+- ftintitle  # https://beets.readthedocs.io/en/stable/plugins/ftintitle.html
+- inline  # https://beets.readthedocs.io/en/stable/plugins/inline.html
+- lastgenre  # https://beets.readthedocs.io/en/stable/plugins/lastgenre.html
+- missing  # https://beets.readthedocs.io/en/stable/plugins/missing.html
+- scrub  # https://beets.readthedocs.io/en/stable/plugins/scrub.html
+discogs:
+  source_weight: 0.0
+fetchart:
+  cautious: true
+  cover_names: front back
+  sources: itunes *
+item_fields:
+  multidisc: 1 if disctotal > 1 else 0
