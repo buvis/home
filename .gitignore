@@ -1,4 +1,6 @@
 /README.md
+.config/beets/discogs_token.json
+.config/beets/state.pickle
 .config/brew/Brewfile.lock.json
 .config/configstore
 .config/yarn
