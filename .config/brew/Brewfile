@@ -95,5 +95,6 @@ cask "whatsapp"
 cask "zoom"
 mas "ApolloOne", id: 1044484672
 mas "Handy Calculator", id: 430801153
+mas "ReadKit", id: 588726889
 mas "SmugMug", id: 1115348888
 mas "WireGuard", id: 1451685025
