@@ -3,3 +3,8 @@ PyAutoGUI
 pipenv
 pyreadline
 python-language-server
+flake8
+autopep8
+black
+isort
+yapf
