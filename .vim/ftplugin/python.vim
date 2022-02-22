@@ -13,7 +13,6 @@ let b:ale_fixers = [
     \ 'trim_whitespace',
     \ 'yapf',
     \ ]
-let g:ale_fix_on_save=1
 
 " start unfolded
 set foldlevel=99
