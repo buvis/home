@@ -19,6 +19,9 @@ nnoremap <Leader>e :edit <C-R>=expand('%:p:h') . '/'<CR>
 " fuzzy find inside project files
 nnoremap <Leader>ff :Ag<CR>
 
+" go to definition
+nnoremap <Leader>g :ALEGoToDefinition<CR>
+
 " git send
 nnoremap <silent> <Leader>gs :call buvis#functions#gitsend()<CR>
 
