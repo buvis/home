@@ -134,3 +134,6 @@
 [submodule "vim-yaml-folds"]
 	path = .vim/pack/plugins/opt/vim-yaml-folds
 	url = https://github.com/pedrohdz/vim-yaml-folds
+[submodule "p"]
+	path = .p
+	url = https://github.com/ddmendes/p
