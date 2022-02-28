@@ -137,3 +137,4 @@
 [submodule "p"]
 	path = .p
 	url = https://github.com/ddmendes/p
+	branch=main
