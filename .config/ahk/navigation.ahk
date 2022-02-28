@@ -21,7 +21,7 @@
 	Send "^c"  ; Copy the highlighted text to clipboard
 	ClipWait  ; Wait for the clipboard to contain text.
 
-	url := "https://launchpad.support.sap.com/#/notes/" A_Clipboard  ; Construct the link to SAP Support
+	url := "https://me.sap.com/support/article/" A_Clipboard  ; Construct the link to SAP Support
 	url := url  ; Trim the whitespace
 	Run url  ; Open the browser
 
