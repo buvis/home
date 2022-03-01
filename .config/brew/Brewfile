@@ -42,7 +42,7 @@ brew "rust-analyzer"
 brew "rustfmt"
 brew "rustup-init"
 brew "sops"
-brew "syncthing"
+brew "syncthing", restart_service: true
 brew "terraform"
 brew "the_silver_searcher"
 brew "tmux"
@@ -96,8 +96,3 @@ cask "vlc"
 cask "webex"
 cask "whatsapp"
 cask "zoom"
-mas "ApolloOne", id: 1044484672
-mas "Handy Calculator", id: 430801153
-mas "ReadKit", id: 588726889
-mas "SmugMug", id: 1115348888
-mas "WireGuard", id: 1451685025
