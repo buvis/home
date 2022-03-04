@@ -8,6 +8,23 @@ function buvis-get-temp () {
     cd -
 }
 
+# get reboot plan
+function buvis-get-reboot-plan () {
+    RED='\033[1;31m'
+    GREEN='\033[1;32m'
+    NC='\033[0m'
+    hosts=( columbus nimitz feynman hawking planck braun )
+
+    for host in "${hosts[@]}"
+    do
+        if (ssh $host cat /var/run/reboot-required 2>/dev/null); then
+            echo -e "${RED}$host plans to restart${NC}"
+        else
+            echo -e "${GREEN}$host doesn't plan to restart${NC}"
+        fi
+    done
+}
+
 # reboot a node
 function buvis-reboot () {
     cd $DOTFILES_ROOT/git/src/gitlab.com/buvis/playbooks
