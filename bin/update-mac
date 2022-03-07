@@ -38,23 +38,29 @@ tmux send-keys -t '='$SESSION':=cfg' 'while [ $(tmux list-windows | wc -l | xarg
 tmux send-keys -t '='$SESSION':=cfg' 'do printf "."; sleep 10; done; printf "\n"; cfgapa'
 tmux send-keys -t '='$SESSION':=cfg' Enter
 
-#Update alacritty terminfo
+# Update alacritty terminfo
 runnowait "curl https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info -o ~/.config/alacritty/alacritty.info"
 
 # Update brew and backup the list of installed packages
 runwait "brew" "brew update; brew upgrade; brew upgrade --cask; brew update; brew upgrade; brew upgrade --cask; brew upgrade --greedy; brew cleanup; cd ~/.config/brew; brew bundle --force dump; cd -"
 
-#Update tmux plugins
+# Update tmux plugins
 runwait "tmux-tpm" "/Users/bob/.tmux/plugins/tpm/scripts/update_plugin_prompt_handler.sh all"
 
-#Update asdf plugins
+# Update asdf plugins
 runwait "asdf" "asdf plugin update --all"
 
-#Update helm repos
+# Update helm repos
 runwait "helm" "helm repo update"
 
-#Update node packages
+# Update node packages
 runwait "npm" "npm-check -gy"
 runwait "yarn" "yarn global upgrade --latest"
+
+# Update rust installation
+runwait "rust" "rustup update"
+
+# Update pip
+runwait "pip" "/Users/bob/bin/update-pip"
 
 attach
