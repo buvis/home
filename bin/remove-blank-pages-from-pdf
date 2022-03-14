@@ -1,0 +1,33 @@
+#! /bin/bash
+# source: https://repolinux.wordpress.com/2012/04/05/automatically-remove-blank-pages-from-pdf/
+# requires:
+# - get-non-blank-pages-from-pdf.py
+# - brew install xpdf
+# - brew install pdftk-java
+
+for filename in "$@"; do
+  # get non-blank ranges
+  ranges="$(pdftotext "$filename" - | \
+    "$HOME/bin/get-non-blank-pages-from-pdf.py")"
+
+  if [ -z "$ranges" ]; then
+    echo "no non-blank pages found in $filename" >&2
+    continue
+  fi
+
+  # rename pdf
+  if [ -e "${filename}.old" ]; then
+    echo "file exists: ${filename}.old" >&2
+    continue
+  fi
+
+  mv -n "$filename" "${filename}.old"
+
+  if [ -e "$filename" -o ! -e "${filename}.old" ]; then
+    echo "couldn't rename file $filename" >&2
+    continue
+  fi
+
+  # create new pdf with non-blank pages only
+  pdftk "${filename}.old" cat $ranges output "$filename"
+done
