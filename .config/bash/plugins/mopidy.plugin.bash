@@ -28,7 +28,7 @@ function update-mopidy () {
 
 # run mopidy at remote machine
 function run-mopidy () {
-    ssh $1 "docker run --detach --restart=always \
+    ssh $1 "docker pull buvis/mopidy && docker run --detach --restart=always \
                 -p 6680:6680 -p 6600:6600 \
                 --device /dev/snd \
                 --mount type=bind,source=/var/local/docker/mopidy/config,target=/app/config,readonly \
