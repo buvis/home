@@ -31,6 +31,7 @@ brew "kustomize"
 brew "mas"
 brew "most"
 brew "nmap"
+brew "pdftk-java"
 brew "pinentry-mac"
 brew "pipenv"
 brew "pre-commit"
@@ -50,6 +51,7 @@ brew "vifm"
 brew "vim"
 brew "watch"
 brew "xh"
+brew "xpdf"
 brew "yamllint"
 brew "yarn"
 brew "fluxcd/tap/flux"
@@ -95,9 +97,9 @@ cask "vivaldi"
 cask "vlc"
 cask "webex"
 cask "whatsapp"
+cask "wkhtmltopdf"
 cask "zoom"
 mas "ApolloOne", id: 1044484672
 mas "Handy Calculator", id: 430801153
-mas "ReadKit", id: 588726889
 mas "SmugMug", id: 1115348888
 mas "WireGuard", id: 1451685025
