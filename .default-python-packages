@@ -1,0 +1,10 @@
+autopep8
+black
+code-slugify
+flake8
+isort
+pipenv
+PyAutoGUI
+pyreadline
+python-language-server
+Yapf
