@@ -1,10 +1,11 @@
 autopep8
 black
-code-slugify
 flake8
+gita
 isort
 pipenv
 PyAutoGUI
 pyreadline
 python-language-server
+python-slugify
 Yapf
