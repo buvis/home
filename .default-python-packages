@@ -8,4 +8,5 @@ PyAutoGUI
 pyreadline
 python-language-server
 python-slugify
+unidecode
 Yapf
