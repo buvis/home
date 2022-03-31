@@ -55,7 +55,11 @@ if args.path:
         if platform.system() != "Windows":
             path = path.replace("\\", "")
         old = Path(path)
-        renamed = f"{normalize(old.stem)}.{normalize(old.suffix)}"
+        if old.suffix:
+            renamed = f"{normalize(old.stem)}.{normalize(old.suffix)}"
+        else:
+            renamed = f"{normalize(old.stem)}"
+
         # add received timestamp for emails
 
         if old.suffix == ".eml":
@@ -68,14 +72,13 @@ if args.path:
 
                     if match:
                         local = datetime.fromtimestamp(
-                            mktime_tz(parsedate_tz(match.group(1)))
-                        )
+                            mktime_tz(parsedate_tz(match.group(1))))
                         utc = local.astimezone(timezone.utc)
                         received = utc.strftime("%Y%m%d%H%M%S")
                 filename_time = re.match("20\d+", old.stem)
 
                 if filename_time:
-                    remainder = old.stem[filename_time.end(0) :]
+                    remainder = old.stem[filename_time.end(0):]
                 else:
                     remainder = old.stem
 
