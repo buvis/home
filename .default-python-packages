@@ -5,6 +5,7 @@ gita
 isort
 pipenv
 PyAutoGUI
+pymarkdownlt
 pyreadline
 python-language-server
 python-slugify
