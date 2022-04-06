@@ -1,8 +1,18 @@
 " markdown.vim
 " markdown specific settings
 
+" register pymarkdown linter
+call ale#linter#Define('markdown', {
+\   'name': 'pymarkdown',
+\   'executable': 'pymarkdown',
+\   'lint_file': 1,
+\   'output_stream': 'both',
+\   'command': '%e -c $HOME/.pymarkdown.config.json scan %t',
+\   'callback': 'buvis#functions#pymarkdownlint'
+\})
+
 " syntax checker settings
-let b:ale_linters = ['pymarkdown']
+let b:ale_linters = ['pymarkdown', 'writegood']
 
 " highlight code blocks for given languages
 let g:vim_markdown_fenced_languages = [

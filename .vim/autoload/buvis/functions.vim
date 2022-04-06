@@ -30,3 +30,24 @@ function! buvis#functions#gitsend(...)
         echo "Cancelled"
     endif
 endfunction
+
+function! buvis#functions#pymarkdownlint(buffer, lines) abort
+    let l:output=[]
+
+    for l:match in ale#util#GetMatches(a:lines, '\v([^:]+):(\d+):(\d+): (MD\d{3}): (.*)$')
+        let l:result = ({
+        \ 'lnum': l:match[2] + 0,
+        \ 'code': l:match[4],
+        \ 'text': l:match[5],
+        \ 'type': 'W',
+        \})
+
+        if len(l:match[3]) > 0
+            let l:result.col = (l:match[3] + 0)
+        endif
+
+        call add(l:output, l:result)
+    endfor
+
+    return l:output
+endfunction
