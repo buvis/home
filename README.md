@@ -47,6 +47,10 @@ Note: Install buvis to Windows host to share the configuration between host and 
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
+### Install npm packages
+
+1. `npm install -g write-good`
+
 ### Install asdf managed python
 
 1. Install asdf python plugin: `asdf plugin add python`
