@@ -1,6 +1,8 @@
 " markdown.vim
 " markdown specific settings
 
+" syntax checker settings
+let b:ale_linters = ['pymarkdown']
 
 " highlight code blocks for given languages
 let g:vim_markdown_fenced_languages = [
