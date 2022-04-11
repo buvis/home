@@ -11,6 +11,9 @@ call ale#linter#Define('markdown', {
 \   'callback': 'buvis#functions#pymarkdownlint'
 \})
 
+" activate E-Prime in writegood
+let b:ale_writegood_options = '--yes-eprime'
+
 " syntax checker settings
 let b:ale_linters = ['pymarkdown', 'writegood']
 
