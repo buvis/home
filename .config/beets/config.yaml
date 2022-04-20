@@ -10,9 +10,11 @@ paths:
   default: '$albumartist/[%if{$year,$year,0000}] $album%aunique{}/%if{$multidisc,$disc-}$track - $title'
   albumtype:soundtrack: '000-soundtracks/$album [%if{$year,$year,0000}]%aunique{}/%if{$multidisc,$disc-}$track - $title'
   comp: '000-compilations/$album [%if{$year,$year,0000}]%aunique{}/%if{$multidisc,$disc-}$track - %if{$artist,$artist - }$title'
+  singleton: '000-non-album/$artist/$title'
 plugins:
 - albumtypes  # https://beets.readthedocs.io/en/stable/plugins/albumtypes.html
 - discogs  # https://beets.readthedocs.io/en/stable/plugins/discogs.html
+- duplicates  # https://beets.readthedocs.io/en//stable/plugins/duplicates.html
 - chroma  # https://beets.readthedocs.io/en/stable/plugins/chroma.html
 - fetchart  # https://beets.readthedocs.io/en/stable/plugins/fetchart.html
 - ftintitle  # https://beets.readthedocs.io/en/stable/plugins/ftintitle.html
