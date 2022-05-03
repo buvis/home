@@ -3,7 +3,7 @@ about-plugin 'buvis cluster management'
 
 # get cpu temperature of all nodes in the cluster
 function buvis-get-temp () {
-    cd $DOTFILES_ROOT/.playbooks
+    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
     ansible-playbook get-cluster-temperature.yaml
     cd -
 }
@@ -27,15 +27,22 @@ function buvis-get-reboot-plan () {
 
 # reboot a node
 function buvis-reboot () {
-    cd $DOTFILES_ROOT/git/src/gitlab.com/buvis/playbooks
+    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
     ansible -b -m reboot $1
     cd -
 }
 
 # shutdown a node
 function buvis-shutdown () {
-    cd $DOTFILES_ROOT/.playbooks
+    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
     ansible -b -m shell -a "shutdown now" $1
+    cd -
+}
+
+# upgrade cluster nodes
+function buvis-upgrade () {
+    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
+    ansible-playbook upgrade-cluster-nodes.yaml
     cd -
 }
 
