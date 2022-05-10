@@ -35,8 +35,10 @@ function buvis-reboot () {
 # reconcile flux
 function buvis-reconcile () {
     cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production
+    direnv allow . && eval "$(direnv export bash)"
     flux reconcile ks flux-system --with-source
     cd -
+    direnv allow . && eval "$(direnv export bash)"
 }
 
 # shutdown a node
