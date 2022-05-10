@@ -32,6 +32,13 @@ function buvis-reboot () {
     cd -
 }
 
+# reconcile flux
+function buvis-reconcile () {
+    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production
+    flux reconcile ks flux-system --with-source
+    cd -
+}
+
 # shutdown a node
 function buvis-shutdown () {
     cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
