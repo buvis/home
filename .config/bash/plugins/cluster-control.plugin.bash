@@ -13,7 +13,7 @@ function buvis-get-reboot-plan () {
     RED='\033[1;31m'
     GREEN='\033[1;32m'
     NC='\033[0m'
-    hosts=( columbus nimitz feynman hawking planck braun )
+    hosts=( hawking columbus feynman planck buvis-master-1 buvis-worker-1 buvis-worker-2 buvis-worker-3 )
 
     for host in "${hosts[@]}"
     do
