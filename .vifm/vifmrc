@@ -142,7 +142,7 @@ else
     mark h ~/
     mark H ~/z/reference/hrsp
     mark i ~/z/reference/invoice
-    mark k ~/git/src/github.com/buvis-net/clusters
+    mark k ~/git/src/github.com/buvis/clusters
     mark m ~/media
     mark n ~/z/reference/newsletter
     mark o ~/z/reference/order
