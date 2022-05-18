@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+
+import os
+import shutil
+import sys
+from pathlib import Path
+
+# Run only with source and destination dirs arguments
+assert sys.argv[2:]
+assert not sys.argv[3:]
+
+source = sys.argv[1]
+destination = sys.argv[2]
+
+for root, dirs, files in os.walk(source):
+    for filename in files:
+        source_path = os.path.join(root, filename)
+        destination_path = os.path.join(destination, filename)
+        stem = Path(destination_path).stem
+        suffix = Path(destination_path).suffix
+        i = 1
+        # Prevent overwriting existing files
+        while os.path.exists(destination_path):
+            destination_path = os.path.join(destination, f"{stem}-{i}{suffix}")
+            i = i + 1
+        print("Copying {} to {}".format(source_path, destination_path))
+        shutil.copy(source_path, destination_path)
