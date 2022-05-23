@@ -1,5 +1,6 @@
 {
-  "lastupdate": "2022-03-22T08:45:16.6225344+01:00",
+  "lastupdate": "2022-04-12T08:37:51.6925547+02:00",
   "SCOOP_REPO": "https://github.com/lukesampson/scoop",
-  "SCOOP_BRANCH": "master"
+  "SCOOP_BRANCH": "master",
+  "proxy": "localhost:3128"
 }
