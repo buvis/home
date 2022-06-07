@@ -3,7 +3,7 @@ about-plugin 'buvis cluster management'
 
 # get cpu temperature of all nodes in the cluster
 function buvis-get-temp () {
-    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
+    cd $DOTFILES_ROOT/git/src/github.com/buvis/clusters/production/infrastructure/ansible
     ansible-playbook get-cluster-temperature.yaml
     cd -
 }
@@ -13,7 +13,7 @@ function buvis-get-reboot-plan () {
     RED='\033[1;31m'
     GREEN='\033[1;32m'
     NC='\033[0m'
-    hosts=( hawking columbus feynman planck buvis-master-1 buvis-worker-1 buvis-worker-2 buvis-worker-3 )
+    hosts=( higgs-master-1 higgs-worker-1 higgs-worker-2 higgs-worker-3 feynman-master-1 feynman-worker-1 feynman-worker-2 feynman-worker-3 )
 
     for host in "${hosts[@]}"
     do
@@ -27,14 +27,14 @@ function buvis-get-reboot-plan () {
 
 # reboot a node
 function buvis-reboot () {
-    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
+    cd $DOTFILES_ROOT/git/src/github.com/buvis/clusters/production/infrastructure/ansible
     ansible -b -m reboot $1
     cd -
 }
 
 # reconcile flux
 function buvis-reconcile () {
-    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production
+    cd $DOTFILES_ROOT/git/src/github.com/buvis/clusters/production
     direnv allow . && eval "$(direnv export bash)"
     flux reconcile ks flux-system --with-source
     cd -
@@ -43,15 +43,15 @@ function buvis-reconcile () {
 
 # shutdown a node
 function buvis-shutdown () {
-    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
+    cd $DOTFILES_ROOT/git/src/github.com/buvis/clusters/production/infrastructure/ansible
     ansible -b -m shell -a "shutdown now" $1
     cd -
 }
 
 # upgrade cluster nodes
 function buvis-upgrade () {
-    cd $DOTFILES_ROOT/git/src/github.com/buvis-net/clusters/production/infrastructure/ansible
-    ansible-playbook upgrade-cluster-nodes.yaml
+    cd $DOTFILES_ROOT/git/src/github.com/buvis/clusters/production/infrastructure/ansible
+    ansible-playbook upgrade-k3s-nodes.yaml
     cd -
 }
 
