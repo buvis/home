@@ -1,0 +1,24 @@
+---
+# main task file for roles/run-mopidy-pulsesink
+
+
+- name: Remove Mopidy container
+  docker_container:
+    name: mopidy
+    state: absent
+
+- name: Pull Mopidy image
+  docker_image:
+    name: buvis/mopidy
+    source: pull
+
+- name: Run Mopidy container
+  shell: |
+    docker run --detach --restart=always \
+    -p 6680:6680 -p 6600:6600 \
+    -u kah:audio \
+    --group-add $(getent group audio | cut -d: -f3) \
+    --mount type=bind,source=/var/local/docker/mopidy/config,target=/config \
+    --mount type=bind,source=/var/local/docker/mopidy/local,target=/app/mopidy/local \
+    --mount type=bind,source=/var/local/docker/mopidy/media,target=/app/mopidy/media,readonly \
+    --name mopidy buvis/mopidy

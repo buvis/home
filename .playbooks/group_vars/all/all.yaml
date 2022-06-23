@@ -1,0 +1,12 @@
+---
+# Use python3
+ansible_python_interpreter: /usr/bin/env python3
+
+# Use bob as default user
+default_user: bob
+
+# Ansible credentials
+ansible_user: "{{ default_user }}"
+
+# Snapclient release DEB (find latest at https://github.com/badaix/snapcast/releases)
+url_snapclient_armhf_deb: https://github.com/badaix/snapcast/releases/download/v0.26.0/snapclient_0.26.0-1_armhf.deb

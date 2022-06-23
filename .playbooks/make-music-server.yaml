@@ -1,0 +1,17 @@
+---
+- hosts: all
+  remote_user: "{{ default_user }}"
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+  - pause:
+      prompt: Enter NAS mount point for Mopidy media directory (<NAS_IP>:/mnt/tank/media/music) or leave empty to skip
+    register: nas_media_directory
+
+  roles:
+  - upgrade-host
+  - create-kah-user
+  - install-docker
+  - run-snapserver
+  - run-mopidy

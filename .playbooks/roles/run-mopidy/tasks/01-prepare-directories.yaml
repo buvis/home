@@ -1,0 +1,38 @@
+---
+# 01-prepare-directories task file for roles/run-mopidy
+
+
+- name: Unmount NAS media directory
+  mount:
+    path: /var/local/docker/mopidy/media
+    state: unmounted
+
+- name: Make directories to store Mopidy data between reboots
+  file:
+    path: "/var/local/docker/mopidy/{{item}}"
+    owner: kah
+    group: audio
+    mode: 0755
+    recurse: yes
+    state: directory
+  with_items:
+  - config
+  - local
+  - media
+
+- name: Copy Mopidy configuration
+  template:
+    src: mopidy.conf.j2
+    dest: /var/local/docker/mopidy/config/mopidy.conf
+    owner: kah
+    group: audio
+    mode: '0644'
+
+- name: Mount NAS media directory
+  when: nas_media_directory.user_input | default('', true) | trim != ''
+  mount:
+    path: /var/local/docker/mopidy/media
+    src: "{{ nas_media_directory.user_input | trim }}"
+    fstype: nfs
+    opts: ro,auto,_netdev,noatime,nolock,nofail,bg,intr,tcp,actimeo=1800
+    state: mounted

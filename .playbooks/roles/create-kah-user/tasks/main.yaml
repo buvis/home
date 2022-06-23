@@ -1,0 +1,13 @@
+---
+# tasks file for roles/create-kah-user
+
+# I can't use builtin user module, because it creates home even for system users
+- name: Add 'kah' user
+  shell: |
+    id -u kah >/dev/null 2>&1 || \
+    adduser kah \
+      --uid 568 \
+      --group \
+      --system \
+      --disabled-password \
+      --no-create-home

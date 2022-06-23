@@ -1,0 +1,7 @@
+# handlers for roles/install-snapclient
+---
+
+- name: Restart snapclient
+  service:
+    name: snapclient
+    state: restarted

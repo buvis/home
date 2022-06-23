@@ -1,0 +1,28 @@
+---
+# main task file for roles/install-docker
+
+- name: Install docker
+  shell: "curl -sSL https://get.docker.com | sh"
+  args:
+    warn: false
+
+- name: Allow {{ default_user }} to control docker
+  user:
+    name: "{{ default_user }}"
+    groups: docker
+    append: yes
+
+- name: Start docker on boot
+  service:
+    name: docker
+    enabled: yes
+    state: started
+
+- name: Install pip
+  apt:
+    name: python3-pip
+    state: present
+
+- name: Install docker python package
+  pip:
+    name: docker

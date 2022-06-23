@@ -1,0 +1,10 @@
+---
+# 05-schedule-library-rescan task file for roles/run-mopidy
+
+
+- name: Schedule Mopidy library rescan
+  cron:
+    name: "rescan mopidy library"
+    minute: "0"
+    hour: "*/6"
+    job: "docker exec mopidy /shim/scan-local.sh"
