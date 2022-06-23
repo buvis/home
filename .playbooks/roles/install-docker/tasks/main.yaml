@@ -1,6 +1,7 @@
 ---
 # main task file for roles/install-docker
 
+
 - name: Install docker
   shell: "curl -sSL https://get.docker.com | sh"
   args:

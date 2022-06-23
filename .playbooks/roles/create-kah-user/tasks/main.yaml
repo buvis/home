@@ -1,5 +1,5 @@
 ---
-# tasks file for roles/create-kah-user
+# main tasks file for roles/create-kah-user
 
 # I can't use builtin user module, because it creates home even for system users
 - name: Add 'kah' user

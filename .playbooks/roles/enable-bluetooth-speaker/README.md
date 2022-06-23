@@ -1,7 +1,7 @@
-Install snapclient on a raspberry
-=================================
+Enable Bluetooth speaker
+========================
 
-This role installs the latest snapclient from https://github.com/badaix/snapcast/releases for armhf.
+Add support to play audio through Bluetooth speaker.
 
 Requirements
 ------------
@@ -11,8 +11,7 @@ None.
 Role Variables
 --------------
 
-- url_snaplcient_armhf_deb
-- ip_snapserver
+None.
 
 Dependencies
 ------------
@@ -28,13 +27,8 @@ Example Playbook
   become: true
   gather_facts: true
 
-  pre_tasks:
-  - pause:
-      prompt: Enter IP address of snapserver
-    register: ip_snapserver
-
   roles:
-  - install-snapclient
+  - enable-bt-speaker
 ```
 
 License

@@ -1,5 +1,6 @@
-# handlers for roles/install-snapclient
+# handlers for roles/enable-bluetooth-speaker
 ---
+
 
 - name: Restart snapclient
   service:

@@ -1,7 +1,7 @@
-Run mopidy with pulsesink
-=========================
+Run Snapcast server
+===================
 
-This role installs docker.
+This role runs Snapcast server in Docker container.
 
 Requirements
 ------------
@@ -28,7 +28,7 @@ Example Playbook
   gather_facts: true
 
   roles:
-  - install-docker
+  - run-snapserver
 ```
 
 License

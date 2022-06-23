@@ -2,7 +2,7 @@
 # 01-prepare-directories task file for roles/run-mopidy
 
 
-- name: Unmount NAS media directory
+- name: Unmount media directory
   mount:
     path: /var/local/docker/mopidy/media
     state: unmounted
