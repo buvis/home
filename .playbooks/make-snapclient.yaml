@@ -1,0 +1,14 @@
+---
+- hosts: all
+  remote_user: "{{ default_user }}"
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+  - pause:
+      prompt: Enter IP address of snapserver
+    register: ip_snapserver
+
+  roles:
+  - upgrade-host
+  - install-snapclient

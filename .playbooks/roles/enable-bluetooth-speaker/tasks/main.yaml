@@ -1,0 +1,38 @@
+---
+# main task file for roles/enable-bluetooth-speaker
+
+
+- name: Remove obsolete bluealsa
+  apt:
+    name: bluealsa
+    state: absent
+
+- name: Install PulseAudio with bluetooth support
+  apt:
+    name: pulseaudio-module-bluetooth
+    state: present
+
+- name: Allow {{ default_user }} to control bluetooth
+  user:
+    name: "{{ default_user }}"
+    groups: bluetooth
+    append: yes
+
+- name: Allow network access to PulseAudio server
+  lineinfile:
+    path: /etc/pulse/default.pa
+    line: load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1;10.0.0.0/8;172.17.0.0/24
+    create: yes
+
+- name: Start PulseAudio
+  shell: "systemctl --user --now enable pulseaudio"
+  args:
+    executable: /bin/bash
+  become: false
+
+- name: Configure snapclient to use pulseaudio
+  replace:
+    path: /etc/default/snapclient
+    regexp: '(^SNAPCLIENT_OPTS="-h \d+\.\d+\.\d+\.\d+)(.*)"$'
+    replace: '\1 --player pulse:server=127.0.0.1"'
+  notify: Restart snapclient

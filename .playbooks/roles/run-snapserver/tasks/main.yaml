@@ -1,0 +1,22 @@
+---
+# main task file for roles/run-snapserver
+
+- name: Remove snapserver container
+  docker_container:
+    name: snapserver
+    state: absent
+
+- name: Pull snapserver image
+  docker_image:
+    name: saiyato/snapserver
+    source: pull
+
+- name: Run snapserver container
+  shell: |
+    docker run \
+    --detach \
+    --restart=always \
+    --name snapserver \
+    -p 1704:1704 -p 1705:1705 -p 1780:1780 -p 4955:4955 \
+    saiyato/snapserver \
+    --stream.stream tcp://0.0.0.0:4955?name=Mopidy \

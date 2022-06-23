@@ -1,0 +1,23 @@
+---
+# main task file for roles/install-snapclient
+
+
+- name: Get snapclient DEB file
+  shell: "curl -o /tmp/snapclient.deb -LJO {{ url_snapclient_armhf_deb }}"
+
+- name: Install snapclient.deb package
+  apt:
+    deb: /tmp/snapclient.deb
+
+- name: Allow {{ default_user }} to control audio
+  user:
+    name: "{{ default_user }}"
+    groups: audio
+    append: yes
+
+- name: Configure server to use
+  replace:
+    path: /etc/default/snapclient
+    regexp: '(^SNAPCLIENT_OPTS=")(.*)"$'
+    replace: '\1-h {{ ip_snapserver.user_input }}"'
+  notify: Restart snapclient

@@ -1,0 +1,11 @@
+---
+# main task file for roles/run-mopidy
+
+- name: "[BEGIN] Prepare directories"
+  include_tasks: 01-prepare-directories.yaml
+
+- name: "[BEGIN] Run Mopidy"
+  include_tasks: 02-run-mopidy.yaml
+
+- name: "[BEGIN] Schedule library rescan"
+  include_tasks: 03-schedule-library-rescan.yaml
