@@ -1,6 +1,5 @@
 ---
-# handler for role upgrade-host
-#
+# handler for roles/upgrade-host
 
 - name: Reboot host and wait for it to restart
   reboot:

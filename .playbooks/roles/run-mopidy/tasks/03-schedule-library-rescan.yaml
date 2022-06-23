@@ -1,5 +1,5 @@
 ---
-# 05-schedule-library-rescan task file for roles/run-mopidy
+# 03-schedule-library-rescan task file for roles/run-mopidy
 
 
 - name: Schedule Mopidy library rescan

@@ -1,7 +1,8 @@
-Run mopidy with pulsesink
-=========================
+Run Mopidy
+==========
 
-This role installs docker.
+This role runs Mopidy in Docker container.
+
 
 Requirements
 ------------
@@ -11,7 +12,7 @@ None.
 Role Variables
 --------------
 
-No variables.
+- nas_media_directory: set it to NFS destination as <NAS_IP>:/mnt/tank/media/music
 
 Dependencies
 ------------
@@ -27,8 +28,13 @@ Example Playbook
   become: true
   gather_facts: true
 
+  pre_tasks:
+  - pause:
+      prompt: Enter NAS mount point for Mopidy media directory (<NAS_IP>:/mnt/tank/media/music) or leave empty to skip
+    register: nas_media_directory
+
   roles:
-  - install-docker
+  - run-mopidy
 ```
 
 License

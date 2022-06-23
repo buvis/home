@@ -22,7 +22,7 @@ Example Playbook
 ----------------
 
 ```
-- hosts: standalone
+- hosts: all
   remote_user: "{{ default_user }}"
   become: true
   gather_facts: true

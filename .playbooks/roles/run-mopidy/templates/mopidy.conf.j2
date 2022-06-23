@@ -11,9 +11,7 @@ config_file =
 
 [audio]
 mixer = software
-# output = pulsesink server={{ ansible_default_ipv4.address|default(ansible_all_ipv4_addresses[0]) }}
-# output = audioresample ! audio/x-raw,rate=48000,channels=2,format=S16LE ! audioconvert ! wavenc ! filesink location=/tmp/mopidyfifo
-output = audioresample ! audioconvert ! audio/x-raw,rate=48000,channels=2,format=S16LE ! wavenc ! tcpclientsink host=10.8.0.50 port=4955
+output = audioresample ! audioconvert ! audio/x-raw,rate=48000,channels=2,format=S16LE ! wavenc ! tcpclientsink host={{ ansible_default_ipv4.address|default(ansible_all_ipv4_addresses[0]) }} port=4955
 mixer_volume = 80
 
 [file]

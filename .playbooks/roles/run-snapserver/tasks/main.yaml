@@ -17,6 +17,9 @@
     --detach \
     --restart=always \
     --name snapserver \
-    -p 1704:1704 -p 1705:1705 -p 1780:1780 -p 4955:4955 \
+    --publish 1704:1704 \
+    --publish 1705:1705 \
+    --publish 1780:1780 \
+    --publish 4955:4955 \
     saiyato/snapserver \
-    --stream.stream tcp://0.0.0.0:4955?name=Mopidy \
+    --stream.stream tcp://0.0.0.0:4955?name=mopidy
