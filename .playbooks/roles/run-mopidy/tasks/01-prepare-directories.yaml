@@ -16,8 +16,8 @@
     recurse: yes
     state: directory
   with_items:
+  - data
   - config
-  - local
   - media
 
 - name: Copy Mopidy configuration

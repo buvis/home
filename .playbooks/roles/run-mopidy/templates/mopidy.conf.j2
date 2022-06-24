@@ -1,7 +1,7 @@
 [core]
 cache_dir = /app/mopidy/cache
 config_dir = /config
-data_dir = /app/mopidy
+data_dir = /app
 
 [logging]
 verbosity = 0
@@ -16,7 +16,7 @@ mixer_volume = 80
 
 [file]
 enabled = true
-media_dirs = /app/mopidy/media
+media_dirs = /media
 show_dotfiles = false
 excluded_file_extensions =
   .directory
@@ -35,7 +35,7 @@ metadata_timeout = 1000
 [local]
 library = sqlite
 scan_flush_threshold = 100
-media_dir = /app/mopidy/media
+media_dir = /media
 scan_timeout = 4000
 excluded_file_extensions =
     .bmp
@@ -52,7 +52,7 @@ excluded_file_extensions =
     .zip
 
 [m3u]
-playlists_dir = /app/mopidy/media/000-playlists
+playlists_dir = /media/000-playlists
 
 [mpd]
 hostname = 0.0.0.0
@@ -67,7 +67,7 @@ zeroconf = $hostname
 
 [scrobbler]
 username = {{ secret_lastfm_username }}
-password = {{ secret_lastfm_password}}
+password = {{ secret_lastfm_password }}
 
 [tunein]
 timeout = 600000
