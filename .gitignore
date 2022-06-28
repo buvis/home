@@ -2,6 +2,8 @@
 .config/beets/discogs_token.json
 .config/beets/state.pickle
 .config/brew/Brewfile.lock.json
+.config/MusicBrainz/.Picard.ini.synclock
+.config/MusicBrainz/Picard.ini
 .config/configstore
 .config/yarn
 .gitsecret/keys/random_seed
