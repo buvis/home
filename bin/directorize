@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+"""
+Use `directorize .` to put all files from current directory into separate
+directories named after the filename without the suffix/extension.
+"""
+import os
+import shutil
+import sys
+from pathlib import Path
+
+assert sys.argv[1:]
+assert not sys.argv[2:]
+
+source = sys.argv[1]
+
+for root, dirs, files in os.walk(source):
+    for filename in files:
+        source_path = os.path.join(root, filename)
+        destination_dir = os.path.join(source, Path(filename).stem)
+        os.mkdir(destination_dir)
+        destination_path = os.path.join(destination_dir, filename)
+        shutil.move(source_path, destination_path)
