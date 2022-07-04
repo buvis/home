@@ -111,7 +111,15 @@
 ; Language switching
 ^Space::
 {
-	Send "{Ctrl down}{Shift}{Ctrl up}"
+	ActivePName := WinGetProcessName("A")
+	if (ActivePName = "eclipse.exe")
+	{
+	  Suspend(True)
+      Send "{Ctrl down}{Space}{Ctrl up}"
+	  Suspend(False)
+	} else {
+	  Send "{Ctrl down}{Shift}{Ctrl up}"
+	}
 	Return
 }
 
