@@ -41,6 +41,9 @@ export PATH=$PATH:.
 # Support kubectl plugins
 export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 
+# Python wheels
+export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
+
 # Set my editor and git editor
 export EDITOR="vim"
 export GIT_EDITOR='vim'
