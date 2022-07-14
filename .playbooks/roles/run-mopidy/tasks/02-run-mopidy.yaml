@@ -23,6 +23,6 @@
     --user kah:audio \
     --group-add $(getent group audio | cut -d: -f3) \
     --mount type=bind,source=/var/local/docker/mopidy/data,target=/app \
-    --mount type=bind,source=/var/local/docker/mopidy/config,target=/config,readonly \
+    --mount type=bind,source=/var/local/docker/mopidy/config,target=/config \
     --mount type=bind,source=/var/local/docker/mopidy/media,target=/media \
     buvis/mopidy
