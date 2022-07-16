@@ -14,6 +14,7 @@ brew "chromaprint"
 brew "coreutils"
 brew "curlie"
 brew "direnv"
+brew "exiftool"
 brew "faas-cli"
 brew "fzf"
 brew "git"
@@ -104,9 +105,3 @@ cask "whatsapp"
 cask "wkhtmltopdf"
 cask "xld"
 cask "zoom"
-mas "ApolloOne", id: 1044484672
-mas "GrandPerspective", id: 1111570163
-mas "Handy Calculator", id: 430801153
-mas "SmugMug", id: 1115348888
-mas "The Unarchiver", id: 425424353
-mas "WireGuard", id: 1451685025
