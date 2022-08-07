@@ -28,6 +28,9 @@ nnoremap <silent> <Leader>gs :call buvis#functions#gitsend()<CR>
 " join all lines using ; (eg. to email list of people)
 nnoremap <Leader>J :%s/\n/;/g<CR>
 
+" create new zettel
+nnoremap <Leader>z :ZettelNew<CR>
+
 " redefine wincent/scalpel trigger
 nmap <Leader>r <Plug>(Scalpel)
 
