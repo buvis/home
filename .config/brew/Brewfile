@@ -24,6 +24,7 @@ brew "go"
 brew "grep"
 brew "helm"
 brew "howdoi"
+brew "iperf"
 brew "jq"
 brew "kompose"
 brew "kubernetes-cli", link: false
