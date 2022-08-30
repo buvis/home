@@ -27,7 +27,7 @@ brew "howdoi"
 brew "iperf"
 brew "jq"
 brew "kompose"
-brew "kubernetes-cli", link: false
+brew "kubernetes-cli"
 brew "krew"
 brew "kustomize"
 brew "libslirp"
@@ -106,10 +106,3 @@ cask "whatsapp"
 cask "wkhtmltopdf"
 cask "xld"
 cask "zoom"
-mas "ApolloOne", id: 1044484672
-mas "GrandPerspective", id: 1111570163
-mas "Handy Calculator", id: 430801153
-mas "iMovie", id: 408981434
-mas "SmugMug", id: 1115348888
-mas "The Unarchiver", id: 425424353
-mas "WireGuard", id: 1451685025
