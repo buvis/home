@@ -44,6 +44,9 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 # Python wheels
 export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
 
+# Python scripts
+export PYTHONPATH="${DOTFILES_ROOT}/src:${PYTHONPATH}"
+
 # Set my editor and git editor
 export EDITOR="vim"
 export GIT_EDITOR='vim'
