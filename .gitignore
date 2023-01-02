@@ -5,6 +5,7 @@
 .config/MusicBrainz/.Picard.ini.synclock
 .config/MusicBrainz/Picard.ini
 .config/configstore
+.config/scripts/readwise-token
 .config/yarn
 .gitsecret/keys/random_seed
 !*.secret
