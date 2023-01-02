@@ -1,12 +1,15 @@
+PyAutoGUI
+Yapf
 autopep8
-beets]
+beautifulsoup4
+beets
 black
+click
 flake8
 gita
 isort
 pipenv
 pyacoustid
-PyAutoGUI
 pylast
 pymarkdownlt
 pyreadline
@@ -14,5 +17,5 @@ python-language-server
 python-slugify
 python3-discogs-client
 requests
+rich
 unidecode
-Yapf
