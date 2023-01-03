@@ -47,15 +47,6 @@ Note: Install buvis to Windows host to share the configuration between host and 
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
-### Install npm packages
-
-1. `npm install -g write-good`
-
-### Install asdf managed python
-
-1. Install asdf python plugin: `asdf plugin add python`
-2. Build python with PyInstaller support: `env PYTHON_CONFIGURE_OPTS="--enable-shared" asdf install python <version>`
-
 ### Fix WSL issues
  
 1. Link WSL home directory to Windows user's home
@@ -82,17 +73,28 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
 2. Fix files coloring in vifm
    1. Add filesystem configuration to `/etc/wsl.conf`
       ``` ini
-      [automount]¬
-      enabled = true¬
-      options = "metadata,uid=1000,gid=1000,umask=0022,fmask=11,case=off"¬
-      mountFsTab = false¬
-      crossDistro = true¬
-      ¬
-      [filesystem]¬
-      umask = 0022¬
+      [automount]
+      enabled = true
+      options = "metadata,uid=1000,gid=1000,umask=0022,fmask=11,case=off"
+      mountFsTab = false
+      crossDistro = true
+      
+      [filesystem]
+      umask = 0022
       ```
    2. Restart WSL: run `wsl --terminate Ubuntu` in `cmd`, then start WSL
    3. Run `chmod -R a-x+X,u-x+rwX,go-wx+rX *` in directory where you want to fix the file coloring in vifm
 3. Fix asdf
    1. Make `utils.bash` executable: `chmod a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/utils.bash`
    2. Make `commands` executable: `chmod -R a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands`
+   3. If asdf can't be used, check permissions with `ls -lla <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands` and if you see "?" everywhere, then run: `chmod -R a+rX *` in `<PATH_TO_WINDOWS_USER_HOME>`
+
+### Install npm packages
+
+1. `npm install -g write-good svelte-language-server`
+
+### Install asdf managed python
+
+1. Install asdf python plugin: `asdf plugin add python`
+2. List available versions: `asdf list all python`
+3. Build python with PyInstaller support: `env PYTHON_CONFIGURE_OPTS="--enable-shared" asdf install python <version>`
