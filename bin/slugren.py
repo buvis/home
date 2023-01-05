@@ -10,12 +10,15 @@
 import os
 import platform
 import re
-import unidecode
 from argparse import ArgumentParser
 from datetime import datetime, timezone
+from email import message_from_file, policy
+from email.parser import BytesParser
 from email.utils import mktime_tz, parsedate_tz
 from pathlib import Path
 
+import unidecode
+from bs4 import BeautifulSoup
 from slugify import slugify
 
 parser = ArgumentParser()
@@ -55,6 +58,7 @@ if args.path:
         if platform.system() != "Windows":
             path = path.replace("\\", "")
         old = Path(path)
+
         if old.suffix:
             renamed = f"{normalize(old.stem)}.{normalize(old.suffix)}"
         else:
@@ -63,30 +67,31 @@ if args.path:
         # add received timestamp for emails
 
         if old.suffix == ".eml":
-            with open(path, "rt", encoding="utf8") as email:
-                pt_received = re.compile(r"Date: (.*)")
-                received = ""
+            email = message_from_file(open(path))
+            date = email["date"].strip()
+            local = datetime.fromtimestamp(mktime_tz(parsedate_tz(date)))
+            utc = local.astimezone(timezone.utc)
+            received = utc.strftime("%Y%m%d%H%M%S")
+            filename_time = re.match("20\d+", old.stem)
 
-                for line in email:
-                    match = pt_received.match(line)
+            if filename_time:
+                remainder = old.stem[filename_time.end(0):]
+            else:
+                remainder = old.stem
 
-                    if match:
-                        local = datetime.fromtimestamp(
-                            mktime_tz(parsedate_tz(match.group(1))))
-                        utc = local.astimezone(timezone.utc)
-                        received = utc.strftime("%Y%m%d%H%M%S")
-                filename_time = re.match("20\d+", old.stem)
+            remainder = normalize(remainder)
+            remainder = re.sub("^(re-)+", "", remainder)
+            remainder = re.sub("^(fw-)+", "", remainder)
+            remainder = re.sub("^(fwd-)+", "", remainder)
 
-                if filename_time:
-                    remainder = old.stem[filename_time.end(0):]
-                else:
-                    remainder = old.stem
+            with open(path, "rb") as email_file:
+                msg = BytesParser(policy=policy.default).parse(email_file)
+                raw_text = msg.get_body().get_content()
+                text = " ".join(
+                    BeautifulSoup(raw_text, "html.parser").stripped_strings)
 
-                remainder = normalize(remainder)
-                remainder = re.sub("^(re-)+", "", remainder)
-                remainder = re.sub("^(fw-)+", "", remainder)
-                remainder = re.sub("^(fwd-)+", "", remainder)
+                print(text)
 
-                if received != "":
-                    renamed = f"{received}-{remainder}{old.suffix}"
+            if received != "":
+                renamed = f"{received}-{remainder}{old.suffix}"
         os.rename(path, os.path.join(old.parent, renamed))
