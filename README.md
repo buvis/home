@@ -9,6 +9,8 @@ I always appreciate any opportunity to learn. Thank you!
 
 ## Prepare
 
+### System independent steps
+
 1. Install NerdFonts for Powerline from romkatv:
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf
@@ -17,7 +19,9 @@ I always appreciate any opportunity to learn. Thank you!
 2. Install python and pip
 3. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
 
-### macOS
+### Additional system specific steps
+
+#### macOS
 
 1. Install all pending OS updates: About This Mac - Software Update...
 2. Install xcode command line tools: `xcode-select --install`
@@ -25,13 +29,14 @@ I always appreciate any opportunity to learn. Thank you!
 4. Set the desired machine name following https://apple.stackexchange.com/questions/287760/set-the-hostname-computer-name-for-macos if booted for the first time
 5. Restart
 
-### Windows
+#### Windows
 
 1. Configure git to keep line endings as they are: `git config --global core.autocrlf false`
 
-### WSL
+#### WSL
 
 1. Install prerequisites for python building: `sudo apt-get install -y build-essential checkinstall libreadline-gplv2-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev liblzma-dev`
+2. Install node and npm: `sudo apt install nodejs npm`
 
 ## Install
 
@@ -76,7 +81,8 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
       - `z`
       - `.tmux.conf`
       - `.vimrc`
-2. Fix files coloring in vifm
+2. Follow `20190805142816` in Zettelkasten to configure for corporate proxy
+3. Fix files coloring in vifm
    1. Add filesystem configuration to `/etc/wsl.conf`
       ``` ini
       [automount]
@@ -90,14 +96,17 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
       ```
    2. Restart WSL: run `wsl --terminate Ubuntu` in `cmd`, then start WSL
    3. Run `chmod -R a-x+X,u-x+rwX,go-wx+rX *` in directory where you want to fix the file coloring in vifm
-3. Fix asdf
+4. Fix asdf
    1. Make `utils.bash` executable: `chmod a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/utils.bash`
    2. Make `commands` executable: `chmod -R a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands`
    3. If asdf can't be used, check permissions with `ls -lla <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands` and if you see "?" everywhere, then run: `chmod -R a+rX *` in `<PATH_TO_WINDOWS_USER_HOME>`
+5. Fix permissions to install npm packages globally: `sudo chown -R bob:bob /usr/local/`
+6. Remember git credentials (run in $DOTFILES_ROOT): `cfg config credential.helper store`
+
 
 ### Install npm packages
 
-1. `npm install -g write-good svelte-language-server`
+1. `npm install -g npm-check write-good svelte-language-server`
 
 ### Install asdf managed python
 
