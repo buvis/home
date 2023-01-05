@@ -111,7 +111,7 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
 
 ### Update
 
-1. Pull updates `cfgl` in `~$HOME`
+1. Pull updates `cfgl` in `$DOTFILES_ROOT`
 2. Stage updates: `cfgapa`
 3. Commit updates with `<MESSAGE>`: `cfgm "<MESSAGE>"`
 4. Push back to repository: `cfgp`
