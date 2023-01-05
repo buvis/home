@@ -41,6 +41,9 @@ export PATH=$PATH:.
 # Support kubectl plugins
 export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 
+# Python wheels
+export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
+
 # Set my editor and git editor
 export EDITOR="vim"
 export GIT_EDITOR='vim'
@@ -64,7 +67,7 @@ export LANG=en_US.UTF-8
 # Use ADP proxy in WSL
 if [[ $IS_WSL ]]; then
    #PROXY='http://:@websurfing1-tin1.esi.adp.com:8080'
-   PROXY='http://127.0.0.1:3128'
+   PROXY='http://127.0.0.1:3129'
    export HTTP_PROXY="$PROXY"
    export HTTPS_PROXY="$PROXY"
 fi
@@ -81,4 +84,8 @@ if [[ $IS_MAC ]]; then
    export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
    gpgconf --launch gpg-agent
 fi
-. "$HOME/.cargo/env"
+
+# Use rust on Mac
+if [[ $IS_MAC ]]; then
+    . "$HOME/.cargo/env"
+fi

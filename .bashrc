@@ -97,4 +97,3 @@ source "$BASH_IT"/bash_it.sh
 if [ "$TMUX" = "" ]; then
     tmux new -As default
 fi
-. "$HOME/.cargo/env"
