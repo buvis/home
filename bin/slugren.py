@@ -86,10 +86,27 @@ if args.path:
 
             with open(path, "rb") as email_file:
                 msg = BytesParser(policy=policy.default).parse(email_file)
-                raw_text = msg.get_body().get_content()
-                text = " ".join(
-                    BeautifulSoup(raw_text, "html.parser").stripped_strings)
 
+                if msg.is_multipart():
+                    text = ""
+
+                    for part in msg.get_payload():
+                        if part.get_content_type() in [
+                                "text/plain",
+                                "text/html",
+                        ]:
+                            add_text_raw = part.get_body().get_content()
+                            add_text = " ".join(
+                                BeautifulSoup(add_text_raw,
+                                              "html.parser").stripped_strings)
+                        else:
+                            continue
+                        text = text + "\n" + add_text
+                else:
+                    raw_text = msg.get_body().get_content()
+                    text = " ".join(
+                        BeautifulSoup(raw_text,
+                                      "html.parser").stripped_strings)
                 print(text)
 
             if received != "":
