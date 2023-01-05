@@ -15,7 +15,7 @@ I always appreciate any opportunity to learn. Thank you!
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf
 2. Install python and pip
-3. Install libffi-dev
+3. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
 
 ### macOS
 
@@ -28,6 +28,10 @@ I always appreciate any opportunity to learn. Thank you!
 ### Windows
 
 1. Configure git to keep line endings as they are: `git config --global core.autocrlf false`
+
+### WSL
+
+1. Install prerequisites for python building: `sudo apt-get install -y build-essential checkinstall libreadline-gplv2-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev`
 
 ## Install
 
@@ -61,6 +65,8 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
    fi
    ```
    2. Create symlinks in vifm (`yy` source, `al` in destination)
+      - `windows-home` from `/mnt/c/Users/<WINDOWS_USERNAME>`
+      - `.default-python-packages`
       - `.tmux`
       - `.vifm`
       - `.vim`
@@ -97,4 +103,20 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
 
 1. Install asdf python plugin: `asdf plugin add python`
 2. List available versions: `asdf list all python`
-3. Build python with PyInstaller support: `env PYTHON_CONFIGURE_OPTS="--enable-shared" asdf install python <version>`
+3. Build python with PyInstaller support: `env PYTHON_CONFIGURE_OPTS="--enable-shared" asdf install python <VERSION>`
+4. Set global python version: `asdf global python <VERSION>`
+5. Create links to default python packages (from `$HOME/.default-python-packages`): `asdf reshim python`
+
+## Operations
+
+### Update
+
+1. Pull updates `cfgl` in `~$HOME`
+2. Stage updates: `cfgapa`
+3. Commit updates with `<MESSAGE>`: `cfgm "<MESSAGE>"`
+4. Push back to repository: `cfgp`
+
+### Add default python package
+
+1. Add package to `$HOME/.default-python-packages`
+2. Install: `pip install -r $HOME/.default-python-packages`
