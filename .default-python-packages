@@ -1,5 +1,5 @@
 autopep8
-beets]
+beets
 black
 flake8
 gita
@@ -8,7 +8,6 @@ pipenv
 pyacoustid
 PyAutoGUI
 pylast
-pymarkdownlt
 pyreadline
 python-language-server
 python-slugify

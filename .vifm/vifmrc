@@ -131,7 +131,7 @@ if has('win')
     mark n "~/OneDrive - Automatic Data Processing Inc/z/reference/newsletter"
     mark r "~/OneDrive - Automatic Data Processing Inc/z/reference"
     mark w "~/OneDrive - Automatic Data Processing Inc/z/workspace"
-    mark z "~/OneDrive - Automatic Data Processing Inc/z/reference/notes"
+    mark z "~/OneDrive - Automatic Data Processing Inc/z/reference/notes/zettelkasten"
 else
     mark a ~/z/archive
     mark b ~/bin/
@@ -151,7 +151,7 @@ else
     mark r ~/z/reference
     mark R ~/z/reference/receipt
     mark w ~/z/workspace
-    mark z ~/z/reference/notes
+    mark z ~/z/reference/notes/zettelkasten
 endif
 
 " ------------------------------------------------------------------------------
@@ -192,6 +192,7 @@ command! ss !~/.local/bin/doogat/doo/doo create snippet
 command! ww !~/.local/bin/doogat/doo/doo create wiki_article
 command! wwff !~/.local/bin/doogat/doo/doo create wiki_article --file %"f:p
 command! winlink !powershell create-shortcut.ps1 '%"f:p' '%"D:p/%"f:t.lnk' &
+command! zettelize !~/bin/zettelize -p "%f" &
 
 " ------------------------------------------------------------------------------
 
@@ -547,6 +548,9 @@ nnoremap ,fp :wslfixperm<cr>
 
 " create windows shortcut in the other pane for selected item
 nnoremap ,wl :winlink<cr>
+
+" zettelize file
+nnoremap ,z :zettelize<cr>
 
 " Example of standard two-panel file managers mappings
 nnoremap <f3> :!less %f<cr>
