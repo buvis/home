@@ -7,9 +7,7 @@
 " * http://vimcasts.org/episodes/archive/
 " * https://www.youtube.com/playlist?list=PLwJS-G75vM7kFO-yUkyNphxSIdbi_1NKX
 "
-" WARNING: put comments on new line, so they are not interpreted as commands
-" WARNING (maybe obsolete): install python plugins dependencies to neovim3 virtualenv:
-" $ pyenv activate neovim3 && pip install pynvim pylama jedi
+" ATTENTION: put comments on new line, so they are not interpreted as commands
 
 " Here I add plugins only, see ~/.vim/plugin for more configuration files
 
@@ -140,11 +138,19 @@ packadd! vim-polyglot
 " https://github.com/sk1418/Join
 packadd! Join
 
+" healthcheck
+" https://github.com/rhysd/vim-healthcheck
+packadd! vim-healthcheck
+
 " }}}
 
 " Filetype specific {{{
 " Can I move this to ftplugin? No, see
 " https://vi.stackexchange.com/questions/22095/why-packadd-from-ftplugin-does-not-work-the-same-way-as-from-vimrc
+"
+" ATTENTION: language specific support has external dependencies:
+" - python: pip install python-lsp-server
+" - svelte: npm install -g svelte-language-server
 
 " Asynchronous Lint Engine
 " https://github.com/dense-analysis/ale
@@ -153,11 +159,16 @@ packadd! ale
 "Code completion
 " https://github.com/prabirshrestha/asyncomplete.vim
 " https://github.com/prabirshrestha/vim-lsp
+" https://github.com/rhysd/vim-lsp-ale
 " https://github.com/prabirshrestha/asyncomplete-lsp.vim
-" ATTENTION: run :!pip install python-language-server
+" https://github.com/andreypopp/asyncomplete-ale.vim
+" https://github.com/airblade/vim-rooter
 packadd! asyncomplete.vim
 packadd! vim-lsp
+packadd! vim-lsp-ale
 packadd! asyncomplete-lsp.vim
+packadd! asyncomplete-ale.vim
+packadd! vim-rooter
 
 " Python: folding
 " https://github.com/tmhedberg/SimpylFold

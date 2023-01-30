@@ -58,15 +58,21 @@ let g:zettel_format = "%Y%m%d%H%M%S"
 let g:zettel_date_format = "%Y-%m-%dT%H:%M:%S%z"
 
 " ALE
-set completeopt=menu,menuone,preview,noselect,noinsert
-let g:ale_completion_enabled = 1
+let g:ale_virtualtext_cursor = 0
 let g:ale_echo_msg_format = '[%linter%] %s [%severity%]'
-let g:ale_fix_on_save=1
+let g:ale_fix_on_save = 1
 let g:ale_sign_error = '✘'
 let g:ale_sign_warning = '⚠'
 
 " vim-lsp
+" TODO: fix this, folding doesn't work
 set foldmethod=expr
-set foldexpr=lsp#ui#vim#folding#foldexpr()
-set foldtext=lsp#ui#vim#folding#foldtext()
-let g:lsp_diagnostics_enabled = 0
+  \ foldexpr=lsp#ui#vim#folding#foldexpr()
+  \ foldtext=lsp#ui#vim#folding#foldtext()
+
+" pear-tree
+" avoid conflict with asyncomplete choice confirmation by ENTER
+let g:pear_tree_map_special_keys = 0
+
+" vim-rooter
+let g:rooter_patterns = ["=src", ".git", "Makefile", "README.md", "cli.py"]
