@@ -82,9 +82,6 @@
 [submodule "pear-tree"]
 	path = .vim/pack/plugins/opt/pear-tree
 	url = https://github.com/tmsvg/pear-tree
-[submodule "vim-isort"]
-	path = .vim/pack/plugins/opt/vim-isort
-	url = https://github.com/fisadev/vim-isort
 [submodule "ale"]
 	path = .vim/pack/plugins/opt/ale
 	url = https://github.com/dense-analysis/ale
@@ -138,3 +135,15 @@
 [submodule "vim-airline"]
 	path = .vim/pack/plugins/opt/vim-airline
 	url = https://github.com/vim-airline/vim-airline
+[submodule "vim-lsp-ale"]
+	path = .vim/pack/plugins/opt/vim-lsp-ale
+	url = https://github.com/rhysd/vim-lsp-ale
+[submodule "asyncomplete-ale.vim"]
+	path = .vim/pack/plugins/opt/asyncomplete-ale.vim
+	url = https://github.com/andreypopp/asyncomplete-ale.vim
+[submodule "vim-healthcheck"]
+	path = .vim/pack/plugins/opt/vim-healthcheck
+	url = https://github.com/rhysd/vim-healthcheck
+[submodule "vim-rooter"]
+	path = .vim/pack/plugins/opt/vim-rooter
+	url = https://github.com/airblade/vim-rooter
