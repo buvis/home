@@ -18,7 +18,6 @@
 .ssh/config
 .ssh/known_hosts
 .ssh/known_hosts.old
-/README.md
 /get-buvis.bat
 /get-buvis.sh
 __pycache__
