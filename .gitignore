@@ -1,10 +1,10 @@
 !*.secret
-.config/MusicBrainz/.Picard.ini.synclock
-.config/MusicBrainz/Picard.ini
+.config/MusicBrainz
 .config/beets/discogs_token.json
 .config/beets/state.pickle
 .config/brew/Brewfile.lock.json
 .config/configstore
+.config/jellyfin
 .config/scripts/readwise-token
 .config/yarn
 .gitsecret/keys/random_seed
