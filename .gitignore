@@ -12,6 +12,9 @@
 .playbooks/.vault-pwd
 .ropeproject
 .ruff_cache
+.vifm/scripts
+.vifm/vifm-help.txt
+.vifm/vifminfo.json*
 .ssh/config
 .ssh/known_hosts
 .ssh/known_hosts.old
