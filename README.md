@@ -56,6 +56,12 @@ Note: Install buvis to Windows host to share the configuration between host and 
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
+### Use default configuration for ruff
+
+#### macOS
+
+Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/ruff/ruff.toml`
+
 ### Fix WSL issues
  
 1. Link WSL home directory to Windows user's home
