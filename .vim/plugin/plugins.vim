@@ -64,12 +64,6 @@ let g:ale_fix_on_save = 1
 let g:ale_sign_error = '✘'
 let g:ale_sign_warning = '⚠'
 
-" vim-lsp
-" TODO: fix this, folding doesn't work
-set foldmethod=expr
-  \ foldexpr=lsp#ui#vim#folding#foldexpr()
-  \ foldtext=lsp#ui#vim#folding#foldtext()
-
 " pear-tree
 " avoid conflict with asyncomplete choice confirmation by ENTER
 let g:pear_tree_map_special_keys = 0
