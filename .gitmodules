@@ -61,9 +61,6 @@
 [submodule "vim-polyglot"]
 	path = .vim/pack/plugins/opt/vim-polyglot
 	url = https://github.com/sheerun/vim-polyglot
-[submodule "SimpylFold"]
-	path = .vim/pack/plugins/opt/SimpylFold
-	url = https://github.com/tmhedberg/SimpylFold
 [submodule "bullets.vim"]
 	path = .vim/pack/plugins/opt/bullets.vim
 	url = https://github.com/dkarter/bullets.vim
