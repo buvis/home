@@ -50,6 +50,10 @@ augroup lsp_install
     autocmd User lsp_buffer_enabled call s:on_lsp_buffer_enabled()
 augroup END
 
+" use folding provided by vim-lsp
 set foldmethod=expr
   \ foldexpr=lsp#ui#vim#folding#foldexpr()
   \ foldtext=lsp#ui#vim#folding#foldtext()
+
+" highlight references to the symbol under the cursor
+highlight lspReference ctermbg=187 cterm=underline
