@@ -170,10 +170,6 @@ packadd! asyncomplete-lsp.vim
 packadd! asyncomplete-ale.vim
 packadd! vim-rooter
 
-" Python: folding
-" https://github.com/tmhedberg/SimpylFold
-packadd! SimpylFold
-
 " Markdown: preview
 " https://github.com/iamcco/markdown-preview.nvim
 " ATTENTION: run :call mkdp#util#install() before first use
