@@ -1,6 +1,13 @@
 " lsp.vim
 " Language Server Protocol
 
+" HOWTO: Add new language support: check https://github.com/prabirshrestha/vim-lsp/wiki/Servers
+" ATTENTION: language specific support has external dependencies:
+" - python: pip install python-lsp-server
+" - svelte: npm install -g svelte-language-server
+" - vim: npm install -g vim-language-server
+" - yaml: npm install -g yaml-language-server
+
 
 " python
 if executable('pylsp')
@@ -21,6 +28,43 @@ au User lsp_setup call lsp#register_server({
     \ 'cmd': {server_info->[&shell, &shellcmdflag, '/usr/local/lib/node_modules/svelte-language-server/bin/server.js --stdio']},
     \ 'allowlist': ['svelte'],
     \ })
+
+" vim
+if executable('vim-language-server')
+  augroup LspVim
+    autocmd!
+    autocmd User lsp_setup call lsp#register_server({
+        \ 'name': 'vim-language-server',
+        \ 'cmd': {server_info->['vim-language-server', '--stdio']},
+        \ 'whitelist': ['vim'],
+        \ 'initialization_options': {
+        \   'vimruntime': $VIMRUNTIME,
+        \   'runtimepath': &rtp,
+        \ }})
+  augroup END
+endif
+
+" yaml
+if executable('yaml-language-server')
+  augroup LspYaml
+   autocmd!
+   autocmd User lsp_setup call lsp#register_server({
+       \ 'name': 'yaml-language-server',
+       \ 'cmd': {server_info->['yaml-language-server', '--stdio']},
+       \ 'allowlist': ['yaml', 'yml', 'yaml.ansible'],
+       \ 'workspace_config': {
+       \   'yaml': {
+       \     'validate': v:true,
+       \     'hover': v:true,
+       \     'completion': v:true,
+       \     'customTags': [],
+       \     'schemas': {},
+       \     'schemaStore': { 'enable': v:true },
+       \   }
+       \ }
+       \})
+  augroup END
+endif
 
 " vim-lsp init buffer
 function! s:on_lsp_buffer_enabled() abort

@@ -147,10 +147,6 @@ packadd! vim-healthcheck
 " Filetype specific {{{
 " Can I move this to ftplugin? No, see
 " https://vi.stackexchange.com/questions/22095/why-packadd-from-ftplugin-does-not-work-the-same-way-as-from-vimrc
-"
-" ATTENTION: language specific support has external dependencies:
-" - python: pip install python-lsp-server
-" - svelte: npm install -g svelte-language-server
 
 " Asynchronous Lint Engine
 " https://github.com/dense-analysis/ale
