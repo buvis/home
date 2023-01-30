@@ -30,3 +30,4 @@ fetchart:
   sources: itunes *
 item_fields:
   multidisc: 1 if disctotal > 1 else 0
+fuzzy:
