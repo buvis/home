@@ -1,7 +1,7 @@
 {
   "proxy": "localhost:3128",
   "aria2-enabled": false,
-  "last_update": "2022-10-14T08:06:01.105399+02:00",
+  "last_update": "2023-01-31T12:20:13.7503221+01:00",
   "scoop_branch": "master",
   "scoop_repo": "https://github.com/lukesampson/scoop"
 }
