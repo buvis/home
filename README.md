@@ -35,19 +35,18 @@ I always appreciate any opportunity to learn. Thank you!
 
 #### WSL
 
-1. Install prerequisites for python building: `sudo apt-get install -y build-essential checkinstall libreadline-gplv2-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev liblzma-dev`
-2. Install node and npm: `sudo apt install nodejs npm`
+1. Follow `20190805142816` in Zettelkasten to fix network issues in corporate environment (excuse me, I can't publish this, as it contains my employer's sensitive information; it is about getting WSL network work by using [wsl-vpnkit](https://github.com/sakai135/wsl-vpnkit) and using proxy forwarder on Windows host)
+2. Update the system: `sudo apt update && sudo apt upgrade`
+3. Install packages used by BUVIS: `sudo apt-get install -y build-essential checkinstall direnv libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev liblzma-dev nodejs npm vifm`
 
 ## Install
 
-### macOs (and possibly linux)
+### macOS, WSL, and potentially any Linux distro
 ``` bash
 curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
 ```
 
-### Windows / WSL
-
-Note: Install buvis to Windows host to share the configuration between host and WSL. Installation to WSL only would lack this benefit.
+### Windows
 
 1. Copy `get-buvis.bat` from here
 2. Run `get-buvis.bat` in `cmd`
@@ -56,39 +55,30 @@ Note: Install buvis to Windows host to share the configuration between host and 
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
+### Remember git credentials
+
+1. Go to dotfiles root: `cd $DOTFILES_ROOT`
+2. Configure git to store credentials: `cfg config credential.helper store`
+
+### Install tmux plugins
+
+When in tmux, press `<tmux-prefix>+I`.
+
 ### Use default configuration for ruff
 
 #### macOS
 
 Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/ruff/ruff.toml`
 
-### Fix WSL issues
+### WSL
  
-1. Link WSL home directory to Windows user's home
-   1. Use buvis dotfiles inside WSL, add this to WSL's generated `~/.bashrc`:
-   ```bash
-   if [[ -f "<PATH_TO_WINDOWS_USER_HOME>/.profile" ]]; then
-     source <PATH_TO_WINDOWS_USER_HOME>/.profile
-   fi
-
-   if [[ -f "<PATH_TO_WINDOWS_USER_HOME>/.bashrc" ]]; then
-     source <PATH_TO_WINDOWS_USER_HOME>/.bashrc
-   fi
-   ```
-   2. Create symlinks in vifm (`yy` source, `al` in destination)
-      - `windows-home` from `/mnt/c/Users/<WINDOWS_USERNAME>`
-      - `.default-python-packages`
-      - `.tmux`
-      - `.vifm`
-      - `.vim`
-      - `Downloads`
-      - `bin`
-      - `git`
-      - `z`
-      - `.tmux.conf`
-      - `.vimrc`
-2. Follow `20190805142816` in Zettelkasten to configure for corporate proxy
-3. Fix files coloring in vifm
+1. Create symlinks in vifm (`yy` source, `al` in destination)
+   - `windows-home` from `/mnt/c/Users/<WINDOWS_USERNAME>`
+   - `Downloads` from `/mnt/c/Users/<WINDOWS_USERNAME>/Downloads`
+   - `onedrive-company` from `/mnt/c/Users/<WINDOWS_USERNAME>/<OneDrive - company>`
+   - `onedrive-private` from `/mnt/c/Users/<WINDOWS_USERNAME>/<OneDrive - private>`
+   - `z` from `/mnt/c/Users/<WINDOWS_USERNAME>/<OneDrive - private>/z`
+2. Fix files coloring in vifm
    1. Add filesystem configuration to `/etc/wsl.conf`
       ``` ini
       [automount]
@@ -102,13 +92,13 @@ Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/r
       ```
    2. Restart WSL: run `wsl --terminate Ubuntu` in `cmd`, then start WSL
    3. Run `chmod -R a-x+X,u-x+rwX,go-wx+rX *` in directory where you want to fix the file coloring in vifm
-4. Fix asdf
-   1. Make `utils.bash` executable: `chmod a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/utils.bash`
-   2. Make `commands` executable: `chmod -R a-x <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands`
-   3. If asdf can't be used, check permissions with `ls -lla <PATH_TO_WINDOWS_USER_HOME>/.asdf/lib/commands` and if you see "?" everywhere, then run: `chmod -R a+rX *` in `<PATH_TO_WINDOWS_USER_HOME>`
-5. Fix permissions to install npm packages globally: `sudo chown -R bob:bob /usr/local/`
-6. Remember git credentials (run in $DOTFILES_ROOT): `cfg config credential.helper store`
-
+3. Fix permissions to install npm packages globally: `npm config set prefix '~/.local/'`
+4. Fix locale: `sudo tic -xe alacritty,alacritty-direct ~/.config/alacritty/alacritty.info`
+5. Use WSL specific configuration for some tools: `vim $HOME/.bashrc-wsl`, add
+```
+export P_PROPERTIES_FILE="/home/bob/.pdata-wsl.properties"
+export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
+```
 
 ### Install npm packages
 
@@ -122,14 +112,33 @@ Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/r
 4. Set global python version: `asdf global python <VERSION>`
 5. Create links to default python packages (from `$HOME/.default-python-packages`): `asdf reshim python`
 
+### Get git repositories
+
+1. Create directory for git: `mkdir -p $HOME/git/src`
+2. Clone repositories you need
+3. Repeate for each repository: add repository to gita: `gita add .`
+
 ## Operations
 
 ### Update
 
-1. Pull updates `cfgl` in `$DOTFILES_ROOT`
-2. Stage updates: `cfgapa`
-3. Commit updates with `<MESSAGE>`: `cfgm "<MESSAGE>"`
-4. Push back to repository: `cfgp`
+#### macOS, WSL, and potentially any Linux distro
+
+1. Open terminal
+2. Go to user's home: `cd $HOME`
+3. Pull updates `cfgl`
+4. Stage updates: `cfgapa`
+5. Commit updates with `<MESSAGE>`: `cfgm "<MESSAGE>"`
+6. Push back to repository: `cfgp`
+
+#### Windows
+
+1. Run `cmd`
+2. Go to user's home: `cd %userprofile%`
+3. Pull updates `cfgl.bat`
+4. Stage updates: `cfgapa.bat`
+5. Commit updates with `<MESSAGE>`: `cfgm.bat "<MESSAGE>"`
+6. Push back to repository: `cfgp.bat`
 
 ### Add default python package
 
