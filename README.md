@@ -99,7 +99,9 @@ Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/r
 export P_PROPERTIES_FILE="/home/bob/.pdata-wsl.properties"
 export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
 ```
-6. Let VS Code from Windows host use WSL: install [WSL Extenstion](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl)
+6. Let VS Code from Windows host use WSL
+   1. Install [WSL Extenstion](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl)
+   2. Add VS Code to WSL's path: `echo 'export PATH=$PATH:/mnt/c/Users/tbouska/.local/bin/vscode/bin' >> ~/.bashrc-wsl`
 
 ### Install npm packages
 
