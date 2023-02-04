@@ -18,12 +18,12 @@ case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
 esac
 
 # Determine dotfiles root
-if [[ $IS_WSL ]]; then
-    WINHOME=$(wslvar USERPROFILE)
-    export DOTFILES_ROOT=$(wslpath "${WINHOME}")
-else
+#if [[ $IS_WSL ]]; then
+    #WINHOME=$(wslvar USERPROFILE)
+    #export DOTFILES_ROOT=$(wslpath "${WINHOME}")
+#else
     export DOTFILES_ROOT=${HOME}
-fi
+#fi
 
 export PATH="$DOTFILES_ROOT/.cargo/bin:$PATH"
 export PATH="$DOTFILES_ROOT/.yarn/bin:$DOTFILES_ROOT/.config/yarn/global/node_modules/.bin:$PATH"
