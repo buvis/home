@@ -1,0 +1,2 @@
+- Add "Log", "Timber", and "Open diary" shortcuts to Home Screen. Use diary, note, and calendar icons to distinguish them from other shortcuts.
+- To get "Take Note" shortcut in share sheet, you need to reboot after syncing shortcuts from iCloud
