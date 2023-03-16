@@ -3,6 +3,7 @@ directory: ~/media/music
 library: ~/media/music/beets.db
 import:
   move: true
+  from_scratch: true
 asciify_paths: true
 group_albums: true
 per_disc_numbering: true
