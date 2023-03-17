@@ -52,6 +52,7 @@ brew "rustfmt"
 brew "rustup-init"
 brew "sops"
 brew "syncthing", restart_service: true
+brew "tere"
 brew "terraform"
 brew "the_silver_searcher"
 brew "tmux"
