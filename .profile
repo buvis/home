@@ -66,13 +66,10 @@ export FZF_CTRL_R_OPTS='--bind "F1:toggle-preview" --preview "echo {}" --preview
 # Fix locale when sshing
 export LANG=en_US.UTF-8
 
-
- #Use ADP proxy in WSL
-#if [[ $IS_WSL ]]; then
-   #PROXY='http://127.0.0.1:3128'
-   #export HTTP_PROXY="$PROXY"
-   #export HTTPS_PROXY="$PROXY"
-#fi
+# Use brew
+if [[ $IS_MAC ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
 
 # Prefer GNU utils on Mac
 if [[ $IS_MAC ]]; then
@@ -89,5 +86,7 @@ fi
 
 # Use rust on Mac
 if [[ $IS_MAC ]]; then
-    . "$HOME/.cargo/env"
+    if [[ -f "$HOME/.cargo/env" ]]; then
+        . "$HOME/.cargo/env"
+    fi
 fi
