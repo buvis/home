@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # slugren.py
 
 # This is my file renamer. It slugifies, extracts timestamp from emails, etc.
