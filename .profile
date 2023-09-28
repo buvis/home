@@ -30,6 +30,7 @@ export PATH="$DOTFILES_ROOT/.yarn/bin:$DOTFILES_ROOT/.config/yarn/global/node_mo
 
 # Doogat
 export DOOGAT_CFG="${DOTFILES_ROOT}/.doogat/config.yml"
+export DOO_CFG="${DOTFILES_ROOT}/.doogat/doo.conf.yml"
 export PATH="$PATH:${DOTFILES_ROOT}/.local/bin/doogat/pingl:${DOTFILES_ROOT}/.local/bin/doogat/doo"
 
 # My scripts
