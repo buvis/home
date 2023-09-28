@@ -17,6 +17,7 @@
     docker run \
     --detach \
     --restart=always \
+    --pull=always \
     --name mopidy \
     --publish 6600:6600 \
     --publish 6680:6680 \
