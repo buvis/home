@@ -9,4 +9,4 @@ default_user: bob
 ansible_user: "{{ default_user }}"
 
 # Snapclient release DEB (find latest at https://github.com/badaix/snapcast/releases)
-url_snapclient_armhf_deb: https://github.com/badaix/snapcast/releases/download/v0.26.0/snapclient_0.26.0-1_armhf.deb
+url_snapclient_armhf_deb: https://github.com/badaix/snapcast/releases/download/v0.27.0/snapclient_0.27.0-1_armhf.deb

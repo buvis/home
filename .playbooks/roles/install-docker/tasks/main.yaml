@@ -4,8 +4,6 @@
 
 - name: Install docker
   shell: "curl -sSL https://get.docker.com | sh"
-  args:
-    warn: false
 
 - name: Allow {{ default_user }} to control docker
   user:
