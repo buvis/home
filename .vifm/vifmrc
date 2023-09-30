@@ -182,14 +182,13 @@ else
     command! slugren !~/bin/slugren.py -p "%f" &
 endif
 command! wslfixperm !chmod -R a-x+X,u-x+rwX,go-wx+rX * &
-command! bb !~/.local/bin/doogat/doo/doo create bookmark
-command! cc !~/.local/bin/doogat/doo/doo create contact
-command! mm !~/.local/bin/doogat/doo/doo create minutes
-command! ll !~/.local/bin/doogat/fill_task_lists/fill_task_lists &
-command! pp !~/.local/bin/doogat/doo/doo create loop
-command! qq !~/.local/bin/doogat/doo/doo create quote
-command! ss !~/.local/bin/doogat/doo/doo create snippet
-command! ww !~/.local/bin/doogat/doo/doo create wiki_article
+command! bb !~/.local/bin/doogat/doo/doo create bookmark --edit
+command! cc !~/.local/bin/doogat/doo/doo create contact --edit
+command! mm !~/.local/bin/doogat/doo/doo create minutes --edit
+command! pp !~/.local/bin/doogat/doo/doo create loop --edit
+command! qq !~/.local/bin/doogat/doo/doo create quote --edit
+command! ss !~/.local/bin/doogat/doo/doo create snippet --edit
+command! ww !~/.local/bin/doogat/doo/doo create wiki_article --edit
 command! wwff !~/.local/bin/doogat/doo/doo create wiki_article --file %"f:p
 command! winlink !powershell create-shortcut.ps1 '%"f:p' '%"D:p/%"f:t.lnk' &
 command! zettelize !~/bin/zettelize -p "%f" &
