@@ -52,16 +52,3 @@
 	SendInput "<pre>{Enter}Hello,{Enter}{Enter}The solution was implemented and tested in Template.{Enter}{Enter}You may find the rule description and customizing option in <a href='https://adponline.sharepoint.com/:w:/r/sites/GlobalView-Engine-Architecture/documentation/pex-payroll-exceptions-reporting/pex-consultant-guide.docx?web=1'>PEX consultant guide</a>.{Enter}{Enter}The solution was registered to GV Feature Pack FY21-M05 (version 6.13.2) with ID 667531. It will deploy to Production in 05_May'21-Jun'21 (HRSP 93) cycle on 20.06.2021.{Enter}In parallel, the transport to PD1 was requested via RTO 799312 and RevTrac states it was delivered.{Enter}{Enter}Please let me know if you want to opt in the emergency deployment or find any side effects caused by the correction.{Enter}Bear in mind that the last modifications to GVFP FY21-M03 are allowed on 21.05.2021, so it will be much easier if you provided your feedback by then.{Enter}{Enter}Thank you.{Enter}{Enter}Cheers, Tomáš Bouška</pre>"
 	Return
 }
-
-^!b::
-{
-	KeyWait "Control"
-	KeyWait "Shift"
-	Send "{Ctrl}{Shift}"
-	SendInput "<pre>This service request is now tracked in Jira and will remain open in Siebel with corresponding <a href='https://confluence.es.ad.adp.com/display/MCPE/SR+identification+of+backlog+topics'>status/sub-status</a> (https://confluence.es.ad.adp.com/display/MCPE/SR+identification+of+backlog+topics) until the enhancement will be delivered.{Enter}{Enter}<a href='https://jira.service.tools-pi.com/browse/"
-	SendInput "^v"
-	SendInput "'>Jira User Story</a>: https://jira.service.tools-pi.com/browse/"
-	SendInput "^v"
-	SendInput "</pre>"
-	Return
-}

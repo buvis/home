@@ -11,31 +11,31 @@
     Else {
 
         If (ih.input="b") {
-            Run DOO "create bookmark"
+            Run DOO "create bookmark --edit"
             Return
         }
         Else If (ih.input="c") {
-            Run DOO "create contact"
+            Run DOO "create contact --edit"
             Return
         }
         Else If (ih.input="m") {
-            Run DOO "create minutes"
+            Run DOO "create minutes --edit"
             Return
         }
         Else If (ih.input="p") {
-            Run DOO "create loop"
+            Run DOO "create loop --edit"
             Return
         }
         Else If (ih.input="q") {
-            Run DOO "create quote"
+            Run DOO "create quote --edit"
             Return
         }
         Else If (ih.input="s") {
-            Run DOO "create snippet"
+            Run DOO "create snippet --edit"
             Return
         }
         Else If (ih.input="w") {
-            Run DOO "create wiki-article"
+            Run DOO "create wiki-article --edit"
             Return
         }
     }
@@ -51,7 +51,7 @@
 
     search_string := Trim(A_Clipboard, " `n`r`t")
 
-    command := "edit loops --with `"id or rto-tmpl or rto-reg or rto or ticket or ticket-related or incident or user-story or us or psd or commit or roadmap = '" search_string "'`""
+    command := "get loops `"id or rto-tmpl or rto-reg or rto or ticket or ticket-related or incident or user-story or us or psd or commit or roadmap = '" search_string "'`" --edit"
 
     Run DOO command
 
