@@ -121,7 +121,7 @@ endif
 
 if has('win')
     mark a "~/OneDrive - Automatic Data Processing Inc/z/archive"
-    mark b "~/bin/"
+    mark b "~/scripts/"
     mark c "~/OneDrive - Automatic Data Processing Inc/z/completed"
     mark d "~/Downloads"
     mark g "~/git/src/"
@@ -130,11 +130,12 @@ if has('win')
     mark m "~/OneDrive - Automatic Data Processing Inc/z/reference/meeting"
     mark n "~/OneDrive - Automatic Data Processing Inc/z/reference/newsletter"
     mark r "~/OneDrive - Automatic Data Processing Inc/z/reference"
+    mark s "~/scripts/"
     mark w "~/OneDrive - Automatic Data Processing Inc/z/workspace"
     mark z "~/OneDrive - Automatic Data Processing Inc/z/reference/notes/zettelkasten"
 else
     mark a ~/z/archive
-    mark b ~/bin/
+    mark b ~/scripts/
     mark B ~/z/reference/book
     mark c ~/z/completed
     mark d ~/Downloads
@@ -149,6 +150,7 @@ else
     mark p ~/Photography
     mark P ~/Paperless
     mark r ~/z/reference
+    mark s ~/scripts/
     mark R ~/z/reference/receipt
     mark w ~/z/workspace
     mark z ~/z/reference/notes/zettelkasten
@@ -177,9 +179,9 @@ command! mkcd :mkdir %a | cd %a
 command! vgrep vim "+grep %a"
 command! reload :write | restart
 if has('win')
-    command! slugren !python $HOME/bin/slugren.py -p "%f" &
+    command! slugren !python $HOME/scripts/slugren -p "%f" &
 else
-    command! slugren !~/bin/slugren.py -p "%f" &
+    command! slugren !~/scripts/slugren -p "%f" &
 endif
 command! wslfixperm !chmod -R a-x+X,u-x+rwX,go-wx+rX * &
 command! bb !~/.local/bin/doogat/doo/doo create bookmark --edit
@@ -191,7 +193,7 @@ command! ss !~/.local/bin/doogat/doo/doo create snippet --edit
 command! ww !~/.local/bin/doogat/doo/doo create wiki_article --edit
 command! wwff !~/.local/bin/doogat/doo/doo create wiki_article --file %"f:p
 command! winlink !powershell create-shortcut.ps1 '%"f:p' '%"D:p/%"f:t.lnk' &
-command! zettelize !~/bin/zettelize -p "%f" &
+command! zettelize !~/scripts/zettelize -p "%f" &
 
 " ------------------------------------------------------------------------------
 
