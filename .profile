@@ -34,7 +34,7 @@ export DOO_CFG="${DOTFILES_ROOT}/.doogat/doo.conf.yml"
 export PATH="$PATH:${DOTFILES_ROOT}/.local/bin/doogat/pingl:${DOTFILES_ROOT}/.local/bin/doogat/doo"
 
 # My scripts
-export PATH="$PATH:${DOTFILES_ROOT}/scripts"
+export PATH="$PATH:${DOTFILES_ROOT}/scripts/bin"
 
 # Avoid ./ to run scripts in current directory
 export PATH=$PATH:.
