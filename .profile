@@ -34,7 +34,7 @@ export DOO_CFG="${DOTFILES_ROOT}/.doogat/doo.conf.yml"
 export PATH="$PATH:${DOTFILES_ROOT}/.local/bin/doogat/pingl:${DOTFILES_ROOT}/.local/bin/doogat/doo"
 
 # My scripts
-export PATH="$PATH:${DOTFILES_ROOT}/bin"
+export PATH="$PATH:${DOTFILES_ROOT}/scripts"
 
 # Avoid ./ to run scripts in current directory
 export PATH=$PATH:.
@@ -46,7 +46,7 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
 
 # Python scripts
-export PYTHONPATH="${DOTFILES_ROOT}/src:${PYTHONPATH}"
+export PYTHONPATH="${DOTFILES_ROOT}/scripts/src:${PYTHONPATH}"
 
 # Set my editor and git editor
 export EDITOR="vim"
