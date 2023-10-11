@@ -144,3 +144,6 @@
 [submodule "vim-rooter"]
 	path = .vim/pack/plugins/opt/vim-rooter
 	url = https://github.com/airblade/vim-rooter
+[submodule "scripts"]
+	path = scripts
+	url = https://github.com/buvis/scripts
