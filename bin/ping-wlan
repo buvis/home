@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-ip=$(ifconfig en0 | grep netmask | awk '/inet/{print $2}')
-subnet_root=$(echo $ip | sed 's/\.[^.]*$//')
-subnet_suffix=".0/24"
-subnet="$subnet_root$subnet_suffix"
-nmap -n -sn $subnet -oG - | awk '/Up$/{print $2}' | sort -V
