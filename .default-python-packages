@@ -15,6 +15,7 @@ python-slugify
 python3-discogs-client
 requests
 rope
+rich
 ruff
 unidecode
 yt-dlp
