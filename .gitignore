@@ -22,3 +22,7 @@
 /get-buvis.bat
 /get-buvis.sh
 __pycache__
+.local/share/fctracker/cash/eur.csv
+.local/share/fctracker/ops/eur.csv
+.local/share/fctracker/revolut/eur.csv
+.local/share/fctracker/revolut/usd.csv
