@@ -1,0 +1,4 @@
+- Auto Upload ~/media/photos/previews
+- Auto Upload ~/media/photos/final
+- Auto Upload ~/media/videos/home-videos/previews
+- Auto Upload ~/media/videos/home-videos/final
