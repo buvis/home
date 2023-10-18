@@ -11,6 +11,7 @@ function backup-router () {
     mkdir -p etc/ssh
     mkdir -p home/bob
     mkdir -p var/unbound/etc
+    mkdir -p usr/local/bin
     scp orcus:/etc/bgpd.conf etc/bgpd.conf
     scp orcus:/etc/dhclient.conf etc/dhclient.conf
     scp orcus:/etc/dhcpd.conf etc/dhcpd.conf
@@ -30,6 +31,7 @@ function backup-router () {
     scp orcus:/etc/ssh/sshd_config etc/ssh/sshd_config
     scp orcus:/etc/sysctl.conf etc/ssh/sysctl.conf
     scp orcus:/home/bob/send-vim-tip.sh home/bob/send-vim-tip.sh
+    scp orcus:/usr/local/bin/reload_abusers.sh usr/local/bin/reload_abusers.sh
     scp -r orcus:/var/unbound/etc/ var/unbound/
     cd -
 }
