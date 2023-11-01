@@ -21,7 +21,6 @@ brew "nmap"
 brew "pinentry-mac"
 brew "pre-commit"
 brew "ripgrep"
-brew "rust"
 brew "sops"
 brew "syncthing", restart_service: true
 brew "tere"
