@@ -103,23 +103,15 @@ export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
    1. Install [WSL Extenstion](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl)
    2. Add VS Code to WSL's path: `echo 'export PATH=$PATH:/mnt/c/Users/tbouska/.local/bin/vscode/bin' >> ~/.bashrc-wsl`
 
-### Install npm packages
+### Install tools
 
-1. `npm install -g npm-check write-good svelte-language-server`
-
-### Install asdf managed python
-
-1. Install asdf python plugin: `asdf plugin add python`
-2. List available versions: `asdf list all python`
-3. Build python with PyInstaller support: `env PYTHON_CONFIGURE_OPTS="--enable-shared" asdf install python <VERSION>`
-4. Set global python version: `asdf global python <VERSION>`
-5. Create links to default python packages (from `$HOME/.default-python-packages`): `asdf reshim python`
+Run `asdf install`.
 
 ### Get git repositories
 
 1. Create directory for git: `mkdir -p $HOME/git/src`
 2. Clone repositories you need
-3. Repeate for each repository: add repository to gita: `gita add .`
+3. Repeat for each repository: add repository to gita: `gita add .`
 
 ## Operations
 
