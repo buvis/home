@@ -14,8 +14,8 @@ python-lsp-server
 python-slugify
 python3-discogs-client
 requests
-rope
 rich
+rope
 ruff
 unidecode
 yt-dlp
