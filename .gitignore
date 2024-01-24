@@ -26,3 +26,4 @@ __pycache__
 .local/share/fctracker/ops/eur.csv
 .local/share/fctracker/revolut/eur.csv
 .local/share/fctracker/revolut/usd.csv
+.config/syncthing/folderpairs.md
