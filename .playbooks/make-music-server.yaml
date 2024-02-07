@@ -10,8 +10,8 @@
     register: nas_media_directory
 
   roles:
-  #- upgrade-host
-  #- create-kah-user
-  #- install-docker
-  #- run-snapserver
+  - upgrade-host
+  - create-kah-user
+  - install-docker
+  - run-snapserver
   - run-mopidy
