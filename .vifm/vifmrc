@@ -432,6 +432,12 @@ else
     endif
 endif
 
+" Additional commands for filetypes while keeping the default action as open
+
+filetype *.svg
+        \ {Convert to png}
+        \ ~/scripts/bin/svg2png "%f" 1024 &
+
 " ------------------------------------------------------------------------------
 
 " What should be saved automatically between vifm sessions.  Drop "savedirs"
@@ -457,6 +463,9 @@ filter {~*,.DS_Store}
 
 " Display sorting dialog
 nnoremap S :sort<cr>
+
+" Display menu of programs set for the file type of the current file
+nnoremap i :f<cr>
 
 " Toggle visibility of preview window
 " nnoremap w :view<cr>
