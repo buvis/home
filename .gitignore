@@ -13,6 +13,7 @@
 .playbooks/.vault-pwd
 .ropeproject
 .ruff_cache
+.vifm/Trash
 .vifm/scripts
 .vifm/vifm-help.txt
 .vifm/vifminfo.json*
