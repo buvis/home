@@ -3,6 +3,7 @@ Yapf
 beautifulsoup4
 beets
 black
+cyclopts
 gita
 pipenv
 pyacoustid
