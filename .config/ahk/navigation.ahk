@@ -14,6 +14,22 @@
 	Return
 }
 
+!#j::
+{
+	ClipSaved := ClipboardAll()  ; Save current clipboard content to renew it at the end
+	A_Clipboard := "" ; Start off empty to allow ClipWait to detect when the text has arrived
+	Send "^c"  ; Copy the highlighted text to clipboard
+	ClipWait  ; Wait for the clipboard to contain text.
+
+	url := "https://jira.service.tools-pi.com/browse/" A_Clipboard  ; Construct the link to Jira issue
+	url := url  ; Trim the whitespace
+	Run url  ; Open the browser
+
+	A_Clipboard := ClipSaved  ; Restore the initial clipboard content
+	ClipSaved := "" ; Free the memory
+	Return
+}
+
 !#o::
 {
 	ClipSaved := ClipboardAll()  ; Save current clipboard content to renew it at the end

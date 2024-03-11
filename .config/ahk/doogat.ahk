@@ -1,4 +1,4 @@
-﻿global DOO := "C:/Users/tbouska/.local/bin/doogat/doo/doo.exe "
+﻿global DOO := "C:\Users\tbouska\.local\bin\doogat\doo\doo.exe "
 
 !#d:: ; this triggers Doogat creation
 {
