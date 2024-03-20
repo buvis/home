@@ -1,108 +1,50 @@
-﻿; Copy & paste, but don't break Windows Terminal
-#c::
-{
-	ActivePName := WinGetProcessName("A")
-	if (ActivePName = "WindowsTerminal.exe")
-	{
-	  Send "^+c"
-	} else {
-	  Suspend(True)
-	  Send "^c"
-	  Suspend(False)
-	}
-	Return
-}
+﻿; Selecting
+#a::Send "^a"
 
-#v::
-{
-	ActivePName := WinGetProcessName("A")
-	if (ActivePName = "WindowsTerminal.exe")
-	{
-	  Send "^+v"
-	} else {
-	  Suspend(True)
-	  Send "^v"
-	  Suspend(False)
-	}
-	Return
-}
+; Copying
+#c::Send "^c"
 
-#x::
-{
-	ActivePName := WinGetProcessName("A")
-	if (ActivePName = "WindowsTerminal.exe")
-	{
-	  Send "^+x"
-	} else {
-	  Suspend(True)
-	  Send "^x"
-	  Suspend(False)
-	}
-	Return
-}
+; Finding
+#f::Send "^f"
 
-; Select all
-#a::
-{
-	Suspend(True)
-	Send "^a"
-	Suspend(False)
-	Return
-}
+; Opening
+#o::Send "^o"
 
-; Search function
-#f::
-{
-	Suspend(True)
-	Send "^f"
-	Suspend(False)
-	Return
-}
+; Close windows (cmd + q to Alt + F4)
+#q::Send "!{F4}"
 
-; Reload
-#r::
-{
-	Suspend(True)
-	Send "^r"
-	Suspend(False)
-	Return
-}
+; Save
+#s::Send "^s"
 
-; Rather use save than Windows Search
-#s::
-{
-	Suspend(True)
-	Send "^s"
-	Suspend(False)
-	Return
-}
+; New tab
+#t::Send "^t"
 
-; Open new tab in browsers
-#t::
-{
-	Suspend(True)
-	Send "^t"
-	Suspend(False)
-	Return
-}
+; Pasting
+#v::Send "^v"
 
-; Close tabs in browsers
-#w::
-{
-	Suspend(True)
-	Send "^w"
-	Suspend(False)
-	Return
-}
+; Close tab
+#w::Send "^w"
 
-; Close window
-#q::
-{
-	Suspend(True)
-	Send "!{f4}"
-	Suspend(False)
-	Return
-}
+; Cutting
+#x::Send "^x"
+
+; Redo
+#y::Send "^y"
+
+; Undo
+#z::Send "^z"
+
+; Remap Windows + Tab to Alt + Tab.
+Lwin & Tab::AltTab
+
+; Map fn keys to right option
+
+RAlt & F7::Send "{Media_Prev}"
+RAlt & F8::Send "{Media_Play_Pause}"
+RAlt & F9::Send "{Media_Next}"
+RAlt & F10::SendInput "{Volume_Mute}"
+RAlt & F11::SendInput "{Volume_Down}"
+RAlt & F12::SendInput "{Volume_Up}"
 
 ; Move on line
 #Left::Send "{Home}"
@@ -125,7 +67,4 @@
 
 ; Disable alone press of windows key
 ; https://stackoverflow.com/questions/69143107/how-to-disable-the-win-key-if-its-the-only-key-being-pressed-using-autohotkey
-~LWin::Send "{Blind}{vkE8}"
-
-; Use the better windows switching
-; LWin & Tab::AltTab
+;~LWin::Send "{Blind}{vkE8}"
