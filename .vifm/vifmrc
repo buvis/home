@@ -132,7 +132,7 @@ if has('win')
     mark r "~/OneDrive - Automatic Data Processing Inc/z/reference"
     mark s "~/git/src/github.com/buvis/scripts/"
     mark w "~/OneDrive - Automatic Data Processing Inc/z/workspace"
-    mark z "~/OneDrive - Automatic Data Processing Inc/z/reference/notes/zettelkasten"
+    mark z ~/z/reference/notes/zettelkasten
 else
     mark a ~/z/archive
     mark b "~/git/src/github.com/buvis/scripts/bin"
