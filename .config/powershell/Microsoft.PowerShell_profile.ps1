@@ -8,11 +8,13 @@ Import-Module oh-my-posh
 Import-Module git-aliases -DisableNameChecking
 Set-Theme Paradox
 
+Set-Alias -Name doo -Value C:\Users\tbouska\.local\bin\doogat\doo\doo.exe
+
 function cdg {cd ~/git/src/gitlab.com/doogat}
-function bb {doo create bookmark}
-function cc {doo create contact}
-function mm {doo create minutes}
-function pp {doo create loop}
-function qq {doo create quote}
-function ss {doo create snippet}
-function ww {doo create wiki-article}
+function bb {doo create bookmark --edit}
+function cc {doo create contact --edit}
+function mm {doo create minutes --edit}
+function pp {doo create loop --edit}
+function qq {doo create quote --edit}
+function ss {doo create snippet --edit}
+function ww {doo create wiki-article --edit}
