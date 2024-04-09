@@ -1,0 +1,10 @@
+{
+    "continueAuthenticationAfterCardInsert": false,
+    "disablePinPadReaders": false,
+    "enableSystemProxy": false,
+    "logDebug": false,
+    "logInfo": true,
+    "proxyServerAddress": "",
+    "proxyServerCredential": "",
+    "skipSuccessAuthenticationConfirmationPage": false
+}

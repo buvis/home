@@ -1,0 +1,12 @@
+ledger_path: ~/.local/share/fadlr/ledger.csv
+local_currency:
+  - code: CZK
+  - symbol: Kč
+  - precision: 2
+foreign_currencies:
+  - EUR:
+    - symbol: €
+    - precision: 2
+  - USD:
+    - symbol: $
+    - precision: 2
