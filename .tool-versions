@@ -1,5 +1,5 @@
 python 3.12.2
-nodejs 21.6.2
+nodejs 21.7.2
 rust 1.76.0
 yarn 1.22.19
 helm 3.14.3
