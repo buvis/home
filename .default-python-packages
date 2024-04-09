@@ -6,6 +6,7 @@ black
 cyclopts
 gita
 pipenv
+poetry
 pyacoustid
 pylast
 pyreadline
@@ -19,4 +20,5 @@ rich
 rope
 ruff
 unidecode
+virtualenv
 yt-dlp

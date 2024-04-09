@@ -30,6 +30,7 @@ brew "nmap"
 brew "pinentry-mac"
 brew "pre-commit"
 brew "ripgrep"
+brew "rustup-init"
 brew "sops"
 brew "syncthing", restart_service: true
 brew "tere"
