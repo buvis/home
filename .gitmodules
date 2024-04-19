@@ -80,7 +80,7 @@
 	path = .vim/pack/plugins/opt/pear-tree
 	url = https://github.com/tmsvg/pear-tree
 [submodule "ale"]
-	path = .vim/pack/plugins/opt/ale
+	path = C:/Users/tbouska/.vim/pack/plugins/start/ale
 	url = https://github.com/dense-analysis/ale
 [submodule "asyncomplete.vim"]
 	path = .vim/pack/plugins/opt/asyncomplete.vim
