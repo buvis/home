@@ -15,13 +15,17 @@
 set runtimepath+=$HOME/.vim
 set packpath+=$HOME/.vim
 
-" Neosolarized theme
-" https://github.com/iCyMind/NeoSolarized
-packadd! NeoSolarized
+" Enable code completion by ALE (must by set before loading it)
+let g:ale_completion_enabled=1
+set omnifunc=ale#completion#OmniFunc
 
-" Asynchronous Lint Engine
-" https://github.com/dense-analysis/ale
-packadd! ale
+" Activate project's or vim's virtualenv
+silent py3 << EOF
+from pathlib import Path
+venv_activator = Path("C:/Users/tbouska/AppData/Local/pypoetry/Cache/virtualenvs/buvis-vim-config-PvOqcZAR-py3.12", "Scripts", "activate_this.py")
+print(venv_activator)
+exec(open(venv_activator).read(), {'__file__': venv_activator})
+EOF
 
 filetype indent plugin on
 syntax on
