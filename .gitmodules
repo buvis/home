@@ -147,3 +147,36 @@
 [submodule "scripts"]
 	path = scripts
 	url = https://github.com/buvis/scripts
+[submodule "coc.nvim"]
+	path = .vim/pack/plugins/opt/coc.nvim
+	url = https://github.com/neoclide/coc.nvim
+[submodule "nvim-cmp"]
+	path = .vim/pack/plugins/opt/nvim-cmp
+	url = https://github.com/hrsh7th/nvim-cmp
+[submodule "mason.nvim"]
+	path = .vim/pack/plugins/opt/mason.nvim
+	url = https://github.com/williamboman/mason.nvim
+[submodule "mason-lspconfig.nvim"]
+	path = .vim/pack/plugins/opt/mason-lspconfig.nvim
+	url = https://github.com/williamboman/mason-lspconfig.nvim
+[submodule "null-ls.nvim"]
+	path = .vim/pack/plugins/opt/null-ls.nvim
+	url = https://github.com/jose-elias-alvarez/null-ls.nvim
+[submodule "cmp-nvim-lsp"]
+	path = .vim/pack/plugins/opt/cmp-nvim-lsp
+	url = https://github.com/hrsh7th/cmp-nvim-lsp
+[submodule "ddc.vim"]
+	path = .vim/pack/plugins/opt/ddc.vim
+	url = https://github.com/Shougo/ddc.vim
+[submodule "denops.vim"]
+	path = .vim/pack/plugins/opt/denops.vim
+	url = https://github.com/vim-denops/denops.vim
+[submodule "deoplete.nvim"]
+	path = .vim/pack/plugins/opt/deoplete.nvim
+	url = https://github.com/Shougo/deoplete.nvim
+[submodule "nvim-yarp"]
+	path = .vim/pack/plugins/opt/nvim-yarp
+	url = https://github.com/roxma/nvim-yarp
+[submodule "vim-hug-neovim-rpc"]
+	path = .vim/pack/plugins/opt/vim-hug-neovim-rpc
+	url = https://github.com/roxma/vim-hug-neovim-rpc
