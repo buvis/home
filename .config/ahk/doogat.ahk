@@ -57,3 +57,16 @@
 
     Return
 }
+
+!#s:: ; schedules loop's next action in Outlook Calendar
+{
+    A_Clipboard := "" ; Start off empty to allow ClipWait to detect when the text has arrived
+    Send "^c"  ; Copy the highlighted text to clipboard
+    ClipWait ; Wait for the clipboard to contain text.
+
+    loop_id := Trim(A_Clipboard, " `n`r`t")
+
+    Run "outlook-syncer.bat schedule_next_action " loop_id
+
+    Return
+}
