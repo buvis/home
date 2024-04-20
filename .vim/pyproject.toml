@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "buvis-vim-config"
+version = "0.1.0"
+description = ""
+authors = ["Tomáš Bouška <tomas.bouska@adp.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+ruff = "^0.4.1"
+ruff-lsp = "^0.0.53"
+python-lsp-server = "^1.11.0"
+python-lsp-ruff = "^2.2.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
