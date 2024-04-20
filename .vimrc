@@ -11,25 +11,33 @@
 
 " Here I add plugins only, see ~/.vim/plugin for more configuration files
 
-" Fix paths on Windows
+" Fix paths in Windows
 set runtimepath+=$HOME/.vim
 set packpath+=$HOME/.vim
 
-" Enable code completion by ALE (must by set before loading it)
-let g:ale_completion_enabled=1
-set omnifunc=ale#completion#OmniFunc
-
 " Activate project's or vim's virtualenv
+" Prerequisites:
+" 1) vim must be able to find python3 (check :version for the compilation
+" flag)
+" 2) poetry was installed to the environment from previous step
+" 3) you created vim's virtualenv by running `poetry install` in `~/.vim`
 silent py3 << EOF
 from pathlib import Path
-venv_activator = Path("C:/Users/tbouska/AppData/Local/pypoetry/Cache/virtualenvs/buvis-vim-config-PvOqcZAR-py3.12", "Scripts", "activate_this.py")
-print(venv_activator)
+import subprocess
+
+venv_dir_stdout = subprocess.run(["poetry", "--directory", Path(Path.home()/".vim"), "env","info","--path"], stdout=subprocess.PIPE)
+venv_dir = Path(venv_dir_stdout.stdout.decode('utf-8').strip())
+venv_activator = Path(venv_dir, "Scripts", "activate_this.py")
 exec(open(venv_activator).read(), {'__file__': venv_activator})
 EOF
 
+" Enable code completion by ALE (must by set before loading it)
+let g:ale_completion_enabled=1
+
+" Enable filetype specific scripts
 filetype indent plugin on
 syntax on
 
-" Load help for all plugins
+" Load plugins from ~/.vim/pack/plugins/start and generate help
 packloadall
 silent! helptags ALL
