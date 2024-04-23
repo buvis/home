@@ -27,8 +27,19 @@ import subprocess
 
 venv_dir_stdout = subprocess.run(["poetry", "--directory", Path(Path.home()/".vim"), "env","info","--path"], stdout=subprocess.PIPE)
 venv_dir = Path(venv_dir_stdout.stdout.decode('utf-8').strip())
-venv_activator = Path(venv_dir, "Scripts", "activate_this.py")
-exec(open(venv_activator).read(), {'__file__': venv_activator})
+
+if not venv_dir.is_dir():
+  print(f"Can't find vim's virtualenv. Run `poetry install` in ~/.vim", file=sys.stderr)
+else:
+  venv_activator = Path(venv_dir, "Scripts", "activate_this.py")
+  if venv_activator.is_file():
+    exec(open(venv_activator).read(), {'__file__': venv_activator})
+  else:
+    venv_activator = Path(venv_dir, "bin", "activate_this.py")
+    if venv_activator.is_file():
+      exec(open(venv_activator).read(), {'__file__': venv_activator})
+    else:
+      print(f"Can't activate vim's virtualenv at {venv_dir}", file=sys.stderr)
 EOF
 
 " Enable code completion by ALE (must by set before loading it)
