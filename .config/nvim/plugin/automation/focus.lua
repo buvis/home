@@ -1,0 +1,22 @@
+local augroup = buvis.vim.augroup
+local autocmd = buvis.vim.autocmd
+
+augroup('FocusAutocmds', function()
+  autocmd('BufEnter', '*', buvis.autocmds.buf_enter)
+  autocmd('BufFilePost,BufNewFile,BufReadPost', '*', 'call wincent#autocmds#apply_overrides()')
+  autocmd('BufLeave', '?*', buvis.autocmds.buf_leave)
+  autocmd('BufWinEnter', '?*', buvis.autocmds.buf_win_enter)
+  autocmd('BufWritePost', '*/spell/*.add', 'silent! :mkspell! %')
+  autocmd('BufWritePost', '?*', buvis.autocmds.buf_write_post)
+  autocmd('FileType', '*', buvis.autocmds.file_type)
+  autocmd('FocusGained', '*', buvis.autocmds.focus_gained)
+  autocmd('FocusLost', '*', buvis.autocmds.focus_lost)
+  autocmd('InsertEnter', '*', buvis.autocmds.insert_enter)
+  autocmd('InsertLeave', '*', buvis.autocmds.insert_leave)
+  autocmd('InsertLeave', '*', 'set nopaste')
+  autocmd('TextYankPost', '*', "silent! lua vim.highlight.on_yank {higroup='Substitute', timeout=200}")
+  autocmd('VimEnter', '*', buvis.autocmds.vim_enter)
+  autocmd('VimResized', '*', 'execute "normal! \\<c-w>="')
+  autocmd('WinEnter', '*', buvis.autocmds.win_enter)
+  autocmd('WinLeave', '*', buvis.autocmds.win_leave)
+end)
