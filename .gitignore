@@ -13,7 +13,7 @@
 .playbooks/.vault-pwd
 .ropeproject
 .ruff_cache
-.vim/undo
+.vim/.undo
 .vifm/Trash
 .vifm/scripts
 .vifm/vifm-help.txt
