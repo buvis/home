@@ -2,6 +2,9 @@
 " Look and feel
 
 " activate and configure theme
+if has("win32") || has("win64")
+  set termguicolors
+endif
 set background=light
 let g:neosolarized_italic=1
 let g_neosolarized_termBoldAsBright=0
