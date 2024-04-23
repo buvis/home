@@ -1,7 +1,16 @@
 " settings/lookfeel.vim
 " Look and feel
 
-" activate and configure theme
+" lightline.vim
+" https://github.com/itchyny/lightline.vim
+set laststatus=2
+let g:lightline = {
+      \ "colorscheme": "solarized",
+      \ "background": "dark",
+      \ }
+
+" NeoSolarized
+" https://github.com/overcache/NeoSolarized
 if has("win32") || has("win64")
   set termguicolors
 endif
