@@ -1,7 +1,7 @@
 cite about-plugin
 about-plugin 'vim plugins management'
 
-export BUVIS_VIMPACKDIR=".vim/pack/plugins/start/"
+export BUVIS_VIMPACKDIR=".config/nvim/pack/bundle/opt/"
 
 # add plugin
 function packadd () {

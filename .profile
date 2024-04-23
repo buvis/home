@@ -49,8 +49,8 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
 export PYTHONPATH="${DOTFILES_ROOT}/scripts/src:${PYTHONPATH}"
 
 # Set my editor and git editor
-export EDITOR="vim"
-export GIT_EDITOR='vim'
+export EDITOR="nvim"
+export GIT_EDITOR="nvim"
 
 # Use ag for feeding into fzf for searching files.
 export FZF_DEFAULT_COMMAND='ag -U --hidden --ignore .git -g ""'

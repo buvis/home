@@ -1,10 +1,13 @@
 !*.secret
+*.un~
 .config/MusicBrainz
 .config/beets/discogs_token.json
 .config/beets/state.pickle
 .config/brew/Brewfile.lock.json
 .config/configstore
 .config/jellyfin
+.config/nvim/shada
+.config/nvim/view
 .config/scripts/readwise-token
 .config/scoop/config.json
 .config/yarn
@@ -13,7 +16,6 @@
 .playbooks/.vault-pwd
 .ropeproject
 .ruff_cache
-.vim/.undo
 .vifm/Trash
 .vifm/scripts
 .vifm/vifm-help.txt
