@@ -19,8 +19,8 @@ set tags=tags;
 " }}}
 
 " File properties {{{
-set encoding=utf-8
 set fileformat=unix
+set fileformats=unix,dos
 set fileencoding=utf-8
 set termencoding=utf-8
 set spell spelllang=en_gb
