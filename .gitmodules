@@ -1,15 +1,3 @@
-[submodule "vim-airline-themes"]
-	path = .vim/pack/plugins/opt/vim-airline-themes
-	url = https://github.com/vim-airline/vim-airline-themes
-[submodule "bullets"]
-	path = .vim/pack/plugins/opt/bullets
-	url = https://github.com/dkarter/bullets.vim
-[submodule "vim-devicons"]
-	path = .vim/pack/plugins/opt/vim-devicons
-	url = https://github.com/ryanoasis/vim-devicons
-[submodule "vim-gitgutter"]
-	path = .vim/pack/plugins/opt/vim-gitgutter
-	url = https://github.com/airblade/vim-gitgutter
 [submodule "vim-argwrap"]
 	path = .vim/pack/plugins/opt/vim-argwrap
 	url = https://github.com/foosoft/vim-argwrap
@@ -34,9 +22,6 @@
 [submodule "vim-highlightedyank"]
 	path = .vim/pack/plugins/opt/vim-highlightedyank
 	url = https://github.com/machakann/vim-highlightedyank
-[submodule "NeoSolarized"]
-	path = .vim/pack/plugins/opt/NeoSolarized
-	url = https://github.com/iCyMind/NeoSolarized
 [submodule "indentLine"]
 	path = .vim/pack/plugins/opt/indentLine
 	url = https://github.com/Yggdroot/indentLine
@@ -49,9 +34,6 @@
 [submodule "fzf.vim"]
 	path = .vim/pack/plugins/opt/fzf.vim
 	url = https://github.com/junegunn/fzf.vim
-[submodule "vim-tmux-navigator"]
-	path = .vim/pack/plugins/opt/vim-tmux-navigator
-	url = https://github.com/christoomey/vim-tmux-navigator
 [submodule "vim-vinegar"]
 	path = .vim/pack/plugins/opt/vim-vinegar
 	url = https://github.com/tpope/vim-vinegar
@@ -73,15 +55,9 @@
 [submodule "nerdtree"]
 	path = .vim/pack/plugins/opt/nerdtree
 	url = https://github.com/preservim/nerdtree
-[submodule "Join"]
-	path = .vim/pack/plugins/opt/Join
-	url = https://github.com/sk1418/Join
 [submodule "pear-tree"]
 	path = .vim/pack/plugins/opt/pear-tree
 	url = https://github.com/tmsvg/pear-tree
-[submodule "ale"]
-	path = C:/Users/tbouska/.vim/pack/plugins/start/ale
-	url = https://github.com/dense-analysis/ale
 [submodule "asyncomplete.vim"]
 	path = .vim/pack/plugins/opt/asyncomplete.vim
 	url = https://github.com/prabirshrestha/asyncomplete.vim
@@ -135,9 +111,6 @@
 [submodule "vim-lsp-ale"]
 	path = .vim/pack/plugins/opt/vim-lsp-ale
 	url = https://github.com/rhysd/vim-lsp-ale
-[submodule "asyncomplete-ale.vim"]
-	path = .vim/pack/plugins/opt/asyncomplete-ale.vim
-	url = https://github.com/andreypopp/asyncomplete-ale.vim
 [submodule "vim-healthcheck"]
 	path = .vim/pack/plugins/opt/vim-healthcheck
 	url = https://github.com/rhysd/vim-healthcheck
