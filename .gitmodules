@@ -14,15 +14,3 @@
 [submodule "scripts"]
 	path = scripts
 	url = https://github.com/buvis/scripts
-[submodule "vim-tmux-navigator"]
-	path = .vim/pack/plugins/start/vim-tmux-navigator
-	url = https://github.com/christoomey/vim-tmux-navigator
-[submodule "NeoSolarized"]
-	path = .vim/pack/plugins/start/NeoSolarized
-	url = https://github.com/overcache/NeoSolarized
-[submodule "ale"]
-	path = .vim/pack/plugins/start/ale
-	url = https://github.com/dense-analysis/ale
-[submodule "lightline.vim"]
-	path = .vim/pack/plugins/start/lightline.vim
-	url = https://github.com/itchyny/lightline.vim
