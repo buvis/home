@@ -55,9 +55,9 @@ config.set_environment_variables = {}
 
 if wezterm.target_triple == 'aarch64-apple-darwin' then
   config.set_environment_variables.PATH = '/opt/homebrew/bin:' .. os.getenv 'PATH'
+  config.set_environment_variables.PATH = os.getenv 'HOME' .. '/scripts/bin:' .. config.set_environment_variables.PATH
 end
 
-config.set_environment_variables.PATH = os.getenv 'HOME' .. '/scripts/bin:' .. config.set_environment_variables.PATH
 config.set_environment_variables.EDITOR = 'nvim'
 
 config.default_prog = {'nu'}
