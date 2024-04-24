@@ -865,5 +865,15 @@ $env.config = {
     ]
 }
 
+# Check if some command available in current shell
+def 'is-installed' [ app: string ] {
+  ((which $app | length) > 0)
+}
+
 alias cfg = git --git-dir $"($env.HOME)/.buvis/" --work-tree $env.HOME
-alias cfgs = cfg status
+alias cfga = cfg add
+alias cfgapa = cfga -p
+alias cfgl = if (is-installed git-secret) { cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge; cfg secret reveal -f } else {cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge}
+alias cfgm = cfg commit -m
+alias cfgp = cfg push
+alias cfgs = if (is-installed git-secret) {cfg secret hide -m; cfg status} else {cfg status}
