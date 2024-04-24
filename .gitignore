@@ -1,5 +1,4 @@
 !*.secret
-*.un~
 .config/MusicBrainz
 .config/beets/discogs_token.json
 .config/beets/state.pickle
@@ -7,7 +6,6 @@
 .config/configstore
 .config/jellyfin
 .config/nvim/shada
-.config/nvim/view
 .config/scripts/readwise-token
 .config/scoop/config.json
 .config/yarn
