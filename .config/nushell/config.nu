@@ -870,6 +870,7 @@ def 'is-installed' [ app: string ] {
   ((which $app | length) > 0)
 }
 
+# Aliases for dotfiles management
 alias cfg = git --git-dir $"($env.HOME)/.buvis/" --work-tree $env.HOME
 alias cfga = cfg add
 alias cfgapa = cfga -p
@@ -877,3 +878,14 @@ alias cfgl = if (is-installed git-secret) { cfg pull; cfg submodule foreach git 
 alias cfgm = cfg commit -m
 alias cfgp = cfg push
 alias cfgs = if (is-installed git-secret) {cfg secret hide -m; cfg status} else {cfg status}
+
+# (N)Vim packages management
+$env.BUVIS_NVIM_PACKDIR = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt")
+
+def 'packadd' [ url: string ] {
+  let package_name = $url | parse --regex '\/([^\/]+)\/?$' | get capture0.0
+  let pack_dir = ($env.BUVIS_NVIM_PACKDIR | path join $package_name)
+  cd $env.HOME
+  cfg submodule add --name $package_name $url $pack_dir
+  cd -
+}
