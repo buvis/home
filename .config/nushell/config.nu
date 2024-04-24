@@ -864,3 +864,6 @@ $env.config = {
         }
     ]
 }
+
+alias cfg = git --git-dir $"($env.HOME)/.buvis/" --work-tree $env.HOME
+alias cfgs = cfg status

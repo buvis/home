@@ -98,3 +98,7 @@ $env.NU_PLUGIN_DIRS = [
 
 # To load from a custom file you can use:
 # source ($nu.default-config-dir | path join 'custom.nu')
+
+$env.GPG_TTY = (tty)
+$env.SSH_AUTH_SOCK = (gpgconf --list-dirs agent-ssh-socket)
+gpgconf --launch gpg-agent
