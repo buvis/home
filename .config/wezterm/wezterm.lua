@@ -6,9 +6,9 @@ config.audible_bell = "Disabled"
 config.check_for_updates = false
 config.color_scheme = "Builtin Solarized Dark"
 config.inactive_pane_hsb = {
-  hue = 0.45,
+  hue = 0.75,
   saturation = 0.75,
-  brightness = 0.44,
+  brightness = 0.75,
 }
 if wezterm.target_triple == 'x86_64-pc-windows-msvc' then
   config.font_size = 10.5
