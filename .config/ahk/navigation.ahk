@@ -80,9 +80,9 @@
 #Space::
 {
 	Send "{Blind}{vkE8}"
-	If WinExist("ahk_exe alacritty.exe")
-		WinActivate "ahk_exe alacritty.exe"
+	If WinExist("ahk_exe wezterm-gui.exe")
+		WinActivate "ahk_exe wezterm-gui.exe"
 	Else
-		Run "C:/Users/tbouska/scoop/apps/alacritty/current/alacritty.exe"
+		Run "C:/Users/tbouska/scoop/apps/wezterm/current/wezterm-gui.exe"
 	Return
 }
