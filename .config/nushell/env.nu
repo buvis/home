@@ -126,7 +126,6 @@ path add ($env.HOME | path join "scripts" "bin")
 
 if $env.IS_WIN {
   $env.Path = ($env.Path | uniq)
-}
-else {
+} else {
   $env.PATH = ($env.PATH | uniq)
 }
