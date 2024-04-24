@@ -128,7 +128,7 @@ vim.opt.textwidth = 80 -- automatically hard wrap at 80 columns
 if root then
   vim.opt.undofile = false -- don't create root-owned files
 else
-  vim.opt.undodir = config .. '/undo//' -- keep undo files out of the way
+  vim.opt.undodir = config .. '/.undo//' -- keep undo files out of the way
   vim.opt.undodir = vim.opt.undodir + '.' -- fallback
   vim.opt.undofile = true -- actually use undo files
 end
