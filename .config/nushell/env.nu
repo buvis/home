@@ -99,6 +99,7 @@ $env.NU_PLUGIN_DIRS = [
 # To load from a custom file you can use:
 # source ($nu.default-config-dir | path join 'custom.nu')
 
+# Recognize the system I'm running for later decisions
 match (uname | get kernel-name) {
   'Windows_NT' => {
     $env.IS_WIN = true
@@ -108,8 +109,24 @@ match (uname | get kernel-name) {
     $env.IS_MAC = true },
 }
 
+# Use gpg-agent for SSH identity provision
 if $env.IS_MAC {
   $env.GPG_TTY = (tty)
   $env.SSH_AUTH_SOCK = (gpgconf --list-dirs agent-ssh-socket)
   gpgconf --launch gpg-agent
+}
+
+# Set default editor
+# TODO: check if available
+$env.EDITOR = "nvim"
+
+# Enrich the PATH
+use std "path add"
+path add ($env.HOME | path join "scripts" "bin")
+
+if $env.IS_WIN {
+  $env.Path = ($env.Path | uniq)
+}
+else {
+  $env.PATH = ($env.PATH | uniq)
 }
