@@ -35,7 +35,7 @@
 #z::Send "^z"
 
 ; Remap Windows + Tab to Alt + Tab.
-Lwin & Tab::AltTab
+; Lwin & Tab::AltTab
 
 ; Map fn keys to right option
 
