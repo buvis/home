@@ -23,3 +23,6 @@
 [submodule "NeoSolarized.nvim"]
 	path = .config/nvim/pack/bundle/opt/NeoSolarized.nvim
 	url = https://github.com/Tsuzat/NeoSolarized.nvim
+[submodule "replay"]
+	path = /Users/bob/.config/nvim/pack/bundle/opt/replay
+	url = https://github.com/wincent/replay
