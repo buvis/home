@@ -11,10 +11,11 @@ config.inactive_pane_hsb = {
   saturation = 0.75,
   brightness = 0.65,
 }
+config.font = wezterm.font 'MesloLGS NF'
 if wezterm.target_triple == 'x86_64-pc-windows-msvc' then
   config.font_size = 10.5
 else
-  config.font_size = 12
+  config.font_size = 11
 end
 config.launch_menu = {}
 
