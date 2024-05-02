@@ -17,9 +17,6 @@
 [submodule "nvim-tree.lua"]
 	path = .config/nvim/pack/bundle/opt/nvim-tree.lua
 	url = https://github.com/nvim-tree/nvim-tree.lua
-[submodule "nvim-tmux-navigation"]
-	path = .config/nvim/pack/bundle/opt/nvim-tmux-navigation
-	url = https://github.com/alexghergh/nvim-tmux-navigation
 [submodule "NeoSolarized.nvim"]
 	path = .config/nvim/pack/bundle/opt/NeoSolarized.nvim
 	url = https://github.com/Tsuzat/NeoSolarized.nvim

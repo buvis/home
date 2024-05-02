@@ -221,7 +221,6 @@ end
 -------------------------------------------------------------------------------
 if vim.o.loadplugins then
   buvis.plugin.load('NeoSolarized.nvim')
-  buvis.plugin.load('nvim-tmux-navigation')
   buvis.plugin.load('replay')
 
   -- Lazy because it adds a slow BufEnter autocmd.
