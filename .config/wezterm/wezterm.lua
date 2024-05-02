@@ -19,11 +19,7 @@ else
 end
 config.launch_menu = {}
 
-if wezterm.target_triple == 'x86_64-pc-windows-msvc' then
-  config.leader = { key="\\" }
-else
-  config.leader = { key="§" }
-end
+config.leader = { key="a", mods = "CTRL" }
 
 config.disable_default_key_bindings = true
 config.keys = {
@@ -37,22 +33,18 @@ config.keys = {
   { key = "8", mods = "LEADER",       action=act{ActivateTab=7}},
   { key = "9", mods = "LEADER",       action=act{ActivateTab=8}},
   { key = "c", mods = "LEADER",       action=act{SpawnTab="CurrentPaneDomain"}},
+  { key = "h", mods = "LEADER",       action=act{ActivatePaneDirection="Left"}},
+  { key = "j", mods = "LEADER",       action=act{ActivatePaneDirection="Down"}},
+  { key = "k", mods = "LEADER",       action=act{ActivatePaneDirection="Up"}},
+  { key = "l", mods = "LEADER",       action=act{ActivatePaneDirection="Right"}},
   { key = "s", mods = "LEADER",       action=act{SplitVertical={domain="CurrentPaneDomain"}}},
   { key = "v", mods = "LEADER",       action=act{SplitHorizontal={domain="CurrentPaneDomain"}}},
   { key = "w", mods = "LEADER",       action=act{CloseCurrentTab={confirm=true}}},
-  { key = "x", mods = "LEADER",       action=act{CloseCurrentPane={confirm=true}}},
+  { key = "q", mods = "LEADER",       action=act{CloseCurrentPane={confirm=true}}},
   { key = "z", mods = "LEADER",       action="TogglePaneZoomState" },
   { key = "c", mods = "CTRL",         action=act.CopyTo 'Clipboard'},
-  { key = "h", mods = "CTRL",         action=act{ActivatePaneDirection="Left"}},
-  { key = "j", mods = "CTRL",         action=act{ActivatePaneDirection="Down"}},
-  { key = "k", mods = "CTRL",         action=act{ActivatePaneDirection="Up"}},
-  { key = "l", mods = "CTRL",         action=act{ActivatePaneDirection="Right"}},
   { key = "v", mods = "CTRL",         action=act.PasteFrom 'Clipboard'},
   { key = "c", mods = "CTRL|SHIFT",   action=act.SendKey{key = 'c', mods = 'CTRL'}},
-  { key = "H", mods = "CTRL|SHIFT",   action=act{AdjustPaneSize={"Left", 5}}},
-  { key = "J", mods = "CTRL|SHIFT",   action=act{AdjustPaneSize={"Down", 5}}},
-  { key = "K", mods = "CTRL|SHIFT",   action=act{AdjustPaneSize={"Up", 5}}},
-  { key = "L", mods = "CTRL|SHIFT",   action=act{AdjustPaneSize={"Right", 5}}},
 }
 config.set_environment_variables = {}
 
