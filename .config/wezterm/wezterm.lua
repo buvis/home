@@ -7,9 +7,9 @@ config.audible_bell = "Disabled"
 config.check_for_updates = false
 config.color_scheme = "Builtin Solarized Dark"
 config.inactive_pane_hsb = {
-  hue = 0.75,
-  saturation = 0.75,
-  brightness = 0.65,
+  hue = 0.22,
+  saturation = 0.44,
+  brightness = 0.55,
 }
 config.font = wezterm.font 'MesloLGS NF'
 if wezterm.target_triple == 'x86_64-pc-windows-msvc' then
