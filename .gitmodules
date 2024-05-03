@@ -41,3 +41,6 @@
 [submodule "plenary.nvim"]
 	path = .config/nvim/pack/bundle/opt/plenary.nvim
 	url = https://github.com/nvim-lua/plenary.nvim
+[submodule "which-key.nvim"]
+	path = .config/nvim/pack/bundle/opt/which-key.nvim
+	url = https://github.com/folke/which-key.nvim
