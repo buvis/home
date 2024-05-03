@@ -53,7 +53,7 @@ else
 end
 config.launch_menu = {}
 
-config.leader = { key="a", mods = "CTRL" }
+config.leader = { key="q", mods = "CTRL" }
 
 config.disable_default_key_bindings = true
 config.keys = {
