@@ -24,8 +24,8 @@
 	path = .config/nvim/pack/bundle/opt/replay
 	url = https://github.com/wincent/replay
 [submodule "smart-splits.nvim"]
-	path = /Users/bob/.config/nvim/pack/bundle/opt/smart-splits.nvim
+	path = .config/nvim/pack/bundle/opt/smart-splits.nvim
 	url = https://github.com/mrjones2014/smart-splits.nvim
 [submodule "bufresize.nvim"]
-	path = /Users/bob/.config/nvim/pack/bundle/opt/bufresize.nvim
+	path = .config/nvim/pack/bundle/opt/bufresize.nvim
 	url = https://github.com/kwkarlwang/bufresize.nvim
