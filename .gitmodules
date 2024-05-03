@@ -38,3 +38,6 @@
 [submodule "nvim-web-devicons"]
 	path = .config/nvim/pack/bundle/opt/nvim-web-devicons
 	url = https://github.com/nvim-tree/nvim-web-devicons
+[submodule "plenary.nvim"]
+	path = .config/nvim/pack/bundle/opt/plenary.nvim
+	url = https://github.com/nvim-lua/plenary.nvim
