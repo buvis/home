@@ -8,6 +8,7 @@ buvis.plugin.lazy('nvim-tree.lua', {
     'NvimTreeToggle',
     'NvimTreeOpen',
   },
+  dependencies = 'nvim-tree/nvim-web-devicons',
   keymap = {
     { 'n', '<LocalLeader>f', ':NvimTreeFindFile<CR>', { silent = true } },
     { 'n', '<LocalLeader>t', ':NvimTreeToggle<CR>', { silent = true } },
