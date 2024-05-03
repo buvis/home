@@ -45,9 +45,7 @@ buvis.plugin.lazy('nvim-tree.lua', {
   },
   dependencies = 'nvim-tree/nvim-web-devicons',
   keymap = {
-    { 'n', '<leader>ef', '<cmd>NvimTreeFindFileToggle<CR>', { silent = true, desc = "Toggle file explorer on current file" } },
-    { 'n', '<leader>ee', '<cmd>NvimTreeToggle<CR>', { silent = true, desc = "Toggle file explorer" } },
-    { 'n', '<leader>ec', '<cmd>NvimTreeCollapse<CR>', { silent = true , desc = "Collapse file explorer" } },
-    { 'n', '<leader>er', '<cmd>NvimTreeRefresh<CR>', { silent = true , desc = "Refresh file explorer" } },
+    { 'n', '<C-e>f', '<cmd>NvimTreeFindFileToggle<CR>', { silent = true, desc = "Toggle file explorer on current file" } },
+    { 'n', '<C-e>e', '<cmd>NvimTreeToggle<CR>', { silent = true, desc = "Toggle file explorer" } },
   },
 })
