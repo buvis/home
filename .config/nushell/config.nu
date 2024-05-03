@@ -884,7 +884,7 @@ def vim [ file: path] {
 alias cfg = git --git-dir $"($env.HOME)/.buvis/" --work-tree $env.HOME
 alias cfga = cfg add
 alias cfgapa = cfga -p
-alias cfgl = if (is-installed git-secret) { cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge; cfg secret reveal -f } else {cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge}
+alias cfgl = if (is-installed git-secret) { cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge; cfg secret reveal -f } else {cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge}; rm -f $"($env.HOME)/README.md" $"($env.HOME)/get-buvis.sh" $"($env.HOME)/get-buvis.bat"; cfg update-index --skip-worktree README.md get-buvis.sh get-buvis.bat
 alias cfgm = cfg commit -m
 alias cfgp = cfg push
 alias cfgs = if (is-installed git-secret) {cfg secret hide -m; cfg status} else {cfg status}
