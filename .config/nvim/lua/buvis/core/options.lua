@@ -98,6 +98,7 @@ option.showbreak = '↳ ' -- DOWNWARDS ARROW WITH TIP RIGHTWARDS (U+21B3, UTF-8:
 option.showcmd = false -- don't show extra info at end of command line
 option.sidescroll = 0 -- sidescroll in jumps because terminals are slow
 option.sidescrolloff = 3 -- same as scrolloff, but for columns
+option.signcolumn = "yes" -- show sign column so that text doesn't shift
 option.smartcase = true -- don't ignore case in searches if uppercase characters present
 option.smarttab = true -- <tab>/<BS> indent/dedent in leading whitespace
 
