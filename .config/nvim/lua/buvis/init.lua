@@ -7,5 +7,6 @@ local buvis = autoload('buvis')
 _G.buvis = buvis
 
 require('buvis.core')
+require('buvis.plugin.focus')
 
 return buvis
