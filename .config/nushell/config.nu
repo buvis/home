@@ -870,6 +870,16 @@ def 'is-installed' [ app: string ] {
   ((which $app | length) > 0)
 }
 
+def vim [ file: path] {
+  if (is-installed nvim) == true {
+    nvim $file
+  } else if (is-installed vim) == true {
+    vim $file
+  } else if (is-installed vi) == true {
+    vi $file
+  }
+}
+
 # Aliases for dotfiles management
 alias cfg = git --git-dir $"($env.HOME)/.buvis/" --work-tree $env.HOME
 alias cfga = cfg add

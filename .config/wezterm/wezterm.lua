@@ -94,6 +94,7 @@ config.set_environment_variables = {}
 
 if wezterm.target_triple == 'aarch64-apple-darwin' then
   config.set_environment_variables.PATH = '/opt/homebrew/bin:' .. os.getenv 'PATH'
+  config.set_environment_variables.SHELL = '/opt/homebrew/bin/nu'
 end
 
 config.default_prog = {'nu'}
