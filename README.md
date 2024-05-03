@@ -1,4 +1,4 @@
-# Bob's Universal and Very Intelligent System
+m
 
 This repository contains more than my dotfiles, so I don't stick to the convention, and I'm not naming it "dotfiles".
 
@@ -12,16 +12,20 @@ I always appreciate any opportunity to learn. Thank you!
 ### System independent steps
 
 1. Install NerdFonts for Powerline from romkatv:
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf
+    - manually
+        - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf
+        - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf
+        - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf
+        - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf
+    - MacOS (homebrew)
+        - `brew tap homebrew/cask-fonts`
+        - `brew install font-meslo-lg-nerd-font`
 2. Install python and pip
 3. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
 
 ### Additional system specific steps
 
-#### macOS
+#### MacOS
 
 1. Install all pending OS updates: About This Mac - Software Update...
 2. Install xcode command line tools: `xcode-select --install`
@@ -41,7 +45,7 @@ I always appreciate any opportunity to learn. Thank you!
 
 ## Install
 
-### macOS, WSL, and potentially any Linux distro
+### MacOS, WSL, and potentially any Linux distro
 ``` bash
 curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
 ```
@@ -66,7 +70,7 @@ When in tmux, press `<tmux-prefix>+I`.
 
 ### Use default configuration for ruff
 
-#### macOS
+#### MacOS
 
 Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/ruff/ruff.toml`
 
@@ -117,7 +121,7 @@ Run `asdf install`.
 
 ### Update
 
-#### macOS, WSL, and potentially any Linux distro
+#### MacOS, WSL, and potentially any Linux distro
 
 1. Open terminal
 2. Go to user's home: `cd $HOME`
