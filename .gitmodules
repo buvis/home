@@ -50,3 +50,6 @@
 [submodule "telescope-zf-native.nvim"]
 	path = .config/nvim/pack/bundle/opt/telescope-zf-native.nvim
 	url = https://github.com/natecraddock/telescope-zf-native.nvim
+[submodule "project.nvim"]
+	path = /Users/bob/.config/nvim/pack/bundle/opt/project.nvim
+	url = https://github.com/ahmedkhalf/project.nvim
