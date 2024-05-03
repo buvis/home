@@ -9,4 +9,4 @@ NeoSolarized.setup {
   transparent = false, -- true/false; Enable this to disable setting the background color
 }
 
-vim.cmd 'colorscheme NeoSolarized'
+vim.cmd('colorscheme NeoSolarized')
