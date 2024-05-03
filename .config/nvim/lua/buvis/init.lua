@@ -6,4 +6,6 @@ local buvis = autoload('buvis')
 -- in `wincent.g`) survives even after the last reference to it goes away.
 _G.buvis = buvis
 
+require('buvis.core')
+
 return buvis
