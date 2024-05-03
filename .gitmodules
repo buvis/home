@@ -29,3 +29,6 @@
 [submodule "bufresize.nvim"]
 	path = .config/nvim/pack/bundle/opt/bufresize.nvim
 	url = https://github.com/kwkarlwang/bufresize.nvim
+[submodule "vim-commentary"]
+	path = .config/nvim/pack/bundle/opt/vim-commentary
+	url = https://github.com/tpope/vim-commentary

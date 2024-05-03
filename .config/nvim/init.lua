@@ -228,6 +228,8 @@ if vim.o.loadplugins then
   buvis.plugin.load('replay')
   -- https://github.com/mrjones2014/smart-splits.nvim
   buvis.plugin.load('smart-splits.nvim')
+  -- https://github.com/tpope/vim-commentary
+  buvis.plugin.load('vim-commentary')
 
   -- Lazy because it adds a slow BufEnter autocmd.
   buvis.plugin.lazy('nvim-tree.lua', {
