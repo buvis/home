@@ -44,3 +44,12 @@
 [submodule "which-key.nvim"]
 	path = .config/nvim/pack/bundle/opt/which-key.nvim
 	url = https://github.com/folke/which-key.nvim
+[submodule "telescope.nvim"]
+	path = .config/nvim/pack/bundle/opt/telescope.nvim
+	url = https://github.com/nvim-telescope/telescope.nvim
+[submodule "telescope-fzf-native.nvim"]
+	path = .config/nvim/pack/bundle/opt/telescope-fzf-native.nvim
+	url = https://github.com/nvim-telescope/telescope-fzf-native.nvim
+[submodule "telescope-zf-native.nvim"]
+	path = .config/nvim/pack/bundle/opt/telescope-zf-native.nvim
+	url = https://github.com/natecraddock/telescope-zf-native.nvim
