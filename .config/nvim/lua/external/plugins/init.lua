@@ -11,6 +11,8 @@ if vim.o.loadplugins then
   -- https://github.com/nvim-tree/nvim-web-devicons
   buvis.plugin.load('nvim-web-devicons')
   require('external.plugins.nvim-web-devicons')
+  -- https://github.com/nvim-lua/plenary.nvim
+  buvis.plugin.load('plenary.nvim')
   -- https://github.com/wincent/replay
   buvis.plugin.load('replay')
   -- https://github.com/mrjones2014/smart-splits.nvim
@@ -18,6 +20,9 @@ if vim.o.loadplugins then
   require('external.plugins.smart-splits')
   -- https://github.com/tpope/vim-commentary
   buvis.plugin.load('vim-commentary')
+  -- https://github.com/folke/which-key.nvim
+  buvis.plugin.load('which-key.nvim')
+  require('external.plugins.which-key')
 
   -- Lazy loaded plugins (because they slow down the startup)
   require('external.plugins.lazy')
