@@ -18,6 +18,11 @@ if vim.o.loadplugins then
   -- https://github.com/mrjones2014/smart-splits.nvim
   buvis.plugin.load('smart-splits.nvim')
   require('external.plugins.smart-splits')
+  -- https://github.com/natecraddock/telescope-zf-native.nvim
+  buvis.plugin.load('telescope-zf-native.nvim')
+  -- https://github.com/nvim-telescope/telescope.nvim
+  buvis.plugin.load('telescope.nvim')
+  require('external.plugins.telescope')
   -- https://github.com/tpope/vim-commentary
   buvis.plugin.load('vim-commentary')
   -- https://github.com/folke/which-key.nvim
