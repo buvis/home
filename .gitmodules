@@ -32,3 +32,9 @@
 [submodule "vim-commentary"]
 	path = .config/nvim/pack/bundle/opt/vim-commentary
 	url = https://github.com/tpope/vim-commentary
+[submodule "lualine.nvim"]
+	path = .config/nvim/pack/bundle/opt/lualine.nvim
+	url = https://github.com/nvim-lualine/lualine.nvim
+[submodule "nvim-web-devicons"]
+	path = .config/nvim/pack/bundle/opt/nvim-web-devicons
+	url = https://github.com/nvim-tree/nvim-web-devicons

@@ -222,8 +222,12 @@ end
 if vim.o.loadplugins then
   -- https://github.com/kwkarlwang/bufresize.nvim
   buvis.plugin.load('bufresize.nvim')
+  -- https://github.com/nvim-lualine/lualine.nvim
+  buvis.plugin.load('lualine.nvim')
   -- https://github.com/Tsuzat/NeoSolarized.nvim
   buvis.plugin.load('NeoSolarized.nvim')
+  -- https://github.com/nvim-tree/nvim-web-devicons
+  buvis.plugin.load('nvim-web-devicons')
   -- https://github.com/wincent/replay
   buvis.plugin.load('replay')
   -- https://github.com/mrjones2014/smart-splits.nvim
