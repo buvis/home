@@ -220,8 +220,14 @@ end
 -- Plugins {{{1 ---------------------------------------------------------------
 -------------------------------------------------------------------------------
 if vim.o.loadplugins then
+  -- https://github.com/kwkarlwang/bufresize.nvim
+  buvis.plugin.load('bufresize.nvim')
+  -- https://github.com/Tsuzat/NeoSolarized.nvim
   buvis.plugin.load('NeoSolarized.nvim')
+  -- https://github.com/wincent/replay
   buvis.plugin.load('replay')
+  -- https://github.com/mrjones2014/smart-splits.nvim
+  buvis.plugin.load('smart-splits.nvim')
 
   -- Lazy because it adds a slow BufEnter autocmd.
   buvis.plugin.lazy('nvim-tree.lua', {
