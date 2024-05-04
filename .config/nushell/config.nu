@@ -889,13 +889,10 @@ alias cfgm = cfg commit -m
 alias cfgp = cfg push
 alias cfgs = if (is-installed git-secret) {cfg secret hide -m; cfg status} else {cfg status}
 
-# (N)Vim packages management
-$env.BUVIS_NVIM_PACKDIR = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt")
-
 # add plugin by repository URL
 def 'packadd' [ url: string ] {
   let package_name = $url | parse --regex '\/([^\/]+)\/?$' | get capture0.0
-  let pack_dir = ($env.BUVIS_NVIM_PACKDIR | path join $package_name)
+  let pack_dir = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt" $package_name)
   cd $env.HOME
   cfg submodule add --name $package_name $url $pack_dir
   cd -
@@ -903,7 +900,7 @@ def 'packadd' [ url: string ] {
 
 # remove plugin by name
 def 'packrm' [ package_name: string ] {
-  let pack_dir = ($env.BUVIS_NVIM_PACKDIR | path join $package_name)
+  let pack_dir = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt" $package_name)
   let module_dir = ($env.HOME | path join ".buvis" "modules" $package_name)
   cd $env.HOME
   cfg submodule deinit -f -- $pack_dir
