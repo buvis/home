@@ -5,6 +5,9 @@ if vim.o.loadplugins then
   -- https://github.com/kwkarlwang/bufresize.nvim
   buvis.plugin.load('bufresize.nvim')
   require('external.plugins.bufresize')
+  -- https://github.com/stevearc/dressing.nvim
+  buvis.plugin.load('dressing.nvim')
+  require('external.plugins.dressing')
   -- https://github.com/nvim-lualine/lualine.nvim
   buvis.plugin.load('lualine.nvim')
   require('external.plugins.lualine')

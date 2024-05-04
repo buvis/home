@@ -56,3 +56,6 @@
 [submodule "bufferline.nvim"]
 	path = .config/nvim/pack/bundle/opt/bufferline.nvim
 	url = https://github.com/akinsho/bufferline.nvim
+[submodule "dressing.nvim"]
+	path = /Users/bob/.config/nvim/pack/bundle/opt/dressing.nvim
+	url = https://github.com/stevearc/dressing.nvim
