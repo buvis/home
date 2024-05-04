@@ -5,6 +5,11 @@ if vim.o.loadplugins then
   -- https://github.com/kwkarlwang/bufresize.nvim
   buvis.plugin.load('bufresize.nvim')
   require('external.plugins.bufresize')
+  -- https://github.com/numToStr/Comment.nvim
+  buvis.plugin.load('Comment.nvim')
+  -- https://github.com/JoosepAlviste/nvim-ts-context-commentstring
+  buvis.plugin.load('nvim-ts-context-commentstring')
+  require('external.plugins.comment')
   -- https://github.com/stevearc/dressing.nvim
   buvis.plugin.load('dressing.nvim')
   require('external.plugins.dressing')
@@ -37,8 +42,6 @@ if vim.o.loadplugins then
   -- https://github.com/nvim-telescope/telescope.nvim
   buvis.plugin.load('telescope.nvim')
   require('external.plugins.telescope')
-  -- https://github.com/tpope/vim-commentary
-  buvis.plugin.load('vim-commentary')
   -- https://github.com/szw/vim-maximizer
   buvis.plugin.load('vim-maximizer')
   require('external.plugins.vim-maximizer')

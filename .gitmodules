@@ -29,9 +29,6 @@
 [submodule "bufresize.nvim"]
 	path = .config/nvim/pack/bundle/opt/bufresize.nvim
 	url = https://github.com/kwkarlwang/bufresize.nvim
-[submodule "vim-commentary"]
-	path = .config/nvim/pack/bundle/opt/vim-commentary
-	url = https://github.com/tpope/vim-commentary
 [submodule "lualine.nvim"]
 	path = .config/nvim/pack/bundle/opt/lualine.nvim
 	url = https://github.com/nvim-lualine/lualine.nvim
@@ -95,3 +92,9 @@
 [submodule "nvim-autopairs"]
 	path = .config/nvim/pack/bundle/opt/nvim-autopairs
 	url = https://github.com/windwp/nvim-autopairs
+[submodule "Comment.nvim"]
+	path = .config/nvim/pack/bundle/opt/Comment.nvim
+	url = https://github.com/numToStr/Comment.nvim
+[submodule "nvim-ts-context-commentstring"]
+	path = .config/nvim/pack/bundle/opt/nvim-ts-context-commentstring
+	url = https://github.com/JoosepAlviste/nvim-ts-context-commentstring
