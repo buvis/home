@@ -53,9 +53,6 @@
 [submodule "project.nvim"]
 	path = .config/nvim/pack/bundle/opt/project.nvim
 	url = https://github.com/ahmedkhalf/project.nvim
-[submodule "auto-session"]
-	path = .config/nvim/pack/bundle/opt/auto-session
-	url = https://github.com/rmagatti/auto-session
 [submodule "bufferline.nvim"]
 	path = .config/nvim/pack/bundle/opt/bufferline.nvim
 	url = https://github.com/akinsho/bufferline.nvim
