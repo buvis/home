@@ -68,3 +68,6 @@
 [submodule "nvim-ts-autotag"]
 	path = .config/nvim/pack/bundle/opt/nvim-ts-autotag
 	url = https://github.com/windwp/nvim-ts-autotag
+[submodule "indent-blankline.nvim"]
+	path = .config/nvim/pack/bundle/opt/indent-blankline.nvim
+	url = https://github.com/lukas-reineke/indent-blankline.nvim

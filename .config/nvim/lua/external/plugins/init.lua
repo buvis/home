@@ -8,6 +8,9 @@ if vim.o.loadplugins then
   -- https://github.com/stevearc/dressing.nvim
   buvis.plugin.load('dressing.nvim')
   require('external.plugins.dressing')
+  -- https://github.com/lukas-reineke/indent-blankline.nvim
+  buvis.plugin.load('indent-blankline.nvim')
+  require('external.plugins.indent-blankline')
   -- https://github.com/nvim-lualine/lualine.nvim
   buvis.plugin.load('lualine.nvim')
   require('external.plugins.lualine')
