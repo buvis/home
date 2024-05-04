@@ -98,3 +98,6 @@
 [submodule "nvim-ts-context-commentstring"]
 	path = .config/nvim/pack/bundle/opt/nvim-ts-context-commentstring
 	url = https://github.com/JoosepAlviste/nvim-ts-context-commentstring
+[submodule "nvim-surround"]
+	path = .config/nvim/pack/bundle/opt/nvim-surround
+	url = https://github.com/kylechui/nvim-surround
