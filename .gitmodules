@@ -56,3 +56,6 @@
 [submodule "auto-session"]
 	path = .config/nvim/pack/bundle/opt/auto-session
 	url = https://github.com/rmagatti/auto-session
+[submodule "bufferline.nvim"]
+	path = /Users/bob/.config/nvim/pack/bundle/opt/bufferline.nvim
+	url = https://github.com/akinsho/bufferline.nvim

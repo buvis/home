@@ -2,6 +2,9 @@ if vim.o.loadplugins then
   -- https://github.com/rmagatti/auto-session
   buvis.plugin.load('auto-session')
   require('external.plugins.auto-session')
+  -- https://github.com/akinsho/bufferline.nvim
+  buvis.plugin.load('bufferline.nvim')
+  require('external.plugins.bufferline')
   -- https://github.com/kwkarlwang/bufresize.nvim
   buvis.plugin.load('bufresize.nvim')
   require('external.plugins.bufresize')
