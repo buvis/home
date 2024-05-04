@@ -62,3 +62,9 @@
 [submodule "vim-maximizer"]
 	path = .config/nvim/pack/bundle/opt/vim-maximizer
 	url = https://github.com/szw/vim-maximizer
+[submodule "nvim-treesitter"]
+	path = .config/nvim/pack/bundle/opt/nvim-treesitter
+	url = https://github.com/nvim-treesitter/nvim-treesitter
+[submodule "nvim-ts-autotag"]
+	path = .config/nvim/pack/bundle/opt/nvim-ts-autotag
+	url = https://github.com/windwp/nvim-ts-autotag
