@@ -14,6 +14,11 @@ if vim.o.loadplugins then
   -- https://github.com/Tsuzat/NeoSolarized.nvim
   buvis.plugin.load('NeoSolarized.nvim')
   require('external.plugins.NeoSolarized')
+  -- https://github.com/nvim-treesitter/nvim-treesitter
+  buvis.plugin.load('nvim-treesitter')
+  require('external.plugins.nvim-treesitter')
+  -- https://github.com/windwp/nvim-ts-autotag
+  buvis.plugin.load('nvim-ts-autotag')
   -- https://github.com/nvim-tree/nvim-web-devicons
   buvis.plugin.load('nvim-web-devicons')
   require('external.plugins.nvim-web-devicons')
