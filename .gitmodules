@@ -53,3 +53,6 @@
 [submodule "project.nvim"]
 	path = /Users/bob/.config/nvim/pack/bundle/opt/project.nvim
 	url = https://github.com/ahmedkhalf/project.nvim
+[submodule "auto-session"]
+	path = /Users/bob/.config/nvim/pack/bundle/opt/auto-session
+	url = https://github.com/rmagatti/auto-session
