@@ -31,6 +31,9 @@ if vim.o.loadplugins then
   require('external.plugins.telescope')
   -- https://github.com/tpope/vim-commentary
   buvis.plugin.load('vim-commentary')
+  -- https://github.com/szw/vim-maximizer
+  buvis.plugin.load('vim-maximizer')
+  require('external.plugins.vim-maximizer')
   -- https://github.com/folke/which-key.nvim
   buvis.plugin.load('which-key.nvim')
   require('external.plugins.which-key')
