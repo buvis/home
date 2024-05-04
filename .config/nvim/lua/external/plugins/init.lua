@@ -22,6 +22,9 @@ if vim.o.loadplugins then
   -- https://github.com/Tsuzat/NeoSolarized.nvim
   buvis.plugin.load('NeoSolarized.nvim')
   require('external.plugins.NeoSolarized')
+  -- https://github.com/kylechui/nvim-surround
+  buvis.plugin.load('nvim-surround')
+  require('external.plugins.nvim-surround')
   -- https://github.com/nvim-treesitter/nvim-treesitter
   buvis.plugin.load('nvim-treesitter')
   require('external.plugins.nvim-treesitter')
