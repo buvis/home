@@ -15,12 +15,13 @@ cmp.setup({
   },
   mapping = cmp.mapping.preset.insert({
     ["<C-k>"] = cmp.mapping.select_prev_item(),
+    ["<C-Tab>"] = cmp.mapping.select_prev_item(),
     ["<C-j>"] = cmp.mapping.select_next_item(),
+    ["<Tab>"] = cmp.mapping.select_next_item(),
     ["<C-b>"] = cmp.mapping.scroll_docs(-4),
     ["<C-f>"] = cmp.mapping.scroll_docs(4),
     ["<Leader><Leader>"] = cmp.mapping.complete(),
     ["<CR>"] = cmp.mapping.confirm({ select = false }),
-    ["<Tab>"] = cmp.mapping.confirm({ select = true }),
   }),
   sources = cmp.config.sources({
     { name = "luasnip" },
