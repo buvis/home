@@ -92,3 +92,6 @@
 [submodule "lspkind.nvim"]
 	path = .config/nvim/pack/bundle/opt/lspkind.nvim
 	url = https://github.com/onsails/lspkind.nvim
+[submodule "nvim-autopairs"]
+	path = .config/nvim/pack/bundle/opt/nvim-autopairs
+	url = https://github.com/windwp/nvim-autopairs

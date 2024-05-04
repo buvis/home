@@ -63,6 +63,9 @@ if vim.o.loadplugins then
   -- https://github.com/onsails/lspkind.nvim
   buvis.plugin.load('lspkind.nvim')
   require('external.plugins.nvim-cmp')
+  -- https://github.com/windwp/nvim-autopairs
+  buvis.plugin.load('nvim-autopairs')
+  require('external.plugins.nvim-autopairs')
 
   -- Lazy loaded plugins (because they slow down the startup)
   require('external.plugins.lazy')
