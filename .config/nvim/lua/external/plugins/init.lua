@@ -46,6 +46,24 @@ if vim.o.loadplugins then
   buvis.plugin.load('which-key.nvim')
   require('external.plugins.which-key')
 
+  -- Autocomplete functionality
+  -- https://github.com/hrsh7th/nvim-cmp
+  buvis.plugin.load('nvim-cmp')
+  -- https://github.com/hrsh7th/cmp-buffer
+  buvis.plugin.load('cmp-buffer')
+  -- https://github.com/hrsh7th/cmp-path
+  buvis.plugin.load('cmp-path')
+  -- https://github.com/L3MON4D3/LuaSnip
+  -- don't forget to run `make install_jsregexp` in plugin directory
+  buvis.plugin.load('LuaSnip')
+  -- https://github.com/saadparwaiz1/cmp_luasnip
+  buvis.plugin.load('cmp_luasnip')
+  -- https://github.com/rafamadriz/friendly-snippets
+  buvis.plugin.load('friendly-snippets')
+  -- https://github.com/onsails/lspkind.nvim
+  buvis.plugin.load('lspkind.nvim')
+  require('external.plugins.nvim-cmp')
+
   -- Lazy loaded plugins (because they slow down the startup)
   require('external.plugins.lazy')
 end
