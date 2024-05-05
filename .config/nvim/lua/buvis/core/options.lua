@@ -137,7 +137,3 @@ option.wildmenu = true -- show options as list when switching buffers etc
 option.wildmode = 'longest:full,full' -- shell-like autocomplete to unambiguous portion
 option.winblend = 10 -- psuedo-transparency for floating windows
 option.writebackup = false -- don't keep backups after writing
-
--- Highlight up to 255 columns (this is the current Vim max) beyond 'textwidth'
--- vim.opt_local.colorcolumn = '+' .. buvis.util.join(buvis.util.range(0, 254), ',+')
-vim.api.nvim_set_hl(0, "EndOfBuffer", { link = "ColorColumn" })
