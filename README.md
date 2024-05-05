@@ -72,7 +72,7 @@ When in tmux, press `<tmux-prefix>+I`.
 
 #### macOS
 
-Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/ruff/ruff.toml`
+Make symlink from `~/.config/ruff/pyproject.toml` to `~/Library/Application Support/ruff/pyproject.toml`
 
 ### WSL
  
