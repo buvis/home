@@ -11,4 +11,6 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
-require("lazy").setup("buvis.plugins")
+require("lazy").setup("buvis.plugins", {
+  change_detection = { notify = false, },
+})
