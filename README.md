@@ -17,7 +17,11 @@ I always appreciate any opportunity to learn. Thank you!
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf
    - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf
 2. Install python and pip
-3. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
+3. Install node
+4. Install lazygit
+   - MacOS: `brew install jesseduffield/lazygit/lazygit`
+   - Windows: `scoop bucket add extras; scoop install lazygit`
+6. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
 
 ### Additional system specific steps
 
@@ -68,7 +72,7 @@ When in tmux, press `<tmux-prefix>+I`.
 
 #### macOS
 
-Make symlink from `~/.config/ruff/ruff.toml` to `~/Library/Application Support/ruff/ruff.toml`
+Make symlink from `~/.config/ruff/pyproject.toml` to `~/Library/Application Support/ruff/pyproject.toml`
 
 ### WSL
  
