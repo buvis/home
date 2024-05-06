@@ -1,4 +1,5 @@
 !*.secret
+**/.DS_Store
 .config/MusicBrainz
 .config/beets/discogs_token.json
 .config/beets/state.pickle

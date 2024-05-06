@@ -870,22 +870,29 @@ def 'is-installed' [ app: string ] {
   ((which $app | length) > 0)
 }
 
+def vim [ file: path] {
+  if (is-installed nvim) == true {
+    nvim $file
+  } else if (is-installed vim) == true {
+    vim $file
+  } else if (is-installed vi) == true {
+    vi $file
+  }
+}
+
 # Aliases for dotfiles management
 alias cfg = git --git-dir $"($env.HOME)/.buvis/" --work-tree $env.HOME
 alias cfga = cfg add
 alias cfgapa = cfga -p
-alias cfgl = if (is-installed git-secret) { cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge; cfg secret reveal -f } else {cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge}
+alias cfgl = if (is-installed git-secret) { cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge; cfg secret reveal -f } else {cfg pull; cfg submodule foreach git reset --hard; cfg submodule update --init; cfg submodule update --remote --merge}; rm -f $"($env.HOME)/README.md" $"($env.HOME)/get-buvis.sh" $"($env.HOME)/get-buvis.bat"; cfg update-index --skip-worktree README.md get-buvis.sh get-buvis.bat
 alias cfgm = cfg commit -m
 alias cfgp = cfg push
 alias cfgs = if (is-installed git-secret) {cfg secret hide -m; cfg status} else {cfg status}
 
-# (N)Vim packages management
-$env.BUVIS_NVIM_PACKDIR = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt")
-
 # add plugin by repository URL
 def 'packadd' [ url: string ] {
   let package_name = $url | parse --regex '\/([^\/]+)\/?$' | get capture0.0
-  let pack_dir = ($env.BUVIS_NVIM_PACKDIR | path join $package_name)
+  let pack_dir = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt" $package_name)
   cd $env.HOME
   cfg submodule add --name $package_name $url $pack_dir
   cd -
@@ -893,7 +900,7 @@ def 'packadd' [ url: string ] {
 
 # remove plugin by name
 def 'packrm' [ package_name: string ] {
-  let pack_dir = ($env.BUVIS_NVIM_PACKDIR | path join $package_name)
+  let pack_dir = ($env.HOME | path join ".config" "nvim" "pack" "bundle" "opt" $package_name)
   let module_dir = ($env.HOME | path join ".buvis" "modules" $package_name)
   cd $env.HOME
   cfg submodule deinit -f -- $pack_dir

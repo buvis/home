@@ -14,12 +14,3 @@
 [submodule "scripts"]
 	path = scripts
 	url = https://github.com/buvis/scripts
-[submodule "nvim-tree.lua"]
-	path = .config/nvim/pack/bundle/opt/nvim-tree.lua
-	url = https://github.com/nvim-tree/nvim-tree.lua
-[submodule "NeoSolarized.nvim"]
-	path = .config/nvim/pack/bundle/opt/NeoSolarized.nvim
-	url = https://github.com/Tsuzat/NeoSolarized.nvim
-[submodule "replay"]
-	path = .config/nvim/pack/bundle/opt/replay
-	url = https://github.com/wincent/replay
