@@ -46,15 +46,15 @@ config.inactive_pane_hsb = {
   brightness = 0.55,
 }
 config.font = wezterm.font 'MesloLGS NF'
+
 if wezterm.target_triple == 'x86_64-pc-windows-msvc' then
-  config.font_size = 10.5
+  config.font_size = 9.5
 else
   config.font_size = 11
 end
+
 config.launch_menu = {}
-
 config.leader = { key="q", mods = "CTRL" }
-
 config.disable_default_key_bindings = true
 config.keys = {
   { key = "1", mods = "LEADER",       action=act{ActivateTab=0}},
