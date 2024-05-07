@@ -111,11 +111,6 @@ endif
 
 set statusline="  Hint: %z%= %A %10u:%-7g %15s %20d  "
 
-" Use nushell in Windows
-if has('win')
-  set shell="nu"
-endif
-
 " ------------------------------------------------------------------------------
 
 " :mark mark /full/directory/path [filename]
