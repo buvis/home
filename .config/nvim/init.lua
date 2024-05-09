@@ -1,5 +1,5 @@
 if vim.loader then
-  vim.loader.enable()
+	vim.loader.enable()
 end
 
 require("buvis.core")
