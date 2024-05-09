@@ -129,3 +129,19 @@ if $env.IS_WIN {
 } else {
   $env.PATH = ($env.PATH | uniq)
 }
+
+# Support direnv
+# after https://github.com/direnv/direnv/issues/1274 is resolved, it can be enabled in Windows
+if not $env.IS_WIN {
+  $env.config = {
+    hooks: {
+      pre_prompt: [{ ||
+        if (which direnv | is-empty) {
+          return
+        }
+
+        direnv export json | from json | default {} | load-env
+      }]
+    }
+  }
+}
