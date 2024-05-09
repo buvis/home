@@ -420,7 +420,7 @@ if executable('/mnt/c/Windows/explorer.exe')
 else
     if executable('open')
         " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
-        filetype * open
+        filetype * ^open
     else
         if has('win')
             filetype * explorer.exe %"c &
@@ -472,6 +472,7 @@ nnoremap o :!nvim %"c:p<cr>
 
 " Open file in the background using its default program
 nnoremap l :file &<cr>l
+nnoremap <cr> :file &<cr>l
 
 " Interaction with system clipboard
 " Source: https://wiki.vifm.info/index.php/How_to_copy_path_to_current_file/directory_to_system_clipboard
