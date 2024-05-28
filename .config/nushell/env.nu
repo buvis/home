@@ -130,6 +130,12 @@ if $env.IS_WIN {
   $env.PATH = ($env.PATH | uniq)
 }
 
+# Doogat
+$env.DOOGAT_CFG = ($env.HOME | path join ".doogat" "config.yml")
+$env.DOO_CFG = ($env.HOME | path join ".doogat" "doo.conf.yml")
+path add ($env.HOME | path join ".local" "bin" "doogat" "pingl")
+path add ($env.HOME | path join ".local" "bin" "doogat" "doo")
+
 # Support direnv
 # after https://github.com/direnv/direnv/issues/1274 is resolved, it can be enabled in Windows
 if not $env.IS_WIN {
