@@ -115,23 +115,21 @@ set statusline="  Hint: %z%= %A %10u:%-7g %15s %20d  "
 
 " :mark mark /full/directory/path [filename]
 
+mark b ~/bim
+mark z ~/bim/zettelkasten
+
 if has('win')
-    mark a "~/OneDrive - Automatic Data Processing Inc/z/archive"
-    mark b "~/git/src/github.com/buvis/scripts/bin"
-    mark c "~/OneDrive - Automatic Data Processing Inc/z/completed"
+    mark a "~/OneDrive - Automatic Data Processing Inc/bim/40-archives"
+    mark c "~/OneDrive - Automatic Data Processing Inc/bim/40-archives/completed"
     mark d "~/Downloads"
     mark g "~/git/src/"
     mark h "~/"
-    mark H "~/OneDrive - Automatic Data Processing Inc/z/reference/hrsp"
-    mark m "~/OneDrive - Automatic Data Processing Inc/z/reference/meeting"
-    mark n "~/OneDrive - Automatic Data Processing Inc/z/reference/newsletter"
-    mark r "~/OneDrive - Automatic Data Processing Inc/z/reference"
+    mark m "~/OneDrive - Automatic Data Processing Inc/bim/30-resources/meetings"
+    mark r "~/OneDrive - Automatic Data Processing Inc/bim/30-resources"
     mark s "~/git/src/github.com/buvis/scripts/"
-    mark w "~/OneDrive - Automatic Data Processing Inc/z/workspace"
-    mark z ~/z/reference/notes/zettelkasten
+    mark w "~/OneDrive - Automatic Data Processing Inc/bim/10-projects"
 else
     mark a ~/z/archive
-    mark b "~/git/src/github.com/buvis/scripts/bin"
     mark B ~/z/reference/book
     mark c ~/z/completed
     mark d ~/Downloads
@@ -149,7 +147,6 @@ else
     mark s "~/git/src/github.com/buvis/scripts"
     mark R ~/z/reference/receipt
     mark w ~/z/workspace
-    mark z ~/z/reference/notes/zettelkasten
 endif
 
 " ------------------------------------------------------------------------------
