@@ -119,6 +119,7 @@ if $env.IS_MAC {
 # Set default editor
 # TODO: check if available
 $env.EDITOR = "nvim"
+$env.GIT_EDITOR = "nvim"
 
 # Enrich the PATH
 use std "path add"
