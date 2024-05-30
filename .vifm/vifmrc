@@ -415,13 +415,13 @@ fileviewer *[^/] pygmentize -O style=monokai -f console256 -g
 if executable('/mnt/c/Windows/explorer.exe')
     filetype * /mnt/c/Windows/explorer.exe %"c &
 else
-    if executable('open')
-        " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
-        filetype * ^open
+    if has('win')
+        filetype * explorer.exe %"c &
     else
-        if has('win')
-            filetype * explorer.exe %"c &
-        endif
+      if executable('open')
+          " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
+          filetype * ^open
+      endif
     endif
 endif
 
