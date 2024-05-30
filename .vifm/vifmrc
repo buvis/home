@@ -119,15 +119,15 @@ mark b ~/bim
 mark z ~/bim/zettelkasten
 
 if has('win')
-    mark a "~/OneDrive - Automatic Data Processing Inc/bim/40-archives"
-    mark c "~/OneDrive - Automatic Data Processing Inc/bim/40-archives/completed"
+    mark a "~/OneDrive - Automatic Data Processing Inc/Documents/bim/40-archives"
+    mark c "~/OneDrive - Automatic Data Processing Inc/Documents/bim/40-archives/completed"
     mark d "~/Downloads"
     mark g "~/git/src/"
     mark h "~/"
-    mark m "~/OneDrive - Automatic Data Processing Inc/bim/30-resources/meetings"
-    mark r "~/OneDrive - Automatic Data Processing Inc/bim/30-resources"
+    mark m "~/OneDrive - Automatic Data Processing Inc/Documents/bim/30-resources/meetings"
+    mark r "~/OneDrive - Automatic Data Processing Inc/Documents/bim/30-resources"
     mark s "~/git/src/github.com/buvis/scripts/"
-    mark w "~/OneDrive - Automatic Data Processing Inc/bim/10-projects"
+    mark w "~/OneDrive - Automatic Data Processing Inc/Documents/bim/10-projects"
 else
     mark a ~/z/archive
     mark B ~/z/reference/book
