@@ -59,10 +59,11 @@ curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
-### Remember git credentials
+### Configure git
 
 1. Go to dotfiles root: `cd $DOTFILES_ROOT`
-2. Configure git to store credentials: `cfg config credential.helper store`
+2. Store credentials: `cfg config credential.helper store`
+3. Honor global ignores: `git config --global core.excludesfile ~/.gitignore_global`
 
 ### Install tmux plugins
 
