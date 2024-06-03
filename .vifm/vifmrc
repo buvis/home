@@ -146,7 +146,7 @@ else
     mark r ~/z/reference
     mark s "~/git/src/github.com/buvis/scripts"
     mark R ~/z/reference/receipt
-    mark w ~/z/workspace
+    mark w ~/Documents/bim/10-projects
 endif
 
 " ------------------------------------------------------------------------------
