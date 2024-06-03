@@ -152,3 +152,7 @@ if not $env.IS_WIN {
     }
   }
 }
+
+# Fix Windows unable to find correct vifm config
+$env.VIFM = ($env.HOME | path join ".vifm")
+$env.MYVIFMRC = ($env.HOME | path join ".vifm" | path join "vifmrc")

@@ -119,15 +119,15 @@ mark b ~/bim
 mark z ~/bim/zettelkasten
 
 if has('win')
-    mark a "~/OneDrive - Automatic Data Processing Inc/bim/40-archives"
-    mark c "~/OneDrive - Automatic Data Processing Inc/bim/40-archives/completed"
+    mark a "~/OneDrive - Automatic Data Processing Inc/Documents/bim/40-archives"
+    mark c "~/OneDrive - Automatic Data Processing Inc/Documents/bim/40-archives/completed"
     mark d "~/Downloads"
     mark g "~/git/src/"
     mark h "~/"
-    mark m "~/OneDrive - Automatic Data Processing Inc/bim/30-resources/meetings"
-    mark r "~/OneDrive - Automatic Data Processing Inc/bim/30-resources"
+    mark m "~/OneDrive - Automatic Data Processing Inc/Documents/bim/30-resources/meetings"
+    mark r "~/OneDrive - Automatic Data Processing Inc/Documents/bim/30-resources"
     mark s "~/git/src/github.com/buvis/scripts/"
-    mark w "~/OneDrive - Automatic Data Processing Inc/bim/10-projects"
+    mark w "~/OneDrive - Automatic Data Processing Inc/Documents/bim/10-projects"
 else
     mark a ~/z/archive
     mark B ~/z/reference/book
@@ -415,13 +415,13 @@ fileviewer *[^/] pygmentize -O style=monokai -f console256 -g
 if executable('/mnt/c/Windows/explorer.exe')
     filetype * /mnt/c/Windows/explorer.exe %"c &
 else
-    if executable('open')
-        " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
-        filetype * ^open
+    if has('win')
+        filetype * explorer.exe %"c &
     else
-        if has('win')
-            filetype * explorer.exe %"c &
-        endif
+      if executable('open')
+          " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
+          filetype * ^open
+      endif
     endif
 endif
 
