@@ -7,6 +7,7 @@ case $- in
 esac
 
 # Get dotfiles root
+export DOTFILES_ROOT="${HOME}"
 
 # Path to the bash it configuration
 export BASH_IT="${DOTFILES_ROOT}/.bash_it"
@@ -97,9 +98,9 @@ source "${DOTFILES_ROOT}/.p/p.sh"
 source "$BASH_IT"/bash_it.sh
 
 # Start with tmux default session
-if [ "$TMUX" = "" ]; then
-    tmux new -As default
-fi
+# if [ "$TMUX" = "" ]; then
+#     tmux new -As default
+# fi
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
