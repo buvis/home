@@ -18,7 +18,7 @@ export BASH_IT_CUSTOM="${DOTFILES_ROOT}/.config/bash"
 # Lock and Load a custom theme file.
 # Leave empty to disable theming.
 # location /.bash_it/themes/
-export BASH_IT_THEME='powerline-multiline'
+export BASH_IT_THEME="powerline-multiline"
 export POWERLINE_PROMPT_USER_INFO_MODE="sudo"
 
 # (Advanced): Change this to the name of your remote repo if you
