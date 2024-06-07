@@ -7,10 +7,6 @@
 [submodule "tpm"]
 	path = .tmux/plugins/tpm
 	url = https://github.com/tmux-plugins/tpm
-[submodule "p"]
-	path = .p
-	url = https://github.com/ddmendes/p
-	branch=main
 [submodule "scripts"]
 	path = scripts
 	url = https://github.com/buvis/scripts
