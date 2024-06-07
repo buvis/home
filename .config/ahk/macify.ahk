@@ -10,6 +10,21 @@
 ; Opening
 #o::Send "^o"
 
+; Command palette
+#p::
+{
+	ActivePName := WinGetProcessName("A")
+	if (ActivePName = "explorer.exe")
+	{
+	  Suspend(True)
+          Send "#p"
+	  Suspend(False)
+	} else {
+	  Send "^p"
+	}
+	Return
+}
+
 ; Close windows (cmd + q to Alt + F4)
 #q::Send "!{F4}"
 
@@ -67,4 +82,4 @@ RAlt & F12::SendInput "{Volume_Up}"
 
 ; Disable alone press of windows key
 ; https://stackoverflow.com/questions/69143107/how-to-disable-the-win-key-if-its-the-only-key-being-pressed-using-autohotkey
-;~LWin::Send "{Blind}{vkE8}"
+~LWin::Send "{Blind}{vkE8}"
