@@ -90,15 +90,10 @@ config.keys = {
 	split_nav("resize", "k"),
 	split_nav("resize", "l"),
 }
-config.set_environment_variables = {}
 
-if wezterm.target_triple == "aarch64-apple-darwin" then
-	config.set_environment_variables.PATH = "/opt/homebrew/bin:" .. os.getenv("PATH")
-	config.set_environment_variables.SHELL = "/opt/homebrew/bin/bash"
-else
+if wezterm.target_triple == "x86_64-pc-windows-msvc" then
 	config.set_environment_variables.SHELL = "/usr/bin/bash"
+	config.default_prog = { "bash" }
 end
-
-config.default_prog = { "bash" }
 
 return config
