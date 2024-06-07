@@ -420,7 +420,7 @@ else
     else
       if executable('open')
           " Can't differentiate Mac and Linux => alias open to xdg-open in .zshrc
-          filetype * ^open
+          filetype * open
       endif
     endif
 endif
