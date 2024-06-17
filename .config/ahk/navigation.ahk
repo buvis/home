@@ -73,7 +73,7 @@
 		Else If (ih.input="k")
 			Run "C:\Users\tbouska\scoop\apps\keepass\current\KeePass.exe"
 		Else If (ih.input="l")
-			Run "C:\Users\tbouska\OneDrive - Automatic Data Processing Inc\z\reference\list\adp-lists.xlsx"
+			Run "C:\Users\tbouska\bim\reference\local\30-resources\list\adp-lists.xlsx"
 	Return
 }
 
