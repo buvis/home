@@ -18,6 +18,13 @@
             Run DOO "create contact --edit"
             Return
         }
+	Else If (ih.input="l") {
+	    If WinExist("ahk_exe Obsidian.exe") {
+	        WinActivate "ahk_exe Obsidian.exe"
+                Run "obsidian://advanced-uri?vault=bim&commandname=QuickAdd%3A%20Log%20to%20daily%20note"
+                Return
+            }
+        }
         Else If (ih.input="m") {
             Run DOO "create minutes --edit"
             Return
