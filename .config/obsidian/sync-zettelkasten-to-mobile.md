@@ -19,7 +19,7 @@
 1. In GitHub/GitLab, find the SSH URL for cloning the repository with `zettelkasten` vault
 2. In a-shell, go to `zettelkasten` vault: `jump zettelkasten`
 3. Clone the repository: `lg2 clone <url_from_step_1>`
-4. Persist the credentials: `lg2 config user.identityFile <path to .ssh dir in Obsidian app Documents folder>/id_ed25519` and `lg2 config user.password “”`
+4. Persist the credentials: `lg2 config user.identityFile "~/Documents/.ssh/id_ed25519"` and `lg2 config user.password “”`
 5. Set identity for signing commits: `lg2 config user.name "Tomáš Bouška"` and `lg2 config user.email "tomas@buvis.net"`
 
 ## Create shortcuts and automations
