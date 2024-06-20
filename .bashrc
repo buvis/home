@@ -91,16 +91,8 @@ source "${DOTFILES_ROOT}/.asdf/asdf.sh"
 # Load direnv
 eval "$(direnv hook bash)"
 
-# Load p
-source "${DOTFILES_ROOT}/.p/p.sh"
-
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
-
-# Start with tmux default session
-# if [ "$TMUX" = "" ]; then
-#     tmux new -As default
-# fi
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
