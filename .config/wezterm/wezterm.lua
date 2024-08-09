@@ -95,7 +95,7 @@ config.set_environment_variables = {}
 
 if wezterm.target_triple == "x86_64-pc-windows-msvc" then
 	config.set_environment_variables.SHELL = "/usr/bin/bash"
-	config.default_prog = { "bash" }
+	config.default_prog = { "bash", "--login" }
 end
 
 return config
