@@ -46,14 +46,6 @@
 	Return
 }
 
-!#t::
-{
-	Send "^c"  ; Copy service request number
-	Run "https://esicrm.esi.adp.com/siebel/app/callcenter_sso/enu/?SWECmd=GotoView&SWEView=Service+Request+Screen+Homepage+View&SWERF=1&SWEHo=esicrm.esi.adp.com&SWEBU=1&_tid=1622114720"  ; Open the browser
-	Return
-}
-
-
 !#s:: ; run favorite apps
 {
 	ih := InputHook("L1 T1")
