@@ -59,6 +59,21 @@ curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
+### Automate scripts' dependencies updates
+
+1. Create `post-merge` file in `.buvis/modules/scripts/.git/hooks`
+```bash
+#!/bin/bash
+
+cd ~/scripts
+echo "Running pipenv lock in ~/scripts"
+pipenv lock
+echo "Installing dependencies system-wide"
+pipenv install --system
+cd -
+```
+2. Make it executable: `chmod +x .buvis/modules/scripts/.git/hooks/post-merge`
+
 ### Configure git
 
 1. Go to dotfiles root: `cd $DOTFILES_ROOT`
