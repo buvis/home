@@ -8,7 +8,7 @@
 .config/github-copilot
 .config/jellyfin
 .config/nushell/history.txt
-.config/nvim/shada
+.config/nvim/shada*
 .config/nvim/view
 .config/scripts/readwise-token
 .config/scoop/config.json
