@@ -1,10 +1,12 @@
 PyAutoGUI
+PyYAML
 Yapf
 beautifulsoup4
 beets
 black
 cyclopts
 gita
+inflection
 pipenv
 poetry
 pyacoustid
@@ -19,6 +21,7 @@ requests
 rich
 rope
 ruff
+tzlocal
 unidecode
 virtualenv
 yt-dlp
