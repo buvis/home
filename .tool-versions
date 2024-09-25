@@ -1,6 +1,6 @@
-python 3.12.5
-nodejs 22.6.0
+python 3.12.6
+nodejs 22.9.0
 rust 1.76.0
 yarn 1.22.22
-helm 3.15.4
-ruby 3.3.4
+helm 3.16.1
+ruby 3.3.5
