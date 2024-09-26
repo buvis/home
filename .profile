@@ -46,8 +46,8 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
 
 # Python scripts
-export PYTHONPATH="${DOTFILES_ROOT}/scripts/src:${PYTHONPATH}"
-export PYTHONPATH="${DOTFILES_ROOT}/scripts/src/buvis:${PYTHONPATH}"
+#export PYTHONPATH="${DOTFILES_ROOT}/scripts/src:${PYTHONPATH}"
+#export PYTHONPATH="${DOTFILES_ROOT}/scripts/src/buvis:${PYTHONPATH}"
 
 # Set my editor and git editor
 export EDITOR="nvim"
