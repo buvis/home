@@ -1,4 +1,5 @@
 local wezterm = require("wezterm")
+local canonical_solarized = require("canonical_solarized")
 local act = wezterm.action
 
 -- integration with Neovim
@@ -36,10 +37,11 @@ local function split_nav(resize_or_move, key)
 end
 
 local config = {}
+canonical_solarized.apply_to_config(config)
 
 config.audible_bell = "Disabled"
 config.check_for_updates = false
-config.color_scheme = "Builtin Solarized Dark"
+config.color_scheme = "Canonical Solarized Dark"
 config.inactive_pane_hsb = {
 	hue = 0.15,
 	saturation = 0.65,
@@ -94,8 +96,9 @@ config.keys = {
 config.set_environment_variables = {}
 
 if wezterm.target_triple == "x86_64-pc-windows-msvc" then
-	config.set_environment_variables.SHELL = "/usr/bin/bash"
-	config.default_prog = { "bash", "--login" }
+	-- config.set_environment_variables.SHELL = "/usr/bin/bash"
+	-- config.default_prog = { "bash", "--login" }
+	config.default_prog = { "pwsh.exe" }
 end
 
 return config
