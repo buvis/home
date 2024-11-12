@@ -73,7 +73,7 @@ Create `post-merge` hook in `.buvis/modules/scripts/.git/hooks` according to [bu
 
 #### PowerShell profile
 
-Make symlink from `~/.config/powershell/Microsoft.PowerShell_profile.ps1` to `PowerShell` folder in `Documents` (given by run: `shell:DocumentsLibrary`) folder.
+Make symlink from `~/.config/powershell/Microsoft.PowerShell_profile.ps1` to `PowerShell` folder in `shell:DocumentsLibrary` folder.
 
 #### Use default configuration for ruff
 
