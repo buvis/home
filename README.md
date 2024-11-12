@@ -61,18 +61,7 @@ Not all applications used by buvis can be configured using "dotfiles". You'll ne
 
 ### Automate scripts' dependencies updates
 
-1. Create `post-merge` file in `.buvis/modules/scripts/.git/hooks`
-```bash
-#!/bin/bash
-
-cd ~/scripts
-echo "Running pipenv lock in ~/scripts"
-pipenv lock
-echo "Installing dependencies system-wide"
-pipenv install --system
-cd -
-```
-2. Make it executable: `chmod +x .buvis/modules/scripts/.git/hooks/post-merge`
+Create `post-merge` hook in `.buvis/modules/scripts/.git/hooks` according to [buvis scripts update automation instructions](https://github.com/buvis/scripts?tab=readme-ov-file#update)
 
 ### Configure git
 
@@ -80,13 +69,19 @@ cd -
 2. Store credentials: `cfg config credential.helper store`
 3. Honor global ignores: `git config --global core.excludesfile ~/.gitignore_global`
 
-### Install tmux plugins
+### Windows
 
-When in tmux, press `<tmux-prefix>+I`.
+#### PowerShell profile
 
-### Use default configuration for ruff
+Make symlink from `~/.config/powershell/Microsoft.PowerShell_profile.ps1` to `PowerShell` folder in `Documents` (given by run: `shell:DocumentsLibrary`) folder.
 
-#### macOS
+#### Use default configuration for ruff
+
+I don't know how, will add later.
+
+### macOS
+
+#### Use default configuration for ruff
 
 Make symlink from `~/.config/ruff/pyproject.toml` to `~/Library/Application Support/ruff/pyproject.toml`
 
