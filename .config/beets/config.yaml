@@ -1,6 +1,6 @@
 ---
 directory: ~/media/music
-library: ~/z/reference/database/beets.db
+library: ~/.local/db/beets/beets.db
 import:
   move: true
   from_scratch: true
@@ -8,21 +8,21 @@ asciify_paths: true
 group_albums: true
 per_disc_numbering: true
 paths:
-  default: '$albumartist/[%if{$year,$year,0000}] $album%aunique{}/%if{$multidisc,$disc-}$track - $title'
-  albumtype:soundtrack: '000-soundtracks/$album [%if{$year,$year,0000}]%aunique{}/%if{$multidisc,$disc-}$track - $title'
-  comp: '000-compilations/$album [%if{$year,$year,0000}]%aunique{}/%if{$multidisc,$disc-}$track - %if{$artist,$artist - }$title'
-  singleton: '000-non-album/$artist/$title'
+  default: "$albumartist/[%if{$year,$year,0000}] $album%aunique{}/%if{$multidisc,$disc-}$track - $title"
+  albumtype:soundtrack: "000-soundtracks/$album [%if{$year,$year,0000}]%aunique{}/%if{$multidisc,$disc-}$track - $title"
+  comp: "000-compilations/$album [%if{$year,$year,0000}]%aunique{}/%if{$multidisc,$disc-}$track - %if{$artist,$artist - }$title"
+  singleton: "000-non-album/$artist/$title"
 plugins:
-- albumtypes  # https://beets.readthedocs.io/en/stable/plugins/albumtypes.html
-- discogs  # https://beets.readthedocs.io/en/stable/plugins/discogs.html
-- duplicates  # https://beets.readthedocs.io/en//stable/plugins/duplicates.html
-- fetchart  # https://beets.readthedocs.io/en/stable/plugins/fetchart.html
-- ftintitle  # https://beets.readthedocs.io/en/stable/plugins/ftintitle.html
-- inline  # https://beets.readthedocs.io/en/stable/plugins/inline.html
-- lastgenre  # https://beets.readthedocs.io/en/stable/plugins/lastgenre.html
-- missing  # https://beets.readthedocs.io/en/stable/plugins/missing.html
-- mbsync  # https://beets.readthedocs.io/en/stable/plugins/mbsync.html
-- scrub  # https://beets.readthedocs.io/en/stable/plugins/scrub.html
+  - albumtypes # https://beets.readthedocs.io/en/stable/plugins/albumtypes.html
+  - discogs # https://beets.readthedocs.io/en/stable/plugins/discogs.html
+  - duplicates # https://beets.readthedocs.io/en//stable/plugins/duplicates.html
+  - fetchart # https://beets.readthedocs.io/en/stable/plugins/fetchart.html
+  - ftintitle # https://beets.readthedocs.io/en/stable/plugins/ftintitle.html
+  - inline # https://beets.readthedocs.io/en/stable/plugins/inline.html
+  - lastgenre # https://beets.readthedocs.io/en/stable/plugins/lastgenre.html
+  - missing # https://beets.readthedocs.io/en/stable/plugins/missing.html
+  - mbsync # https://beets.readthedocs.io/en/stable/plugins/mbsync.html
+  - scrub # https://beets.readthedocs.io/en/stable/plugins/scrub.html
 discogs:
   source_weight: 0.0
 fetchart:
