@@ -236,8 +236,8 @@ filetype *.wav,*.mp3,*.flac,*.m4a,*.wma,*.ape,*.ac3,*.og[agx],*.spx,*.opus
        \ ffplay -autoexit %c,
        \ {Play using MPlayer}
        \ mplayer %f,
-fileviewer *.mp3 mp3info
-fileviewer *.flac soxi
+fileviewer *.mp3 mediainfo
+fileviewer *.flac mediainfo
 
 " Video
 " filextype *.avi,*.mp4,*.wmv,*.dat,*.3gp,*.ogv,*.mkv,*.mpg,*.mpeg,*.vob,
@@ -440,7 +440,7 @@ set vifminfo=dhistory,savedirs,chistory,state,tui,shistory,
 
 " Customize view columns a bit (enable ellipsis for truncated file names)
 "
-set viewcolumns=-{name}..,14{mtime}.
+set viewcolumns=-{fileroot}..,3{fileext},7{size},14{mtime}.
 
 " Filter-out build and temporary files
 "
