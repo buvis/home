@@ -92,3 +92,9 @@ if [[ $IS_MAC ]]; then
         . "$HOME/.cargo/env"
     fi
 fi
+
+# Simplify prompt in Windows
+if [[ $IS_WIN ]]; then
+  SPS_STATUS=1
+  . ${DOTFILES_ROOT}/.config/bash/sh-prompt-simple/prompt.sh
+fi
