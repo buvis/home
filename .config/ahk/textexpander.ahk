@@ -11,3 +11,4 @@ https://adponline.sharepoint.com/sites/GlobalView-Engine-Architecture/documentat
 (
 service request
 )
+::ity ::infotype
