@@ -1,5 +1,4 @@
 local wezterm = require("wezterm")
-local canonical_solarized = require("canonical_solarized")
 local act = wezterm.action
 
 -- integration with Neovim
