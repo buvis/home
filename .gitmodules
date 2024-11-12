@@ -7,6 +7,3 @@
 [submodule "scripts"]
 	path = scripts
 	url = https://github.com/buvis/scripts
-[submodule "sh-prompt-simple"]
-	path = .config/bash/sh-prompt-simple
-	url = https://github.com/rkitover/sh-prompt-simple
