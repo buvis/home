@@ -36,11 +36,10 @@ local function split_nav(resize_or_move, key)
 end
 
 local config = {}
-canonical_solarized.apply_to_config(config)
 
 config.audible_bell = "Disabled"
 config.check_for_updates = false
-config.color_scheme = "Canonical Solarized Dark"
+config.color_scheme = "Builtin Solarized Dark"
 config.inactive_pane_hsb = {
 	hue = 0.15,
 	saturation = 0.65,
