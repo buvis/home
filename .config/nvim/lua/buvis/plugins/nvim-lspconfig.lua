@@ -131,9 +131,9 @@ return {
           },
         })
       end,
-      ["ruff_lsp"] = function()
+      ["ruff"] = function()
         -- configure ruff server
-        lspconfig["ruff_lsp"].setup({
+        lspconfig["ruff"].setup({
           settings = {},
         })
       end,
