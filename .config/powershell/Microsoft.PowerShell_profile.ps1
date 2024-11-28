@@ -29,6 +29,9 @@ $env:PATH =$env:PATH+";."
 # Use buvis scripts
 $env:PATH =$env:PATH+";"+$env:HOME+"\scripts\bin"
 
+# Use direnv
+Invoke-Expression "$(direnv hook pwsh)"
+
 # "Windows PowerShell" does not support the `e special character sequence for Escape, so we use a variable $e for this.
 $e = [char]27
 
