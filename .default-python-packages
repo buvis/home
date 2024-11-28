@@ -11,6 +11,7 @@ pipenv
 poetry
 pyacoustid
 pylast
+pynvim
 pyreadline
 python-lsp-black
 python-lsp-ruff
