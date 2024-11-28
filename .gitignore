@@ -4,12 +4,14 @@
 .config/beets/discogs_token.json
 .config/beets/state.pickle
 .config/brew/Brewfile.lock.json
+.config/buvis/config.yaml
 .config/configstore
 .config/github-copilot
 .config/jellyfin
 .config/nushell/history.txt
 .config/nvim/shada*
 .config/nvim/view
+.config/nvim/lazy-lock.json
 .config/scripts/readwise-token
 .config/scoop/config.json
 .config/yarn
