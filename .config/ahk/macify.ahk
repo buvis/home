@@ -19,7 +19,12 @@
     Suspend(True)
           Send "#p"
     Suspend(False)
-  } else {
+  }
+  else if (ActivePName = "Code.exe")
+  {
+    Send "^P"
+  }
+  else {
     Send "!p"
   }
   Return
