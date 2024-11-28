@@ -28,10 +28,10 @@ return {
         "html",
         "lua_ls",
         "pyright",
-        "ruff_lsp",
+        "ruff",
         "svelte",
         "tailwindcss",
-        "tsserver",
+        "ts_ls",
       },
     })
 
