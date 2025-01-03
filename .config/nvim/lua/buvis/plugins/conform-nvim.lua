@@ -5,6 +5,11 @@ return {
     local conform = require("conform")
 
     conform.setup({
+      formatters = {
+        ["markdownlint-cli2"] = {
+          prepend_args = { "--config", vim.fn.expand("~/.config/markdownlint/.markdownlint-cli2.yaml") },
+        },
+      },
       formatters_by_ft = {
         javascript = { "prettier" },
         typescript = { "prettier" },
@@ -15,7 +20,7 @@ return {
         html = { "prettier" },
         json = { "prettier" },
         yaml = { "prettier" },
-        markdown = { "prettier" },
+        markdown = { "markdownlint-cli2" },
         graphql = { "prettier" },
         liquid = { "prettier" },
         lua = { "stylua" },

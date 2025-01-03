@@ -131,6 +131,14 @@ return {
           },
         })
       end,
+      ["marksman"] = function()
+        --configure marksman
+        lspconfig.marksman.setup({
+          cmd = { "marksman", "server" }, -- Ensure 'marksman' is executable
+          filetypes = { "markdown" }, -- Filetypes Marksman will handle
+          root_dir = lspconfig.util.root_pattern(".git", ".marksman.toml"), -- Project root detection
+        })
+      end,
       ["ruff"] = function()
         -- configure ruff server
         lspconfig["ruff"].setup({
