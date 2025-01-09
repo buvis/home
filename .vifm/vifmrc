@@ -130,6 +130,7 @@ if has('win')
     mark w "~/OneDrive - Automatic Data Processing Inc/Documents/bim/10-projects"
 else
     mark a ~/bim/reference/local/20-areas
+    mark B ~/bim/reference/local/20-areas/business
     mark c ~/bim/reference/local/40-archives/completed
     mark d ~/Downloads
     mark g ~/git/src/
