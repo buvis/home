@@ -2,7 +2,17 @@
 #a::Send "^a"
 
 ; Copying
-#c::Send "^c"
+#c::
+{
+  A_Clipboard := ""
+  Send "^c"  ; Copy the highlighted text to clipboard
+  ClipWait  ; Wait for the clipboard to contain text.
+
+  cleanText := Trim(A_Clipboard, "`r`n")
+  A_Clipboard := cleanText
+
+  Return
+}
 
 ; Finding
 #f::Send "^f"
