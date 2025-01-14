@@ -1,0 +1,39 @@
+# markdownlint-cli2 configuration file
+
+# Ignore specific files or directories
+ignores:
+  - node_modules
+  - vendor
+  - dist
+
+# Enable, disable, configure rules
+# Reference: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+config:
+  # Indent nested lists by 4 spaces
+  BUVIS001:
+    indent: 4
+
+  # Enforce consistent bullet list marker style
+  MD004:
+    style: "sublist"
+
+  # Disable indent unordered lists (replaced by BUVIS001)
+  MD007: false
+
+  # Disable line-length rule (useful for long paragraphs)
+  MD013: false
+
+  # Allow inline HTML (disable warnings for embedded HTML)
+  MD033: false
+
+  # Allow trailing punctuation in headers (like "?" or "!")
+  MD026: false
+
+  # Enforce blank lines around headers
+  MD022: true
+
+  # Enforce blank lines around lists
+  MD032: true
+
+customRules:
+  - "~/.config/markdownlint/custom-rules/buvis001.js"
