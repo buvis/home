@@ -27,6 +27,7 @@ return {
         "graphql",
         "html",
         "lua_ls",
+        "marksman",
         "pyright",
         "ruff",
         "svelte",
@@ -39,6 +40,7 @@ return {
       -- list of linters and formatters for Mason to install
       ensure_installed = {
         "eslint_d",
+        "markdownlint-cli2",
         "prettier",
         "stylua",
       },
