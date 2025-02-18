@@ -1,9 +1,6 @@
 [submodule "bash-it"]
 	path = .bash_it
 	url = https://github.com/Bash-it/bash-it.git
-[submodule "asdf"]
-	path = .asdf
-	url = https://github.com/asdf-vm/asdf.git
 [submodule "scripts"]
 	path = scripts
 	url = https://github.com/buvis/scripts

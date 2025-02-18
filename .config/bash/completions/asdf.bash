@@ -1,1 +1,1 @@
-source "${DOTFILES_ROOT}/.asdf/completions/asdf.bash"
+. <(asdf completion bash)
