@@ -1,13 +1,17 @@
 !*.secret
 **/.DS_Store
 .config/MusicBrainz
+.config/bash/sh-prompt-simple
 .config/beets/discogs_token.json
 .config/beets/state.pickle
 .config/brew/Brewfile.lock.json
 .config/buvis/config.yaml
+.config/buvis/candidate_tags
+.config/coc
 .config/configstore
 .config/github-copilot
 .config/jellyfin
+.config/nnn/.selection
 .config/nushell/history.txt
 .config/nvim/shada*
 .config/nvim/view
