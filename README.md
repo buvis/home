@@ -120,7 +120,8 @@ export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
 
 ### Install tools
 
-Run `asdf install`.
+1. Install all asdf plugins used in `$HOME/.tool-versions`: `asdf plugin add <plugin_name>`, for example: `asdf plugin add python`
+2. Run `asdf install`
 
 ### Get git repositories
 
