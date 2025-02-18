@@ -85,11 +85,11 @@ SCM_THEME_PROMPT_UNSTAGED_COLOR=${POWERLINE_SCM_UNSTAGED_COLOR:=56}
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
 
-# Load asdf
-source "${DOTFILES_ROOT}/.asdf/asdf.sh"
-
 # Load direnv
 eval "$(direnv hook bash)"
+
+# Add asdf shims to PATH
+export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
