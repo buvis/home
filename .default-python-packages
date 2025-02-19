@@ -4,6 +4,7 @@ Yapf
 beautifulsoup4
 beets
 black
+buvis-pybase
 cyclopts
 gita
 inflection
