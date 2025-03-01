@@ -129,21 +129,21 @@ if has('win')
     mark s "~/git/src/github.com/buvis/scripts/"
     mark w "~/OneDrive - Automatic Data Processing Inc/Documents/bim/10-projects"
 else
-    mark a ~/bim/reference/local/[icloud]20-areas
-    mark B ~/bim/reference/local/[icloud]20-areas/business
-    mark c ~/bim/reference/local/[icloud]40-archives/completed
+    mark a ~/bim/reference/local/20-areas
+    mark B ~/bim/reference/local/20-areas/business
+    mark c ~/bim/reference/local/40-archives/completed
     mark d ~/Downloads
     mark g ~/git/src/
     mark h ~/
-    mark i ~/bim/reference/local/[icloud]20-areas/administration/invoice
+    mark i ~/bim/reference/local/20-areas/administration/invoice
     mark k ~/git/src/github.com/buvis/clusters
     mark m ~/media
-    mark o ~/bim/reference/local/[icloud]20-areas/administration/order
+    mark o ~/bim/reference/local/20-areas/administration/order
     mark P ~/Photography
-    mark r ~/bim/reference/local/[icloud]30-resources
+    mark r ~/bim/reference/local/30-resources
     mark s ~/git/src/github.com/buvis/scripts
-    mark R ~/bim/reference/local/[icloud]20-areas/administration/receipt
-    mark w ~/bim/reference/local/[icloud]10-projects
+    mark R ~/bim/reference/local/20-areas/administration/receipt
+    mark w ~/bim/reference/local/10-projects
 endif
 
 " ------------------------------------------------------------------------------
