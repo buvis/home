@@ -45,9 +45,9 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 # Python wheels
 export PATH="${PATH}:${DOTFILES_ROOT}/.local/bin"
 
-# Python scripts
-#export PYTHONPATH="${DOTFILES_ROOT}/scripts/src:${PYTHONPATH}"
-#export PYTHONPATH="${DOTFILES_ROOT}/scripts/src/buvis:${PYTHONPATH}"
+# Workaround CFFI lack of python 3.13 support
+# ref: https://www.perplexity.ai/search/i-m-unable-to-update-my-python-cd0DHG4uSIGenz37A7nRoQ#0
+export PYTHONNOGIL=0
 
 # Set my editor and git editor
 export EDITOR="nvim"
