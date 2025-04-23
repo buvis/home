@@ -54,10 +54,14 @@ return {
         keymap.set("n", "<leader>d", vim.diagnostic.open_float, opts) -- show diagnostics for line
 
         opts.desc = "Go to previous diagnostic"
-        keymap.set("n", "[d", vim.diagnostic.goto_prev, opts) -- jump to previous diagnostic in buffer
+        keymap.set("n", "<Up>", function()
+          vim.diagnostic.jump({ count = -1, float = true })
+        end)
 
         opts.desc = "Go to next diagnostic"
-        keymap.set("n", "]d", vim.diagnostic.goto_next, opts) -- jump to next diagnostic in buffer
+        keymap.set("n", "<Down>", function()
+          vim.diagnostic.jump({ count = 1, float = true })
+        end)
 
         opts.desc = "Show documentation for what is under cursor"
         keymap.set("n", "K", vim.lsp.buf.hover, opts) -- show documentation for what is under cursor
@@ -70,8 +74,21 @@ return {
     -- used to enable autocompletion (assign to every lsp server config)
     local capabilities = cmp_nvim_lsp.default_capabilities()
 
-    -- Change the Diagnostic symbols in the sign column (gutter)
+    -- configure Diagnostic
     vim.diagnostic.config({
+      virtual_text = false,
+      update_in_insert = false,
+      float = {
+        border = "single",
+        format = function(diagnostic)
+          return string.format(
+            "%s: [%s]\n%s",
+            diagnostic.source,
+            diagnostic.code or diagnostic.user_data.lsp.code,
+            diagnostic.message
+          )
+        end,
+      },
       signs = {
         text = {
           [vim.diagnostic.severity.ERROR] = " ",
