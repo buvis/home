@@ -4,7 +4,7 @@ return {
   dependencies = {
     "hrsh7th/cmp-nvim-lsp",
     { "antosha417/nvim-lsp-file-operations", config = true },
-    { "folke/neodev.nvim", opts = {} },
+    { "folke/neodev.nvim",                   opts = {} },
   },
   config = function()
     -- import lspconfig plugin
@@ -79,14 +79,9 @@ return {
       virtual_text = false,
       update_in_insert = false,
       float = {
-        border = "single",
+        border = "double",
         format = function(diagnostic)
-          return string.format(
-            "%s: [%s]\n%s",
-            diagnostic.source,
-            diagnostic.code or diagnostic.user_data.lsp.code,
-            diagnostic.message
-          )
+          return string.format("%s: [%s]\n%s", diagnostic.source, diagnostic.code, diagnostic.message)
         end,
       },
       signs = {
@@ -161,15 +156,35 @@ return {
       ["marksman"] = function()
         --configure marksman
         lspconfig.marksman.setup({
-          cmd = { "marksman", "server" }, -- Ensure 'marksman' is executable
-          filetypes = { "markdown" }, -- Filetypes Marksman will handle
+          cmd = { "marksman", "server" },                                   -- Ensure 'marksman' is executable
+          filetypes = { "markdown" },                                       -- Filetypes Marksman will handle
           root_dir = lspconfig.util.root_pattern(".git", ".marksman.toml"), -- Project root detection
+        })
+      end,
+      ["pyright"] = function()
+        --configure pyright
+        lspconfig["pyright"].setup({
+          capabilities = capabilities,
+          settings = {
+            pyright = {
+              disableOrganizeImports = true,
+            },
+            python = {
+              analysis = {
+                typeCheckingMode = "basic",
+                diagnosticMode = "workspace",
+                linting = false, -- Delegate to Ruff
+              },
+            },
+          },
         })
       end,
       ["ruff"] = function()
         -- configure ruff server
         lspconfig["ruff"].setup({
-          settings = {},
+          settings = {
+            args = {},
+          },
         })
       end,
     })
