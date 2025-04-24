@@ -1,6 +1,7 @@
 PyAutoGUI
 PyYAML
 Yapf
+autopep8
 beautifulsoup4
 beets
 black

@@ -33,21 +33,35 @@ local root_augroup = vim.api.nvim_create_augroup("MyAutoRoot", {})
 vim.api.nvim_create_autocmd("BufEnter", { group = root_augroup, callback = set_root })
 
 -- Sort imports on save
-vim.api.nvim_create_autocmd("BufWritePre", {
-  callback = function()
-    local bufnr = vim.api.nvim_get_current_buf()
+local fmt_group = vim.api.nvim_create_augroup("autoformat_cmds", { clear = true })
 
-    -- Use Neovim's built-in code action handler for Ruff compatibility
-    vim.lsp.buf.code_action({
-      context = {
-        only = { "source.organizeImports", "source.fixAll.ruff" },
-        diagnostics = {},
-      },
-      filter = function(action)
-        return action.title:lower():find("import") ~= nil
-      end,
-      apply = true,
-      bufnr = bufnr,
+local function setup_autoformat(event)
+  local id = vim.tbl_get(event, "data", "client_id")
+  local client = id and vim.lsp.get_client_by_id(id)
+  if client == nil then
+    return
+  end
+
+  vim.api.nvim_clear_autocmds({ group = fmt_group, buffer = event.buf })
+
+  local buf_format = function(e)
+    vim.lsp.buf.format({
+      bufnr = e.buf,
+      async = false,
+      timeout_ms = 10000,
     })
-  end,
+    vim.lsp.buf.code_action({ context = { only = { "source.organizeImports" } }, apply = true })
+  end
+
+  vim.api.nvim_create_autocmd("BufWritePre", {
+    buffer = event.buf,
+    group = fmt_group,
+    desc = "Format current buffer",
+    callback = buf_format,
+  })
+end
+
+vim.api.nvim_create_autocmd("LspAttach", {
+  desc = "Setup format on save",
+  callback = setup_autoformat,
 })
