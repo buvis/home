@@ -182,9 +182,7 @@ return {
       ["ruff"] = function()
         -- configure ruff server
         lspconfig["ruff"].setup({
-          settings = {
-            args = {},
-          },
+          settings = {},
         })
       end,
     })

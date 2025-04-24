@@ -8,6 +8,5 @@ vim.api.nvim_create_autocmd("BufWritePre", {
       end,
     })
     vim.cmd("silent! !autopep8 --select=E301,E302,E303 --in-place %")
-    vim.cmd("edit!")
   end,
 })
