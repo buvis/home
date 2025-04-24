@@ -11,6 +11,7 @@ gita
 inflection
 pipenv
 poetry
+poetry-plugin-shell
 pyacoustid
 pylast
 pynvim
