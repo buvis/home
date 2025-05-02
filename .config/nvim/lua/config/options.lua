@@ -10,6 +10,11 @@ local root = vim.env.USER == "root"
 vim.opt.background = "light"
 -- Don't use system clipboard for yank, delete, and paste operations
 vim.opt.clipboard = ""
+-- Don't create shada files for root
+if root then
+  vim.opt.shada = ""
+  vim.opt.shadafile = "NONE"
+end
 -- Store undofiles centrally
 if root then
   vim.opt.undofile = false -- don't create root-owned files
