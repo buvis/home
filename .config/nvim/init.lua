@@ -1,6 +1,2 @@
-if vim.loader then
-	vim.loader.enable()
-end
-
-require("buvis.core")
-require("buvis.lazy")
+-- bootstrap lazy.nvim, LazyVim and your plugins
+require("config.lazy")
