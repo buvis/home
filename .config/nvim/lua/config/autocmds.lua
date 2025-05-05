@@ -14,6 +14,12 @@ vim.api.nvim_create_autocmd({ "InsertLeave", "WinEnter" }, {
       vim.wo.cursorline = true
       vim.w.auto_cursorline = nil
     end
+
+    if vim.w.auto_linenumbers then
+      vim.wo.number = vim.w.auto_linenumbers.number
+      vim.wo.relativenumber = vim.w.auto_linenumbers.relativenumber
+      vim.w.auto_linenumbers = nil
+    end
   end,
 })
 vim.api.nvim_create_autocmd({ "InsertEnter", "WinLeave" }, {
@@ -21,6 +27,17 @@ vim.api.nvim_create_autocmd({ "InsertEnter", "WinLeave" }, {
     if vim.wo.cursorline then
       vim.wo.cursorline = false
       vim.w.auto_cursorline = true
+    end
+
+    local current = {
+      number = vim.wo.number,
+      relativenumber = vim.wo.relativenumber,
+    }
+
+    if current.number or current.relativenumber then
+      vim.w.auto_linenumbers = current
+      vim.wo.number = false
+      vim.wo.relativenumber = false
     end
   end,
 })
