@@ -31,5 +31,3 @@ else
   vim.opt.undodir = vim.opt.undodir + "." -- fallback
   vim.opt.undofile = true -- actually use undo files
 end
--- Show file name in winbar
-vim.opt.winbar = "%=%m %f"
