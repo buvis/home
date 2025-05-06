@@ -85,6 +85,7 @@ return {
           }
         end,
       },
+      integrations = { blink_cmp = true },
     },
   },
   {
