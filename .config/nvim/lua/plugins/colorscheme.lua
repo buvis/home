@@ -1,4 +1,29 @@
 return {
+  -- Reference colors from Selenized Light (https://github.com/jan-warchol/selenized/blob/master/the-values.md#selenized-light)
+  --   Color       sRGB
+  -- ----------   -------
+  -- bg_0         #fbf3db
+  -- bg_1         #ece3cc
+  -- bg_2         #d5cdb6
+  -- dim_0        #909995
+  -- fg_0         #53676d
+  -- fg_1         #3a4d53
+  -- red          #d2212d
+  -- green        #489100
+  -- yellow       #ad8900
+  -- blue         #0072d4
+  -- magenta      #ca4898
+  -- cyan         #009c8f
+  -- orange       #c25d1e
+  -- violet       #8762c6
+  -- br_red       #cc1729
+  -- br_green     #428b00
+  -- br_yellow    #a78300
+  -- br_blue      #006dce
+  -- br_magenta   #c44392
+  -- br_cyan      #00978a
+  -- br_orange    #bc5819
+  -- br_violet    #825dc0
   {
     "catppuccin/nvim",
     name = "catppuccin",
