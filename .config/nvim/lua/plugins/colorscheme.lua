@@ -40,6 +40,7 @@ return {
         percentage = 0.55,
       },
       highlight_overrides = {
+        -- Use :Inspect to find the highlight group
         latte = function(C)
           return {
             FlashLabel = { fg = C.base, bg = C.red, style = { "bold" } },
