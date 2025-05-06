@@ -7,7 +7,7 @@ return {
         require("rip-substitute").sub()
       end,
       mode = { "n", "x" },
-      disc = "Search and replace",
+      desc = "Search and replace",
     },
   },
 }
