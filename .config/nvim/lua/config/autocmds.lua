@@ -7,14 +7,29 @@
 -- Or remove existing autocmds by their group name (which is prefixed with `lazyvim_` for the defaults)
 -- e.g. vim.api.nvim_del_augroup_by_name("lazyvim_wrap_spell")
 
--- Disable cursorline highlight in inactive windows
+-- [BEGIN] Inactive window indication
+-- Handle cursorline for insert mode
 vim.api.nvim_create_autocmd({ "InsertLeave", "WinEnter" }, {
   callback = function()
     if vim.w.auto_cursorline then
       vim.wo.cursorline = true
       vim.w.auto_cursorline = nil
     end
+  end,
+})
 
+vim.api.nvim_create_autocmd({ "InsertEnter", "WinLeave" }, {
+  callback = function()
+    if vim.wo.cursorline then
+      vim.wo.cursorline = false
+      vim.w.auto_cursorline = true
+    end
+  end,
+})
+
+-- Handle line numbers exclusively for window focus changes
+vim.api.nvim_create_autocmd("WinEnter", {
+  callback = function()
     if vim.w.auto_linenumbers then
       vim.wo.number = vim.w.auto_linenumbers.number
       vim.wo.relativenumber = vim.w.auto_linenumbers.relativenumber
@@ -22,13 +37,9 @@ vim.api.nvim_create_autocmd({ "InsertLeave", "WinEnter" }, {
     end
   end,
 })
-vim.api.nvim_create_autocmd({ "InsertEnter", "WinLeave" }, {
-  callback = function()
-    if vim.wo.cursorline then
-      vim.wo.cursorline = false
-      vim.w.auto_cursorline = true
-    end
 
+vim.api.nvim_create_autocmd("WinLeave", {
+  callback = function()
     local current = {
       number = vim.wo.number,
       relativenumber = vim.wo.relativenumber,
@@ -41,3 +52,4 @@ vim.api.nvim_create_autocmd({ "InsertEnter", "WinLeave" }, {
     end
   end,
 })
+-- [END] Inactive window indication
