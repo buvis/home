@@ -26,6 +26,10 @@ config:
   # Allow inline HTML (disable warnings for embedded HTML)
   MD033: false
 
+  # Ignore title in frontmatter when checking for H1 occurences
+  MD025:
+    front_matter_title: ""
+
   # Allow trailing punctuation in headers (like "?" or "!")
   MD026: false
 
