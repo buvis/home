@@ -45,6 +45,7 @@ return {
       icon = { icon = "󱜹 ", color = "green" },
       mode = { "n", "v" },
     })
+
     table.insert(opts.spec, {
       "<leader>ap",
       function()
