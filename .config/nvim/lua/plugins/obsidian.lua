@@ -6,9 +6,8 @@ return {
   dependencies = {
     "nvim-lua/plenary.nvim",
   },
-  ---@module 'obsidian'
-  ---@type obsidian.config.ClientOpts
   opts = {
+    disable_frontmatter = true,
     workspaces = {
       {
         name = "bim",
