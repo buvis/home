@@ -30,4 +30,21 @@ return {
       },
     },
   },
+  {
+    "roobert/f-string-toggle.nvim",
+    keys = {
+      {
+        "<leader>rf",
+        function()
+          require("f-string-toggle").toggle_fstring()
+        end,
+        desc = "Toggle f-string",
+      },
+    },
+    config = function()
+      require("f-string-toggle").setup({
+        key_binding = false,
+      })
+    end,
+  },
 }
