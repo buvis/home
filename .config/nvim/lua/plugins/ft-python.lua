@@ -104,4 +104,19 @@ return {
       return opts
     end,
   },
+  {
+    "linux-cultist/venv-selector.nvim",
+    branch = "regexp", -- Use the improved branch
+    dependencies = {
+      "neovim/nvim-lspconfig",
+      "nvim-telescope/telescope.nvim",
+      "mfussenegger/nvim-dap-python",
+    },
+    keys = {
+      { "<leader>v", "<cmd>VenvSelect<cr>" },
+    },
+    opts = {
+      -- Your options here
+    },
+  },
 }
