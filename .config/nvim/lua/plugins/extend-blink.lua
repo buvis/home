@@ -5,7 +5,7 @@ return {
     dependencies = { "fang2hou/blink-copilot" },
     opts = {
       keymap = {
-        ["<Tab>"] = { "select_and_accept" },
+        preset = "super-tab",
       },
       sources = {
         providers = {
