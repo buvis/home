@@ -96,7 +96,13 @@ config.set_environment_variables = {}
 if wezterm.target_triple == "x86_64-pc-windows-msvc" then
 	-- config.set_environment_variables.SHELL = "/usr/bin/bash"
 	-- config.default_prog = { "bash", "--login" }
-	config.default_prog = { "pwsh.exe" }
+	config.default_prog = {
+		"pwsh.exe",
+		"-noprofile",
+		"-noexit",
+		"-command",
+		'invoke-expression ". C:\\Users\\tbouska\\.config\\powershell\\profile.ps1"',
+	}
 end
 
 return config

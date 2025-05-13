@@ -125,6 +125,28 @@ RAlt & F12::SendInput "{Volume_Up}"
   Return
 }
 ;
+; Switch editing/reading
+#e::
+{
+  ActivePName := WinGetProcessName("A")
+  if (ActivePName = "Obsidian.exe")
+  {
+    DetectHiddenWindows True
+    WM_COMMAND := 0x0111
+    ID_FILE_SUSPEND := 65404
+    PostMessage WM_COMMAND, ID_FILE_SUSPEND,,, "C:\Users\tbouska\.local\ahk\typephrase.ahk ahk_class AutoHotkey"
+    Suspend(True)
+          Send "^e"
+    Suspend(False)
+    DetectHiddenWindows True
+    WM_COMMAND := 0x0111
+    ID_FILE_SUSPEND := 65404
+    PostMessage WM_COMMAND, ID_FILE_SUSPEND,,, "C:\Users\tbouska\.local\ahk\typephrase.ahk ahk_class AutoHotkey"
+  }
+  Return
+}
+
+;
 ; Omnisearch
 +#f::
 {
