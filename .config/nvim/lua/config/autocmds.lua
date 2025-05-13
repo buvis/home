@@ -53,3 +53,20 @@ vim.api.nvim_create_autocmd("WinLeave", {
   end,
 })
 -- [END] Inactive window indication
+
+-- Use normal J if split/join not supported by treesj
+local langs = require("treesj.langs")["presets"]
+
+vim.api.nvim_create_autocmd({ "FileType" }, {
+  pattern = "*",
+  callback = function()
+    local opts = { buffer = true }
+    if langs[vim.bo.filetype] then
+      vim.keymap.set("n", "J", "<Cmd>TSJToggle<CR>", opts)
+    else
+      vim.keymap.set("n", "J", function()
+        vim.cmd("normal! J")
+      end, opts)
+    end
+  end,
+})
