@@ -71,3 +71,13 @@ vim.api.nvim_create_autocmd({ "FileType" }, {
     end
   end,
 })
+
+-- Disable Copilot in private folder
+local home = vim.fn.expand("~")
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  pattern = home .. "/bim/*",
+  callback = function()
+    vim.cmd("Copilot disable")
+  end,
+  desc = "Disable Copilot in private folder",
+})
