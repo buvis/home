@@ -4,7 +4,7 @@ This repository contains more than my dotfiles, so I don't stick to the conventi
 
 Feel free to reuse anything, but proceed with caution.
 
-If you find something I could be doing a better way, please drop me an email at tomas@buvis.net.
+If you find something I could be doing a better way, please drop me an email at <tomas@buvis.net>.
 I always appreciate any opportunity to learn. Thank you!
 
 ## Prepare
@@ -12,16 +12,16 @@ I always appreciate any opportunity to learn. Thank you!
 ### System independent steps
 
 1. Install NerdFonts for Powerline from romkatv:
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf
-   - https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf
+   - <https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf>
+   - <https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf>
+   - <https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf>
+   - <https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf>
 2. Install python and pip
 3. Install node
 4. Install lazygit
    - MacOS: `brew install jesseduffield/lazygit/lazygit`
    - Windows: `scoop bucket add extras; scoop install lazygit`
-6. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
+5. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
 
 ### Additional system specific steps
 
@@ -29,8 +29,8 @@ I always appreciate any opportunity to learn. Thank you!
 
 1. Install all pending OS updates: About This Mac - Software Update...
 2. Install xcode command line tools: `xcode-select --install`
-3. Check that curl is installed: `command -v curl` (*it should come with the system but let's check anyway*)
-4. Set the desired machine name following https://apple.stackexchange.com/questions/287760/set-the-hostname-computer-name-for-macos if booted for the first time
+3. Check that curl is installed: `command -v curl` (_it should come with the system but let's check anyway_)
+4. Set the desired machine name following <https://apple.stackexchange.com/questions/287760/set-the-hostname-computer-name-for-macos> if booted for the first time
 5. Restart
 
 #### Windows
@@ -46,7 +46,8 @@ I always appreciate any opportunity to learn. Thank you!
 ## Install
 
 ### macOS, WSL, and potentially any Linux distro
-``` bash
+
+```bash
 curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
 ```
 
@@ -79,14 +80,22 @@ Make symlink from `~/.config/powershell/Microsoft.PowerShell_profile.ps1` to `Po
 
 I don't know how, will add later.
 
+#### LazyGit
+
+Make symlink from `~/.config/lazygit/config.yml` to `%LOCALAPPDATA%\lazygit\config.yml`
+
 ### macOS
 
 #### Use default configuration for ruff
 
 Make symlink from `~/.config/ruff/pyproject.toml` to `~/Library/Application Support/ruff/pyproject.toml`
 
+#### LazyGit
+
+Make symlink from `~/.config/lazygit/config.yml` to `~/Library/Application Support/lazygit/config.yml`
+
 ### WSL
- 
+
 1. Create symlinks in vifm (`yy` source, `al` in destination)
    - `windows-home` from `/mnt/c/Users/<WINDOWS_USERNAME>`
    - `Downloads` from `/mnt/c/Users/<WINDOWS_USERNAME>/Downloads`
@@ -95,25 +104,29 @@ Make symlink from `~/.config/ruff/pyproject.toml` to `~/Library/Application Supp
    - `z` from `/mnt/c/Users/<WINDOWS_USERNAME>/<OneDrive - private>/z`
 2. Fix files coloring in vifm
    1. Add filesystem configuration to `/etc/wsl.conf`
-      ``` ini
+
+      ```ini
       [automount]
       enabled = true
       options = "metadata,uid=1000,gid=1000,umask=0022,fmask=11,case=off"
       mountFsTab = false
       crossDistro = true
-      
+
       [filesystem]
       umask = 0022
       ```
+
    2. Restart WSL: run `wsl --terminate Ubuntu` in `cmd`, then start WSL
    3. Run `chmod -R a-x+X,u-x+rwX,go-wx+rX *` in directory where you want to fix the file coloring in vifm
 3. Fix permissions to install npm packages globally: `npm config set prefix '~/.local/'`
 4. Fix locale: `sudo tic -xe alacritty,alacritty-direct ~/.config/alacritty/alacritty.info`
 5. Use WSL specific configuration for some tools: `vim $HOME/.bashrc-wsl`, add
+
 ```
 export P_PROPERTIES_FILE="/home/bob/.pdata-wsl.properties"
 export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
 ```
+
 6. Let VS Code from Windows host use WSL
    1. Install [WSL Extenstion](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl)
    2. Add VS Code to WSL's path: `echo 'export PATH=$PATH:/mnt/c/Users/tbouska/.local/bin/vscode/bin' >> ~/.bashrc-wsl`
