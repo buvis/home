@@ -6,6 +6,7 @@ local home = vim.env.HOME
 local config = home .. "/.config/nvim"
 local root = vim.env.USER == "root"
 
+vim.opt.completeopt = { "menu", "menuone", "noselect", "noinsert", "popup" }
 -- Set light theme
 vim.opt.background = "light"
 -- Don't use system clipboard for yank, delete, and paste operations
@@ -19,11 +20,13 @@ vim.opt.listchars = {
   trail = "•", -- BULLET (U+2022, UTF-8: E2 80 A2)
 }
 -- Don't create shada files for root
+
 if root then
   vim.opt.shada = ""
   vim.opt.shadafile = "NONE"
 end
 -- Store undofiles centrally
+
 if root then
   vim.opt.undofile = false -- don't create root-owned files
 else
