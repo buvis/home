@@ -10,6 +10,7 @@
 .config/coc
 .config/configstore
 .config/github-copilot
+.config/goose/history.txt
 .config/jellyfin
 .config/nnn/.selection
 .config/nushell/history.txt
