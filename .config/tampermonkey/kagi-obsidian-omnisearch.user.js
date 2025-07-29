@@ -4,7 +4,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
-// @version      0.1.0
+// @version      0.2.0
 // @description  Injects Obsidian notes in Kagi search results
 // @author       Tomáš Bouška
 // @match        https://kagi.com/*
@@ -19,183 +19,400 @@
 // @grant        GM.getValue
 // @grant        GM.setValue
 // ==/UserScript==
-//
-// Based on the work of Simon Cambier
-//
+
 /* globals GM_config, $, waitForKeyElements */
+
 (function () {
-  const sidebarSelector = ".right-content-box";
-  const resultsDivId = "OmnisearchObsidianResults";
-  const loadingSpanId = "OmnisearchObsidianLoading";
-
-  // Config dialog
-  // @ts-ignore
-  const config = new GM_config({
-    id: "ObsidianOmnisearchKagi",
-    title: "Omnisearch in Kagi - Configuration",
-    fields: {
-      port: { label: "HTTP Port", type: "text", default: "51361" },
-      nbResults: {
-        label: "Number of results to display",
-        type: "int",
-        default: 3,
-      },
+  // Constants
+  const CONSTANTS = {
+    SELECTORS: {
+      SIDEBAR: ".right-content-box",
+      LAYOUT: "#layout-v2",
     },
-    events: { save: () => location.reload() },
-  });
+    IDS: {
+      RESULTS_DIV: "OmnisearchObsidianResults",
+      LOADING_SPAN: "OmnisearchObsidianLoading",
+      CONFIG_LINK: "OmnisearchObsidianConfig",
+    },
+    DEFAULTS: {
+      PORT: "51361",
+      MAX_RESULTS: 3,
+    },
+    LOGO: `<svg height="1em" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 256 256">
+      <style>.purple { fill: #9974F8; } @media (prefers-color-scheme: dark) { .purple { fill: #A88BFA; } }</style>
+      <path class="purple" d="M94.82 149.44c6.53-1.94 17.13-4.9 29.26-5.71a102.97 102.97 0 0 1-7.64-48.84c1.63-16.51 7.54-30.38 13.25-42.1l3.47-7.14 4.48-9.18c2.35-5 4.08-9.38 4.9-13.56.81-4.07.81-7.64-.2-11.11-1.03-3.47-3.07-7.14-7.15-11.21a17.02 17.02 0 0 0-15.8 3.77l-52.81 47.5a17.12 17.12 0 0 0-5.5 10.2l-4.5 30.18a149.26 149.26 0 0 1 38.24 57.2ZM54.45 106l-1.02 3.06-27.94 62.2a17.33 17.33 0 0 0 3.27 18.96l43.94 45.16a88.7 88.7 0 0 0 8.97-88.5A139.47 139.47 0 0 0 54.45 106Z"/>
+      <path class="purple" d="m82.9 240.79 2.34.2c8.26.2 22.33 1.02 33.64 3.06 9.28 1.73 27.73 6.83 42.82 11.21 11.52 3.47 23.45-5.8 25.08-17.73 1.23-8.67 3.57-18.46 7.75-27.53a94.81 94.81 0 0 0-25.9-40.99 56.48 56.48 0 0 0-29.56-13.35 96.55 96.55 0 0 0-40.99 4.79 98.89 98.89 0 0 1-15.29 80.34h.1Z"/>
+      <path class="purple" d="M201.87 197.76a574.87 574.87 0 0 0 19.78-31.6 8.67 8.67 0 0 0-.61-9.48 185.58 185.58 0 0 1-21.82-35.9c-5.91-14.16-6.73-36.08-6.83-46.69 0-4.07-1.22-8.05-3.77-11.21l-34.16-43.33c0 1.94-.4 3.87-.81 5.81a76.42 76.42 0 0 1-5.71 15.9l-4.7 9.8-3.36 6.72a111.95 111.95 0 0 0-12.03 38.23 93.9 93.9 0 0 0 8.67 47.92 67.9 67.9 0 0 1 39.56 16.52 99.4 99.4 0 0 1 25.8 37.31Z"/>
+    </svg>`,
+  };
 
-  const onConfigInit = (cfg) =>
-    new Promise((resolve) => {
-      (function check() {
-        cfg.isInit ? resolve() : setTimeout(check, 0);
-      })();
-    });
+  // Configuration Manager
+  class ConfigManager {
+    constructor() {
+      this.config = new GM_config({
+        id: "ObsidianOmnisearchKagi",
+        title: "Omnisearch in Kagi - Configuration",
+        fields: {
+          port: {
+            label: "HTTP Port",
+            type: "text",
+            default: CONSTANTS.DEFAULTS.PORT,
+          },
+          nbResults: {
+            label: "Number of results to display",
+            type: "int",
+            default: CONSTANTS.DEFAULTS.MAX_RESULTS,
+          },
+        },
+        events: { save: () => location.reload() },
+      });
+    }
 
-  // Obsidian SVG (inline)
-  const logo = `
-<svg height="1em" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 256 256">
-  <style>
-    .purple { fill: #9974F8; }
-    @media (prefers-color-scheme: dark) { .purple { fill: #A88BFA; } }
-  </style>
-  <path class="purple" d="M94.82 149.44c6.53-1.94 17.13-4.9 29.26-5.71a102.97 102.97 0 0 1-7.64-48.84c1.63-16.51 7.54-30.38 13.25-42.1l3.47-7.14 4.48-9.18c2.35-5 4.08-9.38 4.9-13.56.81-4.07.81-7.64-.2-11.11-1.03-3.47-3.07-7.14-7.15-11.21a17.02 17.02 0 0 0-15.8 3.77l-52.81 47.5a17.12 17.12 0 0 0-5.5 10.2l-4.5 30.18a149.26 149.26 0 0 1 38.24 57.2ZM54.45 106l-1.02 3.06-27.94 62.2a17.33 17.33 0 0 0 3.27 18.96l43.94 45.16a88.7 88.7 0 0 0 8.97-88.5A139.47 139.47 0 0 0 54.45 106Z"/>
-  <path class="purple" d="m82.9 240.79 2.34.2c8.26.2 22.33 1.02 33.64 3.06 9.28 1.73 27.73 6.83 42.82 11.21 11.52 3.47 23.45-5.8 25.08-17.73 1.23-8.67 3.57-18.46 7.75-27.53a94.81 94.81 0 0 0-25.9-40.99 56.48 56.48 0 0 0-29.56-13.35 96.55 96.55 0 0 0-40.99 4.79 98.89 98.89 0 0 1-15.29 80.34h.1Z"/>
-  <path class="purple" d="M201.87 197.76a574.87 574.87 0 0 0 19.78-31.6 8.67 8.67 0 0 0-.61-9.48 185.58 185.58 0 0 1-21.82-35.9c-5.91-14.16-6.73-36.08-6.83-46.69 0-4.07-1.22-8.05-3.77-11.21l-34.16-43.33c0 1.94-.4 3.87-.81 5.81a76.42 76.42 0 0 1-5.71 15.9l-4.7 9.8-3.36 6.72a111.95 111.95 0 0 0-12.03 38.23 93.9 93.9 0 0 0 8.67 47.92 67.9 67.9 0 0 1 39.56 16.52 99.4 99.4 0 0 1 25.8 37.31Z"/>
-</svg>`;
+    async waitForInit() {
+      return new Promise((resolve) => {
+        const check = () =>
+          this.config.isInit ? resolve() : setTimeout(check, 0);
+        check();
+      });
+    }
 
-  function injectResultsContainer() {
-    $(`#${resultsDivId}`).remove();
-    const html = `
-      <div class="_0_right_sidebar _0_provider-content">
-        <div id="wikipediaResults" class="_0_provider-content">
-          <div class="scene">
-            <div class="wikipediaResult">
-              <div class="card__face">
-                <div id="${resultsDivId}" style="margin-bottom: 2em;"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>`;
-    $(sidebarSelector).prepend(html);
-  }
+    getPort() {
+      return this.config.get("port");
+    }
 
-  function injectHeader() {
-    const cfgId = "OmnisearchObsidianConfig";
+    getMaxResults() {
+      return this.config.get("nbResults");
+    }
 
-    if ($("#" + cfgId).length) return;
-    const html = `
-      <div style="margin-bottom:1em;">
-        <span style="font-size:1.2em">${logo}&nbsp;Omnisearch results</span>
-        <span style="font-size:0.8em;">
-          (<a id="${cfgId}" title="Settings" href="#">settings</a>)
-        </span>
-      </div>`;
-    $(`#${resultsDivId}`).append(html);
-    $(document).on("click", "#" + cfgId, () => config.open());
-  }
-
-  function injectLoadingLabel() {
-    if (!$("#" + loadingSpanId).length) {
-      $(`#${resultsDivId}`).append(
-        `<span id="${loadingSpanId}">Loading...</span>`,
-      );
+    open() {
+      this.config.open();
     }
   }
 
-  function setLoadingDone(foundResults) {
-    const label = $("#" + loadingSpanId);
+  // Title Extraction Strategies
+  class TitleExtractor {
+    constructor() {
+      this.strategies = [
+        this.extractFromTitle.bind(this),
+        this.extractFromH1.bind(this),
+        this.extractFromTimestamp.bind(this),
+        this.extractFromBasename.bind(this),
+      ];
+    }
 
-    if (foundResults) label.remove();
-    else label.text("No result found");
-  }
+    extract(item) {
+      for (const strategy of this.strategies) {
+        const title = strategy(item);
 
-  function omnisearch() {
-    const port = config.get("port");
-    const limit = config.get("nbResults");
-    const query = new URLSearchParams(location.search).get("q");
+        if (title) return title;
+      }
 
-    if (!query) return;
-    injectLoadingLabel();
-    GM.xmlHttpRequest({
-      method: "GET",
-      url: `http://localhost:${port}/search?q=${query}`,
-      headers: { "Content-Type": "application/json" },
-      onload: (res) => {
-        const data = JSON.parse(res.response);
-        setLoadingDone(data.length);
-        data.splice(limit);
-        $("[data-omnisearch-result]").remove();
-        data.forEach((item) => {
-          const noteUrl = `obsidian://open?vault=${encodeURIComponent(item.vault)}&file=${encodeURIComponent(item.path)}`;
-          const resultHtml = `
-<div class="_0_SRI _ext_ub_r search-result" data-omnisearch-result>
-  <div class="_0_TITLE __sri-title">
-    <h3 class="__sri-title-box">
-      <a class="__sri_title_link _ext_ub_t _0_sri_title_link _0_URL"
-         title="${extractTitle(item)}"
-         href="${noteUrl}" rel="noopener noreferrer">
-         ${extractTitle(item)}
-      </a>
-    </h3>
-  </div>
-  <div class="__sri-url-box">
-    <a class="_0_URL __sri-url _ext_ub_u" href="${noteUrl}" style="border-bottom:2px solid transparent;">
-      <div class="__sri_url_path_box">
-        <span class="host">${logo}Obsidian</span>&nbsp;<span class="path">› ${item.path}</span>
-      </div>
-    </a>
-  </div>
-  <div class="__sri-body">
-    <div class="_0_DESC __sri-desc">
-      <div>${highlightTerms(item.excerpt, item.foundWords)}</div>
-    </div>
-  </div>
-</div>`;
-          $(`#${resultsDivId}`).append(resultHtml);
-        });
-      },
-      onerror: (res) => {
-        console.log("Omnisearch error", res);
-        $("#" + loadingSpanId).html(
-          `Error: Obsidian is not running or the Omnisearch server is not enabled.<br /><a href="Obsidian://open">Open Obsidian</a>.`,
-        );
-      },
-    });
-  }
+      return item.basename;
+    }
 
-  function highlightTerms(excerpt, words) {
-    if (!words || !words.length) return excerpt;
-    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b(${words.map(esc).join("|")})\\b`, "gi");
+    extractFromTitle({ excerpt }) {
+      const match = excerpt.match(/title: (.+?)<br>/i);
 
-    return excerpt.replace(
-      regex,
-      '<span style="background-color:#eee8d5;color:#586e75;padding:0.15em 0.2em;">$1</span>',
-    );
-  }
+      return match ? match[1].trim() : null;
+    }
 
-  function extractTitle({ excerpt, basename }) {
-    const t1 = excerpt.match(/title: (.+?)<br>/i);
+    extractFromH1({ excerpt }) {
+      const match = excerpt.match(/(?:^|<br>)# ([^#].*?)<br>/i);
 
-    if (t1) return t1[1].trim();
-    const h1 = excerpt.match(/(?:^|<br>)# ([^#].*?)<br>/i);
+      return match ? match[1].trim() : null;
+    }
 
-    if (h1) return h1[1].trim();
+    extractFromTimestamp({ basename }) {
+      if (!/^\d{14}-/.test(basename)) return null;
 
-    if (/^\d{14}-/.test(basename))
       return basename
         .slice(15)
         .replace(/-/g, " ")
         .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
 
-    return basename;
+    extractFromBasename({ basename }) {
+      return basename;
+    }
   }
 
-  onConfigInit(config).then(() => {
-    injectResultsContainer();
-    injectHeader();
-    waitForKeyElements("#layout-v2", omnisearch);
-    omnisearch();
-  });
+  // Text Highlighter
+  class TextHighlighter {
+    highlight(excerpt, words) {
+      if (!words?.length) return excerpt;
+
+      const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(
+        `\\b(${words.map(escapeRegex).join("|")})\\b`,
+        "gi",
+      );
+
+      return excerpt.replace(
+        regex,
+        '<span style="background-color:#eee8d5;color:#586e75;padding:0.15em 0.2em;">$1</span>',
+      );
+    }
+  }
+
+  // HTML Template Builder
+  class TemplateBuilder {
+    buildResultsContainer() {
+      return `
+        <div class="_0_right_sidebar _0_provider-content">
+          <div id="wikipediaResults" class="_0_provider-content">
+            <div class="scene">
+              <div class="wikipediaResult">
+                <div class="card__face">
+                  <div id="${CONSTANTS.IDS.RESULTS_DIV}" style="margin-bottom: 2em;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    buildHeader() {
+      return `
+        <div style="margin-bottom:1em;">
+          <span style="font-size:1.2em">${CONSTANTS.LOGO}&nbsp;Omnisearch results</span>
+          <span style="font-size:0.8em;">
+            (<a id="${CONSTANTS.IDS.CONFIG_LINK}" title="Settings" href="#">settings</a>)
+          </span>
+        </div>`;
+    }
+
+    buildLoadingLabel() {
+      return `<span id="${CONSTANTS.IDS.LOADING_SPAN}">Loading...</span>`;
+    }
+
+    buildSearchResult(item, noteUrl, title, highlightedExcerpt) {
+      return `
+        <div class="_0_SRI _ext_ub_r search-result" data-omnisearch-result>
+          <div class="_0_TITLE __sri-title">
+            <h3 class="__sri-title-box">
+              <a class="__sri_title_link _ext_ub_t _0_sri_title_link _0_URL"
+                 title="${title}" href="${noteUrl}" rel="noopener noreferrer">
+                 ${title}
+              </a>
+            </h3>
+          </div>
+          <div class="__sri-url-box">
+            <a class="_0_URL __sri-url _ext_ub_u" href="${noteUrl}" style="border-bottom:2px solid transparent;">
+              <div class="__sri_url_path_box">
+                <span class="host">${CONSTANTS.LOGO}Obsidian</span>&nbsp;<span class="path">› ${item.path}</span>
+              </div>
+            </a>
+          </div>
+          <div class="__sri-body">
+            <div class="_0_DESC __sri-desc">
+              <div>${highlightedExcerpt}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+  }
+
+  // DOM Manager
+  class DOMManager {
+    constructor(templateBuilder) {
+      this.templateBuilder = templateBuilder;
+    }
+
+    injectResultsContainer() {
+      $(`#${CONSTANTS.IDS.RESULTS_DIV}`).remove();
+      $(CONSTANTS.SELECTORS.SIDEBAR).prepend(
+        this.templateBuilder.buildResultsContainer(),
+      );
+    }
+
+    injectHeader() {
+      if ($(`#${CONSTANTS.IDS.CONFIG_LINK}`).length) return;
+      $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append(
+        this.templateBuilder.buildHeader(),
+      );
+    }
+
+    showLoading() {
+      if (!$(`#${CONSTANTS.IDS.LOADING_SPAN}`).length) {
+        $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append(
+          this.templateBuilder.buildLoadingLabel(),
+        );
+      }
+    }
+
+    hideLoading(hasResults) {
+      const loadingElement = $(`#${CONSTANTS.IDS.LOADING_SPAN}`);
+
+      if (hasResults) {
+        loadingElement.remove();
+      } else {
+        loadingElement.text("No result found");
+      }
+    }
+
+    clearResults() {
+      $("[data-omnisearch-result]").remove();
+    }
+
+    appendResult(resultHtml) {
+      $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append(resultHtml);
+    }
+
+    showError(message) {
+      $(`#${CONSTANTS.IDS.LOADING_SPAN}`).html(message);
+    }
+
+    bindConfigClick(configManager) {
+      $(document).on("click", `#${CONSTANTS.IDS.CONFIG_LINK}`, () =>
+        configManager.open(),
+      );
+    }
+  }
+
+  // API Client
+  class OmnisearchAPI {
+    constructor(configManager) {
+      this.configManager = configManager;
+    }
+
+    async search(query) {
+      return new Promise((resolve, reject) => {
+        const port = this.configManager.getPort();
+
+        GM.xmlHttpRequest({
+          method: "GET",
+          url: `http://localhost:${port}/search?q=${query}`,
+          headers: { "Content-Type": "application/json" },
+          onload: (response) => {
+            try {
+              const data = JSON.parse(response.response);
+              resolve(data);
+            } catch (error) {
+              reject(error);
+            }
+          },
+          onerror: reject,
+        });
+      });
+    }
+  }
+
+  // Search Result Processor
+  class SearchResultProcessor {
+    constructor(titleExtractor, textHighlighter, templateBuilder) {
+      this.titleExtractor = titleExtractor;
+      this.textHighlighter = textHighlighter;
+      this.templateBuilder = templateBuilder;
+    }
+
+    processResults(results, maxResults) {
+      return results.slice(0, maxResults).map((item) => this.processItem(item));
+    }
+
+    processItem(item) {
+      const noteUrl = this.buildNoteUrl(item);
+      const title = this.titleExtractor.extract(item);
+      const highlightedExcerpt = this.textHighlighter.highlight(
+        item.excerpt,
+        item.foundWords,
+      );
+
+      return this.templateBuilder.buildSearchResult(
+        item,
+        noteUrl,
+        title,
+        highlightedExcerpt,
+      );
+    }
+
+    buildNoteUrl(item) {
+      return `obsidian://open?vault=${encodeURIComponent(item.vault)}&file=${encodeURIComponent(item.path)}`;
+    }
+  }
+
+  // Main Application
+  class OmnisearchKagiApp {
+    constructor() {
+      this.configManager = new ConfigManager();
+      this.titleExtractor = new TitleExtractor();
+      this.textHighlighter = new TextHighlighter();
+      this.templateBuilder = new TemplateBuilder();
+      this.domManager = new DOMManager(this.templateBuilder);
+      this.apiClient = new OmnisearchAPI(this.configManager);
+      this.resultProcessor = new SearchResultProcessor(
+        this.titleExtractor,
+        this.textHighlighter,
+        this.templateBuilder,
+      );
+    }
+
+    async initialize() {
+      await this.configManager.waitForInit();
+      this.setupUI();
+      this.bindEvents();
+      this.startSearch();
+    }
+
+    setupUI() {
+      this.domManager.injectResultsContainer();
+      this.domManager.injectHeader();
+    }
+
+    bindEvents() {
+      this.domManager.bindConfigClick(this.configManager);
+      waitForKeyElements(CONSTANTS.SELECTORS.LAYOUT, () =>
+        this.performSearch(),
+      );
+    }
+
+    startSearch() {
+      this.performSearch();
+    }
+
+    async performSearch() {
+      const query = this.getSearchQuery();
+
+      if (!query) return;
+
+      this.domManager.showLoading();
+
+      try {
+        const results = await this.apiClient.search(query);
+        this.displayResults(results);
+      } catch (error) {
+        this.handleSearchError(error);
+      }
+    }
+
+    getSearchQuery() {
+      return new URLSearchParams(location.search).get("q");
+    }
+
+    displayResults(results) {
+      this.domManager.hideLoading(results.length > 0);
+      this.domManager.clearResults();
+
+      const maxResults = this.configManager.getMaxResults();
+      const processedResults = this.resultProcessor.processResults(
+        results,
+        maxResults,
+      );
+
+      processedResults.forEach((resultHtml) => {
+        this.domManager.appendResult(resultHtml);
+      });
+    }
+
+    handleSearchError(error) {
+      console.log("Omnisearch error", error);
+      this.domManager.showError(
+        `Error: Obsidian is not running or the Omnisearch server is not enabled.<br /><a href="Obsidian://open">Open Obsidian</a>.`,
+      );
+    }
+  }
+
+  // Initialize the application
+  const app = new OmnisearchKagiApp();
+  app.initialize();
 })();
+

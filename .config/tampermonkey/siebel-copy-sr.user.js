@@ -3,7 +3,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-copy-sr.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-copy-sr.user.js
-// @version      0.1.0
+// @version      0.2.0
 // @description  Add a button to copy SR number in Siebel
 // @author       Tomáš Bouška
 // @icon         https://www.oracle.com/asset/web/favicons/favicon-32.png
@@ -15,66 +15,135 @@
 (function () {
     'use strict';
 
-    // Function to add the copy button
-    function addCopyButton() {
-        // Find the span with the SR number
-        const srSpans = document.querySelectorAll('span.noquery[title]');
+    const CONFIG = {
+        SELECTOR: 'span.noquery[title]',
+        BUTTON_CLASS: 'sr-copy-btn',
+        TIMEOUTS: {
+            INITIAL_LOAD: 2000,
+            MUTATION_DELAY: 500,
+            FEEDBACK_DURATION: 1000
+        },
+        BUTTON_STYLES: {
+            cursor: 'pointer',
+            border: 'none',
+            background: 'transparent',
+            fontSize: '1.2em'
+        },
+        ICONS: {
+            COPY: '📋',
+            SUCCESS: '✓'
+        }
+    };
 
-        srSpans.forEach(span => {
-            // Check if we already added a button to this span to avoid duplicates
-            if (span.nextElementSibling && span.nextElementSibling.classList.contains('sr-copy-btn')) {
-                return;
-            }
+    class ClipboardService {
+        copy(text) {
+            GM_setClipboard(text);
+        }
+    }
 
-            // Create copy button
-            const copyButton = document.createElement('button');
-            copyButton.innerHTML = '📋';
-            copyButton.title = 'Copy SR number';
-            copyButton.className = 'sr-copy-btn';
-            copyButton.style.cursor = 'pointer';
-            copyButton.style.border = 'none';
-            copyButton.style.background = 'transparent';
-            copyButton.style.fontSize = '1.2em';
+    class ButtonStyler {
+        static apply(button, styles) {
+            Object.assign(button.style, styles);
+        }
 
-            // Add click event to copy the SR number
-            copyButton.addEventListener('click', function (e) {
+        static showFeedback(button, duration) {
+            const originalText = button.innerHTML;
+            button.innerHTML = CONFIG.ICONS.SUCCESS;
+            button.style.color = 'green';
+
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.style.color = '';
+            }, duration);
+        }
+    }
+
+    class CopyButtonFactory {
+        constructor(clipboardService) {
+            this.clipboardService = clipboardService;
+        }
+
+        create(srNumber) {
+            const button = document.createElement('button');
+            button.innerHTML = CONFIG.ICONS.COPY;
+            button.title = 'Copy SR number';
+            button.className = CONFIG.BUTTON_CLASS;
+
+            ButtonStyler.apply(button, CONFIG.BUTTON_STYLES);
+            this.attachClickHandler(button, srNumber);
+
+            return button;
+        }
+
+        attachClickHandler(button, srNumber) {
+            button.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
 
-                const srNumber = span.title;
-                GM_setClipboard(srNumber);
-
-                // Visual feedback
-                const originalText = copyButton.innerHTML;
-                copyButton.innerHTML = '✓';
-                copyButton.style.color = 'green';
-
-                setTimeout(() => {
-                    copyButton.innerHTML = originalText;
-                    copyButton.style.color = '';
-                }, 1000);
+                this.clipboardService.copy(srNumber);
+                ButtonStyler.showFeedback(button, CONFIG.TIMEOUTS.FEEDBACK_DURATION);
             });
-
-            // Insert the button after the SR number span
-            if (span.parentNode) {
-                span.parentNode.insertBefore(copyButton, span.nextSibling);
-            }
-        });
+        }
     }
 
-    // Run the function initially
-    setTimeout(addCopyButton, 2000);
+    class SRElementFinder {
+        findElements() {
+            return document.querySelectorAll(CONFIG.SELECTOR);
+        }
 
-    // Set up a mutation observer to detect when the SR info might be loaded
-    // (in case the page loads dynamically)
-    const observer = new MutationObserver(function (mutations) {
-        mutations.forEach(function (mutation) {
-            if (mutation.addedNodes.length > 0) {
-                setTimeout(addCopyButton, 500);
-            }
-        });
-    });
+        hasExistingButton(element) {
+            return element.nextElementSibling?.classList.contains(CONFIG.BUTTON_CLASS);
+        }
+    }
 
-    // Start observing the document with the configured parameters
-    observer.observe(document.body, { childList: true, subtree: true });
+    class ButtonInjector {
+        constructor(buttonFactory, elementFinder) {
+            this.buttonFactory = buttonFactory;
+            this.elementFinder = elementFinder;
+        }
+
+        injectButtons() {
+            const elements = this.elementFinder.findElements();
+
+            elements.forEach(element => {
+                if (this.elementFinder.hasExistingButton(element)) {
+                    return;
+                }
+
+                const button = this.buttonFactory.create(element.title);
+                this.insertButton(element, button);
+            });
+        }
+
+        insertButton(element, button) {
+            element.parentNode?.insertBefore(button, element.nextSibling);
+        }
+    }
+
+    class SiebelCopyManager {
+        constructor() {
+            this.clipboardService = new ClipboardService();
+            this.buttonFactory = new CopyButtonFactory(this.clipboardService);
+            this.elementFinder = new SRElementFinder();
+            this.buttonInjector = new ButtonInjector(this.buttonFactory, this.elementFinder);
+        }
+
+        initialize() {
+            setTimeout(() => this.buttonInjector.injectButtons(), CONFIG.TIMEOUTS.INITIAL_LOAD);
+            this.setupMutationObserver();
+        }
+
+        setupMutationObserver() {
+            const observer = new MutationObserver((mutations) => {
+                const hasNewNodes = mutations.some(mutation => mutation.addedNodes.length > 0);
+                if (hasNewNodes) {
+                    setTimeout(() => this.buttonInjector.injectButtons(), CONFIG.TIMEOUTS.MUTATION_DELAY);
+                }
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+    }
+
+    new SiebelCopyManager().initialize();
 })()
