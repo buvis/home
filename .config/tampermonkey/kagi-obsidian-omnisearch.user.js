@@ -4,7 +4,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
-// @version      0.3.0
+// @version      0.3.1
 // @description  Injects Obsidian notes in Kagi search results
 // @author       Tomáš Bouška
 // @match        https://kagi.com/*
@@ -252,11 +252,10 @@
 
     hideLoading(hasResults) {
       const loadingElement = $(`#${CONSTANTS.IDS.LOADING_SPAN}`);
+      loadingElement.remove();
 
-      if (hasResults) {
-        loadingElement.remove();
-      } else {
-        loadingElement.text("No result found");
+      if (!hasResults) {
+        $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append('<span>No result found</span>');
       }
     }
 
