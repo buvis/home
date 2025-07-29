@@ -3,7 +3,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-obsidian-integration.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-obsidian-integration.user.js
-// @version      0.1.0
+// @version      0.2.0
 // @description  Add button to open/create notes in Obsidian for SR numbers
 // @author       Tomáš Bouška
 // @icon         https://www.oracle.com/asset/web/favicons/favicon-32.png
@@ -17,11 +17,23 @@
 (function () {
     'use strict';
 
-    // Configuration - default Omnisearch port
-    const OMNISEARCH_PORT = GM_getValue('omnisearch_port', '51361');
+    // Constants
+    const CONFIG = {
+        OMNISEARCH_PORT: GM_getValue('omnisearch_port', '51361'),
+        BUTTON_CLASS: 'sr-obsidian-btn',
+        COPY_BUTTON_CLASS: 'sr-copy-btn',
+        SR_SELECTOR: 'span.noquery[title]',
+        FORBIDDEN_CHARS: /[<>:/\\|?*"]/g,
+        TICKET_PATTERNS: {
+            EXACT: 'ticket::',
+            RELATED: /ticket-related::\s*([^\n\r]*)/gi
+        },
+        FEEDBACK_DURATION: 2000,
+        INITIAL_DELAY: 2000,
+        MUTATION_DELAY: 500
+    };
 
-    // Obsidian SVG icon (inline)
-    const obsidianIcon = `
+    const OBSIDIAN_ICON = `
 <svg height="1em" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 256 256" style="vertical-align: middle;">
   <style>
     .purple { fill: #9974F8; }
@@ -32,245 +44,235 @@
   <path class="purple" d="M201.87 197.76a574.87 574.87 0 0 0 19.78-31.6 8.67 8.67 0 0 0-.61-9.48 185.58 185.58 0 0 1-21.82-35.9c-5.91-14.16-6.73-36.08-6.83-46.69 0-4.07-1.22-8.05-3.77-11.21l-34.16-43.33c0 1.94-.4 3.87-.81 5.81a76.42 76.42 0 0 1-5.71 15.9l-4.7 9.8-3.36 6.72a111.95 111.95 0 0 0-12.03 38.23 93.9 93.9 0 0 0 8.67 47.92 67.9 67.9 0 0 1 39.56 16.52 99.4 99.4 0 0 1 25.8 37.31Z"/>
 </svg>`;
 
-    // Function to search Obsidian using Omnisearch
-    function searchObsidian(query) {
-        return new Promise((resolve, reject) => {
-            GM.xmlHttpRequest({
-                method: "GET",
-                url: `http://localhost:${OMNISEARCH_PORT}/search?q=${encodeURIComponent(query)}`,
-                headers: { "Content-Type": "application/json" },
-                onload: (res) => {
-                    try {
-                        const data = JSON.parse(res.response);
-                        resolve(data);
-                    } catch (e) {
-                        reject(e);
-                    }
-                },
-                onerror: (res) => {
-                    reject(res);
-                }
+    class ObsidianSearchService {
+        async search(query) {
+            return new Promise((resolve, reject) => {
+                GM.xmlHttpRequest({
+                    method: "GET",
+                    url: `http://localhost:${CONFIG.OMNISEARCH_PORT}/search?q=${encodeURIComponent(query)}`,
+                    headers: { "Content-Type": "application/json" },
+                    onload: (res) => {
+                        try {
+                            resolve(JSON.parse(res.response));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    onerror: reject
+                });
             });
-        });
-    }
+        }
 
-    // Function to filter results for exact ticket:: matches
-    function filterExactTicketMatches(results, srNumber) {
-        if (!results || !results.length) return [];
+        filterExactMatches(results, srNumber) {
+            if (!results?.length) return [];
+            const exactPattern = `${CONFIG.TICKET_PATTERNS.EXACT} ${srNumber}`;
+            return results.filter(result => result.excerpt?.includes(exactPattern));
+        }
 
-        const exactPattern = `ticket:: ${srNumber}`;
-        return results.filter(result => {
-            if (!result.excerpt) return false;
-            return result.excerpt.includes(exactPattern);
-        });
-    }
-
-    // Function to filter results for exact ticket-related:: matches
-    function filterExactTicketRelatedMatches(results, srNumber) {
-        if (!results || !results.length) return [];
-
-        // Look for ticket-related:: followed by content that contains the SR number
-        // The SR number can be anywhere between the :: and end of line, separated by spaces
-        const ticketRelatedPattern = /ticket-related::\s*([^\n\r]*)/gi;
-
-        return results.filter(result => {
-            if (!result.excerpt) return false;
-
-            const matches = [...result.excerpt.matchAll(ticketRelatedPattern)];
-            return matches.some(match => {
-                const content = match[1];
-                // Split by spaces and check if any part matches our SR number exactly
-                const srNumbers = content.split(/\s+/).filter(sr => sr.trim());
-                return srNumbers.includes(srNumber);
+        filterRelatedMatches(results, srNumber) {
+            if (!results?.length) return [];
+            return results.filter(result => {
+                if (!result.excerpt) return false;
+                const matches = [...result.excerpt.matchAll(CONFIG.TICKET_PATTERNS.RELATED)];
+                return matches.some(match => {
+                    const srNumbers = match[1].split(/\s+/).filter(sr => sr.trim());
+                    return srNumbers.includes(srNumber);
+                });
             });
-        });
-    }
+        }
 
-    // Enhanced search function that tries both ticket:: and ticket-related:: patterns
-    async function searchForSRNote(srNumber) {
-        try {
-            // First search: exact ticket:: match
-            const ticketQuery = `ticket:: ${srNumber}`;
-            const ticketResults = await searchObsidian(ticketQuery);
-            const exactTicketMatches = filterExactTicketMatches(ticketResults, srNumber);
+        async findSRNote(srNumber) {
+            const exactResults = await this.search(`${CONFIG.TICKET_PATTERNS.EXACT} ${srNumber}`);
+            const exactMatches = this.filterExactMatches(exactResults, srNumber);
 
-            if (exactTicketMatches.length > 0) {
-                return exactTicketMatches;
-            }
+            if (exactMatches.length > 0) return exactMatches;
 
-            // Second search: ticket-related:: match if no exact ticket:: matches found
-            const ticketRelatedQuery = `ticket-related:: ${srNumber}`;
-            const ticketRelatedResults = await searchObsidian(ticketRelatedQuery);
-            const exactTicketRelatedMatches = filterExactTicketRelatedMatches(ticketRelatedResults, srNumber);
-
-            return exactTicketRelatedMatches;
-
-        } catch (error) {
-            throw error;
+            const relatedResults = await this.search(`ticket-related:: ${srNumber}`);
+            return this.filterRelatedMatches(relatedResults, srNumber);
         }
     }
 
-    // Function to open note in Obsidian
-    function openObsidianNote(vault, path) {
-        const noteUrl = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`;
-        window.open(noteUrl, '_blank');
+    class ObsidianNoteService {
+        open(vault, path) {
+            const noteUrl = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`;
+            window.open(noteUrl, '_blank');
+        }
+
+        create(noteTitle) {
+            const noteUrl = `obsidian://new?name=${encodeURIComponent(noteTitle)}`;
+            window.open(noteUrl, '_blank');
+        }
+
+        sanitizeTitle(title) {
+            return title.replace(CONFIG.FORBIDDEN_CHARS, '-');
+        }
     }
 
-    // Function to create new note in Obsidian with custom title
-    function createObsidianNote(noteTitle) {
-        const noteUrl = `obsidian://new?name=${encodeURIComponent(noteTitle)}`;
-        window.open(noteUrl, '_blank');
-    }
+    class ClipboardService {
+        async copy(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                console.log('SR number copied to clipboard:', text);
+            } catch (err) {
+                console.error('Failed to copy to clipboard:', err);
+                this.fallbackCopy(text);
+            }
+        }
 
-    // Function to copy text to clipboard
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            console.log('SR number copied to clipboard:', text);
-        }).catch(err => {
-            console.error('Failed to copy to clipboard:', err);
-            // Fallback method for older browsers
+        fallbackCopy(text) {
             const textArea = document.createElement('textarea');
             textArea.value = text;
             document.body.appendChild(textArea);
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-        });
+        }
     }
 
-    // Function to sanitize note title by replacing forbidden characters
-    function sanitizeNoteTitle(title) {
-        // Replace forbidden characters: < > : / \ | ? * " with dashes
-        return title.replace(/[<>:/\\|?*"]/g, '-');
-    }
+    class DialogService {
+        showCreateNoteDialog(srNumber) {
+            const shouldCreate = confirm(`No existing note found for SR ${srNumber}.\n\nWould you like to create a new note in Obsidian?`);
+            if (!shouldCreate) return null;
 
-    // Function to show confirmation dialog and get note title
-    function showCreateNoteDialog(srNumber) {
-        const shouldCreate = confirm(`No existing note found for SR ${srNumber}.\n\nWould you like to create a new note in Obsidian?`);
-
-        if (shouldCreate) {
             const noteTitle = prompt(`Enter the title for the new note:`, `SR ${srNumber}`);
-            if (noteTitle !== null && noteTitle.trim() !== '') {
-                // Sanitize the title and copy SR number to clipboard
-                const sanitizedTitle = sanitizeNoteTitle(noteTitle.trim());
-                copyToClipboard(srNumber);
-                return sanitizedTitle;
+            return noteTitle?.trim() || null;
+        }
+    }
+
+    class ButtonManager {
+        constructor(searchService, noteService, clipboardService, dialogService) {
+            this.searchService = searchService;
+            this.noteService = noteService;
+            this.clipboardService = clipboardService;
+            this.dialogService = dialogService;
+        }
+
+        hasExistingButton(span) {
+            const nextSibling = span.nextElementSibling;
+            if (nextSibling?.classList.contains(CONFIG.BUTTON_CLASS)) return true;
+            return nextSibling?.nextElementSibling?.classList.contains(CONFIG.BUTTON_CLASS);
+        }
+
+        createButton(srNumber) {
+            const button = document.createElement('button');
+            button.innerHTML = OBSIDIAN_ICON;
+            button.title = 'Open/Create note in Obsidian';
+            button.className = CONFIG.BUTTON_CLASS;
+            Object.assign(button.style, {
+                cursor: 'pointer',
+                border: 'none',
+                background: 'transparent',
+                fontSize: '1.2em'
+            });
+            button.addEventListener('click', (e) => this.handleClick(e, button, srNumber));
+            return button;
+        }
+
+        async handleClick(e, button, srNumber) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const originalHTML = button.innerHTML;
+            this.showLoading(button);
+
+            try {
+                const results = await this.searchService.findSRNote(srNumber);
+
+                if (results?.length > 0) {
+                    this.noteService.open(results[0].vault, results[0].path);
+                    this.showSuccess(button);
+                } else {
+                    await this.handleNoteCreation(button, srNumber);
+                }
+            } catch (error) {
+                console.error('Obsidian search error:', error);
+                this.showError(button);
+            }
+
+            this.resetButton(button, originalHTML);
+        }
+
+        async handleNoteCreation(button, srNumber) {
+            const noteTitle = this.dialogService.showCreateNoteDialog(srNumber);
+            if (noteTitle) {
+                const sanitizedTitle = this.noteService.sanitizeTitle(noteTitle);
+                await this.clipboardService.copy(srNumber);
+                this.noteService.create(sanitizedTitle);
+                this.showSuccess(button);
+            } else {
+                this.restoreButton(button);
             }
         }
-        return null;
-    }
 
-    // Function to add the Obsidian buttons
-    function addObsidianButtons() {
-        // Find the span with the SR number
-        const srSpans = document.querySelectorAll('span.noquery[title]');
+        showLoading(button) {
+            button.innerHTML = '⏳';
+            button.style.opacity = '0.6';
+        }
 
-        srSpans.forEach(span => {
-            // Check if we already added an Obsidian button to this span to avoid duplicates
-            if (span.nextElementSibling && span.nextElementSibling.classList.contains('sr-obsidian-btn')) {
-                return;
-            }
-            // Also check if there's already an obsidian button after a copy button
-            if (span.nextElementSibling && span.nextElementSibling.nextElementSibling &&
-                span.nextElementSibling.nextElementSibling.classList.contains('sr-obsidian-btn')) {
-                return;
-            }
+        showSuccess(button) {
+            button.innerHTML = '✓';
+            button.style.color = 'green';
+        }
 
-            const srNumber = span.title;
+        showError(button) {
+            button.innerHTML = '❌';
+            button.style.color = 'red';
+            button.title = 'Error: Obsidian not running or Omnisearch not enabled';
+        }
 
-            // Create Obsidian button
-            const obsidianButton = document.createElement('button');
-            obsidianButton.innerHTML = obsidianIcon;
-            obsidianButton.title = 'Open/Create note in Obsidian';
-            obsidianButton.className = 'sr-obsidian-btn';
-            obsidianButton.style.cursor = 'pointer';
-            obsidianButton.style.border = 'none';
-            obsidianButton.style.background = 'transparent';
-            obsidianButton.style.fontSize = '1.2em';
+        restoreButton(button) {
+            button.innerHTML = OBSIDIAN_ICON;
+            button.style.opacity = '';
+        }
 
-            // Add click event to search/create Obsidian note
-            obsidianButton.addEventListener('click', async function (e) {
-                e.preventDefault();
-                e.stopPropagation();
+        resetButton(button, originalHTML) {
+            setTimeout(() => {
+                button.innerHTML = originalHTML;
+                button.style.color = '';
+                button.style.opacity = '';
+                button.title = 'Open/Create note in Obsidian';
+            }, CONFIG.FEEDBACK_DURATION);
+        }
 
-                // Visual feedback - show loading
-                const originalHTML = obsidianButton.innerHTML;
-                obsidianButton.innerHTML = '⏳';
-                obsidianButton.style.opacity = '0.6';
+        insertButton(span, button) {
+            if (!span.parentNode) return;
 
-                try {
-                    // Search for existing note using enhanced search
-                    const results = await searchForSRNote(srNumber);
+            const nextSibling = span.nextElementSibling;
+            const insertAfter = nextSibling?.classList.contains(CONFIG.COPY_BUTTON_CLASS)
+                ? nextSibling.nextSibling
+                : span.nextSibling;
 
-                    if (results && results.length > 0) {
-                        // Found existing note - open the first result
-                        const firstResult = results[0];
-                        openObsidianNote(firstResult.vault, firstResult.path);
+            span.parentNode.insertBefore(button, insertAfter);
+        }
 
-                        // Visual feedback - success
-                        obsidianButton.innerHTML = '✓';
-                        obsidianButton.style.color = 'green';
-                    } else {
-                        // No results found - ask user if they want to create a new note
-                        const noteTitle = showCreateNoteDialog(srNumber);
-                        if (noteTitle) {
-                            createObsidianNote(noteTitle);
+        addButtons() {
+            const srSpans = document.querySelectorAll(CONFIG.SR_SELECTOR);
 
-                            // Visual feedback - success
-                            obsidianButton.innerHTML = '✓';
-                            obsidianButton.style.color = 'green';
-                        } else {
-                            // User cancelled - restore original state
-                            obsidianButton.innerHTML = originalHTML;
-                            obsidianButton.style.opacity = '';
-                            return;
-                        }
-                    }
-                } catch (error) {
-                    console.error('Obsidian search error:', error);
-                    // Show error feedback
-                    obsidianButton.innerHTML = '❌';
-                    obsidianButton.style.color = 'red';
-                    obsidianButton.title = 'Error: Obsidian not running or Omnisearch not enabled';
-                }
+            srSpans.forEach(span => {
+                if (this.hasExistingButton(span)) return;
 
-                // Reset button after delay
-                setTimeout(() => {
-                    obsidianButton.innerHTML = originalHTML;
-                    obsidianButton.style.color = '';
-                    obsidianButton.style.opacity = '';
-                    obsidianButton.title = 'Open/Create note in Obsidian';
-                }, 2000);
+                const srNumber = span.title;
+                const button = this.createButton(srNumber);
+                this.insertButton(span, button);
             });
-
-            // Insert the button after the SR number span (or after existing copy button if present)
-            if (span.parentNode) {
-                // Check if there's already a copy button next to this span
-                const nextSibling = span.nextElementSibling;
-                if (nextSibling && nextSibling.classList.contains('sr-copy-btn')) {
-                    // Insert after the copy button
-                    span.parentNode.insertBefore(obsidianButton, nextSibling.nextSibling);
-                } else {
-                    // Insert directly after the span
-                    span.parentNode.insertBefore(obsidianButton, span.nextSibling);
-                }
-            }
-        });
+        }
     }
 
-    // Run the function initially
-    setTimeout(addObsidianButtons, 2000);
+    // Initialize services
+    const searchService = new ObsidianSearchService();
+    const noteService = new ObsidianNoteService();
+    const clipboardService = new ClipboardService();
+    const dialogService = new DialogService();
+    const buttonManager = new ButtonManager(searchService, noteService, clipboardService, dialogService);
 
-    // Set up a mutation observer to detect when the SR info might be loaded
-    // (in case the page loads dynamically)
-    const observer = new MutationObserver(function (mutations) {
-        mutations.forEach(function (mutation) {
-            if (mutation.addedNodes.length > 0) {
-                setTimeout(addObsidianButtons, 500);
-            }
-        });
+    // Initialize the application
+    setTimeout(() => buttonManager.addButtons(), CONFIG.INITIAL_DELAY);
+
+    const observer = new MutationObserver((mutations) => {
+        if (mutations.some(mutation => mutation.addedNodes.length > 0)) {
+            setTimeout(() => buttonManager.addButtons(), CONFIG.MUTATION_DELAY);
+        }
     });
 
-    // Start observing the document with the configured parameters
     observer.observe(document.body, { childList: true, subtree: true });
 })()
