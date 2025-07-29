@@ -3,7 +3,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-obsidian-integration.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-obsidian-integration.user.js
-// @version      0.2.0
+// @version      0.3.0
 // @description  Add button to open/create notes in Obsidian for SR numbers
 // @author       Tomáš Bouška
 // @icon         https://www.oracle.com/asset/web/favicons/favicon-32.png
@@ -11,6 +11,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -18,6 +19,15 @@
     'use strict';
 
     // Constants
+    // Register menu command for Omnisearch port configuration
+    GM_registerMenuCommand('Configure Omnisearch Port', () => {
+        const port = prompt('Enter Omnisearch port:', GM_getValue('omnisearch_port', '51361'));
+        if (port && !isNaN(port)) {
+            GM_setValue('omnisearch_port', port.trim());
+            alert('Omnisearch port updated.');
+        }
+    });
+
     const CONFIG = {
         OMNISEARCH_PORT: GM_getValue('omnisearch_port', '51361'),
         BUTTON_CLASS: 'sr-obsidian-btn',

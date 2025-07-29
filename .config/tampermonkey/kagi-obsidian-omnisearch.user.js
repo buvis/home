@@ -4,7 +4,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
-// @version      0.2.0
+// @version      0.3.0
 // @description  Injects Obsidian notes in Kagi search results
 // @author       Tomáš Bouška
 // @match        https://kagi.com/*
@@ -18,6 +18,7 @@
 // @grant        GM_setValue
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM_registerMenuCommand
 // ==/UserScript==
 
 /* globals GM_config, $, waitForKeyElements */
@@ -45,6 +46,15 @@
       <path class="purple" d="M201.87 197.76a574.87 574.87 0 0 0 19.78-31.6 8.67 8.67 0 0 0-.61-9.48 185.58 185.58 0 0 1-21.82-35.9c-5.91-14.16-6.73-36.08-6.83-46.69 0-4.07-1.22-8.05-3.77-11.21l-34.16-43.33c0 1.94-.4 3.87-.81 5.81a76.42 76.42 0 0 1-5.71 15.9l-4.7 9.8-3.36 6.72a111.95 111.95 0 0 0-12.03 38.23 93.9 93.9 0 0 0 8.67 47.92 67.9 67.9 0 0 1 39.56 16.52 99.4 99.4 0 0 1 25.8 37.31Z"/>
     </svg>`,
   };
+
+  // Register menu command for Omnisearch port configuration
+  GM_registerMenuCommand('Configure Omnisearch Port', () => {
+    const port = prompt('Enter Omnisearch port:', GM_getValue('omnisearch_port', CONSTANTS.DEFAULTS.PORT));
+    if (port && !isNaN(port)) {
+      GM_setValue('omnisearch_port', port.trim());
+      alert('Omnisearch port updated. Please refresh the page.');
+    }
+  });
 
   // Configuration Manager
   class ConfigManager {
