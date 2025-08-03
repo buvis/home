@@ -4,7 +4,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
-// @version      0.3.1
+// @version      0.3.2
 // @description  Injects Obsidian notes in Kagi search results
 // @author       Tomáš Bouška
 // @match        https://kagi.com/*
@@ -48,11 +48,15 @@
   };
 
   // Register menu command for Omnisearch port configuration
-  GM_registerMenuCommand('Configure Omnisearch Port', () => {
-    const port = prompt('Enter Omnisearch port:', GM_getValue('omnisearch_port', CONSTANTS.DEFAULTS.PORT));
+  GM_registerMenuCommand("Configure Omnisearch Port", () => {
+    const port = prompt(
+      "Enter Omnisearch port:",
+      GM_getValue("omnisearch_port", CONSTANTS.DEFAULTS.PORT),
+    );
+
     if (port && !isNaN(port)) {
-      GM_setValue('omnisearch_port', port.trim());
-      alert('Omnisearch port updated. Please refresh the page.');
+      GM_setValue("omnisearch_port", port.trim());
+      alert("Omnisearch port updated. Please refresh the page.");
     }
   });
 
@@ -230,19 +234,29 @@
 
     injectResultsContainer() {
       $(`#${CONSTANTS.IDS.RESULTS_DIV}`).remove();
-      $(CONSTANTS.SELECTORS.SIDEBAR).prepend(
-        this.templateBuilder.buildResultsContainer(),
-      );
+      const sidebar = $(CONSTANTS.SELECTORS.SIDEBAR);
+
+      if (sidebar.length > 0) {
+        sidebar.prepend(this.templateBuilder.buildResultsContainer());
+      }
     }
 
     injectHeader() {
       if ($(`#${CONSTANTS.IDS.CONFIG_LINK}`).length) return;
-      $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append(
-        this.templateBuilder.buildHeader(),
-      );
+      const resultsDiv = $(`#${CONSTANTS.IDS.RESULTS_DIV}`);
+
+      if (resultsDiv.length > 0) {
+        resultsDiv.append(this.templateBuilder.buildHeader());
+      }
     }
 
     showLoading() {
+      // Remove any existing loading or error messages first
+      $(`#${CONSTANTS.IDS.LOADING_SPAN}`).remove();
+      $("[data-omnisearch-result]").remove();
+
+      // Only show loading if not already showing
+
       if (!$(`#${CONSTANTS.IDS.LOADING_SPAN}`).length) {
         $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append(
           this.templateBuilder.buildLoadingLabel(),
@@ -255,7 +269,9 @@
       loadingElement.remove();
 
       if (!hasResults) {
-        $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append('<span>No result found</span>');
+        $(`#${CONSTANTS.IDS.RESULTS_DIV}`).append(
+          "<span>No result found</span>",
+        );
       }
     }
 
@@ -353,6 +369,12 @@
         this.textHighlighter,
         this.templateBuilder,
       );
+
+      // Add state management for search operations
+      this.isSearching = false;
+      this.lastQuery = null;
+      this.lastUrl = null;
+      this.searchTimeout = null; // Add timeout management
     }
 
     async initialize() {
@@ -369,20 +391,98 @@
 
     bindEvents() {
       this.domManager.bindConfigClick(this.configManager);
-      waitForKeyElements(CONSTANTS.SELECTORS.LAYOUT, () =>
-        this.performSearch(),
-      );
+
+      // Set up multiple ways to detect navigation changes
+      this.setupNavigationListeners();
+
+      // Also set up waitForKeyElements as backup
+      waitForKeyElements(CONSTANTS.SELECTORS.LAYOUT, () => {
+        this.handlePageChange();
+      });
+    }
+
+    setupNavigationListeners() {
+      // Store reference to this for use in event handlers
+      const self = this;
+
+      // Listen for popstate events (back/forward navigation)
+      window.addEventListener("popstate", () => {
+        setTimeout(() => self.handlePageChange(), 100);
+      });
+
+      // Listen for pushstate/replacestate (programmatic navigation)
+      const originalPushState = history.pushState;
+      const originalReplaceState = history.replaceState;
+
+      history.pushState = function () {
+        originalPushState.apply(history, arguments);
+        setTimeout(() => self.handlePageChange(), 100);
+      };
+
+      history.replaceState = function () {
+        originalReplaceState.apply(history, arguments);
+        setTimeout(() => self.handlePageChange(), 100);
+      };
+
+      // Poll for URL changes as fallback (in case SPA uses other navigation methods)
+      this.startUrlPolling();
+    }
+
+    startUrlPolling() {
+      setInterval(() => {
+        const currentUrl = window.location.href;
+
+        if (this.lastUrl !== currentUrl) {
+          this.debouncedPerformSearch();
+        }
+      }, 500); // Check every 500ms
+    }
+
+    handlePageChange() {
+      // Debounce the search to avoid race conditions
+      this.debouncedPerformSearch();
+    }
+
+    debouncedPerformSearch() {
+      // Clear any existing timeout
+
+      if (this.searchTimeout) {
+        clearTimeout(this.searchTimeout);
+      }
+
+      // Set a new timeout to perform search after a short delay
+      this.searchTimeout = setTimeout(() => {
+        this.performSearch();
+      }, 150); // 150ms delay to handle rapid page changes
     }
 
     startSearch() {
+      // Initialize with current URL and perform initial search
+      this.lastUrl = window.location.href;
       this.performSearch();
     }
 
     async performSearch() {
       const query = this.getSearchQuery();
+      const currentUrl = window.location.href;
 
       if (!query) return;
 
+      // Prevent multiple simultaneous searches
+
+      if (this.isSearching) return;
+
+      // Check if this is the same query we already searched for in the current session
+      // But allow searches if the URL has changed (even with the same query)
+
+      if (this.lastQuery === query && this.lastUrl === currentUrl) return;
+
+      this.isSearching = true;
+      this.lastQuery = query;
+      this.lastUrl = currentUrl;
+
+      // IMPORTANT: Re-setup UI on each search to handle SPA navigation
+      this.setupUI();
       this.domManager.showLoading();
 
       try {
@@ -390,6 +490,8 @@
         this.displayResults(results);
       } catch (error) {
         this.handleSearchError(error);
+      } finally {
+        this.isSearching = false;
       }
     }
 
@@ -399,8 +501,8 @@
 
     displayResults(results) {
       this.domManager.hideLoading(results.length > 0);
-      this.domManager.clearResults();
 
+      // Results are already cleared in showLoading(), so no need to clear again
       const maxResults = this.configManager.getMaxResults();
       const processedResults = this.resultProcessor.processResults(
         results,
@@ -417,6 +519,8 @@
       this.domManager.showError(
         `Error: Obsidian is not running or the Omnisearch server is not enabled.<br /><a href="Obsidian://open">Open Obsidian</a>.`,
       );
+      // Reset search state on error
+      this.isSearching = false;
     }
   }
 
@@ -424,4 +528,3 @@
   const app = new OmnisearchKagiApp();
   app.initialize();
 })();
-
