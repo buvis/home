@@ -3,7 +3,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-obsidian-integration.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/siebel-obsidian-integration.user.js
-// @version      0.3.0
+// @version      0.4.0
 // @description  Add button to open/create notes in Obsidian for SR numbers
 // @author       Tomáš Bouška
 // @icon         https://www.oracle.com/asset/web/favicons/favicon-32.png
@@ -19,7 +19,7 @@
     'use strict';
 
     // Constants
-    // Register menu command for Omnisearch port configuration
+    // Register menu commands
     GM_registerMenuCommand('Configure Omnisearch Port', () => {
         const port = prompt('Enter Omnisearch port:', GM_getValue('omnisearch_port', '51361'));
         if (port && !isNaN(port)) {
@@ -28,8 +28,15 @@
         }
     });
 
+    GM_registerMenuCommand('Configure Note Folder', () => {
+        const folder = prompt('Enter folder for new notes (leave empty for root):', GM_getValue('note_folder', ''));
+        GM_setValue('note_folder', folder?.trim() || '');
+        alert('Note folder updated.');
+    });
+
     const CONFIG = {
         OMNISEARCH_PORT: GM_getValue('omnisearch_port', '51361'),
+        NOTE_FOLDER: GM_getValue('note_folder', ''),
         BUTTON_CLASS: 'sr-obsidian-btn',
         COPY_BUTTON_CLASS: 'sr-copy-btn',
         SR_SELECTOR: 'span.noquery[title]',
@@ -109,7 +116,16 @@
         }
 
         create(noteTitle) {
-            const noteUrl = `obsidian://new?name=${encodeURIComponent(noteTitle)}`;
+            const folder = CONFIG.NOTE_FOLDER;
+            let noteUrl;
+            
+            if (folder) {
+                const fullPath = `${folder}/${noteTitle}.md`;
+                noteUrl = `obsidian://advanced-uri?filepath=${encodeURIComponent(fullPath)}&mode=new`;
+            } else {
+                noteUrl = `obsidian://new?name=${encodeURIComponent(noteTitle)}`;
+            }
+            
             window.open(noteUrl, '_blank');
         }
 
