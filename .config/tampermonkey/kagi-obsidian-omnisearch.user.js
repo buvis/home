@@ -4,7 +4,7 @@
 // @namespace    https://github.com/buvis/home
 // @downloadURL  https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
 // @updateURL    https://github.com/buvis/home/raw/master/.config/tampermonkey/kagi-obsidian-omnisearch.user.js
-// @version      0.3.2
+// @version      0.3.3
 // @description  Injects Obsidian notes in Kagi search results
 // @author       Tomáš Bouška
 // @match        https://kagi.com/*
