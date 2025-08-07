@@ -173,7 +173,7 @@
     buildResultsContainer() {
       return `
         <div class="_0_right_sidebar _0_provider-content">
-          <div id="wikipediaResults" class="_0_provider-content">
+          <div id="omnisearchResults" class="_0_provider-content">
             <div class="scene">
               <div class="wikipediaResult">
                 <div class="card__face">
@@ -235,9 +235,16 @@
     injectResultsContainer() {
       $(`#${CONSTANTS.IDS.RESULTS_DIV}`).remove();
       const sidebar = $(CONSTANTS.SELECTORS.SIDEBAR);
+      const existingWiki = $('#wikipediaResults');
 
       if (sidebar.length > 0) {
-        sidebar.prepend(this.templateBuilder.buildResultsContainer());
+        if (existingWiki.length > 0) {
+          // Insert before existing Wikipedia results
+          existingWiki.before(this.templateBuilder.buildResultsContainer());
+        } else {
+          // Fallback to prepend if no Wikipedia results found
+          sidebar.prepend(this.templateBuilder.buildResultsContainer());
+        }
       }
     }
 
