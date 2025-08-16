@@ -2,8 +2,8 @@
 
 # If not running interactively, don't do anything
 case $- in
-  *i*) ;;
-    *) return;;
+*i*) ;;
+*) return ;;
 esac
 
 # Get dotfiles root
@@ -95,5 +95,5 @@ export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 source "$BASH_IT"/bash_it.sh
 
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"                   # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
