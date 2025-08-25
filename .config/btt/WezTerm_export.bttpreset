@@ -1,0 +1,71 @@
+[
+  {
+    "BTTAppBundleIdentifier" : "com.github.wez.wezterm",
+    "BTTAppName" : "WezTerm",
+    "BTTAppAutoInvertIcon" : 1,
+    "BTTAppProcessMatchMode" : 2,
+    "BTTAppProcessName" : "WezTerm",
+    "BTTTriggers" : [
+      {
+        "BTTLastUpdatedAt" : 1713977816.152143,
+        "BTTTriggerType" : 0,
+        "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+        "BTTUUID" : "D7232B14-BC2B-4EFA-9C09-5045388A88AE",
+        "BTTAdditionalConfiguration" : "1048584",
+        "BTTShortcutKeyboardType" : 0,
+        "BTTTriggerOnDown" : 1,
+        "BTTLayoutIndependentChar" : "c",
+        "BTTShortcutKeyCode" : 8,
+        "BTTShortcutAdvancedModifierKeys" : "1048584",
+        "BTTShortcutModifierKeys" : 1048576,
+        "BTTOrder" : 0,
+        "BTTAutoAdaptToKeyboardLayout" : 0,
+        "BTTActionsToExecute" : [
+          {
+            "BTTLastUpdatedAt" : 1713977814.5526519,
+            "BTTTriggerParentUUID" : "D7232B14-BC2B-4EFA-9C09-5045388A88AE",
+            "BTTIsPureAction" : true,
+            "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+            "BTTUUID" : "4CAD81C2-EEA1-4747-98D3-9C413FDCFB97",
+            "BTTLayoutIndependentActionChar" : "c",
+            "BTTShortcutToSend" : "59,8",
+            "BTTShortcutKeyboardType" : 0,
+            "BTTShortcutKeyCode" : -1,
+            "BTTOrder" : 8,
+            "BTTAutoAdaptToKeyboardLayout" : 0
+          }
+        ]
+      },
+      {
+        "BTTLastUpdatedAt" : 1713977820.0137801,
+        "BTTTriggerType" : 0,
+        "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+        "BTTUUID" : "77BD95EA-544A-4D2C-9E8E-2639399D2292",
+        "BTTAdditionalConfiguration" : "1048584",
+        "BTTShortcutKeyboardType" : 0,
+        "BTTTriggerOnDown" : 1,
+        "BTTLayoutIndependentChar" : "v",
+        "BTTShortcutKeyCode" : 9,
+        "BTTShortcutAdvancedModifierKeys" : "1048584",
+        "BTTShortcutModifierKeys" : 1048576,
+        "BTTOrder" : 1,
+        "BTTAutoAdaptToKeyboardLayout" : 0,
+        "BTTActionsToExecute" : [
+          {
+            "BTTLastUpdatedAt" : 1713977828.2345991,
+            "BTTTriggerParentUUID" : "77BD95EA-544A-4D2C-9E8E-2639399D2292",
+            "BTTIsPureAction" : true,
+            "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+            "BTTUUID" : "6CD14199-8447-4C20-A43B-ED14596BE6CC",
+            "BTTLayoutIndependentActionChar" : "v",
+            "BTTShortcutToSend" : "59,9",
+            "BTTShortcutKeyboardType" : 0,
+            "BTTShortcutKeyCode" : -1,
+            "BTTOrder" : 9,
+            "BTTAutoAdaptToKeyboardLayout" : 0
+          }
+        ]
+      }
+    ]
+  }
+]

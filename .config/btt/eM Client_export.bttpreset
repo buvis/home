@@ -1,0 +1,41 @@
+[
+  {
+    "BTTAppBundleIdentifier" : "com.emclient.mail.client",
+    "BTTAppName" : "eM Client",
+    "BTTAppAutoInvertIcon" : 1,
+    "BTTAppProcessMatchMode" : 2,
+    "BTTAppProcessName" : "eM Client",
+    "BTTTriggers" : [
+      {
+        "BTTLastUpdatedAt" : 1751011370.497225,
+        "BTTTriggerType" : 0,
+        "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+        "BTTUUID" : "A9DA67EF-0C0E-4264-8471-248CBF5A3C18",
+        "BTTAdditionalConfiguration" : "1048584",
+        "BTTShortcutKeyboardType" : -2052004921,
+        "BTTTriggerOnDown" : 1,
+        "BTTLayoutIndependentChar" : "s",
+        "BTTShortcutKeyCode" : 1,
+        "BTTShortcutAdvancedModifierKeys" : "1048584",
+        "BTTShortcutModifierKeys" : 1048576,
+        "BTTOrder" : 0,
+        "BTTAutoAdaptToKeyboardLayout" : 0,
+        "BTTActionsToExecute" : [
+          {
+            "BTTLastUpdatedAt" : 1751011374.98581,
+            "BTTTriggerParentUUID" : "A9DA67EF-0C0E-4264-8471-248CBF5A3C18",
+            "BTTIsPureAction" : true,
+            "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+            "BTTUUID" : "374B3F72-A1FA-4B8E-A4DE-8B9F49359088",
+            "BTTLayoutIndependentActionChar" : "s",
+            "BTTShortcutToSend" : "56,55,1",
+            "BTTShortcutKeyboardType" : 0,
+            "BTTShortcutKeyCode" : -1,
+            "BTTOrder" : 19,
+            "BTTAutoAdaptToKeyboardLayout" : 0
+          }
+        ]
+      }
+    ]
+  }
+]
