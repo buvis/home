@@ -1,0 +1,49 @@
+[
+  {
+    "BTTAppBundleIdentifier" : "com.libraw-llc.FastRawViewer",
+    "BTTAppName" : "FastRawViewer",
+    "BTTAppAutoInvertIcon" : 1,
+    "BTTAppProcessMatchMode" : 2,
+    "BTTAppProcessName" : "FastRawViewer",
+    "BTTTriggers" : [
+      {
+        "BTTLastUpdatedAt" : 1682934345.5497088,
+        "BTTTriggerType" : 0,
+        "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+        "BTTUUID" : "35D41116-177F-4B62-9B3A-5A50F02E1202",
+        "BTTLayoutIndependentActionChar" : "1",
+        "BTTAutoAdaptActionToKeyboardLayout" : true,
+        "BTTGenericActionConfig" : "autoAdapt",
+        "BTTShortcutToSend" : "18",
+        "BTTAdditionalConfiguration" : "0",
+        "BTTShortcutKeyboardType" : 5841,
+        "BTTTriggerOnDown" : 1,
+        "BTTLayoutIndependentChar" : "x",
+        "BTTShortcutKeyCode" : 7,
+        "BTTShortcutAdvancedModifierKeys" : "0",
+        "BTTShortcutModifierKeys" : 0,
+        "BTTOrder" : 1,
+        "BTTAutoAdaptToKeyboardLayout" : 0
+      },
+      {
+        "BTTLastUpdatedAt" : 1682934345.549706,
+        "BTTTriggerType" : 0,
+        "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+        "BTTUUID" : "F1DBC856-2198-4083-9B9E-9E4E338B328E",
+        "BTTLayoutIndependentActionChar" : "3",
+        "BTTAutoAdaptActionToKeyboardLayout" : true,
+        "BTTGenericActionConfig" : "autoAdapt",
+        "BTTShortcutToSend" : "20",
+        "BTTAdditionalConfiguration" : "0",
+        "BTTShortcutKeyboardType" : 5841,
+        "BTTTriggerOnDown" : 1,
+        "BTTLayoutIndependentChar" : "c",
+        "BTTShortcutKeyCode" : 8,
+        "BTTShortcutAdvancedModifierKeys" : "0",
+        "BTTShortcutModifierKeys" : 0,
+        "BTTOrder" : 2,
+        "BTTAutoAdaptToKeyboardLayout" : 0
+      }
+    ]
+  }
+]

@@ -1,0 +1,41 @@
+[
+  {
+    "BTTAppBundleIdentifier" : "com.apple.mail",
+    "BTTAppName" : "Mail",
+    "BTTAppAutoInvertIcon" : 1,
+    "BTTAppProcessMatchMode" : 2,
+    "BTTAppProcessName" : "Mail",
+    "BTTTriggers" : [
+      {
+        "BTTLastUpdatedAt" : 1712646448.109787,
+        "BTTTriggerType" : 0,
+        "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+        "BTTUUID" : "A7E78697-2091-41DA-B3AA-74B2A05BBB6A",
+        "BTTAdditionalConfiguration" : "1048584",
+        "BTTShortcutKeyboardType" : 0,
+        "BTTTriggerOnDown" : 1,
+        "BTTLayoutIndependentChar" : "s",
+        "BTTShortcutKeyCode" : 1,
+        "BTTShortcutAdvancedModifierKeys" : "1048584",
+        "BTTShortcutModifierKeys" : 1048576,
+        "BTTOrder" : 0,
+        "BTTAutoAdaptToKeyboardLayout" : 0,
+        "BTTActionsToExecute" : [
+          {
+            "BTTLastUpdatedAt" : 1712646448.109798,
+            "BTTTriggerParentUUID" : "A7E78697-2091-41DA-B3AA-74B2A05BBB6A",
+            "BTTIsPureAction" : true,
+            "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+            "BTTUUID" : "CEB1C3F4-1E17-42C0-9842-1F8ACEE8DAB4",
+            "BTTLayoutIndependentActionChar" : "s",
+            "BTTShortcutToSend" : "56,55,1",
+            "BTTShortcutKeyboardType" : 0,
+            "BTTShortcutKeyCode" : -1,
+            "BTTOrder" : 12,
+            "BTTAutoAdaptToKeyboardLayout" : 0
+          }
+        ]
+      }
+    ]
+  }
+]
