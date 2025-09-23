@@ -35,8 +35,8 @@
 .ssh/config
 .ssh/known_hosts
 .ssh/known_hosts.old
-/get-buvis.bat
-/get-buvis.sh
+get-buvis.bat
+get-buvis.sh
 __pycache__
 .local/share/fctracker/cash/eur.csv
 .local/share/fctracker/ops/eur.csv
