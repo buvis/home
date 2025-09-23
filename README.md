@@ -23,7 +23,7 @@ I always appreciate any opportunity to learn. Thank you!
    - Windows: `scoop bucket add extras; scoop install lazygit`
 5. Install libffi-dev (`brew install libffi` in macOS, `sudo apt install libffi-dev` in Linux, WSL)
 
-### Additional system specific steps
+### Additional system-specific steps
 
 #### macOS
 
@@ -36,12 +36,14 @@ I always appreciate any opportunity to learn. Thank you!
 #### Windows
 
 1. Configure git to keep line endings as they are: `git config --global core.autocrlf false`
+2. Create commonly used ENV variables pointing to home:
+    - `[Environment]::SetEnvironmentVariable("HOME", "$env:USERPROFILE", [System.EnvironmentVariableTarget]::User)`
+    - `[Environment]::SetEnvironmentVariable("XDG_CONFIG_HOME", "$env:USERPROFILE\.config", [System.EnvironmentVariableTarget]::User)`
+3. Install useful apps: `scoop install neovim vifm ag`
 
 #### WSL
 
-1. Follow `20190805142816` in Zettelkasten to fix network issues in corporate environment (excuse me, I can't publish this, as it contains my employer's sensitive information; it is about getting WSL network work by using [wsl-vpnkit](https://github.com/sakai135/wsl-vpnkit) and using proxy forwarder on Windows host)
-2. Update the system: `sudo apt update && sudo apt upgrade`
-3. Install packages used by BUVIS: `sudo apt-get install -y build-essential checkinstall direnv libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev liblzma-dev nodejs npm vifm`
+Currently not using, so I can't provide specific instructions.
 
 ## Install
 
@@ -71,6 +73,10 @@ Create `post-merge` hook in `.buvis/modules/scripts/.git/hooks` according to [bu
 3. Honor global ignores: `git config --global core.excludesfile ~/.gitignore_global`
 
 ### Windows
+
+#### PATH
+
+Add `~\scripts\bin` to PATH.
 
 #### PowerShell profile
 
