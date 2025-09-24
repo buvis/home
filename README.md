@@ -39,7 +39,7 @@ I always appreciate any opportunity to learn. Thank you!
 2. Create commonly used ENV variables pointing to home:
     - `[Environment]::SetEnvironmentVariable("HOME", "$env:USERPROFILE", [System.EnvironmentVariableTarget]::User)`
     - `[Environment]::SetEnvironmentVariable("XDG_CONFIG_HOME", "$env:USERPROFILE\.config", [System.EnvironmentVariableTarget]::User)`
-3. Install useful apps: `scoop install neovim vifm ag`
+3. Install useful apps: `scoop install ag neovim vifm wget wezterm`
 
 #### WSL
 
