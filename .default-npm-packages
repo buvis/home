@@ -1,4 +1,5 @@
 neovim
 npm-check
 svelte-language-server
+tree-sitter-cli
 write-good 
