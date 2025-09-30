@@ -1,3 +1,4 @@
+@devcontainers/cli
 neovim
 npm-check
 svelte-language-server
