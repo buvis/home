@@ -9,13 +9,14 @@ buvis-pybase
 cyclopts
 gita
 inflection
+llm
 pipenv
 poetry
 poetry-plugin-shell
 pyacoustid
 pylast
 pynvim
-pyreadline
+pyreadline3
 python-lsp-black
 python-lsp-ruff
 python-lsp-server
