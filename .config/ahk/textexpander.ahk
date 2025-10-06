@@ -3,6 +3,8 @@
 ::Bouska ::Bouška
 ::,.todo::⚒️
 ::,.done::✔️
+::idk::¯\_(ツ)_/¯
+::no idea::¯\_(ツ)_/¯
 ::url-pexcg::
 (
 https://adponline.sharepoint.com/sites/GlobalView-Engine-Architecture/documentation/pex-payroll-exceptions-reporting/pex-consultant-guide.docx?web=1
