@@ -1,4 +1,6 @@
 GOOSE_PROVIDER: openrouter
+GOOSE_MAX_TURNS: 2000
+GOOSE_MODE: auto
 GOOSE_MODEL: openai/gpt-5
 extensions:
   developer:
@@ -8,5 +10,3 @@ extensions:
     name: developer
     timeout: 300
     type: builtin
-GOOSE_MAX_TURNS: 2000
-GOOSE_MODE: auto
