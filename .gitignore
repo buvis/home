@@ -1,7 +1,8 @@
 !*.secret
 .claude/*
-!.claude/commands/*
 !.claude/settings.json
+!.claude/commands/
+!.claude/commands/**
 **/.DS_Store
 .config/MusicBrainz
 .config/bash/sh-prompt-simple
