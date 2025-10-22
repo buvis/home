@@ -86,10 +86,13 @@ SCM_THEME_PROMPT_UNSTAGED_COLOR=${POWERLINE_SCM_UNSTAGED_COLOR:=56}
 export OPENFAAS_URL=https://fn.buvis.net
 
 # Load direnv
-eval "$(direnv hook bash)"
+# eval "$(direnv hook bash)"
 
 # Add asdf shims to PATH
-export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+# export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+
+# Initialize mise shims and autocompletion
+eval "$(mise activate bash)"
 
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
@@ -97,3 +100,11 @@ source "$BASH_IT"/bash_it.sh
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"                   # This loads nvm
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
+
+# pnpm
+export PNPM_HOME="/Users/bob/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
