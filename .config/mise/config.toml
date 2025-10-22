@@ -1,3 +1,6 @@
 [tools]
-python = "3.12"
+node = "latest"
+python = "latest"
 uv = "latest"
+helm = "latest"
+rust = "latest"

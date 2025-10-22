@@ -2,31 +2,31 @@
 UNAME_BIN=$(command -v uname)
 
 case $("${UNAME_BIN}" | tr '[:upper:]' '[:lower:]') in
-  linux*)
-    if [[ $("${UNAME_BIN}" -r) =~ Microsoft ]]; then
-        export IS_WSL=true
-    else
-        export IS_LINUX=true
-    fi
-    ;;
-  darwin*)
-    export IS_MAC=true
-    ;;
-  msys*|cygwin*|mingw*|nt|win*)
-    export IS_WIN=true
-    ;;
+linux*)
+  if [[ $("${UNAME_BIN}" -r) =~ Microsoft ]]; then
+    export IS_WSL=true
+  else
+    export IS_LINUX=true
+  fi
+  ;;
+darwin*)
+  export IS_MAC=true
+  ;;
+msys* | cygwin* | mingw* | nt | win*)
+  export IS_WIN=true
+  ;;
 esac
 
 # Determine dotfiles root
 #if [[ $IS_WSL ]]; then
-    #WINHOME=$(wslvar USERPROFILE)
-    #export DOTFILES_ROOT=$(wslpath "${WINHOME}")
+#WINHOME=$(wslvar USERPROFILE)
+#export DOTFILES_ROOT=$(wslpath "${WINHOME}")
 #else
-    export DOTFILES_ROOT=${HOME}
+export DOTFILES_ROOT=${HOME}
 #fi
 
-export PATH="$DOTFILES_ROOT/.cargo/bin:$PATH"
-export PATH="$DOTFILES_ROOT/.yarn/bin:$DOTFILES_ROOT/.config/yarn/global/node_modules/.bin:$PATH"
+#export PATH="$DOTFILES_ROOT/.cargo/bin:$PATH"
+#export PATH="$DOTFILES_ROOT/.yarn/bin:$DOTFILES_ROOT/.config/yarn/global/node_modules/.bin:$PATH"
 
 # Doogat
 export DOOGAT_CFG="${DOTFILES_ROOT}/.doogat/config.yml"
@@ -66,25 +66,25 @@ export LANG=en_US.UTF-8
 
 # Use brew
 if [[ $IS_MAC ]]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+  eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 # Prefer GNU utils on Mac
 if [[ $IS_MAC ]]; then
-   export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
-   export PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
+  export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
+  export PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
 fi
 
 # Use gpg with ssh
 if [[ $IS_MAC ]]; then
-   export GPG_TTY=$(tty)
-   export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
-   gpgconf --launch gpg-agent
+  export GPG_TTY=$(tty)
+  export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+  gpgconf --launch gpg-agent
 fi
 
 # Use rust on Mac
-if [[ $IS_MAC ]]; then
-    if [[ -f "$HOME/.cargo/env" ]]; then
-        . "$HOME/.cargo/env"
-    fi
-fi
+#if [[ $IS_MAC ]]; then
+#    if [[ -f "$HOME/.cargo/env" ]]; then
+#        . "$HOME/.cargo/env"
+#    fi
+#fi
