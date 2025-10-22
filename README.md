@@ -137,10 +137,9 @@ export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
    1. Install [WSL Extenstion](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl)
    2. Add VS Code to WSL's path: `echo 'export PATH=$PATH:/mnt/c/Users/tbouska/.local/bin/vscode/bin' >> ~/.bashrc-wsl`
 
-### Install tools
+### Install developer tools
 
-1. Install all asdf plugins used in `$HOME/.tool-versions`: `asdf plugin add <plugin_name>`, for example: `asdf plugin add python`
-2. Run `asdf install`
+Run `mise install` while at $HOME.
 
 ### Get git repositories
 
