@@ -21,10 +21,5 @@ return {
 
       require("mason").setup(opts)
     end,
-    opts = function(_, opts)
-      opts.ensure_installed = opts.ensure_installed or {}
-      table.insert(opts.ensure_installed, "harper-ls")
-      return opts
-    end,
   },
 }

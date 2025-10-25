@@ -1,0 +1,12 @@
+[global]
+line-length = 120
+exclude = ["node_modules", "build", "dist"]
+respect-gitignore = true
+
+[MD007]
+indent = 2
+
+[MD013]
+line-length = 120
+code-blocks = false
+tables = false
