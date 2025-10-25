@@ -5,6 +5,7 @@
 !.claude/commands/**
 .codex/*
 !.codex/config.toml
+!.codex/notify.sh
 **/.DS_Store
 .config/MusicBrainz
 .config/bash/sh-prompt-simple
