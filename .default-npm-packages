@@ -1,6 +1,9 @@
+@anthropic-ai/claude-code
+@openai/codex
 @devcontainers/cli
 neovim
 npm-check
+npx
 svelte-language-server
 task-master-ai
 tree-sitter-cli
