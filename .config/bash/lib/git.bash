@@ -1,13 +1,16 @@
 git_sync_main() {
-  set -euo pipefail
   local branch
-  branch="$(git rev-parse --abbrev-ref HEAD)"
-  git stash push -u -m "pre-rebase $(date -Iseconds)"
+  branch="$(git rev-parse --abbrev-ref HEAD)" || {
+    echo "Not in a git repo"
+    return 2
+  }
+  git stash push -u -m "pre-rebase $(date -Iseconds)" >/dev/null 2>&1 || true
   if git fetch origin && git rebase origin/main; then
-    git stash pop || true
-    git push --force-with-lease origin "$branch"
+    git stash pop >/dev/null 2>&1 || true
+    git push --force-with-lease origin "$branch" || return
   else
-    echo "Rebase failed; resolve conflicts, then run: git rebase --continue"
-    echo "Your stash is preserved (check with: git stash list)"
+    echo "Rebase failed; resolve conflicts, then run: git rebase --continue" >&2
+    echo "Your stash is preserved (check with: git stash list)" >&2
+    return 1
   fi
 }
