@@ -1,12 +1,13 @@
 !*.secret
-.claude/*
-!.claude/settings.json
 !.claude/commands/
 !.claude/commands/**
-.codex/*
+!.claude/settings.json
 !.codex/config.toml
 !.codex/notify.sh
+!.config/goose/config.yaml
 **/.DS_Store
+.claude/*
+.codex/*
 .config/MusicBrainz
 .config/bash/sh-prompt-simple
 .config/beets/discogs_token.json
@@ -17,7 +18,7 @@
 .config/coc
 .config/configstore
 .config/github-copilot
-.config/goose/history.txt
+.config/goose/*
 .config/jellyfin
 .config/nnn/.selection
 .config/nushell/history.txt
@@ -29,6 +30,7 @@
 .config/nvim/view
 .config/scoop/config.json
 .config/scripts/readwise-token
+.config/siril/*
 .config/syncthing/folderpairs.md
 .config/yarn
 .gitsecret/keys/random_seed
