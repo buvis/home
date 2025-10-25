@@ -3,6 +3,8 @@
 !.claude/settings.json
 !.claude/commands/
 !.claude/commands/**
+.codex/*
+!.codex/config.toml
 **/.DS_Store
 .config/MusicBrainz
 .config/bash/sh-prompt-simple

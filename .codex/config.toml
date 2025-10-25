@@ -1,0 +1,18 @@
+model = "gpt-5-codex"
+model_reasoning_effort = "high"
+notify = ["bash", "notify.sh"]
+
+[projects."/Users/bob/git/src/github.com/doogat/dzs/main"]
+trust_level = "trusted"
+
+[mcp_servers.taskmaster-ai]
+command = "npx"
+args = ["task-master-ai"]
+
+[mcp_servers.serena]
+command = "uvx"
+args = ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--enable-web-dashboard", "False" ]
+
+[mcp_servers.context7]
+command = "npx"
+args = ["@upstash/context7-mcp"]
