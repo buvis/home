@@ -13,6 +13,7 @@ return {
         "go",
         "graphql",
         "http",
+        "rust",
         "scss",
         "sql",
         "svelte",
