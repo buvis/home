@@ -3,3 +3,4 @@ if ! python3 -m gita &>/dev/null; then
 fi
 alias gita="python3 -m gita"
 alias gg="lazygit"
+alias sync-from-main="git_sync_main"
