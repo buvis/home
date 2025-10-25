@@ -1,13 +1,11 @@
-!*.secret
+**/.DS_Store
+.claude/*
 !.claude/commands/
 !.claude/commands/**
 !.claude/settings.json
+.codex/*
 !.codex/config.toml
 !.codex/notify.sh
-!.config/goose/config.yaml
-**/.DS_Store
-.claude/*
-.codex/*
 .config/MusicBrainz
 .config/bash/sh-prompt-simple
 .config/beets/discogs_token.json
@@ -19,6 +17,7 @@
 .config/configstore
 .config/github-copilot
 .config/goose/*
+!.config/goose/config.yaml
 .config/jellyfin
 .config/nnn/.selection
 .config/nushell/history.txt
@@ -52,3 +51,4 @@
 __pycache__
 get-buvis.bat
 get-buvis.sh
+!*.secret
