@@ -3,10 +3,10 @@ line-length = 120
 exclude = ["node_modules", "build", "dist"]
 respect-gitignore = true
 
-[MD007]
+[MD007]  # Keep list indentation consistent
 indent = 2
 
-[MD013]
+[MD013]  # Keep lines short for better readability
 line-length = 120
 code-blocks = false
 tables = false
