@@ -7,3 +7,16 @@ rust = "latest"
 deno = "latest"
 "npm:@openai/codex" = "latest"
 "cargo:rumdl" = "latest"
+"uvtool:markitdown" = "0.0.2" # > 0.1.0 doesn't work with python 3.14
+"uvtool:Yapf" = "latest"
+"uvtool:autopep8" = "latest"
+"uvtool:beets" = "latest"
+"uvtool:black" = "latest"
+"uvtool:gita" = "latest"
+"uvtool:llm" = "latest"
+"uvtool:pynvim" = "latest"
+"uvtool:ruff" = "latest"
+"uvtool:yt-dlp" = "latest"
+
+[settings]
+experimental = true
