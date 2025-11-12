@@ -8,8 +8,8 @@ arguments:
 ---
 
 Determine PRD number from current branch name and store as PRD_NUMBER. Write Task {{task_number}} completion report
-into markdown file in docs/src/developer/reports named prd-${PRD_NUMBER}-task-{{task_number}}-completion-report.md
-Refer back to PRD document stored in docs/src/developer/prd which name starts with PRD-${PRD_NUMBER} for details
+into markdown file in docs/src/pm/prd directory starting with prd-${PRD_NUMBER} and name the file prd-${PRD_NUMBER}-task-{{task_number}}-completion-report.md
+Refer back to PRD document stored in docs/src/pm/prd directory starting with prd-${PRD_NUMBER} for details
 on the context of the task.
 
 The completion report must contain the following sections:
