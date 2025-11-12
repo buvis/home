@@ -1,7 +1,7 @@
 GOOSE_MAX_TURNS: 2000
 GOOSE_MODE: auto
 GOOSE_PROVIDER: openrouter
-GOOSE_MODEL: anthropic/claude-haiku-4.5
+GOOSE_MODEL: anthropic/claude-sonnet-4.5
 extensions:
   developer:
     bundled: true
