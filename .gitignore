@@ -21,6 +21,7 @@
 .config/github-copilot
 .config/goose/*
 !.config/goose/config.yaml
+!.config/goose/recipes/organize-business-documents.yaml
 .config/jellyfin
 .config/nnn/.selection
 .config/nushell/history.txt
