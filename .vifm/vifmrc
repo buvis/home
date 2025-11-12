@@ -135,14 +135,11 @@ else
     mark d ~/Downloads
     mark g ~/git/src/
     mark h ~/
-    mark i ~/bim/reference/local/20-areas/administration/invoice
+    mark i ~/bim/inbox
     mark k ~/git/src/github.com/buvis/clusters
-    mark m ~/media
-    mark o ~/bim/reference/local/20-areas/administration/order
-    mark P ~/Photography
+    mark P ~/bim/reference/local/20-areas/photography
     mark r ~/bim/reference/local/30-resources
     mark s ~/git/src/github.com/buvis/scripts
-    mark R ~/bim/reference/local/20-areas/administration/receipt
     mark w ~/bim/reference/local/10-projects
 endif
 
