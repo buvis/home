@@ -3,6 +3,9 @@
 !.claude/commands/
 !.claude/commands/**
 !.claude/settings.json
+!.claude/skills/
+!.claude/skills/**
+!.claude/CLAUDE.md
 .codex/*
 !.codex/config.toml
 !.codex/notify.sh
