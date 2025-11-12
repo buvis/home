@@ -1,4 +1,4 @@
 {
-  "model": "opus",
-  "alwaysThinkingEnabled": true
+  "model": "haiku",
+  "alwaysThinkingEnabled": false
 }
