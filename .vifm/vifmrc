@@ -116,30 +116,27 @@ set statusline="  Hint: %z%= %A %10u:%-7g %15s %20d  "
 " :mark mark /full/directory/path [filename]
 
 mark b ~/bim
+mark d ~/Downloads
+mark g ~/git/src/
+mark h ~/
+mark i ~/bim/inbox
+mark s ~/git/src/github.com/buvis/scripts
+mark t ~/Temp
 mark z ~/bim/zettelkasten
 
 if has('win')
     mark a "~/OneDrive - Automatic Data Processing Inc/Documents/bim/40-archives"
     mark c "~/OneDrive - Automatic Data Processing Inc/Documents/bim/40-archives/completed"
-    mark d "~/Downloads"
-    mark g "~/git/src/"
-    mark h "~/"
     mark m "~/OneDrive - Automatic Data Processing Inc/Documents/bim/30-resources/meetings"
     mark r "~/OneDrive - Automatic Data Processing Inc/Documents/bim/30-resources"
-    mark s "~/git/src/github.com/buvis/scripts/"
     mark w "~/OneDrive - Automatic Data Processing Inc/Documents/bim/10-projects"
 else
     mark a ~/bim/reference/local/20-areas
     mark B ~/bim/reference/local/20-areas/business
     mark c ~/bim/reference/local/40-archives/completed
-    mark d ~/Downloads
-    mark g ~/git/src/
-    mark h ~/
-    mark i ~/bim/inbox
     mark k ~/git/src/github.com/buvis/clusters
     mark P ~/bim/reference/local/20-areas/photography
     mark r ~/bim/reference/local/30-resources
-    mark s ~/git/src/github.com/buvis/scripts
     mark w ~/bim/reference/local/10-projects
 endif
 
