@@ -3,6 +3,8 @@
 ## General guidelines
 
 - In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of brevity.
+- I'm a solo developer and it's just you and me working on this stuff, so I'm looking for all responses to be concise.
+- This is not a corporate environment; avoid formalities and over-complication. Let's just get stuff done.
 
 ## Planning mode
 
