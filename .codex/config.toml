@@ -11,6 +11,9 @@ trust_level = "trusted"
 [projects."/Users/bob/.claude/skills/zettelmaster"]
 trust_level = "trusted"
 
+[projects."/Users/bob/git/src/github.com/buvis/container-images"]
+trust_level = "trusted"
+
 [mcp_servers.taskmaster-ai]
 command = "npx"
 args = ["task-master-ai"]
