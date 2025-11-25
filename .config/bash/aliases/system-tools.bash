@@ -1,19 +1,29 @@
+alias ..="cd .."
+alias ...="cd ../.."
+
 if [[ $(command -v bat) ]]; then alias cat="bat --paging never"; fi
 
 alias count-files="find . -type f | wc -l"
+alias cp="cp -i"
+
+alias gs="git status"
+alias gd="git diff"
+alias glog="git log --oneline --graph --decorate -20"
 
 alias ls="ls --color=auto"
 alias l="ls -l"
 alias la="ls -a"
-alias ll="ls -la"
+alias ll="ls -lah"
 alias lt="ls -lrt"
 
 if [[ $(command -v most) ]]; then export PAGER="most"; fi
+alias mv="mv -i"
 
 if [[ $(command -v nvim) ]]; then alias vim="nvim"; fi
 if [[ $(command -v nvim) ]]; then alias vi="nvim"; fi
 
 alias remove-empty-dirs="find . -type d -empty -delete"
+alias rm="rm -i"
 
 alias ssh="LC_CTYPE=\"en_US.UTF-8\" TERM=xterm-256color ssh"
 

@@ -6,9 +6,6 @@ case $- in
 *) return ;;
 esac
 
-# Get dotfiles root
-export DOTFILES_ROOT="${HOME}"
-
 # Path to the bash it configuration
 export BASH_IT="${DOTFILES_ROOT}/.bash_it"
 
@@ -43,11 +40,6 @@ export TODO="t"
 
 # Set this to false to turn off version control status checking within the prompt for all themes
 export SCM_CHECK=true
-# Set to actual location of gitstatus directory if installed
-#export SCM_GIT_GITSTATUS_DIR="$DOTFILES_ROOT/gitstatus"
-# per default gitstatus uses 2 times as many threads as CPU cores, you can change this here if you must
-#export GITSTATUS_NUM_THREADS=8
-
 # Set Xterm/screen/Tmux title with only a short hostname.
 # Uncomment this (or set SHORT_HOSTNAME to something else),
 # Will otherwise fall back on $HOSTNAME.
@@ -73,8 +65,13 @@ export BASH_IT_AUTOMATIC_RELOAD_AFTER_CONFIG_CHANGE=1
 # Uncomment this to make Bash-it create alias reload.
 # export BASH_IT_RELOAD_LEGACY=1
 
-# Use recursive glob
-shopt -s globstar
+# Set shell options
+shopt -s globstar   # Use recursive globbing with **
+shopt -s nocaseglob # Case-insensitive globbing
+shopt -s cdspell    # Autocorrect typos in cd
+shopt -s dirspell   # Autocorrect directory names
+shopt -s autocd     # Type directory name to cd into it
+shopt -s checkwinsize
 
 # Use darker background for git status
 SCM_THEME_PROMPT_CLEAN_COLOR=${POWERLINE_SCM_CLEAN_COLOR:=22}
@@ -82,21 +79,18 @@ SCM_THEME_PROMPT_DIRTY_COLOR=${POWERLINE_SCM_DIRTY_COLOR:=52}
 SCM_THEME_PROMPT_STAGED_COLOR=${POWERLINE_SCM_STAGED_COLOR:=24}
 SCM_THEME_PROMPT_UNSTAGED_COLOR=${POWERLINE_SCM_UNSTAGED_COLOR:=56}
 
+# Optimize history settings
+export HISTCONTROL=ignoreboth:erasedups
+export HISTFILESIZE=100000
+export HISTSIZE=50000
+shopt -s histappend
+PROMPT_COMMAND="history -a; ${PROMPT_COMMAND:-}"
+
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
-
-# Load direnv
-# eval "$(direnv hook bash)"
-
-# Add asdf shims to PATH
-# export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 
 # Initialize mise shims and autocompletion
 eval "$(mise activate bash)"
 
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
-
-# export NVM_DIR="$HOME/.nvm"
-# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"                   # This loads nvm
-# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion

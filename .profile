@@ -18,15 +18,12 @@ msys* | cygwin* | mingw* | nt | win*)
 esac
 
 # Determine dotfiles root
-#if [[ $IS_WSL ]]; then
-#WINHOME=$(wslvar USERPROFILE)
-#export DOTFILES_ROOT=$(wslpath "${WINHOME}")
-#else
 export DOTFILES_ROOT=${HOME}
-#fi
 
-#export PATH="$DOTFILES_ROOT/.cargo/bin:$PATH"
-#export PATH="$DOTFILES_ROOT/.yarn/bin:$DOTFILES_ROOT/.config/yarn/global/node_modules/.bin:$PATH"
+# Use brew
+if [[ $IS_MAC ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
 
 # Doogat
 export DOOGAT_CFG="${DOTFILES_ROOT}/.doogat/config.yml"
@@ -50,7 +47,7 @@ export EDITOR="nvim"
 export GIT_EDITOR="nvim"
 
 # Use ag for feeding into fzf for searching files.
-export FZF_DEFAULT_COMMAND='ag -U --hidden --ignore .git -g ""'
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
 
 # Color: https://github.com/junegunn/fzf/wiki/Color-schemes - Solarized Dark
 # Bind F1 key to toggle preview window on/off
@@ -64,27 +61,31 @@ export FZF_CTRL_R_OPTS='--bind "F1:toggle-preview" --preview "echo {}" --preview
 # Fix locale when sshing
 export LANG=en_US.UTF-8
 
-# Use brew
-if [[ $IS_MAC ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
-
 # Prefer GNU utils on Mac
 if [[ $IS_MAC ]]; then
-  export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
-  export PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
+  BREW_BIN="/usr/local/bin/brew"
+  if [ -f "/opt/homebrew/bin/brew" ]; then
+    BREW_BIN="/opt/homebrew/bin/brew"
+  fi
+
+  if type "${BREW_BIN}" &>/dev/null; then
+    export BREW_PREFIX="$("${BREW_BIN}" --prefix)"
+    for bindir in "${BREW_PREFIX}/opt/"*"/libexec/gnubin"; do export PATH=$bindir:$PATH; done
+    for bindir in "${BREW_PREFIX}/opt/"*"/bin"; do export PATH=$bindir:$PATH; done
+    for mandir in "${BREW_PREFIX}/opt/"*"/libexec/gnuman"; do export MANPATH=$mandir:$MANPATH; done
+    for mandir in "${BREW_PREFIX}/opt/"*"/share/man/man1"; do export MANPATH=$mandir:$MANPATH; done
+  fi
 fi
 
 # Use gpg with ssh
 if [[ $IS_MAC ]]; then
   export GPG_TTY=$(tty)
-  export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
-  gpgconf --launch gpg-agent
-fi
 
-# Use rust on Mac
-#if [[ $IS_MAC ]]; then
-#    if [[ -f "$HOME/.cargo/env" ]]; then
-#        . "$HOME/.cargo/env"
-#    fi
-#fi
+  # Lazy-load SSH socket only when needed
+  ssh() {
+    export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+    gpgconf --launch gpg-agent
+    command ssh "$@"
+  }
+
+fi
