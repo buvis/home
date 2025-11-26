@@ -17,6 +17,7 @@ deno = "latest"
 "uvtool:ruff" = "latest"
 "uvtool:yt-dlp" = "latest"
 "npm:@openai/codex" = "latest"
+"npm:tree-sitter-cli" = "latest"
 
 [settings]
 experimental = true
