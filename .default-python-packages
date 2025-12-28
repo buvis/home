@@ -15,6 +15,7 @@ python3-discogs-client
 requests
 rich
 rope
+toml
 tzlocal
 unidecode
 urtext
