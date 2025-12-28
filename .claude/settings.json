@@ -1,3 +1,17 @@
 {
-  "alwaysThinkingEnabled": true
+  "env": {
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000",
+    "MAX_THINKING_TOKENS": "31999"
+  },
+  "mcpServers": {
+    "youtube_transcript": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/youtube-transcript"
+      ]
+    }
+  }
 }
