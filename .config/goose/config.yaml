@@ -10,3 +10,17 @@ extensions:
     name: developer
     timeout: 300
     type: builtin
+  mcpdocker:
+    args:
+    - mcp
+    - gateway
+    - run
+    bundled: null
+    cmd: docker
+    description: The Docker MCP Toolkit allows for easy configuration and consumption of MCP servers from the Docker MCP Catalog
+    enabled: true
+    env_keys: []
+    envs: {}
+    name: mcpdocker
+    timeout: 300
+    type: stdio
