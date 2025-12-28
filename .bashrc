@@ -92,5 +92,8 @@ export OPENFAAS_URL=https://fn.buvis.net
 # Initialize mise shims and autocompletion
 eval "$(mise activate bash)"
 
+# Initialize smart jumps
+eval "$(zoxide init --cmd cd bash)"
+
 # Load Bash It
 source "$BASH_IT"/bash_it.sh
