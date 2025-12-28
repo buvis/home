@@ -1,27 +1,38 @@
-model = "gpt-5-codex"
+model = "gpt-5.2"
 model_reasoning_effort = "medium"
-notify = ["sh", "-c", "bash ~/.codex/notify.sh \"$@\"", "sh"]
+notify = ['sh', '-c', 'bash ~/.codex/notify.sh "$@"', 'sh']
 
-[projects."/Users/bob/git/src/github.com/doogat/dzs/main"]
-trust_level = "trusted"
-
-[projects."/Users/bob/Downloads/devcontainer"]
-trust_level = "trusted"
-
-[projects."/Users/bob/.claude/skills/zettelmaster"]
-trust_level = "trusted"
-
-[projects."/Users/bob/git/src/github.com/buvis/container-images"]
-trust_level = "trusted"
-
-[mcp_servers.taskmaster-ai]
-command = "npx"
-args = ["task-master-ai"]
+[mcp_servers]
+[mcp_servers.MCP_DOCKER]
+command = 'docker'
+args = ['mcp', 'gateway', 'run']
 
 [mcp_servers.serena]
-command = "uvx"
-args = ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--enable-web-dashboard", "False" ]
+args = ['--from', 'git+https://github.com/oraios/serena', 'serena', 'start-mcp-server', '--enable-web-dashboard', 'False']
+command = 'uvx'
 
-[mcp_servers.context7]
-command = "npx"
-args = ["@upstash/context7-mcp"]
+[mcp_servers.taskmaster-ai]
+args = ['task-master-ai']
+command = 'npx'
+
+[notice]
+'hide_gpt-5.1-codex-max_migration_prompt' = true
+
+[projects]
+[projects.'/Users/bob/.claude/skills/zettelmaster']
+trust_level = 'trusted'
+
+[projects.'/Users/bob/Downloads/devcontainer']
+trust_level = 'trusted'
+
+[projects.'/Users/bob/git/src/github.com/buvis/container-images']
+trust_level = 'trusted'
+
+[projects.'/Users/bob/git/src/github.com/doogat/dzs/main']
+trust_level = 'trusted'
+
+[projects."/Users/bob"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/doogat/dzs"]
+trust_level = "trusted"
