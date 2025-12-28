@@ -6,10 +6,6 @@ if [[ $(command -v bat) ]]; then alias cat="bat --paging never"; fi
 alias count-files="find . -type f | wc -l"
 alias cp="cp -i"
 
-alias gs="git status"
-alias gd="git diff"
-alias glog="git log --oneline --graph --decorate -20"
-
 alias ls="ls --color=auto"
 alias l="ls -l"
 alias la="ls -a"
