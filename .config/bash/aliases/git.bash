@@ -10,4 +10,4 @@ alias glog="git log --oneline --graph --decorate -20"
 alias gp="git push"
 alias gst="git status -sb"
 
-alias sync-from-main="git_sync_main"
+alias sync-from-master="git_sync_master"
