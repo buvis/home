@@ -1,5 +1,5 @@
-model = "gpt-5.2"
-model_reasoning_effort = "medium"
+model = "gpt-5.2-codex"
+model_reasoning_effort = "high"
 notify = ['sh', '-c', 'bash ~/.codex/notify.sh "$@"', 'sh']
 
 [mcp_servers]
@@ -18,6 +18,9 @@ command = 'npx'
 [notice]
 'hide_gpt-5.1-codex-max_migration_prompt' = true
 
+[notice.model_migrations]
+"gpt-5.2" = "gpt-5.2-codex"
+
 [projects]
 [projects.'/Users/bob/.claude/skills/zettelmaster']
 trust_level = 'trusted'
@@ -35,4 +38,7 @@ trust_level = 'trusted'
 trust_level = "trusted"
 
 [projects."/Users/bob/git/src/github.com/doogat/dzs"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/buvis-pybase"]
 trust_level = "trusted"
