@@ -1,0 +1,8 @@
+{
+  "name": "buvis",
+  "description": "Claude BUVIS plugin",
+  "author": {
+    "name": "Tomas Bouska",
+    "email": "tomas@buvis.net"
+  }
+}
