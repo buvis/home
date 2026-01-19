@@ -56,3 +56,4 @@ __pycache__
 get-buvis.bat
 get-buvis.sh
 !*.secret
+ynab-buddy/config.yaml
