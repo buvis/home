@@ -1,3 +1,8 @@
+---
+name: Plan Tasks
+description: Generate and expand taskmaster tasks from PRDs with complexity analysis
+---
+
 1. Use the task-master parse-prd command to generate tasks from my PRDs in .taskmaster/docs/
 2. Expand all tasks into subtasks
 3. Analyze tasks Complexity
