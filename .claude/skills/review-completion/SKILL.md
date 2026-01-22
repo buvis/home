@@ -1,3 +1,8 @@
+---
+name: Review Completion
+description: Review completed taskmaster tasks against PRDs using Alice and Bob agents
+---
+
 # Review work completion
 
 Taskmaster — FIRST CHECK (MANDATORY, do not skip):

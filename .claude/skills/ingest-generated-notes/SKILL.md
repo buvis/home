@@ -1,3 +1,8 @@
+---
+name: Ingest Generated Notes
+description: Process AI-generated notes in Zettelkasten inbox using zettelmaster skill
+---
+
 # Ingest generated notes
 
 Process AI generated notes in my Zettelkasten inbox.
