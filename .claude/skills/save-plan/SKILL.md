@@ -22,9 +22,9 @@ From the current conversation, identify:
 
 | Plan complexity | Template | Use when |
 |-----------------|----------|----------|
-| Simple feature | `templates/minimal.txt` | Single capability, few features |
-| Standard feature | `templates/standard.txt` | Multiple capabilities, clear dependencies |
-| Complex system | `templates/example_prd_rpg.txt` | Full RPG method needed |
+| Simple feature | `templates/minimal.md` | Single capability, few features |
+| Standard feature | `templates/standard.md` | Multiple capabilities, clear dependencies |
+| Complex system | `templates/example_prd_rpg.md` | Full RPG method needed |
 
 ### 3. Format as PRD
 
@@ -39,7 +39,7 @@ Apply RPG structure:
 If PRD exceeds ~200 lines or has loosely coupled parts:
 - Split into separate PRD files
 - Each PRD should be self-contained
-- Name related PRDs with shared prefix: `auth-login-v1.txt`, `auth-session-v1.txt`
+- Name related PRDs with shared prefix: `00001-auth-login-v1.md`, `00002-auth-session-v1.md`
 
 ### 5. Save to backlog
 
@@ -47,20 +47,35 @@ If PRD exceeds ~200 lines or has loosely coupled parts:
 # Create directory if needed
 mkdir -p .local/prds/backlog
 
-# Save PRD
-# Naming: {feature-slug}-v{version}.txt
+# Determine next sequence number
+# Scan ALL prds in .local/prds (backlog, wip, done) for highest existing sequence
+# Extract 5-digit prefix from filenames matching pattern NNNNN-*.txt
+# Increment by 1, pad to 5 digits
+
+# Save PRD with sequence prefix
 ```
 
 ## File Naming Convention
 
 ```
-{feature-slug}-v{version}.txt
+{sequence}-{feature-slug}-v{version}.md
+
+Where:
+- sequence: 5-digit zero-padded number (00001, 00002, ...)
+- Sequence determined across ALL subdirs in .local/prds/
 
 Examples:
-- user-auth-v1.txt
-- api-rate-limiting-v1.txt
-- dashboard-widgets-v2.txt
+- 00001-user-auth-v1.md
+- 00002-api-rate-limiting-v1.md
+- 00003-dashboard-widgets-v2.md
 ```
+
+## Sequence Number Logic
+
+1. List all `.md` files in `.local/prds/**`
+2. Extract leading 5-digit prefixes matching `^[0-9]{5}-`
+3. Find max sequence number (default 0 if none exist)
+4. New sequence = max + 1, zero-padded to 5 digits
 
 ## Directory Structure
 
@@ -79,6 +94,6 @@ Examples:
 
 ## Templates
 
-- `templates/minimal.txt` - Quick PRD for simple features (~50 lines)
-- `templates/standard.txt` - Standard PRD structure (~100 lines)
-- `templates/example_prd_rpg.txt` - Full RPG method reference
+- `templates/minimal.md` - Quick PRD for simple features (~50 lines)
+- `templates/standard.md` - Standard PRD structure (~100 lines)
+- `templates/example_prd_rpg.md` - Full RPG method reference

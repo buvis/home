@@ -1,0 +1,11 @@
+[2026-01-23 16:16:24] Hook triggered: 
+{"hook_event_name": "Test", "message": "Global hooks working\!"}
+curl: (3) URL rejected: No host part in the URL
+http=000 ip= t_conn=0.000000 t_total=0.000000
+[2026-01-23 16:16:24] ERROR: Failed to send notification (exit code: 3)
+---
+[2026-01-23 16:17:30] Hook triggered: Test
+{"hook_event_name": "Test", "message": "Global hooks working"}
+http=200 ip=10.11.0.80 t_conn=0.010972 t_total=0.142716
+[2026-01-23 16:17:30] Notification sent successfully
+---
