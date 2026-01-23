@@ -19,6 +19,7 @@
 - At the end of each plan, give me a list of unresolved questions you have about the task
 - Make the questions extremely concise
 - Sacrifice grammar for brevity
+- Ask me questions one by one providing enough context and simplification so I can make informed decision without studying anything else
 
 ## Writing
 
