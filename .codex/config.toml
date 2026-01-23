@@ -10,10 +10,6 @@ args = ['mcp', 'gateway', 'run']
 args = ['--from', 'git+https://github.com/oraios/serena', 'serena', 'start-mcp-server', '--enable-web-dashboard', 'False']
 command = 'uvx'
 
-[mcp_servers.taskmaster-ai]
-args = ['task-master-ai']
-command = 'npx'
-
 [notice]
 'hide_gpt-5.1-codex-max_migration_prompt' = true
 
