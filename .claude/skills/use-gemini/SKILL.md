@@ -1,6 +1,6 @@
 ---
-name: gemini
-description: Use when the user asks to run Gemini via copilot CLI for code analysis, refactoring, or automated editing
+name: use-gemini
+description: Use when the user asks to run Gemini via copilot CLI for code analysis, refactoring, or automated editing. Triggers on "run gemini", "gemini analyze", "use gemini for", "ask gemini", "copilot with gemini", or when user wants Google's Gemini model for code tasks.
 ---
 
 # Gemini Skill Guide

@@ -1,6 +1,6 @@
 ---
 name: work
-description: Implement pending tasks using Codex, committing after each task
+description: Implement pending tasks using Codex or Gemini, committing after each task. Use when ready to execute planned work. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
 ---
 
 # Work Through Tasks

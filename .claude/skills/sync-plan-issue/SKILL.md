@@ -1,6 +1,6 @@
 ---
 name: sync-plan-issue
-description: Create or update GitHub issue with current plan summary. Lists open issues for selection or creates new. Triggers on "sync plan to github", "update issue with plan", "share plan", "create issue from plan". Use after planning is complete and ready to share publicly.
+description: Create or update GitHub issue with current plan summary. Lists open issues for selection or creates new. Triggers on "sync plan to github", "update issue with plan", "share plan", "create issue from plan". Use after planning is complete and ready to share publicly. Do NOT use when plan is still in draft/exploration phase, working on private/sensitive features (issues are public), or issue has manually curated description to preserve.
 ---
 
 # Sync Plan to GitHub Issue
@@ -12,12 +12,6 @@ Update or create a GitHub issue with a structured plan summary based on Linear M
 - Active plan in conversation OR plan file in `.local/plans/` OR PRD in `.local/prds/wip/`
 - GitHub CLI authenticated (`gh auth status`)
 - Git repo with GitHub remote
-
-## When NOT to Use
-
-- Plan still in draft/exploration phase
-- Working on private/sensitive features (issues are public)
-- Issue has manually curated description to preserve
 
 ## Workflow
 
