@@ -2,6 +2,8 @@
 .claude/*
 !.claude/commands/
 !.claude/commands/**
+!.claude/hooks/
+.claude/hooks/.ntfy-secret
 !.claude/settings.json
 !.claude/skills/
 !.claude/skills/**
