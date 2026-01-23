@@ -2,10 +2,20 @@
   "hooks": {
     "Notification": [
       {
+        "matcher": "permission_prompt",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/notify.sh"
+            "command": "~/.claude/hooks/notify.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/notify.sh"
           }
         ]
       }
@@ -15,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/notify.sh"
+            "command": "~/.claude/hooks/notify.sh"
           }
         ]
       }
