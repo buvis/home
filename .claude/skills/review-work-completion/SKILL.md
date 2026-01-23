@@ -1,6 +1,6 @@
 ---
 name: review-work-completion
-description: Review completed work against PRD requirements and create follow-up tasks
+description: Review completed work against PRD requirements and create follow-up tasks. Use after all tasks are completed to validate implementation quality. Triggers on "review work", "check completed work", "validate implementation", "are we done".
 ---
 
 # Review Work Completion

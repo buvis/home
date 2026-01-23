@@ -1,6 +1,6 @@
 ---
 name: save-plan
-description: Save current plan into PRD file
+description: Save current plan into PRD file. Use after completing plan mode to persist the plan for later implementation. Triggers on "save plan", "save this plan", "create PRD from plan", "persist plan".
 ---
 
 # Save Plan to PRD
@@ -22,9 +22,9 @@ From the current conversation, identify:
 
 | Plan complexity | Template | Use when |
 |-----------------|----------|----------|
-| Simple feature | `templates/minimal.md` | Single capability, few features |
-| Standard feature | `templates/standard.md` | Multiple capabilities, clear dependencies |
-| Complex system | `templates/example_prd_rpg.md` | Full RPG method needed |
+| Simple feature | `assets/minimal.md` | Single capability, few features |
+| Standard feature | `assets/standard.md` | Multiple capabilities, clear dependencies |
+| Complex system | `assets/example_prd_rpg.md` | Full RPG method needed |
 
 ### 3. Format as PRD
 
@@ -92,8 +92,8 @@ Examples:
 2. **Start work**: Move to `wip/`
 3. **Complete**: Move to `done/`
 
-## Templates
+## Assets
 
-- `templates/minimal.md` - Quick PRD for simple features (~50 lines)
-- `templates/standard.md` - Standard PRD structure (~100 lines)
-- `templates/example_prd_rpg.md` - Full RPG method reference
+- `assets/minimal.md` - Quick PRD for simple features (~50 lines)
+- `assets/standard.md` - Standard PRD structure (~100 lines)
+- `assets/example_prd_rpg.md` - Full RPG method reference

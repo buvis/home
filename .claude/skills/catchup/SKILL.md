@@ -1,6 +1,6 @@
 ---
 name: catchup
-description: Review branch changes since fork point from main/master
+description: Review branch changes since fork point from main/master. Use when resuming work on a branch or onboarding to existing changes. Triggers on "catch up", "catchup", "what changed on this branch", "summarize branch changes", "review branch".
 ---
 
 # Catch Up on Branch Changes

@@ -1,6 +1,6 @@
 ---
-name: codex
-description: Use when the user asks to run Codex CLI (codex exec, codex resume) or references OpenAI Codex for code analysis, refactoring, or automated editing
+name: use-codex
+description: Use when the user asks to run Codex CLI (codex exec, codex resume) or references OpenAI Codex for code analysis, refactoring, or automated editing. Triggers on "run codex", "codex analyze", "use codex for", "codex refactor", "ask codex", or when user wants OpenAI's Codex model for code tasks.
 ---
 
 # Codex Skill Guide
