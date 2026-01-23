@@ -12,7 +12,7 @@ Create implementation tasks from PRD documents.
 ### 1. List available PRDs
 
 ```bash
-./scripts/list-prds.sh
+~/.claude/skills/plan-tasks/scripts/list-prds.sh
 ```
 
 Or manually:

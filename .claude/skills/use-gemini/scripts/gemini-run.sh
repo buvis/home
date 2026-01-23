@@ -10,6 +10,7 @@ ALLOW_ALL=""
 SILENT=""
 ADD_DIRS=()
 PROMPT=""
+PROMPT_FILE=""
 
 usage() {
     echo "Usage: $0 [options] [prompt]"
@@ -20,6 +21,7 @@ usage() {
     echo "  -y, --yolo             Full permissions (allow-all)"
     echo "  -s, --silent           Silent mode (clean output for scripting)"
     echo "  -d, --dir DIR          Allow access to directory (can repeat)"
+    echo "  -f, --file FILE        Read prompt from file"
     echo "  -r, --resume [ID]      Resume session (optionally specify ID)"
     echo "  -c, --continue         Resume most recent session"
     echo "  -h, --help             Show this help"
@@ -54,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             ADD_DIRS+=("--add-dir" "$2")
             shift 2
             ;;
+        -f|--file)
+            PROMPT_FILE="$2"
+            shift 2
+            ;;
         -r|--resume)
             MODE="resume"
             if [[ -n "$2" && ! "$2" =~ ^- ]]; then
@@ -76,6 +82,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Read prompt from file if specified
+if [ -n "$PROMPT_FILE" ]; then
+    if [ ! -f "$PROMPT_FILE" ]; then
+        echo "ERROR: Prompt file not found: $PROMPT_FILE"
+        exit 1
+    fi
+    PROMPT=$(cat "$PROMPT_FILE")
+fi
 
 # Build and run command
 case $MODE in

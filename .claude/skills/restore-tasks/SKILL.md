@@ -21,19 +21,55 @@ Path encoding: `/Users/bob/foo` → `-Users-bob-foo`
 ### 1. List available sessions
 
 ```bash
-./scripts/list-task-sessions.sh
+~/.claude/skills/restore-tasks/scripts/list-task-sessions.sh [project-path]
 ```
 
-Shows sessions with tasks for current project (ID, task count, summary).
+Returns JSON:
+```json
+{
+  "sessions": [
+    {"sessionId": "...", "summary": "...", "modified": "2026-01-23T17:39:14.519Z", "taskCount": 7}
+  ],
+  "total": 10,
+  "showing": 5,
+  "hasMore": true
+}
+```
+
+Options:
+- `--limit N` - Show N sessions (default: 5)
+- `--all` - Show all sessions
+
+Sessions sorted by `modified` (most recent first).
 
 ### 2. User selects session
 
-Present the list and ask user to pick by ID or summary match.
+Use `AskUserQuestion` to present choices. Format each option as:
+- **label**: Truncated summary (max ~30 chars)
+- **description**: `{taskCount} tasks • {formatted_date}` (e.g., "7 tasks • Jan 23, 5:39 PM")
+
+Include "Show more sessions" option if `hasMore` is true.
+
+Example:
+```json
+{
+  "question": "Which session to restore?",
+  "header": "Session",
+  "options": [
+    {"label": "Exchange rates app API...", "description": "7 tasks • Jan 23, 5:39 PM"},
+    {"label": "Multi-Agent Review & Skill...", "description": "5 tasks • Jan 23, 5:08 PM"},
+    {"label": "Show more sessions", "description": "5 more available"}
+  ],
+  "multiSelect": false
+}
+```
+
+If user selects "Show more", run script with `--all` and re-prompt.
 
 ### 3. Load tasks
 
 ```bash
-./scripts/dump-tasks.sh <session-id>
+~/.claude/skills/restore-tasks/scripts/dump-tasks.sh <session-id>
 ```
 
 Returns JSON array of task objects.

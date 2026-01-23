@@ -50,23 +50,24 @@ Gemini is accessed via the `copilot` CLI with `--model gemini-3-pro-preview`.
 
 ## Helper Script
 
-Use `scripts/gemini-run.sh` for common operations:
+**IMPORTANT**: Always use `-f` with a temp file for prompts to avoid shell escaping issues.
 
 ```bash
-# Analysis (interactive approval)
-./scripts/gemini-run.sh "Analyze the codebase"
+# Write prompt to temp file, then run
+echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/gemini-prompt.txt
+~/.claude/skills/use-gemini/scripts/gemini-run.sh -f /tmp/gemini-prompt.txt
 
-# Auto-approve tools
-./scripts/gemini-run.sh -a "Fix the bug"
+# With auto-approve tools
+~/.claude/skills/use-gemini/scripts/gemini-run.sh -a -f /tmp/gemini-prompt.txt
 
 # Full permissions
-./scripts/gemini-run.sh -y "Refactor the module"
+~/.claude/skills/use-gemini/scripts/gemini-run.sh -y -f /tmp/gemini-prompt.txt
 
 # Resume session
-./scripts/gemini-run.sh -r
+~/.claude/skills/use-gemini/scripts/gemini-run.sh -r
 
 # Silent mode for scripting
-./scripts/gemini-run.sh -s "Generate summary"
+~/.claude/skills/use-gemini/scripts/gemini-run.sh -s -f /tmp/gemini-prompt.txt
 ```
 
-Run `./scripts/gemini-run.sh --help` for all options.
+Run `~/.claude/skills/use-gemini/scripts/gemini-run.sh --help` for all options.

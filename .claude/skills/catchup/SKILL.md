@@ -12,7 +12,7 @@ Review changes made on current branch since it forked from base.
 ### 1. Run branch diff script
 
 ```bash
-./scripts/branch-diff.sh
+~/.claude/skills/catchup/scripts/branch-diff.sh
 ```
 
 This outputs:
