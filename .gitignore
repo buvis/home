@@ -4,6 +4,7 @@
 !.claude/commands/**
 !.claude/hooks/
 .claude/hooks/.ntfy-secret
+.claude/hooks/notify.log
 !.claude/settings.json
 !.claude/skills/
 !.claude/skills/**
