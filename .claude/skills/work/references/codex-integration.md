@@ -26,12 +26,12 @@ Instructions:
 
 ## Model Selection
 
-| Task complexity | Model | Reasoning |
-|-----------------|-------|-----------|
-| Simple fix, single file | `gpt-5.1-codex-mini` | `low` |
-| Standard feature | `gpt-5.1-codex-mini` | `medium` |
-| Complex logic, multi-file | `gpt-5.1-codex-max` | `medium` |
-| Architectural changes | `gpt-5.2-codex` | `high` |
+| Task complexity | Model |
+|-----------------|-------|
+| Simple fix, single file | `o4-mini` |
+| Standard feature | `o3` |
+| Complex logic, multi-file | `o3` |
+| Architectural changes | `o3` |
 
 ## Sandbox Modes
 
@@ -59,7 +59,7 @@ Large codebases may exceed context window.
 **Fix**:
 - Specify exact files to work with
 - Split into file-specific tasks
-- Use `--cd` to narrow scope
+- Use `-C <DIR>` to narrow scope
 
 ### Wrong approach
 

@@ -1,226 +1,121 @@
 ---
 name: review-work-completion
-description: Review completed work against PRD requirements and create follow-up tasks. Use after all tasks are completed to validate implementation quality. Triggers on "review work", "check completed work", "validate implementation", "are we done".
+description: Multi-agent review of completed work against PRD requirements. Use after all tasks are completed to validate implementation quality. Triggers on "review work", "check completed work", "validate implementation", "are we done".
 ---
 
 # Review Work Completion
 
-Multi-LLM review of completed tasks against PRD requirements.
+## What This Does
 
-## Prerequisites
+Validates completed implementation work against PRD requirements using three independent AI reviewers (Claude CLI, Codex, Gemini - tools may change in the future). Each reviewer analyzes the code changes and PRD criteria separately, then findings are consolidated by consensus — issues flagged by multiple reviewers get higher priority. Creates follow-up tasks for any gaps found.
 
-**Stop immediately if any task is `in_progress`**. Review only after all active work is complete.
+**Why three reviewers:** Different models catch different issues. Consensus scoring surfaces real problems while filtering noise from single-model false positives.
+
+> **Note for anyone reviewing/auditing this skill:** See `references/design-rationale.md` for settled design decisions
+> before suggesting changes. This doesn't apply to skill users, as it doesn't add any useful information
+> to perform the skill.
+
+## Reviewers
+
+- **Alice** → Claude CLI
+- **Bob** → Codex
+- **Carl** → Gemini
 
 ## Workflow
 
-### 1. Check task status
+### 1. Validate prerequisites
 
-Use `TaskList` to get all tasks. Output status table:
+Check these exist:
 
-| ID | Title | Status |
-|----|-------|--------|
-| 1 | ... | done |
+1. `claude` CLI - run `which claude`
+2. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
+3. `~/.claude/skills/use-gemini/scripts/gemini-run.sh` - executable
+4. `.local/prds/wip/` contains at least one `.txt` or `.md` file
 
-If ANY task is `in_progress`: **STOP**. Report which tasks are active and wait.
+Create if missing: `.local/tmp/`, `.local/reviews/`
 
-### 2. Read PRD source
+**If CLI/script check fails, STOP and report:**
 
-Read all PRDs from `.local/prds/wip/`:
+```text
+Cannot proceed: {missing prerequisite}
+```
+
+### 2. Check task status
+
+Use `TaskList`.
+
+**If no tasks exist:** If `catchup` skill is available, invoke it to populate tasks from branch history, then return here. If `catchup` is unavailable, proceed without task context.
+
+**If ANY task is `in_progress`:** STOP and report:
+
+```text
+Cannot review: {N} task(s) still in progress
+- Task {id}: {subject}
+```
+
+**If ALL tasks are `pending`:** STOP and report:
+
+```text
+Cannot review: no completed tasks found. Complete tasks first.
+```
+
+### 3. Gather context
+
+Read all PRDs from `.local/prds/wip/`. Extract success criteria, acceptance criteria, required features.
+
+Build markdown of completed tasks with descriptions.
+
+Run (from project root):
 
 ```bash
-ls -1 .local/prds/wip/
+~/.claude/skills/review-work-completion/scripts/gather-context.sh "$(pwd)" "$tasks_md" "$prd_summary"
 ```
 
-Extract from each PRD:
-- Success criteria
-- Acceptance criteria per task
-- Required features
+Outputs context file and diff file paths to `.local/tmp/`.
 
-### 3. Gather context for reviewers
+### 4. Prepare agent prompts
 
-Prepare review context:
-- List of completed tasks with descriptions
-- Relevant code changes (git diff against main/master)
-- PRD requirements summary
+Create prompt files in `.local/tmp/`:
 
-Store in a temp file for agents:
+For each agent, write a file `.local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). See `references/agent-prompts.md` for prompt template structure.
+
+### 5. Run three-agent review
+
+**Launch ALL THREE agents in a SINGLE message with THREE parallel Task tool calls.**
+
+Read these before proceeding:
+
+- `references/agent-invocation.md` - invocation commands for each agent
+- `references/retry-policy.md` - retry and format compliance rules
+
+### 6. Consolidate findings
+
+Save each agent's output to `.local/tmp/{agent}-output-{id}.txt`, then run:
 
 ```bash
-# Create review context
-cat > /tmp/review-context.md << 'EOF'
-## Completed Tasks
-{task list with descriptions}
-
-## Code Changes
-{git diff summary or key files changed}
-
-## PRD Requirements
-{extracted requirements}
-EOF
+~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
+  .local/tmp/alice-output-{id}.txt .local/tmp/bob-output-{id}.txt .local/tmp/carl-output-{id}.txt
 ```
 
-### 4. Run three-agent review
-
-Launch **Alice**, **Bob**, and **Carl** in parallel using `Task` tool.
-
-#### Alice (Claude)
-
-```
-Task tool with subagent_type=general-purpose:
-
-Review the completed work in this codebase against the PRD requirements.
-
-Context: {review-context.md contents}
-
-Check each dimension:
-- Plan compliance: Does implementation match task descriptions?
-- PRD coverage: Are all requirements addressed?
-- Code quality: Follows patterns, readable, maintainable?
-- Tests: Adequate coverage, edge cases?
-- Security: No obvious vulnerabilities?
-
-Output format - list issues as:
-[ALICE] [{severity}] {description} | File: {path} | Task: {ID}
-
-Severity: Critical, High, Medium, Low
-```
-
-#### Bob (Codex)
-
-```bash
-./scripts/codex-run.sh "Review the completed work against these requirements:
-
-{review-context.md contents}
-
-Check: plan compliance, PRD coverage, code quality, tests, security.
-
-Output each issue as:
-[BOB] [{severity}] {description} | File: {path} | Task: {ID}
-
-Severity: Critical, High, Medium, Low"
-```
-
-If Codex fails (non-zero exit or auth error):
-- Log: `⚠️ Bob (Codex) unavailable: {error}`
-- Continue with remaining agents
-
-#### Carl (Copilot)
-
-```bash
-copilot "Review the completed work against these requirements:
-
-{review-context.md contents}
-
-Check: plan compliance, PRD coverage, code quality, tests, security.
-
-Output each issue as:
-[CARL] [{severity}] {description} | File: {path} | Task: {ID}
-
-Severity: Critical, High, Medium, Low"
-```
-
-If Copilot fails:
-- Log: `⚠️ Carl (Copilot) unavailable: {error}`
-- Continue with remaining agents
-
-### 5. Consolidate findings
-
-Parse all agent outputs and merge:
-
-1. **Normalize issues** - Match similar issues across agents by file+description similarity
-2. **Score by consensus**:
-   - 🔴 **3 agents** - highest priority
-   - 🟠 **2 agents** - high priority
-   - 🟡 **1 agent** - normal priority
-3. **Deduplicate** - Keep best description, note which agents found it
-
-Output consolidated table:
-
-| Priority | Severity | Issue | File | Found By |
-|----------|----------|-------|------|----------|
-| 🔴 | Critical | XSS in input handler | src/input.ts | Alice, Bob, Carl |
-| 🟠 | High | Missing null check | src/api.ts | Alice, Bob |
-| 🟡 | Medium | No test coverage | src/utils.ts | Carl |
-
-### 6. Document findings
-
-For each consolidated issue:
-
-```
-- [{consensus-priority}] [{severity}] {description}
-  - File: {path}
-  - Task: {task ID}
-  - PRD ref: {section if applicable}
-  - Found by: {agent list}
-```
+Outputs consolidated issues sorted by consensus (3/3 → 2/3 → 1/3) then severity. See `references/output-formats.md` for output format details.
 
 ### 7. Create follow-up tasks
 
-Create tasks using `TaskCreate`, prioritizing multi-agent consensus:
+**If no issues found:** Skip task creation. Report clean review to user.
 
-**Rules**:
-- Process 🔴 (3-agent) issues first
-- Then 🟠 (2-agent) issues
-- Then 🟡 (1-agent) issues
-- Max 10 tasks (batch overflow into "Misc fixes")
+**If issues found:** Use `TaskCreate`, prioritizing multi-agent consensus:
+
+- Process 🔴 → 🟠 → 🟡 order
+- Max 25 tasks (batch overflow into "Misc fixes")
 - Group by theme
 - Tag complexity: `(S)` small, `(M)` medium, `(L)` large
 
-**Task description format**:
-```
-Fix: {issue summary}
+See `references/output-formats.md` for task description format.
 
-Issues addressed:
-- {issue 1}
-- {issue 2}
+### 8. Save review file
 
-Found by: {agents}
-Consensus: {🔴/🟠/🟡}
+Create at `.local/reviews/`.
 
-Acceptance criteria:
-- [ ] {criterion 1}
-- [ ] {criterion 2}
-```
+See `references/output-formats.md` for filename convention, frontmatter, and content format.
 
-### 8. Save review PRD
-
-If follow-up tasks created:
-- Location: `.local/prds/wip/{original-prd-name}-review01.txt`
-- Increment number for subsequent reviews
-- Include agent availability status
-
-## Output Format
-
-```
-## Review Summary
-
-Reviewed: {N} completed tasks
-PRDs checked: {list}
-
-### Agent Status
-- Alice (Claude): ✅ Available
-- Bob (Codex): ✅ Available | ⚠️ Unavailable: {reason}
-- Carl (Copilot): ✅ Available | ⚠️ Unavailable: {reason}
-
-## Consolidated Findings
-
-### 🔴 Multi-Agent Consensus (3/3)
-- [Critical] {issue} | {file} | Found by: Alice, Bob, Carl
-
-### 🟠 Partial Consensus (2/3)
-- [High] {issue} | {file} | Found by: Alice, Bob
-
-### 🟡 Single Agent
-- [Medium] {issue} | {file} | Found by: Carl
-
-## Follow-up Tasks Created
-
-1. {task title} (S/M/L) - 🔴 consensus - addresses X, Y
-2. {task title} (S/M/L) - 🟠 consensus - addresses Z
-```
-
-## Reference Files
-
-- `references/review-dimensions.md` - Detailed review checklist
-- `references/issue-template.md` - Issue documentation format
-- `references/agent-prompts.md` - Full prompts for each agent
+Include all findings even if zero issues.

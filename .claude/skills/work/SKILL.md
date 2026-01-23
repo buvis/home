@@ -15,7 +15,7 @@ Choose the right tool based on task domain:
 |--------|------|-----------|
 | Backend, APIs, business logic | Codex | Strong at algorithms, data flow, system design |
 | Frontend, UI, visual design | Gemini | Better aesthetic judgment, visual coherence |
-| Mixed (e.g., full-stack feature) | Split task or use both sequentially |
+| Mixed (e.g., full-stack feature) | Split task or use both sequentially |  |
 
 ### Gemini-first tasks
 
@@ -40,7 +40,8 @@ For visual tasks, Gemini can challenge existing specs:
 5. Then proceed with implementation
 
 Example prompt addition for visual tasks:
-```
+
+```text
 Before implementing, critically review this design spec.
 Suggest improvements to colors, spacing, typography, or layout.
 Challenge anything that feels generic or could be more distinctive.
@@ -62,6 +63,7 @@ Use `use-codex` skill when the task involves:
 ### 1. Get pending tasks
 
 Use `TaskList` tool to see all tasks. Filter for:
+
 - Status: `pending`
 - No blockers (empty `blockedBy`)
 - No owner assigned
@@ -69,6 +71,7 @@ Use `TaskList` tool to see all tasks. Filter for:
 ### 2. Claim and start task
 
 For the first available task:
+
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. Use `TaskGet` to read full task description
 
@@ -77,12 +80,13 @@ For the first available task:
 **Determine task domain** (see Tool Selection above), then:
 
 **For Codex tasks:**
-- Model: `gpt-5.1-codex-mini` (default) or user preference
-- Reasoning: `medium` (default)
+
+- Model: `gpt-5.2-codex` (default) or user preference
 - Sandbox: `workspace-write` for code changes
 - See `references/codex-integration.md`
 
 **For Gemini tasks:**
+
 - Permissions: `--allow-all-tools` for code changes
 - Mode: `-p` for non-interactive
 - See `references/gemini-integration.md`
@@ -103,6 +107,7 @@ git add -A && git commit -m "<type>(<scope>): <description>"
 ```
 
 Commit message rules:
+
 - Conventional commit format
 - One line, no period
 - Reference task ID if available
