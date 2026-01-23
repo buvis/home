@@ -1,7 +1,34 @@
 {
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/notify.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/notify.sh"
+          }
+        ]
+      }
+    ]
+  },
   "env": {
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000",
-    "MAX_THINKING_TOKENS": "31999"
+    "MAX_THINKING_TOKENS": "31999",
+    "NTFY_URL": "https://ntfy.buvis.net",
+    "NTFY_TOPIC": "claude"
+  },
+  "enabledPlugins": {
+    "pr-review-toolkit@claude-plugins-official": true
   },
   "mcpServers": {
     "youtube_transcript": {
@@ -13,8 +40,5 @@
         "mcp/youtube-transcript"
       ]
     }
-  },
-  "enabledPlugins": {
-    "pr-review-toolkit@claude-plugins-official": true
   }
 }

@@ -38,6 +38,10 @@ Provide high-level summary:
 - **Patterns**: Any architectural changes
 - **Review focus**: Suggested areas to examine closely
 
+### 4. Restore tasks
+
+Invoke `/restore-tasks` to recover any tasks from previous sessions on this branch.
+
 ## Manual Commands
 
 If script unavailable:

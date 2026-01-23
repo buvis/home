@@ -5,7 +5,57 @@ description: Implement pending tasks using Codex, committing after each task
 
 # Work Through Tasks
 
-Implement pending tasks one-by-one using Codex, committing after each completion.
+Implement pending tasks one-by-one, committing after each completion.
+
+## Tool Selection
+
+Choose the right tool based on task domain:
+
+| Domain | Tool | Rationale |
+|--------|------|-----------|
+| Backend, APIs, business logic | Codex | Strong at algorithms, data flow, system design |
+| Frontend, UI, visual design | Gemini | Better aesthetic judgment, visual coherence |
+| Mixed (e.g., full-stack feature) | Split task or use both sequentially |
+
+### Gemini-first tasks
+
+Use `use-gemini` skill when the task involves:
+
+- **Color palettes** - selection, theming, contrast
+- **Layouts** - page structure, spacing, visual hierarchy
+- **Components** - buttons, forms, cards, any UI elements
+- **Typography** - font choices, sizing, readability
+- **Animations/transitions** - motion design, timing
+- **Responsive design** - breakpoints, mobile adaptation
+- **Any user-facing surface** - web pages, GUI, dashboards
+
+### Gemini as design authority
+
+For visual tasks, Gemini can challenge existing specs:
+
+1. Share the planned design/spec with Gemini
+2. Ask for critical review before implementation
+3. **Trust Gemini's feedback** on visual matters - it has better taste
+4. Adjust the plan based on its recommendations
+5. Then proceed with implementation
+
+Example prompt addition for visual tasks:
+```
+Before implementing, critically review this design spec.
+Suggest improvements to colors, spacing, typography, or layout.
+Challenge anything that feels generic or could be more distinctive.
+```
+
+### Codex-first tasks
+
+Use `use-codex` skill when the task involves:
+
+- Database schemas, migrations
+- API endpoints, business logic
+- Authentication, authorization
+- Data processing, algorithms
+- Testing, CI/CD configuration
+- Backend infrastructure
 
 ## Workflow
 
@@ -22,17 +72,22 @@ For the first available task:
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. Use `TaskGet` to read full task description
 
-### 3. Invoke Codex
+### 3. Select and invoke tool
 
-Use the `use-codex` skill to execute the task:
+**Determine task domain** (see Tool Selection above), then:
+
+**For Codex tasks:**
 - Model: `gpt-5.1-codex-mini` (default) or user preference
 - Reasoning: `medium` (default)
 - Sandbox: `workspace-write` for code changes
-- Prompt: task description + acceptance criteria
+- See `references/codex-integration.md`
 
-See `references/codex-integration.md` for prompt templates.
+**For Gemini tasks:**
+- Permissions: `--allow-all-tools` for code changes
+- Mode: `-p` for non-interactive
+- See `references/gemini-integration.md`
 
-### 4. Handle Codex result
+### 4. Handle result
 
 | Result | Action |
 |--------|--------|
@@ -60,9 +115,9 @@ Commit message rules:
 
 ## Task Splitting
 
-When Codex can't complete a task (timeout/context), split it:
+When a tool can't complete a task (timeout/context), split it:
 
-1. Analyze what Codex accomplished
+1. Analyze what was accomplished
 2. Create 2-4 smaller tasks covering remaining work
 3. Use `TaskCreate` for each subtask
 4. Set dependencies with `TaskUpdate.addBlockedBy` if sequential
@@ -75,7 +130,9 @@ When Codex can't complete a task (timeout/context), split it:
 | Multiple files | One task per file |
 | Multiple features | One task per feature |
 | Large refactor | Extract → transform → cleanup |
+| Full-stack feature | Backend task (Codex) → Frontend task (Gemini) |
 
 ## Reference Files
 
-- `references/codex-integration.md` - Prompt templates and Codex interaction patterns
+- `references/codex-integration.md` - Codex prompt templates and patterns
+- `references/gemini-integration.md` - Gemini prompt templates and patterns
