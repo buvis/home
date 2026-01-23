@@ -43,3 +43,20 @@ description: Use when the user asks to run Codex CLI (codex exec, codex resume) 
 - Stop and report failures whenever `codex --version` or a `codex exec` command exits non-zero; request direction before retrying.
 - Before you use high-impact flags (`--full-auto`, `--sandbox danger-full-access`, `--skip-git-repo-check`) ask the user for permission using AskUserQuestion unless it was already given.
 - When output includes warnings or partial results, summarize them and ask how to adjust using `AskUserQuestion`.
+
+## Helper Script
+
+Use `scripts/codex-run.sh` for common operations:
+
+```bash
+# Analysis (read-only)
+./scripts/codex-run.sh "Analyze the codebase"
+
+# Code changes
+./scripts/codex-run.sh -s workspace-write -a "Fix the bug"
+
+# Resume session
+./scripts/codex-run.sh -r "Continue with changes"
+```
+
+Run `./scripts/codex-run.sh --help` for all options.
