@@ -20,6 +20,7 @@ deno = "latest"
 "npm:@github/copilot" = "latest"
 "cargo:zoxide" = "latest"
 "uvtool:poetry" = "latest"
+"npm:pake-cli" = "latest"
 
 [settings]
 experimental = true
