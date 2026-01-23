@@ -57,3 +57,4 @@ get-buvis.bat
 get-buvis.sh
 !*.secret
 ynab-buddy/config.yaml
+**/.claude/settings.local.json
