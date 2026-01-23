@@ -4,9 +4,7 @@
 
 - In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of brevity.
 - Only use emojis when the text would be unclear without them.
-- Use conventional commit message formats (e.g., "Fix:", "Add:", "Update:", "Refactor:", "Remove:") but keep them as short as possible.
-- Your commit messages must fit on one line.
-- Do not include anything like 🤖 Generated with Claude Code - Co-Authored-By: Claude <noreply@anthropic.com> in commit messages.
+- Use conventional commit message formats, refer to specific section in this document for details.
 - I'm a solo developer and it's just you and me working on this stuff, so I'm looking for all responses to be concise.
 - This is not a corporate environment; avoid formalities and over-complication. Let's just get stuff done.
 - Avoid over-engineering. Only make changes that are directly requested or clearly necessary. Keep solutions simple and focused.
@@ -131,3 +129,33 @@ rg -l -t ts 'useQuery\(' | xargs ast-grep run -l TypeScript -p 'useQuery($A)' -r
 - Unit of match: `ast-grep` = node; `rg` = line.
 - False positives: `ast-grep` low; `rg` depends on your regex.
 - Rewrites: `ast-grep` first-class; `rg` requires ad‑hoc sed/awk and risks collateral edits.
+
+## Conventional Commit Messages
+
+### Message Format
+
+Conventional commits format: `<type>(<scope>): <description>`
+
+### Commit Types
+
+| Type     | When                                        |
+|----------|---------------------------------------------|
+| fix      | Bug fix                                     |
+| feat     | New or changed feature                      |
+| perf     | Performance improvement                     |
+| refactor | Code restructuring, no behavior change      |
+| style    | Formatting only                             |
+| test     | Tests added/corrected                       |
+| docs     | Documentation only                          |
+| build    | Build tools, dependencies, versions         |
+| ops      | DevOps, infrastructure                      |
+| chore    | Anything else                               |
+
+### Rules
+
+- imperative present tense
+- no capital
+- no period
+- `!` before `:` for breaking changes
+- commit message must fit on one line
+- do not include anything like 🤖 Generated with Claude Code - Co-Authored-By: Claude <noreply@anthropic.com> in commit messages
