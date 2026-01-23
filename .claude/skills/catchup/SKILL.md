@@ -1,5 +1,5 @@
 ---
-name: Catch Up
+name: catchup
 description: Review branch changes since fork point from main/master
 ---
 
