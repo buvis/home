@@ -106,4 +106,27 @@ if wezterm.target_triple == "x86_64-pc-windows-msvc" then
 	}
 end
 
+wezterm.on("open-uri", function(window, pane, uri)
+	if uri:match("^file://") and uri:match("%.md$") then
+		local path = uri:gsub("^file://", "")
+		path = path:gsub("%%(%x%x)", function(hex)
+			return string.char(tonumber(hex, 16))
+		end)
+		-- Windows file URIs have a leading slash before drive letter: /C:/...
+		if path:match("^/[A-Za-z]:") then
+			path = path:sub(2)
+		end
+		local shell = wezterm.target_triple == "x86_64-pc-windows-msvc"
+			and { "cmd.exe", "/c", "nvim", path }
+			or { "/bin/zsh", "-lc", "nvim " .. wezterm.shell_quote_arg(path) }
+		window:perform_action(
+			act.SpawnCommandInNewTab({
+				args = shell,
+			}),
+			pane
+		)
+		return false
+	end
+end)
+
 return config
