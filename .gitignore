@@ -56,8 +56,6 @@
 .vifm/vifm-help.txt
 .vifm/vifminfo.json*
 __pycache__
-get-buvis.bat
-get-buvis.sh
 !*.secret
 ynab-buddy/config.yaml
 **/.claude/settings.local.json
