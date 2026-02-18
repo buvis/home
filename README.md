@@ -37,8 +37,8 @@ I always appreciate any opportunity to learn. Thank you!
 
 1. Configure git to keep line endings as they are: `git config --global core.autocrlf false`
 2. Create commonly used ENV variables pointing to home:
-    - `[Environment]::SetEnvironmentVariable("HOME", "$env:USERPROFILE", [System.EnvironmentVariableTarget]::User)`
-    - `[Environment]::SetEnvironmentVariable("XDG_CONFIG_HOME", "$env:USERPROFILE\.config", [System.EnvironmentVariableTarget]::User)`
+   - `[Environment]::SetEnvironmentVariable("HOME", "$env:USERPROFILE", [System.EnvironmentVariableTarget]::User)`
+   - `[Environment]::SetEnvironmentVariable("XDG_CONFIG_HOME", "$env:USERPROFILE\.config", [System.EnvironmentVariableTarget]::User)`
 3. Install useful apps: `scoop install ag fd fzf neovim ripgrep vifm wget wezterm`
 
 #### WSL
@@ -62,9 +62,11 @@ curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
-### Automate scripts' dependencies updates
+### Link to private dotfiles
 
-Create `post-merge` hook in `.buvis/modules/scripts/.git/hooks` according to [buvis scripts update automation instructions](https://github.com/buvis/scripts?tab=readme-ov-file#update)
+Dotfiles hidden from public are at `buvis/cellar`.
+
+- `.claude/projects`
 
 ### Configure git
 
@@ -128,7 +130,7 @@ Make symlink from `~/.config/lazygit/config.yml` to `~/Library/Application Suppo
 4. Fix locale: `sudo tic -xe alacritty,alacritty-direct ~/.config/alacritty/alacritty.info`
 5. Use WSL specific configuration for some tools: `vim $HOME/.bashrc-wsl`, add
 
-```
+```text
 export P_PROPERTIES_FILE="/home/bob/.pdata-wsl.properties"
 export GITA_PROJECT_HOME="/home/bob/.config/wsl/"
 ```
@@ -168,6 +170,14 @@ Run `mise install` while at $HOME.
 4. Stage updates: `cfgapa.bat`
 5. Commit updates with `<MESSAGE>`: `cfgm.bat "<MESSAGE>"`
 6. Push back to repository: `cfgp.bat`
+
+### Add encrypted file
+
+1. Register file for encryption: `cfg secret add path/to/file`
+2. Encrypt and check status: `cfgs`
+3. Stage encrypted file and metadata: `cfga path/to/file.secret .gitsecret`
+4. Commit: `cfgm "<MESSAGE>"`
+5. Push: `cfgp`
 
 ### Add default python package
 
