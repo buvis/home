@@ -84,7 +84,7 @@ export HISTCONTROL=ignoreboth:erasedups
 export HISTFILESIZE=100000
 export HISTSIZE=50000
 shopt -s histappend
-PROMPT_COMMAND="history -a; ${PROMPT_COMMAND:-}"
+PROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
