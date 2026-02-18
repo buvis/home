@@ -3,7 +3,18 @@
 
 set -e
 
-MODEL="gemini-3-pro-preview"
+FALLBACK_MODEL="gemini-3-pro-preview"
+
+detect_model() {
+    # Pick latest gemini-N-pro model
+    copilot --help 2>&1 | grep -oE 'gemini-[0-9]+-pro[^"]*' | sort -t- -k2,2rn | head -1
+}
+
+MODEL=$(detect_model)
+if [ -z "$MODEL" ]; then
+    echo "WARN: Could not detect latest gemini model, using $FALLBACK_MODEL" >&2
+    MODEL="$FALLBACK_MODEL"
+fi
 MODE="prompt"  # prompt, interactive, resume
 ALLOW_TOOLS=""
 ALLOW_ALL=""

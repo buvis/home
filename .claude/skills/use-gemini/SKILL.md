@@ -5,13 +5,13 @@ description: Use when the user asks to run Gemini via copilot CLI for code analy
 
 # Gemini Skill Guide
 
-Gemini is accessed via the `copilot` CLI with `--model gemini-3-pro-preview`.
+Gemini is accessed via the `copilot` CLI. The helper script auto-detects the latest `gemini-*-pro` model from `copilot --help` (falls back to `gemini-3-pro-preview`).
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `--model gemini-3-pro-preview`
+   - `--model` (auto-detected latest gemini-pro model)
    - `-p, --prompt <text>` for non-interactive mode
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `--allow-all-tools` to auto-approve tool use

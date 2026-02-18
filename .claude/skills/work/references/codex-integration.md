@@ -1,6 +1,6 @@
 # Codex Integration
 
-How to invoke Codex effectively for task implementation.
+How to invoke Codex via `copilot` CLI for task implementation. The helper script auto-detects the latest `gpt-*-codex` model from `copilot --help`.
 
 ## Prompt Template
 
@@ -24,28 +24,19 @@ Instructions:
 4. Keep changes minimal and focused
 ```
 
-## Model Selection
+## Permission Modes
 
-| Task complexity | Model |
-|-----------------|-------|
-| Simple fix, single file | `o4-mini` |
-| Standard feature | `o3` |
-| Complex logic, multi-file | `o3` |
-| Architectural changes | `o3` |
-
-## Sandbox Modes
-
-| Task type | Sandbox |
-|-----------|---------|
-| Analysis only | `read-only` |
-| Code changes | `workspace-write` |
-| Needs network (npm install, etc) | `danger-full-access` |
+| Task type | Flags |
+|-----------|-------|
+| Analysis only | `-p "prompt"` (default, interactive approval) |
+| Code changes | `--allow-all-tools -p "prompt"` |
+| Needs network or broad access | `--allow-all -p "prompt"` |
 
 ## Common Issues
 
 ### Timeout
 
-Codex has a context/time limit. Signs of timeout:
+Copilot has a context/time limit. Signs of timeout:
 - Incomplete changes
 - Missing files mentioned in plan
 - Abrupt stop mid-implementation
@@ -59,7 +50,7 @@ Large codebases may exceed context window.
 **Fix**:
 - Specify exact files to work with
 - Split into file-specific tasks
-- Use `-C <DIR>` to narrow scope
+- Use `--add-dir <DIR>` to narrow scope
 
 ### Wrong approach
 
