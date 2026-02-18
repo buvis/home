@@ -9,7 +9,7 @@ deno = "latest"
 "uvtool:Yapf" = "latest"
 "uvtool:autopep8" = "latest"
 "uvtool:beets" = "latest"
-"uvtool:buvis-gems" = "latest"
+"pipx:buvis-gems" = { version = "latest", extras = "all" }
 "uvtool:black" = "latest"
 "uvtool:gita" = "latest"
 "uvtool:llm" = "latest"
