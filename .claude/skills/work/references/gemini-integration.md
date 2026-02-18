@@ -1,6 +1,6 @@
 # Gemini Integration
 
-How to invoke Gemini via copilot CLI for task implementation.
+How to invoke Gemini via `copilot` CLI for task implementation. The helper script auto-detects the latest `gemini-*-pro` model from `copilot --help`.
 
 ## Prompt Template
 

@@ -1,55 +1,71 @@
 #!/bin/bash
-# Build and run codex command with proper flags
+# Run Codex model via copilot CLI
 
 set -e
 
-# Defaults
-MODEL=""
-SANDBOX="read-only"
-FULL_AUTO=""
-WORKDIR=""
+FALLBACK_MODEL="gpt-5.3-codex"
+
+detect_model() {
+    # Pick latest gpt-X.Y-codex (base only, no -mini/-max suffix)
+    copilot --help 2>&1 | grep -oE 'gpt-[0-9]+\.[0-9]+-codex"' | tr -d '"' | sort -t. -k1,1rn -k2,2rn | head -1
+}
+
+MODEL=$(detect_model)
+if [ -z "$MODEL" ]; then
+    echo "WARN: Could not detect latest codex model, using $FALLBACK_MODEL" >&2
+    MODEL="$FALLBACK_MODEL"
+fi
+MODE="prompt"  # prompt, interactive, resume, continue
+ALLOW_TOOLS=""
+ALLOW_ALL=""
+SILENT=""
+ADD_DIRS=()
 PROMPT=""
 PROMPT_FILE=""
-RESUME=""
-OUTPUT_FILE=""
 
 usage() {
-    echo "Usage: $0 [options] <prompt>"
+    echo "Usage: $0 [options] [prompt]"
     echo ""
     echo "Options:"
-    echo "  -m, --model MODEL      Model to use (uses codex default if not specified)"
-    echo "  -s, --sandbox MODE     Sandbox: read-only|workspace-write|danger-full-access"
-    echo "  -a, --auto             Enable full-auto mode (sandboxed auto-approve)"
-    echo "  -d, --dir DIR          Working directory"
+    echo "  -i, --interactive      Interactive mode with initial prompt"
+    echo "  -a, --allow-tools      Auto-approve tool use"
+    echo "  -y, --yolo             Full permissions (allow-all)"
+    echo "  -s, --silent           Silent mode (clean output for scripting)"
+    echo "  -d, --dir DIR          Allow access to directory (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
-    echo "  -o, --output FILE      Write last message to file"
-    echo "  -r, --resume           Resume last session"
+    echo "  -o, --output FILE      Write output to file (via tee)"
+    echo "  -r, --resume [ID]      Resume session (optionally specify ID)"
+    echo "  -c, --continue         Resume most recent session"
     echo "  -h, --help             Show this help"
     echo ""
     echo "Examples:"
-    echo "  $0 'Analyze the codebase structure'"
-    echo "  $0 -a 'Review code for issues'"
-    echo "  $0 -s workspace-write -a 'Fix the bug in auth.ts'"
-    echo "  $0 -r 'Continue with the changes'"
+    echo "  $0 'Analyze the codebase'"
+    echo "  $0 -a 'Fix the bug in auth.ts'"
+    echo "  $0 -y 'Refactor the module'"
+    echo "  $0 -r"
 }
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -m|--model)
-            MODEL="$2"
-            shift 2
+        -i|--interactive)
+            MODE="interactive"
+            shift
             ;;
-        -s|--sandbox)
-            SANDBOX="$2"
-            shift 2
+        -a|--allow-tools)
+            ALLOW_TOOLS="--allow-all-tools"
+            shift
             ;;
-        -a|--auto)
-            FULL_AUTO="--full-auto"
+        -y|--yolo)
+            ALLOW_ALL="--allow-all"
+            shift
+            ;;
+        -s|--silent)
+            SILENT="-s"
             shift
             ;;
         -d|--dir)
-            WORKDIR="$2"
+            ADD_DIRS+=("--add-dir" "$2")
             shift 2
             ;;
         -f|--file)
@@ -61,7 +77,15 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -r|--resume)
-            RESUME="true"
+            MODE="resume"
+            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                PROMPT="$2"
+                shift
+            fi
+            shift
+            ;;
+        -c|--continue)
+            MODE="continue"
             shift
             ;;
         -h|--help)
@@ -84,27 +108,40 @@ if [ -n "$PROMPT_FILE" ]; then
     PROMPT=$(cat "$PROMPT_FILE")
 fi
 
-if [ -z "$PROMPT" ]; then
-    echo "ERROR: Prompt required (use -f FILE or provide as argument)"
-    usage
-    exit 1
-fi
+# Build and run command
+run_cmd() {
+    if [ -n "$OUTPUT_FILE" ]; then
+        "$@" 2>&1 | tee "$OUTPUT_FILE"
+    else
+        "$@"
+    fi
+}
 
-# Build command
-if [ "$RESUME" = "true" ]; then
-    # Resume mode
-    codex exec --skip-git-repo-check resume --last <<< "$PROMPT"
-else
-    # New session
-    CMD=(codex exec --skip-git-repo-check)
-    [ -n "$MODEL" ] && CMD+=(-m "$MODEL")
-    CMD+=(--sandbox "$SANDBOX")
-
-    [ -n "$FULL_AUTO" ] && CMD+=($FULL_AUTO)
-    [ -n "$WORKDIR" ] && CMD+=(-C "$WORKDIR")
-    [ -n "$OUTPUT_FILE" ] && CMD+=(-o "$OUTPUT_FILE")
-
-    CMD+=("$PROMPT")
-
-    "${CMD[@]}"
-fi
+case $MODE in
+    resume)
+        if [ -n "$PROMPT" ]; then
+            run_cmd copilot --model "$MODEL" --resume "$PROMPT"
+        else
+            run_cmd copilot --model "$MODEL" --resume
+        fi
+        ;;
+    continue)
+        run_cmd copilot --model "$MODEL" --continue
+        ;;
+    interactive)
+        if [ -z "$PROMPT" ]; then
+            echo "ERROR: Prompt required for interactive mode"
+            usage
+            exit 1
+        fi
+        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -i "$PROMPT"
+        ;;
+    prompt)
+        if [ -z "$PROMPT" ]; then
+            echo "ERROR: Prompt required"
+            usage
+            exit 1
+        fi
+        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
+        ;;
+esac
