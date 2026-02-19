@@ -3,6 +3,11 @@
 
 set -e
 
+# Ensure mise-managed tools (like copilot) are on PATH
+if command -v mise &>/dev/null; then
+    eval "$(mise env -s bash)"
+fi
+
 FALLBACK_MODEL="gemini-3-pro-preview"
 
 detect_model() {
