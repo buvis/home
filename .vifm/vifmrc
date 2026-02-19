@@ -163,7 +163,7 @@ command! mkcd :mkdir %a | cd %a
 command! vgrep nvim "+grep %a"
 command! reload :write | restart
 if has('win')
-    command! slugren !python $HOME/scripts/bin/slugren -p "%f" &
+    command! slugren !slugren.bat -p "%f" &
 else
     command! slugren !~/scripts/bin/slugren -p "%f" &
 endif
