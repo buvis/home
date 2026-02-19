@@ -3,6 +3,11 @@
 
 set -e
 
+# Ensure mise-managed tools (like copilot) are on PATH
+if command -v mise &>/dev/null; then
+    eval "$(mise env -s bash)"
+fi
+
 FALLBACK_MODEL="gpt-5.3-codex"
 
 detect_model() {
