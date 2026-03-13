@@ -1,0 +1,1 @@
+/Users/bob/.claude/CLAUDE.md
