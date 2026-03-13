@@ -32,7 +32,7 @@ Quick reference (explain to user before showing conflicts):
 | Operation | `--ours` / HEAD | `--theirs` / incoming |
 |-----------|-----------------|----------------------|
 | merge | Your branch | Branch being merged |
-| rebase | Target (main) | Your commits |
+| rebase | Target (master) | Your commits |
 | cherry-pick | Your branch | Picked commit |
 | stash pop | Working tree | Stashed changes |
 
@@ -106,14 +106,14 @@ const timeout = 10000;
 
 **What happened**: Both branches changed the API timeout value.
 
-- **main** (current target): timeout = 5000ms (5 seconds)
+- **master** (current target): timeout = 5000ms (5 seconds)
 - **your feature branch**: timeout = 10000ms (10 seconds)
 
 This looks like your feature branch doubled the timeout—maybe for slower API calls?
 
 **Options**:
 
-1. Keep 5000ms (main's value) - faster timeout, may cause issues if your feature needs longer
+1. Keep 5000ms (master's value) - faster timeout, may cause issues if your feature needs longer
 2. Keep 10000ms (your value) - longer timeout you added
 3. Different value - if neither is right
 

@@ -42,7 +42,7 @@ CREATED_FILES+=("$CONTEXT_FILE")
 
   # Try: find merge-base with common defaults
   if [[ -z "$BASE_BRANCH" ]]; then
-    for candidate in main master develop; do
+    for candidate in master develop; do
       if git -C "$PROJECT_ROOT" rev-parse --verify "$candidate" >/dev/null 2>&1; then
         BASE_BRANCH="$candidate"
         break
