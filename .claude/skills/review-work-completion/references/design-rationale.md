@@ -24,7 +24,7 @@ LLMs must follow format instructions. If they can't, that's a model problem, not
 
 ## Branch Detection Logic
 
-Explicit script handles edge cases that prose instructions miss. "Diff against main" fails when main doesn't exist, remote isn't configured, or branch naming varies.
+Explicit script handles edge cases that prose instructions miss. "Diff against master" fails when master doesn't exist, remote isn't configured, or branch naming varies.
 
 ## `.local/` Directory Structure
 

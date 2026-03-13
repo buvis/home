@@ -9,7 +9,7 @@ During rebase, terminology is **counter-intuitive**. Your commits are replayed o
 | Operation | `HEAD` / `--ours` | `--theirs` / incoming |
 |-----------|-------------------|----------------------|
 | **merge** | Your current branch | Branch being merged in |
-| **rebase** | Target branch (main/master) | Your feature branch commits |
+| **rebase** | Target branch (master) | Your feature branch commits |
 | **cherry-pick** | Your current branch | The cherry-picked commit |
 | **stash pop** | Your working tree | The stashed changes |
 | **pull** | Your local branch | Remote changes |
@@ -39,14 +39,14 @@ With diff3 style (recommended):
 
 ## During Rebase - Detailed Explanation
 
-When rebasing `feature` onto `main`:
+When rebasing `feature` onto `master`:
 
-1. Git checks out `main` (this becomes HEAD/ours)
+1. Git checks out `master` (this becomes HEAD/ours)
 2. Git replays each `feature` commit one by one (each is theirs)
 3. If commit #3 conflicts, your code from commit #3 is "theirs"
 
 So to keep your feature branch changes: use `--theirs`
-To keep main branch state: use `--ours`
+To keep master branch state: use `--ours`
 
 ## Commands for Each Side
 

@@ -13,23 +13,19 @@ if [ -z "$CURRENT" ]; then
 fi
 
 # Check if on base branch
-if [ "$CURRENT" = "main" ] || [ "$CURRENT" = "master" ]; then
+if [ "$CURRENT" = "master" ]; then
     echo "ERROR: Already on base branch ($CURRENT)"
     echo "Nothing to compare - checkout a feature branch first"
     exit 1
 fi
 
 # Detect base branch
-if git rev-parse --verify origin/main >/dev/null 2>&1; then
-    BASE="origin/main"
-elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+if git rev-parse --verify origin/master >/dev/null 2>&1; then
     BASE="origin/master"
-elif git rev-parse --verify main >/dev/null 2>&1; then
-    BASE="main"
 elif git rev-parse --verify master >/dev/null 2>&1; then
     BASE="master"
 else
-    echo "ERROR: Cannot find main or master branch"
+    echo "ERROR: Cannot find master branch"
     exit 1
 fi
 

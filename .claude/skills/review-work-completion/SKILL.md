@@ -7,7 +7,7 @@ description: Multi-agent review of completed work against PRD requirements. Use 
 
 ## What This Does
 
-Validates completed implementation work against PRD requirements using three independent AI reviewers (Claude CLI, Codex, Gemini - tools may change in the future). Each reviewer analyzes the code changes and PRD criteria separately, then findings are consolidated by consensus — issues flagged by multiple reviewers get higher priority. Creates follow-up tasks for any gaps found.
+Validates completed implementation work against PRD requirements using three independent AI reviewers (Claude subagent, Codex, Gemini - tools may change in the future). Each reviewer analyzes the code changes and PRD criteria separately, then findings are consolidated by consensus — issues flagged by multiple reviewers get higher priority. Creates follow-up tasks for any gaps found.
 
 **Why three reviewers:** Different models catch different issues. Consensus scoring surfaces real problems while filtering noise from single-model false positives.
 
@@ -17,7 +17,7 @@ Validates completed implementation work against PRD requirements using three ind
 
 ## Reviewers
 
-- **Alice** → Claude CLI
+- **Alice** → Claude subagent (direct, not nested CLI)
 - **Bob** → Codex
 - **Carl** → Gemini
 
@@ -27,10 +27,9 @@ Validates completed implementation work against PRD requirements using three ind
 
 Check these exist:
 
-1. `claude` CLI - run `which claude`
-2. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
-3. `~/.claude/skills/use-gemini/scripts/gemini-run.sh` - executable
-4. `.local/prds/wip/` contains at least one `.txt` or `.md` file
+1. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
+2. `~/.claude/skills/use-gemini/scripts/gemini-run.sh` - executable
+3. `.local/prds/wip/` contains at least one `.txt` or `.md` file
 
 Create if missing: `.local/tmp/`, `.local/reviews/`
 

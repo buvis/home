@@ -1,6 +1,6 @@
 ---
 name: catchup
-description: Review branch changes since fork point from main/master. Use when resuming work on a branch or onboarding to existing changes. Triggers on "catch up", "catchup", "what changed on this branch", "summarize branch changes", "review branch".
+description: Review branch changes since fork point from master. Use when resuming work on a branch or onboarding to existing changes. Triggers on "catch up", "catchup", "what changed on this branch", "summarize branch changes", "review branch".
 ---
 
 # Catch Up on Branch Changes
@@ -50,29 +50,26 @@ If script unavailable:
 # Get current branch
 git branch --show-current
 
-# Detect base (main or master)
-git rev-parse --verify origin/main >/dev/null 2>&1 && echo "main" || echo "master"
-
 # Fetch latest
-git fetch origin main
+git fetch origin master
 
 # Find fork point
-git merge-base origin/main HEAD
+git merge-base origin/master HEAD
 
 # Changed files
-git diff $(git merge-base origin/main HEAD)..HEAD --name-only
+git diff $(git merge-base origin/master HEAD)..HEAD --name-only
 
 # Diff stats
-git diff $(git merge-base origin/main HEAD)..HEAD --stat
+git diff $(git merge-base origin/master HEAD)..HEAD --stat
 
 # Commit log
-git log $(git merge-base origin/main HEAD)..HEAD --oneline
+git log $(git merge-base origin/master HEAD)..HEAD --oneline
 ```
 
 ## Error Handling
 
 | Situation | Action |
 |-----------|--------|
-| On main/master | Report "Already on base branch, nothing to compare" |
-| No remote | Use local main/master as base |
+| On master | Report "Already on base branch, nothing to compare" |
+| No remote | Use local master as base |
 | Detached HEAD | Report current commit, ask user for base branch |
