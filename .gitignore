@@ -10,6 +10,7 @@
 !.claude/skills/**
 !.claude/CLAUDE.md
 .codex/*
+!.codex/AGENTS.md
 !.codex/config.toml
 !.codex/notify.sh
 .config/MusicBrainz
@@ -59,3 +60,4 @@ __pycache__
 !*.secret
 ynab-buddy/config.yaml
 **/.claude/settings.local.json
+test-encrypt.md
