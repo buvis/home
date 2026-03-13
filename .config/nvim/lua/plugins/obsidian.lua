@@ -7,7 +7,9 @@ return {
     "nvim-lua/plenary.nvim",
   },
   opts = {
-    disable_frontmatter = true,
+    frontmatter = {
+      disabled = true,
+    },
     workspaces = {
       {
         name = "bim",
