@@ -86,6 +86,10 @@ export HISTSIZE=50000
 shopt -s histappend
 PROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 
+# Support Android development
+export ANDROID_NDK_HOME=/opt/homebrew/share/android-ndk
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
 
