@@ -1,36 +1,84 @@
-# Claude Code user-level memory
+# AI assistant instructions
 
 ## General guidelines
 
-- In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of brevity.
-- Only use emojis when the text would be unclear without them.
-- Use conventional commit message formats, refer to specific section in this document for details.
-- I'm a solo developer and it's just you and me working on this stuff, so I'm looking for all responses to be concise.
-- This is not a corporate environment; avoid formalities and over-complication. Let's just get stuff done.
-- Avoid over-engineering. Only make changes that are directly requested or clearly necessary. Keep solutions simple and focused.
-- Don't add features, refactor code, or make "improvements" beyond what was asked. A bug fix doesn't need surrounding code cleaned up. A simple feature doesn't need extra configurability.
-- Don't add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees. Only validate at system boundaries (user input, external APIs). Don't use backwards-compatibility shims when you can just change the code.
-- Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is the minimum needed for the current task. Reuse existing abstractions where possible and follow the DRY principle.
-- ALWAYS read and understand relevant files before proposing code edits. Do not speculate about code you have not inspected. If the user references a specific file/path, you MUST open and inspect it before explaining or proposing fixes. Be rigorous and persistent in searching code for key facts. Thoroughly review the style, conventions, and abstractions of the codebase before implementing new features or abstractions.
-- Think as long as needed to get this right, I am not in a hurry. What matters is that you follow precisely what I ask you and execute it perfectly. Ask me questions if I am not precise enough.
+- Default branch is `master` everywhere. Never refer to it as `main`.
+- In all interactions and commit messages, be extremely concise and sacrifice grammar for brevity.
+- Only use emojis when text would be unclear without them.
+- Use conventional commit message formats. See section below.
+- I'm a solo developer. Keep responses concise.
+- This is not a corporate environment. Avoid formalities and over-complication.
+- Avoid over-engineering. Make only changes directly requested or clearly necessary. Keep solutions simple and focused.
+- Don't add features, refactor code, or make improvements beyond what was asked.
+- Don't add error handling, fallbacks, or validation for scenarios that can't happen. Validate at system boundaries only.
+- Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements.
+- ALWAYS read and understand relevant files before proposing edits. Do not speculate about code you have not inspected.
+- Think as long as needed to get this right. Ask questions only when ambiguity is material. Otherwise choose the simplest safe assumption.
+- All self-created working documents go in `.local/` in repo root. Ensure `.local/` is in `.gitignore`.
+- NEVER silence warnings with `#[allow(...)]`, `// nolint`, `@SuppressWarnings`, `# type: ignore`, or equivalent. Fix root cause.
+- When you discover pre-existing warnings, lint issues, or code smells, do not silently ignore them. Surface them and push for action.
 
-## Planning mode
+## Production-ready code
 
-- At the end of each plan, give me a list of unresolved questions you have about the task
-- Make the questions extremely concise
-- Sacrifice grammar for brevity
-- Ask me questions one by one providing enough context and simplification so I can make informed decision without studying anything else
+All code must be complete, working, and shippable.
+
+- No stubs or placeholders. Never leave TODO, FIXME, `NotImplementedError`, `unimplemented!()`, `pass`, or equivalent.
+- No dummy values. Never return hardcoded or fake data where real logic belongs.
+- Ask, don't stub. When requirements are unclear, ask instead of inserting temporary code.
+- Tests required. Write or update tests covering new behavior. Ensure they pass.
+- Self-review before responding. Scan all changes for incomplete markers and replace them with real implementations.
+- Done means done. A task is complete only when everything needed for the feature is fully implemented.
+
+## Critical thinking
+
+Apply rigorous self-questioning before acting.
+
+Before proposing solutions:
+
+- What assumptions am I making? Are they grounded in code I've actually read?
+- What's the simplest explanation? Am I overcomplicating this?
+- What would break if I'm wrong?
+
+Before writing code:
+
+- Is there an existing pattern in this codebase that already solves this? Have I looked?
+- What are the 2-3 alternatives? Why is this one better?
+- What edge cases or failure modes am I ignoring?
+
+When something seems obvious:
+
+- Be suspicious of obvious answers.
+- Ask: what if the opposite were true?
+
+Surface the thinking when it matters:
+
+- If I spot a flawed assumption in the request, say so directly.
+- If there are meaningful tradeoffs, present them concisely.
+- If uncertain, say why.
+
+Never do:
+
+- Withhold answers to force dialogue.
+- Add questioning ceremony to simple tasks.
+- Mistake verbosity for rigor.
+
+## Planning
+
+- When presenting a plan, end with unresolved questions.
+- Keep questions extremely concise.
+- Ask questions one by one.
+- Give enough context so they can be answered quickly.
 
 ## Writing
 
-1. **Never use tired metaphors.** If you've read it a hundred times, skip it. "Move the needle" and "low-hanging fruit" mean nothing now.
-2. **Use short words.** "Use" beats "utilize." "End" beats "terminate." Short words are faster to read and harder to misunderstand.
-3. **Cut relentlessly.** If removing a word doesn't change meaning, remove it. Most first drafts carry 30% filler.
-4. **Choose active voice.** "We deployed the service" is stronger than "The service was deployed." Active voice shows who did what.
-5. **Drop the jargon.** Unless you're writing for specialists in your exact domain, use everyday words. "Fix" works better than "remediate."
-6. **Break the rules when they make you sound ridiculous.** Sometimes passive voice works. Sometimes you need technical precision. The goal is clarity, not dogma.
+1. Never use tired metaphors.
+2. Use short words.
+3. Cut relentlessly.
+4. Choose active voice.
+5. Drop jargon.
+6. Break rules when needed for clarity.
 
-Before you ship any writing, ask Orwell's six questions:
+Before shipping writing, ask:
 
 - What am I trying to say?
 - What words express it?
@@ -39,124 +87,66 @@ Before you ship any writing, ask Orwell's six questions:
 - Could I say it shorter?
 - Have I written anything ugly?
 
+## CSS
+
+- Never use px for sizing: font-size, padding, margin, width, height, border-radius, etc.
+- Use rem with base 16px: 4px=0.25rem, 8px=0.5rem, 12px=0.75rem, 16px=1rem.
+- Acceptable px: border-width, box-shadow offsets, media query breakpoints.
+- Notification badges: wrap icon and badge in a `position: relative` inline-block container, then position badge with `position: absolute; top: 0; right: 0; transform: translate(40%, -20%)`.
+
 ## Quality
 
 <frontend_aesthetics>
-You tend to converge toward generic, "on distribution" outputs. In frontend design, this creates what users call the "AI slop" aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.
+Avoid generic, on-distribution frontend output.
 
 Focus on:
 
-- Typography: Choose fonts that are beautiful, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend's aesthetics.
-- Color & Theme: Commit to a cohesive aesthetic. Use CSS variables for consistency. Dominant colors with sharp accents outperform timid, evenly-distributed palettes. Draw from IDE themes and cultural aesthetics for inspiration.
-- Motion: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Use Motion library for React when available. Focus on high-impact moments: one well-orchestrated page load with staggered reveals (animation-delay) creates more delight than scattered micro-interactions.
-- Backgrounds: Create atmosphere and depth rather than defaulting to solid colors. Layer CSS gradients, use geometric patterns, or add contextual effects that match the overall aesthetic.
+- Typography: choose distinctive fonts. Avoid Arial, Inter, Roboto.
+- Color and theme: commit to a cohesive aesthetic. Use CSS variables.
+- Motion: use a few strong animations rather than many weak ones.
+- Backgrounds: build atmosphere and depth. Avoid flat defaults.
 
-Avoid generic AI-generated aesthetics:
+Avoid:
 
-- Overused font families (Inter, Roboto, Arial, system fonts)
-- Clichéd color schemes (particularly purple gradients on white backgrounds)
-- Predictable layouts and component patterns
-- Cookie-cutter design that lacks context-specific character
+- Overused font families
+- Cliched color schemes, especially purple gradients on white
+- Predictable layouts
+- Cookie-cutter design
 
-Interpret creatively and make unexpected choices that feel genuinely designed for the context. Vary between light and dark themes, different fonts, different aesthetics. You still tend to converge on common choices (Space Grotesk, for example) across generations. Avoid this: it is critical that you think outside the box!
+Make choices that feel designed for the context.
 </frontend_aesthetics>
 
-## MCP tools
+## Tools
 
-### Context7
+- When questions involve APIs, packages, configuration, or usage examples, use the best available documentation source first.
+- Before writing code, check documentation and usage examples for the APIs and dependencies involved.
+- Use `ast-grep` when structure matters.
+- Use `rg` when text is enough.
+- Prefer `ast-grep` for codemods and precise rewrites.
+- Prefer `rg` for fast recon and pre-filtering.
 
-1. When questions involve APIs, packages, configuration, or usage examples, call the context7 tool first.
-2. Before you are going to write any code, use context7 first for usage examples and documentation for APIs and dependencies used.
+## Conventional commit messages
 
-## System tools
+Format: `<type>(<scope>): <description>`
 
-Here are my preferences for tools to use when completing tasks.
-In this context, tools don't refer to MCP offered tools,
-but anything external to Claude that you might use to help complete the task.
+Types:
 
-### ast-grep vs ripgrep (quick guidance)
+- `fix`: bug fix
+- `feat`: new or changed feature
+- `perf`: performance improvement
+- `refactor`: restructuring, no behavior change
+- `style`: formatting only
+- `test`: tests added or corrected
+- `docs`: documentation only
+- `build`: build tools, dependencies, versions
+- `ops`: DevOps, infrastructure
+- `chore`: anything else
 
-#### Structure matters
-
-**Use `ast-grep` when structure matters.**
-It parses code and matches AST nodes, so results ignore comments/strings, understand syntax,
-and can **safely rewrite** code.
-
-- Refactors/codemods: rename APIs, change import forms, rewrite call sites or variable kinds.
-- Policy checks: enforce patterns across a repo (`scan` with rules + `test`).
-- Editor/automation: LSP mode; `--json` output for tooling.
-
-#### Text is enough
-
-**Use `ripgrep` when text is enough.** It’s the fastest way to grep literals/regex across files.
-
-- Recon: find strings, TODOs, log lines, config values, or non‑code assets.
-- Pre-filter: narrow candidate files before a precise pass.
-
-#### Rule of thumb
-
-- Need correctness over speed, or you’ll **apply changes** → start with `ast-grep`.
-- Need raw speed or you’re just **hunting text** → start with `rg`.
-- Often combine: `rg` to shortlist files, then `ast-grep` to match/modify with precision.
-
-#### Snippets
-
-Find structured code (ignores comments/strings):
-
-```bash
-ast-grep run -l TypeScript -p 'import $X from "$P"'
-```
-
-Codemod (only real `var` declarations become `let`):
-
-```bash
-ast-grep run -l JavaScript -p 'var $A = $B' -r 'let $A = $B' -U
-```
-
-Quick textual hunt:
-
-```bash
-rg -n 'console\.log\(' -t js
-```
-
-Combine speed + precision:
-
-```bash
-rg -l -t ts 'useQuery\(' | xargs ast-grep run -l TypeScript -p 'useQuery($A)' -r 'useSuspenseQuery($A)' -U
-```
-
-#### Mental model
-
-- Unit of match: `ast-grep` = node; `rg` = line.
-- False positives: `ast-grep` low; `rg` depends on your regex.
-- Rewrites: `ast-grep` first-class; `rg` requires ad‑hoc sed/awk and risks collateral edits.
-
-## Conventional Commit Messages
-
-### Message Format
-
-Conventional commits format: `<type>(<scope>): <description>`
-
-### Commit Types
-
-| Type     | When                                        |
-|----------|---------------------------------------------|
-| fix      | Bug fix                                     |
-| feat     | New or changed feature                      |
-| perf     | Performance improvement                     |
-| refactor | Code restructuring, no behavior change      |
-| style    | Formatting only                             |
-| test     | Tests added/corrected                       |
-| docs     | Documentation only                          |
-| build    | Build tools, dependencies, versions         |
-| ops      | DevOps, infrastructure                      |
-| chore    | Anything else                               |
-
-### Rules
+Rules:
 
 - imperative present tense
 - no capital
 - no period
 - `!` before `:` for breaking changes
-- commit message must fit on one line
-- do not include anything like 🤖 Generated with Claude Code - Co-Authored-By: Claude <noreply@anthropic.com> in commit messages
+- one line only
+- do not include generated-by or co-authored-by boilerplate
