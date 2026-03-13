@@ -162,11 +162,7 @@ command! make !!make %a
 command! mkcd :mkdir %a | cd %a
 command! vgrep nvim "+grep %a"
 command! reload :write | restart
-if has('win')
-    command! slugren !slugren.bat -p "%f" &
-else
-    command! slugren !~/scripts/bin/slugren -p "%f" &
-endif
+command! slug !fren slug %f &
 command! wslfixperm !chmod -R a-x+X,u-x+rwX,go-wx+rX * &
 command! bb !~/.local/bin/doogat/doo/doo create bookmark --edit
 command! cc !~/.local/bin/doogat/doo/doo create contact --edit
@@ -538,7 +534,7 @@ nnoremap ,c :write | edit $MYVIFMRC | restart<cr>
 nnoremap ,w :set wrap!<cr>
 
 " normalize filename
-nnoremap ,s :slugren<cr>
+nnoremap ,s :slug<cr>
 
 " fix file permissions inside WSL
 nnoremap ,fp :wslfixperm<cr>
