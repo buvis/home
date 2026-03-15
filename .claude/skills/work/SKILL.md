@@ -75,6 +75,16 @@ For the first available task:
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. Use `TaskGet` to read full task description
 
+### 2.5. Load project context
+
+Before dispatching to Codex/Gemini, load relevant context into the prompt:
+
+- AGENTS.md / agent_docs/ architecture docs
+- Active PRD from `.local/prds/wip/`
+- Key module interfaces relevant to the task
+
+1M context makes this practical — richer prompts produce better first-pass results.
+
 ### 3. Select and invoke tool
 
 **Determine task domain** (see Tool Selection above), then:
@@ -120,7 +130,9 @@ Commit message rules:
 
 ## Task Splitting
 
-When a tool can't complete a task (timeout/context), split it:
+**Note:** With 1M context, context-exceeded failures are rare. Split primarily for timeout or task complexity, not context limits.
+
+When a tool can't complete a task (timeout/complexity), split it:
 
 1. Analyze what was accomplished
 2. Create 2-4 smaller tasks covering remaining work

@@ -62,6 +62,8 @@ Cannot review: no completed tasks found. Complete tasks first.
 
 Read all PRDs from `.local/prds/wip/`. Extract success criteria, acceptance criteria, required features.
 
+Load architecture docs: AGENTS.md, agent_docs/, and any `.local/` architecture notes. Reviewers benefit from seeing invariants and boundaries.
+
 Build markdown of completed tasks with descriptions.
 
 Run (from project root):
@@ -77,6 +79,8 @@ Outputs context file and diff file paths to `.local/tmp/`.
 Create prompt files in `.local/tmp/`:
 
 For each agent, write a file `.local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). See `references/agent-prompts.md` for prompt template structure.
+
+With 1M context, agent prompts can include more background — full PRD, architecture summary, relevant module interfaces — rather than compressed summaries. Richer context produces better reviews.
 
 ### 5. Run three-agent review
 

@@ -23,6 +23,10 @@ This outputs:
 
 ### 2. Analyze changes
 
+Load project architecture context alongside the diff: AGENTS.md, agent_docs/, or any `.local/` architecture notes. This enables cross-cutting impact analysis.
+
+With 1M context, load the full diff even for large branches rather than sampling.
+
 Prioritize reading (in order):
 1. Config files (package.json, tsconfig, etc.)
 2. Schema/model changes
@@ -35,6 +39,7 @@ Provide high-level summary:
 - **Purpose**: What this branch accomplishes
 - **Scope**: Key files/areas modified
 - **Impact**: What parts of system affected
+- **Cross-cutting impact**: What invariants or boundaries might be affected across the system, not just within changed files
 - **Patterns**: Any architectural changes
 - **Review focus**: Suggested areas to examine closely
 
