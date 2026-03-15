@@ -24,7 +24,9 @@ If no PRDs found, inform user and stop.
 
 ### 2. Select PRD
 
-Use `AskUserQuestion` with available PRD files as options.
+- **1 PRD in wip** → auto-select it, don't ask
+- **0 PRDs in wip** → present backlog list, ask user to pick
+- **2+ PRDs in wip** → present list (wip + backlog), ask user to pick
 
 ### 3. Analyze PRD
 
