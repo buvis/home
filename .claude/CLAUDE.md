@@ -15,6 +15,9 @@
 - ALWAYS read and understand relevant files before proposing edits. Do not speculate about code you have not inspected.
 - Think as long as needed to get this right. Ask questions only when ambiguity is material. Otherwise choose the simplest safe assumption.
 - All self-created working documents go in `.local/` in repo root. Ensure `.local/` is in `.gitignore`.
+- Never move PRDs from backlog or wip to done until the user explicitly confirms.
+- Keep the `00XXX-` prefix on PRD filenames when moving between backlog/wip/done.
+- Use `mv` (not `cp`) when moving PRDs between folders — no duplicates across backlog/wip/done.
 - NEVER silence warnings with `#[allow(...)]`, `// nolint`, `@SuppressWarnings`, `# type: ignore`, or equivalent. Fix root cause.
 - When you discover pre-existing warnings, lint issues, or code smells, do not silently ignore them. Surface them and push for action.
 
