@@ -30,11 +30,14 @@ If no PRDs found, inform user and stop.
 
 ### 3. Analyze PRD
 
-Read the full PRD. Extract:
+Read the full PRD. Also load existing codebase architecture context (AGENTS.md, agent_docs/, `.local/` architecture notes) to cross-reference. Identify reusable existing code before creating tasks.
+
+Extract:
 - Capabilities and features
 - Module structure
 - Dependency graph
 - Implementation phases
+- Existing patterns/utilities that implementers should reuse
 
 ### 4. Create tasks
 
@@ -51,6 +54,8 @@ Use `TaskCreate` for each task. Follow these rules:
 {What to do}
 
 Location: {file paths or how to find them}
+
+Reuse: {existing patterns, utilities, or modules to build on — if any}
 
 Details:
 - {specific requirement 1}

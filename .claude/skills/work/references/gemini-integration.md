@@ -13,6 +13,12 @@ Description:
 Acceptance Criteria:
 {task.acceptance_criteria or "Complete the task as described"}
 
+Architecture:
+{relevant sections from AGENTS.md or agent_docs/architecture.md}
+
+Key invariants:
+{domain rules and boundaries from AGENTS.md or agent_docs/}
+
 Context:
 - Working directory: {cwd}
 - Relevant files: {list files if known}
