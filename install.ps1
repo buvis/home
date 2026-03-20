@@ -1,4 +1,3 @@
-#!/usr/bin/env pwsh
 # Inspired by: https://www.atlassian.com/git/tutorials/dotfiles
 
 function info { Write-Host ($args -join ' ') }
