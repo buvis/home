@@ -100,7 +100,7 @@ export OPENFAAS_URL=https://fn.buvis.net
 command -v mise >/dev/null && eval "$(mise activate bash)"
 
 # Initialize smart jumps
-command -v zoxide >/dev/null && eval "$(zoxide init bash)"
+command -v zoxide >/dev/null && eval "$(zoxide init --cmd cd bash)"
 
 # Load Bash It
 [ -f "$BASH_IT/bash_it.sh" ] && source "$BASH_IT"/bash_it.sh
