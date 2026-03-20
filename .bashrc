@@ -6,6 +6,9 @@ case $- in
 *) return ;;
 esac
 
+# Set DOTFILES_ROOT if not already set, defaulting to $HOME
+export DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME}"
+
 # Path to the bash it configuration
 export BASH_IT="${DOTFILES_ROOT}/.bash_it"
 
@@ -94,10 +97,10 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 export OPENFAAS_URL=https://fn.buvis.net
 
 # Initialize mise shims and autocompletion
-eval "$(mise activate bash)"
+command -v mise >/dev/null && eval "$(mise activate bash)"
 
 # Initialize smart jumps
-eval "$(zoxide init --cmd cd bash)"
+command -v zoxide >/dev/null && eval "$(zoxide init bash)"
 
 # Load Bash It
-source "$BASH_IT"/bash_it.sh
+[ -f "$BASH_IT/bash_it.sh" ] && source "$BASH_IT"/bash_it.sh
