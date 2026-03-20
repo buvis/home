@@ -14,6 +14,10 @@ cfg() {
 
 cfg config status.showUntrackedFiles no
 
+# Identify this machine in commits
+cfg config user.name "$(hostname -s)"
+cfg config user.email "$(hostname -s)@buvis.net"
+
 # Remove leftover submodule directories from previous installs
 if [[ -f "$HOME/.gitmodules" ]]; then
   cfg config --file .gitmodules --get-regexp path | awk '{ print $2 }' | xargs -I{} rm -rf "{}"
@@ -42,9 +46,13 @@ else
   cfg checkout || exit 1
 fi
 
-# Post-checkout setup
-cfg submodule update --init && cfg submodule update --remote --merge
+# Set up remote tracking for bare repo
+cfg config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+cfg fetch origin
 cfg branch -u origin/master master
+
+# Retrieve submodule content
+cfg submodule update --init && cfg submodule update --remote --merge
 
 if command -v mise &>/dev/null; then
   mise install
