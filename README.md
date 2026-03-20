@@ -49,14 +49,15 @@ Currently not using, so I can't provide specific instructions.
 
 ### macOS, WSL, and potentially any Linux distro
 
-```bash
-https://tinyurl.com/install-buvis | /usr/bin/env bash
+```sh
+curl -fsSL https://tinyurl.com/install-buvis | sh
 ```
 
 ### Windows
 
-1. Copy `get-buvis.bat` from here
-2. Run `get-buvis.bat` in `cmd`
+```powershell
+irm https://tinyurl.com/install-buvis-ps | iex
+```
 
 ## Post-install
 

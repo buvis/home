@@ -14,9 +14,18 @@ cfg() {
   /usr/bin/git --git-dir="$REPO" --work-tree="$HOME" "$@"
 }
 
-rm -rf "$REPO"
 cd "$HOME" || exit 1
-git clone --bare https://github.com/buvis/home.git "$REPO"
+
+# Clone or fetch
+if [ -d "$REPO" ]; then
+  info "Updating existing repo"
+  cfg config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  cfg fetch origin
+else
+  git clone --bare https://github.com/buvis/home.git "$REPO"
+  cfg config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  cfg fetch origin
+fi
 
 cfg config status.showUntrackedFiles no
 
@@ -52,10 +61,8 @@ else
   cfg checkout || exit 1
 fi
 
-# Set up remote tracking for bare repo
-cfg config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-cfg fetch origin
-cfg branch -u origin/master master
+# Set up remote tracking
+cfg branch -u origin/master master 2>/dev/null || true
 
 # Retrieve submodule content
 cfg submodule update --init && cfg submodule update --remote --merge
