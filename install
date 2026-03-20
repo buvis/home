@@ -1,16 +1,22 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Inspired by: https://www.atlassian.com/git/tutorials/dotfiles
+set -eu
+
+info() { echo "$@" >&2; }
+error() { echo "error: $*" >&2; exit 1; }
 
 REPO="$HOME/.buvis"
 BACKUP="$REPO/originals-backup"
 
-rm -rf "$REPO"
-cd "$HOME" || exit 1
-git clone --bare https://github.com/buvis/home.git "$REPO"
+command -v git >/dev/null 2>&1 || error "git is required"
 
 cfg() {
   /usr/bin/git --git-dir="$REPO" --work-tree="$HOME" "$@"
 }
+
+rm -rf "$REPO"
+cd "$HOME" || exit 1
+git clone --bare https://github.com/buvis/home.git "$REPO"
 
 cfg config status.showUntrackedFiles no
 
@@ -19,28 +25,28 @@ cfg config user.name "$(hostname -s)"
 cfg config user.email "$(hostname -s)@buvis.net"
 
 # Remove leftover submodule directories from previous installs
-if [[ -f "$HOME/.gitmodules" ]]; then
+if [ -f "$HOME/.gitmodules" ]; then
   cfg config --file .gitmodules --get-regexp path | awk '{ print $2 }' | xargs -I{} rm -rf "{}"
 fi
 
 # Checkout, backing up conflicting files if needed
 if cfg checkout 2>&1; then
-  echo "Checked out config"
+  info "Checked out config"
 else
-  echo "Backing up pre-existing dot files"
+  info "Backing up pre-existing dot files"
   mkdir -p "$BACKUP"
   cfg checkout 2>&1 | grep -E "^\s+" | awk '{ print $1 }' >"$BACKUP/overwrites"
 
   while read -r path; do
-    [[ -e "$HOME/$path" ]] || continue
+    [ -e "$HOME/$path" ] || continue
     mkdir -p "$BACKUP/$(dirname "$path")"
-    if [[ -L "$HOME/$path" ]]; then
+    if [ -L "$HOME/$path" ]; then
       cp -a "$HOME/$path" "$BACKUP/$path"
       unlink "$HOME/$path"
     else
       mv "$HOME/$path" "$BACKUP/$path"
     fi
-    echo "Backed up $path"
+    info "Backed up $path"
   done <"$BACKUP/overwrites"
 
   cfg checkout || exit 1
@@ -54,6 +60,6 @@ cfg branch -u origin/master master
 # Retrieve submodule content
 cfg submodule update --init && cfg submodule update --remote --merge
 
-if command -v mise &>/dev/null; then
+if command -v mise >/dev/null 2>&1; then
   mise install
 fi
