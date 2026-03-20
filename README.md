@@ -56,7 +56,7 @@ curl -fsSL https://tinyurl.com/install-buvis | sh
 ### Windows
 
 ```powershell
-irm https://tinyurl.com/install-buvis-ps | iex
+irm https://tinyurl.com/install-ps-buvis | iex
 ```
 
 ## Post-install
