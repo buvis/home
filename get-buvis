@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Inspired by: https://www.atlassian.com/git/tutorials/dotfiles
+
+REPO="$HOME/.buvis"
+BACKUP="$REPO/originals-backup"
+
+rm -rf "$REPO"
+cd "$HOME" || exit 1
+git clone --bare https://github.com/buvis/home.git "$REPO"
+
+cfg() {
+  /usr/bin/git --git-dir="$REPO" --work-tree="$HOME" "$@"
+}
+
+cfg config status.showUntrackedFiles no
+
+# Remove leftover submodule directories from previous installs
+if [[ -f "$HOME/.gitmodules" ]]; then
+  cfg config --file .gitmodules --get-regexp path | awk '{ print $2 }' | xargs -I{} rm -rf "{}"
+fi
+
+# Checkout, backing up conflicting files if needed
+if cfg checkout 2>&1; then
+  echo "Checked out config"
+else
+  echo "Backing up pre-existing dot files"
+  mkdir -p "$BACKUP"
+  cfg checkout 2>&1 | grep -E "^\s+" | awk '{ print $1 }' >"$BACKUP/overwrites"
+
+  while read -r path; do
+    [[ -e "$HOME/$path" ]] || continue
+    mkdir -p "$BACKUP/$(dirname "$path")"
+    if [[ -L "$HOME/$path" ]]; then
+      cp -a "$HOME/$path" "$BACKUP/$path"
+      unlink "$HOME/$path"
+    else
+      mv "$HOME/$path" "$BACKUP/$path"
+    fi
+    echo "Backed up $path"
+  done <"$BACKUP/overwrites"
+
+  cfg checkout || exit 1
+fi
+
+# Post-checkout setup
+cfg submodule update --init && cfg submodule update --remote --merge
+cfg branch -u origin/master master
+
+if command -v mise &>/dev/null; then
+  mise install
+fi
