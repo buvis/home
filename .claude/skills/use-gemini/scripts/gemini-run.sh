@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run Gemini via copilot CLI
 
-set -e
+set -eo pipefail
 
 # Ensure mise-managed tools (like copilot) are on PATH
 if command -v mise &>/dev/null; then
@@ -27,6 +27,7 @@ SILENT=""
 ADD_DIRS=()
 PROMPT=""
 PROMPT_FILE=""
+OUTPUT_FILE=""
 
 usage() {
     echo "Usage: $0 [options] [prompt]"
@@ -38,6 +39,7 @@ usage() {
     echo "  -s, --silent           Silent mode (clean output for scripting)"
     echo "  -d, --dir DIR          Allow access to directory (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
+    echo "  -o, --output FILE      Write output to file (via tee)"
     echo "  -r, --resume [ID]      Resume session (optionally specify ID)"
     echo "  -c, --continue         Resume most recent session"
     echo "  -h, --help             Show this help"
@@ -76,6 +78,10 @@ while [[ $# -gt 0 ]]; do
             PROMPT_FILE="$2"
             shift 2
             ;;
+        -o|--output)
+            OUTPUT_FILE="$2"
+            shift 2
+            ;;
         -r|--resume)
             MODE="resume"
             if [[ -n "$2" && ! "$2" =~ ^- ]]; then
@@ -109,16 +115,24 @@ if [ -n "$PROMPT_FILE" ]; then
 fi
 
 # Build and run command
+run_cmd() {
+    if [ -n "$OUTPUT_FILE" ]; then
+        "$@" 2>&1 | tee "$OUTPUT_FILE"
+    else
+        "$@"
+    fi
+}
+
 case $MODE in
     resume)
         if [ -n "$PROMPT" ]; then
-            copilot --model "$MODEL" --resume "$PROMPT"
+            run_cmd copilot --model "$MODEL" --resume "$PROMPT"
         else
-            copilot --model "$MODEL" --resume
+            run_cmd copilot --model "$MODEL" --resume
         fi
         ;;
     continue)
-        copilot --model "$MODEL" --continue
+        run_cmd copilot --model "$MODEL" --continue
         ;;
     interactive)
         if [ -z "$PROMPT" ]; then
@@ -126,7 +140,7 @@ case $MODE in
             usage
             exit 1
         fi
-        copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -i "$PROMPT"
+        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -i "$PROMPT"
         ;;
     prompt)
         if [ -z "$PROMPT" ]; then
@@ -134,6 +148,6 @@ case $MODE in
             usage
             exit 1
         fi
-        copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
+        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
         ;;
 esac

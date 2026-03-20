@@ -1,5 +1,15 @@
 # AI assistant instructions
 
+## Workflow
+
+- After completing all tasks for a PRD, proactively run `/review-work-completion` — don't wait to be asked.
+- For end-to-end PRD execution, use `/autopilot` — chains catchup, planning, work, review, and rework automatically.
+- After completing work, clean up: remove stale worktrees (`git worktree remove`), delete orphan branches, and remove temp files created during the session.
+
+## Naming
+
+- Name commands, skills, functions, and anything that performs an action starting with an action verb (e.g. `review-deps-prs`, not `dep-updates`).
+
 ## General guidelines
 
 - Default branch is `master` everywhere. Never refer to it as `main`.
@@ -15,6 +25,7 @@
 - ALWAYS read and understand relevant files before proposing edits. Do not speculate about code you have not inspected.
 - Think as long as needed to get this right. Ask questions only when ambiguity is material. Otherwise choose the simplest safe assumption.
 - All self-created working documents go in `.local/` in repo root. Ensure `.local/` is in `.gitignore`.
+- Always use the Write tool for `.local/` files, including when CWD is `~/.claude`. Never use Bash shell redirects (`cat >`, `echo >`) to write files.
 - Never move PRDs from backlog or wip to done until the user explicitly confirms.
 - Keep the `00XXX-` prefix on PRD filenames when moving between backlog/wip/done.
 - Use `mv` (not `cp`) when moving PRDs between folders — no duplicates across backlog/wip/done.
@@ -118,6 +129,21 @@ Avoid:
 
 Make choices that feel designed for the context.
 </frontend_aesthetics>
+
+## macOS + Rust extensions
+
+- After maturin builds a `.so`, macOS `syspolicyd` may block it silently — Python hangs on import, killed by SIGKILL with no error message.
+- Fix: `codesign -f -s - path/to/_core.*.so` after build.
+- When debugging "Python hangs on native extension import", check code signing first.
+
+## Bash tool
+
+- **One command per Bash call. No multi-line scripts.** Each Bash tool invocation must contain exactly one command starting with the binary name. The permission prefix is the first token — anything before the binary (variable assignments, newlines, env vars) becomes the prefix and breaks permission matching.
+- Never use shell variable assignments (`F=...`, `WD=...`) or env var prefixes in Bash calls. Inline all values directly. Wrong: `F=/path/to/file\nshowboat init "$F" "Title"`. Right: `showboat init /path/to/file "Title"`.
+- **Never pipe commands.** `uv run pytest ... | head -30` breaks `Bash(uv run:*)` permission matching — the pipe makes it a different command. Use separate Bash calls or tool parameters instead.
+- Never chain with `&&`, `;`, or newlines when sub-commands have different permission prefixes.
+- Use separate parallel Bash calls when commands are independent, sequential when dependent.
+- Don't add `2>&1` — the Bash tool captures both stdout and stderr by default.
 
 ## Tools
 

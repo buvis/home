@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # Gathers review context into .local/tmp/
-# Usage: gather-context.sh <project_root> [tasks_md] [prd_summary_md]
+# Usage: gather-context.sh [tasks_file] [prd_summary_file]
+#   tasks_file:       path to file containing tasks markdown (optional)
+#   prd_summary_file: path to file containing PRD summary (optional)
 # Outputs: paths to created files (one per line)
 
 set -euo pipefail
 
-PROJECT_ROOT="${1:?Usage: gather-context.sh <project_root> [tasks_md] [prd_summary_md]}"
-TASKS_MD="${2:-}"
-PRD_SUMMARY="${3:-}"
+PROJECT_ROOT="$(pwd)"
+TASKS_FILE="${1:-}"
+PRD_FILE="${2:-}"
+
+TASKS_MD=""
+PRD_SUMMARY=""
+[[ -n "$TASKS_FILE" && -f "$TASKS_FILE" ]] && TASKS_MD="$(cat "$TASKS_FILE")"
+[[ -n "$PRD_FILE" && -f "$PRD_FILE" ]] && PRD_SUMMARY="$(cat "$PRD_FILE")"
 
 TMP_DIR="$PROJECT_ROOT/.local/tmp"
 mkdir -p "$TMP_DIR"
 
 # Track all created files
 CREATED_FILES=()
-CONTEXT_FILE="$TMP_DIR/review-context-$$.md"
+_ID="$(date +%s)-$$"
+CONTEXT_FILE="$TMP_DIR/review-context-${_ID}.md"
 CREATED_FILES+=("$CONTEXT_FILE")
 
 {
@@ -67,7 +75,7 @@ CREATED_FILES+=("$CONTEXT_FILE")
     git -C "$PROJECT_ROOT" diff "$BASE_BRANCH" --stat 2>/dev/null || echo "_No diff available_"
     echo '```'
     echo
-    DIFF_FILE="$TMP_DIR/review-diff-$$.diff"
+    DIFF_FILE="$TMP_DIR/review-diff-${_ID}.diff"
     git -C "$PROJECT_ROOT" diff "$BASE_BRANCH" > "$DIFF_FILE" 2>/dev/null || echo "_No diff available_" > "$DIFF_FILE"
     CREATED_FILES+=("$DIFF_FILE")
     echo "### Diff Content"

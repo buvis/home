@@ -121,7 +121,11 @@ Which do you want?"
 
 User: "Keep mine"
 
-→ `git checkout --theirs src/config.js && git add src/config.js && git rebase --continue`
+→ `git checkout --theirs src/config.js`
+→ `git add src/config.js`
+→ `git rebase --continue`
+
+Run each as a separate Bash call.
 
 ## Reference Files
 

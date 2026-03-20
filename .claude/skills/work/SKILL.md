@@ -85,6 +85,12 @@ Before dispatching to Codex/Gemini, load relevant context into the prompt:
 
 1M context makes this practical — richer prompts produce better first-pass results.
 
+### 2.7. Write tests first (if superpowers available)
+
+If `superpowers:test-driven-development` is in the available skills list, invoke it before dispatching. Write failing tests for the task's acceptance criteria, commit them, then proceed to dispatch. The external tool implements against the failing tests.
+
+Skip if the task is test-only, documentation-only, or configuration-only.
+
 ### 3. Select and invoke tool
 
 **Determine task domain** (see Tool Selection above), then:
@@ -108,13 +114,23 @@ Before dispatching to Codex/Gemini, load relevant context into the prompt:
 | Success | Continue to step 5 |
 | Timeout | Split task (see below), mark original as blocked |
 | Context exceeded | Split task, mark original as blocked |
-| Error | Report to user, keep task in_progress |
+| Error | Invoke systematic-debugging if available (see below), otherwise report to user |
+
+### 4.5. Debug on error (if superpowers available)
+
+If the tool returned an error and `superpowers:systematic-debugging` is in the available skills list, invoke it to diagnose the root cause before reporting to the user. If debugging resolves the issue, continue to step 5. If not, report to user and keep task in_progress.
 
 ### 5. Commit changes
 
+Stage changed files, then commit in a separate Bash call:
 ```bash
-git add -A && git commit -m "<type>(<scope>): <description>"
+git add -A
 ```
+```bash
+git commit -m "<type>(<scope>): <description>"
+```
+
+Never chain these with `&&` in a single Bash call.
 
 Commit message rules:
 
@@ -122,11 +138,20 @@ Commit message rules:
 - One line, no period
 - Reference task ID if available
 
-### 6. Mark complete and continue
+### 5.5. Verify before marking done (if superpowers available)
+
+If `superpowers:verification-before-completion` is in the available skills list, invoke it. Run the project's test suite and any relevant verification commands. Only proceed to step 6 if verification passes. If it fails, return to step 4.5 for debugging.
+
+### 6. Mark complete and update dashboard
 
 1. Use `TaskUpdate` to set `status: completed`
-2. Return to step 1 for next task
-3. Stop when no pending tasks remain
+2. If `.local/prd-cycle.json` exists, query `TaskList` and update the state file:
+   - `tasks_completed`: count of completed tasks
+   - `tasks_total`: total task count
+   - `tasks`: array of `{"name": "<task title>", "status": "pending|in_progress|completed"}` for each task
+   This keeps the pidash dashboard task list and progress bar accurate in real time.
+3. Return to step 1 for next task
+4. Stop when no pending tasks remain
 
 ## Task Splitting
 

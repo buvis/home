@@ -32,6 +32,8 @@ parse_agent_output() {
   while IFS= read -r line; do
     # Skip empty lines and "no issues" lines
     [[ -z "$line" ]] && continue
+    # Strip markdown code fences
+    [[ "$line" =~ ^\`\`\` ]] && continue
     [[ "$line" == *"No issues found"* ]] && continue
 
     # Parse: [AGENT] {emoji} {description} | File: {path} | Task: {id}

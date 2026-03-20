@@ -4,15 +4,24 @@
 
 ### Identify Operation Type
 ```bash
-# Check overall status
 git status
-
-# Check for specific operation markers
-ls .git/MERGE_HEAD 2>/dev/null && echo "MERGE"
-ls .git/CHERRY_PICK_HEAD 2>/dev/null && echo "CHERRY-PICK"
-test -d .git/rebase-merge && echo "REBASE (interactive)"
-test -d .git/rebase-apply && echo "REBASE (apply)"
 ```
+
+Then check for specific operation markers (each as a separate Bash call):
+```bash
+ls .git/MERGE_HEAD
+```
+```bash
+ls .git/CHERRY_PICK_HEAD
+```
+```bash
+test -d .git/rebase-merge
+```
+```bash
+test -d .git/rebase-apply
+```
+
+The exit code tells you the operation type. Don't use `2>/dev/null`.
 
 ### List Conflicted Files
 ```bash
@@ -42,9 +51,9 @@ git show :2:<file>
 # Theirs version
 git show :3:<file>
 
-# What commit is causing conflict (rebase/cherry-pick)
-git log -1 REBASE_HEAD 2>/dev/null
-git log -1 CHERRY_PICK_HEAD 2>/dev/null
+# What commit is causing conflict (rebase/cherry-pick) — run each separately
+git log -1 REBASE_HEAD
+git log -1 CHERRY_PICK_HEAD
 ```
 
 ### Understand History
@@ -53,7 +62,7 @@ git log -1 CHERRY_PICK_HEAD 2>/dev/null
 git merge-base HEAD MERGE_HEAD
 
 # Graph of diverged history
-git log --oneline --graph HEAD MERGE_HEAD ^$(git merge-base HEAD MERGE_HEAD) 2>/dev/null
+git log --oneline --graph HEAD MERGE_HEAD ^$(git merge-base HEAD MERGE_HEAD)
 ```
 
 ## Resolution Commands

@@ -26,13 +26,19 @@ esac
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Hook triggered: $event" >>"$LOGFILE"
 echo "$payload" >>"$LOGFILE"
 
-# Check if user is away (lid closed/low angle or screensaver active)
-angle=$(uv run --with pybooklid python3 -c "from pybooklid import read_lid_angle; print(int(read_lid_angle()))" 2>/dev/null)
+# Check if user is away (idle > 5 min or screensaver active)
+idle_ns=$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print $NF; exit}' 2>/dev/null)
+idle_sec=$(( ${idle_ns:-0} / 1000000000 ))
 screensaver_active=false
 pgrep -q ScreenSaverEngine && screensaver_active=true
+lid_angle=$("$HOME/.local/share/uv/tools/pybooklid/bin/python" -c "import pybooklid; print(pybooklid.read_lid_angle())" 2>/dev/null)
+lid_closed=false
+if [ "${lid_angle%.*}" -lt 70 ] 2>/dev/null; then
+  lid_closed=true
+fi
 
 should_notify=false
-if [ -z "$angle" ] || [ "$angle" -lt 75 ] || [ "$screensaver_active" = true ]; then
+if [ "$idle_sec" -gt 300 ] || [ "$screensaver_active" = true ] || [ "$lid_closed" = true ]; then
   should_notify=true
 fi
 

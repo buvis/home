@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run Codex model via copilot CLI
 
-set -e
+set -eo pipefail
 
 # Ensure mise-managed tools (like copilot) are on PATH
 if command -v mise &>/dev/null; then
