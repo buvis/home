@@ -9,6 +9,7 @@
 !.claude/skills/
 !.claude/skills/**
 !.claude/CLAUDE.md
+!.claude/warden.yaml
 .codex/*
 !.codex/AGENTS.md
 !.codex/config.toml

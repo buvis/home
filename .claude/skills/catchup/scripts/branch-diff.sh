@@ -1,5 +1,6 @@
 #!/bin/bash
 # Branch diff: show changes since fork from base branch
+# Outputs metadata AND full diff — caller has context budget for it
 
 set -e
 
@@ -53,3 +54,7 @@ echo ""
 
 echo "=== Commit History ==="
 git log "$FORK_POINT"..HEAD --oneline
+echo ""
+
+echo "=== Full Diff ==="
+git diff "$FORK_POINT"..HEAD

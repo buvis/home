@@ -97,9 +97,11 @@ Submodule pointer changed on both sides.
 # Check which commit each side wants
 git diff
 
-# Choose one or manually set the desired commit
-cd submodule && git checkout <desired-commit>
-cd .. && git add submodule
+# Choose one or manually set the desired commit (each as separate Bash call)
+cd submodule
+git checkout <desired-commit>
+cd ..
+git add submodule
 ```
 
 ## 7. Whitespace/EOL Conflicts

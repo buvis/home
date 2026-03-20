@@ -1,0 +1,143 @@
+# Warden config — complements native Claude permissions
+# alwaysAllow bypasses all rule evaluation, so only list commands
+# that are ALWAYS safe regardless of arguments.
+
+defaultDecision: ask
+askOnSubshell: true
+notifyOnAsk: true
+notifyOnDeny: true
+
+alwaysDeny:
+  - nc
+  - ncat
+
+alwaysAllow:
+  # GitHub CLI
+  - gh
+  # Rust toolchain
+  - cargo
+  # Node/Python toolchains
+  - node
+  - python
+  - python3
+  - pip
+  - npm
+  - pnpm
+  - npx
+  - yarn
+  - uv
+  - ruff
+  - mypy
+  - pytest
+  # Dev tools
+  - showboat
+  - ast-grep
+  - mdbook
+  - codex
+  - copilot
+  - claude
+  - mise
+  - curl
+  # Safe shell utilities (read-only or harmless)
+  - ls
+  - pwd
+  - cat
+  - head
+  - tail
+  - echo
+  - rg
+  - grep
+  - wc
+  - sort
+  - diff
+  - tree
+  - which
+  - xxd
+  - test
+  - timeout
+  - lsof
+  - dig
+  - ffmpeg
+  - ffprobe
+  # File ops (safe enough, native perms gate destructive patterns)
+  - cp
+  - mv
+  - mkdir
+  - touch
+  - sed
+  - awk
+  # Skill scripts — matched by basename because warden has a bug where
+  # ~/path entries don't match ~/path commands (only /Users/bob/path).
+  # Basenames are unique enough; native perms provide the real security gate.
+  - github-state.sh
+  - branch-diff.sh
+  - render-dashboard.sh
+  - list-prds.sh
+  - dump-tasks.sh
+  - list-task-sessions.sh
+  - gather-context.sh
+  - consolidate-findings.sh
+  - gemini-run.sh
+  - codex-run.sh
+  - init_skill.py
+  - package_skill.py
+  - quick_validate.py
+  - load-memories.sh
+  - smoke.sh
+
+rules:
+  # Git: allow most ops, ask for dangerous ones
+  - command: git
+    default: allow
+    argPatterns:
+      - match:
+          argsMatch: ['push --force', 'push -f ', 'reset --hard', 'clean -fd', 'clean -f ']
+        decision: ask
+        description: Dangerous git operations
+  # rm: allow simple removes, ask for recursive
+  - command: rm
+    default: allow
+    argPatterns:
+      - match:
+          argsMatch: ['-rf ', '-rf$', '-r ']
+        decision: ask
+        description: Recursive delete
+  # bash: ask by default (could run anything), allow syntax check
+  - command: bash
+    default: ask
+    argPatterns:
+      - match:
+          argsMatch: ['^-n ']
+        decision: allow
+        description: Syntax checking
+  # kill/pkill: allow (native perms gate these)
+  - command: kill
+    default: allow
+  - command: pkill
+    default: allow
+  # Docker/k8s: ask by default
+  - command: docker
+    default: ask
+    argPatterns:
+      - match:
+          argsMatch: ['^ps', '^images', '^logs']
+        decision: allow
+        description: Read-only docker commands
+  - command: kubectl
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ['^rollout$']
+        decision: allow
+        description: Allow kubectl rollout
+  - command: sudo
+    default: deny
+  - command: eval
+    default: deny
+  - command: uvx
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ['^showboat$']
+        decision: allow
+        description: Allow uvx showboat

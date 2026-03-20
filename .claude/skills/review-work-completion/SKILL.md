@@ -66,19 +66,23 @@ Load architecture docs: AGENTS.md, agent_docs/, and any `.local/` architecture n
 
 Build markdown of completed tasks with descriptions.
 
-Run (from project root):
+Write tasks markdown to `.local/tmp/review-tasks-{id}.md` and PRD summary to `.local/tmp/review-prd-{id}.md` using the **Write tool** (not bash). Then run (from project root):
 
 ```bash
-~/.claude/skills/review-work-completion/scripts/gather-context.sh "$(pwd)" "$tasks_md" "$prd_summary"
+~/.claude/skills/review-work-completion/scripts/gather-context.sh .local/tmp/review-tasks-{id}.md .local/tmp/review-prd-{id}.md
 ```
 
-Outputs context file and diff file paths to `.local/tmp/`.
+Both args are optional — omit if no tasks/PRD available. Outputs context file and diff file paths to `.local/tmp/`.
 
 ### 4. Prepare agent prompts
 
 Create prompt files in `.local/tmp/`:
 
-For each agent, write a file `.local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). See `references/agent-prompts.md` for prompt template structure.
+For each agent, use the **Write tool** (not bash heredocs) to create `.local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). See `references/agent-prompts.md` for prompt template structure.
+
+**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another — this triggers bash permission warnings (quote characters in comments desync quote tracking). Carl and Alice share the same template; Bob gets the sandbox constraints appendix. Build each from the template directly.
+
+> **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character — expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
 
 With 1M context, agent prompts can include more background — full PRD, architecture summary, relevant module interfaces — rather than compressed summaries. Richer context produces better reviews.
 

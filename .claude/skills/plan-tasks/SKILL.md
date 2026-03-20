@@ -15,9 +15,10 @@ Create implementation tasks from PRD documents.
 ~/.claude/skills/plan-tasks/scripts/list-prds.sh
 ```
 
-Or manually:
-```bash
-ls -1 .local/prds/wip/ 2>/dev/null || ls -1 .local/prds/backlog/ 2>/dev/null
+Or manually, use `Glob` to check for PRDs:
+```
+Glob(".local/prds/wip/*.md")
+Glob(".local/prds/backlog/*.md")
 ```
 
 If no PRDs found, inform user and stop.
