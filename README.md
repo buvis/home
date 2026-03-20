@@ -50,7 +50,7 @@ Currently not using, so I can't provide specific instructions.
 ### macOS, WSL, and potentially any Linux distro
 
 ```bash
-curl -Ls https://tinyurl.com/buvis | /usr/bin/env bash
+https://tinyurl.com/install-buvis | /usr/bin/env bash
 ```
 
 ### Windows
