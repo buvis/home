@@ -10,6 +10,7 @@ return {
     frontmatter = {
       disabled = true,
     },
+    legacy_commands = false,
     workspaces = {
       {
         name = "bim",
