@@ -5,14 +5,14 @@ set -eo pipefail
 
 # Ensure mise-managed tools (like copilot) are on PATH
 if command -v mise &>/dev/null; then
-    eval "$(mise env -s bash)"
+    PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
 FALLBACK_MODEL="gpt-5.3-codex"
 
 detect_model() {
     # Pick latest gpt-X.Y-codex (base only, no -mini/-max suffix)
-    copilot --help 2>&1 | grep -oE 'gpt-[0-9]+\.[0-9]+-codex"' | tr -d '"' | sort -t. -k1,1rn -k2,2rn | head -1
+    copilot --help 2>&1 | grep -oE 'gpt-[0-9]+\.[0-9]+-codex"' | tr -d '"' | sort -t. -k1,1rn -k2,2rn | head -1 || true
 }
 
 MODEL=$(detect_model)

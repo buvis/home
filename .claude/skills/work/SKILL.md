@@ -7,6 +7,27 @@ description: Implement pending tasks using Codex or Gemini, committing after eac
 
 Implement pending tasks one-by-one, committing after each completion.
 
+## CRITICAL: One Task at a Time
+
+**STOP.** Before dispatching ANY Agent/Codex/Gemini call, verify you are sending it EXACTLY ONE task. PostToolUse hooks do not fire inside subagents — batching tasks into one Agent call makes pidash show stale progress for the entire duration.
+
+**The loop runs in YOUR session (the main session), not inside a subagent:**
+
+```
+for each pending task:
+    1. TaskUpdate(in_progress) → sync state file
+    2. Agent A writes tests (from requirements only)
+    3. test quality gate (main session)
+    4. Agent C tries to break tests (adversarial validation)
+    5. commit tests
+    6. Agent B implements against failing tests
+    7. verify tests pass (retry Agent B if needed)
+    8. commit implementation
+    9. TaskUpdate(completed) → sync state file
+```
+
+If you find yourself writing an Agent prompt that mentions multiple tasks, STOP — you are about to violate this rule.
+
 ## Tool Selection
 
 Choose the right tool based on task domain:
@@ -58,6 +79,18 @@ Use `use-codex` skill when the task involves:
 - Testing, CI/CD configuration
 - Backend infrastructure
 
+## Dashboard State Sync
+
+After EVERY `TaskUpdate` call, sync `.local/prd-cycle.json`:
+
+1. Call `TaskList` to get all current task states
+2. Read `.local/prd-cycle.json`
+3. Update `tasks` array: `[{"id": "<id>", "name": "title", "status": "pending|in_progress|completed"}, ...]`
+4. Recalculate `tasks_completed` and `tasks_total`
+5. Write the file back
+
+This is not optional — the user watches this file in real time via pidash.
+
 ## Workflow
 
 ### 1. Get pending tasks
@@ -68,12 +101,15 @@ Use `TaskList` tool to see all tasks. Filter for:
 - No blockers (empty `blockedBy`)
 - No owner assigned
 
+**Update `.local/prd-cycle.json`** with the full task list (see Dashboard State File above).
+
 ### 2. Claim and start task
 
 For the first available task:
 
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
-2. Use `TaskGet` to read full task description
+2. **Sync state file** (see Dashboard State Sync)
+3. Use `TaskGet` to read full task description
 
 ### 2.5. Load project context
 
@@ -85,13 +121,90 @@ Before dispatching to Codex/Gemini, load relevant context into the prompt:
 
 1M context makes this practical — richer prompts produce better first-pass results.
 
-### 2.7. Write tests first (if superpowers available)
+### 2.7. Write tests first (Agent A - test author)
 
-If `superpowers:test-driven-development` is in the available skills list, invoke it before dispatching. Write failing tests for the task's acceptance criteria, commit them, then proceed to dispatch. The external tool implements against the failing tests.
+Dispatch a separate agent to write tests from requirements only. This agent must NOT receive implementation hints or architecture deep-dives - only what a user of the API would know.
 
-Skip if the task is test-only, documentation-only, or configuration-only.
+**Agent A runs as:** Claude Code subagent (Agent tool), not Codex/Gemini. It's a focused task that benefits from direct file access for reading test patterns.
 
-### 3. Select and invoke tool
+**Skip for:** test-only, docs-only, or config-only tasks.
+
+**Agent A receives:**
+- Task description and acceptance criteria
+- Public interfaces/types relevant to the task
+- Existing test patterns (one sample test file from the project)
+- Test framework and conventions used
+
+**Agent A does NOT receive:**
+- Implementation strategy or architecture docs (loaded in step 2.5 for the main session and Agent B only)
+- "How to build this" context
+- Access to modify non-test files
+
+See `references/test-author-prompt.md` for the full prompt template.
+
+### 2.8. Test quality gate (main session)
+
+Before committing Agent A's tests, review them in the main session against this checklist:
+
+1. **Behavior names?** Each test name describes a behavior ("rejects empty email"), not an implementation detail ("calls validateEmail")
+2. **Real assertions?** Assertions check outputs/effects, not mock internals
+3. **Edge cases?** Empty, null, boundary, error, and concurrent cases covered where relevant
+4. **No tautologies?** Tests don't just restate what the code obviously does
+
+If any check fails, dispatch Agent A again with specific feedback about what's weak. Max 2 quality gate retries.
+
+**Total Agent A budget:** max 5 dispatches across the entire test authoring phase (quality gate + adversarial rounds combined). If exhausted, flag weakness in task output and proceed. Don't block the pipeline forever.
+
+### 2.85. Adversarial validation (Agent C - devil's advocate)
+
+Dispatch Agent C to try to write a **wrong** implementation that passes all of Agent A's tests. Agent C's goal is to exploit weak tests.
+
+**Agent C runs as:** Claude Code subagent (Agent tool). It needs file write access and the project's test runner to actually execute its wrong implementation against the tests.
+
+**Agent C receives:**
+- The test files from Agent A
+- Public interfaces/types (so its wrong implementation compiles)
+- Access to the project's test runner
+
+**Agent C receives nothing else.** No task description, no acceptance criteria, no architecture docs.
+
+**Agent C's job:** Write an implementation that is clearly wrong (hardcoded values, ignored edge cases, shortcut if/else chains), run the tests against it, and report which tests it broke through.
+
+**Outcomes:**
+
+| Agent C result | Action |
+|----------------|--------|
+| Cannot break tests (tests catch all exploits) | Tests are strong. Proceed to 2.9. |
+| Breaks tests with wrong impl that passes | Send Agent C's exploit back to Agent A: "These tests can be passed by: {wrong impl}. Strengthen them." Then re-run Agent C against strengthened tests. Max 2 A/C rounds. |
+| 2 A/C rounds exhausted | Flag weakness in task output, proceed anyway. |
+
+See `references/adversarial-test-prompt.md` for the full prompt template.
+
+### 2.9. Commit tests
+
+```bash
+git add <test_files>
+```
+```bash
+git commit -m "test(<scope>): add tests for <feature>"
+```
+
+Tests are committed separately before implementation. This makes the TDD boundary auditable in git history.
+
+### 3. Implement against tests (Agent B - implementor)
+
+Agent B's job: make the failing tests pass. Tests ARE the spec.
+
+**Agent B receives:**
+- Failing test file paths and their content
+- Architecture context (AGENTS.md, interfaces, relevant modules)
+- Existing code patterns to follow
+
+**Agent B does NOT receive:**
+- The task's acceptance criteria prose (tests replace this)
+- Permission to modify test files
+
+**Prompt must include:** "Make all failing tests pass. Do NOT modify test files."
 
 **Determine task domain** (see Tool Selection above), then:
 
@@ -99,13 +212,13 @@ Skip if the task is test-only, documentation-only, or configuration-only.
 
 - Model: `gpt-5.2-codex` (default) or user preference
 - Sandbox: `workspace-write` for code changes
-- See `references/codex-integration.md`
+- See `references/codex-integration.md` (TDD implementation mode)
 
 **For Gemini tasks:**
 
 - Permissions: `--allow-all-tools` for code changes
 - Mode: `-p` for non-interactive
-- See `references/gemini-integration.md`
+- See `references/gemini-integration.md` (TDD implementation mode)
 
 ### 4. Handle result
 
@@ -138,18 +251,31 @@ Commit message rules:
 - One line, no period
 - Reference task ID if available
 
-### 5.5. Verify before marking done (if superpowers available)
+### 5.5. Verify tests pass
 
-If `superpowers:verification-before-completion` is in the available skills list, invoke it. Run the project's test suite and any relevant verification commands. Only proceed to step 6 if verification passes. If it fails, return to step 4.5 for debugging.
+Run the project's test suite. All tests from step 2.7 must pass.
 
-### 6. Mark complete and update dashboard
+- If tests fail, dispatch Agent B again with the failure output. Never dispatch Agent A to weaken tests.
+- Max 2 implementation retries before escalating to the user.
+- If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests.
+
+### 5.7. Per-task code review (if superpowers available)
+
+If `superpowers:requesting-code-review` is in the available skills list, dispatch a code review after commit and verification:
+
+1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
+2. Dispatch code-reviewer subagent with task subject, description, and SHA range
+3. Handle result:
+   - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues, re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
+   - **Minor issues only or approved**: note minors, proceed to step 6.
+   - **Reviewer failed/timed out**: log warning, proceed - Phase 4's PRD-level review catches remaining issues.
+
+Skip for documentation-only or configuration-only tasks.
+
+### 6. Mark complete and sync
 
 1. Use `TaskUpdate` to set `status: completed`
-2. If `.local/prd-cycle.json` exists, query `TaskList` and update the state file:
-   - `tasks_completed`: count of completed tasks
-   - `tasks_total`: total task count
-   - `tasks`: array of `{"name": "<task title>", "status": "pending|in_progress|completed"}` for each task
-   This keeps the pidash dashboard task list and progress bar accurate in real time.
+2. **Sync state file** (see Dashboard State Sync) — mandatory
 3. Return to step 1 for next task
 4. Stop when no pending tasks remain
 
@@ -174,7 +300,20 @@ When a tool can't complete a task (timeout/complexity), split it:
 | Large refactor | Extract → transform → cleanup |
 | Full-stack feature | Backend task (Codex) → Frontend task (Gemini) |
 
+### Parallel dispatch for independent rework fixes
+
+If `superpowers:dispatching-parallel-agents` is in the available skills list and the current batch contains 2+ tasks that:
+- Touch completely different files (no overlap)
+- Have no `blockedBy` dependencies on each other
+- Are all tagged `[C{n}]` or `[D{n}]` (rework tasks, not original plan tasks)
+
+Then dispatch them in parallel using the dispatching-parallel-agents pattern.
+
+**Never parallelize original plan tasks** - the one-at-a-time rule remains for all non-rework tasks due to pidash sync requirements.
+
 ## Reference Files
 
+- `references/test-author-prompt.md` - Test author (Agent A) prompt template
+- `references/adversarial-test-prompt.md` - Adversarial validator (Agent C) prompt template
 - `references/codex-integration.md` - Codex prompt templates and patterns
 - `references/gemini-integration.md` - Gemini prompt templates and patterns

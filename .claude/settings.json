@@ -19,97 +19,18 @@
       "WebSearch",
       "WebFetch(*)",
       "Read(~/.claude/skills/**)",
-      "Bash(~/.claude/skills/*/scripts/*)",
-      "Bash(git:*)",
-      "Bash(gh:*)",
-      "Bash(cargo:*)",
-      "Bash(node:*)",
-      "Bash(python:*)",
-      "Bash(python3:*)",
-      "Bash(pip:*)",
-      "Bash(npm:*)",
-      "Bash(pnpm:*)",
-      "Bash(npx:*)",
-      "Bash(yarn:*)",
-      "Bash(uv:*)",
-      "Bash(ruff:*)",
-      "Bash(mypy:*)",
-      "Bash(pytest:*)",
-      "Bash(curl:*)",
-      "Bash(showboat:*)",
-      "Bash(ast-grep:*)",
-      "Bash(codex:*)",
-      "Bash(copilot:*)",
-      "Bash(claude:*)",
-      "Bash(mise:*)",
-      "Bash(mdbook:*)",
-      "Bash(ls:*)",
-      "Bash(pwd)",
-      "Bash(cat:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
-      "Bash(echo:*)",
-      "Bash(rg:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(wc:*)",
-      "Bash(sort:*)",
-      "Bash(diff:*)",
-      "Bash(tree:*)",
-      "Bash(which:*)",
-      "Bash(cp:*)",
-      "Bash(mv:*)",
-      "Bash(rm:*)",
-      "Bash(mkdir:*)",
-      "Bash(touch:*)",
-      "Bash(sed:*)",
-      "Bash(awk:*)",
-      "Bash(xxd:*)",
-      "Bash(test:*)",
-      "Bash(timeout:*)",
-      "Bash(lsof:*)",
-      "Bash(kill:*)",
-      "Bash(pkill:*)",
-      "Bash(dig:*)",
-      "Bash(ffmpeg:*)",
-      "Bash(ffprobe:*)",
-      "Bash(.local/tmp/*)",
-      "Bash(* --help*)",
-      "Bash(* --version)",
+      "Bash(*)",
       "mcp__serena__*",
       "mcp__claude_ai_Context7__*",
       "mcp__MCP_DOCKER__*"
     ],
     "deny": [
-      "Bash(rm -rf *)",
-      "Bash(rm -r *)",
-      "Bash(sudo *)",
-      "Bash(chown *)",
-      "Bash(chmod 7* *)",
-      "Bash(curl * | bash)",
-      "Bash(wget * -O - | sh)",
-      "Bash(eval *)",
-      "Bash(source <(*))",
       "Read(**/.env)",
       "Read(**/.env.*)",
       "Read(**/secrets/**)",
       "Read(**/credentials.json)",
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)"
-    ],
-    "ask": [
-      "Bash(git push --force *)",
-      "Bash(git push -f *)",
-      "Bash(git reset --hard *)",
-      "Bash(git rebase *)",
-      "Bash(git clean -fd *)",
-      "Bash(docker build *)",
-      "Bash(docker push *)",
-      "Bash(kubectl apply *)",
-      "Bash(kubectl delete *)",
-      "Bash(npm run deploy*)",
-      "Bash(pnpm run deploy*)",
-      "Bash(yarn deploy*)"
     ]
   },
   "hooks": {
@@ -120,6 +41,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/notify.sh"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/set-pidash-attention.py",
+            "timeout": 5
           }
         ]
       },
@@ -129,6 +55,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/notify.sh"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/set-pidash-attention.py",
+            "timeout": 5
           }
         ]
       }
@@ -139,6 +70,46 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/notify.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/autopilot/scripts/autopilot-stop-hook.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "TaskUpdate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/update-pidash-tasks.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/sync-pidash-on-agent-return.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/clear-pidash-attention.py",
+            "timeout": 3
           }
         ]
       }
@@ -152,8 +123,7 @@
     "swift-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
-    "warden@buvis-plugins": true,
-    "warden@claude-warden": true
+    "warden@buvis-plugins": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {

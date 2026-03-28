@@ -31,7 +31,7 @@ Each agent outputs issues in this exact format:
 ```
 [ALICE] 🔴 SQL injection in query builder | File: src/db/query.ts | Task: 3
 [BOB] 🟠 Missing error handling strategy | File: N/A | Task: general
-[CARL] 🟡 PRD section 2.3 not implemented | File: N/A | Task: 5
+[DIANA] 🟡 PRD section 2.3 not implemented | File: N/A | Task: 5
 ```
 
 ## Consolidation Rules
@@ -39,19 +39,19 @@ Each agent outputs issues in this exact format:
 Parse agent outputs and merge:
 
 1. **Normalize** - Match similar issues by file+description
-2. **Score by consensus**:
-   - `[3/3]` - all agents, highest priority
-   - `[2/3]` - majority, high priority
-   - `[1/3]` - single agent, normal priority
+2. **Score by consensus** (scales with active agent count N):
+   - `[N/N]` Full Consensus - all agents agree, highest priority
+   - `[>N/2]/N` Majority Consensus - more than half agree, high priority
+   - `[<=N/2]/N` Minority - half or fewer, normal priority
 3. **Deduplicate** - Keep best description, note which agents found it
 
 ## Consolidated Findings Table
 
 | Consensus | Severity | Issue | File | Found By |
 |-----------|----------|-------|------|----------|
-| [3/3] | 🔴 Critical | XSS in input handler | src/input.ts | Alice, Bob, Carl |
+| [3/3] | 🔴 Critical | XSS in input handler | src/input.ts | Alice, Bob, Diana |
 | [2/3] | 🟠 High | Missing null check | src/api.ts | Alice, Bob |
-| [1/3] | 🟡 Medium | No test coverage | src/utils.ts | Carl |
+| [1/3] | 🟡 Medium | No test coverage | src/utils.ts | Diana |
 
 ## Issue Documentation Format
 
@@ -89,20 +89,21 @@ Reviewed: {N} completed tasks
 PRDs checked: {list}
 
 ### Agent Status
-- Alice: ✅ Available | ⚠️ Unavailable: {reason}
-- Bob: ✅ Available | ⚠️ Unavailable: {reason}
-- Carl: ✅ Available | ⚠️ Unavailable: {reason}
+{for each configured agent, one of:}
+- {Name}: ✅ Available
+- {Name}: ⚠️ Unavailable: {reason}
+- {Name}: ⏸️ Disabled: {reason}
 
 ## Consolidated Findings
 
-### [3/3] Full Consensus
-- [3/3] 🔴 {issue} | {file} | Found by: Alice, Bob, Carl
+### Full Consensus (N/N)
+- [N/N] 🔴 {issue} | {file} | Found by: {agents}
 
-### [2/3] Majority Consensus
-- [2/3] 🟠 {issue} | {file} | Found by: Alice, Bob
+### Majority Consensus (>50%)
+- [M/N] 🟠 {issue} | {file} | Found by: {agents}
 
-### [1/3] Single Agent
-- [1/3] 🟡 {issue} | {file} | Found by: Carl
+### Minority (<=50%)
+- [1/N] 🟡 {issue} | {file} | Found by: {agent}
 
 ## Follow-up Tasks Created
 
@@ -134,8 +135,11 @@ date: YYYY-MM-DD
 agents:
   alice: available
   bob: available
-  carl: unavailable
+  carl: disabled
+  diana: available
 ---
+
+Agent states: `available` (ran successfully), `unavailable` (failed after retries), `disabled` (not invoked).
 
 # Review: <prd-name>
 

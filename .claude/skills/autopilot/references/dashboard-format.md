@@ -14,7 +14,7 @@ Defaults to current directory. Watches `.local/prd-cycle.json` and updates in re
 
 ## What It Shows
 
-- Phase pipeline: CATCHUP → PLANNING → WORKING → REVIEWING → DONE
+- Phase pipeline: CATCHUP → PLANNING → WORKING → REVIEWING → DOUBT → DONE
 - Task progress bar (during WORKING phase)
 - Decision log (autonomous + pending)
 - Review cycle history with severity counts
@@ -26,6 +26,15 @@ pip install buvis-gems[pidash]
 # or
 uv tool install buvis-gems[pidash]
 ```
+
+## Batch Progress
+
+When `batch` is present in the state file, pidash shows batch progress alongside per-PRD progress:
+
+- Batch indicator: `{completed} PRDs done`
+- Completed PRDs list with cycle counts
+
+No extra action needed from autopilot — pidash reads the `batch` field automatically.
 
 ## No Action Required from Autopilot
 

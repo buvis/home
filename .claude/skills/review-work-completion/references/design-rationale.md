@@ -53,3 +53,11 @@ Paths like `~/.claude/skills/use-codex/scripts/codex-run.sh` are intentionally h
 ## Separate review-dimensions.md
 
 Kept separate despite being always-loaded. The checklist will grow as new review blind spots are discovered. Separation makes iterating on dimensions independent of workflow changes.
+
+## Same-Family Reviewers (Alice + Diana)
+
+Alice (Opus) and Diana (Sonnet) both use Claude models but reason differently. Sonnet is faster, less verbose, and sometimes catches patterns Opus overthinks. Consensus between same-family models may correlate more than cross-family, but practical value justifies inclusion. If same-family correlation inflates consensus scores, adjust weighting later - don't prematurely optimize.
+
+## Dynamic Agent Count
+
+Consolidation accepts any number of NAME:FILE pairs. Consensus scales with active agent count (Full = N/N, Majority = >50%, Minority = <=50%). Adding, removing, or disabling agents requires no script changes. When Carl (Gemini) returns, adding a fourth agent just means passing one more pair.

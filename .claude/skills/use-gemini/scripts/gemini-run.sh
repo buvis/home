@@ -5,7 +5,7 @@ set -eo pipefail
 
 # Ensure mise-managed tools (like copilot) are on PATH
 if command -v mise &>/dev/null; then
-    eval "$(mise env -s bash)"
+    PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
 FALLBACK_MODEL="gemini-3-pro-preview"
