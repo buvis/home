@@ -7,7 +7,7 @@ description: Multi-agent review of completed work against PRD requirements. Use 
 
 ## What This Does
 
-Validates completed implementation work against PRD requirements using three independent AI reviewers (Claude subagent, Codex, Gemini - tools may change in the future). Each reviewer analyzes the code changes and PRD criteria separately, then findings are consolidated by consensus — issues flagged by multiple reviewers get higher priority. Creates follow-up tasks for any gaps found.
+Validates completed implementation work against PRD requirements using independent AI reviewers (tools may change in the future). Each reviewer analyzes the code changes and PRD criteria separately, then findings are consolidated by consensus - issues flagged by multiple reviewers get higher priority. Creates follow-up tasks for any gaps found.
 
 **Why three reviewers:** Different models catch different issues. Consensus scoring surfaces real problems while filtering noise from single-model false positives.
 
@@ -19,7 +19,8 @@ Validates completed implementation work against PRD requirements using three ind
 
 - **Alice** → Claude subagent (direct, not nested CLI)
 - **Bob** → Codex
-- **Carl** → Gemini
+- ~~**Carl** → Gemini~~ (disabled - GitHub removed Gemini from copilot model routing)
+- **Diana** → Sonnet 4.6 via copilot CLI
 
 ## Workflow
 
@@ -28,10 +29,12 @@ Validates completed implementation work against PRD requirements using three ind
 Check these exist:
 
 1. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
-2. `~/.claude/skills/use-gemini/scripts/gemini-run.sh` - executable
+2. `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh` - executable
 3. `.local/prds/wip/` contains at least one `.txt` or `.md` file
 
 Create if missing: `.local/tmp/`, `.local/reviews/`
+
+**Path convention:** All `.local/` paths in this skill are relative to the project root. When passing file paths to subagents or external scripts, always use absolute paths (e.g. `$PWD/.local/tmp/...`) so they resolve correctly regardless of the subagent's working directory.
 
 **If CLI/script check fails, STOP and report:**
 
@@ -78,17 +81,19 @@ Both args are optional — omit if no tasks/PRD available. Outputs context file 
 
 Create prompt files in `.local/tmp/`:
 
-For each agent, use the **Write tool** (not bash heredocs) to create `.local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). See `references/agent-prompts.md` for prompt template structure.
+For each active agent, use the **Write tool** (not bash heredocs) to create `.local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). **Use absolute paths** (e.g. `/full/path/to/project/.local/tmp/...`) when writing and when referencing these files in agent prompts - relative `.local/` paths get misresolved as `~/.local/` by subagents. See `references/agent-prompts.md` for prompt template structure.
 
-**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another — this triggers bash permission warnings (quote characters in comments desync quote tracking). Carl and Alice share the same template; Bob gets the sandbox constraints appendix. Build each from the template directly.
+**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking). Diana and Alice share the same template; Bob gets the sandbox constraints appendix. Build each from the template directly.
 
-> **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character — expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
+> **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character - expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
 
 With 1M context, agent prompts can include more background — full PRD, architecture summary, relevant module interfaces — rather than compressed summaries. Richer context produces better reviews.
 
-### 5. Run three-agent review
+### 5. Run agent review
 
-**Launch ALL THREE agents in a SINGLE message with THREE parallel Task tool calls.**
+**Launch ALL active agents in a SINGLE message with parallel Task tool calls.**
+
+Active agents: Alice, Bob, Diana (Carl is disabled).
 
 Read these before proceeding:
 
@@ -97,14 +102,18 @@ Read these before proceeding:
 
 ### 6. Consolidate findings
 
-Save each agent's output to `.local/tmp/{agent}-output-{id}.txt`, then run:
+Save each active agent's output to `.local/tmp/{agent}-output-{id}.txt`, then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
-  .local/tmp/alice-output-{id}.txt .local/tmp/bob-output-{id}.txt .local/tmp/carl-output-{id}.txt
+  ALICE:.local/tmp/alice-output-{id}.txt \
+  BOB:.local/tmp/bob-output-{id}.txt \
+  DIANA:.local/tmp/diana-output-{id}.txt
 ```
 
-Outputs consolidated issues sorted by consensus (3/3 → 2/3 → 1/3) then severity. See `references/output-formats.md` for output format details.
+Pass only agents that produced output. The script computes consensus dynamically from the number of agent pairs provided.
+
+Outputs consolidated issues sorted by consensus then severity. See `references/output-formats.md` for output format details.
 
 ### 7. Create follow-up tasks
 

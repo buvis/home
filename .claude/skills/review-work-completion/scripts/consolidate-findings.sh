@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # Consolidates findings from multiple agent outputs
-# Usage: consolidate-findings.sh <alice_output> <bob_output> <carl_output>
+# Usage: consolidate-findings.sh NAME:FILE [NAME:FILE ...]
+# Example: consolidate-findings.sh ALICE:alice.txt BOB:bob.txt DIANA:diana.txt
 # Outputs: consolidated findings sorted by consensus then severity
-# Format: Parses agent output format defined in references/output-formats.md
 
 set -euo pipefail
 
-ALICE_OUTPUT="${1:-}"
-BOB_OUTPUT="${2:-}"
-CARL_OUTPUT="${3:-}"
+if [[ $# -eq 0 ]]; then
+    echo "Usage: $0 NAME:FILE [NAME:FILE ...]" >&2
+    echo "Example: $0 ALICE:alice.txt BOB:bob.txt DIANA:diana.txt" >&2
+    exit 1
+fi
+
+TOTAL_AGENTS=$#
 
 # Severity order for sorting (lower = more severe)
 severity_order() {
@@ -37,19 +41,14 @@ parse_agent_output() {
     [[ "$line" == *"No issues found"* ]] && continue
 
     # Parse: [AGENT] {emoji} {description} | File: {path} | Task: {id}
-    # Split by " | " first
     if [[ "$line" == *" | File:"*" | Task:"* ]]; then
-      # Extract parts
       local part1="${line%% | File:*}"
       local rest="${line#* | File: }"
       local file_path="${rest%% | Task:*}"
       local task="${rest##* | Task: }"
 
-      # Parse part1: [AGENT] {emoji} {description}
-      # Remove [AGENT] prefix
       local after_agent="${part1#*] }"
 
-      # Extract emoji (first character cluster)
       local severity=""
       case "$after_agent" in
         🔴*) severity="🔴"; after_agent="${after_agent#🔴 }" ;;
@@ -87,17 +86,16 @@ declare -A task_by_key=()
 declare -A desc_by_key=()
 issue_count=0
 
-# Parse all agent outputs
-for agent_file in "ALICE:$ALICE_OUTPUT" "BOB:$BOB_OUTPUT" "CARL:$CARL_OUTPUT"; do
-  agent="${agent_file%%:*}"
-  file="${agent_file#*:}"
+# Parse all agent outputs from NAME:FILE pairs
+for agent_pair in "$@"; do
+  agent="${agent_pair%%:*}"
+  file="${agent_pair#*:}"
 
   [[ -z "$file" || ! -f "$file" ]] && continue
 
   while IFS='|' read -r src_agent severity desc file_path task; do
     [[ -z "$desc" ]] && continue
 
-    # Create key from normalized description + file
     key="$(normalize "$desc")|$(normalize "$file_path")"
 
     if [[ -z "${issues_by_key[$key]:-}" ]]; then
@@ -111,7 +109,6 @@ for agent_file in "ALICE:$ALICE_OUTPUT" "BOB:$BOB_OUTPUT" "CARL:$CARL_OUTPUT"; d
     else
       issues_by_key[$key]=$((${issues_by_key[$key]} + 1))
       agents_by_key[$key]="${agents_by_key[$key]}, $agent"
-      # Keep highest severity
       if [[ $(severity_order "$severity") -lt $(severity_order "${severity_by_key[$key]}") ]]; then
         severity_by_key[$key]="$severity"
       fi
@@ -130,7 +127,6 @@ echo "| Consensus | Severity | Issue | File | Task | Found By |"
 echo "|-----------|----------|-------|------|------|----------|"
 
 # Sort and output
-# Create sortable lines: consensus|severity_num|key
 {
   for key in "${!issues_by_key[@]}"; do
     count="${issues_by_key[$key]}"
@@ -145,5 +141,5 @@ echo "|-----------|----------|-------|------|------|----------|"
   task="${task_by_key[$key]}"
   agents="${agents_by_key[$key]}"
 
-  echo "| [${count}/3] | ${severity} | ${desc} | ${file_path} | ${task} | ${agents} |"
+  echo "| [${count}/${TOTAL_AGENTS}] | ${severity} | ${desc} | ${file_path} | ${task} | ${agents} |"
 done

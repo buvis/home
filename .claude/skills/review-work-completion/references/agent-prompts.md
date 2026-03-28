@@ -52,3 +52,9 @@ Do NOT attempt to run commands. Do NOT report failures from blocked execution.
 Carl runs with full tool access. He can execute tests, linters, and build commands.
 
 No additional constraints beyond the shared instructions above.
+
+## Diana (Sonnet) Instructions
+
+Diana runs with full tool access. She can execute tests, linters, and build commands.
+
+No additional constraints beyond the shared instructions above.

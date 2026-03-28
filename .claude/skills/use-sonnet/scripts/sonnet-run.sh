@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run Gemini via copilot CLI
+# Run Sonnet model via copilot CLI
 
 set -eo pipefail
 
@@ -8,19 +8,9 @@ if command -v mise &>/dev/null; then
     PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
-FALLBACK_MODEL="gemini-3-pro-preview"
+MODEL="claude-sonnet-4.6"
 
-detect_model() {
-    # Pick latest gemini-N-pro model
-    copilot --help 2>&1 | grep -oE 'gemini-[0-9]+-pro[^"]*' | sort -t- -k2,2rn | head -1
-}
-
-MODEL=$(detect_model)
-if [ -z "$MODEL" ]; then
-    echo "WARN: Could not detect latest gemini model, using $FALLBACK_MODEL" >&2
-    MODEL="$FALLBACK_MODEL"
-fi
-MODE="prompt"  # prompt, interactive, resume
+MODE="prompt"  # prompt, interactive, resume, continue
 ALLOW_TOOLS=""
 ALLOW_ALL=""
 SILENT=""
@@ -84,7 +74,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--resume)
             MODE="resume"
-            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+            if [[ -n "${2:-}" && ! "$2" =~ ^- ]]; then
                 PROMPT="$2"
                 shift
             fi

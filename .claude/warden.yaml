@@ -3,6 +3,7 @@
 # that are ALWAYS safe regardless of arguments.
 
 defaultDecision: ask
+auditAllowDecisions: true
 askOnSubshell: true
 notifyOnAsk: true
 notifyOnDeny: true
@@ -31,6 +32,7 @@ alwaysAllow:
   - pytest
   # Dev tools
   - showboat
+  - zdb
   - ast-grep
   - mdbook
   - codex
@@ -59,6 +61,7 @@ alwaysAllow:
   - dig
   - ffmpeg
   - ffprobe
+  - mkdocs
   # File ops (safe enough, native perms gate destructive patterns)
   - cp
   - mv
@@ -66,23 +69,9 @@ alwaysAllow:
   - touch
   - sed
   - awk
-  # Skill scripts — matched by basename because warden has a bug where
-  # ~/path entries don't match ~/path commands (only /Users/bob/path).
-  # Basenames are unique enough; native perms provide the real security gate.
-  - github-state.sh
-  - branch-diff.sh
-  - render-dashboard.sh
-  - list-prds.sh
-  - dump-tasks.sh
-  - list-task-sessions.sh
-  - gather-context.sh
-  - consolidate-findings.sh
-  - gemini-run.sh
-  - codex-run.sh
-  - init_skill.py
-  - package_skill.py
-  - quick_validate.py
-  - load-memories.sh
+  # Skill scripts — glob matches all scripts under ~/.claude/skills/
+  - ~/.claude/skills/**
+  # Project test scripts
   - smoke.sh
 
 rules:
@@ -91,7 +80,14 @@ rules:
     default: allow
     argPatterns:
       - match:
-          argsMatch: ['push --force', 'push -f ', 'reset --hard', 'clean -fd', 'clean -f ']
+          argsMatch:
+            [
+              "push --force",
+              "push -f ",
+              "reset --hard",
+              "clean -fd",
+              "clean -f ",
+            ]
         decision: ask
         description: Dangerous git operations
   # rm: allow simple removes, ask for recursive
@@ -99,7 +95,11 @@ rules:
     default: allow
     argPatterns:
       - match:
-          argsMatch: ['-rf ', '-rf$', '-r ']
+          argsMatch: ["-r[f ].*/tmp/"]
+        decision: allow
+        description: Recursive delete in /tmp
+      - match:
+          argsMatch: ["-rf ", "-rf$", "-r "]
         decision: ask
         description: Recursive delete
   # bash: ask by default (could run anything), allow syntax check
@@ -107,7 +107,7 @@ rules:
     default: ask
     argPatterns:
       - match:
-          argsMatch: ['^-n ']
+          argsMatch: ["^-n "]
         decision: allow
         description: Syntax checking
   # kill/pkill: allow (native perms gate these)
@@ -120,14 +120,14 @@ rules:
     default: ask
     argPatterns:
       - match:
-          argsMatch: ['^ps', '^images', '^logs']
+          argsMatch: ["^ps", "^images", "^logs"]
         decision: allow
         description: Read-only docker commands
   - command: kubectl
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ['^rollout$']
+          anyArgMatches: ["^rollout$"]
         decision: allow
         description: Allow kubectl rollout
   - command: sudo
@@ -138,6 +138,6 @@ rules:
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ['^showboat$']
+          anyArgMatches: ["^showboat$"]
         decision: allow
         description: Allow uvx showboat

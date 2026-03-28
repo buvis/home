@@ -47,6 +47,35 @@ Instructions:
 | Interactive | `-i "prompt"` | Needs user input during execution |
 | Silent | `-s -p "prompt"` | Clean output for parsing |
 
+## TDD Implementation Mode (Agent B)
+
+When tests already exist from step 2.7, use this prompt variant instead of the standard template:
+
+```
+Failing tests exist at: {test_file_paths}
+
+Make all failing tests pass.
+
+Architecture:
+{relevant sections from AGENTS.md or agent_docs/architecture.md}
+
+Key invariants:
+{domain rules and boundaries from AGENTS.md or agent_docs/}
+
+Context:
+- Working directory: {cwd}
+- Relevant files: {list files if known}
+
+Rules:
+1. Do NOT modify test files
+2. Read the tests to understand expected behavior
+3. Implement minimal code to pass all tests
+4. Follow existing patterns and conventions
+5. Run tests after implementation to verify
+```
+
+The task's acceptance criteria prose is intentionally omitted. Tests ARE the spec.
+
 ## Common Issues
 
 ### Session needs context
