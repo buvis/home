@@ -2,7 +2,7 @@
 deno = "latest"
 helm = "latest"
 node = "latest"
-python = "3.13"
+python = "3.14.3"
 rust = "latest"
 uv = "latest"
 "cargo:rumdl" = "latest"
