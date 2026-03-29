@@ -2,9 +2,9 @@ cite about-plugin
 about-plugin 'functions for software development'
 
 # start Claude Code working around the bugs
-claude() {
-  SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
-}
+# claude() {
+#   SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
+# }
 
 claude-autopilot() {
   while true; do
