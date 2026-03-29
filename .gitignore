@@ -23,6 +23,7 @@
 .config/buvis/config.yaml
 .config/coc
 .config/configstore
+.config/ddb/token
 .config/github-copilot
 .config/goose/*
 !.config/goose/config.yaml
