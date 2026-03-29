@@ -70,3 +70,11 @@ cfg submodule update --init && cfg submodule update --remote --merge
 if command -v mise >/dev/null 2>&1; then
   mise install
 fi
+
+# Install Claude CLI
+info "Installing Claude CLI..."
+if curl -fsSL https://claude.ai/install.sh | bash; then
+  info "Claude CLI installed"
+else
+  info "warning: Claude CLI installation failed, continuing"
+fi
