@@ -97,3 +97,13 @@ cfg submodule update --remote --merge
 if (Get-Command mise -ErrorAction SilentlyContinue) {
     mise install
 }
+
+# Install Claude CLI
+info "Installing Claude CLI..."
+try {
+    Invoke-Expression (Invoke-RestMethod -Uri "https://claude.ai/install.ps1")
+    info "Claude CLI installed"
+} catch {
+    info "warning: Claude CLI installation failed: $_"
+    info "Continuing with dotfiles setup"
+}
