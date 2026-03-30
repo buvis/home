@@ -8,7 +8,7 @@ about-plugin 'functions for software development'
 
 claude-autopilot() {
   while true; do
-    claude "/autopilot"
+    claude --name "${PWD##*/}" --permission-mode acceptEdits "/autopilot"
     signal=$(cat .local/autopilot/signal 2>/dev/null)
     rm -f .local/autopilot/signal
 
