@@ -1,17 +1,23 @@
 ---
-name: save-plan
-description: Save current plan into PRD file. Use after completing plan mode to persist the plan for later implementation. Triggers on "save plan", "save this plan", "create PRD from plan", "persist plan".
+name: create-prd
+description: Create PRD from a plan or design document. Use when converting plans, design docs, or brainstorming output into structured PRDs. Triggers on "create PRD", "create PRD from plan", "make PRD", "convert to PRD", "save plan as PRD".
 ---
 
-# Save Plan to PRD
+# Create PRD
 
-Transform the current plan into an RPG-compliant PRD and save to the backlog.
+Transform a plan or design document into an RPG-compliant PRD and save to the backlog.
 
 ## Workflow
 
-### 1. Extract plan content
+### 1. Identify source material
 
-From the current conversation, identify:
+Look for plan/design content in this order:
+
+1. **Explicit file reference** - user points to a specific markdown file (e.g. a plan file in the repo)
+2. **Current conversation context** - a plan just produced by brainstorming or plan mode
+
+Read the source file if one was referenced. Extract:
+
 - Problem statement / objective
 - Core requirements and features
 - Technical constraints
@@ -29,14 +35,16 @@ From the current conversation, identify:
 ### 3. Format as PRD
 
 Apply RPG structure:
-1. **Functional decomposition**: Capabilities → Features (WHAT it does)
-2. **Structural decomposition**: Modules → Files (WHERE it lives)
+
+1. **Functional decomposition**: Capabilities > Features (WHAT it does)
+2. **Structural decomposition**: Modules > Files (WHERE it lives)
 3. **Dependency graph**: Explicit dependencies between modules
 4. **Implementation phases**: Topological order of tasks
 
 ### 4. Split if needed
 
 If PRD exceeds ~200 lines or has loosely coupled parts:
+
 - Split into separate PRD files
 - Each PRD should be self-contained
 - Name related PRDs with shared prefix: `00001-auth-login-v1.md`, `00002-auth-session-v1.md`
@@ -57,7 +65,7 @@ mkdir -p .local/prds/backlog
 
 ## File Naming Convention
 
-```
+```text
 {sequence}-{feature-slug}-v{version}.md
 
 Where:
@@ -79,7 +87,7 @@ Examples:
 
 ## Directory Structure
 
-```
+```text
 .local/prds/
 ├── backlog/    # Planned but not started
 ├── wip/        # Currently being implemented

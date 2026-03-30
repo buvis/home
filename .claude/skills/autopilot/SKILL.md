@@ -72,7 +72,7 @@ Print a banner at each phase transition:
       - 2+ found → ask user which one
    b. If wip is empty, check `.local/prds/backlog/`:
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
-      - Empty → STOP: "No PRDs found. Create one with /save-plan."
+      - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`
 4. Initialize/update state with selected PRD, preserve `batch` field
 5. Print progress:
@@ -338,7 +338,7 @@ Without the hook, sessions remain interactive but require manual exit (Ctrl+D) b
 | Situation | Action |
 |-----------|--------|
 | Sub-skill invocation fails | PAUSE, report which skill failed and error |
-| No PRDs anywhere | STOP with message about /save-plan |
+| No PRDs anywhere | STOP with message about /create-prd |
 | State file corrupted | Delete it, restart from Phase 0 |
 | Review produces no parseable output | PAUSE, report — don't retry |
 | All three reviewers fail | PAUSE, report — partial results usable if user confirms |
