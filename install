@@ -3,7 +3,10 @@
 set -eu
 
 info() { echo "$@" >&2; }
-error() { echo "error: $*" >&2; exit 1; }
+error() {
+  echo "error: $*" >&2
+  exit 1
+}
 
 REPO="$HOME/.buvis"
 BACKUP="$REPO/originals-backup"
@@ -68,7 +71,7 @@ cfg branch -u origin/master master 2>/dev/null || true
 cfg submodule update --init && cfg submodule update --remote --merge
 
 if command -v mise >/dev/null 2>&1; then
-  mise install
+  mise install || info "warning: mise install had errors, continuing anyway"
 fi
 
 # Install Claude CLI
