@@ -1,15 +1,7 @@
 ---
 name: catchup-upstream
-description: >
-  Sync a fork with its upstream repository by reviewing new upstream commits and selectively
-  applying relevant changes. Tracks the last-compared commit in .local/upstream-cursor.
-
-  Use when: "sync upstream", "catchup upstream", "check upstream", "upstream changes",
-  "what's new upstream", "sync fork", "check original repo", or when user wants to
-  review and selectively apply changes from an upstream/forked-from repository.
-
-  Accepts optional argument: owner/repo (e.g. "banyudu/claude-warden") or a GitHub URL.
-  If omitted, reads from .local/upstream-cursor. If no cursor exists, prompts for the repo.
+description: Sync a fork with upstream by reviewing and selectively applying new commits. Triggers on "sync upstream", "catchup upstream", "check upstream", "what's new upstream", "sync fork".
+argument-hint: "[owner/repo or GitHub URL]"
 ---
 
 # Catchup Upstream
@@ -21,7 +13,7 @@ Review new upstream commits since last sync and selectively apply relevant chang
 The argument can be:
 - `owner/repo` (e.g. `banyudu/claude-warden`)
 - A GitHub URL (e.g. `https://github.com/banyudu/claude-warden`)
-- Omitted — read from `.local/upstream-cursor`
+- Omitted — read from `dev/local/upstream-cursor`
 
 If no argument and no cursor, list non-origin remotes with `git remote -v` and ask the user which repo is the upstream.
 
@@ -55,7 +47,7 @@ Use whatever branch upstream considers default (usually `main` or `master`).
 git fetch <remote>
 ```
 
-Read `.local/upstream-cursor`:
+Read `dev/local/upstream-cursor`:
 
 ```
 <remote> <branch> <last_hash>
@@ -103,7 +95,7 @@ For each approved commit, in order:
 
 ## Step 5 — Update cursor
 
-Write the new cursor to `.local/upstream-cursor`:
+Write the new cursor to `dev/local/upstream-cursor`:
 
 ```
 <remote> <branch> <new_head_hash>
@@ -127,4 +119,4 @@ Summarize:
 | Cursor file corrupt | Re-initialize from merge-base |
 | Cherry-pick conflicts | Abort, adapt manually, or ask user |
 | Upstream rewrote history | Detect if cursor hash is unreachable, re-initialize from merge-base |
-| No `.local/` in .gitignore | Add it before writing cursor |
+| No `dev/local/` in .gitignore | Add it before writing cursor |

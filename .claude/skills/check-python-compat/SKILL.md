@@ -1,17 +1,11 @@
 ---
 name: check-python-compat
-description: Check Python code for version compatibility issues when targeting 3.10+. Use when writing or reviewing Python code that must run on 3.10, 3.11, or 3.12, or when encountering mysterious runtime errors that could be version-related. Triggers on "check python compat", "python version issues", "python 3.10 compatible", "does this work on 3.10".
+description: Check Python code for version compatibility issues targeting 3.10+. Triggers on "check python compat", "python version issues", "python 3.10 compatible", "does this work on 3.10".
 ---
 
 # Check Python Version Compatibility
 
 Reference for writing Python code that works across 3.10–3.12. Consult `references/compat-table.md` for the full list.
-
-## When to use
-
-- Writing code that targets Python <3.12
-- Reviewing code for version compatibility
-- Debugging mysterious failures on older Python versions (hangs, wrong behavior, missing modules)
 
 ## Workflow
 

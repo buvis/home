@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gathers review context into .local/tmp/
+# Gathers review context into dev/local/tmp/
 # Usage: gather-context.sh [tasks_file] [prd_summary_file]
 #   tasks_file:       path to file containing tasks markdown (optional)
 #   prd_summary_file: path to file containing PRD summary (optional)
@@ -16,7 +16,7 @@ PRD_SUMMARY=""
 [[ -n "$TASKS_FILE" && -f "$TASKS_FILE" ]] && TASKS_MD="$(cat "$TASKS_FILE")"
 [[ -n "$PRD_FILE" && -f "$PRD_FILE" ]] && PRD_SUMMARY="$(cat "$PRD_FILE")"
 
-TMP_DIR="$PROJECT_ROOT/.local/tmp"
+TMP_DIR="$PROJECT_ROOT/dev/local/tmp"
 mkdir -p "$TMP_DIR"
 
 # Track all created files

@@ -17,8 +17,8 @@ Create implementation tasks from PRD documents.
 
 Or manually, use `Glob` to check for PRDs:
 ```
-Glob(".local/prds/wip/*.md")
-Glob(".local/prds/backlog/*.md")
+Glob("dev/local/prds/wip/*.md")
+Glob("dev/local/prds/backlog/*.md")
 ```
 
 If no PRDs found, inform user and stop.
@@ -31,7 +31,7 @@ If no PRDs found, inform user and stop.
 
 ### 3. Analyze PRD
 
-Read the full PRD. Also load existing codebase architecture context (AGENTS.md, agent_docs/, `.local/` architecture notes) to cross-reference. Identify reusable existing code before creating tasks.
+Read the full PRD. Also load existing codebase architecture context (AGENTS.md, agent_docs/, `dev/local/` architecture notes) to cross-reference. Identify reusable existing code before creating tasks.
 
 Extract:
 - Capabilities and features

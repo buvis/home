@@ -81,10 +81,10 @@ Use `use-codex` skill when the task involves:
 
 ## Dashboard State Sync
 
-After EVERY `TaskUpdate` call, sync `.local/prd-cycle.json`:
+After EVERY `TaskUpdate` call, sync `dev/local/prd-cycle.json`:
 
 1. Call `TaskList` to get all current task states
-2. Read `.local/prd-cycle.json`
+2. Read `dev/local/prd-cycle.json`
 3. Update `tasks` array: `[{"id": "<id>", "name": "title", "status": "pending|in_progress|completed"}, ...]`
 4. Recalculate `tasks_completed` and `tasks_total`
 5. Write the file back
@@ -101,7 +101,7 @@ Use `TaskList` tool to see all tasks. Filter for:
 - No blockers (empty `blockedBy`)
 - No owner assigned
 
-**Update `.local/prd-cycle.json`** with the full task list (see Dashboard State File above).
+**Update `dev/local/prd-cycle.json`** with the full task list (see Dashboard State File above).
 
 ### 2. Claim and start task
 
@@ -116,7 +116,7 @@ For the first available task:
 Before dispatching to Codex/Gemini, load relevant context into the prompt:
 
 - AGENTS.md / agent_docs/ architecture docs
-- Active PRD from `.local/prds/wip/`
+- Active PRD from `dev/local/prds/wip/`
 - Key module interfaces relevant to the task
 
 1M context makes this practical — richer prompts produce better first-pass results.

@@ -18,7 +18,7 @@ The prompt file contents are inlined directly into the Task prompt. The subagent
 
 ## Bob (Codex)
 
-Write prompt to temp file, then invoke. **Use absolute path for the prompt file** - relative `.local/` paths get misresolved as `~/.local/` by subagents.
+Write prompt to temp file, then invoke. **Use absolute path for the prompt file** - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents.
 
 ```
 Task tool:
@@ -52,7 +52,7 @@ Task tool:
 
 ## Diana (Sonnet)
 
-Write prompt to temp file, then invoke. **Use absolute path for the prompt file** - relative `.local/` paths get misresolved as `~/.local/` by subagents.
+Write prompt to temp file, then invoke. **Use absolute path for the prompt file** - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents.
 
 ```
 Task tool:

@@ -1,6 +1,6 @@
 ---
 name: restore-tasks
-description: Restore tasks from a previous Claude Code session into the current session. Use when user wants to recover, restore, or load tasks from a past session, or when they mention tasks were lost after /clear or session restart. Triggers on "restore tasks", "load tasks", "recover tasks", "get my tasks back", "tasks from previous session".
+description: Restore tasks from a previous session. Triggers on "restore tasks", "load tasks", "recover tasks", "get my tasks back", "tasks from previous session".
 ---
 
 # Restore Tasks
