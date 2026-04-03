@@ -11,8 +11,8 @@
       "Read(~/git/**)",
       "Edit(./**)",
       "Write(./**)",
-      "Write(./.local/**)",
-      "Write(~/git/**/.local/**)",
+      "Write(./dev/local/**)",
+      "Write(~/git/**/dev/local/**)",
       "MultiEdit(./**)",
       "Grep(*)",
       "Glob(*)",
@@ -33,7 +33,39 @@
       "Read(**/id_ed25519)"
     ]
   },
+  "model": "opusplan",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/protect-config.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/validate-commit-msg.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/enforce-escalation.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "permission_prompt",
@@ -69,7 +101,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/notify.sh"
+            "command": "~/.claude/hooks/notify.sh",
+            "timeout": 15
           }
         ]
       },
@@ -77,8 +110,35 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/skills/autopilot/scripts/autopilot-stop-hook.sh",
+            "command": "~/.claude/skills/run-autopilot/scripts/autopilot-stop-hook.sh",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/track-cost.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/cleanup-pidash-session.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/analyze-instincts.py",
+            "timeout": 10
           }
         ]
       }
@@ -112,6 +172,24 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/observe-tool.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/track-struggle.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },
@@ -134,7 +212,7 @@
       "autoUpdate": true
     }
   },
-  "effortLevel": "medium",
+  "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
   "mcpServers": {
     "youtube_transcript": {
