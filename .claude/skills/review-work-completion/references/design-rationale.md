@@ -26,7 +26,7 @@ LLMs must follow format instructions. If they can't, that's a model problem, not
 
 Explicit script handles edge cases that prose instructions miss. "Diff against master" fails when master doesn't exist, remote isn't configured, or branch naming varies.
 
-## `.local/` Directory Structure
+## `dev/local/` Directory Structure
 
 Prerequisite, not assumption. This skill operates within a defined workflow that guarantees the structure exists. Not meant for arbitrary projects.
 

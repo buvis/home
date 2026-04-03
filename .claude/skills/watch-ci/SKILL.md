@@ -1,6 +1,6 @@
 ---
 name: watch-ci
-description: Monitor CI status after push or PR creation. Polls GitHub Actions until completion, summarizes failures, optionally triggers debugging. Triggers on "watch ci", "check ci", "ci status", "wait for ci", "are checks passing", "monitor build".
+description: Monitor CI status after push or PR creation. Polls GitHub Actions until completion, summarizes failures, optionally triggers debugging. Triggers on "watch CI", "wait for CI", "check CI", "CI status", "wait for CI", "are checks passing", "monitor build".
 ---
 
 # Watch CI
@@ -43,21 +43,28 @@ Timeout after 15 minutes. If still running, report status and stop polling.
 ### 3. Handle result
 
 **On success (`conclusion: success`):**
+
 - Report "CI passed" and move on
 
 **On failure (`conclusion: failure`):**
+
 1. Get failed jobs:
+
    ```bash
    gh run view {run-id} --json jobs --jq '.jobs[] | select(.conclusion == "failure") | {name, conclusion}'
    ```
+
 2. Get failure logs:
+
    ```bash
    gh run view {run-id} --log-failed
    ```
+
 3. Summarize: which jobs failed, key error lines
 4. If `superpowers:systematic-debugging` is available, offer to invoke it on the failure
 
 **On cancellation:**
+
 - Report and stop
 
 ### 4. Notify (if configured)

@@ -1,6 +1,6 @@
 ---
 name: resolve-git-conflicts
-description: Resolve git merge conflicts, rebase conflicts, cherry-pick conflicts, and stash pop conflicts. Use when git status shows "unmerged paths", "rebase in progress", "cherry-pick in progress", or after failed stash pop. Handles overlapping edits, edit/delete conflicts, rename conflicts, binary conflicts, and helps user choose between ours/theirs or manual merge.
+description: Resolve git merge, rebase, cherry-pick, and stash conflicts. Use when git status shows "unmerged paths", "rebase in progress", or after failed stash pop.
 ---
 
 # Git Conflict Resolution

@@ -123,13 +123,13 @@ When consolidation yields no issues:
 
 ## Review File Format
 
-Location: `.local/reviews/<prd-filename-without-ext>-review-<NN>.md`
+Location: `dev/local/reviews/<prd-filename-without-ext>-review-<NN>.md`
 
 Example: PRD `00004-exchanger-web-ui-v1.md` → review `00004-exchanger-web-ui-v1-review-01.md`
 
 ```yaml
 ---
-prd: .local/prds/wip/<prd-filename>
+prd: dev/local/prds/wip/<prd-filename>
 review: 1
 date: YYYY-MM-DD
 agents:
