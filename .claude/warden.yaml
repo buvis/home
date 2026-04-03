@@ -62,6 +62,11 @@ alwaysAllow:
   - ffmpeg
   - ffprobe
   - mkdocs
+  - rmdir
+  - shellcheck
+  - rustc
+  - gpgconf
+  - ddb
   # File ops (safe enough, native perms gate destructive patterns)
   - cp
   - mv
@@ -71,6 +76,8 @@ alwaysAllow:
   - awk
   # Skill scripts — glob matches all scripts under ~/.claude/skills/
   - ~/.claude/skills/**
+  # Hook scripts
+  - ~/.claude/hooks/**
   # Project test scripts
   - smoke.sh
 
@@ -127,9 +134,24 @@ rules:
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ["^rollout$"]
+          anyArgMatches: ["^kustomize$", "^rollout$"]
         decision: allow
-        description: Allow kubectl rollout
+        description: Read-only kubectl commands
+  - command: sqlite3
+    default: allow
+    argPatterns:
+      - match:
+          anyArgMatches:
+            [
+              "^DROP ",
+              "^DELETE ",
+              "^INSERT ",
+              "^UPDATE ",
+              "^ALTER ",
+              "^CREATE ",
+            ]
+        decision: ask
+        description: Destructive SQL operations
   - command: sudo
     default: deny
   - command: eval
