@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""PostToolUse hook — clears needs_attention in prd-cycle.json."""
+"""PostToolUse hook — clears needs_attention in state.json."""
 
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from pidash_session import mirror_to_session_dir, read_hook_input
 
 
 def main() -> None:
-    state_file = Path(".local/autopilot/state.json")
+    hook_input = read_hook_input()
+
+    state_file = Path("dev/local/autopilot/state.json")
     if not state_file.is_file():
         return
     try:
@@ -16,7 +22,9 @@ def main() -> None:
         state["needs_attention"] = False
         state_file.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     except (json.JSONDecodeError, OSError):
-        pass
+        return
+
+    mirror_to_session_dir(hook_input, state)
 
 
 if __name__ == "__main__":

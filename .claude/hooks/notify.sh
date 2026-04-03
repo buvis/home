@@ -31,7 +31,7 @@ idle_ns=$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print $NF; exit}' 2>/dev/nu
 idle_sec=$(( ${idle_ns:-0} / 1000000000 ))
 screensaver_active=false
 pgrep -q ScreenSaverEngine && screensaver_active=true
-lid_angle=$("$HOME/.local/share/uv/tools/pybooklid/bin/python" -c "import pybooklid; print(pybooklid.read_lid_angle())" 2>/dev/null)
+lid_angle=$(timeout 5 "$HOME/.local/share/uv/tools/pybooklid/bin/python" -c "import pybooklid; print(pybooklid.read_lid_angle())" 2>/dev/null)
 lid_closed=false
 if [ "${lid_angle%.*}" -lt 70 ] 2>/dev/null; then
   lid_closed=true

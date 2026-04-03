@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse hook for Agent — syncs task status to .local/autopilot/state.json.
+"""PostToolUse hook for Agent — syncs task status to dev/local/autopilot/state.json.
 
 Safety net for when subagents call TaskUpdate internally (hooks don't fire
 inside subagents). Parses the Agent's response text for task completion
@@ -10,6 +10,9 @@ import json
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from pidash_session import mirror_to_session_dir
 
 _PREFIX_RE = re.compile(r"^\[(?:C\d+|DOUBT)\]\s*")
 
@@ -67,7 +70,7 @@ def main() -> None:
     if not response_text:
         return
 
-    state_file = Path(".local/autopilot/state.json")
+    state_file = Path("dev/local/autopilot/state.json")
     if not state_file.is_file():
         return
 
@@ -123,6 +126,8 @@ def main() -> None:
         state_file.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     except OSError:
         pass
+
+    mirror_to_session_dir(hook_input, state)
 
 
 if __name__ == "__main__":
