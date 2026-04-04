@@ -107,3 +107,16 @@ try {
     info "warning: Claude CLI installation failed: $_"
     info "Continuing with dotfiles setup"
 }
+
+# Private configs (cellar)
+$Cellar = Join-Path $HOME "git/src/github.com/buvis/cellar"
+if (Test-Path $Cellar) {
+    & (Join-Path $Cellar "setup.ps1")
+} else {
+    git clone git@github.com:buvis/cellar.git $Cellar 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        & (Join-Path $Cellar "setup.ps1")
+    } else {
+        info "Skipping private configs (no access to cellar)"
+    }
+}
