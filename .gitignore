@@ -10,6 +10,7 @@
 !.claude/settings.json
 !.claude/skills/
 !.claude/skills/**
+.claude/skills/**/dev/
 !.claude/CLAUDE.md
 !.claude/warden.yaml
 .codex/*
