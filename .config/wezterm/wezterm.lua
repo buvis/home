@@ -79,6 +79,19 @@ config.keys = {
 	{ key = "c", mods = "CTRL", action = act.CopyTo("Clipboard") },
 	{ key = "v", mods = "CTRL", action = act.PasteFrom("Clipboard") },
 	{ key = "c", mods = "CTRL|SHIFT", action = act.SendKey({ key = "c", mods = "CTRL" }) },
+
+	{
+		key = "R",
+		mods = "CTRL|SHIFT",
+		action = act.PromptInputLine({
+			description = "Enter new name for tab",
+			action = wezterm.action_callback(function(window, _, line)
+				if line then
+					window:active_tab():set_title(line)
+				end
+			end),
+		}),
+	},
 	{ key = "Enter", mods = "SHIFT", action = wezterm.action.SendString("\n") },
 	-- move between split panes
 	split_nav("move", "h"),
@@ -113,11 +126,11 @@ wezterm.on("open-uri", function(window, pane, uri)
 			return string.char(tonumber(hex, 16))
 		end)
 		-- Windows file URIs have a leading slash before drive letter: /C:/...
+
 		if path:match("^/[A-Za-z]:") then
 			path = path:sub(2)
 		end
-		local shell = wezterm.target_triple == "x86_64-pc-windows-msvc"
-			and { "cmd.exe", "/c", "nvim", path }
+		local shell = wezterm.target_triple == "x86_64-pc-windows-msvc" and { "cmd.exe", "/c", "nvim", path }
 			or { "/bin/zsh", "-lc", "nvim " .. wezterm.shell_quote_arg(path) }
 		window:perform_action(
 			act.SpawnCommandInNewTab({
