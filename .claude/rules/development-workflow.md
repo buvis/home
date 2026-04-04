@@ -48,10 +48,4 @@ Rules:
 
 ## Changelog
 
-Every project must have a `CHANGELOG.md` in the repo root following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
-
-- When committing user-visible changes (feat, fix, breaking changes), add the entry to the `[Unreleased]` section of `CHANGELOG.md` in the same commit.
-- Skip internal-only changes (refactoring, style, tests, CI, dep bumps) unless they affect users.
-- Use categories: Added, Changed, Deprecated, Removed, Fixed, Security.
-- On release, move `[Unreleased]` entries under a new version heading with the release date and add the comparison link at the bottom.
-- If the project has no `CHANGELOG.md`, create one retroactively from git history before the next release.
+See `rules/changelog.md` for full changelog maintenance rules.
