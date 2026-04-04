@@ -39,7 +39,7 @@ autoclaude() {
       report=$(ls -t dev/local/autopilot/reports/*-report.md 2>/dev/null | head -1)
 
       CLEANUP_SINCE="$before_sha" AUTOPILOT_REPORT="$report" \
-        claude --name de-sloppify -p "$(cat ~/.claude/skills/autopilot/prompts/de-sloppify.md)" \
+        claude --name de-sloppify -p "$(cat ~/.claude/skills/run-autopilot/prompts/de-sloppify.md)" \
         --effort high --permission-mode acceptEdits
       _session_cleanup
     fi
