@@ -86,7 +86,7 @@ Print a banner at each phase transition:
 
 **Skip if:** `"catchup"` in `phases_completed` in state file.
 
-Invoke `/catch-up` skill.
+Invoke `/catchup` skill.
 
 After completion, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"`.
 
