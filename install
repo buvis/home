@@ -81,3 +81,13 @@ if curl -fsSL https://claude.ai/install.sh | bash; then
 else
   info "warning: Claude CLI installation failed, continuing"
 fi
+
+# Private configs (cellar)
+CELLAR="$HOME/git/src/github.com/buvis/cellar"
+if [ -d "$CELLAR" ]; then
+  [ -x "$CELLAR/setup.sh" ] && "$CELLAR/setup.sh"
+elif git clone git@github.com:buvis/cellar.git "$CELLAR" 2>/dev/null; then
+  "$CELLAR/setup.sh"
+else
+  info "Skipping private configs (no access to cellar)"
+fi
