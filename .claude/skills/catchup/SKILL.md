@@ -1,5 +1,5 @@
 ---
-name: catch-up
+name: catchup
 description: Catch up on project and branch context before starting work. Triggers on "catchup", "catch up", "what changed", "review branch", "project overview", "refresh capsule".
 ---
 
@@ -26,9 +26,9 @@ Run ALL of the following concurrently. Don't wait for one to finish before start
 #### 1a. Run scripts
 
 ```bash
-~/.claude/skills/catch-up/scripts/branch-diff.sh   # skip if on master
-~/.claude/skills/catch-up/scripts/github-state.sh   # skip if no gh / no remote
-~/.claude/skills/catch-up/scripts/load-memories.sh  # skip if no memories
+~/.claude/skills/catchup/scripts/branch-diff.sh   # skip if on master
+~/.claude/skills/catchup/scripts/github-state.sh   # skip if no gh / no remote
+~/.claude/skills/catchup/scripts/load-memories.sh  # skip if no memories
 ```
 
 #### 1b. Read project sources

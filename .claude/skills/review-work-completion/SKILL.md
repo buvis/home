@@ -46,7 +46,7 @@ Cannot proceed: {missing prerequisite}
 
 Use `TaskList`.
 
-**If no tasks exist:** If `catch-up` skill is available, invoke it to populate tasks from branch history, then return here. If `catchup` is unavailable, proceed without task context.
+**If no tasks exist:** If `catchup` skill is available, invoke it to populate tasks from branch history, then return here. If `catchup` is unavailable, proceed without task context.
 
 **If ANY task is `in_progress`:** STOP and report:
 
