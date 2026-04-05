@@ -63,12 +63,6 @@ irm https://tinyurl.com/install-ps-buvis | iex
 
 Not all applications used by buvis can be configured using "dotfiles". You'll need to follow the manual instructions. Application-specific instructions are stored in [.config](./.config) directory.
 
-### Link to private dotfiles
-
-Dotfiles hidden from public are at `buvis/cellar`.
-
-- `.claude/projects`
-
 ### Configure git
 
 1. Go to dotfiles root: `cd $DOTFILES_ROOT`
