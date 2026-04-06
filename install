@@ -31,6 +31,35 @@ detect_os
 
 # --- Phase 1: Bootstrap system tools ---
 
+# Install a package by name, mapping to the available package manager
+pkg_install() {
+  for pkg in "$@"; do
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get install -y "$pkg" || info "warning: failed to install $pkg"
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y "$pkg" || info "warning: failed to install $pkg"
+    elif command -v pacman >/dev/null 2>&1; then
+      sudo pacman -S --noconfirm "$pkg" || info "warning: failed to install $pkg"
+    elif command -v zypper >/dev/null 2>&1; then
+      sudo zypper install -y "$pkg" || info "warning: failed to install $pkg"
+    elif command -v apk >/dev/null 2>&1; then
+      sudo apk add "$pkg" || info "warning: failed to install $pkg"
+    else
+      info "warning: no supported package manager found, cannot install $pkg"
+      return 1
+    fi
+  done
+}
+
+# On Linux, bootstrap git and curl if missing
+if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
+  if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+    info "Installing essential tools..."
+    command -v git >/dev/null 2>&1 || pkg_install git
+    command -v curl >/dev/null 2>&1 || pkg_install curl
+  fi
+fi
+
 if [ "$OS" = "macos" ]; then
   if ! xcode-select -p >/dev/null 2>&1; then
     info "Installing Xcode command line tools..."
@@ -129,11 +158,17 @@ if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
     fi
   fi
 
+  # libffi development headers (package name varies by distro)
   if command -v apt-get >/dev/null 2>&1; then
-    if ! dpkg -s libffi-dev >/dev/null 2>&1; then
-      info "Installing libffi-dev..."
-      sudo apt-get install -y libffi-dev || info "warning: libffi-dev installation failed, continuing"
-    fi
+    dpkg -s libffi-dev >/dev/null 2>&1 || pkg_install libffi-dev
+  elif command -v dnf >/dev/null 2>&1; then
+    rpm -q libffi-devel >/dev/null 2>&1 || pkg_install libffi-devel
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Q libffi >/dev/null 2>&1 || pkg_install libffi
+  elif command -v zypper >/dev/null 2>&1; then
+    rpm -q libffi-devel >/dev/null 2>&1 || pkg_install libffi-devel
+  elif command -v apk >/dev/null 2>&1; then
+    apk info -e libffi-dev >/dev/null 2>&1 || pkg_install libffi-dev
   fi
 
   FONT_DIR="$HOME/.local/share/fonts"
