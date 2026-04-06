@@ -74,13 +74,17 @@ if [ "$OS" = "macos" ]; then
     info "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   fi
-  eval "$(/opt/homebrew/bin/brew shellenv)"
+  if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
 fi
 
 command -v git >/dev/null 2>&1 || error "git is required"
 
 cfg() {
-  /usr/bin/git --git-dir="$REPO" --work-tree="$HOME" "$@"
+  git --git-dir="$REPO" --work-tree="$HOME" "$@"
 }
 
 cd "$HOME" || exit 1
@@ -176,8 +180,9 @@ if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
     info "Installing MesloLGS NF fonts..."
     mkdir -p "$FONT_DIR"
     BASE_URL="https://github.com/romkatv/powerlevel10k-media/raw/master"
-    for style in "Regular" "Bold" "Italic" "Bold Italic"; do
-      curl -fsSL -o "$FONT_DIR/MesloLGS NF ${style}.ttf" \
+    for style in Regular Bold Italic "Bold%20Italic"; do
+      name=$(echo "$style" | sed 's/%20/ /g')
+      curl -fsSL -o "$FONT_DIR/MesloLGS NF ${name}.ttf" \
         "$BASE_URL/MesloLGS%20NF%20${style}.ttf" || true
     done
     if command -v fc-cache >/dev/null 2>&1; then
