@@ -11,6 +11,43 @@ error() {
 REPO="$HOME/.buvis"
 BACKUP="$REPO/originals-backup"
 
+# --- Platform detection ---
+
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) OS=macos ;;
+    Linux)
+      if grep -qi microsoft /proc/version 2>/dev/null; then
+        OS=wsl
+      else
+        OS=linux
+      fi
+      ;;
+    *) OS=unknown ;;
+  esac
+}
+
+detect_os
+
+# --- Phase 1: Bootstrap system tools ---
+
+if [ "$OS" = "macos" ]; then
+  if ! xcode-select -p >/dev/null 2>&1; then
+    info "Installing Xcode command line tools..."
+    xcode-select --install
+    info "Waiting for Xcode CLI tools installation to complete..."
+    until xcode-select -p >/dev/null 2>&1; do
+      sleep 5
+    done
+  fi
+
+  if ! command -v brew >/dev/null 2>&1; then
+    info "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fi
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
 command -v git >/dev/null 2>&1 || error "git is required"
 
 cfg() {
@@ -18,6 +55,8 @@ cfg() {
 }
 
 cd "$HOME" || exit 1
+
+# --- Phase 2: Dotfiles checkout ---
 
 # Clone or fetch
 if [ -d "$REPO" ]; then
@@ -70,9 +109,162 @@ cfg branch -u origin/master master 2>/dev/null || true
 # Retrieve submodule content
 cfg submodule update --init && cfg submodule update --remote --merge
 
+# --- Phase 3: Package installation ---
+
+if [ "$OS" = "macos" ] && command -v brew >/dev/null 2>&1; then
+  BREWFILE="$HOME/.config/brew/Brewfile"
+  if [ -f "$BREWFILE" ]; then
+    info "Installing Homebrew packages..."
+    brew bundle --file="$BREWFILE" --no-lock || info "warning: brew bundle had errors, continuing"
+  fi
+fi
+
+if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
+  if ! command -v mise >/dev/null 2>&1; then
+    info "Installing mise..."
+    if curl -fsSL https://mise.jdx.dev/install.sh | sh; then
+      export PATH="$HOME/.local/bin:$PATH"
+    else
+      info "warning: mise installation failed, continuing"
+    fi
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    if ! dpkg -s libffi-dev >/dev/null 2>&1; then
+      info "Installing libffi-dev..."
+      sudo apt-get install -y libffi-dev || info "warning: libffi-dev installation failed, continuing"
+    fi
+  fi
+
+  FONT_DIR="$HOME/.local/share/fonts"
+  if [ ! -f "$FONT_DIR/MesloLGS NF Regular.ttf" ]; then
+    info "Installing MesloLGS NF fonts..."
+    mkdir -p "$FONT_DIR"
+    BASE_URL="https://github.com/romkatv/powerlevel10k-media/raw/master"
+    for style in "Regular" "Bold" "Italic" "Bold Italic"; do
+      curl -fsSL -o "$FONT_DIR/MesloLGS NF ${style}.ttf" \
+        "$BASE_URL/MesloLGS%20NF%20${style}.ttf" || true
+    done
+    if command -v fc-cache >/dev/null 2>&1; then
+      fc-cache -f "$FONT_DIR"
+    fi
+  fi
+fi
+
 if command -v mise >/dev/null 2>&1; then
+  info "Installing mise-managed tools..."
   mise install || info "warning: mise install had errors, continuing anyway"
 fi
+
+# --- Phase 4: Post-checkout configuration ---
+
+cfg config credential.helper store
+git config --global core.excludesfile "$HOME/.gitignore_global"
+mkdir -p "$HOME/git/src"
+
+app_link() {
+  src="$1"
+  dst="$2"
+  if [ -f "$src" ]; then
+    mkdir -p "$(dirname "$dst")"
+    ln -sf "$src" "$dst"
+    info "Linked $dst"
+  fi
+}
+
+if [ "$OS" = "macos" ]; then
+  app_link "$HOME/.config/ruff/pyproject.toml" "$HOME/Library/Application Support/ruff/pyproject.toml"
+  app_link "$HOME/.config/lazygit/config.yml" "$HOME/Library/Application Support/lazygit/config.yml"
+fi
+
+# Clone repositories listed in gita config
+GITA_CSV="$HOME/.config/gita/repos.csv"
+if [ "$OS" = "wsl" ] && [ -f "$HOME/.config/wsl/gita/repos.csv" ]; then
+  GITA_CSV="$HOME/.config/wsl/gita/repos.csv"
+fi
+if [ -f "$GITA_CSV" ]; then
+  info "Cloning tracked repositories..."
+  while IFS=',' read -r repo_path repo_name _ _; do
+    if [ -d "$repo_path" ]; then
+      continue
+    fi
+    # Derive clone URL from path: .../git/src/github.com/owner/repo -> git@github.com:owner/repo.git
+    url_part=$(echo "$repo_path" | sed 's|.*/git/src/||')
+    host=$(echo "$url_part" | cut -d/ -f1)
+    remainder=$(echo "$url_part" | cut -d/ -f2-)
+    clone_url="git@${host}:${remainder}.git"
+    mkdir -p "$(dirname "$repo_path")"
+    if git clone "$clone_url" "$repo_path" 2>/dev/null; then
+      info "Cloned $repo_name"
+    else
+      info "warning: failed to clone $repo_name ($clone_url), skipping"
+    fi
+  done < "$GITA_CSV"
+fi
+
+# WSL-specific setup
+if [ "$OS" = "wsl" ]; then
+  # Configure wsl.conf if not already done
+  if [ ! -f /etc/wsl.conf ] || ! grep -q automount /etc/wsl.conf 2>/dev/null; then
+    info "Configuring /etc/wsl.conf..."
+    sudo tee /etc/wsl.conf >/dev/null <<'WSLCONF'
+[automount]
+enabled = true
+options = "metadata,uid=1000,gid=1000,umask=0022,fmask=11,case=off"
+mountFsTab = false
+crossDistro = true
+
+[filesystem]
+umask = 0022
+WSLCONF
+  fi
+
+  # Fix npm prefix for global packages
+  if command -v npm >/dev/null 2>&1; then
+    npm config set prefix "$HOME/.local/"
+  fi
+
+  # Fix terminal locale
+  if [ -f "$HOME/.config/alacritty/alacritty.info" ]; then
+    sudo tic -xe alacritty,alacritty-direct "$HOME/.config/alacritty/alacritty.info" 2>/dev/null || true
+  fi
+
+  # Create .bashrc-wsl with WSL-specific overrides
+  if [ ! -f "$HOME/.bashrc-wsl" ]; then
+    info "Creating .bashrc-wsl..."
+    cat > "$HOME/.bashrc-wsl" <<WSLRC
+export P_PROPERTIES_FILE="$HOME/.pdata-wsl.properties"
+export GITA_PROJECT_HOME="$HOME/.config/wsl/"
+WSLRC
+  fi
+
+  # Create symlinks to Windows home if detectable
+  WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r' || true)
+  if [ -n "$WIN_USER" ] && [ -d "/mnt/c/Users/$WIN_USER" ]; then
+    WIN_HOME="/mnt/c/Users/$WIN_USER"
+    info "Detected Windows user: $WIN_USER"
+    for link_name in windows-home; do
+      [ -L "$HOME/$link_name" ] || ln -s "$WIN_HOME" "$HOME/$link_name"
+    done
+    [ -L "$HOME/Downloads" ] || ln -s "$WIN_HOME/Downloads" "$HOME/Downloads"
+
+    # OneDrive symlinks - try to detect automatically
+    for onedrive_dir in "$WIN_HOME"/OneDrive*; do
+      [ -d "$onedrive_dir" ] || continue
+      dir_name=$(basename "$onedrive_dir")
+      link_name=$(echo "$dir_name" | tr '[:upper:]' '[:lower:]' | sed 's/onedrive - /onedrive-/;s/ /-/g')
+      [ -L "$HOME/$link_name" ] || ln -s "$onedrive_dir" "$HOME/$link_name"
+      info "Linked ~/$link_name"
+      # If private OneDrive has a z/ folder, link it
+      if [ -d "$onedrive_dir/z" ] && [ ! -L "$HOME/z" ]; then
+        ln -s "$onedrive_dir/z" "$HOME/z"
+        info "Linked ~/z"
+      fi
+    done
+  fi
+fi
+
+# --- Phase 5: Additional tools ---
 
 # Install Claude CLI
 info "Installing Claude CLI..."
