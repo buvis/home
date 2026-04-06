@@ -212,31 +212,6 @@ if [ "$OS" = "macos" ]; then
   app_link "$HOME/.config/lazygit/config.yml" "$HOME/Library/Application Support/lazygit/config.yml"
 fi
 
-# Clone repositories listed in gita config
-GITA_CSV="$HOME/.config/gita/repos.csv"
-if [ "$OS" = "wsl" ] && [ -f "$HOME/.config/wsl/gita/repos.csv" ]; then
-  GITA_CSV="$HOME/.config/wsl/gita/repos.csv"
-fi
-if [ -f "$GITA_CSV" ]; then
-  info "Cloning tracked repositories..."
-  while IFS=',' read -r repo_path repo_name _ _; do
-    if [ -d "$repo_path" ]; then
-      continue
-    fi
-    # Derive clone URL from path: .../git/src/github.com/owner/repo -> git@github.com:owner/repo.git
-    url_part=$(echo "$repo_path" | sed 's|.*/git/src/||')
-    host=$(echo "$url_part" | cut -d/ -f1)
-    remainder=$(echo "$url_part" | cut -d/ -f2-)
-    clone_url="git@${host}:${remainder}.git"
-    mkdir -p "$(dirname "$repo_path")"
-    if git clone "$clone_url" "$repo_path" 2>/dev/null; then
-      info "Cloned $repo_name"
-    else
-      info "warning: failed to clone $repo_name ($clone_url), skipping"
-    fi
-  done < "$GITA_CSV"
-fi
-
 # WSL-specific setup
 if [ "$OS" = "wsl" ]; then
   # Configure wsl.conf if not already done
@@ -318,3 +293,5 @@ elif git clone git@github.com:buvis/cellar.git "$CELLAR" 2>/dev/null; then
 else
   info "Skipping private configs (no access to cellar)"
 fi
+
+info "Done! See https://docs.buvis.net/home/post-install/ for optional next steps."
