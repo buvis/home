@@ -11,13 +11,85 @@ error() {
 REPO="$HOME/.buvis"
 BACKUP="$REPO/originals-backup"
 
+# --- Platform detection ---
+
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) OS=macos ;;
+    Linux)
+      if grep -qi microsoft /proc/version 2>/dev/null; then
+        OS=wsl
+      else
+        OS=linux
+      fi
+      ;;
+    *) OS=unknown ;;
+  esac
+}
+
+detect_os
+
+# --- Phase 1: Bootstrap system tools ---
+
+# Install a package by name, mapping to the available package manager
+pkg_install() {
+  for pkg in "$@"; do
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get install -y "$pkg" || info "warning: failed to install $pkg"
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y "$pkg" || info "warning: failed to install $pkg"
+    elif command -v pacman >/dev/null 2>&1; then
+      sudo pacman -S --noconfirm "$pkg" || info "warning: failed to install $pkg"
+    elif command -v zypper >/dev/null 2>&1; then
+      sudo zypper install -y "$pkg" || info "warning: failed to install $pkg"
+    elif command -v apk >/dev/null 2>&1; then
+      sudo apk add "$pkg" || info "warning: failed to install $pkg"
+    else
+      info "warning: no supported package manager found, cannot install $pkg"
+      return 1
+    fi
+  done
+}
+
+# On Linux, bootstrap git and curl if missing
+if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
+  if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+    info "Installing essential tools..."
+    command -v git >/dev/null 2>&1 || pkg_install git
+    command -v curl >/dev/null 2>&1 || pkg_install curl
+  fi
+fi
+
+if [ "$OS" = "macos" ]; then
+  if ! xcode-select -p >/dev/null 2>&1; then
+    info "Installing Xcode command line tools..."
+    xcode-select --install
+    info "Waiting for Xcode CLI tools installation to complete..."
+    until xcode-select -p >/dev/null 2>&1; do
+      sleep 5
+    done
+  fi
+
+  if ! command -v brew >/dev/null 2>&1; then
+    info "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fi
+  if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+fi
+
 command -v git >/dev/null 2>&1 || error "git is required"
 
 cfg() {
-  /usr/bin/git --git-dir="$REPO" --work-tree="$HOME" "$@"
+  git --git-dir="$REPO" --work-tree="$HOME" "$@"
 }
 
 cd "$HOME" || exit 1
+
+# --- Phase 2: Dotfiles checkout ---
 
 # Clone or fetch
 if [ -d "$REPO" ]; then
@@ -70,12 +142,147 @@ cfg branch -u origin/master master 2>/dev/null || true
 # Retrieve submodule content
 cfg submodule update --init && cfg submodule update --remote --merge
 
+# --- Phase 3: Package installation ---
+
+if [ "$OS" = "macos" ] && command -v brew >/dev/null 2>&1; then
+  BREWFILE="$HOME/.config/brew/Brewfile"
+  if [ -f "$BREWFILE" ]; then
+    info "Installing Homebrew packages..."
+    brew bundle --file="$BREWFILE" --no-lock || info "warning: brew bundle had errors, continuing"
+  fi
+fi
+
+if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
+  if ! command -v mise >/dev/null 2>&1; then
+    info "Installing mise..."
+    if curl -fsSL https://mise.jdx.dev/install.sh | sh; then
+      export PATH="$HOME/.local/bin:$PATH"
+    else
+      info "warning: mise installation failed, continuing"
+    fi
+  fi
+
+  # libffi development headers (package name varies by distro)
+  if command -v apt-get >/dev/null 2>&1; then
+    dpkg -s libffi-dev >/dev/null 2>&1 || pkg_install libffi-dev
+  elif command -v dnf >/dev/null 2>&1; then
+    rpm -q libffi-devel >/dev/null 2>&1 || pkg_install libffi-devel
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Q libffi >/dev/null 2>&1 || pkg_install libffi
+  elif command -v zypper >/dev/null 2>&1; then
+    rpm -q libffi-devel >/dev/null 2>&1 || pkg_install libffi-devel
+  elif command -v apk >/dev/null 2>&1; then
+    apk info -e libffi-dev >/dev/null 2>&1 || pkg_install libffi-dev
+  fi
+
+  FONT_DIR="$HOME/.local/share/fonts"
+  if [ ! -f "$FONT_DIR/MesloLGS NF Regular.ttf" ]; then
+    info "Installing MesloLGS NF fonts..."
+    mkdir -p "$FONT_DIR"
+    BASE_URL="https://github.com/romkatv/powerlevel10k-media/raw/master"
+    for style in Regular Bold Italic "Bold%20Italic"; do
+      name=$(echo "$style" | sed 's/%20/ /g')
+      curl -fsSL -o "$FONT_DIR/MesloLGS NF ${name}.ttf" \
+        "$BASE_URL/MesloLGS%20NF%20${style}.ttf" || true
+    done
+    if command -v fc-cache >/dev/null 2>&1; then
+      fc-cache -f "$FONT_DIR"
+    fi
+  fi
+fi
+
 if command -v mise >/dev/null 2>&1; then
+  info "Installing mise-managed tools..."
   mise install || info "warning: mise install had errors, continuing anyway"
   if command -v sysup >/dev/null 2>&1; then
     sysup nvim || info "warning: sysup nvim had errors, continuing anyway"
   fi
 fi
+
+# --- Phase 4: Post-checkout configuration ---
+
+cfg config credential.helper store
+git config --global core.excludesfile "$HOME/.gitignore_global"
+mkdir -p "$HOME/git/src"
+
+app_link() {
+  src="$1"
+  dst="$2"
+  if [ -f "$src" ]; then
+    mkdir -p "$(dirname "$dst")"
+    ln -sf "$src" "$dst"
+    info "Linked $dst"
+  fi
+}
+
+if [ "$OS" = "macos" ]; then
+  app_link "$HOME/.config/ruff/pyproject.toml" "$HOME/Library/Application Support/ruff/pyproject.toml"
+  app_link "$HOME/.config/lazygit/config.yml" "$HOME/Library/Application Support/lazygit/config.yml"
+fi
+
+# WSL-specific setup
+if [ "$OS" = "wsl" ]; then
+  # Configure wsl.conf if not already done
+  if [ ! -f /etc/wsl.conf ] || ! grep -q automount /etc/wsl.conf 2>/dev/null; then
+    info "Configuring /etc/wsl.conf..."
+    sudo tee /etc/wsl.conf >/dev/null <<'WSLCONF'
+[automount]
+enabled = true
+options = "metadata,uid=1000,gid=1000,umask=0022,fmask=11,case=off"
+mountFsTab = false
+crossDistro = true
+
+[filesystem]
+umask = 0022
+WSLCONF
+  fi
+
+  # Fix npm prefix for global packages
+  if command -v npm >/dev/null 2>&1; then
+    npm config set prefix "$HOME/.local/"
+  fi
+
+  # Fix terminal locale
+  if [ -f "$HOME/.config/alacritty/alacritty.info" ]; then
+    sudo tic -xe alacritty,alacritty-direct "$HOME/.config/alacritty/alacritty.info" 2>/dev/null || true
+  fi
+
+  # Create .bashrc-wsl with WSL-specific overrides
+  if [ ! -f "$HOME/.bashrc-wsl" ]; then
+    info "Creating .bashrc-wsl..."
+    cat > "$HOME/.bashrc-wsl" <<WSLRC
+export P_PROPERTIES_FILE="$HOME/.pdata-wsl.properties"
+export GITA_PROJECT_HOME="$HOME/.config/wsl/"
+WSLRC
+  fi
+
+  # Create symlinks to Windows home if detectable
+  WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r' || true)
+  if [ -n "$WIN_USER" ] && [ -d "/mnt/c/Users/$WIN_USER" ]; then
+    WIN_HOME="/mnt/c/Users/$WIN_USER"
+    info "Detected Windows user: $WIN_USER"
+    for link_name in windows-home; do
+      [ -L "$HOME/$link_name" ] || ln -s "$WIN_HOME" "$HOME/$link_name"
+    done
+    [ -L "$HOME/Downloads" ] || ln -s "$WIN_HOME/Downloads" "$HOME/Downloads"
+
+    # OneDrive symlinks - try to detect automatically
+    for onedrive_dir in "$WIN_HOME"/OneDrive*; do
+      [ -d "$onedrive_dir" ] || continue
+      dir_name=$(basename "$onedrive_dir")
+      link_name=$(echo "$dir_name" | tr '[:upper:]' '[:lower:]' | sed 's/onedrive - /onedrive-/;s/ /-/g')
+      [ -L "$HOME/$link_name" ] || ln -s "$onedrive_dir" "$HOME/$link_name"
+      info "Linked ~/$link_name"
+      # If private OneDrive has a z/ folder, link it
+      if [ -d "$onedrive_dir/z" ] && [ ! -L "$HOME/z" ]; then
+        ln -s "$onedrive_dir/z" "$HOME/z"
+        info "Linked ~/z"
+      fi
+    done
+  fi
+fi
+
+# --- Phase 5: Additional tools ---
 
 # Install Claude CLI
 info "Installing Claude CLI..."
@@ -94,3 +301,5 @@ elif git clone git@github.com:buvis/cellar.git "$CELLAR" 2>/dev/null; then
 else
   info "Skipping private configs (no access to cellar)"
 fi
+
+info "Done! See https://docs.buvis.net/home/post-install/ for optional next steps."
