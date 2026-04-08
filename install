@@ -72,6 +72,9 @@ cfg submodule update --init && cfg submodule update --remote --merge
 
 if command -v mise >/dev/null 2>&1; then
   mise install || info "warning: mise install had errors, continuing anyway"
+  if command -v sysup >/dev/null 2>&1; then
+    sysup nvim || info "warning: sysup nvim had errors, continuing anyway"
+  fi
 fi
 
 # Install Claude CLI
