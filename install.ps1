@@ -6,6 +6,51 @@ function error { Write-Host "error: $($args -join ' ')"; exit 1 }
 $Repo = Join-Path $HOME ".buvis"
 $Backup = Join-Path $Repo "originals-backup"
 
+# --- Phase 1: Bootstrap system tools ---
+
+# Set HOME and XDG_CONFIG_HOME if not already set
+if (-not $env:HOME) {
+    [Environment]::SetEnvironmentVariable("HOME", $env:USERPROFILE, [System.EnvironmentVariableTarget]::User)
+    $env:HOME = $env:USERPROFILE
+}
+if (-not $env:XDG_CONFIG_HOME) {
+    $xdg = Join-Path $env:USERPROFILE ".config"
+    [Environment]::SetEnvironmentVariable("XDG_CONFIG_HOME", $xdg, [System.EnvironmentVariableTarget]::User)
+    $env:XDG_CONFIG_HOME = $xdg
+}
+
+# Keep line endings as-is
+$autocrlf = git config --global core.autocrlf 2>$null
+if ($autocrlf -ne "false") {
+    git config --global core.autocrlf false
+}
+
+# Install Scoop if missing
+if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
+    info "Installing Scoop..."
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+    Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+}
+
+# Add buckets and install tools
+scoop bucket add extras 2>$null
+scoop bucket add nerd-fonts 2>$null
+
+$scoopPackages = @("git", "lazygit", "fd", "fzf", "neovim", "ripgrep", "vifm", "wget", "wezterm", "mise", "ag")
+foreach ($pkg in $scoopPackages) {
+    if (-not (Get-Command $pkg -ErrorAction SilentlyContinue)) {
+        info "Installing $pkg..."
+        scoop install $pkg
+    }
+}
+
+# Install NerdFont
+$fontInstalled = scoop list 2>$null | Select-String "Meslo-NF"
+if (-not $fontInstalled) {
+    info "Installing MesloLGS NerdFont..."
+    scoop install nerd-fonts/Meslo-NF
+}
+
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     error "git is required"
 }
@@ -15,6 +60,8 @@ function cfg {
 }
 
 Set-Location $HOME
+
+# --- Phase 2: Dotfiles checkout ---
 
 # Clone or fetch
 if (Test-Path $Repo) {
@@ -94,12 +141,72 @@ cfg branch -u origin/master master 2>$null
 cfg submodule update --init
 cfg submodule update --remote --merge
 
+# --- Phase 3: Package installation ---
+
 if (Get-Command mise -ErrorAction SilentlyContinue) {
+    info "Installing mise-managed tools..."
     mise install
     if (Get-Command sysup -ErrorAction SilentlyContinue) {
         sysup nvim
     }
 }
+
+# --- Phase 4: Post-checkout configuration ---
+
+cfg config credential.helper store
+git config --global core.excludesfile (Join-Path $HOME ".gitignore_global")
+
+$gitSrc = Join-Path $HOME "git/src"
+if (-not (Test-Path $gitSrc)) {
+    New-Item -ItemType Directory -Force -Path $gitSrc | Out-Null
+}
+
+# Symlink lazygit config to expected Windows location
+$lazygitSrc = Join-Path $HOME ".config/lazygit/config.yml"
+$lazygitDst = Join-Path $env:LOCALAPPDATA "lazygit/config.yml"
+if ((Test-Path $lazygitSrc) -and -not (Test-Path $lazygitDst)) {
+    $lazygitDstDir = Split-Path $lazygitDst -Parent
+    New-Item -ItemType Directory -Force -Path $lazygitDstDir | Out-Null
+    New-Item -ItemType SymbolicLink -Path $lazygitDst -Target $lazygitSrc | Out-Null
+    info "Linked $lazygitDst"
+}
+
+# Symlink PowerShell profile
+$profileSrc = Join-Path $HOME ".config/powershell/profile.ps1"
+if ((Test-Path $profileSrc) -and $PROFILE -and -not (Test-Path $PROFILE)) {
+    $profileDir = Split-Path $PROFILE -Parent
+    New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+    New-Item -ItemType SymbolicLink -Path $PROFILE -Target $profileSrc | Out-Null
+    info "Linked PowerShell profile to $PROFILE"
+}
+
+# Clone repositories listed in gita config
+$gitaCsv = Join-Path $HOME ".config/gita/repos.csv"
+if (Test-Path $gitaCsv) {
+    info "Cloning tracked repositories..."
+    foreach ($line in Get-Content $gitaCsv) {
+        $parts = $line -split ','
+        $repoPath = $parts[0]
+        $repoName = $parts[1]
+        if (Test-Path $repoPath) { continue }
+
+        # Derive clone URL from path: .../git/src/github.com/owner/repo -> git@github.com:owner/repo.git
+        $urlPart = $repoPath -replace '.*[/\\]git[/\\]src[/\\]', ''
+        $segments = $urlPart -split '[/\\]', 2
+        $cloneUrl = "git@$($segments[0]):$($segments[1]).git"
+
+        $parentDir = Split-Path $repoPath -Parent
+        New-Item -ItemType Directory -Force -Path $parentDir | Out-Null
+        git clone $cloneUrl $repoPath 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            info "Cloned $repoName"
+        } else {
+            info "warning: failed to clone $repoName ($cloneUrl), skipping"
+        }
+    }
+}
+
+# --- Phase 5: Additional tools ---
 
 # Install Claude CLI
 info "Installing Claude CLI..."
