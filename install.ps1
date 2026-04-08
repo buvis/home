@@ -96,6 +96,9 @@ cfg submodule update --remote --merge
 
 if (Get-Command mise -ErrorAction SilentlyContinue) {
     mise install
+    if (Get-Command sysup -ErrorAction SilentlyContinue) {
+        sysup nvim
+    }
 }
 
 # Install Claude CLI
