@@ -114,12 +114,15 @@ if [ -f "$HOME/.gitmodules" ]; then
 fi
 
 # Checkout, backing up conflicting files if needed
-if cfg checkout 2>&1; then
+checkout_log=$(mktemp)
+trap 'rm -f "$checkout_log"' EXIT INT TERM
+
+if cfg checkout >"$checkout_log" 2>&1; then
   info "Checked out config"
 else
   info "Backing up pre-existing dot files"
   mkdir -p "$BACKUP"
-  cfg checkout 2>&1 | grep -E "^\s+" | awk '{ print $1 }' >"$BACKUP/overwrites"
+  grep -E "^\s+" "$checkout_log" | awk '{ print $1 }' >"$BACKUP/overwrites"
 
   while read -r path; do
     [ -e "$HOME/$path" ] || continue
@@ -133,7 +136,11 @@ else
     info "Backed up $path"
   done <"$BACKUP/overwrites"
 
-  cfg checkout || exit 1
+  if ! cfg checkout 2>>"$checkout_log"; then
+    info "checkout failed after backup:"
+    cat "$checkout_log" >&2
+    exit 1
+  fi
 fi
 
 # Set up remote tracking
