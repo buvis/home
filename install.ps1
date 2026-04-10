@@ -98,16 +98,14 @@ if (Test-Path $gitmodules) {
 }
 
 # Checkout, backing up conflicting files if needed
-cfg checkout 2>$null
+$checkoutLog = (cfg checkout 2>&1) | Out-String
 if ($LASTEXITCODE -eq 0) {
     info "Checked out config"
 } else {
     info "Backing up pre-existing dot files"
     New-Item -ItemType Directory -Force -Path $Backup | Out-Null
 
-    # Re-run checkout to capture conflict list from stderr
-    $output = (cfg checkout 2>&1) | Out-String
-    $conflicts = $output -split "`n" |
+    $conflicts = $checkoutLog -split "`n" |
         Where-Object { $_ -match '^\s+\S' } |
         ForEach-Object { $_.Trim() } |
         Where-Object { $_ -ne '' }
@@ -130,8 +128,13 @@ if ($LASTEXITCODE -eq 0) {
         info "Backed up $path"
     }
 
-    cfg checkout
-    if ($LASTEXITCODE -ne 0) { error "checkout failed after backup" }
+    $retryLog = (cfg checkout 2>&1) | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        info "checkout failed after backup:"
+        [Console]::Error.Write($checkoutLog)
+        [Console]::Error.Write($retryLog)
+        exit 1
+    }
 }
 
 # Set up remote tracking
