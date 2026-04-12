@@ -33,5 +33,5 @@ function backup-router () {
     scp orcus.buvis.net:/home/bob/send-vim-tip.sh home/bob/send-vim-tip.sh
     scp orcus.buvis.net:/usr/local/bin/reload_abusers.sh usr/local/bin/reload_abusers.sh
     scp -r orcus.buvis.net:/var/unbound/etc/ var/unbound/
-    cd -
+    cd - || return
 }

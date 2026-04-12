@@ -10,7 +10,7 @@ function mopidy-print-log () {
 function mopidy-make () {
     cd "${DOTFILES_ROOT}/.playbooks" || return
     ansible-playbook -i "$1", make-music-server.yaml
-    cd -
+    cd - || return
     printf "Don't forget to authenticate to Tidal in the next 5 minutes.\n"
     echo "Get the OAuth link from the logs: ssh $1 docker logs mopidy"
 }
@@ -22,7 +22,7 @@ function mopidy-rescan () {
             cd "${DOTFILES_ROOT}/git/src/github.com/buvis/clusters/production" || return
             direnv allow . && eval "$(direnv export bash)"
             kubectl exec -n media deploy/mopidy -- /shim/scan-local.sh
-            cd -
+            cd - || return
             ;;
         *)
             ssh "$1" "docker exec mopidy /shim/scan-local.sh"
