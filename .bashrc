@@ -29,15 +29,6 @@ export POWERLINE_PROMPT_USER_INFO_MODE="sudo"
 # you renamed it or if it was changed for some reason
 # export BASH_IT_DEVELOPMENT_BRANCH='master'
 
-# Don't check mail when opening terminal.
-unset MAILCHECK
-
-# Change this to your console based IRC client of choice.
-export IRC_CLIENT='irssi'
-
-# Set this to the command you use for todo.txt-cli
-export TODO="t"
-
 # Set this to false to turn off version control status checking within the prompt for all themes
 export SCM_CHECK=true
 # Set Xterm/screen/Tmux title with only a short hostname.
