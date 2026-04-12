@@ -21,10 +21,15 @@ for each pending task:
     4. Agent C tries to break tests (adversarial validation)
     5. commit tests
     6. Agent B implements against failing tests
-    7. verify tests pass (retry Agent B if needed)
+    7. verify THIS task's tests pass (retry Agent B if needed)
     8. commit implementation
     9. TaskUpdate(completed) → sync state file
+
+after all tasks complete:
+    10. run full verification suite ONCE (see step 7)
 ```
+
+**Per-task verification runs only the tests Agent A wrote in step 2.7, not the full project suite.** The full suite (workspace tests, smoke, integration, lint) runs once at the end. This is deliberate: per-task full-suite runs compound to 40+ minutes of redundant test time across a 20-task phase.
 
 If you find yourself writing an Agent prompt that mentions multiple tasks, STOP — you are about to violate this rule.
 
@@ -251,13 +256,19 @@ Commit message rules:
 - One line, no period
 - Reference task ID if available
 
-### 5.5. Verify tests pass
+### 5.5. Verify THIS task's tests pass
 
-Run the project's test suite. All tests from step 2.7 must pass.
+Run **only** the specific tests Agent A wrote in step 2.7. Do NOT run the full project test suite, smoke tests, integration tests, or lint here — those run once at the end of the phase (step 7).
 
+- Target the narrowest scope that covers the new tests:
+  - Rust: `cargo test -p <crate> --test <test_file>` or `cargo test -p <crate> <module::test_name>`
+  - Python: `pytest path/to/test_file.py::test_name`
+  - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - If tests fail, dispatch Agent B again with the failure output. Never dispatch Agent A to weaken tests.
 - Max 2 implementation retries before escalating to the user.
-- If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests.
+- If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
+
+**Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
 
 ### 5.7. Per-task code review (if superpowers available)
 
@@ -277,7 +288,34 @@ Skip for documentation-only or configuration-only tasks.
 1. Use `TaskUpdate` to set `status: completed`
 2. **Sync state file** (see Dashboard State Sync) — mandatory
 3. Return to step 1 for next task
-4. Stop when no pending tasks remain
+4. When no pending tasks remain, proceed to step 7 (do NOT stop here)
+
+### 7. Final verification (once per work phase)
+
+After all tasks in the phase are marked completed, run the project's full verification suite **once**. This is the single point where the full suite runs — per-task verification (step 5.5) only ran the new tests in isolation, so this step is mandatory and must not be skipped.
+
+**What to run** (project-dependent — use the commands documented in `AGENTS.md` / `CLAUDE.md` / project README):
+
+- Full workspace tests (e.g., `cargo test --workspace`, `pytest`, `npm test`)
+- Lint (e.g., `cargo clippy --workspace`, `ruff check`, `eslint .`)
+- Smoke tests if the project defines them (e.g., `./tests/smoke.sh`)
+- Integration / e2e tests if the project defines them (e.g., `./tests/integration.sh`, `cargo test -p <crate>-e2e`)
+- Any project-specific "definition of done" checks
+
+Run each as a separate Bash call. Do not chain with `&&`.
+
+**Handling failures at this step:**
+
+1. Identify which task(s) introduced the regression. The failing test output usually points at a specific module; cross-reference against the task commits.
+2. Re-open the offending task via `TaskUpdate(status: in_progress)` and sync state file.
+3. Dispatch Agent B with the failure output to fix it. Do NOT relax the failing test.
+4. After the fix commits, re-run **only** the previously failing commands from step 7 (not the whole suite again) to confirm the fix.
+5. Mark the task completed and re-sync.
+6. Repeat until the full suite is green.
+
+Max 3 fix cycles at this step before escalating to the user — regressions clustering here usually indicate a design issue that needs human input.
+
+Only stop the work phase once step 7 is fully green.
 
 ## Task Splitting
 

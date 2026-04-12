@@ -6,9 +6,13 @@ argument-hint: "[<prd-filename> | status]"
 
 # Autopilot
 
-Orchestrate the full PRD lifecycle: catchup → plan-tasks → work → review → rework loop → doubt review → done.
+Orchestrate the full PRD lifecycle: catchup → plan-tasks → work → review → rework loop → blind review → doubt review → done.
 
 Makes autonomous decisions backed by research (dependencies, recurring issues, API/schema changes when PRD-driven) and pauses only for critical security, requirements ambiguity, or blocking decisions.
+
+## Execution Model
+
+**Run all phases in sequence without stopping.** After each phase completes, immediately update state and proceed to the next phase. Do not pause between phases, do not summarize progress, do not wait for user input - unless the phase explicitly says PAUSE or STOP. Completing a sub-skill invocation (`/catchup`, `/plan-tasks`, `/work`, `/review-work-completion`, etc.) is NOT a stopping point. It is an intermediate step. Continue.
 
 ## Entry Points
 
@@ -169,7 +173,7 @@ Log every decision in state file (`autonomous_decisions` or `deferred_decisions`
 - **All auto-fixable, no deferrals, no blockers** → proceed to Phase 6
 - **Has deferrals but no blockers** → log deferred items to `dev/local/autopilot/deferred/{batch_id}-deferred.json`, proceed to Phase 6 with auto-fixable items only
 - **Has blocking escalation** → PAUSE. Present only the blocking issue(s) to user. Wait for decision. After user responds, proceed to Phase 6.
-- **No issues found** → proceed to Phase 7 (Doubt Review)
+- **No issues found** → proceed to Phase 7 (Blind Review)
 
 ## Phase 6: Rework
 
@@ -183,33 +187,69 @@ The work skill may parallelize independent rework tasks when `superpowers:dispat
 
 Increment cycle counter. Update state: set `phase: "review"`, update task counts. Loop back to Phase 4.
 
-## Phase 7: Doubt Review
+## Phase 7: Blind Review
+
+**Skip if:** `"blind-review"` in `phases_completed` in state file.
+
+Spec-only verification by a reviewer with no implementation context. Invoke `/review-blindly` with only the PRD content - no file lists, implementation notes, or review history.
+
+After the review:
+
+1. **No Critical/Important findings** → update state: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"`. Proceed to Phase 8.
+2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes, update state and proceed to Phase 8. Do not loop back to Phase 4.
+3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning but proceed.
+
+Minor findings: defer to batch end (append to `deferred_decisions` in state).
+
+This phase runs once per PRD.
+
+## Phase 8: Doubt Review
 
 **Skip if:** `"doubt-review"` in `phases_completed` in state file.
 
 Final sanity check before completion. Invoke `/review-with-doubt`.
 
-After the review produces findings:
+The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope). Process each:
 
-1. For each concrete weakness, missing test, edge case, or flaw identified:
-   - Create a task tagged with `[DOUBT]` prefix
-   - Add an entry to `doubts` in the state file: `{"description": "...", "severity": "low|medium|high|critical", "status": "pending"}`
-2. If no actionable findings (confidence >= 8, no concrete issues) → skip to Phase 8
-3. If >5 doubt tasks created → PAUSE: "Doubt review flagged {n} issues after review cycle passed. Review the list before proceeding."
-4. Otherwise, invoke `/work` on the `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop
-5. After work completes, mark each doubt entry's `status` as `"resolved"` in the state file
-6. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"`, update task counts
+### Handling FIX items
+
+1. Create a task tagged `[DOUBT]` for each FIX item.
+2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`
+
+### Handling VERIFY items
+
+VERIFY items are resolved during the review itself (the doubt skill runs checks and reclassifies as FIX or dismissed). If any survive unresolved:
+1. Treat as FIX — create a `[DOUBT]` task.
+2. Add to `doubts` in state with `"category": "verify"`.
+
+### Handling KNOWN items
+
+KNOWN items cannot be fixed in this scope. They flow to batch-end review for the user to decide.
+1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`
+2. Do NOT create tasks for KNOWN items — they are deferred, not actionable here.
+
+### Execution
+
+After classifying all items:
+
+1. If no FIX or VERIFY tasks → proceed to Phase 9. KNOWN items (if any) will be surfaced at batch end.
+2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
+3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop.
+4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
+5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"`, update task counts.
+
+KNOWN items keep `"status": "pending"` — Phase 9 step 5 collects these into the batch deferred log for batch-end review.
 
 This phase runs once per PRD. It does not loop back to Phase 4.
 
-## Phase 8: Completion
+## Phase 9: Completion
 
 1. Update state: set `phase: "done"`
 2. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix)
 3. Append completed PRD to `batch.completed_prds` in state file
 4. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
 5. Append items to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (create if missing). Collect from the current state file:
-   - `deferred_decisions` with status `"pending"` or `"deferred"` -> type `"deferred_decision"`
+   - `deferred_decisions` with status `"pending"` or `"deferred"` -> type `"deferred_decision"` (preserve original `type` field if present, e.g. `"doubt-overflow"`)
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
@@ -260,9 +300,10 @@ Summary:
 
      Before exiting, collect ALL pending items from across the batch and present them to the user. This is mandatory if any items exist - never auto-exit with unreviewed items.
 
-     **Source:** `dev/local/autopilot/deferred/{batch_id}-deferred.json` (single source of truth - all items were written here at Phase 8 step 5 of each PRD). Contains three item types:
+     **Source:** `dev/local/autopilot/deferred/{batch_id}-deferred.json` (single source of truth - all items were written here at Phase 9 step 5 of each PRD). Contains four item types:
      - `deferred_decision` - issues that failed research or were deferred for other reasons
      - `doubt` - unresolved findings from doubt review
+     - `doubt-overflow` - FIX/VERIFY items deferred when doubt review found >5 issues (present under UNRESOLVED DOUBTS)
      - `autonomous_research` - research-backed decisions made autonomously (for user awareness)
 
      **Presentation format - chunked by PRD:**
@@ -305,7 +346,7 @@ Summary:
 
 Autopilot supports automatic session cycling via a signal file + Stop hook. This enables unattended PRD-to-PRD transitions while keeping sessions interactive.
 
-**Signal file:** `dev/local/autopilot/signal` — written at Phase 8 completion with `next` (more PRDs) or `done` (backlog empty).
+**Signal file:** `dev/local/autopilot/signal` — written at Phase 9 completion with `next` (more PRDs) or `done` (backlog empty).
 
 **Shell wrapper:**
 
@@ -362,7 +403,7 @@ Without the hook, sessions remain interactive but require manual exit (Ctrl+D) b
 
 Autopilot depends on superpowers for quality gates. All integrations are conditional - autopilot works without them, but quality improves with them.
 
-### Used by the Work skill (Phases 3, 6, 7)
+### Used by the Work skill (Phases 3, 6, 7, 8)
 
 | Superpower | Step | Purpose |
 |-----------|------|---------|
@@ -393,7 +434,7 @@ Autopilot depends on superpowers for quality gates. All integrations are conditi
 
 ### Note on review layering
 
-Per-task review (step 5.7) and PRD-level review (Phase 4) are complementary, not redundant. Per-task catches issues early before they compound across tasks. Phase 4 catches cross-task coherence, requirement coverage, and integration issues. Both are needed.
+Per-task review (step 5.7), PRD-level review (Phase 4), and blind review (Phase 7) are complementary, not redundant. Per-task catches issues early before they compound. Phase 4 catches cross-task coherence and integration issues. Phase 7 catches spec drift and gaps that implementation-aware reviewers miss by giving a fresh agent only the spec. All three are needed.
 
 ## Reference Files
 
