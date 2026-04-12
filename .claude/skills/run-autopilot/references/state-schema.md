@@ -107,7 +107,7 @@ State file location: `dev/local/autopilot/state.json`
 | `prd.filename` | string | PRD filename without path |
 | `prd.path` | string | Relative path from project root |
 | `prd.name` | string | Filename without extension (used in dashboard) |
-| `phase` | enum | Current phase: `prd-selection`, `catchup`, `planning`, `work`, `review`, `decision-gate`, `rework`, `doubt-review`, `done`, `paused` |
+| `phase` | enum | Current phase: `prd-selection`, `catchup`, `planning`, `work`, `review`, `decision-gate`, `rework`, `blind-review`, `doubt-review`, `done`, `paused` |
 | `phases_completed` | string[] | Phases finished this session |
 | `cycle` | int | Current review-rework cycle (starts at 1) |
 | `tasks_total` | int | Total task count from TaskList (pending + in_progress + completed) |
@@ -117,7 +117,7 @@ State file location: `dev/local/autopilot/state.json`
 | `review_cycles[].recurring_issues` | string[] | Issue descriptions that appeared in a previous cycle |
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
 | `deferred_decisions` | object[] | Decisions requiring user input. May include optional `research` field when research was attempted but inconclusive. |
-| `doubts` | object[] | Findings from doubt review: `{"description": "...", "severity": "low\|medium\|high\|critical", "status": "pending\|resolved"}` |
+| `doubts` | object[] | Findings from doubt review: `{"description": "...", "category": "fix\|verify\|known", "justification?": "...", "status": "pending\|resolved"}`. `justification` required for `known` items (why it can't be fixed in scope). |
 | `batch` | object? | Tracks completed PRDs across sessions |
 | `batch.id` | string | Batch ID: `yyyymmddHHMM` timestamp of first execution |
 | `batch.mode` | string | Always `"autopilot"` |
@@ -164,8 +164,9 @@ File: `dev/local/autopilot/deferred/{batch_id}-deferred.json` - persists across 
     "prd": "00005-auth-rework.md",
     "cycle": 1,
     "type": "doubt",
+    "category": "known",
     "issue": "Edge case in token refresh under concurrent requests",
-    "severity": "medium"
+    "justification": "Requires distributed lock infrastructure not in scope for this PRD"
   },
   {
     "prd": "00004-feature-x.md",
@@ -189,9 +190,9 @@ File: `dev/local/autopilot/deferred/{batch_id}-deferred.json` - persists across 
 ]
 ```
 
-Written at Phase 8 step 5. This is the single source of truth for batch-end review. Includes:
+Written at Phase 9 step 5. This is the single source of truth for batch-end review. Includes:
 - `deferred_decision` — issues that failed research or were deferred for other reasons
-- `doubt` — unresolved findings from doubt review
+- `doubt` — unresolved findings from doubt review (KNOWN items with justification)
 - `autonomous_research` — research-backed decisions made autonomously (for user awareness at batch end)
 
 Each entry preserves the full `research` field when available, so evidence is readable at batch-end review even after per-PRD state is cleared. Not deleted by autopilot - left for user review.
@@ -206,4 +207,5 @@ Used to determine which phases to skip:
 | planning | `TaskList` returns pending or completed tasks |
 | work | All tasks completed, none pending |
 | review | Review file exists for current cycle in `dev/local/reviews/` |
+| blind-review | `"blind-review"` in `phases_completed` |
 | doubt-review | `"doubt-review"` in `phases_completed` |
