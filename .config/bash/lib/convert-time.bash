@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-function convert-time()
-{
+function convert-time () {
     local FROMTIME=$1
     local FROMTZ=$2
     local TOTZ=$3

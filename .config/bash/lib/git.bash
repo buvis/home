@@ -2,7 +2,7 @@
 # - stashes uncommitted changes, restores after success
 # - force-pushes updated branch to origin
 # - if on base branch, just pulls instead
-git_catchup_parent() {
+function git_catchup_parent () {
   local branch base candidate
   local stashed=false
 
@@ -52,7 +52,7 @@ git_catchup_parent() {
   fi
 }
 
-git_resolve_conflict() {
+function git_resolve_conflict () {
   if ! git rev-parse --git-dir &>/dev/null; then
     echo "Not in a git repository"
     return 1

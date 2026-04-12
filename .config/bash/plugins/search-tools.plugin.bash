@@ -28,5 +28,5 @@ function rfv () {
         --preview 'bat --color=always {1} --highlight-line {2}' \
         --preview-window 'up,60%,border-bottom,+{2}+3/3,~3'
     )
-    [ -n "${selected[0]}" ] && vim "${selected[0]}" "+${selected[1]}"
+    [[ -n "${selected[0]}" ]] && vim "${selected[0]}" "+${selected[1]}"
 }
