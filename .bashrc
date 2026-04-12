@@ -29,9 +29,6 @@ export POWERLINE_PROMPT_USER_INFO_MODE="sudo"
 # you renamed it or if it was changed for some reason
 # export BASH_IT_DEVELOPMENT_BRANCH='master'
 
-# Your place for hosting Git repos. I use this for private repos.
-export GIT_HOSTING='git@git.domain.com'
-
 # Don't check mail when opening terminal.
 unset MAILCHECK
 
