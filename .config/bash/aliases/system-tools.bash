@@ -23,6 +23,4 @@ alias rm="rm -i"
 
 alias ssh="LC_CTYPE=\"en_US.UTF-8\" TERM=xterm-256color ssh"
 
-if [[ $(command -v vim) ]]; then alias vi="vim"; fi
-
 if [[ $(command -v vifm) ]]; then alias vifm='vifm ~/Downloads "$(pwd)"'; fi
