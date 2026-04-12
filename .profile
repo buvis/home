@@ -63,7 +63,8 @@ if [[ $IS_MAC ]]; then
   fi
 
   if type "${BREW_BIN}" &>/dev/null; then
-    export BREW_PREFIX="$("${BREW_BIN}" --prefix)"
+    BREW_PREFIX="$("${BREW_BIN}" --prefix)"
+    export BREW_PREFIX
     for bindir in "${BREW_PREFIX}/opt/"*"/libexec/gnubin"; do export PATH=$bindir:$PATH; done
     for bindir in "${BREW_PREFIX}/opt/"*"/bin"; do export PATH=$bindir:$PATH; done
     for mandir in "${BREW_PREFIX}/opt/"*"/libexec/gnuman"; do export MANPATH=$mandir:$MANPATH; done
@@ -73,11 +74,13 @@ fi
 
 # Use gpg with ssh
 if [[ $IS_MAC ]]; then
-  export GPG_TTY=$(tty)
+  GPG_TTY=$(tty)
+  export GPG_TTY
 
   # Lazy-load SSH socket only when needed
   ssh() {
-    export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+    SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+    export SSH_AUTH_SOCK
     gpgconf --launch gpg-agent
     command ssh "$@"
   }
