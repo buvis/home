@@ -11,7 +11,7 @@ function mopidy-make () {
     cd $DOTFILES_ROOT/.playbooks
     ansible-playbook -i $1, make-music-server.yaml
     cd -
-    echo "Don't forget to authenticate to Tidal in the next 5 minutes.\n"
+    printf "Don't forget to authenticate to Tidal in the next 5 minutes.\n"
     echo "Get the OAuth link from the logs: ssh $1 docker logs mopidy"
 }
 
