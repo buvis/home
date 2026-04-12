@@ -206,6 +206,14 @@ if command -v mise >/dev/null 2>&1; then
   fi
 fi
 
+# Install gita for multi-repo management
+if command -v pip3 >/dev/null 2>&1; then
+  if ! python3 -m gita --version >/dev/null 2>&1; then
+    info "Installing gita..."
+    pip3 install -U gita || info "warning: gita installation failed, continuing"
+  fi
+fi
+
 # --- Phase 4: Post-checkout configuration ---
 
 cfg config credential.helper store
