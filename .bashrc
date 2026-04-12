@@ -21,14 +21,6 @@ export BASH_IT_CUSTOM="${DOTFILES_ROOT}/.config/bash"
 export BASH_IT_THEME="$DOTFILES_ROOT/.config/bash/themes/powerline-multiline/powerline-multiline.theme.bash"
 export POWERLINE_PROMPT_USER_INFO_MODE="sudo"
 
-# (Advanced): Change this to the name of your remote repo if you
-# cloned bash-it with a remote other than origin such as `bash-it`.
-# export BASH_IT_REMOTE='bash-it'
-
-# (Advanced): Change this to the name of the main development branch if
-# you renamed it or if it was changed for some reason
-# export BASH_IT_DEVELOPMENT_BRANCH='master'
-
 # Set this to false to turn off version control status checking within the prompt for all themes
 export SCM_CHECK=true
 
