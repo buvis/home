@@ -3,8 +3,8 @@ about-plugin 'functions for backing stuff up'
 
 # backup router configuration
 function backup-router () {
-    mkdir -p $DOTFILES_ROOT/Downloads/router-backup
-    cd $DOTFILES_ROOT/Downloads/router-backup
+    mkdir -p "${DOTFILES_ROOT}/Downloads/router-backup"
+    cd "${DOTFILES_ROOT}/Downloads/router-backup" || return
     mkdir -p etc
     mkdir -p etc/mail
     mkdir -p etc/protonvpn
