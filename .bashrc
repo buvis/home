@@ -6,7 +6,7 @@ case $- in
 *) return ;;
 esac
 
-# Set DOTFILES_ROOT if not already set, defaulting to $HOME
+# Fallback for non-login shells that skip .profile
 export DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME}"
 
 # Path to the bash it configuration
