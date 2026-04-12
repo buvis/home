@@ -54,15 +54,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/enforce-escalation.py",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "Notification": [
@@ -211,7 +202,7 @@
       "autoUpdate": true
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
   "mcpServers": {
     "youtube_transcript": {
