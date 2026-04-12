@@ -26,6 +26,14 @@
    - Resolve any merge conflicts
    - Ensure branch is up to date with target
 
+## Bug Fix Discipline
+
+Before closing any bug fix, ask:
+
+1. **Is this mistake somewhere else also?** Search for the same pattern across the codebase.
+2. **What should I do to prevent bugs like this?** Start with observable facts, work backwards asking "why" repeatedly, until you can describe the underlying pattern.
+3. **What next bug is hidden behind this one?** Look for follow-on issues the current bug may have been masking.
+
 ## Git Safety
 
 - Default branch is `master` everywhere. Never refer to it as `main`.
