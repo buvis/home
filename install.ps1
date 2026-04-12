@@ -242,3 +242,5 @@ if (Test-Path $Cellar) {
         info "Skipping private configs (no access to cellar)"
     }
 }
+
+info "Done! See https://docs.buvis.net/home/post-install/ for optional next steps."
