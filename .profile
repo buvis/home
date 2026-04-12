@@ -33,9 +33,6 @@ export PATH="$PATH:${DOTFILES_ROOT}/.local/bin/doogat/pingl:${DOTFILES_ROOT}/.lo
 # My scripts
 export PATH="$PATH:${DOTFILES_ROOT}/scripts/bin"
 
-# Avoid ./ to run scripts in current directory
-export PATH=$PATH:.
-
 # Support kubectl plugins
 export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 
