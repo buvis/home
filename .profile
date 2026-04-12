@@ -82,7 +82,7 @@ if [[ $IS_MAC ]]; then
     SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
     export SSH_AUTH_SOCK
     gpgconf --launch gpg-agent
-    command ssh "$@"
+    LC_CTYPE="en_US.UTF-8" TERM=xterm-256color command ssh "$@"
   }
 
 fi
