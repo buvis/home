@@ -10,6 +10,23 @@ error() {
 
 REPO="$HOME/.buvis"
 BACKUP="$REPO/originals-backup"
+STAMP_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/buvis"
+
+# Skip a step if its stamp file is newer than <hours> hours old.
+should_skip() {
+  step="$1"
+  hours="$2"
+  stamp="$STAMP_DIR/$step"
+  [ -f "$stamp" ] || return 1
+  # find -mmin -N: files modified within last N minutes
+  [ -n "$(find "$stamp" -mmin -"$((hours * 60))" 2>/dev/null)" ]
+}
+
+# Record that a step ran successfully.
+stamp_step() {
+  mkdir -p "$STAMP_DIR"
+  touch "$STAMP_DIR/$1"
+}
 
 # --- Platform detection ---
 
@@ -28,6 +45,17 @@ detect_os() {
 }
 
 detect_os
+
+# --- Cache directory defaults ---
+# Export standard cache env vars only when unset, so tools that respect them
+# (uv, pip, cargo, npm, mise) write into a persistent location on reruns.
+: "${XDG_CACHE_HOME:=$HOME/.cache}"
+: "${UV_CACHE_DIR:=$XDG_CACHE_HOME/uv}"
+: "${PIP_CACHE_DIR:=$XDG_CACHE_HOME/pip}"
+: "${CARGO_HOME:=$HOME/.cargo}"
+: "${npm_config_cache:=$XDG_CACHE_HOME/npm}"
+: "${MISE_CACHE_DIR:=$XDG_CACHE_HOME/mise}"
+export XDG_CACHE_HOME UV_CACHE_DIR PIP_CACHE_DIR CARGO_HOME npm_config_cache MISE_CACHE_DIR
 
 # --- Phase 1: Bootstrap system tools ---
 
@@ -146,8 +174,10 @@ fi
 # Set up remote tracking
 cfg branch -u origin/master master 2>/dev/null || true
 
-# Retrieve submodule content
-cfg submodule update --init && cfg submodule update --remote --merge
+# Retrieve submodule content at the pinned SHAs committed to HEAD.
+# Avoid --remote --merge: that silently floats submodules to upstream tips
+# on every install and defeats version pinning.
+cfg submodule update --init --recursive
 
 # --- Phase 3: Package installation ---
 
@@ -202,7 +232,13 @@ if command -v mise >/dev/null 2>&1; then
   info "Installing mise-managed tools..."
   mise install || info "warning: mise install had errors, continuing anyway"
   if command -v sysup >/dev/null 2>&1; then
-    sysup nvim || info "warning: sysup nvim had errors, continuing anyway"
+    if should_skip sysup-nvim 24; then
+      info "Skipping sysup nvim (ran within last 24h)"
+    elif sysup nvim; then
+      stamp_step sysup-nvim
+    else
+      info "warning: sysup nvim had errors, continuing anyway"
+    fi
   fi
 fi
 
@@ -300,11 +336,15 @@ fi
 # --- Phase 5: Additional tools ---
 
 # Install Claude CLI
-info "Installing Claude CLI..."
-if curl -fsSL https://claude.ai/install.sh | bash; then
-  info "Claude CLI installed"
+if command -v claude >/dev/null 2>&1; then
+  info "Claude CLI already installed, skipping"
 else
-  info "warning: Claude CLI installation failed, continuing"
+  info "Installing Claude CLI..."
+  if curl -fsSL https://claude.ai/install.sh | bash; then
+    info "Claude CLI installed"
+  else
+    info "warning: Claude CLI installation failed, continuing"
+  fi
 fi
 
 # Private configs (cellar)
