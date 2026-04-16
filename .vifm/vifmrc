@@ -162,7 +162,7 @@ command! make !!make %a
 command! mkcd :mkdir %a | cd %a
 command! vgrep nvim "+grep %a"
 command! reload :write | restart
-command! slug !fren slug %f &
+command! slug !fren slug %"f &
 command! wslfixperm !chmod -R a-x+X,u-x+rwX,go-wx+rX * &
 command! bb !~/.local/bin/doogat/doo/doo create bookmark --edit
 command! cc !~/.local/bin/doogat/doo/doo create contact --edit
