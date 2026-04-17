@@ -45,7 +45,7 @@ config.inactive_pane_hsb = {
 	saturation = 0.65,
 	brightness = 0.75,
 }
-config.font = wezterm.font("MesloLGS NF")
+config.font = wezterm.font("MesloLGS Nerd Font")
 
 if wezterm.target_triple == "x86_64-pc-windows-msvc" then
 	config.font_size = 9.5
