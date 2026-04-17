@@ -154,15 +154,6 @@ if (Get-Command mise -ErrorAction SilentlyContinue) {
     }
 }
 
-# Install gita for multi-repo management
-if (Get-Command pip3 -ErrorAction SilentlyContinue) {
-    $gitaCheck = python3 -m gita --version 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        info "Installing gita..."
-        pip3 install -U gita
-    }
-}
-
 # --- Phase 4: Post-checkout configuration ---
 
 cfg config credential.helper store
