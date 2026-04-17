@@ -32,15 +32,15 @@ stamp_step() {
 
 detect_os() {
   case "$(uname -s)" in
-    Darwin) OS=macos ;;
-    Linux)
-      if grep -qi microsoft /proc/version 2>/dev/null; then
-        OS=wsl
-      else
-        OS=linux
-      fi
-      ;;
-    *) OS=unknown ;;
+  Darwin) OS=macos ;;
+  Linux)
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+      OS=wsl
+    else
+      OS=linux
+    fi
+    ;;
+  *) OS=unknown ;;
   esac
 }
 
@@ -242,14 +242,6 @@ if command -v mise >/dev/null 2>&1; then
   fi
 fi
 
-# Install gita for multi-repo management
-if command -v pip3 >/dev/null 2>&1; then
-  if ! python3 -m gita --version >/dev/null 2>&1; then
-    info "Installing gita..."
-    pip3 install -U gita || info "warning: gita installation failed, continuing"
-  fi
-fi
-
 # --- Phase 4: Post-checkout configuration ---
 
 cfg config credential.helper store
@@ -301,7 +293,7 @@ WSLCONF
   # Create .bashrc-wsl with WSL-specific overrides
   if [ ! -f "$HOME/.bashrc-wsl" ]; then
     info "Creating .bashrc-wsl..."
-    cat > "$HOME/.bashrc-wsl" <<WSLRC
+    cat >"$HOME/.bashrc-wsl" <<WSLRC
 export P_PROPERTIES_FILE="$HOME/.pdata-wsl.properties"
 export GITA_PROJECT_HOME="$HOME/.config/wsl/"
 WSLRC
