@@ -1,5 +1,3 @@
-alias gita="python3 -m gita"
-
 alias gd="git diff"
 alias gg="lazygit"
 alias gl="git pull"
