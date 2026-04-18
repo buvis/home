@@ -1,7 +1,8 @@
 ---
 name: explain-interactively
 description: Turn a codebase into an interactive HTML course for non-technical learners. Triggers on "turn this into a course", "explain interactively", "codebase walkthrough", "teach this code".
-original-author: zarazhangrui/codebase-to-course
+metadata:
+  original-author: zarazhangrui/codebase-to-course
 ---
 
 # Explain Interactively
