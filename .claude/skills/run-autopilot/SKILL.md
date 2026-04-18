@@ -70,10 +70,9 @@ Print a banner at each phase transition:
 ## Phase 0: PRD Selection
 
 1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, `mv` to `wip/`.
-2. Otherwise, auto-select:
+2. Otherwise, auto-select (never ask the user):
    a. Check `dev/local/prds/wip/`:
-      - 1 found → auto-select, announce
-      - 2+ found → ask user which one
+      - 1+ found → auto-pick lowest sequence number (by `00XXX-` prefix), announce
    b. If wip is empty, check `dev/local/prds/backlog/`:
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
@@ -254,6 +253,11 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
 6. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). See `references/batch-report-format.md` for format.
+6b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). For each non-trivial entry in `autonomous_decisions` from the state file, append one row:
+    ```
+    | {YYYY-MM-DD} | {decision summary} | {rationale or research evidence} | batch-{batch_id} PRD {prd-number} |
+    ```
+    Dedupe: grep the decision summary before appending; skip if already present.
 7. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
    ```markdown
    ## Active Work
@@ -305,6 +309,8 @@ Summary:
      - `doubt` - unresolved findings from doubt review
      - `doubt-overflow` - FIX/VERIFY items deferred when doubt review found >5 issues (present under UNRESOLVED DOUBTS)
      - `autonomous_research` - research-backed decisions made autonomously (for user awareness)
+
+     **Auto-fix trivial items first.** Before presenting items to the user, scan for trivial fixes that are clearly additive-only: docstring/comment improvements, test helper fixes (missing kwargs, style), formatting. Fix these silently, commit, and remove from the deferred list. Only present items that genuinely need a user decision.
 
      **Presentation format - chunked by PRD:**
 
