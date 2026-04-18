@@ -134,7 +134,24 @@ rules:
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ["^kustomize$", "^rollout$"]
+          anyArgMatches:
+            [
+              "^get$",
+              "^describe$",
+              "^logs$",
+              "^top$",
+              "^explain$",
+              "^config$",
+              "^version$",
+              "^api-resources$",
+              "^api-versions$",
+              "^cluster-info$",
+              "^kustomize$",
+              "^wait$",
+              "^diff$",
+              "^auth$",
+              "^rollout$",
+            ]
         decision: allow
         description: Read-only kubectl commands
   - command: sqlite3
