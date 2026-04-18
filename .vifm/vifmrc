@@ -121,7 +121,7 @@ mark g ~/git/src/
 mark h ~/
 mark i ~/bim/inbox
 mark s ~/git/src/github.com/buvis/scripts
-mark t ~/Temp
+mark t ~/.local/tmp
 mark z ~/bim/zettelkasten
 
 if has('win')
