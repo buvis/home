@@ -32,6 +32,9 @@ Rules:
 6. For EACH test, ask yourself: "What wrong implementation would still pass this?" If easy to answer, add constraints.
 7. Do not write implementation code. Do not modify non-test files.
 8. Do not add test-only methods to production classes. Use test utilities instead.
+9. SIMPLICITY FIRST: Test only the behavior in the acceptance criteria. Do not add tests for features nobody asked for. If you write 20 tests when 6 cover the spec, cut back.
+10. THINK BEFORE CODING: If the acceptance criteria are ambiguous (unclear input shape, unstated error behavior, multiple valid interpretations), STOP and report the ambiguity instead of picking an interpretation silently.
+11. SURGICAL: Only create/modify test files. Match the existing test file's style (quote style, import order, assertion library, naming). Do not reformat sample files you were given for reference.
 
 Do NOT:
 - Think about how to implement the feature
