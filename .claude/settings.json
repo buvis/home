@@ -175,14 +175,15 @@
     ]
   },
   "enabledPlugins": {
-    "pr-review-toolkit@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": false,
     "lua-lsp@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
-    "warden@buvis-plugins": true
+    "warden@buvis-plugins": true,
+    "harness@harness-marketplace": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {
@@ -191,9 +192,15 @@
         "repo": "buvis/claude-plugins"
       },
       "autoUpdate": true
+    },
+    "harness-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "revfactory/harness"
+      }
     }
   },
-  "effortLevel": "medium",
+  "effortLevel": "xhigh",
   "skipDangerousModePermissionPrompt": true,
   "mcpServers": {
     "youtube_transcript": {
