@@ -171,15 +171,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/track-struggle.py",
-            "timeout": 5
-          }
-        ]
       }
     ]
   },
