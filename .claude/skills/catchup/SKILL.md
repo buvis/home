@@ -49,6 +49,11 @@ Read every file that exists (skip missing ones):
 
 Read `dev/local/project-capsule.md` if it exists — its invariants and health signals from the last session are useful context even as you load fresh sources.
 
+Also read (skip missing):
+- `dev/local/decisions.md` — project decision log (searchable index of architectural and implementation decisions)
+- `dev/local/troubleshooting.md` — recurring-issue database with verified fixes
+- `~/.claude/decisions.md` — global cross-project decisions (tooling, workflow, conventions)
+
 #### 1d. Read recent master activity
 
 ```bash
