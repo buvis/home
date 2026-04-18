@@ -126,6 +126,8 @@ Before dispatching to Codex/Gemini, load relevant context into the prompt:
 
 1M context makes this practical — richer prompts produce better first-pass results.
 
+**Ambiguity check (Think Before Coding):** Re-read the task description. If scope, data shape, target surface, or success criteria are unclear, stop and ask the user rather than picking silently. See `references/code-quality-principles.md` §1 and `references/code-quality-examples.md` §1 for what counts as a hidden assumption worth surfacing.
+
 ### 2.7. Write tests first (Agent A - test author)
 
 Dispatch a separate agent to write tests from requirements only. This agent must NOT receive implementation hints or architecture deep-dives - only what a user of the API would know.
@@ -145,7 +147,7 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 - "How to build this" context
 - Access to modify non-test files
 
-See `references/test-author-prompt.md` for the full prompt template.
+See `references/test-author-prompt.md` for the full prompt template — it now embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Agent A from writing speculative tests or silently assuming input shape.
 
 ### 2.8. Test quality gate (main session)
 
@@ -209,7 +211,12 @@ Agent B's job: make the failing tests pass. Tests ARE the spec.
 - The task's acceptance criteria prose (tests replace this)
 - Permission to modify test files
 
-**Prompt must include:** "Make all failing tests pass. Do NOT modify test files."
+**Prompt must include:**
+
+1. "Make all failing tests pass. Do NOT modify test files."
+2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
+
+**If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Agent B and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
 **Determine task domain** (see Tool Selection above), then:
 
@@ -265,6 +272,7 @@ Run **only** the specific tests Agent A wrote in step 2.7. Do NOT run the full p
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - If tests fail, dispatch Agent B again with the failure output. Never dispatch Agent A to weaken tests.
+- **Retry prompts must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
 - Max 2 implementation retries before escalating to the user.
 - If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
 
@@ -277,7 +285,7 @@ If `superpowers:requesting-code-review` is in the available skills list, dispatc
 1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
 2. Dispatch code-reviewer subagent with task subject, description, and SHA range
 3. Handle result:
-   - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues, re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
+   - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues (dispatch Agent B with the code-quality rules block from `references/code-quality-principles.md` plus: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."), re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
    - **Minor issues only or approved**: note minors, proceed to step 6.
    - **Reviewer failed/timed out**: log warning, proceed - Phase 4's PRD-level review catches remaining issues.
 
@@ -308,7 +316,7 @@ Run each as a separate Bash call. Do not chain with `&&`.
 
 1. Identify which task(s) introduced the regression. The failing test output usually points at a specific module; cross-reference against the task commits.
 2. Re-open the offending task via `TaskUpdate(status: in_progress)` and sync state file.
-3. Dispatch Agent B with the failure output to fix it. Do NOT relax the failing test.
+3. Dispatch Agent B with the failure output to fix it. Include the code-quality rules block from `references/code-quality-principles.md` and add: "Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code." Do NOT relax the failing test.
 4. After the fix commits, re-run **only** the previously failing commands from step 7 (not the whole suite again) to confirm the fix.
 5. Mark the task completed and re-sync.
 6. Repeat until the full suite is green.
@@ -355,3 +363,5 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern.
 - `references/adversarial-test-prompt.md` - Adversarial validator (Agent C) prompt template
 - `references/codex-integration.md` - Codex prompt templates and patterns
 - `references/gemini-integration.md` - Gemini prompt templates and patterns
+- `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Agent B prompts
+- `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
