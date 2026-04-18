@@ -23,6 +23,39 @@ Write to `~/.claude/session-data/YYYY-MM-DD-<project-name>-session.md` using the
 
 If a file for today already exists, append a counter: `YYYY-MM-DD-<project-name>-session-2.md`.
 
+### 3b. Append decisions to index
+
+For each entry in the "Decisions Made" section of the session file, route and append to the appropriate decision index:
+
+- **Project-level** (default): `{repo}/dev/local/decisions.md` - project-specific architectural or implementation decisions
+- **Global**: `~/.claude/decisions.md` - cross-cutting decisions about tooling, workflow, or conventions that span repos
+
+Routing heuristic: if the decision is about a specific project's code, schemas, algorithms, or domain choices, use project-level. If it's about tools, commit conventions, workflow patterns, or things that would apply if you started a new repo tomorrow, use global.
+
+Append format (table row): `| {YYYY-MM-DD} | {decision} | {why} | session:{filename} |`
+
+Skip this step if:
+- The target file doesn't exist (don't auto-create; user opts in by creating the file)
+- The decision is already present (grep for the decision text first)
+
+### 3c. Suggest memory promotions
+
+Scan "What Worked" and "What Did NOT Work" sections for patterns worth promoting to persistent memory. Candidates:
+- Corrections repeated across 2+ sessions (grep other session files in `~/.claude/session-data/`)
+- Surprising findings that contradicted expectations
+- Environment-specific gotchas (OS, tooling, cluster-specific quirks)
+- Troubleshooting entries: cause + fix for recurring issues
+
+Output a `Suggested Promotions` block at end of save-session output. Do NOT auto-create memory or troubleshooting entries. User decides.
+
+Format:
+```
+Suggested Promotions:
+- [memory|troubleshooting] {one-line summary} — reason: {why this is worth persisting}
+```
+
+If no candidates, print `Suggested Promotions: none.`
+
 ### 4. Confirm
 
 Print the file path. Do NOT start working on anything after saving.
