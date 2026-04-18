@@ -70,10 +70,9 @@ Print a banner at each phase transition:
 ## Phase 0: PRD Selection
 
 1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, `mv` to `wip/`.
-2. Otherwise, auto-select:
+2. Otherwise, auto-select (never ask the user):
    a. Check `dev/local/prds/wip/`:
-      - 1 found → auto-select, announce
-      - 2+ found → ask user which one
+      - 1+ found → auto-pick lowest sequence number (by `00XXX-` prefix), announce
    b. If wip is empty, check `dev/local/prds/backlog/`:
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
@@ -310,6 +309,8 @@ Summary:
      - `doubt` - unresolved findings from doubt review
      - `doubt-overflow` - FIX/VERIFY items deferred when doubt review found >5 issues (present under UNRESOLVED DOUBTS)
      - `autonomous_research` - research-backed decisions made autonomously (for user awareness)
+
+     **Auto-fix trivial items first.** Before presenting items to the user, scan for trivial fixes that are clearly additive-only: docstring/comment improvements, test helper fixes (missing kwargs, style), formatting. Fix these silently, commit, and remove from the deferred list. Only present items that genuinely need a user decision.
 
      **Presentation format - chunked by PRD:**
 
