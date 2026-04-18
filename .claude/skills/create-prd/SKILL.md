@@ -9,12 +9,26 @@ Transform a plan or design document into an RPG-compliant PRD and save to the ba
 
 ## Workflow
 
+### 0. Check for discovery doc
+
+Before proceeding, check whether requirements were elicited:
+
+1. If the user passed a file from `dev/local/discovery/`, requirements were elicited. Proceed to step 1.
+2. Otherwise (different file, conversation context, or no argument), warn:
+
+> No discovery doc provided. Run `/elicit-requirements` first to validate requirements, or say "skip" to proceed without one.
+
+Wait for the user to respond. If they say "skip" (or equivalent), proceed. Otherwise, stop and let them run `/elicit-requirements`.
+
+This gate is advisory, not blocking. The user can always skip it for simple, well-understood features.
+
 ### 1. Identify source material
 
 Look for plan/design content in this order:
 
-1. **Explicit file reference** - user points to a specific markdown file (e.g. a plan file in the repo)
-2. **Current conversation context** - a plan just produced by brainstorming or plan mode
+1. **Discovery doc** - file from `dev/local/discovery/` (produced by `/elicit-requirements`)
+2. **Explicit file reference** - user points to a specific markdown file (e.g. a plan file in the repo)
+3. **Current conversation context** - a plan just produced by brainstorming or plan mode
 
 Read the source file if one was referenced. Extract:
 
@@ -80,7 +94,7 @@ Examples:
 
 ## Sequence Number Logic
 
-1. List all `.md` files in `dev/local/prds/**`
+1. List all `.md` files in `dev/local/prds/**` and `dev/local/discovery/`
 2. Extract leading 5-digit prefixes matching `^[0-9]{5}-`
 3. Find max sequence number (default 0 if none exist)
 4. New sequence = max + 1, zero-padded to 5 digits
