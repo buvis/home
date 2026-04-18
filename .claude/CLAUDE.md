@@ -7,7 +7,7 @@
 
 - After completing all PRD tasks, run `/review-work-completion`.
 - For end-to-end PRD execution, use `/run-autopilot`.
-- After completing work, clean up stale worktrees, orphan branches, and temp files.
+- After completing work, clean up stale worktrees, orphan branches, temp files, and executed plan files in `~/.claude/plans/`.
 
 ## Compaction
 
