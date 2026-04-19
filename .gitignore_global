@@ -1,0 +1,16 @@
+.DS_Store
+._.DS_Store
+**/.DS_Store
+**/._.DS_Store
+Thumbs.db
+**/Thumbs.db
+.local
+**/.local
+dev/local/
+**/dev/local/
+docs/superpowers/
+**/docs/superpowers/
+.superpowers
+**/.superpowers
+.claude/settings.local.json
+**/.claude/settings.local.json
