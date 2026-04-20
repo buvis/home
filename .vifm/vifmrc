@@ -588,7 +588,7 @@ command ln ln -s %d/%f %D
 set classify=' :dir:/, :exe:, :reg:, :link:'
 
 " various file names
- set classify+=' ::..::, ::*.sh::, ::*.[hc]pp::, ::*.[hc]::, " ::/^copying|license$/::, ::.git,,*.git::, ::*.epub,,*.fb2,,*.djvu::, ::*.pdf::, ::*.htm,,*.html,,**.[sx]html,,*.xml::'
+ set classify+=' ::..::, ::*.sh::, ::*.[hc]pp::, ::*.[hc]::, ::/^copying|license$/::, ::.git,,*.git,,.gitignore::, ::*.epub,,*.fb2,,*.djvu::, ::*.pdf::, ::*.htm,,*.html,,**.[sx]html,,*.xml::'
 
 " archives
 set classify+=' ::*.7z,,*.ace,,*.arj,,*.bz2,,*.cpio,,*.deb,,*.dz,,*.gz,,*.jar,,*.lzh,,*.lzma,,*.rar,,*.rpm,,*.rz,,*.tar,,*.taz,,*.tb2,,*.tbz,,*.tbz2,,*.tgz,,*.tlz,,*.trz,,*.txz,,*.tz,,*.tz2,,*.xz,,*.z,,*.zip,,*.zoo::'
@@ -597,13 +597,10 @@ set classify+=' ::*.7z,,*.ace,,*.arj,,*.bz2,,*.cpio,,*.deb,,*.dz,,*.gz,,*.jar
 set classify+=' ::*.bmp,,*.gif,,*.jpeg,,*.jpg,,*.ico,,*.png,,*.ppm,,*.svg,,*.svgz,,*.tga,,*.tif,,*.tiff,,*.xbm,,*.xcf,,*.xpm,,*.xspf,,*.xwd::'
 
 " office files
-set classify+=' ::*.doc,,*.docx,,*.dot,,*.odt::, ::*.csv,,*.ods,,*.xls,,*.xls[mx]::, ::*.pptx,,*.ppt::, ::*.msg,,*.eml::'
+set classify+=' ::*.doc,,*.docx,,*.dot,,*.odt::, ::*.csv,,*.ods,,*.xls,,*.xls[mx]::, ::*.pptx,,*.ppt::, ::*.msg,,*.eml::'
 
 " source code
-set classify+=' ::*.py,,*.pyc::,ﳑ ::*.go::, ::*.rb::'
-
-" web"
-set classify+='爵::*.bm.md::'
+set classify+=' ::*.py,,*.pyc::, ::*.go::, ::*.rb::, ::*.lock::, ::*.ps1::, ::*.swift::, ::*.kt,,*.kts::, ::*.ts::, ::*.js::, ::*.java,,*.jar::, ::*.css::'
 
 " text files
-set classify+=' ::*.md::, ::*.txt::'
+set classify+=' ::*.md::, ::*.toml::, ::*.txt::, ::*.yaml::'
