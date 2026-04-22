@@ -1,0 +1,12 @@
+- General
+  - Output format: FLAC
+  - Output format, Option
+    - Compression level = None (no need to change the bitrate, or sampling rate as CDs are only 16bit/44.1kHz)
+    - Verify encoding (slower)
+  - Output directory = `/Users/bob/Music/inbox/0-unprocessed/1-match`
+- CDDB
+  - Automatically connect to CDDB
+  - Preferred Service = MusicBrainz
+- CD Rip
+  - Verify suspicious sectors = X
+  - Scan ReplayGain = X
