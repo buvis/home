@@ -232,5 +232,6 @@
         "mcp/youtube-transcript"
       ]
     }
-  }
+  },
+  "agentPushNotifEnabled": true
 }
