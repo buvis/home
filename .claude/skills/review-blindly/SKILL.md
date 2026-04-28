@@ -19,8 +19,11 @@ Extract the original requirements. This is the ONLY context the reviewer gets.
 
 ### Step 2: Dispatch Blind Reviewer
 
+Pin the reviewer to Sonnet for model diversity — different family from the typical Opus implementer breaks shared priors and gives you actual independence rather than narrative-only blindness.
+
 ```text
 Task tool (general-purpose):
+  model: "sonnet"
   description: "Blind spec review for [feature name]"
   prompt: |
     You are a hostile auditor reviewing code you've never seen before.
