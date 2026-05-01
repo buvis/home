@@ -33,6 +33,46 @@
       "Read(**/id_ed25519)"
     ]
   },
+  "enabledPlugins": {
+    "pr-review-toolkit@claude-plugins-official": false,
+    "lua-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "warden@buvis-plugins": true,
+    "harness@harness-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "buvis-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "buvis/claude-plugins"
+      },
+      "autoUpdate": true
+    },
+    "harness-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "revfactory/harness"
+      }
+    }
+  },
+  "effortLevel": "xhigh",
+  "skipDangerousModePermissionPrompt": true,
+  "mcpServers": {
+    "youtube_transcript": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/youtube-transcript"
+      ]
+    }
+  },
+  "agentPushNotifEnabled": true,
   "hooks": {
     "PreToolUse": [
       {
@@ -40,7 +80,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/protect-config.sh",
+            "command": "python3 ~/.claude/hooks/protect_config.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/enforce_prd_location.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/block-suppression-markers.py",
             "timeout": 5
           },
           {
@@ -55,7 +105,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/validate-commit-msg.sh",
+            "command": "python3 ~/.claude/hooks/validate_commit_msg.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/block_devlocal_redirects.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/enforce_prd_location.py",
             "timeout": 5
           },
           {
@@ -72,7 +132,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/notify.sh"
+            "command": "python3 ~/.claude/hooks/notify.py",
+            "timeout": 15
           },
           {
             "type": "command",
@@ -86,7 +147,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/notify.sh"
+            "command": "python3 ~/.claude/hooks/notify.py",
+            "timeout": 15
           },
           {
             "type": "command",
@@ -101,7 +163,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/notify.sh",
+            "command": "python3 ~/.claude/hooks/notify.py",
             "timeout": 15
           }
         ]
@@ -110,7 +172,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/skills/run-autopilot/scripts/autopilot-stop-hook.sh",
+            "command": "python3 ~/.claude/skills/run-autopilot/scripts/autopilot_stop_hook.py",
             "timeout": 5
           }
         ]
@@ -119,7 +181,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/track-cost.sh",
+            "command": "python3 ~/.claude/hooks/track_cost.py",
             "timeout": 10
           }
         ]
@@ -187,51 +249,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/observe-tool.sh",
+            "command": "python3 ~/.claude/hooks/observe_tool.py",
             "timeout": 5
           }
         ]
       }
     ]
-  },
-  "enabledPlugins": {
-    "pr-review-toolkit@claude-plugins-official": false,
-    "lua-lsp@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "swift-lsp@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true,
-    "warden@buvis-plugins": true,
-    "harness@harness-marketplace": true
-  },
-  "extraKnownMarketplaces": {
-    "buvis-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "buvis/claude-plugins"
-      },
-      "autoUpdate": true
-    },
-    "harness-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "revfactory/harness"
-      }
-    }
-  },
-  "effortLevel": "xhigh",
-  "skipDangerousModePermissionPrompt": true,
-  "mcpServers": {
-    "youtube_transcript": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "mcp/youtube-transcript"
-      ]
-    }
-  },
-  "agentPushNotifEnabled": true
+  }
 }
