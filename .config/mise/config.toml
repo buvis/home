@@ -1,5 +1,6 @@
 [tools]
 deno = "latest"
+github-cli = "latest"
 helm = "latest"
 node = "latest"
 python = "latest"
@@ -20,10 +21,12 @@ uv = "latest"
 "pipx:gita" = "latest"
 "pipx:llm" = "latest"
 "pipx:poetry" = "latest"
+"pipx:pre-commit" = "latest"
 "pipx:pybooklid" = "latest"
 "pipx:pynvim" = "latest"
 "pipx:ruff" = "latest"
 "pipx:showboat" = "latest"
+"pipx:yamllint" = "latest"
 "pipx:yt-dlp" = "latest"
 
 [settings]
