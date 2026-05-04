@@ -1,0 +1,100 @@
+# digest-github-repo — Repository Registry
+#
+# Each entry defines a repo to digest, its mode, and mode-specific settings.
+# Run the skill to add new repos interactively, or add them here manually.
+#
+# Modes:
+#   curated-list   — Tracks individual items (repos/plugins) added to an awesome-list.
+#                    Deduplicates against zettelkasten history, categorises into sections.
+#   activity-digest — Summarises PRs, issues, and commits thematically.
+#                    Good for project repos you want to keep up with.
+
+repos:
+  hesreallyhim/awesome-claude-code:
+    mode: curated-list
+    last_check: "2025-10-05"
+    # Regex matching commit messages that add new items to the list
+    commit_pattern: "^Add resource: .+ \\(#(\\d+)\\)$"
+    # Commits page to check
+    source_url: https://github.com/hesreallyhim/awesome-claude-code/commits/main
+    # Commits to ignore (automated/noise)
+    ignore_patterns:
+      - "^chore: update repo ticker data$"
+      - "^chore: update GitHub release data$"
+    # Hint for relevance filtering — items outside these interests go to Dropped
+    relevance_hint: >
+      SAP/ABAP developer, Python engineer, Rust enthusiast, Kubernetes homelab operator.
+      Focus on tools useful for payroll processing, exception monitoring, coding workflow,
+      DevOps, and developer productivity.
+    sections:
+      - name: Core Infrastructure
+        description: hooks, ops starters, official plugin patterns
+      - name: MCP Integrations
+        description: Model Context Protocol servers
+      - name: Development Methodologies
+        description: spec-driven dev, PRPs, kiro-style workflows
+      - name: Skills & Capabilities
+        description: agent skill libraries, skill tooling
+      - name: Subagents & Orchestration
+        description: multi-agent frameworks, orchestrators, pipelines
+      - name: Context Engineering
+        description: memory, context compression, knowledge graphs
+      - name: Commands & Workflows
+        description: slash commands, reusable command collections
+      - name: Security / Safety
+        description: guardrails, permission tools, audit hooks
+      - name: Cost / Usage Monitoring
+        description: token tracking, spend dashboards
+      - name: Linting / Validation
+        description: rule doctors, pre-deploy checks
+      - name: Developer Tools
+        description: UIs, IDE integrations, statuslines, utilities
+      - name: Dropped
+        description: rejected — exists only to prevent re-adding
+
+  rockerBOO/awesome-neovim:
+    mode: curated-list
+    last_check: "2026-02-27"
+    commit_pattern: "^Add `[^`]+` \\(#(\\d+)\\)$"
+    source_url: https://github.com/rockerBOO/awesome-neovim/commits/main
+    ignore_patterns:
+      - "^Update "
+      - "^Fix "
+      - "^chore:"
+      - "^Merge "
+    relevance_hint: >
+      SAP/ABAP developer, Python engineer, Rust enthusiast, Kubernetes homelab operator.
+      Focus on LSP, completion, AI/copilot, file navigation, git, debugging, treesitter,
+      editing support, terminal, and Lua development tools.
+    sections:
+      - name: LSP & Completion
+        description: language servers, completion engines, diagnostics, inline hints, hover docs
+      - name: AI & Copilot
+        description: AI coding assistants, LLM integrations, copilot alternatives, chat interfaces
+      - name: File & Project Navigation
+        description: fuzzy finders, file explorers, project management, buffer management, marks, search
+      - name: Git & Version Control
+        description: git integration plugins, diff tools, blame, conflict resolution
+      - name: Debugging & Testing
+        description: DAP adapters, debugging UIs, test runners, code runners
+      - name: Syntax & Language Support
+        description: treesitter, syntax highlighting, language-specific plugins, snippets
+      - name: Editing & Formatting
+        description: editing support, text objects, surround, auto-pairs, formatting, alignment
+      - name: UI & Appearance
+        description: colorschemes, statuslines, tablines, icons, startup screens, animations, scrolling
+      - name: Utility & Workflow
+        description: utilities, session management, keybindings, motion, command line tools, workflow
+      - name: Note Taking & Knowledge
+        description: note taking, wiki, markdown preview, database, live preview
+      - name: Terminal & Remote
+        description: terminal integration, remote development, deployment, split/window management
+      - name: Neovim Development
+        description: Lua development tools, plugin development utilities, Fennel, starter templates
+      - name: Dropped
+        description: rejected — exists only to prevent re-adding
+
+  # Example: activity-digest mode for a project repo
+  # obra/superpowers:
+  #   mode: activity-digest
+  #   last_check: "2026-04-06"
