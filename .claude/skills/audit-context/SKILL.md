@@ -1,6 +1,6 @@
 ---
 name: audit-context
-description: Scan Claude Code setup and estimate context window token overhead per component. Classifies each as always-loaded, on-demand, or hidden tax. Reports with optimization recommendations. Triggers on "audit context", "check token usage", "context budget", "how much context am I using", "token overhead".
+description: Use when auditing token overhead or context budget. Estimates per-component tokens, classifies as always-loaded/on-demand/hidden tax. Triggers on "audit context", "check token usage", "context budget", "how much context am I using", "token overhead".
 ---
 
 # Audit Context Budget
