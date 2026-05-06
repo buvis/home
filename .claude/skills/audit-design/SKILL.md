@@ -1,6 +1,6 @@
 ---
 name: design-system
-description: Generate or audit design systems, check visual consistency, review PRs touching styling. Triggers on "design system", "visual audit", "slop check".
+description: Use when generating a design system, auditing visual consistency, or checking for generic AI-design patterns. Three modes (generate tokens, UI scoring 0-10, slop detection). Triggers on "design system", "visual audit", "slop check".
 ---
 
 # Design System — Generate & Audit Visual Systems

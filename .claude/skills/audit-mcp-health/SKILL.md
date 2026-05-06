@@ -1,6 +1,6 @@
 ---
 name: audit-mcp-health
-description: Cross-reference configured MCP servers against live deferred tool list, check connection status, flag stale or unused servers. Triggers on "audit mcp", "mcp health", "check mcp servers", "stale mcp", "mcp cleanup".
+description: Use when auditing MCP servers or cleaning up stale ones. Cross-references configured servers vs live tools, flags disconnected/unused, shows last-used dates. Triggers on "audit mcp", "mcp health", "check mcp servers", "stale mcp", "mcp cleanup".
 ---
 
 # Audit MCP Server Health

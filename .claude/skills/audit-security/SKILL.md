@@ -1,6 +1,6 @@
 ---
 name: audit-security
-description: Scan ~/.claude/ config for security anti-patterns (permissive permissions, hook injection, risky MCP configs, hardcoded secrets). Triggers on "audit security", "security audit", "check config security", "scan for vulnerabilities", "security check".
+description: Use when auditing ~/.claude/ for security anti-patterns. Flags loose permissions, hook injection, risky MCP, hardcoded secrets. Triggers on "audit security", "security audit", "check config security", "scan for vulnerabilities", "security check".
 ---
 
 # Audit Security
