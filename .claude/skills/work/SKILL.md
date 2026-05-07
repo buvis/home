@@ -1,6 +1,6 @@
 ---
 name: work
-description: Implement pending tasks using Codex or Gemini, committing after each task. Use when ready to execute planned work. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
+description: Use when executing already-planned tasks one at a time, dispatching to Codex or Gemini and committing after each. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
 ---
 
 # Work Through Tasks

@@ -1,6 +1,6 @@
 ---
 name: resume-session
-description: Use when starting a new session and want to pick up where a previous session left off. Loads saved session state and presents a briefing without starting work. Triggers on "resume session", "resume", "load session", "pick up where I left off", "continue session", "what was I working on".
+description: Use when starting a new session to pick up where you left off. Loads saved state into a briefing without starting work. Triggers on "resume session", "resume", "load session", "pick up where I left off", "continue session", "what was I working on".
 argument-hint: "[session-file-path or YYYY-MM-DD]"
 ---
 

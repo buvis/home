@@ -1,6 +1,6 @@
 ---
 name: restore-tasks
-description: Restore tasks from a previous session. Triggers on "restore tasks", "load tasks", "recover tasks", "get my tasks back", "tasks from previous session".
+description: Use when reloading the task list from a previous session into the current task tracker. Triggers on "restore tasks", "load tasks", "recover tasks", "get my tasks back", "tasks from previous session".
 ---
 
 # Restore Tasks

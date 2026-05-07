@@ -1,6 +1,6 @@
 ---
 name: plan-tasks
-description: Creates granular implementation tasks from PRD documents. Use when user wants to plan work, create tasks from a PRD, implement a feature spec, or break down requirements into actionable steps. Triggers on phrases like "plan tasks", "create tasks from PRD", "implement PRD", "break down the spec", or when user wants to start working on a PRD document.
+description: Use when breaking a PRD into granular, sequenced implementation tasks ready for the work skill. Triggers on "plan tasks", "create tasks from PRD", "implement PRD", "break down the spec".
 ---
 
 # Plan Tasks from PRD

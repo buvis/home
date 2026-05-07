@@ -1,6 +1,6 @@
 ---
 name: create-prd
-description: Create PRD from a plan or design document. Use when converting plans, design docs, or brainstorming output into structured PRDs. Triggers on "create PRD", "create PRD from plan", "make PRD", "convert to PRD", "save plan as PRD".
+description: Use when converting a plan, design doc, brainstorming output, or discovery doc into a structured PRD saved to the backlog. Triggers on "create PRD", "create PRD from plan", "make PRD", "convert to PRD", "save plan as PRD".
 ---
 
 # Create PRD

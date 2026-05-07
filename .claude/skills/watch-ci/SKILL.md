@@ -1,6 +1,6 @@
 ---
 name: watch-ci
-description: Monitor CI status after push or PR creation. Polls GitHub Actions until completion, summarizes failures, optionally triggers debugging. Triggers on "watch CI", "wait for CI", "check CI", "CI status", "wait for CI", "are checks passing", "monitor build".
+description: Use when polling GitHub Actions after a push or PR creation until completion, with failure summary and optional debugging. Triggers on "watch CI", "wait for CI", "check CI", "CI status", "are checks passing", "monitor build".
 ---
 
 # Watch CI

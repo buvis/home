@@ -1,6 +1,6 @@
 ---
 name: sync-plan-issue
-description: Create or update GitHub issue with plan summary. Triggers on "sync plan to github", "update issue with plan", "share plan", "create issue from plan". Use after planning is complete.
+description: Use after planning is complete to push the plan summary to a new or existing GitHub issue. Triggers on "sync plan to github", "update issue with plan", "share plan", "create issue from plan".
 ---
 
 # Sync Plan to GitHub Issue
