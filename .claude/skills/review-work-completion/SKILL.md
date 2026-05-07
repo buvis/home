@@ -1,6 +1,6 @@
 ---
 name: review-work-completion
-description: Multi-agent review of completed work against PRD requirements. Use after all tasks are completed to validate implementation quality. Triggers on "review work", "check completed work", "validate implementation", "are we done".
+description: Use after all tasks are completed to validate implementation against PRD requirements via multi-agent consensus review. Triggers on "review work", "check completed work", "validate implementation", "are we done".
 ---
 
 # Review Work Completion

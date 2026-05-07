@@ -1,6 +1,6 @@
 ---
 name: review-deps-prs
-description: Review dependency update PRs across all repos. Lists open dependency PRs (Renovate, Dependabot, manual), groups by severity, and supports individual or batch merge. Triggers on "review deps", "review dependency prs", "check dep updates", "dependency prs", "dep updates".
+description: Use when triaging open Renovate/Dependabot/manual dependency PRs across all repos, grouped by severity, with individual or batch merge. Triggers on "review deps", "review dependency prs", "check dep updates", "dependency prs", "dep updates".
 ---
 
 # Review Dependency PRs

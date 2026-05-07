@@ -1,6 +1,6 @@
 ---
 name: review-plan
-description: Review and critique the current plan created in plan mode. Use after creating a plan to identify gaps, risks, and get clarifying questions. Triggers on "review plan", "critique plan", "check my plan", or when user wants feedback on their implementation plan.
+description: Use after creating a plan in plan mode to critique it for gaps, risks, and clarifying questions before implementation. Triggers on "review plan", "critique plan", "check my plan".
 ---
 
 # Review Current Plan

@@ -1,6 +1,6 @@
 ---
 name: run-autopilot
-description: Run full PRD lifecycle autonomously - catchup, planning, work, review, rework. Triggers on "autopilot", "run autopilot", "autopilot status", "drain backlog", "execute PRD end to end".
+description: Use when running a PRD end-to-end autonomously through catchup, plan, work, review, rework, blind review, and doubt review. Triggers on "autopilot", "run autopilot", "autopilot status", "drain backlog", "execute PRD end to end".
 argument-hint: "[<prd-filename> | status]"
 ---
 
@@ -115,6 +115,22 @@ Before invoking `/work`, query `TaskList` and write the full task snapshot to `d
 Invoke `/work` skill. It runs until all tasks complete.
 
 After completion, query `TaskList` again and update state: add `"work"` to `phases_completed`, set `phase: "review"`, write updated `tasks`/`tasks_total`/`tasks_completed`.
+
+### Hand off to a fresh session for reviews
+
+After Phase 3 completes, do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
+
+1. Write `next` to `dev/local/autopilot/signal` (the Stop hook reads this and auto-exits the session — this is the only way the agent can end the session, and the shell loop wrapper relies on it; never ask the user to press Ctrl+D).
+2. Print:
+
+```
+── AUTOPILOT ── PRD: {prd-name} ── Phase 3 (Work) complete ─────────
+── AUTOPILOT ── handing off to fresh session for reviews ───────────
+```
+
+3. **STOP.** Do NOT invoke `/review-work-completion`, `/review-blindly`, or `/review-with-doubt` in this session, even if context budget appears sufficient.
+
+The Stop hook auto-exits when it sees the signal file. The shell loop wrapper (`while true; do claude "/run-autopilot"; ... done`) starts a fresh session and re-invokes `/run-autopilot`. The new session reads `dev/local/autopilot/state.json` (with `phases_completed=["catchup", "planning", "work"]`), skips Phases 1-3 via their skip conditions, and resumes at Phase 4.
 
 ## Phase 4: Review
 

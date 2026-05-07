@@ -1,6 +1,6 @@
 ---
 name: save-session
-description: Use when ending a work session and want to preserve context for later resumption. Captures what worked, what failed, decisions made, and exact next step. Triggers on "save session", "save my session", "save progress", "checkpoint session", "save state".
+description: Use when ending a work session and want to preserve context for later resumption. Captures what worked, what failed, decisions made, and next step. Triggers on "save session", "save my session", "save progress", "checkpoint session", "save state".
 ---
 
 # Save Session
