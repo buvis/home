@@ -118,6 +118,10 @@ class TestBuildNtfyRequest(unittest.TestCase):
         self.assertEqual(req.headers["Title"], "T")
         self.assertEqual(req.headers["Tags"], "computer")
         self.assertTrue(req.headers["Authorization"].startswith("Basic "))
+        # User-Agent must not be urllib's default — Cloudflare bot rules block
+        # `Python-urllib/*` with HTTP 403 (error code 1010). See notify.py.
+        ua = req.headers["User-agent"]
+        self.assertTrue(ua and not ua.lower().startswith("python-urllib"))
 
     def test_strips_trailing_slash(self) -> None:
         req = notify.build_ntfy_request(
