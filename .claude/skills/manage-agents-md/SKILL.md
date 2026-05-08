@@ -1,6 +1,6 @@
 ---
 name: manage-agents-md
-description: Build and maintain effective AGENTS.md files that improve AI coding agent efficiency. Use when creating a new AGENTS.md file, auditing/improving an existing one, setting up progressive disclosure with agent documentation, or optimizing context window usage for AI-assisted coding projects.
+description: Use when creating, auditing, or improving an AGENTS.md file for AI coding agents (progressive disclosure, context window budgeting). Triggers on "AGENTS.md", "create AGENTS.md", "audit AGENTS.md", "improve AGENTS.md".
 ---
 
 # AGENTS.md Manager
