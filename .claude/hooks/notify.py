@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _common import log_path, read_input  # noqa: E402
 
-ICON_PATH = Path.home() / ".claude" / "hooks" / "claude-icon.icns"
+ICON_PATH = Path.home() / ".claude" / "hooks" / "claude-icon.png"
 SECRET_PATH = Path.home() / ".claude" / "hooks" / ".ntfy-secret"
 PYBOOKLID = Path.home() / ".local" / "share" / "uv" / "tools" / "pybooklid" / "bin" / "python"
 IDLE_THRESHOLD_SEC = 300
@@ -148,7 +148,9 @@ def read_credentials() -> str:
 
 def build_ntfy_request(url: str, topic: str, title: str, msg: str, creds: str) -> urllib.request.Request:
     full_url = f"{url.rstrip('/')}/{topic}"
-    headers = {"Title": title, "Tags": "computer"}
+    # Override urllib's default `Python-urllib/*` UA — Cloudflare blocks it
+    # (error code 1010, returned as HTTP 403) when ntfy is fronted by CF.
+    headers = {"Title": title, "Tags": "computer", "User-Agent": "claude-notify-hook/1.0"}
     if creds:
         token = base64.b64encode(creds.encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
@@ -189,6 +191,10 @@ def show_desktop_notification(title: str, msg: str) -> None:
                 "-title", title,
                 "-message", msg,
                 "-contentImage", str(ICON_PATH),
+                # Impersonate Terminal.app so the left-side app icon resolves to
+                # an installed bundle (terminal-notifier's own icon is otherwise
+                # what shows there, which macOS often suppresses).
+                "-sender", "com.apple.Terminal",
             ],
             capture_output=True,
             timeout=PRESENCE_TIMEOUT_SEC,
