@@ -1,6 +1,6 @@
 ---
 name: check-python-compat
-description: Check Python code for version compatibility issues targeting 3.10+. Triggers on "check python compat", "python version issues", "python 3.10 compatible", "does this work on 3.10".
+description: Use when checking Python code for version-compatibility issues targeting 3.10+. Triggers on "check python compat", "python version issues", "python 3.10 compatible", "does this work on 3.10".
 ---
 
 # Check Python Version Compatibility
