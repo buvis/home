@@ -5,13 +5,13 @@ description: Use when the user asks to run Codex CLI (codex exec, codex resume) 
 
 # Codex Skill Guide
 
-Codex is accessed via the `copilot` CLI. The helper script auto-detects the latest `gpt-*-codex` model from `copilot --help` (falls back to `gpt-5.3-codex`).
+Codex is accessed via the `copilot` CLI. The helper script auto-detects the highest-versioned base `gpt-X.Y` model from the copilot SDK type definitions (falls back to `gpt-5.5`).
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `--model` (auto-detected latest codex model)
+   - `--model` (auto-detected highest base `gpt-X.Y` model)
    - `-p, --prompt <text>` for non-interactive mode
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `--allow-all-tools` to auto-approve tool use

@@ -5,13 +5,13 @@ description: Use when the user asks to run Sonnet via copilot CLI for code analy
 
 # Sonnet Skill Guide
 
-Sonnet is accessed via the `copilot` CLI using the `claude-sonnet-4.6` model.
+Sonnet is accessed via the `copilot` CLI. The helper script auto-detects the highest-versioned base `claude-sonnet-X(.Y)` model from the copilot SDK type definitions (falls back to `claude-sonnet-4.6`).
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `--model claude-sonnet-4.6` (hardcoded)
+   - `--model` (auto-detected highest base `claude-sonnet-X(.Y)` model)
    - `-p, --prompt <text>` for non-interactive mode
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `--allow-all-tools` to auto-approve tool use

@@ -8,11 +8,49 @@ if command -v mise &>/dev/null; then
     PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
-FALLBACK_MODEL="gpt-5.3-codex"
+FALLBACK_MODEL="gpt-5.5"
+
+# Pull the highest-versioned base gpt-X.Y model (no -codex/-mini/-nano suffix)
+# from the copilot SDK type definitions. Quoted match restricts results to
+# entries actually listed in SUPPORTED_MODELS / HELP_VISIBLE_MODELS rather
+# than passing mentions in code comments.
+MODEL_PATTERN='"gpt-[0-9]+\.[0-9]+"'
 
 detect_model() {
-    # Pick latest gpt-X.Y-codex (base only, no -mini/-max suffix)
-    copilot --help 2>&1 | grep -oE 'gpt-[0-9]+\.[0-9]+-codex"' | tr -d '"' | sort -t. -k1,1rn -k2,2rn | head -1 || true
+    local src
+    for src in $(model_sources); do
+        [ -f "$src" ] || continue
+        local model
+        model=$(grep -oE "$MODEL_PATTERN" "$src" | tr -d '"' | sort -uV | tail -1)
+        if [ -n "$model" ]; then
+            printf '%s\n' "$model"
+            return
+        fi
+    done
+}
+
+# Emit candidate SDK file paths in priority order. The auto-update cache
+# under ~/Library/Caches/copilot is usually ahead of the npm-installed copy,
+# so check it first.
+model_sources() {
+    local cache_dir="$HOME/Library/Caches/copilot/pkg/universal"
+    if [ -d "$cache_dir" ]; then
+        local latest
+        latest=$(ls -1 "$cache_dir" 2>/dev/null \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -1)
+        [ -n "$latest" ] && printf '%s\n' "$cache_dir/$latest/sdk/index.d.ts"
+    fi
+
+    local copilot_bin real_bin npm_pkg
+    copilot_bin=$(command -v copilot 2>/dev/null) || return
+    real_bin=$(readlink -f "$copilot_bin" 2>/dev/null || echo "$copilot_bin")
+    npm_pkg=$(dirname "$real_bin")
+    while [ "$npm_pkg" != "/" ] && [ ! -f "$npm_pkg/package.json" ]; do
+        npm_pkg=$(dirname "$npm_pkg")
+    done
+    [ -d "$npm_pkg" ] || return
+    printf '%s\n' "$npm_pkg/sdk/index.d.ts" "$npm_pkg/app.js"
 }
 
 MODEL=$(detect_model)
