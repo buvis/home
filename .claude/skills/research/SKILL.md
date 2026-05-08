@@ -59,7 +59,7 @@ You are a research agent. Your job is to thoroughly research a topic and return 
 2-3 paragraph synthesis with key findings and recommendation.
 
 ## [Themed Section 1]
-Findings by theme, not by source. Inline citations as [Author/Source, Date](URL).
+Findings by theme, not by source. Inline citations as `[Author/Source, Date](URL)`.
 
 ## [Themed Section 2]
 ...
