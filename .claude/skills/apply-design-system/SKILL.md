@@ -1,9 +1,9 @@
 ---
-name: design-system
+name: apply-design-system
 description: Use when generating a design system, auditing visual consistency, or checking for generic AI-design patterns. Three modes (generate tokens, UI scoring 0-10, slop detection). Triggers on "design system", "visual audit", "slop check".
 ---
 
-# Design System — Generate & Audit Visual Systems
+# Apply Design System — Generate & Audit Visual Systems
 
 ## Mode 1: Generate Design System
 
@@ -55,4 +55,4 @@ Identifies generic AI-generated design patterns:
 
 ## Usage
 
-Invoke with `/design-system` and specify which mode: generate, audit, or slop-check. Provide context about the project (tech stack, target aesthetic) for best results.
+Invoke with `/apply-design-system` and specify which mode: generate, audit, or slop-check. Provide context about the project (tech stack, target aesthetic) for best results.
