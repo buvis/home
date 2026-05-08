@@ -120,7 +120,7 @@ After completion, query `TaskList` again and update state: add `"work"` to `phas
 
 After Phase 3 completes, do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
 
-1. Write `next` to `dev/local/autopilot/signal` (the Stop hook reads this and auto-exits the session — this is the only way the agent can end the session, and the shell loop wrapper relies on it; never ask the user to press Ctrl+D).
+1. Write `next` to `dev/local/autopilot/signal` (the Stop hook reads this and auto-exits the session. This is the only way the agent can end the session, and the shell loop wrapper relies on it; never ask the user to press Ctrl+D).
 2. Print:
 
 ```
