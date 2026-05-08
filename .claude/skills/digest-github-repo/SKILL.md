@@ -1,17 +1,6 @@
 ---
 name: digest-github-repo
-description: >
-  Produces a zettelkasten-format digest of new GitHub repository activity (issues, PRs, commits)
-  since the last check, with checkboxes for triage. Supports two modes: curated-list mode for
-  awesome-list repos that tracks individual items with dedup and categorisation, and
-  activity-digest mode for general repos that summarises changes thematically. Remembers the
-  last check date per repo and deduplicates against dropped items.
-
-  Use this skill whenever the user wants to catch up on a GitHub repository, says things like
-  "what's new in REPO", "digest REPO", "check awesome-neovim", "any new claude code tools",
-  "catch me up on REPO", "what did I miss in REPO", "any updates in REPO?",
-  "check for new neovim plugins", "update my plugin list", "repo digest for REPO",
-  "check notifications for REPO", or pastes a GitHub URL and asks about recent activity.
+description: Use when generating a zettelkasten digest of GitHub repo activity (issues, PRs, commits) for triage. Two modes (curated-list for awesome-lists, activity-digest for general repos). Triggers on "digest REPO", "what is new in REPO", pasted GitHub URL.
 ---
 
 # digest-github-repo
@@ -20,6 +9,14 @@ Produces zettelkasten-format digests of new GitHub repository activity, with che
 triage. Works in two modes depending on repo configuration.
 
 All files live under `~/bim/inbox/automated/digest-github-repo/`.
+
+## Triggers
+
+Use this skill whenever the user wants to catch up on a GitHub repository, says things like
+"what's new in REPO", "digest REPO", "check awesome-neovim", "any new claude code tools",
+"catch me up on REPO", "what did I miss in REPO", "any updates in REPO?",
+"check for new neovim plugins", "update my plugin list", "repo digest for REPO",
+"check notifications for REPO", or pastes a GitHub URL and asks about recent activity.
 
 ---
 
