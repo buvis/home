@@ -149,14 +149,14 @@ Examples:
 Run the init script to generate a template:
 
 ```bash
-~/.claude/skills/skill-creator/scripts/init_skill.py <skill-name> --path <output-directory> [--resources scripts,references,assets]
+~/.claude/skills/create-skill/scripts/init_skill.py <skill-name> --path <output-directory> [--resources scripts,references,assets]
 ```
 
 Examples:
 
 ```bash
-~/.claude/skills/skill-creator/scripts/init_skill.py my-skill --path ~/.claude/skills
-~/.claude/skills/skill-creator/scripts/init_skill.py my-skill --path .claude/skills --resources scripts,references
+~/.claude/skills/create-skill/scripts/init_skill.py my-skill --path ~/.claude/skills
+~/.claude/skills/create-skill/scripts/init_skill.py my-skill --path .claude/skills --resources scripts,references
 ```
 
 Skip this step if the skill already exists and you are iterating.
@@ -208,7 +208,7 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 Run the validator to check structure and frontmatter:
 
 ```bash
-~/.claude/skills/skill-creator/scripts/validate_skill.py <path/to/skill-folder>
+~/.claude/skills/create-skill/scripts/validate_skill.py <path/to/skill-folder>
 ```
 
 Fix any reported errors and re-run.

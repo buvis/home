@@ -108,7 +108,7 @@ def init_skill(
     print("1. Edit SKILL.md: fill in description and instructions")
     if resources:
         print("2. Add resources to " + ", ".join(f"{r}/" for r in resources))
-    print(f"3. Validate: ~/.claude/skills/skill-creator/scripts/validate_skill.py {skill_dir}")
+    print(f"3. Validate: ~/.claude/skills/create-skill/scripts/validate_skill.py {skill_dir}")
 
     return skill_dir
 
