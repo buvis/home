@@ -1,6 +1,6 @@
 ---
 name: elicit-requirements
-description: "Structured requirement elicitation from rough ideas. Use before /create-prd when requirements are unclear or complex. Adaptive depth: minimal for clear requests, comprehensive for vague or architectural ones. Triggers on \"elicit requirements\", \"flesh out this idea\", \"what should we build\", \"requirements for\", \"scope this out\"."
+description: Use when fleshing out a rough idea before /create-prd, when requirements are unclear or complex (adaptive depth, minimal to comprehensive). Triggers on "elicit requirements", "flesh out this idea", "what should we build", "scope this out".
 argument-hint: "[<rough idea or path to brainstorming output>]"
 ---
 
