@@ -1,5 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000",
     "MAX_THINKING_TOKENS": "31999",
@@ -33,46 +34,6 @@
       "Read(**/id_ed25519)"
     ]
   },
-  "enabledPlugins": {
-    "pr-review-toolkit@claude-plugins-official": false,
-    "lua-lsp@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "swift-lsp@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true,
-    "warden@buvis-plugins": true,
-    "harness@harness-marketplace": true
-  },
-  "extraKnownMarketplaces": {
-    "buvis-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "buvis/claude-plugins"
-      },
-      "autoUpdate": true
-    },
-    "harness-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "revfactory/harness"
-      }
-    }
-  },
-  "effortLevel": "xhigh",
-  "skipDangerousModePermissionPrompt": true,
-  "mcpServers": {
-    "youtube_transcript": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "mcp/youtube-transcript"
-      ]
-    }
-  },
-  "agentPushNotifEnabled": true,
   "hooks": {
     "PreToolUse": [
       {
@@ -255,5 +216,45 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "pr-review-toolkit@claude-plugins-official": false,
+    "lua-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "warden@buvis-plugins": true,
+    "harness@harness-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "buvis-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "buvis/claude-plugins"
+      },
+      "autoUpdate": true
+    },
+    "harness-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "revfactory/harness"
+      }
+    }
+  },
+  "effortLevel": "xhigh",
+  "skipDangerousModePermissionPrompt": true,
+  "agentPushNotifEnabled": true,
+  "mcpServers": {
+    "youtube_transcript": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/youtube-transcript"
+      ]
+    }
   }
 }
