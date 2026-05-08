@@ -189,9 +189,14 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
             "Consider splitting content into references/"
         )
 
-    # Check for broken references
+    # Check for broken references (skip inline code spans and fenced blocks
+    # so that examples like `[Author, Date](URL)` are not treated as links)
+    scannable = re.sub(r"```.*?```", "", content, flags=re.DOTALL)
+    scannable = re.sub(r"~~~.*?~~~", "", scannable, flags=re.DOTALL)
+    scannable = re.sub(r"``[^`\n]+``", "", scannable)
+    scannable = re.sub(r"`[^`\n]+`", "", scannable)
     ref_pattern = re.compile(r"\[.*?\]\(((?!https?://)[^)]+)\)")
-    for ref_match in ref_pattern.finditer(content):
+    for ref_match in ref_pattern.finditer(scannable):
         ref_path = ref_match.group(1)
         full_path = skill_path / ref_path
         if not full_path.exists():
