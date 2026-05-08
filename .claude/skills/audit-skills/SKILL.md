@@ -95,6 +95,26 @@ test -f <skill-dir>/CHANGELOG.md
 
 Search the SKILL.md body for `@`-path patterns (e.g., `@~/.claude/skills/...` or `@./references/...`). These force-load files into context. **Warn** if found; recommend referencing skills by name instead.
 
+### 3g: Safety guardrails for action-taking skills
+
+Skills that take external action (publishing, scheduling, pushing, merging, autonomous execution) must scope what they will and will not do without user approval. Missing guardrails risk silent destructive runs.
+
+**Detect action-taking skills** by scanning the description and body for signals:
+
+- External writes: `publish`, `post`, `push`, `merge`, `commit`, `create issue`, `create PR`, `create branch`, `create release`
+- Scheduling: `schedule`, `cron`, `recurring`, `loop`, `autonomous`
+- Destruction: `delete`, `remove`, `force`, `reset`, `drop`
+- Auto-execution: `autopilot`, `automatically`, `without approval`, `headless`
+
+**Required safety language** (must match at least one pattern from each category when action-taking):
+
+- Consent: `explicit`, `approval`, `confirm`, `ask user`, `user request`, `with permission`
+- Scope: `read-only`, `do not`, `never`, `must not`, `boundaries`, `dry-run`, `preview`
+
+**Warn** when an action-taking skill lacks both a consent pattern and a scope pattern in its body. Suggest adding a "Consent and Safety Boundaries" or "Scope and Approval Rules" section.
+
+Pattern adapted from `affaan-m/everything-claude-code` `tests/ci/agent-instruction-safety.test.js`, which asserts hardcoded `(file, heading, patterns)` tuples per agent-facing file. This generalizes the principle to every skill via heuristic detection.
+
 ## Step 4: Cross-skill checks
 
 ### 4a: Duplicate names
