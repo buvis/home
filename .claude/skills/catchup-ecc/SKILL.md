@@ -1,6 +1,6 @@
 ---
 name: catchup-ecc
-description: Review new changes in affaan-m/everything-claude-code and surface ideas worth adopting. Triggers on "catchup ecc", "check ecc", "what's new in ecc", "scan ecc", "check affaan".
+description: Use when scanning new commits in the external affaan-m/everything-claude-code repo for ideas worth adopting. Triggers on "catchup ecc", "check ecc", "what is new in ecc", "check affaan".
 ---
 
 # Catchup ECC
