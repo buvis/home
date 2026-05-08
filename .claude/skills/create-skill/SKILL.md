@@ -1,6 +1,6 @@
 ---
 name: create-skill
-description: Guide for creating effective Claude Code skills. Use when users want to create a new skill, edit an existing skill, or verify a skill works before deployment. Triggers on "create skill", "new skill", "build skill", "edit skill", "skill template".
+description: Use when running the local skill validator (validate_skill.py) on a personal skill, or applying user frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "lint skill", "skill compliance".
 ---
 
 # Skill Creator
