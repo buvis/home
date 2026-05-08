@@ -1,6 +1,6 @@
 ---
 name: use-sonnet
-description: Use when the user asks to run Sonnet via copilot CLI for code analysis, refactoring, or automated editing. Triggers on "run sonnet", "sonnet analyze", "use sonnet for", "ask sonnet", "copilot with sonnet", or when user wants Claude Sonnet model via copilot for code tasks.
+description: Use when running Anthropic Claude Sonnet via the copilot CLI for code analysis, refactoring, or editing. Triggers on "run sonnet", "sonnet analyze", "ask sonnet", "copilot with sonnet".
 ---
 
 # Sonnet Skill Guide
