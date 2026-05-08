@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: "Use when the user asks for in-depth research on a topic, literature review, competitive analysis, technology comparison, or any question requiring multi-source synthesis. Triggers on \"deep research\", \"research this\", \"investigate\", \"literature review\", \"what does the research say\", \"comprehensive analysis\", \"survey the landscape\"."
+description: Use when researching a topic in depth via multi-source synthesis (literature review, competitive analysis, technology comparison). Triggers on "deep research", "research this", "investigate", "literature review", "survey the landscape".
 ---
 
 # Deep Research
