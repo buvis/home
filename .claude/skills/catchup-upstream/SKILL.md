@@ -1,6 +1,6 @@
 ---
 name: catchup-upstream
-description: Sync a fork with upstream by reviewing and selectively applying new commits. Triggers on "sync upstream", "catchup upstream", "check upstream", "what's new upstream", "sync fork".
+description: Use when syncing a fork with its upstream remote by reviewing and selectively applying new upstream commits. Triggers on "sync upstream", "catchup upstream", "sync fork", "check upstream".
 argument-hint: "[owner/repo or GitHub URL]"
 ---
 

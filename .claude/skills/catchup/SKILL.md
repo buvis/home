@@ -1,6 +1,6 @@
 ---
 name: catchup
-description: Catch up on project and branch context before starting work. Triggers on "catchup", "catch up", "what changed", "review branch", "project overview", "refresh capsule".
+description: Use when starting work on a project and need local branch/repo context (full diff, GitHub state, capsule refresh). Triggers on "catchup", "catch up", "what changed on this branch", "project overview", "refresh capsule".
 ---
 
 # Catch Up
