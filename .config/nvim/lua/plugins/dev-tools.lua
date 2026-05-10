@@ -11,7 +11,7 @@ return {
     },
     {
       "ThePrimeagen/refactoring.nvim",
-      dependencies = { "nvim-lua/plenary.nvim" },
+      dependencies = { "lewis6991/async.nvim" },
     },
   },
   opts = {
