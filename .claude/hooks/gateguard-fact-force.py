@@ -38,6 +38,18 @@ DESTRUCTIVE_BASH = re.compile(
     re.IGNORECASE,
 )
 
+_QUOTED_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
+def _strip_quoted(command: str) -> str:
+    """Remove quoted substrings so destructive tokens in regex args don't trigger.
+
+    `grep -iE 'rm -rf|...'` should not be treated as a destructive command —
+    the literal string is search input, not a command. Quote stripping makes
+    the destructive regex match only on unquoted shell content.
+    """
+    return _QUOTED_RE.sub("", command)
+
 CLAUDE_SETTINGS_PATH = re.compile(r"(^|/)\.claude/settings(?:\.[^/]+)?\.json$")
 
 
@@ -326,7 +338,7 @@ def evaluate(data: dict) -> str | None:
         command = tool_input.get("command") or ""
         if is_read_only_git(command):
             return None
-        if DESTRUCTIVE_BASH.search(command):
+        if DESTRUCTIVE_BASH.search(_strip_quoted(command)):
             key = "__destructive__" + hashlib.sha256(command.encode("utf-8")).hexdigest()[:16]
             if is_checked(state_file, key):
                 return None
