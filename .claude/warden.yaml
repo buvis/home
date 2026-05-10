@@ -83,6 +83,11 @@ alwaysAllow:
   - ~/.claude/skills/**
   # Hook scripts
   - ~/.claude/hooks/**
+  # Temp dir scripts (macOS $TMPDIR lives under /var/folders)
+  - /tmp/**
+  - /private/tmp/**
+  - /var/folders/**
+  - /private/var/folders/**
   # Project test scripts
   - smoke.sh
 
