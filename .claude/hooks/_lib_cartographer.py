@@ -30,6 +30,7 @@ This file is referenced by Phase 1+ Cartographer hooks; keep it under 400 lines.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -38,6 +39,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from types import ModuleType
 
 
 def _home() -> Path:
@@ -279,3 +281,41 @@ def mark_checked(session_key: str, namespace: str, key: str) -> None:
         state["checked"] = checked
     checked[key] = datetime.now(timezone.utc).isoformat()
     save_session_state(session_key, namespace, state)
+
+
+# --- tree-sitter graceful-import wrapper ---
+
+
+_TREE_SITTER_LOADED: bool = False
+_TREE_SITTER_MODULE: ModuleType | None = None
+_TREE_SITTER_WARNED: bool = False
+
+
+def try_import_tree_sitter() -> ModuleType | None:
+    """Import `tree_sitter_language_pack` once per process; return None if missing.
+
+    The first failed import emits one `tree_sitter_missing` audit entry.
+    Subsequent calls return the cached result and never re-warn.
+    """
+    global _TREE_SITTER_LOADED, _TREE_SITTER_MODULE, _TREE_SITTER_WARNED
+
+    if _TREE_SITTER_LOADED:
+        return _TREE_SITTER_MODULE
+
+    try:
+        _TREE_SITTER_MODULE = importlib.import_module("tree_sitter_language_pack")
+    except ImportError:
+        _TREE_SITTER_MODULE = None
+        if not _TREE_SITTER_WARNED:
+            append_audit({"event": "tree_sitter_missing"})
+            _TREE_SITTER_WARNED = True
+    _TREE_SITTER_LOADED = True
+    return _TREE_SITTER_MODULE
+
+
+def _reset_tree_sitter_cache_for_tests() -> None:
+    """Test-only hook: clear the import cache between cases."""
+    global _TREE_SITTER_LOADED, _TREE_SITTER_MODULE, _TREE_SITTER_WARNED
+    _TREE_SITTER_LOADED = False
+    _TREE_SITTER_MODULE = None
+    _TREE_SITTER_WARNED = False
