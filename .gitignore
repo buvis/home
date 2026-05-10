@@ -11,6 +11,11 @@
 !.claude/skills/
 !.claude/skills/**
 .claude/skills/**/dev/
+!.claude/cartographer/
+!.claude/cartographer/scripts/
+!.claude/cartographer/scripts/**
+.claude/cartographer/audit.jsonl
+.claude/cartographer/projects/
 !.claude/CLAUDE.md
 !.claude/warden.yaml
 .codex/*
