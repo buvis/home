@@ -30,9 +30,30 @@ This file is referenced by Phase 1+ Cartographer hooks; keep it under 400 lines.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _home() -> Path:
+    """Indirection so tests can monkeypatch `Path.home`."""
+    return Path.home()
+
+
+def _cartographer_root() -> Path:
+    return _home() / ".claude" / "cartographer"
+
+
+def _cache_root() -> Path:
+    return _home() / ".claude" / "cache" / "cartographer"
+
+
+def _audit_log() -> Path:
+    return _cartographer_root() / "audit.jsonl"
+
 
 # --- per-repo addressing ---
 
@@ -89,4 +110,54 @@ def atlas_dir(project_hash: str) -> Path:
 
     Pure path computation; does NOT create the directory.
     """
-    return Path.home() / ".claude" / "cartographer" / "projects" / project_hash
+    return _cartographer_root() / "projects" / project_hash
+
+
+# --- filesystem init + audit log ---
+
+
+def _ensure_dirs() -> None:
+    """Idempotently create the cartographer on-disk layout.
+
+    Phase 1+ hooks may invoke this lazily; tests may invoke it directly.
+    OSError is swallowed because hooks must never crash the host tool.
+    """
+    try:
+        root = _cartographer_root()
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "projects").mkdir(parents=True, exist_ok=True)
+        (root / "scripts").mkdir(parents=True, exist_ok=True)
+        _cache_root().mkdir(parents=True, exist_ok=True)
+        log = _audit_log()
+        if not log.exists():
+            log.touch()
+    except OSError as exc:
+        print(f"[cartographer] _ensure_dirs failed: {exc}", file=sys.stderr)
+
+
+def _atomic_append(path: Path, line: str) -> None:
+    """Append a single line to `path` in `mode='a'`.
+
+    A single `write()` call keeps the line atomic on POSIX for sizes under
+    PIPE_BUF (4096 on Linux, 512 on macOS). Audit lines stay well under that.
+    """
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(line)
+
+
+def append_audit(event: dict) -> None:
+    """Append one event to ~/.claude/cartographer/audit.jsonl.
+
+    Stamps `ts` (ISO-8601 UTC) if absent. Never raises — I/O or
+    serialization failures emit a one-line stderr warning and return.
+    """
+    try:
+        if "ts" not in event:
+            event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+        line = json.dumps(event, ensure_ascii=False) + "\n"
+        _ensure_dirs()
+        _atomic_append(_audit_log(), line)
+    except (OSError, TypeError, ValueError) as exc:
+        # Hooks cannot crash the host tool. Surface the failure to stderr
+        # and return so the calling Edit/Write proceeds.
+        print(f"[cartographer] append_audit failed: {exc}", file=sys.stderr)
