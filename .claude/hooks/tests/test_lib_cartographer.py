@@ -247,3 +247,90 @@ def test_append_audit_swallows_write_errors(
     lib.append_audit({"event": "should_not_crash"})  # must not raise
     captured = capsys.readouterr()
     assert captured.err  # some warning must reach stderr
+
+
+# --- resolve_session_key ---
+
+
+def _load_gateguard():
+    spec = importlib.util.spec_from_file_location(
+        "gateguard_fact_force", HOOKS_DIR / "gateguard-fact-force.py"
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_resolve_session_key_uses_session_id(lib) -> None:
+    assert lib.resolve_session_key({"session_id": "abc-123"}) == "abc-123"
+
+
+def test_resolve_session_key_falls_back_to_transcript(lib, tmp_path: Path) -> None:
+    transcript = tmp_path / "t.jsonl"
+    transcript.touch()
+    key = lib.resolve_session_key({"transcript_path": str(transcript)})
+    assert key.startswith("tx-")
+
+
+def test_resolve_session_key_falls_back_to_cwd(lib, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CLAUDE_TRANSCRIPT_PATH", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    key = lib.resolve_session_key({})
+    assert key.startswith("proj-")
+
+
+def test_resolve_session_key_parity_with_gateguard(lib, tmp_path: Path) -> None:
+    gg = _load_gateguard()
+    samples: list[dict] = [
+        {"session_id": "explicit-session"},
+        {"transcript_path": str(tmp_path / "abc.jsonl")},
+        {},
+    ]
+    (tmp_path / "abc.jsonl").touch()
+    for sample in samples:
+        assert lib.resolve_session_key(sample) == gg.resolve_session_key(sample)
+
+
+# --- session-state I/O ---
+
+
+def test_save_load_round_trip(lib, fake_home: Path) -> None:
+    lib.save_session_state("sid1", "echo", {"a": 1, "b": [2, 3]})
+    assert lib.load_session_state("sid1", "echo") == {"a": 1, "b": [2, 3]}
+
+
+def test_load_missing_returns_empty(lib, fake_home: Path) -> None:
+    assert lib.load_session_state("never-saved", "echo") == {}
+
+
+def test_namespace_isolation(lib, fake_home: Path) -> None:
+    lib.save_session_state("sid", "echo", {"x": 1})
+    assert lib.load_session_state("sid", "recon") == {}
+    assert lib.load_session_state("sid", "echo") == {"x": 1}
+
+
+def test_corrupted_json_returns_empty(lib, fake_home: Path) -> None:
+    target = fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("not json {", encoding="utf-8")
+    assert lib.load_session_state("sid", "echo") == {}
+
+
+def test_save_atomic_failure_preserves_prior(
+    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lib.save_session_state("sid", "echo", {"old": 1})
+
+    def boom(src: object, dst: object) -> None:
+        raise OSError("forced replace failure")
+
+    monkeypatch.setattr(os, "replace", boom)
+    lib.save_session_state("sid", "echo", {"new": 2})  # must not raise
+
+    assert lib.load_session_state("sid", "echo") == {"old": 1}
+    # No tmp leftovers
+    ns_dir = fake_home / ".claude" / "cache" / "cartographer" / "echo"
+    leftovers = [p for p in ns_dir.iterdir() if ".tmp." in p.name]
+    assert leftovers == []
