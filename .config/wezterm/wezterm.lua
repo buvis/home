@@ -39,6 +39,7 @@ local config = {}
 
 config.audible_bell = "Disabled"
 config.check_for_updates = false
+config.debug_key_events = true
 config.color_scheme = "Builtin Solarized Dark"
 config.inactive_pane_hsb = {
 	hue = 0.15,
@@ -81,7 +82,7 @@ config.keys = {
 	{ key = "c", mods = "CTRL|SHIFT", action = act.SendKey({ key = "c", mods = "CTRL" }) },
 
 	{
-		key = "R",
+		key = "r",
 		mods = "CTRL|SHIFT",
 		action = act.PromptInputLine({
 			description = "Enter new name for tab",
