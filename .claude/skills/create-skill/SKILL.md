@@ -1,6 +1,6 @@
 ---
 name: create-skill
-description: Use when running the local skill validator (validate_skill.py) on a personal skill, or applying user frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "lint skill", "skill compliance".
+description: Use when running the local skill validator (validate_skill.py) on a personal skill, or applying user frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "skill-creator", "create skill", "lint skill", "skill compliance".
 ---
 
 # Skill Creator

@@ -1,6 +1,6 @@
 ---
 name: rust-testing
-description: Use when writing or reviewing Rust tests. Covers unit, integration, async, property-based testing, mocking, and coverage. Triggers on "cargo test", "rust test", "#[test]", "test coverage".
+description: Use when writing, fixing, or reviewing Rust tests. Covers unit, integration, async, property-based, mocking, coverage. Triggers on "cargo test", "rust test", "#[test]", "test failure", "tokio::test", "proptest", "mockall", "writing a test", "TDD".
 ---
 
 # Rust Testing
