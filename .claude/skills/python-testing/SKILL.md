@@ -1,6 +1,6 @@
 ---
 name: python-testing
-description: Use when writing or reviewing Python tests. Covers pytest, TDD workflow, fixtures, mocking, and parametrization. Triggers on "pytest", "python test", "test coverage", "TDD".
+description: Use when writing, fixing, or reviewing Python tests. Covers pytest TDD, fixtures, mocking, parametrization, coverage. Triggers on "pytest", "python test", "test failure", "fixture", "mock", "parametrize", "conftest", "pytest.mark", "writing a test", "TDD".
 ---
 
 # Python Testing
