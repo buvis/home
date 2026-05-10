@@ -258,3 +258,24 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+
+# --- 2-attempt checked-marker primitives ---
+
+
+def is_checked(session_key: str, namespace: str, key: str) -> bool:
+    """Return True iff `key` has been marked in this session+namespace."""
+    state = load_session_state(session_key, namespace)
+    checked = state.get("checked")
+    return isinstance(checked, dict) and key in checked
+
+
+def mark_checked(session_key: str, namespace: str, key: str) -> None:
+    """Record `key` as checked, stamping the current ISO-8601 UTC time."""
+    state = load_session_state(session_key, namespace)
+    checked = state.get("checked")
+    if not isinstance(checked, dict):
+        checked = {}
+        state["checked"] = checked
+    checked[key] = datetime.now(timezone.utc).isoformat()
+    save_session_state(session_key, namespace, state)
