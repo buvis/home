@@ -5,13 +5,19 @@ description: Use when running Google Gemini via the copilot CLI for code analysi
 
 # Gemini Skill Guide
 
-Gemini is accessed via the `copilot` CLI. The helper script auto-detects the latest `gemini-*-pro` model from `copilot --help` (falls back to `gemini-3-pro-preview`).
+Gemini is accessed via the `copilot` CLI. The helper script defaults to `gemini-3-pro-preview` and exposes `-m/--model` for explicit overrides.
+
+> **Heads up:** GitHub removed Gemini models from the Copilot CLI around 2026-03-26. Calls will fail until/unless GitHub re-adds them. Confirm availability before invoking.
+
+## Multiplier Policy
+
+GitHub Copilot bills models with a per-request multiplier. The CLI does not expose multipliers locally, so the helper hardcodes a curated default rather than auto-picking the latest version. Before passing `-m` to override, confirm with the user via `AskUserQuestion` if the target model carries a higher Copilot multiplier. Verify current multipliers in the GitHub Copilot dashboard.
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `--model` (auto-detected latest gemini-pro model)
+   - `-m, --model MODEL` to override the default (`gemini-3-pro-preview`); ask the user first if the override is a higher-multiplier model
    - `-p, --prompt <text>` for non-interactive mode
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `--allow-all-tools` to auto-approve tool use

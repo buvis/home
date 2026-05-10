@@ -5,13 +5,21 @@ description: Use when running Anthropic Claude Sonnet via the copilot CLI for co
 
 # Sonnet Skill Guide
 
-Sonnet is accessed via the `copilot` CLI. The helper script auto-detects the highest-versioned base `claude-sonnet-X(.Y)` model from the copilot SDK type definitions (falls back to `claude-sonnet-4.6`).
+Sonnet is accessed via the `copilot` CLI. The helper script defaults to `claude-sonnet-4.6` (1x-multiplier base sonnet) and exposes `-m/--model` for explicit overrides.
+
+## Multiplier Policy
+
+GitHub Copilot bills models with a per-request multiplier. The CLI does not expose multipliers locally, so the helper hardcodes a curated 1x default rather than auto-picking the highest version (which would silently route to a premium tier the moment Anthropic ships a higher-multiplier base sonnet).
+
+- **Default:** `claude-sonnet-4.6` (1x). Always use unless the user has explicitly approved a different model.
+- **Higher-multiplier variants** include the Opus family (`claude-opus-4.7`, `claude-opus-4.6`, etc.) and the `-1m` / `-high` / `-xhigh` / `-fast` suffixed variants. Before passing `-m` to one of these, confirm with the user via `AskUserQuestion` and state that the override carries a higher Copilot multiplier.
+- Verify current multipliers in the GitHub Copilot dashboard if unsure - they change.
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `--model` (auto-detected highest base `claude-sonnet-X(.Y)` model)
+   - `-m, --model MODEL` to override the default (`claude-sonnet-4.6`); ask the user first if the override is a higher-multiplier model
    - `-p, --prompt <text>` for non-interactive mode
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `--allow-all-tools` to auto-approve tool use
@@ -59,6 +67,9 @@ echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/sonnet-pro
 
 # With auto-approve tools
 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -a -f /tmp/sonnet-prompt.txt
+
+# Override model (only after user approval - higher multiplier may apply)
+~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -m claude-opus-4.7 -f /tmp/sonnet-prompt.txt
 
 # Full permissions
 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -y -f /tmp/sonnet-prompt.txt

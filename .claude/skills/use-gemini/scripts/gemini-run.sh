@@ -8,18 +8,14 @@ if command -v mise &>/dev/null; then
     PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
-FALLBACK_MODEL="gemini-3-pro-preview"
-
-detect_model() {
-    # Pick latest gemini-N-pro model
-    copilot --help 2>&1 | grep -oE 'gemini-[0-9]+-pro[^"]*' | sort -t- -k2,2rn | head -1
-}
-
-MODEL=$(detect_model)
-if [ -z "$MODEL" ]; then
-    echo "WARN: Could not detect latest gemini model, using $FALLBACK_MODEL" >&2
-    MODEL="$FALLBACK_MODEL"
-fi
+# NOTE: GitHub removed Gemini models from Copilot CLI around 2026-03-26.
+# This script is kept in case GitHub re-adds them; today the CLI will
+# refuse the model. Default below is the last known base "pro" model, kept
+# as a curated 1x choice. Multipliers are not exposed via the CLI - require
+# -m/--model to opt into anything else and verify in the GitHub Copilot
+# dashboard before bumping the default.
+DEFAULT_MODEL="gemini-3-pro-preview"
+MODEL="$DEFAULT_MODEL"
 MODE="prompt"  # prompt, interactive, resume
 ALLOW_TOOLS=""
 ALLOW_ALL=""
@@ -32,7 +28,12 @@ OUTPUT_FILE=""
 usage() {
     echo "Usage: $0 [options] [prompt]"
     echo ""
+    echo "Default model: $DEFAULT_MODEL (Gemini was removed from Copilot CLI ~2026-03-26;"
+    echo "expect failure until/unless GitHub re-adds it)."
+    echo "Use -m to override the model."
+    echo ""
     echo "Options:"
+    echo "  -m, --model MODEL      Override model (default: $DEFAULT_MODEL)"
     echo "  -i, --interactive      Interactive mode with initial prompt"
     echo "  -a, --allow-tools      Auto-approve tool use"
     echo "  -y, --yolo             Full permissions (allow-all)"
@@ -54,6 +55,10 @@ usage() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -m|--model)
+            MODEL="$2"
+            shift 2
+            ;;
         -i|--interactive)
             MODE="interactive"
             shift

@@ -5,13 +5,21 @@ description: Use when running OpenAI GPT via the copilot CLI for code analysis, 
 
 # Codex Skill Guide
 
-Codex is accessed via the `copilot` CLI. The helper script auto-detects the highest-versioned base `gpt-X.Y` model from the copilot SDK type definitions (falls back to `gpt-5.5`).
+Codex is accessed via the `copilot` CLI. The helper script defaults to `gpt-5.4` (Copilot's recommended 1x-multiplier model) and exposes `-m/--model` for explicit overrides.
+
+## Multiplier Policy
+
+GitHub Copilot bills models with a per-request multiplier. The CLI does not expose multipliers locally, so the helper hardcodes a curated 1x default rather than auto-picking the highest version (which silently lands on premium tiers - `gpt-5.5` once burned 25% of a monthly quota in one run).
+
+- **Default:** `gpt-5.4` (1x). Always use unless the user has explicitly approved a different model.
+- **Before passing `-m` to opt into a higher-multiplier model** (e.g. `gpt-5.5` for harder reasoning), confirm with the user via `AskUserQuestion`. State the model name and that it carries a higher Copilot multiplier.
+- Verify current multipliers in the GitHub Copilot dashboard if unsure - they change.
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `--model` (auto-detected highest base `gpt-X.Y` model)
+   - `-m, --model MODEL` to override the default (`gpt-5.4`); ask the user first if the override is a higher-multiplier model
    - `-p, --prompt <text>` for non-interactive mode
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `--allow-all-tools` to auto-approve tool use
@@ -59,6 +67,9 @@ echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/codex-prom
 
 # With auto-approve tools
 ~/.claude/skills/use-codex/scripts/codex-run.sh -a -f /tmp/codex-prompt.txt
+
+# Override model (only after user approval - higher multiplier may apply)
+~/.claude/skills/use-codex/scripts/codex-run.sh -m gpt-5.5 -f /tmp/codex-prompt.txt
 
 # Full permissions
 ~/.claude/skills/use-codex/scripts/codex-run.sh -y -f /tmp/codex-prompt.txt
