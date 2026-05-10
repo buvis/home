@@ -375,3 +375,70 @@ def test_corrupted_state_recovers_via_mark(lib, fake_home: Path) -> None:
     assert lib.is_checked("sid", "echo", "foo") is False
     lib.mark_checked("sid", "echo", "foo")  # must not raise on corrupted prior
     assert lib.is_checked("sid", "echo", "foo") is True
+
+
+# --- try_import_tree_sitter ---
+
+
+def test_try_import_tree_sitter_hit(
+    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inject a fake tree_sitter_language_pack and confirm cached return."""
+    import types as _types
+
+    fake_module = _types.ModuleType("tree_sitter_language_pack")
+    fake_module.__version__ = "fake-0.0.1"
+    monkeypatch.setitem(sys.modules, "tree_sitter_language_pack", fake_module)
+    lib._reset_tree_sitter_cache_for_tests()
+
+    first = lib.try_import_tree_sitter()
+    assert first is fake_module
+
+    # Even if we strip sys.modules now, the cached value should still return.
+    monkeypatch.delitem(sys.modules, "tree_sitter_language_pack", raising=False)
+    second = lib.try_import_tree_sitter()
+    assert second is fake_module
+
+
+def test_try_import_tree_sitter_miss(
+    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Force ImportError, confirm None + a single audit warn line."""
+    monkeypatch.delitem(sys.modules, "tree_sitter_language_pack", raising=False)
+    real_import_module = importlib.import_module
+
+    def fake_import(name: str, package: str | None = None):
+        if name == "tree_sitter_language_pack":
+            raise ImportError("forced")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    lib._reset_tree_sitter_cache_for_tests()
+
+    assert lib.try_import_tree_sitter() is None
+    audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
+    assert len(miss_lines) == 1
+
+
+def test_try_import_tree_sitter_miss_then_call_again_no_extra_audit(
+    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delitem(sys.modules, "tree_sitter_language_pack", raising=False)
+    real_import_module = importlib.import_module
+
+    def fake_import(name: str, package: str | None = None):
+        if name == "tree_sitter_language_pack":
+            raise ImportError("forced")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    lib._reset_tree_sitter_cache_for_tests()
+
+    lib.try_import_tree_sitter()
+    lib.try_import_tree_sitter()  # second miss-call — must not log a second time
+    lib.try_import_tree_sitter()
+
+    audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
+    assert len(miss_lines) == 1
