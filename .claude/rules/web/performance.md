@@ -1,4 +1,14 @@
-> This file extends [common/performance.md](../common/performance.md) with web-specific performance content.
+---
+paths:
+  - "**/*.svelte"
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.css"
+  - "**/*.html"
+  - "**/*.vue"
+---
+> Extends ../performance.md with web-specific performance content.
 
 # Web Performance Rules
 

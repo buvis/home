@@ -1,3 +1,13 @@
+---
+paths:
+  - "**/*.svelte"
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.css"
+  - "**/*.html"
+  - "**/*.vue"
+---
 # Frontend Design Quality
 
 Avoid generic, on-distribution frontend output. Every surface should look intentional, opinionated, and specific to the product.

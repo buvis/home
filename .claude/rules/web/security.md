@@ -1,4 +1,14 @@
-> This file extends [common/security.md](../common/security.md) with web-specific security content.
+---
+paths:
+  - "**/*.svelte"
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.css"
+  - "**/*.html"
+  - "**/*.vue"
+---
+> Extends ../security.md with web-specific security content.
 
 # Web Security Rules
 
