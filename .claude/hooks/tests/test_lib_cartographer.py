@@ -165,3 +165,85 @@ def test_atlas_dir_returns_expected_path(lib, fake_home: Path) -> None:
 def test_atlas_dir_does_not_create_directory(lib, fake_home: Path) -> None:
     p = lib.atlas_dir("never-created")
     assert not p.exists()
+
+
+# --- _ensure_dirs / append_audit ---
+
+
+def _audit_path(home: Path) -> Path:
+    return home / ".claude" / "cartographer" / "audit.jsonl"
+
+
+def test_ensure_dirs_creates_layout(lib, fake_home: Path) -> None:
+    lib._ensure_dirs()
+    assert (fake_home / ".claude" / "cartographer").is_dir()
+    assert (fake_home / ".claude" / "cartographer" / "projects").is_dir()
+    assert (fake_home / ".claude" / "cartographer" / "scripts").is_dir()
+    assert (fake_home / ".claude" / "cache" / "cartographer").is_dir()
+    assert _audit_path(fake_home).is_file()
+
+
+def test_ensure_dirs_idempotent(lib, fake_home: Path) -> None:
+    lib._ensure_dirs()
+    lib._ensure_dirs()  # second call must not raise
+    assert _audit_path(fake_home).is_file()
+
+
+def test_append_audit_writes_one_line_with_timestamp(lib, fake_home: Path) -> None:
+    lib.append_audit({"event": "hello"})
+    lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    obj = json.loads(lines[0])
+    assert obj["event"] == "hello"
+    assert isinstance(obj.get("ts"), str) and ("+00:00" in obj["ts"] or obj["ts"].endswith("Z"))
+
+
+def test_append_audit_preserves_caller_supplied_ts(lib, fake_home: Path) -> None:
+    lib.append_audit({"event": "x", "ts": "2026-01-01T00:00:00+00:00"})
+    obj = json.loads(_audit_path(fake_home).read_text(encoding="utf-8").splitlines()[0])
+    assert obj["ts"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_append_audit_1000_sequential(lib, fake_home: Path) -> None:
+    for i in range(1000):
+        lib.append_audit({"event": "seq", "i": i})
+    lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1000
+    parsed = [json.loads(line) for line in lines]
+    assert [p["i"] for p in parsed] == list(range(1000))
+
+
+def test_append_audit_concurrent_threads(lib, fake_home: Path) -> None:
+    import threading
+
+    def worker(tag: str) -> None:
+        for i in range(500):
+            lib.append_audit({"event": "concur", "tag": tag, "i": i})
+
+    t1 = threading.Thread(target=worker, args=("a",))
+    t2 = threading.Thread(target=worker, args=("b",))
+    t1.start(); t2.start(); t1.join(); t2.join()
+
+    lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1000
+    for line in lines:
+        json.loads(line)
+
+
+def test_append_audit_swallows_write_errors(
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A write-failure simulation must not propagate exceptions to the caller."""
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("forced failure")
+
+    # Patch the lib's _atomic_append symbol (added by the implementation) so the
+    # write fails. The lib must catch this and emit a stderr warning.
+    monkeypatch.setattr(lib, "_atomic_append", boom)
+    lib.append_audit({"event": "should_not_crash"})  # must not raise
+    captured = capsys.readouterr()
+    assert captured.err  # some warning must reach stderr
