@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -161,3 +163,98 @@ def append_audit(event: dict) -> None:
         # Hooks cannot crash the host tool. Surface the failure to stderr
         # and return so the calling Edit/Write proceeds.
         print(f"[cartographer] append_audit failed: {exc}", file=sys.stderr)
+
+
+# --- session-key resolution (verbatim copy of gateguard-fact-force.py:60-89) ---
+
+
+def _hash_key(prefix: str, value: str) -> str:
+    return f"{prefix}-{hashlib.sha256(value.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _sanitize_session_key(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", raw)
+    if sanitized and len(sanitized) <= 64:
+        return sanitized
+    return _hash_key("sid", raw)
+
+
+def resolve_session_key(data: dict) -> str:
+    """Derive a stable session key from PreToolUse hook input.
+
+    Mirrors `gateguard-fact-force.py:resolve_session_key` byte-for-byte
+    (decoupled copy per PRD 00009). Prefers explicit `session_id`, then a
+    `transcript_path` hash, then a cwd hash.
+    """
+    candidates = [
+        data.get("session_id"),
+        data.get("sessionId"),
+        (data.get("session") or {}).get("id") if isinstance(data.get("session"), dict) else None,
+        os.environ.get("CLAUDE_SESSION_ID"),
+    ]
+    for c in candidates:
+        sanitized = _sanitize_session_key(c if isinstance(c, str) else None)
+        if sanitized:
+            return sanitized
+
+    transcript = (
+        data.get("transcript_path")
+        or data.get("transcriptPath")
+        or os.environ.get("CLAUDE_TRANSCRIPT_PATH")
+    )
+    if isinstance(transcript, str) and transcript.strip():
+        return _hash_key("tx", str(Path(transcript.strip()).resolve()))
+
+    project = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    return _hash_key("proj", str(Path(project).resolve()))
+
+
+# --- namespaced session-state I/O ---
+
+
+def _state_path(session_key: str, namespace: str) -> Path:
+    return _cache_root() / namespace / f"state-{session_key}.json"
+
+
+def load_session_state(session_key: str, namespace: str) -> dict:
+    """Read a per-session, per-namespace state dict.
+
+    Missing files and corrupted JSON return `{}` so callers can treat the
+    cache as best-effort.
+    """
+    path = _state_path(session_key, namespace)
+    if not path.exists():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def save_session_state(session_key: str, namespace: str, state: dict) -> None:
+    """Atomically write per-session, per-namespace state.
+
+    Uses tempfile + os.replace so a crash mid-write leaves the prior file
+    intact. Never raises — OSError is logged to stderr.
+    """
+    path = _state_path(session_key, namespace)
+    tmp_path: str | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp.")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+        tmp_path = None
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"[cartographer] save_session_state failed: {exc}", file=sys.stderr)
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
