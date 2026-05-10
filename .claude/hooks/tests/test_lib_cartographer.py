@@ -334,3 +334,44 @@ def test_save_atomic_failure_preserves_prior(
     ns_dir = fake_home / ".claude" / "cache" / "cartographer" / "echo"
     leftovers = [p for p in ns_dir.iterdir() if ".tmp." in p.name]
     assert leftovers == []
+
+
+# --- is_checked / mark_checked ---
+
+
+def test_is_checked_initially_false(lib, fake_home: Path) -> None:
+    assert lib.is_checked("sid", "echo", "foo") is False
+
+
+def test_mark_then_is_checked_true(lib, fake_home: Path) -> None:
+    lib.mark_checked("sid", "echo", "foo")
+    assert lib.is_checked("sid", "echo", "foo") is True
+
+
+def test_checked_namespace_isolation(lib, fake_home: Path) -> None:
+    lib.mark_checked("sid", "echo", "foo")
+    assert lib.is_checked("sid", "recon", "foo") is False
+
+
+def test_checked_session_isolation(lib, fake_home: Path) -> None:
+    lib.mark_checked("sid1", "echo", "foo")
+    assert lib.is_checked("sid2", "echo", "foo") is False
+
+
+def test_marked_state_persists_iso_timestamp(lib, fake_home: Path) -> None:
+    lib.mark_checked("sid", "echo", "foo")
+    raw = (fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json").read_text()
+    state = json.loads(raw)
+    assert isinstance(state["checked"], dict)
+    ts = state["checked"]["foo"]
+    assert isinstance(ts, str)
+    assert "+00:00" in ts or ts.endswith("Z")
+
+
+def test_corrupted_state_recovers_via_mark(lib, fake_home: Path) -> None:
+    target = fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("junk", encoding="utf-8")
+    assert lib.is_checked("sid", "echo", "foo") is False
+    lib.mark_checked("sid", "echo", "foo")  # must not raise on corrupted prior
+    assert lib.is_checked("sid", "echo", "foo") is True
