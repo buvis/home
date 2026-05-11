@@ -16,6 +16,7 @@ Stdlib-only. Optional `tree_sitter_language_pack` accessed lazily via
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -423,6 +424,57 @@ def filter_stopwords(symbols: list[str], file_path: str) -> list[str]:
     return out
 
 
+def _resolve_project_root(file_path: str) -> Path:
+    """Find the git toplevel containing `file_path`, falling back to its parent.
+
+    Echo searches across the project, so the root MUST be a real directory.
+    `_lib_cartographer.project_hash` returns identity tuples (hash, name,
+    remote), not a path, so we don't reuse it here.
+    """
+    parent = Path(file_path).parent if file_path else Path.cwd()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(parent), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return Path(proc.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return parent if parent.exists() else Path.cwd()
+
+
+# --- two-attempt deny gate ---
+
+_ECHO_NAMESPACE: str = "echo"
+
+
+def deny_key(file_path: str, symbols: list[str]) -> str:
+    """`sha256(file_path + "|" + "|".join(sorted(symbols)))[:24]`."""
+    payload = file_path + "|" + "|".join(sorted(symbols))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def build_deny_envelope_basic(matches: list[dict]) -> dict:
+    """Minimal deny envelope (Task 8 enriches with rationalizations)."""
+    if matches:
+        m = matches[0]
+        reason_text = (
+            f"Echo: `{m['symbol']}` likely duplicates `{m['file']}:{m['line']}` "
+            f"(score: {m['score']}). If this is genuinely new, retry — the "
+            f"second attempt will pass."
+        )
+    else:
+        reason_text = "Echo: duplicate-detection deny."
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason_text,
+        }
+    }
+
+
 # --- audit emission ---
 
 
@@ -511,21 +563,56 @@ def handle(data: dict) -> None:
         )
         return
 
-    # Symbol extraction + stopword filter (PRD 00010 Tasks 3-4). Match
-    # search, scoring, and the two-attempt deny gate land in Tasks 5-8.
     if tool_name in ("Edit", "Write", "MultiEdit"):
         content = extract_content(tool_name, tool_input)
         ext = file_extension(file_path)
         raw_symbols = extract_symbols(content, ext)
         symbols = filter_stopwords(raw_symbols, file_path)
-        reason = "extracted" if symbols else "no-symbols"
+
+        if not symbols:
+            audit_event(
+                session=session, tool=tool_name, file=file_path,
+                decision="allow", reason="no-symbols",
+            )
+            return
+
+        # Resolve project root. lib.project_hash returns (hash, name, remote)
+        # — the remote_url, not a usable path. Use git toplevel when in a
+        # repo; otherwise fall back to the target file's parent directory.
+        project_root = _resolve_project_root(file_path)
+        candidate_groups: dict[str, list[dict]] = {
+            sym: search_candidates(sym, project_root, Path(file_path))
+            for sym in symbols
+        }
+
+        decision, matches = decide(symbols, candidate_groups)
+
+        if decision == "allow":
+            audit_event(
+                session=session, tool=tool_name, file=file_path,
+                decision="allow", reason="weak-only" if any(candidate_groups.values()) else "no-matches",
+                symbols=symbols, matches=matches,
+            )
+            return
+
+        # Two-attempt gate.
+        key = deny_key(file_path, symbols)
+        if lib.is_checked(session, _ECHO_NAMESPACE, key):
+            audit_event(
+                session=session, tool=tool_name, file=file_path,
+                decision="allow", reason="second-attempt",
+                symbols=symbols, matches=matches,
+            )
+            return
+        lib.mark_checked(session, _ECHO_NAMESPACE, key)
+        envelope = build_deny_envelope_basic(matches)
+        sys.stdout.write(json.dumps(envelope))
+        # Audit reason matches the strongest hit's score.
+        strongest_score = matches[0]["score"] if matches else "unknown"
         audit_event(
-            session=session,
-            tool=tool_name,
-            file=file_path,
-            decision="allow",
-            reason=reason,
-            symbols=symbols,
+            session=session, tool=tool_name, file=file_path,
+            decision="deny", reason=f"{strongest_score}-match",
+            symbols=symbols, matches=matches,
         )
         return
 
