@@ -475,6 +475,170 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- Direct-call coverage (handle / main bypass subprocess for line coverage) ---
+
+
+def _isolate_hook_for_direct_call(monkeypatch: pytest.MonkeyPatch, home: Path) -> object:
+    """Import the hook with HOME pointed at a tmp dir and lib cache cleared."""
+    monkeypatch.setenv("HOME", str(home))
+    # Force fresh import of lib + hook
+    for name in ("_lib_cartographer", "cartographer_echo_mod"):
+        if name in sys.modules:
+            del sys.modules[name]
+    return _import_hook_module()
+
+
+def test_handle_direct_call_unknown_tool_no_audit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    mod.handle({"tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}, "session_id": "s"})
+    events = read_audit(tmp_path)
+    assert all(e.get("tool") != "Read" for e in events)
+
+
+def test_handle_direct_call_edit_skip_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    mod.handle({
+        "tool_name": "Edit",
+        "tool_input": {"file_path": str(tmp_path / ".claude" / "settings.json"), "old_string": "x", "new_string": "y"},
+        "session_id": "s",
+    })
+    events = read_audit(tmp_path)
+    assert any(e.get("reason") == "settings" for e in events)
+
+
+def test_handle_direct_call_bash_clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    mod.handle({"tool_name": "Bash", "tool_input": {"command": "ls -la"}, "session_id": "s"})
+    events = read_audit(tmp_path)
+    assert any(e.get("reason") == "bash-clean" for e in events)
+
+
+def test_handle_direct_call_write_no_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    mod.handle({
+        "tool_name": "Write",
+        "tool_input": {"file_path": str(iso / "x.py"), "content": "# comment only\n"},
+        "session_id": "s",
+    })
+    events = read_audit(tmp_path)
+    assert any(e.get("reason") == "no-symbols" for e in events)
+
+
+def test_extract_content_multiedit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    out = mod.extract_content(
+        "MultiEdit",
+        {"edits": [{"new_string": "def foo(): pass"}, {"new_string": "def bar(): pass"}]},
+    )
+    assert "foo" in out and "bar" in out
+
+
+def test_extract_content_unknown_tool_empty() -> None:
+    mod = _import_hook_module()
+    assert mod.extract_content("Unknown", {"content": "x"}) == ""
+
+
+def test_deny_key_deterministic() -> None:
+    mod = _import_hook_module()
+    a = mod.deny_key("/a.py", ["foo", "bar"])
+    b = mod.deny_key("/a.py", ["bar", "foo"])  # sorted order
+    assert a == b
+    assert len(a) == 24
+
+
+def test_handle_direct_call_bash_bypass_deny_and_retry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    (tmp_path / "src").mkdir()
+    monkeypatch.chdir(tmp_path)
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "cat > src/util.py <<EOF\ndef foo(): pass\nEOF"},
+        "session_id": "s-bash-direct",
+    }
+    mod.handle(payload)
+    out = capsys.readouterr().out
+    assert out.strip(), "expected deny envelope"
+    env = json.loads(out)
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    # Second call → allow.
+    mod.handle(payload)
+    out2 = capsys.readouterr().out
+    if out2.strip():
+        env2 = json.loads(out2)
+        assert env2["hookSpecificOutput"]["permissionDecision"] != "deny"
+
+
+def test_handle_direct_call_edit_deny_and_retry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "lib.py").write_text("def formatPrice(p):\n    return p\n")
+    monkeypatch.chdir(root)
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(root / "price.py"),
+            "content": "def formatPrice(p):\n    return f'${p}'\n",
+        },
+        "session_id": "s-edit-direct",
+    }
+    mod.handle(payload)
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    # Retry → allow.
+    mod.handle(payload)
+    out2 = capsys.readouterr().out
+    if out2.strip():
+        env2 = json.loads(out2)
+        assert env2["hookSpecificOutput"]["permissionDecision"] != "deny"
+
+
+def test_main_function_parses_stdin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Cover main()'s json parse + handle() dispatch + exception path."""
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    import io
+    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "session_id": "s"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    rc = mod.main()
+    assert rc == 0
+
+
+def test_main_empty_stdin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    import io
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    rc = mod.main()
+    assert rc == 0
+
+
+def test_main_malformed_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    import io
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{ not json"))
+    rc = mod.main()
+    assert rc == 0
+
+
+def test_main_non_dict_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    import io
+    monkeypatch.setattr(sys, "stdin", io.StringIO("[1, 2, 3]"))
+    rc = mod.main()
+    assert rc == 0
+
+
+def test_rationalizations_parsed_from_rules_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rationalizations parser must successfully load real rule file content."""
+    mod = _import_hook_module()
+    # Clear cache so loader actually runs.
+    mod._RATIONALIZATIONS_CACHE = None
+    rats = mod._load_rationalizations()
+    assert "Quick fix, skip atlas" in rats or "Couldn't find existing helper" in rats
+
+
 # --- Audit schema completeness ---
 
 
