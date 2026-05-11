@@ -442,3 +442,66 @@ def test_try_import_tree_sitter_miss_then_call_again_no_extra_audit(
     audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
     miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
     assert len(miss_lines) == 1
+
+
+# --- _state_path input validation (defense-in-depth at lib boundary) ---
+
+
+_INVALID_SEGMENTS = [
+    "",                # empty
+    "../escape",       # parent traversal
+    "..",              # bare dotdot
+    "a/b",             # forward slash
+    "a\\b",            # backslash
+    ".hidden",         # leading dot
+    "/absolute",       # absolute path
+    "with\x00null",    # null byte
+    "name with space", # whitespace
+    "name.dot",        # interior dot (consistent with sanitized session keys)
+]
+
+
+@pytest.mark.parametrize("bad", _INVALID_SEGMENTS)
+def test_state_path_rejects_invalid_namespace(lib, fake_home: Path, bad: str) -> None:
+    with pytest.raises(ValueError):
+        lib._state_path("valid-session", bad)
+
+
+@pytest.mark.parametrize("bad", _INVALID_SEGMENTS)
+def test_state_path_rejects_invalid_session_key(lib, fake_home: Path, bad: str) -> None:
+    with pytest.raises(ValueError):
+        lib._state_path(bad, "echo")
+
+
+def test_load_session_state_rejects_invalid_namespace(lib, fake_home: Path) -> None:
+    with pytest.raises(ValueError):
+        lib.load_session_state("sid", "../escape")
+
+
+def test_save_session_state_rejects_invalid_namespace(lib, fake_home: Path) -> None:
+    """save_session_state catches OSError/TypeError/ValueError inside its try block,
+    but _state_path is called BEFORE the try, so traversal attempts must propagate."""
+    with pytest.raises(ValueError):
+        lib.save_session_state("sid", "../escape", {"x": 1})
+
+
+def test_is_checked_rejects_invalid_namespace(lib, fake_home: Path) -> None:
+    with pytest.raises(ValueError):
+        lib.is_checked("sid", "../escape", "key")
+
+
+def test_mark_checked_rejects_invalid_namespace(lib, fake_home: Path) -> None:
+    with pytest.raises(ValueError):
+        lib.mark_checked("sid", "../escape", "key")
+
+
+def test_state_path_accepts_valid_segments(lib, fake_home: Path) -> None:
+    """Sanity: the validator must not over-reject. Keys produced by
+    _sanitize_session_key (alphanumeric + _ + -) must continue to work."""
+    # Round-trip a save/load with the kinds of values resolve_session_key produces.
+    lib.save_session_state("explicit-session", "echo", {"ok": True})
+    lib.save_session_state("tx-deadbeef1234", "recon-gate", {"ok": True})
+    lib.save_session_state("proj-abc123", "architect_nudge", {"ok": True})
+    assert lib.load_session_state("explicit-session", "echo") == {"ok": True}
+    assert lib.load_session_state("tx-deadbeef1234", "recon-gate") == {"ok": True}
+    assert lib.load_session_state("proj-abc123", "architect_nudge") == {"ok": True}
