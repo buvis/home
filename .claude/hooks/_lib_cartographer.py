@@ -217,7 +217,27 @@ def resolve_session_key(data: dict) -> str:
 # --- namespaced session-state I/O ---
 
 
+_VALID_PATH_SEGMENT = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_path_segment(value: str, kind: str) -> None:
+    """Reject anything that could escape the cache root via path tricks.
+
+    Session keys produced by `_sanitize_session_key` already conform to
+    `[a-zA-Z0-9_-]`. This boundary check guards `load_session_state` /
+    `save_session_state` against callers that bypass `resolve_session_key`
+    (or that ever pass an unsanitized namespace).
+    """
+    if not isinstance(value, str) or not _VALID_PATH_SEGMENT.match(value):
+        raise ValueError(
+            f"_lib_cartographer: invalid {kind} {value!r}; "
+            "must match [a-zA-Z0-9_-]+ (no slashes, dots, spaces, or null bytes)"
+        )
+
+
 def _state_path(session_key: str, namespace: str) -> Path:
+    _validate_path_segment(session_key, "session_key")
+    _validate_path_segment(namespace, "namespace")
     return _cache_root() / namespace / f"state-{session_key}.json"
 
 
