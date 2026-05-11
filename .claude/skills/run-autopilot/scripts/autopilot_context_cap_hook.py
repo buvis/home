@@ -172,7 +172,11 @@ def main() -> None:
     task_id = _in_progress_task_id(state)
     abort_entry = {
         "task_id": task_id,
-        "turn": 0,
+        # The transcript usage line carries no turn counter, so we cannot
+        # derive the actual turn. -1 signals "unknown" (matches the
+        # work-skill subagent_prompt_overrun convention) rather than the
+        # misleading "first turn" that 0 implied previously.
+        "turn": -1,
         "total_input_tokens": total,
         "cause": "context_overrun",
     }
