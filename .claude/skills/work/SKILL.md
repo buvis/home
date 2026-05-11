@@ -33,6 +33,32 @@ after all tasks complete:
 
 If you find yourself writing an Agent prompt that mentions multiple tasks, STOP — you are about to violate this rule.
 
+See **Subagent Dispatch Budget** below — every Agent dispatch must satisfy it.
+
+## Subagent Dispatch Budget
+
+Every prompt passed to the Agent tool (Agent A test author, Agent B implementor, Agent C adversary, or code reviewer) must be **≤ 50 000 bytes**.
+
+PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Time" above), so the runtime context cap from PRD 00024 cannot abort a subagent that grows past 200K. The bound must be enforced at dispatch time, before the Agent call.
+
+**Procedure before every Agent dispatch:**
+
+1. Assemble the prompt string (task description + relevant file paths + test patterns + code-quality rules block + abort instruction).
+2. Measure: `len(prompt.encode("utf-8"))` (Python) or `printf '%s' "$prompt" | wc -c` (shell).
+3. If the prompt exceeds 50 000 bytes:
+   - Trim by removing the lowest-priority context first (large example files, full architecture docs). Re-measure.
+   - If still oversized after one trim pass, abort the task. Append to `state.task_aborts[]`:
+     ```json
+     {"task_id": "<id>", "turn": -1, "total_input_tokens": <prompt-bytes/4>, "cause": "subagent_prompt_overrun"}
+     ```
+     Report cause `subagent_prompt_overrun` and stop work on this task.
+4. Prepend the abort-instruction line verbatim to the prompt:
+   ```
+   Abort and report if you read more than 100K of total input — return the partial result and an abort_reason: context_overrun field.
+   ```
+
+**Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under Sonnet 4.6's 200K standard-tier ceiling.
+
 ## Tool Selection
 
 Choose the right tool based on task domain:
@@ -149,6 +175,8 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 
 See `references/test-author-prompt.md` for the full prompt template — it now embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Agent A from writing speculative tests or silently assuming input shape.
 
+Agent A prompts must satisfy the **Subagent Dispatch Budget** (see section above the Workflow): ≤ 50K bytes, abort-instruction line prepended.
+
 ### 2.8. Test quality gate (main session)
 
 Before committing Agent A's tests, review them in the main session against this checklist:
@@ -187,6 +215,8 @@ Dispatch Agent C to try to write a **wrong** implementation that passes all of A
 
 See `references/adversarial-test-prompt.md` for the full prompt template.
 
+Agent C prompts must satisfy the **Subagent Dispatch Budget**: ≤ 50K bytes, abort-instruction line prepended.
+
 ### 2.9. Commit tests
 
 ```bash
@@ -215,6 +245,7 @@ Agent B's job: make the failing tests pass. Tests ARE the spec.
 
 1. "Make all failing tests pass. Do NOT modify test files."
 2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
+3. The abort-instruction line from the **Subagent Dispatch Budget** section. Measure the assembled prompt before dispatching; if > 50K bytes, trim or abort the task with cause `subagent_prompt_overrun`.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Agent B and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
