@@ -224,7 +224,7 @@ Spec-only verification by a reviewer with no implementation context. Invoke `/re
 After the review:
 
 1. **No Critical/Important findings** → update state: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. Proceed to Phase 8.
-2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes, update state and proceed to Phase 8. Do not loop back to Phase 4.
+2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`, then proceed to Phase 8. Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning but proceed.
 
 Minor findings: defer to batch end (append to `deferred_decisions` in state).
