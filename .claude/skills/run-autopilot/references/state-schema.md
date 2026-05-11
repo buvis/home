@@ -29,7 +29,7 @@ State file location: `dev/local/autopilot/state.json`
     {"id": "task-uuid-6", "name": "Update docs", "status": "pending"}
   ],
   "task_aborts": [
-    {"task_id": "task-uuid-7", "turn": 27, "total_input_tokens": 192340, "cause": "context_overrun"}
+    {"task_id": "task-uuid-7", "turn": -1, "total_input_tokens": 192340, "cause": "context_overrun"}
   ],
   "review_cycles": [
     {
@@ -124,7 +124,7 @@ State file location: `dev/local/autopilot/state.json`
 | `tasks` | object[] | Task list from TaskList: `{"id": "<task-id>", "name": "...", "status": "pending\|in_progress\|completed", "model"?: "haiku\|sonnet\|opus", "attempts"?: object[]}`. Include `id` — a PostToolUse hook uses it to sync status changes automatically. |
 | `tasks[].model` | enum? | Optional per-task model tier: `"haiku"`, `"sonnet"`, `"opus"`. Reserved for PRD 00025 (per-task model tier). Unset in this PRD; `/work` inherits the session model when absent. |
 | `tasks[].attempts` | object[]? | Optional per-task execution log: `{"attempt": int, "model": string, "outcome": "completed"\|"aborted"\|"review_flagged"\|"rework_failed", "review_cycle": int\|null, "cause": string\|null}`. Records each Work pass on the task. Rework reads the last entry's model to determine the next tier. Reserved for PRD 00025; not written in this PRD. |
-| `task_aborts` | object[] | Appended by `autopilot_context_cap_hook.py` when context exceeds 180K during Work phase: `{"task_id": string, "turn": int, "total_input_tokens": int, "cause": "context_overrun"\|"subagent_prompt_overrun"}`. Empty array on fresh state. |
+| `task_aborts` | object[] | Appended by `autopilot_context_cap_hook.py` when context exceeds 180K during Work phase: `{"task_id": string, "turn": int, "total_input_tokens": int, "cause": "context_overrun"\|"subagent_prompt_overrun"}`. `turn` is `-1` when unknown (the transcript usage line carries no turn counter; `/work`'s `subagent_prompt_overrun` writer also uses `-1`). Empty array on fresh state. |
 | `review_cycles` | object[] | History of each review cycle |
 | `review_cycles[].recurring_issues` | string[] | Issue descriptions that appeared in a previous cycle |
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
