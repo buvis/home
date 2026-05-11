@@ -66,8 +66,11 @@ def _audit_log() -> Path:
 def project_hash(path: str | None = None) -> tuple[str, str, str]:
     """Determine project identity from git remote or toplevel path.
 
-    Mirrors `analyze-instincts.py:detect_project` byte-for-byte (decoupled copy
-    per PRD 00009 open question). Returns `(hash, name, remote_url)`.
+    Behavioral copy of `analyze-instincts.py:detect_project` (decoupled per PRD
+    00009 open question; this helper adds a `path` parameter the original lacks).
+    Parity on shared inputs is enforced by
+    `test_project_hash_matches_analyze_instincts_detect_project`.
+    Returns `(hash, name, remote_url)`.
 
     - If a git remote `origin` is configured, hash its URL (with embedded
       credentials stripped) and return its stem as `name`.
@@ -235,10 +238,10 @@ def _validate_path_segment(value: str, kind: str) -> None:
     `save_session_state` against callers that bypass `resolve_session_key`
     (or that ever pass an unsanitized namespace).
     """
-    if not isinstance(value, str) or not _VALID_PATH_SEGMENT.match(value):
+    if not isinstance(value, str) or not _VALID_PATH_SEGMENT.fullmatch(value):
         raise ValueError(
             f"_lib_cartographer: invalid {kind} {value!r}; "
-            "must match [a-zA-Z0-9_-]+ (no slashes, dots, spaces, or null bytes)"
+            "must match [a-zA-Z0-9_-]+ (no slashes, dots, spaces, newlines, or null bytes)"
         )
 
 
@@ -268,7 +271,10 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
     """Atomically write per-session, per-namespace state.
 
     Uses tempfile + os.replace so a crash mid-write leaves the prior file
-    intact. Never raises: OSError is logged to stderr.
+    intact. I/O failures (OSError, serialization) are logged to stderr and
+    swallowed. `ValueError` from `_state_path` input validation (invalid
+    `session_key` or `namespace`) propagates to the caller; that is a
+    programming-error class and must fail loudly.
     """
     path = _state_path(session_key, namespace)
     tmp_path: str | None = None

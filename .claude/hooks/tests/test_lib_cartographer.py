@@ -445,7 +445,7 @@ def test_try_import_tree_sitter_miss_then_call_again_no_extra_audit(
     lib._reset_tree_sitter_cache_for_tests()
 
     lib.try_import_tree_sitter()
-    lib.try_import_tree_sitter()  # second miss-call — must not log a second time
+    lib.try_import_tree_sitter()  # second miss-call must not log a second time
     lib.try_import_tree_sitter()
 
     audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
@@ -467,6 +467,8 @@ _INVALID_SEGMENTS = [
     "with\x00null",    # null byte
     "name with space", # whitespace
     "name.dot",        # interior dot (consistent with sanitized session keys)
+    "trailing\n",      # trailing newline (re.match $ accepts; fullmatch rejects)
+    "lead\ning",       # interior newline
 ]
 
 
