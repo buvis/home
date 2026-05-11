@@ -79,9 +79,10 @@ Print a banner at each phase transition:
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`
-4. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
-5. Initialize/update state with selected PRD, preserve `batch` field
-6. Print progress:
+4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD.
+5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
+6. Initialize/update state with selected PRD, preserve `batch` field
+7. Print progress:
    ```
    ── AUTOPILOT ── PRD {n}: {prd-name} ─────────────────────────────
    ```
@@ -89,11 +90,20 @@ Print a banner at each phase transition:
 
 ## Phase 1: Catchup
 
-**Skip if:** `"catchup"` in `phases_completed` in state file.
+**Skip if:** `"catchup"` in `phases_completed` in state file, OR `state.catchup_mode == "skip"`.
 
-Invoke `/catchup` skill.
+When skipped via `catchup_mode == "skip"`: do not invoke `/catchup`. Add `"catchup"` to `phases_completed`, set `state.catchup_mode = "skipped"` (so subsequent re-entries also skip), set `phase: "planning"` and `next_phase: "planning"`, and proceed to Phase 2.
+
+Otherwise, invoke `/catchup` skill.
 
 After completion, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"` and `next_phase: "planning"`.
+
+### Frontmatter examples
+
+- `---\ncatchup: skip\n---` → `state.catchup_mode = "skip"`. Phase 1 records mode `skipped`, adds `"catchup"` to `phases_completed`, advances to planning.
+- PRD with no frontmatter → `state.catchup_mode = "run"`. Phase 1 runs `/catchup` as today.
+- `---\ncatchup: invalid\n---` → `state.catchup_mode = "run"`, warning logged.
+- `---\ncatchup\n---` (malformed YAML) → `state.catchup_mode = "run"`, warning logged.
 
 ## Phase 2: Planning
 
