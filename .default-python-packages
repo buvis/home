@@ -16,6 +16,7 @@ requests
 rich
 rope
 toml
+tree-sitter-language-pack
 tzlocal
 unidecode
 urtext
