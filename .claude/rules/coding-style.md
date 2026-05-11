@@ -48,6 +48,7 @@ All code must be complete, working, and shippable.
 - Don't add features, refactor code, or make improvements beyond what was asked.
 - Don't add error handling, fallbacks, or validation for scenarios that can't happen. Validate at system boundaries only.
 - Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements.
+- If a draft runs 200 lines and the same behavior fits in 50, rewrite it before shipping.
 
 ## Warnings
 

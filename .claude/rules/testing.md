@@ -15,6 +15,14 @@ Mandatory workflow for new features and bug fixes:
 3. Refactor (IMPROVE) - clean up while green
 4. Verify coverage (80%+)
 
+## Tests Verify Intent, Not Just Behavior
+
+Tests must encode **why** behavior matters, not just **what** the code does.
+
+- A test that can't fail when business logic changes is wrong. Rewrite it to bind to the intent.
+- Snapshot/golden tests are weakest here: they catch any change, including correct ones. Reserve them for output where shape itself is the contract.
+- Name tests for the rule they enforce (`rejects_negative_quantity`), not the function they call (`test_validate`).
+
 ## Troubleshooting Test Failures
 
 1. Check test isolation - tests should not depend on each other
