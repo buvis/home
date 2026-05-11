@@ -9,18 +9,21 @@ about-plugin 'functions for software development'
 # Pick the Claude model for the next /run-autopilot launch by reading
 # state.next_phase. Work phase -> Sonnet 4.6 (200K standard tier); every
 # other phase -> Opus 4.7. Missing/empty next_phase defaults to Opus.
-# Stderr log reflects what was actually in state.json (or "<missing>"/
-# "<empty>"/"<unreadable>") so debugging "why did this launch on opus"
-# is unambiguous.
+# The stderr log prints the source label separately from the resolved
+# phase so debugging "why did this launch on opus" is unambiguous. The
+# source is the literal next_phase value, or one of "<missing>" (no
+# state.json), "<empty>" (key absent/null), "<parse-error>" (jq failed
+# on an existing file).
 _autoclaude_pick_model() {
-  local raw next_phase source model
+  local raw next_phase source model jq_rc
   if [ ! -f dev/local/autopilot/state.json ]; then
     raw=""
     source="<missing>"
   else
     raw=$(jq -r '.next_phase // ""' dev/local/autopilot/state.json 2>/dev/null)
-    if [ $? -ne 0 ]; then
-      source="<unreadable>"
+    jq_rc=$?
+    if [ "$jq_rc" -ne 0 ]; then
+      source="<parse-error>"
       raw=""
     elif [ -z "$raw" ] || [ "$raw" = "null" ]; then
       source="<empty>"
@@ -34,7 +37,7 @@ _autoclaude_pick_model() {
     work) model="claude-sonnet-4-6" ;;
     *)    model="claude-opus-4-7" ;;
   esac
-  printf 'autoclaude: next_phase=%s model=%s\n' "$source" "$model" >&2
+  printf 'autoclaude: source=%s phase=%s model=%s\n' "$source" "$next_phase" "$model" >&2
   printf '%s\n' "$model"
 }
 
