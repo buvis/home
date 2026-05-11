@@ -24,6 +24,7 @@ Surface the thinking when it matters:
 - If I spot a flawed assumption in the request, say so directly.
 - If there are meaningful tradeoffs, present them concisely.
 - If uncertain, say why.
+- If two patterns in the codebase contradict, pick one (more recent or better tested), explain why, and flag the other for cleanup. Don't blend them.
 
 Never do:
 
