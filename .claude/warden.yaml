@@ -35,6 +35,7 @@ alwaysAllow:
   - ruff
   - mypy
   - pytest
+  - bats
   # Dev tools
   - showboat
   - zdb
@@ -81,6 +82,8 @@ alwaysAllow:
   - awk
   # Skill scripts — glob matches all scripts under ~/.claude/skills/
   - ~/.claude/skills/**
+  # Trusted plugin skill/hook scripts (own marketplace only)
+  - ~/.claude/plugins/cache/buvis-plugins/**
   # Hook scripts
   - ~/.claude/hooks/**
   # Temp dir scripts (macOS $TMPDIR lives under /var/folders)
