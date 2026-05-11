@@ -191,6 +191,25 @@ class ContextCapHookTests(unittest.TestCase):
         )
         self.assertEqual(abort_entry["task_id"], "unknown")
 
+    def test_abort_entry_turn_is_sentinel_not_zero(self) -> None:
+        """task_aborts[].turn must use -1 sentinel ('unknown') not a misleading 0.
+
+        The transcript usage line carries no turn counter, so the hook cannot
+        derive the real turn. Hardcoding 0 made every abort look like a
+        first-turn failure. -1 matches the work-skill subagent_prompt_overrun
+        convention for 'turn unknown'.
+        """
+        self.fx.write_state(phase="work")
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        abort_entry = json.loads(
+            (self.fx.autopilot_dir / "task-abort").read_text().strip().splitlines()[-1]
+        )
+        self.assertEqual(abort_entry["turn"], -1)
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["task_aborts"][0]["turn"], -1)
+
     # Performance ------------------------------------------------------------
 
     def test_completes_quickly_on_large_transcript(self) -> None:
