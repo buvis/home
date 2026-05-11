@@ -6,6 +6,23 @@ about-plugin 'functions for software development'
 #   SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
 # }
 
+# Pick the Claude model for the next /run-autopilot launch by reading
+# state.next_phase. Work phase → Sonnet 4.6 (200K standard tier); every
+# other phase → Opus 4.7. Missing/empty next_phase defaults to Opus.
+_autoclaude_pick_model() {
+  local next_phase model
+  next_phase=$(jq -r '.next_phase // "catchup"' dev/local/autopilot/state.json 2>/dev/null)
+  if [ -z "$next_phase" ] || [ "$next_phase" = "null" ]; then
+    next_phase="catchup"
+  fi
+  case "$next_phase" in
+    work) model="claude-sonnet-4-6" ;;
+    *)    model="claude-opus-4-7" ;;
+  esac
+  printf 'autoclaude: next_phase=%s model=%s\n' "$next_phase" "$model" >&2
+  printf '%s\n' "$model"
+}
+
 autoclaude() {
   export _AUTOPILOT_LOOP=$$
 
@@ -24,11 +41,12 @@ autoclaude() {
   trap '_autopilot_loop_cleanup; unset _AUTOPILOT_LOOP; trap - TERM; kill -TERM $$' TERM
 
   while true; do
-    local before_sha signal
+    local before_sha signal model_id
 
     before_sha=$(git rev-parse HEAD 2>/dev/null)
+    model_id=$(_autoclaude_pick_model)
 
-    claude --name "${PWD##*/}" --permission-mode acceptEdits "/run-autopilot"
+    claude --model "$model_id" --name "${PWD##*/}" --permission-mode acceptEdits "/run-autopilot"
     _autopilot_loop_cleanup
 
     signal=$(cat dev/local/autopilot/signal 2>/dev/null)
