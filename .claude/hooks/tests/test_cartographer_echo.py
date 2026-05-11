@@ -352,6 +352,59 @@ def test_extract_symbols_anonymous_arrow_not_included() -> None:
     assert all(s and isinstance(s, str) for s in syms)
 
 
+# --- Stopword filter ---
+
+
+def test_stopword_filter_preserves_duplicate_prone_verbs() -> None:
+    mod = _import_hook_module()
+    syms = ["format", "parse", "validate", "normalize", "serialize", "transform"]
+    out = mod.filter_stopwords(syms, "/abs/src/x.py")
+    assert set(out) == set(syms), f"in-scope verbs must survive, got {out}"
+
+
+@pytest.mark.parametrize(
+    "stopword",
+    [
+        "__init__", "__main__", "main", "init", "setup", "run", "start", "stop",
+        "new", "default", "clone", "eq", "hash", "to_string", "from_string",
+    ],
+)
+def test_stopword_filter_drops_stopwords(stopword: str) -> None:
+    mod = _import_hook_module()
+    out = mod.filter_stopwords([stopword, "format_price"], "/abs/src/x.py")
+    assert stopword not in out
+    assert "format_price" in out
+
+
+def test_stopword_filter_drops_short_names() -> None:
+    mod = _import_hook_module()
+    out = mod.filter_stopwords(["a", "ab", "abc", "abcd", "abcde"], "/abs/src/x.py")
+    # Length <= 3 dropped; 4 and 5 retained.
+    assert "abcd" in out
+    assert "abcde" in out
+    assert "abc" not in out
+    assert "ab" not in out
+    assert "a" not in out
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    [
+        "/abs/tests/x.py",
+        "/abs/test/x.py",
+        "/abs/src/foo_test.go",
+        "/abs/src/widget.test.ts",
+        "/abs/src/widget.test.tsx",
+        "/abs/src/widget.test.js",
+        "/abs/src/widget.test.jsx",
+    ],
+)
+def test_stopword_filter_test_path_returns_empty(rel_path: str) -> None:
+    mod = _import_hook_module()
+    out = mod.filter_stopwords(["formatPrice", "parse", "validate"], rel_path)
+    assert out == [], f"test-file path must return [], got {out} for {rel_path}"
+
+
 # --- End-to-end: extracted symbols flow through to audit on supported files ---
 
 

@@ -54,6 +54,17 @@ _SYMBOL_KINDS: frozenset[str] = frozenset(
     {"Function", "Method", "Class", "Struct", "Enum", "Type", "Trait", "Interface"}
 )
 
+# Low-signal names dropped before match scoring. The duplicate-prone verbs
+# (`format`/`parse`/`validate`/`normalize`/`serialize`/`transform`) are
+# deliberately ABSENT from this list (PRD success metric).
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "__init__", "__main__", "main", "init", "setup", "run", "start", "stop",
+        "new", "default", "clone", "eq", "hash", "to_string", "from_string",
+    }
+)
+_MIN_SYMBOL_LEN: int = 4  # drop length <= 3
+
 # 500 KB cap on `tool_input.content` (Write/Edit reconstructed). Files bigger
 # than this are common in generated/minified bundles; tree-sitter parsing
 # them blows the latency budget. Skip + audit instead.
@@ -230,6 +241,28 @@ def extract_symbols(content: str, ext: str) -> list[str]:
     return collected
 
 
+def filter_stopwords(symbols: list[str], file_path: str) -> list[str]:
+    """Drop low-signal symbols. Returns [] when `file_path` is a test file.
+
+    Test-file detection: any path containing `/tests/` or `/test/`, or
+    ending with `_test.go`, `_test.py`, `.test.{ts,tsx,js,jsx}`. Echo
+    intentionally never gates writes to test files (those write paths are
+    where duplicate-detection produces the most false positives).
+    """
+    if is_test_file_path(file_path):
+        return []
+    out: list[str] = []
+    for name in symbols:
+        if not isinstance(name, str) or not name:
+            continue
+        if len(name) < _MIN_SYMBOL_LEN:
+            continue
+        if name in _STOPWORDS:
+            continue
+        out.append(name)
+    return out
+
+
 # --- audit emission ---
 
 
@@ -318,12 +351,13 @@ def handle(data: dict) -> None:
         )
         return
 
-    # Symbol extraction (PRD 00010 Task 3). Match search, scoring, and the
-    # two-attempt deny gate land in Tasks 5-8.
+    # Symbol extraction + stopword filter (PRD 00010 Tasks 3-4). Match
+    # search, scoring, and the two-attempt deny gate land in Tasks 5-8.
     if tool_name in ("Edit", "Write", "MultiEdit"):
         content = extract_content(tool_name, tool_input)
         ext = file_extension(file_path)
-        symbols = extract_symbols(content, ext)
+        raw_symbols = extract_symbols(content, ext)
+        symbols = filter_stopwords(raw_symbols, file_path)
         reason = "extracted" if symbols else "no-symbols"
         audit_event(
             session=session,
