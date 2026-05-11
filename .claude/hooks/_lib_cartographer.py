@@ -2,34 +2,24 @@
 
 Stdlib-only (except optional `tree_sitter_language_pack`, accessed lazily via
 `try_import_tree_sitter`). Python 3.10+. Safe to import from any PreToolUse,
-PostToolUse, Notification, or Stop hook.
+PostToolUse, Notification, or Stop hook. Public API + conventions:
 
-Public API (added incrementally across PRD 00009 Phase 0 tasks):
+    project_hash, atlas_dir, append_audit, resolve_session_key,
+    load_session_state, save_session_state, is_checked, mark_checked,
+    try_import_tree_sitter.
 
-    project_hash(path=None) -> tuple[str, str, str]
-    atlas_dir(project_hash) -> Path
-    append_audit(event) -> None
-    resolve_session_key(data) -> str
-    load_session_state(session_key, namespace) -> dict
-    save_session_state(session_key, namespace, state) -> None
-    is_checked(session_key, namespace, key) -> bool
-    mark_checked(session_key, namespace, key) -> None
-    try_import_tree_sitter() -> ModuleType | None
-
-Conventions
------------
 - Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Decoupled copy
-  of `analyze-instincts.py:detect_project` (behavioral parity verified by
-  `test_project_hash_matches_analyze_instincts_detect_project`).
-- Persistent per-repo state lives under `~/.claude/cartographer/projects/<hash>/`.
-- Audit log appends to `~/.claude/cartographer/audit.jsonl` (one JSON event per line).
-- Session-state cache at `~/.claude/cache/cartographer/<namespace>/state-<session_key>.json`.
+  of `analyze-instincts.py:detect_project`; parity test guards drift.
+- Per-repo state: `~/.claude/cartographer/projects/<hash>/`.
+- Audit log: `~/.claude/cartographer/audit.jsonl` (one JSON event per line).
+- Session-state: `~/.claude/cache/cartographer/<namespace>/state-<key>.json`.
 
-This file is referenced by Phase 1+ Cartographer hooks; keep it under 400 lines.
+Keep under 400 lines (PRD 00009); split into a package if exceeded.
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import importlib
 import json
@@ -38,9 +28,12 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
+from typing import Iterator
 
 
 def _home() -> Path:
@@ -66,20 +59,11 @@ def _audit_log() -> Path:
 def project_hash(path: str | None = None) -> tuple[str, str, str]:
     """Determine project identity from git remote or toplevel path.
 
-    Behavioral copy of `analyze-instincts.py:detect_project` (decoupled per PRD
-    00009 open question; this helper adds a `path` parameter the original lacks).
-    Parity on shared inputs is enforced by
-    `test_project_hash_matches_analyze_instincts_detect_project`.
-    Returns `(hash, name, remote_url)`.
-
-    - If a git remote `origin` is configured, hash its URL (with embedded
-      credentials stripped) and return its stem as `name`.
-    - Otherwise hash the toplevel path returned by `git rev-parse`.
-    - On full failure (not a git repo, git not installed) return
-      `("global", "global", "")`.
-
-    `path` overrides the working directory of the underlying git invocations
-    (defaults to cwd, matching analyze-instincts).
+    Behavioral copy of `analyze-instincts.py:detect_project` (parity test
+    guards drift); adds a `path` parameter the original lacks. Returns
+    `(hash, name, remote_url)`. Prefers the `origin` remote (with embedded
+    credentials stripped), then the toplevel path; falls back to
+    `("global", "global", "")` when not a git repo.
     """
     cwd = path  # subprocess.run accepts None to mean "inherit cwd"
     try:
@@ -94,7 +78,7 @@ def project_hash(path: str | None = None) -> tuple[str, str, str]:
             h = hashlib.sha256(clean.encode()).hexdigest()[:12]
             name = Path(url.rstrip("/")).stem
             return h, name, clean
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, NotADirectoryError):
         pass
 
     try:
@@ -107,17 +91,21 @@ def project_hash(path: str | None = None) -> tuple[str, str, str]:
             top = toplevel.stdout.strip()
             h = hashlib.sha256(top.encode()).hexdigest()[:12]
             return h, Path(top).name, ""
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, NotADirectoryError):
         pass
 
     return "global", "global", ""
 
 
 def atlas_dir(project_hash: str) -> Path:
-    """Resolve the persistent state directory for a project hash.
+    """Resolve the projects-root subdir for a project hash (no mkdir).
 
-    Pure path computation; does NOT create the directory.
+    The argument is validated against `[a-zA-Z0-9_-]+` (defense-in-depth,
+    matching `_state_path`) so a caller passing user-derived input cannot
+    escape via `..` or `/`. The parameter name matches the PRD signature
+    and intentionally shadows the module-level `project_hash` function.
     """
+    _validate_path_segment(project_hash, "project_hash")
     return _cartographer_root() / "projects" / project_hash
 
 
@@ -125,16 +113,15 @@ def atlas_dir(project_hash: str) -> Path:
 
 
 def _ensure_dirs() -> None:
-    """Idempotently create the cartographer on-disk layout.
+    """Idempotently create the cartographer on-disk layout (no `scripts/`).
 
-    Phase 1+ hooks may invoke this lazily; tests may invoke it directly.
-    OSError is swallowed because hooks must never crash the host tool.
+    `scripts/` ships via the buvis bare repo, so runtime mkdir would be pure
+    hot-path overhead. OSError is swallowed: hooks must not crash the host tool.
     """
     try:
         root = _cartographer_root()
         root.mkdir(parents=True, exist_ok=True)
         (root / "projects").mkdir(parents=True, exist_ok=True)
-        (root / "scripts").mkdir(parents=True, exist_ok=True)
         _cache_root().mkdir(parents=True, exist_ok=True)
         log = _audit_log()
         if not log.exists():
@@ -144,19 +131,18 @@ def _ensure_dirs() -> None:
 
 
 def _atomic_append(path: Path, line: str) -> None:
-    """Append a single line to `path` in `mode='a'` (sets O_APPEND on POSIX).
+    """Append a single line in `mode='a'` (POSIX O_APPEND).
 
-    With O_APPEND the kernel atomically advances the file offset and writes
-    the buffer under the inode lock, so concurrent appends from any process
-    holding an O_APPEND fd to this file do not interleave for writes that
-    fit in one syscall. Audit lines (one JSON event each) stay well under
-    any practical syscall limit.
-
-    PIPE_BUF does not apply here. PIPE_BUF only governs atomicity of pipe /
-    FIFO writes; regular-file append atomicity comes from O_APPEND.
+    O_APPEND atomically advances the file offset under the inode lock, so
+    concurrent appends from any process holding an O_APPEND fd do not
+    interleave for one-syscall writes; audit lines stay well under that
+    limit. PIPE_BUF does not apply to regular files; it governs pipes/FIFOs.
     """
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line)
+
+
+_DIRS_ENSURED: bool = False
 
 
 def append_audit(event: dict) -> None:
@@ -164,17 +150,29 @@ def append_audit(event: dict) -> None:
 
     Stamps `ts` (ISO-8601 UTC) if absent. Never raises: I/O or
     serialization failures emit a one-line stderr warning and return.
+    `_ensure_dirs` is invoked once per process (sentinel-cached) so the
+    audit hot path skips repeated mkdir/exists syscalls after the first
+    successful init.
     """
+    global _DIRS_ENSURED
     try:
         if "ts" not in event:
             event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
         line = json.dumps(event, ensure_ascii=False) + "\n"
-        _ensure_dirs()
+        if not _DIRS_ENSURED:
+            _ensure_dirs()
+            _DIRS_ENSURED = True
         _atomic_append(_audit_log(), line)
     except (OSError, TypeError, ValueError) as exc:
         # Hooks cannot crash the host tool. Surface the failure to stderr
         # and return so the calling Edit/Write proceeds.
         print(f"[cartographer] append_audit failed: {exc}", file=sys.stderr)
+
+
+def _reset_ensure_dirs_for_tests() -> None:
+    """Test-only: clear the `_DIRS_ENSURED` sentinel. Production never calls this."""
+    global _DIRS_ENSURED
+    _DIRS_ENSURED = False
 
 
 # --- session-key resolution (verbatim copy of gateguard-fact-force.py:104-135) ---
@@ -231,12 +229,10 @@ _VALID_PATH_SEGMENT = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _validate_path_segment(value: str, kind: str) -> None:
-    """Reject anything that could escape the cache root via path tricks.
+    """Reject path-traversal vectors at the lib boundary (`[a-zA-Z0-9_-]+`).
 
-    Session keys produced by `_sanitize_session_key` already conform to
-    `[a-zA-Z0-9_-]`. This boundary check guards `load_session_state` /
-    `save_session_state` against callers that bypass `resolve_session_key`
-    (or that ever pass an unsanitized namespace).
+    Sanitized session keys already conform; this guards callers that bypass
+    `resolve_session_key` or pass an unsanitized namespace.
     """
     if not isinstance(value, str) or not _VALID_PATH_SEGMENT.fullmatch(value):
         raise ValueError(
@@ -262,7 +258,10 @@ def load_session_state(session_key: str, namespace: str) -> dict:
         return {}
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        # UnicodeDecodeError covers a state file containing non-UTF-8 bytes
+        # (partial-write corruption from a non-cartographer writer); the
+        # contract is missing/corrupted -> {}, so swallow.
         return {}
     return loaded if isinstance(loaded, dict) else {}
 
@@ -295,6 +294,33 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
                 pass
 
 
+# --- file-level mutex (cross-process + cross-thread) ---
+
+
+_PROC_LOCKS: dict[str, threading.Lock] = {}
+_PROC_LOCKS_GUARD = threading.Lock()
+
+
+@contextmanager
+def _file_mutex(lock_path: Path) -> Iterator[None]:
+    """Serialize critical sections across processes and threads.
+
+    Combines `fcntl.flock` (cross-process, per-fd) with a per-path
+    `threading.Lock` (cross-thread within a single process). Both must be
+    held; release order is reversed via context-manager unwind.
+    """
+    key = str(lock_path)
+    with _PROC_LOCKS_GUARD:
+        tlock = _PROC_LOCKS.setdefault(key, threading.Lock())
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with tlock, open(lock_path, "w", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 # --- checked-marker primitives ---
 
 
@@ -306,19 +332,30 @@ def is_checked(session_key: str, namespace: str, key: str) -> bool:
 
 
 def mark_checked(session_key: str, namespace: str, key: str) -> None:
-    """Record `key` as checked, stamping the current ISO-8601 UTC time."""
-    state = load_session_state(session_key, namespace)
-    checked = state.get("checked")
-    if not isinstance(checked, dict):
-        checked = {}
-        state["checked"] = checked
-    checked[key] = datetime.now(timezone.utc).isoformat()
-    save_session_state(session_key, namespace, state)
+    """Record `key` as checked, stamping the current ISO-8601 UTC time.
+
+    The load-modify-save is serialized via `_file_mutex` on a sentinel
+    `.lock` sidecar so concurrent threads or processes that mark distinct
+    keys against the same session+namespace cannot lose updates. The
+    atomic temp+rename in `save_session_state` alone only prevents partial
+    reads, not lost writes.
+    """
+    state_path = _state_path(session_key, namespace)
+    lock_path = state_path.with_suffix(state_path.suffix + ".lock")
+    with _file_mutex(lock_path):
+        state = load_session_state(session_key, namespace)
+        checked = state.get("checked")
+        if not isinstance(checked, dict):
+            checked = {}
+            state["checked"] = checked
+        checked[key] = datetime.now(timezone.utc).isoformat()
+        save_session_state(session_key, namespace, state)
 
 
 # --- tree-sitter graceful-import wrapper ---
 
 
+_TREE_SITTER_LOCK = threading.Lock()
 _TREE_SITTER_LOADED: bool = False
 _TREE_SITTER_MODULE: ModuleType | None = None
 _TREE_SITTER_WARNED: bool = False
@@ -328,31 +365,31 @@ def try_import_tree_sitter() -> ModuleType | None:
     """Import `tree_sitter_language_pack` once per process; return None if missing.
 
     The first failed import emits one `tree_sitter_missing` audit entry.
-    Subsequent calls return the cached result and never re-warn.
+    Subsequent calls return the cached result and never re-warn. Uses
+    double-checked locking so concurrent first-callers do not each emit an
+    audit entry (PRD contract: deduped per process).
     """
     global _TREE_SITTER_LOADED, _TREE_SITTER_MODULE, _TREE_SITTER_WARNED
 
     if _TREE_SITTER_LOADED:
         return _TREE_SITTER_MODULE
 
-    try:
-        _TREE_SITTER_MODULE = importlib.import_module("tree_sitter_language_pack")
-    except ImportError:
-        _TREE_SITTER_MODULE = None
-        if not _TREE_SITTER_WARNED:
-            append_audit({"event": "tree_sitter_missing"})
-            _TREE_SITTER_WARNED = True
-    _TREE_SITTER_LOADED = True
-    return _TREE_SITTER_MODULE
+    with _TREE_SITTER_LOCK:
+        if _TREE_SITTER_LOADED:
+            return _TREE_SITTER_MODULE
+        try:
+            _TREE_SITTER_MODULE = importlib.import_module("tree_sitter_language_pack")
+        except ImportError:
+            _TREE_SITTER_MODULE = None
+            if not _TREE_SITTER_WARNED:
+                append_audit({"event": "tree_sitter_missing"})
+                _TREE_SITTER_WARNED = True
+        _TREE_SITTER_LOADED = True
+        return _TREE_SITTER_MODULE
 
 
 def _reset_tree_sitter_cache_for_tests() -> None:
-    """Test-only helper: reset the process-lifetime import cache.
-
-    Production code never calls this. The `_for_tests` suffix and underscore
-    prefix mark it as private + test-only; test cases use it to simulate
-    first-call state for `try_import_tree_sitter`.
-    """
+    """Test-only: reset the process-lifetime import cache. Never used in production."""
     global _TREE_SITTER_LOADED, _TREE_SITTER_MODULE, _TREE_SITTER_WARNED
     _TREE_SITTER_LOADED = False
     _TREE_SITTER_MODULE = None

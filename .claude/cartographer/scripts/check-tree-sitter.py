@@ -3,7 +3,9 @@
 
 Exit codes:
   0  package imports cleanly
-  1  ImportError: print remediation to stderr, then exit 1
+  1  any import-time failure (ImportError, SyntaxError from a corrupt wheel,
+     OSError from a missing dylib on macOS, etc.): print remediation to stderr
+     plus the underlying error name+message, then exit 1
 
 Phase 1+ Cartographer hooks degrade gracefully via
 `_lib_cartographer.try_import_tree_sitter`; they never call this script. This
@@ -33,8 +35,15 @@ After install, re-run this script; it should print "tree_sitter_language_pack: o
 def main() -> int:
     try:
         importlib.import_module("tree_sitter_language_pack")
-    except ImportError:
+    except Exception as exc:
+        # Catch every import-time failure, not just ImportError. Broken wheels
+        # raise SyntaxError (corrupt .py), OSError (missing dylib on macOS),
+        # RuntimeError, etc. - all of which should land in the same remediation
+        # path so the user always sees the pip-install hint, never a raw
+        # traceback. The actual exception name+message is appended so a real
+        # post-install failure is still diagnosable.
         print(REMEDIATION, file=sys.stderr)
+        print(f"Underlying error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print("tree_sitter_language_pack: ok")
     return 0
