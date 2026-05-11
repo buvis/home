@@ -405,6 +405,76 @@ def test_stopword_filter_test_path_returns_empty(rel_path: str) -> None:
     assert out == [], f"test-file path must return [], got {out} for {rel_path}"
 
 
+# --- ripgrep candidate search ---
+
+
+def test_search_candidates_finds_definition_elsewhere(tmp_path: Path) -> None:
+    """A symbol defined in one file is found when searching from another."""
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "util.py").write_text("def formatPrice(p):\n    return f'${p}'\n")
+    target = root / "price.py"
+    target.write_text("# target file\n")
+    candidates = mod.search_candidates("formatPrice", root, target)
+    assert candidates, f"expected at least one candidate, got {candidates}"
+    assert candidates[0]["file"].endswith("util.py")
+    assert "formatPrice" in candidates[0]["snippet"]
+    assert candidates[0]["line"] == 1
+
+
+def test_search_candidates_excludes_target_file(tmp_path: Path) -> None:
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    target = root / "price.py"
+    target.write_text("def formatPrice(p):\n    return p\n")
+    # Only target file mentions the symbol — must be excluded.
+    candidates = mod.search_candidates("formatPrice", root, target)
+    assert candidates == []
+
+
+def test_search_candidates_skips_build_dirs(tmp_path: Path) -> None:
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    (root / "node_modules" / "x").mkdir(parents=True)
+    (root / "node_modules" / "x" / "pkg.js").write_text("function formatPrice(){}\n")
+    (root / ".git").mkdir()
+    (root / ".git" / "config").write_text("formatPrice\n")
+    target = root / "main.js"
+    target.write_text("// target\n")
+    candidates = mod.search_candidates("formatPrice", root, target)
+    assert candidates == [], f"build dirs must be skipped, got {candidates}"
+
+
+def test_search_candidates_returns_empty_when_rg_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """If `rg` is unavailable, returns [] without crashing."""
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    target = root / "x.py"
+    target.write_text("# target\n")
+    # Force subprocess.run to raise FileNotFoundError as if rg were missing.
+    import subprocess as _sp
+    monkeypatch.setattr(_sp, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
+    out = mod.search_candidates("formatPrice", root, target)
+    assert out == []
+
+
+def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    target = root / "x.py"
+    target.write_text("# target\n")
+    import subprocess as _sp
+    def fake_run(*args, **kwargs):
+        raise _sp.TimeoutExpired(cmd=args[0], timeout=1.0)
+    monkeypatch.setattr(_sp, "run", fake_run)
+    out = mod.search_candidates("formatPrice", root, target)
+    assert out == []
+
+
 # --- End-to-end: extracted symbols flow through to audit on supported files ---
 
 

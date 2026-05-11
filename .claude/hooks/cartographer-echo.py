@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -239,6 +240,78 @@ def extract_symbols(content: str, ext: str) -> list[str]:
             seen.add(name)
             collected.append(name)
     return collected
+
+
+# --- ripgrep candidate search ---
+
+_RG_TIMEOUT_SEC: float = 1.0
+_RG_MAX_HITS_PER_SYMBOL: int = 5
+_RG_EXCLUDE_GLOBS: tuple[str, ...] = (
+    "!.git", "!node_modules", "!vendor", "!dist", "!build",
+    "!__pycache__", "!target", "!.venv",
+)
+
+
+def search_candidates(symbol: str, root: Path, target_file: Path) -> list[dict]:
+    """ripgrep for `symbol` under `root`, excluding `target_file` and build dirs.
+
+    Returns up to 5 hits as `[{"file": str, "line": int, "snippet": str}]`.
+    On timeout, missing binary, or non-zero rg exit other than 1 (no match):
+    returns [] and appends a `ripgrep_*` audit-warn event.
+    """
+    if not symbol or not root.exists():
+        return []
+    args = [
+        "rg", "-n", "--max-count", str(_RG_MAX_HITS_PER_SYMBOL),
+    ]
+    for g in _RG_EXCLUDE_GLOBS:
+        args.extend(["--glob", g])
+    args.extend(["--", symbol, str(root)])
+    try:
+        proc = subprocess.run(
+            args, capture_output=True, text=True, timeout=_RG_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        lib.append_audit({"event": "ripgrep_timeout", "symbol": symbol})
+        return []
+    except FileNotFoundError:
+        lib.append_audit({"event": "ripgrep_missing"})
+        return []
+
+    if proc.returncode not in (0, 1):
+        lib.append_audit({"event": "ripgrep_error", "code": proc.returncode, "stderr": proc.stderr[:200]})
+        return []
+
+    try:
+        target_abs = str(target_file.resolve())
+    except OSError:
+        target_abs = str(target_file)
+
+    out: list[dict] = []
+    for line in proc.stdout.splitlines():
+        # Format: <file>:<lineno>:<snippet>
+        first = line.find(":")
+        if first <= 0:
+            continue
+        second = line.find(":", first + 1)
+        if second <= 0:
+            continue
+        file_part = line[:first]
+        try:
+            lineno = int(line[first + 1 : second])
+        except ValueError:
+            continue
+        snippet = line[second + 1 :].strip()
+        try:
+            cand_abs = str(Path(file_part).resolve())
+        except OSError:
+            cand_abs = file_part
+        if cand_abs == target_abs:
+            continue
+        out.append({"file": file_part, "line": lineno, "snippet": snippet})
+        if len(out) >= _RG_MAX_HITS_PER_SYMBOL:
+            break
+    return out
 
 
 def filter_stopwords(symbols: list[str], file_path: str) -> list[str]:
