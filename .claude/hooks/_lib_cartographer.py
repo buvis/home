@@ -18,8 +18,9 @@ Public API (added incrementally across PRD 00009 Phase 0 tasks):
 
 Conventions
 -----------
-- Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Decoupled
-  byte-for-byte copy of `analyze-instincts.py:detect_project` per PRD 00009.
+- Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Decoupled copy
+  of `analyze-instincts.py:detect_project` (behavioral parity verified by
+  `test_project_hash_matches_analyze_instincts_detect_project`).
 - Persistent per-repo state lives under `~/.claude/cartographer/projects/<hash>/`.
 - Audit log appends to `~/.claude/cartographer/audit.jsonl` (one JSON event per line).
 - Session-state cache at `~/.claude/cache/cartographer/<namespace>/state-<session_key>.json`.
@@ -140,10 +141,16 @@ def _ensure_dirs() -> None:
 
 
 def _atomic_append(path: Path, line: str) -> None:
-    """Append a single line to `path` in `mode='a'`.
+    """Append a single line to `path` in `mode='a'` (sets O_APPEND on POSIX).
 
-    A single `write()` call keeps the line atomic on POSIX for sizes under
-    PIPE_BUF (4096 on Linux, 512 on macOS). Audit lines stay well under that.
+    With O_APPEND the kernel atomically advances the file offset and writes
+    the buffer under the inode lock, so concurrent appends from any process
+    holding an O_APPEND fd to this file do not interleave for writes that
+    fit in one syscall. Audit lines (one JSON event each) stay well under
+    any practical syscall limit.
+
+    PIPE_BUF does not apply here. PIPE_BUF only governs atomicity of pipe /
+    FIFO writes; regular-file append atomicity comes from O_APPEND.
     """
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line)
@@ -152,7 +159,7 @@ def _atomic_append(path: Path, line: str) -> None:
 def append_audit(event: dict) -> None:
     """Append one event to ~/.claude/cartographer/audit.jsonl.
 
-    Stamps `ts` (ISO-8601 UTC) if absent. Never raises — I/O or
+    Stamps `ts` (ISO-8601 UTC) if absent. Never raises: I/O or
     serialization failures emit a one-line stderr warning and return.
     """
     try:
@@ -167,7 +174,7 @@ def append_audit(event: dict) -> None:
         print(f"[cartographer] append_audit failed: {exc}", file=sys.stderr)
 
 
-# --- session-key resolution (verbatim copy of gateguard-fact-force.py:60-89) ---
+# --- session-key resolution (verbatim copy of gateguard-fact-force.py:104-135) ---
 
 
 def _hash_key(prefix: str, value: str) -> str:
@@ -187,9 +194,9 @@ def _sanitize_session_key(value: str | None) -> str:
 def resolve_session_key(data: dict) -> str:
     """Derive a stable session key from PreToolUse hook input.
 
-    Mirrors `gateguard-fact-force.py:resolve_session_key` byte-for-byte
-    (decoupled copy per PRD 00009). Prefers explicit `session_id`, then a
-    `transcript_path` hash, then a cwd hash.
+    Decoupled copy of `gateguard-fact-force.py:resolve_session_key`; behavioral
+    parity verified by `test_resolve_session_key_parity_with_gateguard`.
+    Prefers explicit `session_id`, then a `transcript_path` hash, then a cwd hash.
     """
     candidates = [
         data.get("session_id"),
@@ -261,7 +268,7 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
     """Atomically write per-session, per-namespace state.
 
     Uses tempfile + os.replace so a crash mid-write leaves the prior file
-    intact. Never raises — OSError is logged to stderr.
+    intact. Never raises: OSError is logged to stderr.
     """
     path = _state_path(session_key, namespace)
     tmp_path: str | None = None
@@ -282,7 +289,7 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
                 pass
 
 
-# --- 2-attempt checked-marker primitives ---
+# --- checked-marker primitives ---
 
 
 def is_checked(session_key: str, namespace: str, key: str) -> bool:
@@ -334,7 +341,12 @@ def try_import_tree_sitter() -> ModuleType | None:
 
 
 def _reset_tree_sitter_cache_for_tests() -> None:
-    """Test-only hook: clear the import cache between cases."""
+    """Test-only helper: reset the process-lifetime import cache.
+
+    Production code never calls this. The `_for_tests` suffix and underscore
+    prefix mark it as private + test-only; test cases use it to simulate
+    first-call state for `try_import_tree_sitter`.
+    """
     global _TREE_SITTER_LOADED, _TREE_SITTER_MODULE, _TREE_SITTER_WARNED
     _TREE_SITTER_LOADED = False
     _TREE_SITTER_MODULE = None
