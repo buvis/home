@@ -7,19 +7,34 @@ about-plugin 'functions for software development'
 # }
 
 # Pick the Claude model for the next /run-autopilot launch by reading
-# state.next_phase. Work phase → Sonnet 4.6 (200K standard tier); every
-# other phase → Opus 4.7. Missing/empty next_phase defaults to Opus.
+# state.next_phase. Work phase -> Sonnet 4.6 (200K standard tier); every
+# other phase -> Opus 4.7. Missing/empty next_phase defaults to Opus.
+# Stderr log reflects what was actually in state.json (or "<missing>"/
+# "<empty>"/"<unreadable>") so debugging "why did this launch on opus"
+# is unambiguous.
 _autoclaude_pick_model() {
-  local next_phase model
-  next_phase=$(jq -r '.next_phase // "catchup"' dev/local/autopilot/state.json 2>/dev/null)
-  if [ -z "$next_phase" ] || [ "$next_phase" = "null" ]; then
-    next_phase="catchup"
+  local raw next_phase source model
+  if [ ! -f dev/local/autopilot/state.json ]; then
+    raw=""
+    source="<missing>"
+  else
+    raw=$(jq -r '.next_phase // ""' dev/local/autopilot/state.json 2>/dev/null)
+    if [ $? -ne 0 ]; then
+      source="<unreadable>"
+      raw=""
+    elif [ -z "$raw" ] || [ "$raw" = "null" ]; then
+      source="<empty>"
+      raw=""
+    else
+      source="$raw"
+    fi
   fi
+  next_phase="${raw:-catchup}"
   case "$next_phase" in
     work) model="claude-sonnet-4-6" ;;
     *)    model="claude-opus-4-7" ;;
   esac
-  printf 'autoclaude: next_phase=%s model=%s\n' "$next_phase" "$model" >&2
+  printf 'autoclaude: next_phase=%s model=%s\n' "$source" "$model" >&2
   printf '%s\n' "$model"
 }
 
