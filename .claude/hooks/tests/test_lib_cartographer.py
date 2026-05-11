@@ -178,7 +178,11 @@ def test_ensure_dirs_creates_layout(lib, fake_home: Path) -> None:
     lib._ensure_dirs()
     assert (fake_home / ".claude" / "cartographer").is_dir()
     assert (fake_home / ".claude" / "cartographer" / "projects").is_dir()
-    assert (fake_home / ".claude" / "cartographer" / "scripts").is_dir()
+    # `scripts/` is NOT created by _ensure_dirs: the directory is shipped via
+    # the buvis bare repo alongside check-tree-sitter.py and is therefore
+    # always present in real installs. Phase 1+ hooks never need it created
+    # at runtime, so it stays out of the lazy-init layout to keep the
+    # mkdir/exists syscall count minimal on the audit hot path.
     assert (fake_home / ".claude" / "cache" / "cartographer").is_dir()
     assert _audit_path(fake_home).is_file()
 
@@ -516,3 +520,155 @@ def test_state_path_accepts_valid_segments(lib, fake_home: Path) -> None:
     assert lib.load_session_state("explicit-session", "echo") == {"ok": True}
     assert lib.load_session_state("tx-deadbeef1234", "recon-gate") == {"ok": True}
     assert lib.load_session_state("proj-abc123", "architect_nudge") == {"ok": True}
+
+
+# --- atlas_dir input validation (defense-in-depth, mirrors _state_path) ---
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["", "../escape", "..", "a/b", "a\\b", "/absolute", "with\x00null", "name with space", "name.dot", "trailing\n"],
+)
+def test_atlas_dir_rejects_invalid_project_hash(lib, fake_home: Path, bad: str) -> None:
+    with pytest.raises(ValueError):
+        lib.atlas_dir(bad)
+
+
+def test_atlas_dir_accepts_real_project_hash_output(lib, fake_home: Path) -> None:
+    """Sanity: atlas_dir must accept any value that project_hash() can return."""
+    # Hex digest + the literal "global" sentinel.
+    assert lib.atlas_dir("abc123def456").name == "abc123def456"
+    assert lib.atlas_dir("global").name == "global"
+
+
+# --- Cycle 3: concurrency contracts ---
+
+
+def test_try_import_tree_sitter_concurrent_first_callers_emit_single_audit(
+    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cycle 3 fix: many threads racing on the first miss must produce exactly one audit entry.
+
+    PRD contract: 'only one tree_sitter_missing audit entry per process'.
+    Without locking, each thread that passes the `_TREE_SITTER_LOADED` check
+    before the others assign True can emit its own audit entry.
+    """
+    import threading
+
+    monkeypatch.delitem(sys.modules, "tree_sitter_language_pack", raising=False)
+    real_import_module = importlib.import_module
+
+    def fake_import(name: str, package: str | None = None):
+        if name == "tree_sitter_language_pack":
+            raise ImportError("forced")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    lib._reset_tree_sitter_cache_for_tests()
+
+    barrier = threading.Barrier(8)
+
+    def worker() -> None:
+        barrier.wait()  # release all threads as simultaneously as possible
+        lib.try_import_tree_sitter()
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
+    assert len(miss_lines) == 1, f"expected exactly 1 tree_sitter_missing audit, got {len(miss_lines)}"
+
+
+def test_mark_checked_concurrent_threads_preserve_all_keys(lib, fake_home: Path) -> None:
+    """Cycle 3 fix: concurrent mark_checked calls for distinct keys must not lose updates.
+
+    Without serialization around the read-modify-write window, each thread reads
+    the same prior state, modifies its in-memory copy, and `save_session_state`
+    is last-writer-wins; N-1 of N marks vanish silently.
+    """
+    import threading
+
+    n = 20
+    barrier = threading.Barrier(n)
+
+    def worker(i: int) -> None:
+        barrier.wait()
+        lib.mark_checked("sid", "echo", f"key-{i}")
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    state = lib.load_session_state("sid", "echo")
+    checked = state.get("checked", {})
+    expected = {f"key-{i}" for i in range(n)}
+    assert set(checked.keys()) == expected, f"lost updates: missing {expected - set(checked.keys())}"
+
+
+# --- Cycle 3: load_session_state byte-corruption ---
+
+
+def test_load_session_state_non_utf8_returns_empty(lib, fake_home: Path) -> None:
+    """A state file with non-UTF-8 bytes must return {} per the best-effort contract.
+
+    Without catching UnicodeDecodeError, path.read_text() propagates the error
+    and breaks the documented `missing/corrupted -> {}` contract.
+    """
+    target = fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"\xff\xfe\x00\x01 garbage non-utf8 bytes")
+    assert lib.load_session_state("sid", "echo") == {}
+
+
+# --- Cycle 3: project_hash on a regular-file path ---
+
+
+def test_project_hash_with_regular_file_path_does_not_raise(lib, tmp_path: Path) -> None:
+    """project_hash(path=<file>) must fall back gracefully.
+
+    `subprocess.run(cwd=<file>)` raises NotADirectoryError (an OSError, not
+    FileNotFoundError), which the original except guard missed.
+    """
+    file_path = tmp_path / "regular-file.txt"
+    file_path.write_text("hi", encoding="utf-8")
+    h, name, remote = lib.project_hash(str(file_path))
+    assert h == "global"
+    assert name == "global"
+    assert remote == ""
+
+
+# --- Cycle 3: append_audit hot-path perf (one _ensure_dirs per process) ---
+
+
+def test_append_audit_calls_ensure_dirs_once_per_process(
+    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Performance: _ensure_dirs must run on the first audit only, not every call.
+
+    Audit append is on the PreToolUse hot path; repeated mkdir-with-exist_ok
+    + exists checks are pure overhead after the first successful init.
+    """
+    real_ensure = lib._ensure_dirs
+    calls = {"n": 0}
+
+    def counting() -> None:
+        calls["n"] += 1
+        real_ensure()
+
+    monkeypatch.setattr(lib, "_ensure_dirs", counting)
+    lib._reset_ensure_dirs_for_tests()
+
+    for _ in range(5):
+        lib.append_audit({"event": "x"})
+
+    assert calls["n"] == 1, f"_ensure_dirs called {calls['n']} times; expected 1"
+
+
+# --- Cycle 3: _ensure_dirs no longer creates the scripts/ subdir ---
+# (See test_ensure_dirs_creates_layout above for the updated assertion list.)

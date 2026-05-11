@@ -48,3 +48,33 @@ def test_miss_path_exits_one_with_remediation(tmp_path: Path) -> None:
     combined = proc.stderr + proc.stdout
     assert "pip install tree-sitter-language-pack" in combined
     assert "pyenv" in combined.lower()
+
+
+@pytest.mark.parametrize(
+    "shim_body",
+    [
+        'raise SyntaxError("forced broken wheel")\n',
+        'raise OSError("forced dylib failure")\n',
+        'raise RuntimeError("forced post-install failure")\n',
+    ],
+)
+def test_miss_path_handles_non_import_errors(tmp_path: Path, shim_body: str) -> None:
+    """Cycle 3 fix: any import-time failure (not just ImportError) must exit 1 with remediation.
+
+    A broken wheel can raise SyntaxError (corrupt .py), OSError (missing dylib
+    on macOS), or other non-ImportError errors at import time. The script must
+    print the pip remediation in all of these cases, never a raw traceback.
+    """
+    shim = tmp_path / "tree_sitter_language_pack.py"
+    shim.write_text(shim_body, encoding="utf-8")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(tmp_path) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        capture_output=True, text=True, timeout=10, env=env,
+    )
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr}"
+    combined = proc.stderr + proc.stdout
+    assert "pip install tree-sitter-language-pack" in combined
+    # Must not be a raw uncaught traceback.
+    assert "Traceback (most recent call last)" not in proc.stderr
