@@ -475,6 +475,65 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- deny envelope with rationalization excerpt ---
+
+
+def test_build_deny_envelope_shape() -> None:
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    assert env["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "formatPrice" in reason
+    assert "src/util.py:42" in reason or "`src/util.py:42`" in reason
+    assert "retry" in reason.lower()
+
+
+def test_build_deny_envelope_contains_rationalization_quote() -> None:
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    # Block quote line(s) indicate the rationalization excerpt.
+    assert any(line.startswith(">") for line in reason.splitlines()), reason
+
+
+def test_build_deny_envelope_reason_length_capped() -> None:
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert len(reason) <= 1500
+
+
+def test_build_deny_envelope_picks_strong_over_medium() -> None:
+    mod = _import_hook_module()
+    matches = [
+        {"symbol": "formatPrice", "file": "src/a.py", "line": 1, "score": "medium"},
+        {"symbol": "formatPrice", "file": "src/b.py", "line": 2, "score": "strong"},
+    ]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "src/b.py:2" in reason
+
+
+def test_build_deny_envelope_verbs_cite_couldnt_find_helper() -> None:
+    """Symbols that contain `format`/`parse`/`validate`/etc cite the 'couldn't find existing helper' rationalization."""
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "couldn't find" in reason.lower() or "didn't grep" in reason.lower()
+
+
+def test_build_deny_envelope_empty_matches_returns_basic_reason() -> None:
+    mod = _import_hook_module()
+    env = mod.build_deny_envelope([])
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert env["hookSpecificOutput"]["permissionDecisionReason"]
+
+
 # --- two-attempt deny gate (end-to-end via subprocess) ---
 
 

@@ -455,22 +455,127 @@ def deny_key(file_path: str, symbols: list[str]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
-def build_deny_envelope_basic(matches: list[dict]) -> dict:
-    """Minimal deny envelope (Task 8 enriches with rationalizations)."""
-    if matches:
-        m = matches[0]
-        reason_text = (
-            f"Echo: `{m['symbol']}` likely duplicates `{m['file']}:{m['line']}` "
-            f"(score: {m['score']}). If this is genuinely new, retry — the "
-            f"second attempt will pass."
+_RATIONALIZATIONS_PATH: Path = Path.home() / ".claude" / "rules" / "rationalizations.md"
+
+# Verbs whose presence in a symbol name triggers the "Couldn't find existing
+# helper" rationalization (Echo's highest-leverage scenario per PRD).
+_HELPER_VERBS: tuple[str, ...] = (
+    "format", "parse", "validate", "normalize", "serialize", "transform",
+    "decode", "encode", "stringify", "render",
+)
+
+_RATIONALIZATIONS_CACHE: dict[str, tuple[str, str]] | None = None
+
+
+def _load_rationalizations() -> dict[str, tuple[str, str]]:
+    """Parse rules/rationalizations.md into {excuse: (why, counter)} once per process."""
+    global _RATIONALIZATIONS_CACHE
+    if _RATIONALIZATIONS_CACHE is not None:
+        return _RATIONALIZATIONS_CACHE
+
+    out: dict[str, tuple[str, str]] = {}
+    try:
+        text = _RATIONALIZATIONS_PATH.read_text(encoding="utf-8")
+    except OSError:
+        _RATIONALIZATIONS_CACHE = out
+        return out
+
+    header_re = re.compile(r"^###\s+\"([^\"]+)\"\s*$", re.MULTILINE)
+    why_re = re.compile(r"-\s*\*\*Why it's wrong\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL)
+    counter_re = re.compile(r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL)
+
+    matches = list(header_re.finditer(text))
+    for i, m in enumerate(matches):
+        excuse = m.group(1).strip()
+        section_start = m.end()
+        section_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        section = text[section_start:section_end]
+        why_m = why_re.search(section)
+        counter_m = counter_re.search(section)
+        if why_m and counter_m:
+            out[excuse] = (
+                " ".join(why_m.group(1).split()),
+                " ".join(counter_m.group(1).split()),
+            )
+
+    _RATIONALIZATIONS_CACHE = out
+    return out
+
+
+def _pick_rationalization(symbols: list[str]) -> tuple[str, str, str] | None:
+    """Return (excuse, why, counter) — heuristic excuse choice based on symbol verbs."""
+    rats = _load_rationalizations()
+    if not rats:
+        return None
+    for sym in symbols:
+        low = sym.lower()
+        if any(v in low for v in _HELPER_VERBS):
+            entry = rats.get("Couldn't find existing helper")
+            if entry:
+                return ("Couldn't find existing helper", *entry)
+            break
+    entry = rats.get("Quick fix, skip atlas")
+    if entry:
+        return ("Quick fix, skip atlas", *entry)
+    k, (w, c) = next(iter(rats.items()))
+    return (k, w, c)
+
+
+_DENY_REASON_CAP: int = 1500
+_RATIONALIZATION_EXCERPT_CAP: int = 400
+
+
+def build_deny_envelope(matches: list[dict]) -> dict:
+    """Compose the gateguard-format deny envelope with a rationalization excerpt."""
+    if not matches:
+        reason = "Echo: duplicate-detection deny — retry to override."
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }
+
+    strongest = next((m for m in matches if m.get("score") == "strong"), None)
+    if strongest is None:
+        strongest = next((m for m in matches if m.get("score") == "medium"), matches[0])
+
+    sym = strongest.get("symbol", "?")
+    fp = strongest.get("file", "?")
+    ln = strongest.get("line", 0)
+
+    symbols_in_play = sorted({m.get("symbol", "") for m in matches if m.get("symbol")})
+    rationalization = _pick_rationalization(symbols_in_play)
+
+    parts = [
+        f"Echo: `{sym}` likely duplicates `{fp}:{ln}`.",
+        "",
+        f"Existing implementation is at `{fp}:{ln}` — import it instead of writing a parallel one.",
+    ]
+    if rationalization is not None:
+        excuse, why, counter = rationalization
+        excerpt = f"\"{excuse}\". Why it's wrong: {why} Counter-action: {counter}"
+        if len(excerpt) > _RATIONALIZATION_EXCERPT_CAP:
+            excerpt = excerpt[: _RATIONALIZATION_EXCERPT_CAP - 1].rstrip() + "…"
+        parts.extend(
+            [
+                "",
+                "Rationalization (`rules/rationalizations.md`):",
+                "> " + excerpt,
+            ]
         )
-    else:
-        reason_text = "Echo: duplicate-detection deny."
+
+    parts.extend(["", "If this is genuinely new, retry — the second attempt will pass."])
+    reason = "\n".join(parts)
+    if len(reason) > _DENY_REASON_CAP:
+        reason = reason[: _DENY_REASON_CAP - 1].rstrip() + "…"
+
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": reason_text,
+            "permissionDecisionReason": reason,
         }
     }
 
@@ -605,7 +710,7 @@ def handle(data: dict) -> None:
             )
             return
         lib.mark_checked(session, _ECHO_NAMESPACE, key)
-        envelope = build_deny_envelope_basic(matches)
+        envelope = build_deny_envelope(matches)
         sys.stdout.write(json.dumps(envelope))
         # Audit reason matches the strongest hit's score.
         strongest_score = matches[0]["score"] if matches else "unknown"
