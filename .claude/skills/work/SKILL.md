@@ -54,7 +54,7 @@ PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Tim
      Report cause `subagent_prompt_overrun` and stop work on this task.
 4. Prepend the abort-instruction line verbatim to the prompt:
    ```
-   Abort and report if you read more than 100K of total input — return the partial result and an abort_reason: context_overrun field.
+   Abort and report if you read more than 100K of total input. Return the partial result and an abort_reason: context_overrun field.
    ```
 
 **Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under Sonnet 4.6's 200K standard-tier ceiling.
