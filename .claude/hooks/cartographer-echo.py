@@ -444,6 +444,67 @@ def _resolve_project_root(file_path: str) -> Path:
     return parent if parent.exists() else Path.cwd()
 
 
+# --- Bash bypass pattern detection ---
+
+_BASH_SOURCE_EXTENSIONS: frozenset[str] = frozenset(
+    {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".md", ".yaml", ".yml", ".json", ".toml"}
+)
+
+_BASH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("cat-redirect", re.compile(r"\bcat\s*>>?\s*(\S+)")),
+    ("tee", re.compile(r"\btee\b[^|;]*?(\S+\.[A-Za-z0-9]+)")),
+    (
+        "python-open-write",
+        re.compile(r"python3?\s+-c\s+[\"'][^\"']*\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"']w[\"']"),
+    ),
+    ("sed-inplace", re.compile(r"\bsed\s+-i\b[^|;\n]*?\s(\S+\.[A-Za-z0-9]+)(?:\s|$)")),
+    ("redirect-source", re.compile(r"(?<!\d)(?:>|>>)\s*(\S+\.[A-Za-z0-9]+)")),
+)
+
+
+def _resolve_within_cwd(raw_path: str, cwd: Path) -> Path | None:
+    """Resolve `raw_path` against `cwd`. Return Path if it stays within cwd, else None."""
+    raw = raw_path.strip().rstrip("'\"").lstrip("'\"")
+    if not raw:
+        return None
+    try:
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = (cwd / candidate)
+        resolved = candidate.resolve()
+        cwd_resolved = cwd.resolve()
+        resolved.relative_to(cwd_resolved)
+        return resolved
+    except (OSError, ValueError):
+        return None
+
+
+def detect_bash_bypass(command: str, cwd: Path) -> tuple[str, str] | None:
+    """Detect code-writing Bash patterns. Return `(pattern_name, resolved_path_str)` or None.
+
+    Source-path heuristic: the target path resolves under `cwd` AND has an
+    extension in `_BASH_SOURCE_EXTENSIONS`. Skips writes to
+    `~/.claude/settings.json` so gateguard's own rules govern there.
+    """
+    if not command or not isinstance(command, str):
+        return None
+    for name, pat in _BASH_PATTERNS:
+        for m in pat.finditer(command):
+            target = m.group(1)
+            if not target:
+                continue
+            resolved = _resolve_within_cwd(target, cwd)
+            if resolved is None:
+                continue
+            ext = "." + resolved.name.rsplit(".", 1)[-1].lower() if "." in resolved.name else ""
+            if ext not in _BASH_SOURCE_EXTENSIONS:
+                continue
+            if is_claude_settings_path(str(resolved)):
+                continue
+            return (name, str(resolved))
+    return None
+
+
 # --- two-attempt deny gate ---
 
 _ECHO_NAMESPACE: str = "echo"

@@ -475,6 +475,58 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- Bash bypass pattern detection ---
+
+
+@pytest.mark.parametrize(
+    "command, expected_pattern",
+    [
+        ("cat > src/util/format.ts <<EOF\nexport function formatPrice(){}\nEOF\n", "cat-redirect"),
+        ("tee src/lib.py", "tee"),
+        ("python3 -c \"open('src/x.py', 'w').write('...')\"", "python-open-write"),
+        ("sed -i 's/foo/bar/' src/main.rs", "sed-inplace"),
+        ("echo hello > out.md", "redirect-source"),
+    ],
+)
+def test_detect_bash_bypass_positive(tmp_path: Path, command: str, expected_pattern: str) -> None:
+    mod = _import_hook_module()
+    # Create the dirs referenced so resolve() works inside cwd.
+    (tmp_path / "src" / "util").mkdir(parents=True, exist_ok=True)
+    detected = mod.detect_bash_bypass(command, tmp_path)
+    assert detected is not None, f"expected {expected_pattern}, got None for {command!r}"
+    assert detected[0] == expected_pattern, detected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ls -la",
+        "cat /etc/passwd",
+        "grep -r foo .",
+        "git status",
+        "python3 script.py --flag",
+        # Outside cwd
+        "cat > /tmp/scratch.py <<EOF\nx\nEOF",
+    ],
+)
+def test_detect_bash_bypass_negative(tmp_path: Path, command: str) -> None:
+    mod = _import_hook_module()
+    detected = mod.detect_bash_bypass(command, tmp_path)
+    assert detected is None, f"false-positive on {command!r}: {detected}"
+
+
+def test_detect_bash_bypass_settings_json_skipped(tmp_path: Path) -> None:
+    """Edits to ~/.claude/settings.json must not be flagged (gateguard owns it)."""
+    mod = _import_hook_module()
+    # Simulate a redirect to a settings.json path.
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text("{}")
+    cmd = f"echo {{}} > {settings}"
+    detected = mod.detect_bash_bypass(cmd, tmp_path)
+    assert detected is None
+
+
 # --- deny envelope with rationalization excerpt ---
 
 
