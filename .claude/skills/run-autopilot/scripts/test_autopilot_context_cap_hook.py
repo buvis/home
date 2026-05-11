@@ -191,6 +191,51 @@ class ContextCapHookTests(unittest.TestCase):
         )
         self.assertEqual(abort_entry["task_id"], "unknown")
 
+    # Walk-up cases ---------------------------------------------------------
+
+    def test_finds_autopilot_dir_when_cwd_is_subdirectory(self) -> None:
+        """Hook must walk up from cwd to find dev/local/autopilot/.
+
+        Same fix pattern as a0c5b8e09 for the stop hook: agent may cd into
+        a subdirectory during work, so a relative `dev/local/autopilot`
+        resolution from cwd must walk parents until found.
+        """
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-deep", "name": "x", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        deep = self.fx.cwd / "src" / "modules" / "feature"
+        deep.mkdir(parents=True)
+        result = subprocess.run(
+            [sys.executable, str(HOOK)],
+            input=json.dumps({"transcript_path": str(self.fx.transcript)}),
+            capture_output=True,
+            text=True,
+            cwd=str(deep),
+            timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
+        self.assertTrue((self.fx.autopilot_dir / "task-abort").exists())
+
+    def test_no_autopilot_ancestor_is_noop(self) -> None:
+        """When cwd has no dev/local/autopilot ancestor, hook is a no-op."""
+        with tempfile.TemporaryDirectory() as plain:
+            plain_path = Path(plain)
+            transcript = plain_path / "transcript.jsonl"
+            transcript.write_text(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
+            result = subprocess.run(
+                [sys.executable, str(HOOK)],
+                input=json.dumps({"transcript_path": str(transcript)}),
+                capture_output=True,
+                text=True,
+                cwd=plain,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.strip(), "")
+
     def test_abort_entry_turn_is_sentinel_not_zero(self) -> None:
         """task_aborts[].turn must use -1 sentinel ('unknown') not a misleading 0.
 
