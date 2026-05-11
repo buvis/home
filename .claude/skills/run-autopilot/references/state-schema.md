@@ -12,17 +12,24 @@ State file location: `dev/local/autopilot/state.json`
     "name": "00004-feature-x"
   },
   "phase": "work",
+  "next_phase": "work",
+  "catchup_mode": "skipped",
   "phases_completed": ["catchup", "planning"],
   "cycle": 1,
   "tasks_total": 6,
   "tasks_completed": 2,
   "tasks": [
-    {"id": "task-uuid-1", "name": "Add validation endpoint", "status": "completed"},
+    {"id": "task-uuid-1", "name": "Add validation endpoint", "status": "completed", "model": "sonnet", "attempts": [
+      {"attempt": 1, "model": "sonnet", "outcome": "completed", "review_cycle": null, "cause": null}
+    ]},
     {"id": "task-uuid-2", "name": "Update API types", "status": "completed"},
     {"id": "task-uuid-3", "name": "Write integration tests", "status": "in_progress"},
     {"id": "task-uuid-4", "name": "Update frontend form", "status": "pending"},
     {"id": "task-uuid-5", "name": "Add error handling", "status": "pending"},
     {"id": "task-uuid-6", "name": "Update docs", "status": "pending"}
+  ],
+  "task_aborts": [
+    {"task_id": "task-uuid-7", "turn": 27, "total_input_tokens": 192340, "cause": "context_overrun"}
   ],
   "review_cycles": [
     {
@@ -108,11 +115,16 @@ State file location: `dev/local/autopilot/state.json`
 | `prd.path` | string | Relative path from project root |
 | `prd.name` | string | Filename without extension (used in dashboard) |
 | `phase` | enum | Current phase: `prd-selection`, `catchup`, `planning`, `work`, `review`, `decision-gate`, `rework`, `blind-review`, `doubt-review`, `done`, `paused` |
+| `next_phase` | string | Phase the next iteration of `/run-autopilot` will run. Written by `/run-autopilot` immediately before the `signal` file. Read by `autoclaude` to pick `--model` for the next launch. Empty string means "no preference; consumer defaults to Opus." |
+| `catchup_mode` | enum | `"run"` (default), `"skip"` (PRD frontmatter requested skip), or `"skipped"` (Phase 1 was bypassed for this PRD). Set at Phase 0 from PRD frontmatter `catchup:`; defaults to `"run"` on missing/malformed frontmatter. |
 | `phases_completed` | string[] | Phases finished this session |
 | `cycle` | int | Current review-rework cycle (starts at 1) |
 | `tasks_total` | int | Total task count from TaskList (pending + in_progress + completed) |
 | `tasks_completed` | int | Number of completed tasks from TaskList |
-| `tasks` | object[] | Task list from TaskList: `{"id": "<task-id>", "name": "...", "status": "pending\|in_progress\|completed"}`. Include `id` — a PostToolUse hook uses it to sync status changes automatically. |
+| `tasks` | object[] | Task list from TaskList: `{"id": "<task-id>", "name": "...", "status": "pending\|in_progress\|completed", "model"?: "haiku\|sonnet\|opus", "attempts"?: object[]}`. Include `id` — a PostToolUse hook uses it to sync status changes automatically. |
+| `tasks[].model` | enum? | Optional per-task model tier: `"haiku"`, `"sonnet"`, `"opus"`. Reserved for PRD 00025 (per-task model tier). Unset in this PRD; `/work` inherits the session model when absent. |
+| `tasks[].attempts` | object[]? | Optional per-task execution log: `{"attempt": int, "model": string, "outcome": "completed"\|"aborted"\|"review_flagged"\|"rework_failed", "review_cycle": int\|null, "cause": string\|null}`. Records each Work pass on the task. Rework reads the last entry's model to determine the next tier. Reserved for PRD 00025; not written in this PRD. |
+| `task_aborts` | object[] | Appended by `autopilot_context_cap_hook.py` when context exceeds 180K during Work phase: `{"task_id": string, "turn": int, "total_input_tokens": int, "cause": "context_overrun"\|"subagent_prompt_overrun"}`. Empty array on fresh state. |
 | `review_cycles` | object[] | History of each review cycle |
 | `review_cycles[].recurring_issues` | string[] | Issue descriptions that appeared in a previous cycle |
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
@@ -124,6 +136,8 @@ State file location: `dev/local/autopilot/state.json`
 | `batch.completed_prds` | object[] | PRDs finished so far: `{"filename", "cycles", "autonomous_decisions", "escalated_decisions"}` |
 | `started_at` | ISO 8601 | Session start time |
 | `updated_at` | ISO 8601 | Last state change time |
+
+**Note on PRD 00025 reservation:** `tasks[].model` and `tasks[].attempts[]` are reserved by PRD 00024 for PRD 00025 (per-task model tier). `/plan-tasks` and `/work` do not read or write these fields in this PRD — `/work` inherits the session model unset. Landing the schema fields now means PRD 00025 lands additively: it adds a `/plan-tasks` classifier that writes `task.model`, and a `/work` dispatcher that reads it. No re-work of the autopilot loop or `autoclaude` is needed at that point.
 
 ## Research Evidence Schema
 
