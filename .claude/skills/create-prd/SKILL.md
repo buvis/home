@@ -38,7 +38,9 @@ Read the source file if one was referenced. Extract:
 - Dependencies between components
 - Acceptance criteria
 
-### 2. Choose template
+### 2. Choose template and load it
+
+Pick one based on complexity:
 
 | Plan complexity | Template | Use when |
 |-----------------|----------|----------|
@@ -46,14 +48,21 @@ Read the source file if one was referenced. Extract:
 | Standard feature | `assets/standard.md` | Multiple capabilities, clear dependencies |
 | Complex system | `assets/example_prd_rpg.md` | Full RPG method needed |
 
+**Read the chosen template file before drafting.** The PRD MUST contain every section the template defines, in the same order, with the same headings.
+
+**Do NOT model the structure on existing PRDs in the repo**, even if they look authoritative. Repo PRDs predate or postdate the template and may drift. The template is the single source of truth for structure. Use the repo's prevailing tone and naming conventions, never its section layout.
+
 ### 3. Format as PRD
 
-Apply RPG structure:
+Apply the full RPG structure. All four sections are mandatory; none may be omitted, renamed, or merged into another section:
 
-1. **Functional decomposition**: Capabilities > Features (WHAT it does)
-2. **Structural decomposition**: Modules > Files (WHERE it lives)
-3. **Dependency graph**: Explicit dependencies between modules
-4. **Implementation phases**: Topological order of tasks
+1. **Functional decomposition**: Capabilities > Features (WHAT it does). Each Feature is its own sub-block under its Capability, populated with the fields the template specifies (typically Description / Inputs / Outputs / Behavior).
+2. **Structural decomposition**: Modules > Files (WHERE it lives). MUST include BOTH:
+   - The Repository Structure code-block tree showing module → file mapping
+   - One **Module: {Name}** block per module with Maps-to-capability / Responsibility / Exports
+   A file tree alone is not sufficient.
+3. **Dependency graph**: Foundation Layer / Core Layer / Integration Layer with explicit per-module dependency lists. Even single-phase PRDs MUST include this section — a one-line "no dependencies; built first" entry is fine, but the heading must be present.
+4. **Implementation phases**: Topological order of tasks. Each task includes its dependency reference and an Acceptance criterion.
 
 ### 4. Split if needed
 
@@ -63,7 +72,11 @@ If PRD exceeds ~200 lines or has loosely coupled parts:
 - Each PRD should be self-contained
 - Name related PRDs with shared prefix: `00001-auth-login-v1.md`, `00002-auth-session-v1.md`
 
-### 5. Save to backlog
+### 5. Verify structure before saving
+
+Walk the chosen template top-to-bottom and confirm every `##`/`###` heading the template defines is present in your draft, in the same order, with the same wording. If any are missing, renamed, or out of order, revise before saving. This is the gate that prevents drift toward whatever PRD style happened to dominate the repo's existing files.
+
+### 6. Save to backlog
 
 ```bash
 # Create directory if needed
