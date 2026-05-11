@@ -45,16 +45,33 @@ trust_level = "trusted"
 [projects."/Users/bob/.config/bash/plugins"]
 trust_level = "trusted"
 
+[projects."/Users/bob/Documents/New project"]
+trust_level = "trusted"
+
 [features]
 multi_agent = true
 
 [marketplaces.openai-bundled]
-last_updated = "2026-05-10T08:28:52Z"
+last_updated = "2026-05-11T16:30:58Z"
 source_type = "local"
 source = "/Users/bob/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-05-11T16:31:50Z"
+source_type = "local"
+source = "/Users/bob/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+
+[tui.model_availability_nux]
+"gpt-5.5" = 1
 
 [plugins."browser-use@openai-bundled"]
 enabled = true
 
-[tui.model_availability_nux]
-"gpt-5.5" = 1
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true
