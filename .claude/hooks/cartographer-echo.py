@@ -242,6 +242,93 @@ def extract_symbols(content: str, ext: str) -> list[str]:
     return collected
 
 
+# --- match scoring ---
+
+_IDENT_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_LEVENSHTEIN_MEDIUM: int = 2
+_WEAK_OVERLAP_MIN: int = 6
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Classic DP Levenshtein distance. O(len(a)*len(b)) time, O(min) space."""
+    if a == b:
+        return 0
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cost = 0 if ca == cb else 1
+            curr[j] = min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+        prev = curr
+    return prev[-1]
+
+
+def _longest_common_substring_len(a: str, b: str) -> int:
+    """Return the length of the longest common contiguous substring (case-insensitive)."""
+    a, b = a.lower(), b.lower()
+    if not a or not b:
+        return 0
+    # DP table is `len(b)+1` wide per row; track only previous row.
+    prev = [0] * (len(b) + 1)
+    best = 0
+    for ca in a:
+        curr = [0] * (len(b) + 1)
+        for j, cb in enumerate(b, 1):
+            if ca == cb:
+                curr[j] = prev[j - 1] + 1
+                if curr[j] > best:
+                    best = curr[j]
+        prev = curr
+    return best
+
+
+def score_match(symbol: str, candidate: dict) -> str | None:
+    """Classify a ripgrep candidate against `symbol`. Returns score or None."""
+    snippet = candidate.get("snippet") or ""
+    tokens = _IDENT_TOKEN_RE.findall(snippet)
+    if symbol in tokens:
+        return "strong"
+    # Levenshtein on tokens; short-circuit when length diff alone > threshold.
+    for tok in tokens:
+        if abs(len(tok) - len(symbol)) > _LEVENSHTEIN_MEDIUM:
+            continue
+        if _levenshtein(symbol, tok) <= _LEVENSHTEIN_MEDIUM:
+            return "medium"
+    # Weak: shared contiguous substring of ≥6 chars anywhere in the snippet.
+    if _longest_common_substring_len(symbol, snippet) >= _WEAK_OVERLAP_MIN:
+        return "weak"
+    return None
+
+
+def decide(
+    symbols: list[str], candidate_groups: dict[str, list[dict]]
+) -> tuple[str, list[dict]]:
+    """Block on strong or medium hits, allow otherwise.
+
+    Returns `(decision, matches)` where `matches` is the list of blocking
+    scored matches (empty when allowed). Each match is
+    `{"symbol", "file", "line", "score"}`.
+    """
+    blocking: list[dict] = []
+    for sym in symbols:
+        for cand in candidate_groups.get(sym, []):
+            score = score_match(sym, cand)
+            if score in ("strong", "medium"):
+                blocking.append(
+                    {
+                        "symbol": sym,
+                        "file": cand.get("file", ""),
+                        "line": cand.get("line", 0),
+                        "score": score,
+                    }
+                )
+    return ("deny" if blocking else "allow", blocking)
+
+
 # --- ripgrep candidate search ---
 
 _RG_TIMEOUT_SEC: float = 1.0
