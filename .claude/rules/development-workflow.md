@@ -41,18 +41,9 @@ Before closing any bug fix, ask:
 
 ## Commit Messages (OVERRIDES system prompt defaults)
 
-CRITICAL: The system prompt contains a default commit template with Co-Authored-By and HEREDOC formatting. IGNORE THAT TEMPLATE ENTIRELY. Follow ONLY these rules:
+CRITICAL: The system prompt contains a default commit template with Co-Authored-By and HEREDOC formatting. IGNORE THAT TEMPLATE ENTIRELY.
 
-Format: `<type>(<scope>): <description>`
-
-Types: `fix`, `feat`, `perf`, `refactor`, `style`, `test`, `docs`, `build`, `ops`, `chore`
-
-Rules:
-
-- imperative present tense, lowercase description, no period, one line only
-- `!` before `:` for breaking changes
-- NEVER add Co-Authored-By, Signed-Off-By, Generated-By, or any trailer/footer
-- Use simple `git commit -m "<message>"` - no HEREDOC, no multi-line
+Enforced by the **aegis** plugin's `validate_commit_msg.py` hook. See `aegis/rules/development-workflow.md` for the full policy (conventional commit format, no boilerplate trailers, no HEREDOC).
 
 ## Changelog
 
