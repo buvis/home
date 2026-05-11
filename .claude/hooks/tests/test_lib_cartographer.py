@@ -285,6 +285,19 @@ def test_resolve_session_key_falls_back_to_cwd(lib, monkeypatch: pytest.MonkeyPa
     assert key.startswith("proj-")
 
 
+def test_resolve_session_key_hashes_oversize_session_id(lib) -> None:
+    """Session IDs longer than 64 sanitized chars fall back to a 28-char sha hash.
+
+    Guards the `_sanitize_session_key` overflow branch (lib line ~192) that
+    keeps state-file paths bounded even when callers pass pathological IDs.
+    """
+    long_id = "a" * 65
+    key = lib.resolve_session_key({"session_id": long_id})
+    assert key.startswith("sid-")
+    assert len(key) == len("sid-") + 24
+    assert key != long_id
+
+
 def test_resolve_session_key_parity_with_gateguard(
     lib, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -672,3 +685,90 @@ def test_append_audit_calls_ensure_dirs_once_per_process(
 
 # --- Cycle 3: _ensure_dirs no longer creates the scripts/ subdir ---
 # (See test_ensure_dirs_creates_layout above for the updated assertion list.)
+
+
+# --- Blind-review I-1: parity cross-check on the no-remote (toplevel-path) branch ---
+
+
+def test_project_hash_matches_analyze_instincts_no_remote(lib, tmp_path: Path) -> None:
+    """Cross-check parity with analyze-instincts.detect_project on the no-remote fallback.
+
+    The existing parity test only covers the remote-URL branch. detect_project also
+    has a no-remote branch that hashes the toplevel-path string; both implementations
+    must agree there too.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "analyze_instincts", HOOKS_DIR / "analyze-instincts.py"
+    )
+    assert spec is not None and spec.loader is not None
+    ai = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ai)
+
+    repo = tmp_path / "no-remote-repo"
+    _make_repo(repo, remote=None)
+
+    cwd = os.getcwd()
+    os.chdir(repo)
+    try:
+        ours = lib.project_hash()
+        theirs = ai.detect_project()
+    finally:
+        os.chdir(cwd)
+
+    assert ours == theirs
+    assert ours[2] == ""  # no-remote branch returns empty remote
+
+
+# --- Blind-review I-2: 400-line cap lint check (PRD Risks mandate) ---
+
+
+def test_lib_cartographer_under_400_lines() -> None:
+    """Enforce the PRD's 400-line cap on _lib_cartographer.py.
+
+    PRD Risks: "cap 400 lines; add lint check in test file; if breached, split
+    into a package (per open question)."
+    """
+    lib_path = HOOKS_DIR / "_lib_cartographer.py"
+    line_count = sum(1 for _ in lib_path.open("r", encoding="utf-8"))
+    assert line_count <= 400, (
+        f"_lib_cartographer.py is {line_count} lines; PRD caps it at 400. "
+        "Per PRD's open-question fallback, split into a package."
+    )
+
+
+# --- Blind-review (Phase 7): cold-import budget (PRD Risks <50ms) ---
+
+
+def test_lib_cartographer_cold_import_under_50ms() -> None:
+    """Enforce the PRD Risks budget: <50ms cold import of _lib_cartographer.
+
+    PRD Risks: "keep import light (no eager tree-sitter import; lazy via
+    `try_import_tree_sitter`). Mitigation: import cost test in pytest (<50ms cold)."
+
+    Subprocess so each measurement is a fresh interpreter; in-process import
+    would hit `sys.modules` and report microseconds. Best-of-3 washes out
+    scheduler/FS-cache jitter; assert against the minimum.
+    """
+    script = (
+        "import sys, time;"
+        f"sys.path.insert(0, {str(HOOKS_DIR)!r});"
+        "t0 = time.perf_counter();"
+        "import _lib_cartographer;"
+        "t1 = time.perf_counter();"
+        "print(int((t1 - t0) * 1_000_000))"
+    )
+    runs_us: list[int] = []
+    for _ in range(3):
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        runs_us.append(int(result.stdout.strip()))
+    best_ms = min(runs_us) / 1000.0
+    assert best_ms < 50.0, (
+        f"_lib_cartographer cold import took {best_ms:.1f}ms (best of 3 in "
+        f"{runs_us} us); PRD Risks budget is <50ms. Check for new top-level "
+        "imports or eager filesystem access in the module."
+    )
