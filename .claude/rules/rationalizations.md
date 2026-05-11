@@ -11,12 +11,12 @@ Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each
 
 ### "Couldn't find existing helper"
 
-- **Why it's wrong**: most "couldn't find" is "didn't grep enough." Names diverge across codebases — `format_date`, `to_iso`, `serialize_date`, `date_str` all show up.
+- **Why it's wrong**: most "couldn't find" is "didn't grep enough." Names diverge across codebases (`format_date`, `to_iso`, `serialize_date`, `date_str` all show up).
 - **Counter-action**: name 2-3 plausible synonyms before writing new code, and grep each. For utilities, search the verb (`format`, `serialize`, `render`) and the noun (`date`, `timestamp`, `iso`). For types, search the domain term and its abbreviations. See **Synonyms-to-grep** below.
 
 ### "Existing pattern is overkill"
 
-- **Why it's wrong**: a parallel-implementation rationalization. Patterns feel heavy until you discover they encode invariants — error handling, ordering, retries — that the "lighter" version silently drops.
+- **Why it's wrong**: a parallel-implementation rationalization. Patterns feel heavy until you discover they encode invariants (error handling, ordering, retries) that the "lighter" version silently drops.
 - **Counter-action**: use the existing pattern even if it feels heavy. If it's genuinely wrong for this case, open a refactor PRD and propose a replacement that updates every call site at once.
 
 ### "I'll add tests later"
@@ -26,7 +26,7 @@ Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each
 
 ### "File is short, I'll just rewrite"
 
-- **Why it's wrong**: short files often encode invariants in their structure — error messages other code matches against, exact return shapes consumers depend on, side effects in a specific order. A rewrite drops them silently.
+- **Why it's wrong**: short files often encode invariants in their structure (error messages other code matches against, exact return shapes consumers depend on, side effects in a specific order). A rewrite drops them silently.
 - **Counter-action**: edit in place. If the file is genuinely wrong, open a refactor PRD with the diff plan. Never rewrite as a side effect of a feature task.
 
 ## Synonyms-to-grep
@@ -39,6 +39,6 @@ When you suspect a helper exists but the obvious name returns nothing, expand th
 - **Builders**: `build` ↔ `create` ↔ `make` ↔ `new_*` ↔ `init`
 - **Lookups**: `get` ↔ `find` ↔ `lookup` ↔ `resolve` ↔ `select`
 
-Grep both the verb and the noun. If neither hits, grep the verb alone — utilities are sometimes named purely by action.
+Grep both the verb and the noun. If neither hits, grep the verb alone (utilities are sometimes named purely by action).
 
 If after this you still find nothing, the helper genuinely doesn't exist; write it once, in the layer where its consumers live.
