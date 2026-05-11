@@ -131,12 +131,15 @@ def _ensure_dirs() -> None:
 
 
 def _atomic_append(path: Path, line: str) -> None:
-    """Append a single line in `mode='a'` (POSIX O_APPEND).
+    """Append a single line via `mode='a'` (POSIX O_APPEND).
 
-    O_APPEND atomically advances the file offset under the inode lock, so
-    concurrent appends from any process holding an O_APPEND fd do not
-    interleave for one-syscall writes; audit lines stay well under that
-    limit. PIPE_BUF does not apply to regular files; it governs pipes/FIFOs.
+    Python TextIOWrapper buffers `fh.write` and emits one `write(2)` at
+    `__exit__` for ~80B audit lines (well under the 8KiB default buffer).
+    The kernel applies O_APPEND atomicity per syscall (offset advance under
+    the inode lock), so concurrent appenders do not interleave within that
+    single small write; larger writes that split across syscalls would lose
+    this guarantee. `test_append_audit_concurrent_threads` verifies behavior
+    empirically. PIPE_BUF governs pipes/FIFOs, not regular files.
     """
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line)
