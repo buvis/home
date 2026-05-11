@@ -735,7 +735,10 @@ def handle(data: dict) -> None:
             return
         hit = detect_bash_bypass(cmd, Path.cwd())
         if hit is None:
-            # No audit on clean Bash (avoid log spam on every command).
+            audit_event(
+                session=session, tool=tool_name, file="",
+                decision="allow", reason="bash-clean",
+            )
             return
         pattern_name, resolved_path = hit
         key = hashlib.sha256(
@@ -767,6 +770,16 @@ def handle(data: dict) -> None:
             session=session, tool=tool_name, file=resolved_path,
             decision="deny", reason="bash-bypass",
             matches=[{"pattern": pattern_name}],
+        )
+        return
+
+    if tool_name.startswith("mcp__serena__"):
+        # MCP serena tools shadow file writes but with tool-specific input
+        # shapes. Surface them in the audit log so audit-echo can flag the
+        # coverage gap; do not gate.
+        audit_event(
+            session=session, tool=tool_name, file=file_path,
+            decision="skip", reason="mcp-unsupported",
         )
         return
 

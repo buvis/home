@@ -475,6 +475,51 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- Audit schema completeness ---
+
+
+def test_audit_every_event_has_required_keys(tmp_path: Path) -> None:
+    """Run a sequence of payloads covering allow/deny/skip; every event has required keys."""
+    payloads = [
+        # Skip: unsupported ext
+        {"session_id": "s1", "tool_name": "Edit", "tool_input": {"file_path": str(tmp_path / "a.md"), "old_string": "x", "new_string": "y"}},
+        # Skip: settings.json
+        {"session_id": "s1", "tool_name": "Edit", "tool_input": {"file_path": str(tmp_path / ".claude" / "settings.json"), "old_string": "x", "new_string": "y"}},
+        # Bash clean
+        {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "ls -la"}},
+        # Write supported ext with no project hits
+        {"session_id": "s1", "tool_name": "Write", "tool_input": {"file_path": str(tmp_path / "iso" / "fresh.py"), "content": "def somethingTotallyUniqueZZZ(): pass\n"}},
+    ]
+    (tmp_path / "iso").mkdir()
+    required = {"ts", "session", "tool", "file", "decision", "reason", "symbols", "matches", "phase"}
+    for p in payloads:
+        run_hook(p, home=tmp_path, cwd=tmp_path)
+    events = read_audit(tmp_path)
+    assert events, "no events written"
+    for e in events:
+        # tree_sitter_missing warnings have only `ts` + `event` keys; skip those.
+        if "decision" not in e:
+            continue
+        missing = required - set(e.keys())
+        assert not missing, f"event missing {missing}: {e}"
+        assert e["phase"] == "echo"
+
+
+def test_mcp_serena_tool_emits_skip_audit(tmp_path: Path) -> None:
+    payload = {
+        "session_id": "sess-mcp",
+        "tool_name": "mcp__serena__write_file",
+        "tool_input": {"file_path": str(tmp_path / "x.py"), "content": "x = 1"},
+    }
+    proc = run_hook(payload, home=tmp_path)
+    assert proc.returncode == 0
+    events = read_audit(tmp_path)
+    mcp = [e for e in events if e.get("tool", "").startswith("mcp__serena__")]
+    assert mcp, f"expected mcp__serena__ audit event, got {events}"
+    assert mcp[0]["decision"] == "skip"
+    assert mcp[0]["reason"] == "mcp-unsupported"
+
+
 # --- Bash bypass deny (end-to-end) ---
 
 
