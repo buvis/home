@@ -475,6 +475,59 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- Bash bypass deny (end-to-end) ---
+
+
+def test_bash_bypass_denies_first_attempt(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    payload = {
+        "session_id": "sess-bash-1",
+        "tool_name": "Bash",
+        "tool_input": {"command": "cat > src/util.py <<EOF\nprint('hi')\nEOF"},
+    }
+    proc = run_hook(payload, home=tmp_path, cwd=tmp_path)
+    assert proc.returncode == 0
+    assert proc.stdout.strip()
+    env = json.loads(proc.stdout)
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "Write tool" in reason
+    events = read_audit(tmp_path)
+    deny = [e for e in events if e.get("decision") == "deny" and e.get("reason") == "bash-bypass"]
+    assert deny, f"expected bash-bypass deny audit, got {events}"
+
+
+def test_bash_bypass_second_attempt_allows(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    payload = {
+        "session_id": "sess-bash-2",
+        "tool_name": "Bash",
+        "tool_input": {"command": "cat > src/util.py <<EOF\nprint('hi')\nEOF"},
+    }
+    p1 = run_hook(payload, home=tmp_path, cwd=tmp_path)
+    env1 = json.loads(p1.stdout)
+    assert env1["hookSpecificOutput"]["permissionDecision"] == "deny"
+    p2 = run_hook(payload, home=tmp_path, cwd=tmp_path)
+    assert p2.returncode == 0
+    if p2.stdout.strip():
+        env2 = json.loads(p2.stdout)
+        assert env2["hookSpecificOutput"]["permissionDecision"] != "deny"
+
+
+def test_clean_bash_passes_through(tmp_path: Path) -> None:
+    payload = {
+        "session_id": "sess-bash-clean",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls -la"},
+    }
+    proc = run_hook(payload, home=tmp_path)
+    assert proc.returncode == 0
+    if proc.stdout.strip():
+        env = json.loads(proc.stdout)
+        assert env["hookSpecificOutput"]["permissionDecision"] != "deny"
+
+
 # --- Bash bypass pattern detection ---
 
 
