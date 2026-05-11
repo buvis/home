@@ -11,20 +11,9 @@
 
 ## Tool vs. Bash (BLOCKING)
 
-These are hard-enforced by `~/.claude/hooks/prefer-tools.py`. Naked single-command invocations are denied; use the dedicated tool.
+Hard-enforced by the **aegis** plugin's `prefer-tools.py` hook. See `aegis/rules/tools.md` for the full policy.
 
-| Bash command | Use instead | Why |
-|---|---|---|
-| `cat file` | `Read` | Returns line-numbered output, respects size limits |
-| `head -n file` / `tail -n file` | `Read` with `offset`/`limit` | Same |
-| `grep -r pattern path` | `Grep` | Faster, respects ignores, structured output |
-| `find path -name "*.x"` | `Glob` | Designed for filename patterns |
-
-Chained or piped invocations (`cat x | jq`, `find x | xargs y`) bypass the hook because they need shell context. Don't pipe just to get around the rule — use the dedicated tool.
-
-`rg` for ad-hoc shell recon is allowed (faster than grep, respects `.gitignore`). For code search inside the model, prefer `Grep`.
-
-`ast-grep` for structural search and codemods.
+`rg` for ad-hoc shell recon is allowed (faster than grep, respects `.gitignore`). `ast-grep` for structural search and codemods.
 
 ## General
 

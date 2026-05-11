@@ -2,8 +2,7 @@
 
 ## dev/local/
 
-- All self-created working documents go in `dev/local/` in repo root. Ensure `dev/local/` is in `.gitignore`.
-- Always use the Write tool for `dev/local/` files, including when CWD is `~/.claude`. Never use Bash shell redirects (`cat >`, `echo >`) to write files.
+All self-created working documents go in `dev/local/` in repo root. Ensure `dev/local/` is in `.gitignore`. The **aegis** plugin's `block_devlocal_redirects.py` hook enforces "Write tool, not shell redirects" - see `aegis/rules/working-documents.md` for the rationale.
 
 ## PRDs
 

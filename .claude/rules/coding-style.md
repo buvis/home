@@ -51,6 +51,7 @@ All code must be complete, working, and shippable.
 
 ## Warnings
 
-- NEVER silence warnings with `#[allow(...)]`, `// nolint`, `@SuppressWarnings`, `# type: ignore`, or equivalent. Fix root cause.
-- When you discover pre-existing warnings, lint issues, or code smells, do not silently ignore them. Surface them and push for action.
+Enforced by the **aegis** plugin's `block-suppression-markers.py` and `protect_config.py` hooks. See `aegis/rules/coding-style.md` for the full policy.
+
+When you discover pre-existing warnings, lint issues, or code smells, do not silently ignore them. Surface them and push for action.
 
