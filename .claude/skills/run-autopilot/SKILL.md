@@ -38,6 +38,8 @@ State file: `dev/local/autopilot/state.json` — see `references/state-schema.md
 
 Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition.
 
+**Invariant:** every state mutation that advances `phase` MUST also set `next_phase` to the same value. `autoclaude` reads `next_phase` to pick `--model` for the next launch (Work → Sonnet 4.6; everything else → Opus 4.7). If the two ever diverge, the next session may land on the wrong model. Empty `next_phase` (e.g. backlog drained) means "no preference; autoclaude defaults to Opus."
+
 ### Resuming
 
 When `/run-autopilot` is invoked and `dev/local/autopilot/state.json` exists with `batch.completed_prds`, this is a continuation after a session restart. Preserve `batch.completed_prds` (including `batch.id`) and proceed to Phase 0 to pick the next PRD.
@@ -91,7 +93,7 @@ Print a banner at each phase transition:
 
 Invoke `/catchup` skill.
 
-After completion, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"`.
+After completion, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"` and `next_phase: "planning"`.
 
 ## Phase 2: Planning
 
@@ -99,7 +101,7 @@ After completion, update state: add `"catchup"` to `phases_completed`, set `phas
 
 Invoke `/plan-tasks` with the selected PRD.
 
-After completion, query `TaskList` and update state: add `"planning"` to `phases_completed`, set `phase: "work"`, write `tasks`/`tasks_total`/`tasks_completed` snapshot (see Phase 3 for format).
+After completion, query `TaskList` and update state: add `"planning"` to `phases_completed`, set `phase: "work"` and `next_phase: "work"`, write `tasks`/`tasks_total`/`tasks_completed` snapshot (see Phase 3 for format).
 
 ## Phase 3: Work
 
@@ -114,23 +116,24 @@ Before invoking `/work`, query `TaskList` and write the full task snapshot to `d
 
 Invoke `/work` skill. It runs until all tasks complete.
 
-After completion, query `TaskList` again and update state: add `"work"` to `phases_completed`, set `phase: "review"`, write updated `tasks`/`tasks_total`/`tasks_completed`.
+After completion, query `TaskList` again and update state: add `"work"` to `phases_completed`, set `phase: "review"` and `next_phase: "review"`, write updated `tasks`/`tasks_total`/`tasks_completed`.
 
 ### Hand off to a fresh session for reviews
 
 After Phase 3 completes, do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
 
-1. Write `next` to `dev/local/autopilot/signal` (the Stop hook reads this and auto-exits the session. This is the only way the agent can end the session, and the shell loop wrapper relies on it; never ask the user to press Ctrl+D).
-2. Print:
+1. Update `state.next_phase` to `"review"` (the phase the next session will run). This is what `autoclaude` reads to pick the model for the next launch (Opus for review).
+2. Write the signal only when running inside the loop (see "Loop Detection" under Session Loop): if `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the Stop hook reads this and auto-exits the session; the shell loop wrapper relies on it; never ask the user to press Ctrl+D). If unset, skip the signal write — the session will stay interactive and the user will re-invoke `/run-autopilot` manually.
+3. Print:
 
 ```
 ── AUTOPILOT ── PRD: {prd-name} ── Phase 3 (Work) complete ─────────
 ── AUTOPILOT ── handing off to fresh session for reviews ───────────
 ```
 
-3. **STOP.** Do NOT invoke `/review-work-completion`, `/review-blindly`, or `/review-with-doubt` in this session, even if context budget appears sufficient.
+4. **STOP.** Do NOT invoke `/review-work-completion`, `/review-blindly`, or `/review-with-doubt` in this session, even if context budget appears sufficient.
 
-The Stop hook auto-exits when it sees the signal file. The shell loop wrapper (`while true; do claude "/run-autopilot"; ... done`) starts a fresh session and re-invokes `/run-autopilot`. The new session reads `dev/local/autopilot/state.json` (with `phases_completed=["catchup", "planning", "work"]`), skips Phases 1-3 via their skip conditions, and resumes at Phase 4.
+When the signal was written, the Stop hook auto-exits and the shell loop wrapper (`while true; do claude "/run-autopilot"; ... done`) starts a fresh session and re-invokes `/run-autopilot`. The new session reads `dev/local/autopilot/state.json` (with `phases_completed=["catchup", "planning", "work"]`), skips Phases 1-3 via their skip conditions, and resumes at Phase 4. When no signal was written, the same resume logic applies on the next manual invocation.
 
 ## Phase 4: Review
 
@@ -138,7 +141,7 @@ The Stop hook auto-exits when it sees the signal file. The shell loop wrapper (`
 
 Invoke `/review-work-completion` skill.
 
-After completion, update state: set `phase: "decision-gate"`.
+After completion, update state: set `phase: "decision-gate"` and `next_phase: "decision-gate"`.
 
 ## Phase 5: Decision Gate
 
@@ -200,7 +203,7 @@ Invoke `/work` on follow-up tasks (auto-fixable ones + user-approved ones only).
 
 The work skill may parallelize independent rework tasks when `superpowers:dispatching-parallel-agents` is available (see work skill's "Parallel dispatch for independent rework fixes").
 
-Increment cycle counter. Update state: set `phase: "review"`, update task counts. Loop back to Phase 4.
+Increment cycle counter. Update state: set `phase: "review"` and `next_phase: "review"`, update task counts. Loop back to Phase 4.
 
 ## Phase 7: Blind Review
 
@@ -210,7 +213,7 @@ Spec-only verification by a reviewer with no implementation context. Invoke `/re
 
 After the review:
 
-1. **No Critical/Important findings** → update state: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"`. Proceed to Phase 8.
+1. **No Critical/Important findings** → update state: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. Proceed to Phase 8.
 2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes, update state and proceed to Phase 8. Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning but proceed.
 
@@ -251,7 +254,7 @@ After classifying all items:
 2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
 3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop.
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
-5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"`, update task counts.
+5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts.
 
 KNOWN items keep `"status": "pending"` — Phase 9 step 5 collects these into the batch deferred log for batch-end review.
 
@@ -259,7 +262,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
 
 ## Phase 9: Completion
 
-1. Update state: set `phase: "done"`
+1. Update state: set `phase: "done"` and `next_phase: "done"`
 2. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix)
 3. Append completed PRD to `batch.completed_prds` in state file
 4. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
@@ -301,11 +304,11 @@ Summary:
 ### Continuation
 
 9. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, clear tasks/decisions/review_cycles/doubts. Preserve `batch` field. Write `next` to `dev/local/autopilot/signal`. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, clear tasks/decisions/review_cycles/doubts. Preserve `batch` field. Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop starts a fresh session). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
-     Then **STOP**. The stop hook auto-exits the session. The shell loop starts a fresh session.
+     Then **STOP**.
    - **No** → print batch summary, delete state file. Do NOT write `dev/local/autopilot/signal` - the session stays interactive for batch-end review.
      ```
      ── AUTOPILOT ── COMPLETE ───────────────────────────────────────────
@@ -360,15 +363,20 @@ Summary:
 
      Wait for user decisions on each PRD chunk before showing the next. For "fix now" items, execute the fix before continuing. For "create issue", create a GitHub issue with the context shown.
 
-     After all PRD chunks are reviewed (or user says stop), delete the deferred JSON and write `done` to `dev/local/autopilot/signal`.
-     If the deferred JSON doesn't exist or is empty, write `done` to `dev/local/autopilot/signal` immediately.
-     The stop hook auto-exits the session. The shell loop sees `done` and stops.
+     After all PRD chunks are reviewed (or user says stop), delete the deferred JSON. Set `next_phase: ""` (empty; nothing more to run). If `$_AUTOPILOT_LOOP` is set, write `done` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop sees `done` and stops). If unset, skip the signal write — leave the session interactive.
+     If the deferred JSON doesn't exist or is empty, do the same signal-write-if-in-loop step immediately.
 
 ## Session Loop
 
 Autopilot supports automatic session cycling via a signal file + Stop hook. This enables unattended PRD-to-PRD transitions while keeping sessions interactive.
 
-**Signal file:** `dev/local/autopilot/signal` — written at Phase 9 completion with `next` (more PRDs) or `done` (backlog empty).
+**Signal file:** `dev/local/autopilot/signal` — written at Phase 3 hand-off and Phase 9 completion with `next` (more PRDs) or `done` (backlog empty). Always paired with a `state.next_phase` write that happens immediately before — `autoclaude` reads `next_phase` to pick `--model` for the next launch.
+
+### Loop Detection
+
+The shell wrapper (the `autoclaude` function in `~/.config/bash/plugins/development.plugin.bash`) exports `_AUTOPILOT_LOOP=$$` before invoking `claude`. The skill MUST only write `dev/local/autopilot/signal` when this env var is set — writing it without a loop wrapper present causes the Stop hook to SIGINT the session with no restart, which surprises the user.
+
+Check before every signal write with a Bash call such as `echo "${_AUTOPILOT_LOOP-}"` (always exits 0; prints empty when unset) and treat empty output as "not in loop, skip signal". Do NOT use `printenv _AUTOPILOT_LOOP` — it exits 1 when the variable is unset, which the Bash tool surfaces as an error. When skipping the signal, still print the handoff banner and STOP — the session simply stays interactive and the user re-invokes `/run-autopilot` (the next session resumes via `state.json` skip conditions).
 
 **Shell wrapper:**
 
@@ -384,6 +392,8 @@ while true; do
   echo "Starting next PRD..."
 done
 ```
+
+(The real `autoclaude` function is more involved — it exports `_AUTOPILOT_LOOP`, traps signals, and cleans up orphaned children — but the loop contract is the same.)
 
 **Required:** A Stop hook that auto-exits when the signal file exists. See `scripts/autopilot-stop-hook.sh`. Configure in `settings.json`:
 
