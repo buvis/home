@@ -729,6 +729,47 @@ def handle(data: dict) -> None:
         )
         return
 
+    if tool_name == "Bash":
+        cmd = tool_input.get("command")
+        if not isinstance(cmd, str) or not cmd.strip():
+            return
+        hit = detect_bash_bypass(cmd, Path.cwd())
+        if hit is None:
+            # No audit on clean Bash (avoid log spam on every command).
+            return
+        pattern_name, resolved_path = hit
+        key = hashlib.sha256(
+            ("bash:" + pattern_name + ":" + resolved_path).encode("utf-8")
+        ).hexdigest()[:24]
+        if lib.is_checked(session, _ECHO_NAMESPACE, key):
+            audit_event(
+                session=session, tool=tool_name, file=resolved_path,
+                decision="allow", reason="second-attempt",
+                matches=[{"pattern": pattern_name}],
+            )
+            return
+        lib.mark_checked(session, _ECHO_NAMESPACE, key)
+        reason_text = (
+            f"Echo: this Bash command writes source code via `{pattern_name}`. "
+            f"Use the Write tool — Echo cannot inspect content written through "
+            f"shell redirects.\n\nDetected target: `{resolved_path}`.\n\n"
+            f"If you must use shell, retry — the second attempt will pass."
+        )
+        envelope = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason_text,
+            }
+        }
+        sys.stdout.write(json.dumps(envelope))
+        audit_event(
+            session=session, tool=tool_name, file=resolved_path,
+            decision="deny", reason="bash-bypass",
+            matches=[{"pattern": pattern_name}],
+        )
+        return
+
     if tool_name in ("Edit", "Write", "MultiEdit"):
         content = extract_content(tool_name, tool_input)
         ext = file_extension(file_path)
