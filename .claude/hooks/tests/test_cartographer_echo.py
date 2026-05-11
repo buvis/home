@@ -475,6 +475,106 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- two-attempt deny gate (end-to-end via subprocess) ---
+
+
+def _make_test_repo(tmp_path: Path) -> Path:
+    """Make a minimal directory layout with one duplicate-target file."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "util.py").write_text("def formatPrice(p):\n    return p\n")
+    return root
+
+
+def test_two_attempt_first_call_denies(tmp_path: Path) -> None:
+    root = _make_test_repo(tmp_path)
+    payload = {
+        "session_id": "sess-gate-1",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(root / "price.py"),
+            "content": "def formatPrice(p):\n    return f'${p}'\n",
+        },
+    }
+    proc = run_hook(payload, home=tmp_path, cwd=root)
+    assert proc.returncode == 0
+    assert proc.stdout.strip(), "expected deny envelope on stdout"
+    env = json.loads(proc.stdout)
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    events = read_audit(tmp_path)
+    deny = [e for e in events if e.get("decision") == "deny"]
+    assert deny, f"expected deny audit, got {events}"
+
+
+def test_two_attempt_second_call_allows(tmp_path: Path) -> None:
+    root = _make_test_repo(tmp_path)
+    payload = {
+        "session_id": "sess-gate-2",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(root / "price.py"),
+            "content": "def formatPrice(p):\n    return f'${p}'\n",
+        },
+    }
+    # First call: deny + mark.
+    proc1 = run_hook(payload, home=tmp_path, cwd=root)
+    env1 = json.loads(proc1.stdout)
+    assert env1["hookSpecificOutput"]["permissionDecision"] == "deny"
+    # Second call with same payload: allow.
+    proc2 = run_hook(payload, home=tmp_path, cwd=root)
+    assert proc2.returncode == 0
+    if proc2.stdout.strip():
+        env2 = json.loads(proc2.stdout)
+        assert env2["hookSpecificOutput"]["permissionDecision"] != "deny"
+    events = read_audit(tmp_path)
+    second = [e for e in events if e.get("reason") == "second-attempt"]
+    assert second, f"expected second-attempt allow audit, got {events}"
+
+
+def test_two_attempt_different_file_still_denies(tmp_path: Path) -> None:
+    root = _make_test_repo(tmp_path)
+    payload1 = {
+        "session_id": "sess-gate-3",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(root / "price.py"),
+            "content": "def formatPrice(p):\n    return p\n",
+        },
+    }
+    payload2 = {
+        "session_id": "sess-gate-3",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(root / "other.py"),  # different file = different key
+            "content": "def formatPrice(p):\n    return p\n",
+        },
+    }
+    p1 = run_hook(payload1, home=tmp_path, cwd=root)
+    p2 = run_hook(payload2, home=tmp_path, cwd=root)
+    env1 = json.loads(p1.stdout)
+    env2 = json.loads(p2.stdout)
+    assert env1["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert env2["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_no_matches_no_deny(tmp_path: Path) -> None:
+    """When extracted symbols have no project hits, pass through without denying."""
+    root = _make_test_repo(tmp_path)
+    payload = {
+        "session_id": "sess-no-match",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(root / "fresh.py"),
+            "content": "def completelyUniqueWidgetName(p):\n    return p\n",
+        },
+    }
+    proc = run_hook(payload, home=tmp_path, cwd=root)
+    assert proc.returncode == 0
+    if proc.stdout.strip():
+        env = json.loads(proc.stdout)
+        assert env["hookSpecificOutput"]["permissionDecision"] != "deny"
+
+
 # --- match scoring ---
 
 
@@ -548,23 +648,25 @@ def test_decide_allows_on_weak_only() -> None:
 
 
 def test_extracted_symbols_recorded_in_audit(tmp_path: Path) -> None:
-    """When a supported file passes all skip rules, the audit event lists symbols."""
+    """Extracted symbols appear in the audit event regardless of allow/deny outcome."""
+    root = tmp_path / "isolated"
+    root.mkdir()
     payload = {
         "session_id": "sess-extract",
         "tool_name": "Write",
         "tool_input": {
-            "file_path": str(tmp_path / "src" / "price.py"),
-            "content": "def format_price():\n    pass\n\nclass Pricing:\n    pass\n",
+            "file_path": str(root / "price.py"),
+            "content": "def formatPriceUnique(p):\n    return p\n\nclass UniquePricingThing:\n    pass\n",
         },
     }
-    proc = run_hook(payload, home=tmp_path)
+    proc = run_hook(payload, home=tmp_path, cwd=root)
     assert proc.returncode == 0
     events = read_audit(tmp_path)
-    allow_events = [e for e in events if e.get("decision") == "allow"]
-    assert allow_events, f"expected at least one allow event, got {events}"
-    last = allow_events[-1]
-    assert "format_price" in last["symbols"]
-    assert "Pricing" in last["symbols"]
+    symbol_events = [e for e in events if e.get("symbols")]
+    assert symbol_events, f"expected event carrying symbols, got {events}"
+    last = symbol_events[-1]
+    assert "formatPriceUnique" in last["symbols"]
+    assert "UniquePricingThing" in last["symbols"]
     assert last["phase"] == "echo"
 
 
