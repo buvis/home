@@ -140,11 +140,11 @@ For the first available task:
 
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. **Sync state file** (see Dashboard State Sync)
-3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase:
+3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. Walk up from `$PWD` to find the autopilot dir (same pattern the hook uses — agents may `cd` into a subdirectory during the task), then remove the marker inside it:
    ```bash
-   rm -f dev/local/autopilot/.cap-fired
+   d=$PWD; while [ "$d" != "/" ]; do [ -d "$d/dev/local/autopilot" ] && { rm -f "$d/dev/local/autopilot/.cap-fired"; break; }; d=$(dirname "$d"); done
    ```
-   No-op when the file doesn't exist (non-autopilot runs, or first task of the phase). Skip silently if `dev/local/autopilot/` doesn't exist.
+   No-op when no ancestor has the dir (non-autopilot runs) or the marker is already absent (first task of the phase).
 4. Use `TaskGet` to read full task description
 
 ### 2.5. Load project context
