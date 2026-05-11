@@ -115,10 +115,11 @@ When `estimated_tokens > 150000`, split:
 
 **Stall behavior:**
 
-When unable to split below 150K, write to `dev/local/autopilot/state.json`:
+When unable to split below 150K, **merge** a `stall_reason` key into the existing `dev/local/autopilot/state.json` (do NOT replace the file — the existing `phase`, `phases_completed`, `tasks`, `batch`, etc. must be preserved). Read the file, set the new key, write it back atomically:
 
 ```json
 {
+  ...all existing state...,
   "stall_reason": {
     "stalled": "oversized_task",
     "task": "<task-id>",
@@ -127,7 +128,7 @@ When unable to split below 150K, write to `dev/local/autopilot/state.json`:
 }
 ```
 
-Exit non-zero so `/run-autopilot` Phase 2 can move the PRD to `dev/local/prds/stalled/` and pick the next backlog item.
+After the merge succeeds, exit non-zero so `/run-autopilot` Phase 2 detects the stall, moves the PRD from `dev/local/prds/wip/` to `dev/local/prds/stalled/` (creating the directory if missing), clears the stall key from state, and proceeds to the next backlog item without user prompt. See `/run-autopilot` Phase 2 for the consumer-side contract.
 
 ### Estimator caveats
 
