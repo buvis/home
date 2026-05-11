@@ -475,6 +475,75 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     assert out == []
 
 
+# --- match scoring ---
+
+
+def test_score_match_strong_exact_token() -> None:
+    mod = _import_hook_module()
+    cand = {"file": "u.py", "line": 1, "snippet": "def formatPrice(p):"}
+    assert mod.score_match("formatPrice", cand) == "strong"
+
+
+def test_score_match_strong_distinguishes_substring() -> None:
+    """Substring-only matches must NOT be classified as strong."""
+    mod = _import_hook_module()
+    cand = {"file": "u.py", "line": 1, "snippet": "def formatPriceTag(p):"}
+    assert mod.score_match("formatPrice", cand) != "strong"
+
+
+def test_score_match_medium_levenshtein_within_2() -> None:
+    mod = _import_hook_module()
+    cand = {"file": "u.py", "line": 1, "snippet": "def formatPric(p):"}  # distance 1
+    assert mod.score_match("formatPrice", cand) == "medium"
+
+
+def test_score_match_weak_long_substring_overlap() -> None:
+    mod = _import_hook_module()
+    cand = {"file": "u.py", "line": 1, "snippet": "def priceFormatter(p):"}  # shares "Format" (6+ via case-insensitive? we'll require literal)
+    # The snippet contains the literal "Format" - 6 chars shared with "formatPrice".
+    # Test the case-insensitive contiguous overlap directly:
+    cand2 = {"file": "u.py", "line": 1, "snippet": "def priceformatter(p):"}
+    assert mod.score_match("formatPrice", cand2) == "weak"
+
+
+def test_score_match_none_when_no_overlap() -> None:
+    mod = _import_hook_module()
+    cand = {"file": "u.py", "line": 1, "snippet": "def xyz(): return 1"}
+    assert mod.score_match("formatPrice", cand) is None
+
+
+def test_decide_blocks_on_strong() -> None:
+    mod = _import_hook_module()
+    groups = {
+        "formatPrice": [{"file": "u.py", "line": 1, "snippet": "def formatPrice(p):"}],
+    }
+    decision, matches = mod.decide(["formatPrice"], groups)
+    assert decision == "deny"
+    assert matches and matches[0]["score"] == "strong"
+    assert matches[0]["symbol"] == "formatPrice"
+
+
+def test_decide_blocks_on_medium() -> None:
+    mod = _import_hook_module()
+    groups = {
+        "formatPrice": [{"file": "u.py", "line": 1, "snippet": "def formatPric(p):"}],
+    }
+    decision, matches = mod.decide(["formatPrice"], groups)
+    assert decision == "deny"
+    assert matches[0]["score"] == "medium"
+
+
+def test_decide_allows_on_weak_only() -> None:
+    mod = _import_hook_module()
+    groups = {
+        "formatPrice": [{"file": "u.py", "line": 1, "snippet": "def priceformatter(p):"}],
+    }
+    decision, matches = mod.decide(["formatPrice"], groups)
+    assert decision == "allow"
+    # Weak matches are NOT included in deny matches list (which is for the envelope).
+    assert matches == []
+
+
 # --- End-to-end: extracted symbols flow through to audit on supported files ---
 
 
