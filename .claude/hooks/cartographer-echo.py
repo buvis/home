@@ -35,6 +35,25 @@ SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go"}
 )
 
+# Map dotted extension -> tree_sitter_language_pack language name. `.jsx`
+# uses the javascript grammar (no dedicated jsx grammar in the pack).
+_LANG_BY_EXT: dict[str, str] = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".rs": "rust",
+    ".go": "go",
+}
+
+# StructureItem kinds we treat as name-bearing symbols worth duplicate-
+# checking. `process()` returns kinds as enums whose `str()` is the variant
+# name (e.g. "Function", "Method"). Compare via string.
+_SYMBOL_KINDS: frozenset[str] = frozenset(
+    {"Function", "Method", "Class", "Struct", "Enum", "Type", "Trait", "Interface"}
+)
+
 # 500 KB cap on `tool_input.content` (Write/Edit reconstructed). Files bigger
 # than this are common in generated/minified bundles; tree-sitter parsing
 # them blows the latency budget. Skip + audit instead.
@@ -122,6 +141,93 @@ def target_file_path(tool_name: str, tool_input: dict) -> str:
         if isinstance(fp, str):
             return fp
     return ""
+
+
+# --- content reconstruction & symbol extraction ---
+
+
+def extract_content(tool_name: str, tool_input: dict) -> str:
+    """Best-effort assembly of the new content to scan.
+
+    Write: `content` directly.
+    Edit: `new_string` (treats the diff fragment as the scan target; this
+    intentionally over-scans for the substring being added, which keeps
+    Echo's symbol coverage on small edits).
+    MultiEdit: concatenate all `new_string` values.
+    """
+    if tool_name == "Write":
+        c = tool_input.get("content")
+        return c if isinstance(c, str) else ""
+    if tool_name == "Edit":
+        ns = tool_input.get("new_string")
+        return ns if isinstance(ns, str) else ""
+    if tool_name == "MultiEdit":
+        edits = tool_input.get("edits")
+        if isinstance(edits, list):
+            parts = []
+            for ed in edits:
+                if isinstance(ed, dict):
+                    ns = ed.get("new_string")
+                    if isinstance(ns, str):
+                        parts.append(ns)
+            return "\n".join(parts)
+    return ""
+
+
+def _walk_structure(items, kinds: frozenset[str], collected: list[str], seen: set[str]) -> None:
+    """Depth-first walk over `process(...).structure`, collecting named items.
+
+    Anonymous items (`name is None` or empty) are skipped — they cannot be
+    matched as duplicates by name. De-dup preserves first-seen order.
+    """
+    if not items:
+        return
+    for it in items:
+        name = getattr(it, "name", None)
+        kind = str(getattr(it, "kind", ""))
+        if name and kind in kinds and name not in seen:
+            seen.add(name)
+            collected.append(name)
+        children = getattr(it, "children", None)
+        if children:
+            _walk_structure(children, kinds, collected, seen)
+
+
+def extract_symbols(content: str, ext: str) -> list[str]:
+    """Extract defined symbol names from `content` for the given extension.
+
+    Returns [] when the extension is unsupported, content is empty, the
+    tree-sitter pack is unavailable, or parsing fails. Never raises.
+    """
+    if not content:
+        return []
+    lang = _LANG_BY_EXT.get(ext.lower())
+    if lang is None:
+        return []
+    mod = lib.try_import_tree_sitter()
+    if mod is None:
+        return []
+    try:
+        config = mod.ProcessConfig(language=lang, symbols=True, structure=True)
+        result = mod.process(content, config)
+    except Exception as exc:  # noqa: BLE001
+        # Parsing fails on syntactically invalid content; record a warn and
+        # treat as no symbols (the host write proceeds).
+        lib.append_audit({"event": "tree_sitter_parse_failed", "language": lang, "error": str(exc)})
+        return []
+
+    collected: list[str] = []
+    seen: set[str] = set()
+    _walk_structure(getattr(result, "structure", None) or [], _SYMBOL_KINDS, collected, seen)
+    # Also merge in top-level `symbols` (some grammars — e.g. go's
+    # `type` declarations — surface only here, not in `structure`).
+    for s in getattr(result, "symbols", None) or []:
+        name = getattr(s, "name", None)
+        kind = str(getattr(s, "kind", ""))
+        if name and kind in _SYMBOL_KINDS and name not in seen:
+            seen.add(name)
+            collected.append(name)
+    return collected
 
 
 # --- audit emission ---
@@ -212,9 +318,23 @@ def handle(data: dict) -> None:
         )
         return
 
-    # Scaffolding phase: no detection logic yet (added in PRD 00010 Tasks
-    # 3-11). Until then, pass through without emitting an audit event so
-    # the log stays meaningful once those phases land.
+    # Symbol extraction (PRD 00010 Task 3). Match search, scoring, and the
+    # two-attempt deny gate land in Tasks 5-8.
+    if tool_name in ("Edit", "Write", "MultiEdit"):
+        content = extract_content(tool_name, tool_input)
+        ext = file_extension(file_path)
+        symbols = extract_symbols(content, ext)
+        reason = "extracted" if symbols else "no-symbols"
+        audit_event(
+            session=session,
+            tool=tool_name,
+            file=file_path,
+            decision="allow",
+            reason=reason,
+            symbols=symbols,
+        )
+        return
+
     return
 
 
