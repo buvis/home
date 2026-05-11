@@ -116,17 +116,21 @@ Invoke `/plan-tasks` with the selected PRD.
 `/plan-tasks` exits non-zero and writes `state.stall_reason` when a task cannot be split below the 150K token budget (see `plan-tasks/SKILL.md` "Stall behavior"). When this happens:
 
 1. Read `dev/local/autopilot/state.json`. If `stall_reason.stalled == "oversized_task"`, do NOT proceed to Phase 3.
-2. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
-3. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
-4. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, clear `tasks`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`. Preserve `batch`. Set `next_phase: "catchup"`.
-5. Print:
+2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 4 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
+3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
+4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
+5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, clear `tasks`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`. Preserve `batch`. Set `next_phase: "catchup"`.
+6. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
    ── moved to dev/local/prds/stalled/ ── advancing to next PRD ────
    ```
-6. If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (same mechanism as Phase 9 PRD-to-PRD transition) and STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+7. If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (same mechanism as Phase 9 PRD-to-PRD transition) and STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 
-When `/plan-tasks` exits zero (no stall), continue normally.
+**Other outcomes from `/plan-tasks`:**
+
+- **Exits zero**: no stall. Continue normally to the post-completion state update below.
+- **Exits non-zero without `stall_reason`** (or with a `stall_reason.stalled` value other than `"oversized_task"`): treat as a sub-skill failure. PAUSE and report the error per the "Sub-skill invocation fails" entry in the Error Handling table. Do NOT proceed to Phase 3 or move the PRD.
 
 After completion, query `TaskList` and update state: add `"planning"` to `phases_completed`, set `phase: "work"` and `next_phase: "work"`, write `tasks`/`tasks_total`/`tasks_completed` snapshot (see Phase 3 for format).
 
