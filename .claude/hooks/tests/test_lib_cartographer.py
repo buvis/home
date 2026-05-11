@@ -281,7 +281,16 @@ def test_resolve_session_key_falls_back_to_cwd(lib, monkeypatch: pytest.MonkeyPa
     assert key.startswith("proj-")
 
 
-def test_resolve_session_key_parity_with_gateguard(lib, tmp_path: Path) -> None:
+def test_resolve_session_key_parity_with_gateguard(
+    lib, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Strip env vars both modules consult so the empty-dict sample exercises the
+    # `proj-` cwd-fallback branch (otherwise CI environments with these set
+    # silently skip that branch).
+    monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CLAUDE_TRANSCRIPT_PATH", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
     gg = _load_gateguard()
     samples: list[dict] = [
         {"session_id": "explicit-session"},
