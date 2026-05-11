@@ -72,18 +72,9 @@ config.keys = {
 	{ key = "j", mods = "LEADER", action = act({ ActivatePaneDirection = "Down" }) },
 	{ key = "k", mods = "LEADER", action = act({ ActivatePaneDirection = "Up" }) },
 	{ key = "l", mods = "LEADER", action = act({ ActivatePaneDirection = "Right" }) },
-	{ key = "s", mods = "LEADER", action = act({ SplitVertical = { domain = "CurrentPaneDomain" } }) },
-	{ key = "v", mods = "LEADER", action = act({ SplitHorizontal = { domain = "CurrentPaneDomain" } }) },
-	{ key = "w", mods = "LEADER", action = act({ CloseCurrentTab = { confirm = true } }) },
-	{ key = "q", mods = "LEADER", action = act({ CloseCurrentPane = { confirm = true } }) },
-	{ key = "z", mods = "LEADER", action = "TogglePaneZoomState" },
-	{ key = "c", mods = "CTRL", action = act.CopyTo("Clipboard") },
-	{ key = "v", mods = "CTRL", action = act.PasteFrom("Clipboard") },
-	{ key = "c", mods = "CTRL|SHIFT", action = act.SendKey({ key = "c", mods = "CTRL" }) },
-
 	{
 		key = "r",
-		mods = "CTRL|SHIFT",
+		mods = "LEADER",
 		action = act.PromptInputLine({
 			description = "Enter new name for tab",
 			action = wezterm.action_callback(function(window, _, line)
@@ -93,6 +84,14 @@ config.keys = {
 			end),
 		}),
 	},
+	{ key = "s", mods = "LEADER", action = act({ SplitVertical = { domain = "CurrentPaneDomain" } }) },
+	{ key = "v", mods = "LEADER", action = act({ SplitHorizontal = { domain = "CurrentPaneDomain" } }) },
+	{ key = "w", mods = "LEADER", action = act({ CloseCurrentTab = { confirm = true } }) },
+	{ key = "q", mods = "LEADER", action = act({ CloseCurrentPane = { confirm = true } }) },
+	{ key = "z", mods = "LEADER", action = "TogglePaneZoomState" },
+	{ key = "c", mods = "CTRL", action = act.CopyTo("Clipboard") },
+	{ key = "v", mods = "CTRL", action = act.PasteFrom("Clipboard") },
+	{ key = "c", mods = "CTRL|SHIFT", action = act.SendKey({ key = "c", mods = "CTRL" }) },
 	{ key = "Enter", mods = "SHIFT", action = wezterm.action.SendString("\n") },
 	-- move between split panes
 	split_nav("move", "h"),
