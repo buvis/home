@@ -6,7 +6,10 @@ session transcript to find the most recent `message.usage`, and on overrun
 emits an `additionalContext` envelope telling the model to abort cleanly.
 
 Active only when `dev/local/autopilot/state.json` exists with `phase == "work"`.
-One-shot per task via `.cap-fired` marker (cleared at task start).
+The autopilot directory is located by walking up from cwd (the agent may
+have cd'd into a subdirectory during work; same fix as a0c5b8e09 for the
+stop hook). One-shot per task via `.cap-fired` marker (cleared at task
+start by `/work` step 2).
 
 Stdlib only. Self-contained — no `_common` import (this script lives outside
 ~/.claude/hooks/).
@@ -23,10 +26,7 @@ from typing import Any
 USAGE_LIMIT = 180_000
 TAIL_BYTES = 64 * 1024  # Read last 64KB; one usage line is well under 4KB.
 
-AUTOPILOT_DIR = Path("dev") / "local" / "autopilot"
-STATE_FILE = AUTOPILOT_DIR / "state.json"
-MARKER_FILE = AUTOPILOT_DIR / ".cap-fired"
-TASK_ABORT_LOG = AUTOPILOT_DIR / "task-abort"
+AUTOPILOT_REL_PATH = Path("dev") / "local" / "autopilot"
 
 ABORT_INSTRUCTIONS = (
     "Context cap reached (~180K tokens). Abort current task cleanly: commit "
@@ -34,6 +34,31 @@ ABORT_INSTRUCTIONS = (
     "(already done by hook), write 'task_aborted' to "
     "dev/local/autopilot/signal, then exit."
 )
+
+
+def _find_autopilot_dir(start: Path) -> Path | None:
+    """Walk up from `start` looking for dev/local/autopilot/.
+
+    Returns the resolved path if found, None otherwise. Stops at filesystem
+    root. Mirrors the walk-up pattern in autopilot_stop_hook.py — agent may
+    cd into a subdirectory during work, so a hard-coded relative
+    `dev/local/autopilot` resolution silently misses the dir.
+    """
+    try:
+        current = start.resolve()
+    except OSError:
+        return None
+    while True:
+        candidate = current / AUTOPILOT_REL_PATH
+        try:
+            if candidate.is_dir():
+                return candidate
+        except OSError:
+            pass
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
 
 
 def _read_stdin() -> dict[str, Any]:
@@ -50,9 +75,9 @@ def _read_stdin() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _load_state() -> dict[str, Any] | None:
+def _load_state(autopilot_dir: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(STATE_FILE.read_text())
+        return json.loads((autopilot_dir / "state.json").read_text())
     except (OSError, json.JSONDecodeError):
         return None
 
@@ -116,11 +141,12 @@ def _in_progress_task_id(state: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _atomic_write_state(state: dict[str, Any]) -> None:
-    tmp = STATE_FILE.with_suffix(".json.tmp")
+def _atomic_write_state(autopilot_dir: Path, state: dict[str, Any]) -> None:
+    state_file = autopilot_dir / "state.json"
+    tmp = state_file.with_suffix(".json.tmp")
     try:
         tmp.write_text(json.dumps(state, indent=2))
-        os.replace(tmp, STATE_FILE)
+        os.replace(tmp, state_file)
     except OSError:
         try:
             tmp.unlink()
@@ -128,9 +154,9 @@ def _atomic_write_state(state: dict[str, Any]) -> None:
             pass
 
 
-def _append_task_abort_log(entry: dict[str, Any]) -> None:
+def _append_task_abort_log(autopilot_dir: Path, entry: dict[str, Any]) -> None:
     try:
-        with TASK_ABORT_LOG.open("a") as f:
+        with (autopilot_dir / "task-abort").open("a") as f:
             f.write(json.dumps(entry) + "\n")
     except OSError:
         pass
@@ -152,11 +178,16 @@ def main() -> None:
     if not isinstance(transcript_path_str, str) or not transcript_path_str:
         return
 
-    state = _load_state()
+    autopilot_dir = _find_autopilot_dir(Path.cwd())
+    if autopilot_dir is None:
+        return
+
+    state = _load_state(autopilot_dir)
     if not state or state.get("phase") != "work":
         return
 
-    if MARKER_FILE.exists():
+    marker_file = autopilot_dir / ".cap-fired"
+    if marker_file.exists():
         return
 
     transcript_path = Path(transcript_path_str)
@@ -165,7 +196,7 @@ def main() -> None:
         return
 
     try:
-        MARKER_FILE.touch()
+        marker_file.touch()
     except OSError:
         return
 
@@ -180,14 +211,14 @@ def main() -> None:
         "total_input_tokens": total,
         "cause": "context_overrun",
     }
-    _append_task_abort_log(abort_entry)
+    _append_task_abort_log(autopilot_dir, abort_entry)
 
     aborts = state.get("task_aborts")
     if not isinstance(aborts, list):
         aborts = []
     aborts.append(abort_entry)
     state["task_aborts"] = aborts
-    _atomic_write_state(state)
+    _atomic_write_state(autopilot_dir, state)
 
     _emit_abort_envelope()
 
