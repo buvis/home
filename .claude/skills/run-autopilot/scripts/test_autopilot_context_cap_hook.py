@@ -258,6 +258,11 @@ class ContextCapHookTests(unittest.TestCase):
     # Performance ------------------------------------------------------------
 
     def test_completes_quickly_on_large_transcript(self) -> None:
+        """PRD 00024 sets a <100ms target on the hook so it doesn't add
+        noticeable latency to every PostToolUse fire. The threshold below
+        is intentionally tight — a regression that pushes the hook above
+        100ms should fail loudly rather than slip past a loose bound.
+        """
         self.fx.write_state(phase="work")
         line_blob = json.dumps({"type": "noise", "padding": "x" * 4_000}) + "\n"
         with self.fx.transcript.open("w") as f:
@@ -268,7 +273,7 @@ class ContextCapHookTests(unittest.TestCase):
         result = self.fx.run_hook()
         elapsed_ms = (time.perf_counter() - start) * 1_000
         self.assertEqual(result.returncode, 0)
-        self.assertLess(elapsed_ms, 1_500, f"hook took {elapsed_ms:.0f}ms")
+        self.assertLess(elapsed_ms, 100, f"hook took {elapsed_ms:.0f}ms")
 
 
 if __name__ == "__main__":
