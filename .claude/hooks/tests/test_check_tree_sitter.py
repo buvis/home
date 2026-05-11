@@ -13,6 +13,10 @@ SCRIPT = Path.home() / ".claude" / "cartographer" / "scripts" / "check-tree-sitt
 
 
 def test_script_exists_and_is_executable() -> None:
+    # The script is committed with mode 100755 (verified in the buvis bare
+    # repo). There is no install-time chmod path; if this assertion ever
+    # fails on a fresh clone or after a re-add, restore the +x bit on
+    # `~/.claude/cartographer/scripts/check-tree-sitter.py` and commit.
     assert SCRIPT.is_file(), f"missing: {SCRIPT}"
     assert os.access(SCRIPT, os.X_OK), f"not executable: {SCRIPT}"
 

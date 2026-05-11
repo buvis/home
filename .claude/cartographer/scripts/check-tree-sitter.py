@@ -6,7 +6,7 @@ Exit codes:
   1  ImportError: print remediation to stderr, then exit 1
 
 Phase 1+ Cartographer hooks degrade gracefully via
-_lib_cartographer.try_import_tree_sitter — they never call this script. This
+`_lib_cartographer.try_import_tree_sitter`; they never call this script. This
 CLI is for explicit installation verification.
 """
 
