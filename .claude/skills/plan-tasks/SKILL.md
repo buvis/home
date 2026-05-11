@@ -65,6 +65,74 @@ Details:
 Verify: {how to confirm it's done}
 ```
 
+### 4.5. Estimate per-task context budget
+
+For each task, compute an estimate so `/work` stays under Sonnet 4.6's 200K standard-tier ceiling.
+
+**Formula:**
+
+```
+estimated_tokens = sum(file_bytes/4 for file in task.files_touched)
+                 + prd_slice_bytes/4
+                 + plan_text_bytes/4
+                 + 30000
+```
+
+- `file_bytes/4`: ~4 chars per token, accurate within ±20% for code (less accurate for prose-heavy markdown; round up when in doubt).
+- `prd_slice_bytes`: bytes of the PRD section(s) this task references.
+- `plan_text_bytes`: bytes of the task's own description/details.
+- `30000`: overhead constant for system prompt + tool defs + skill texts at Sonnet 4.6.
+
+**Threshold:** 150 000 tokens. `est_context_peak = estimated_tokens + 20000` (20K headroom for response generation).
+
+**Persist** both values in the task's `TaskCreate(metadata={...})` field:
+
+```json
+{"estimated_tokens": 87000, "est_context_peak": 107000}
+```
+
+**Worked example:** a task touches three files (80KB, 40KB, 20KB) with a 25KB PRD slice and a 3KB plan text.
+
+```
+sum(file_bytes/4)   = (80000 + 40000 + 20000) / 4 = 35 000
+prd_slice_bytes/4   = 25000 / 4                   =  6 250
+plan_text_bytes/4   = 3000 / 4                    =    750
+overhead            =                              30 000
+                                                  ───────
+estimated_tokens    =                              72 000
+est_context_peak    = 72 000 + 20 000           =  92 000
+```
+
+Below the 150K threshold → task ships as-is.
+
+### 4.6. Split oversized tasks
+
+When `estimated_tokens > 150000`, split:
+
+1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 30K overhead applies once per task. Re-estimate each subtask.
+2. **Capability boundary second.** If a task touches only one file and still exceeds 150K, split along capability boundaries inside the PRD's Functional Decomposition section.
+3. **One split attempt only.** If a task still exceeds 150K after splitting, mark the PRD as stalled.
+
+**Stall behavior:**
+
+When unable to split below 150K, write to `dev/local/autopilot/state.json`:
+
+```json
+{
+  "stall_reason": {
+    "stalled": "oversized_task",
+    "task": "<task-id>",
+    "estimated_tokens": <int>
+  }
+}
+```
+
+Exit non-zero so `/run-autopilot` Phase 2 can move the PRD to `dev/local/prds/stalled/` and pick the next backlog item.
+
+### Estimator caveats
+
+The bytes/4 heuristic is accurate within ±20% for source code, less accurate for prose-heavy markdown. When the largest input is markdown (PRD prose, docs), round up. When estimates land within 10% of 150K, prefer splitting — the runtime context cap hook (Phase 2 of PRD 00024) will abort tasks that overrun anyway, and a planned split is cheaper than a runtime abort.
+
 ### 5. Set dependencies
 
 Use `TaskUpdate` with `addBlockedBy` to link dependent tasks.
