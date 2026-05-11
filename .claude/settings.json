@@ -290,6 +290,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/skills/run-autopilot/scripts/autopilot_context_cap_hook.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },
@@ -302,7 +311,11 @@
     "pyright-lsp@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "warden@buvis-plugins": true,
-    "harness@harness-marketplace": true
+    "harness@harness-marketplace": true,
+    "git-ferry@buvis-plugins": true,
+    "strunk@buvis-plugins": true,
+    "aegis@buvis-plugins": true,
+    "claude-checkup@buvis-plugins": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {
