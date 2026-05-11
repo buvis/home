@@ -30,7 +30,6 @@ READ_HEARTBEAT_SEC = 60
 
 MAX_CHECKED_ENTRIES = 500
 MAX_SESSION_KEYS = 50
-ROUTINE_BASH_KEY = "__bash_session__"
 
 DESTRUCTIVE_BASH = re.compile(
     r"\b(rm\s+-rf|git\s+reset\s+--hard|git\s+checkout\s+--|git\s+clean\s+-f|"
@@ -51,6 +50,53 @@ def _strip_quoted(command: str) -> str:
     return _QUOTED_RE.sub("", command)
 
 CLAUDE_SETTINGS_PATH = re.compile(r"(^|/)\.claude/settings(?:\.[^/]+)?\.json$")
+
+# Working-doc exemptions: paths where the gate's questions ("list importers",
+# "public functions affected") are inapplicable, so gating just trains the
+# model to fabricate empty answers.
+_WORKING_DOC_DIR_SEGMENTS = (
+    "/dev/local/",
+    "/.claude/plans/",
+    "/.claude/projects/",
+    "/.claude/scratch/",
+    "/.claude/sessions/",
+    "/.claude/cache/",
+    "/prds/backlog/",
+    "/prds/wip/",
+    "/prds/done/",
+)
+
+_WORKING_DOC_EXTENSIONS = (".md", ".markdown", ".txt", ".rst")
+
+_WORKING_DOC_FILENAMES = frozenset({".gitignore", ".env.example"})
+
+# Extensions for which "public functions/classes affected" is a sensible
+# prompt. Anything else gets the consumer/schema variant.
+_CODE_EXTENSIONS = (
+    ".py", ".pyx",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".rs", ".go",
+    ".java", ".kt", ".scala", ".swift", ".m", ".mm",
+    ".rb", ".php",
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp",
+    ".cs", ".fs", ".vb",
+    ".lua", ".ex", ".exs",
+    ".dart", ".clj", ".cljs", ".hs", ".erl",
+    ".sh", ".bash", ".zsh",
+    ".vue", ".svelte",
+)
+
+
+def is_code_file(file_path: str) -> bool:
+    """Return True for source-code extensions where 'public functions/classes
+    affected' is a sensible question. Default for unknown/no extension is True
+    so we keep the stricter prompt by default."""
+    if not file_path:
+        return True
+    name = file_path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if "." not in name:
+        return True
+    return name.endswith(_CODE_EXTENSIONS)
 
 
 # --- session-key resolution ---
@@ -117,14 +163,12 @@ def load_state(state_file: Path) -> dict:
 def _prune_checked(checked: list[str]) -> list[str]:
     if len(checked) <= MAX_CHECKED_ENTRIES:
         return checked
-    preserved = [ROUTINE_BASH_KEY] if ROUTINE_BASH_KEY in checked else []
-    session_keys = [k for k in checked if k.startswith("__") and k != ROUTINE_BASH_KEY]
+    session_keys = [k for k in checked if k.startswith("__")]
     file_keys = [k for k in checked if not k.startswith("__")]
-    session_slots = max(MAX_SESSION_KEYS - len(preserved), 0)
-    capped_session = session_keys[-session_slots:]
-    file_slots = max(MAX_CHECKED_ENTRIES - len(preserved) - len(capped_session), 0)
+    capped_session = session_keys[-MAX_SESSION_KEYS:]
+    file_slots = max(MAX_CHECKED_ENTRIES - len(capped_session), 0)
     capped_files = file_keys[-file_slots:]
-    return preserved + capped_session + capped_files
+    return capped_session + capped_files
 
 
 def save_state(state_file: Path, state: dict) -> None:
@@ -199,6 +243,75 @@ def is_claude_settings_path(file_path: str) -> bool:
     return bool(CLAUDE_SETTINGS_PATH.search(normalized))
 
 
+def is_working_doc_path(file_path: str) -> bool:
+    """Return True for working-doc paths where the gate adds no signal.
+
+    Matches:
+    - directory segments listed in _WORKING_DOC_DIR_SEGMENTS (e.g. dev/local,
+      ~/.claude/plans, prds/{backlog,wip,done})
+    - filename extensions listed in _WORKING_DOC_EXTENSIONS (.md, .txt, .rst, ...)
+    - exact filenames listed in _WORKING_DOC_FILENAMES (.gitignore, .env.example)
+
+    Substring-only matches do not count: "/dev/local.backup/" must not match
+    "/dev/local/", and "cmd.py" must not match the ".md" extension.
+    """
+    if not file_path:
+        return False
+    normalized = file_path.replace("\\", "/")
+    name = normalized.rsplit("/", 1)[-1]
+    if name in _WORKING_DOC_FILENAMES:
+        return True
+    if normalized.lower().endswith(_WORKING_DOC_EXTENSIONS):
+        return True
+    padded = "/" + normalized.lstrip("/")
+    return any(seg in padded for seg in _WORKING_DOC_DIR_SEGMENTS)
+
+
+def transcript_has_read_of(transcript_path: str, file_path: str, max_bytes: int = 200_000) -> bool:
+    """Return True if a prior assistant turn issued a Read tool_use against
+    file_path. Scans only the trailing max_bytes of the JSONL to bound latency.
+
+    Treat parse failures as "no match" so a malformed transcript never causes
+    a crash in PreToolUse. Cheap pre-filter (bytes-in-line) skips the JSON
+    parse for the vast majority of lines."""
+    if not transcript_path or not file_path:
+        return False
+    try:
+        size = os.path.getsize(transcript_path)
+    except OSError:
+        return False
+    needle = file_path.encode("utf-8", errors="ignore")
+    try:
+        with open(transcript_path, "rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+                f.readline()  # discard partial line
+            for raw_line in f:
+                if not raw_line.strip():
+                    continue
+                if b'"Read"' not in raw_line or needle not in raw_line:
+                    continue
+                try:
+                    entry = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+                msg = entry.get("message") or {}
+                content = msg.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") != "tool_use" or block.get("name") != "Read":
+                        continue
+                    inp = block.get("input") or {}
+                    if inp.get("file_path") == file_path:
+                        return True
+    except OSError:
+        return False
+    return False
+
+
 def is_read_only_git(command: str) -> bool:
     """Allow common read-only git introspection without gating."""
     trimmed = (command or "").strip()
@@ -232,15 +345,43 @@ def _msg(*lines: str) -> str:
 
 def edit_gate_msg(file_path: str) -> str:
     safe = sanitize_path(file_path)
+    if is_code_file(file_path):
+        return _msg(
+            "[Fact-Forcing Gate]",
+            "",
+            f"Before editing {safe}, present these facts:",
+            "",
+            "1. List ALL files that import/require this file (use Grep)",
+            "2. List the public functions/classes affected by this change",
+            "3. If this file reads/writes data files, show field names, structure, and date format (use redacted or synthetic values, not raw production data)",
+            "",
+            "Present the facts, then retry the same operation.",
+        )
     return _msg(
         "[Fact-Forcing Gate]",
         "",
         f"Before editing {safe}, present these facts:",
         "",
-        "1. List ALL files that import/require this file (use Grep)",
-        "2. List the public functions/classes affected by this change",
-        "3. If this file reads/writes data files, show field names, structure, and date format (use redacted or synthetic values, not raw production data)",
-        "4. Quote the user's current instruction verbatim",
+        "1. List ALL code or tooling that consumes this file (use Grep)",
+        "2. Show the expected fields/structure (or schema reference)",
+        "",
+        "Present the facts, then retry the same operation.",
+    )
+
+
+def multiedit_gate_msg(file_paths: list[str]) -> str:
+    safe_paths = [sanitize_path(p) for p in file_paths]
+    bullets = [f"  - {p}" for p in safe_paths]
+    return _msg(
+        "[Fact-Forcing Gate]",
+        "",
+        "Before this MultiEdit batch, present these facts (covering ALL listed files):",
+        "",
+        *bullets,
+        "",
+        "1. List ALL files that import/require any of these files (use Grep)",
+        "2. List the public functions/classes affected across the batch",
+        "3. If any file reads/writes data files, show field names, structure, and date format (use redacted or synthetic values, not raw production data)",
         "",
         "Present the facts, then retry the same operation.",
     )
@@ -248,15 +389,26 @@ def edit_gate_msg(file_path: str) -> str:
 
 def write_gate_msg(file_path: str) -> str:
     safe = sanitize_path(file_path)
+    if is_code_file(file_path):
+        return _msg(
+            "[Fact-Forcing Gate]",
+            "",
+            f"Before creating {safe}, present these facts:",
+            "",
+            "1. Name the file(s) and line(s) that will call this new file",
+            "2. Confirm no existing file serves the same purpose (use Glob)",
+            "3. If this file reads/writes data files, show field names, structure, and date format (use redacted or synthetic values, not raw production data)",
+            "",
+            "Present the facts, then retry the same operation.",
+        )
     return _msg(
         "[Fact-Forcing Gate]",
         "",
         f"Before creating {safe}, present these facts:",
         "",
-        "1. Name the file(s) and line(s) that will call this new file",
+        "1. Name the code or tooling that will consume this file",
         "2. Confirm no existing file serves the same purpose (use Glob)",
-        "3. If this file reads/writes data files, show field names, structure, and date format (use redacted or synthetic values, not raw production data)",
-        "4. Quote the user's current instruction verbatim",
+        "3. Show the expected fields/structure (or schema reference)",
         "",
         "Present the facts, then retry the same operation.",
     )
@@ -270,20 +422,6 @@ def destructive_bash_msg() -> str:
         "",
         "1. List all files/data this command will modify or delete",
         "2. Write a one-line rollback procedure",
-        "3. Quote the user's current instruction verbatim",
-        "",
-        "Present the facts, then retry the same operation.",
-    )
-
-
-def routine_bash_msg() -> str:
-    return _msg(
-        "[Fact-Forcing Gate]",
-        "",
-        "Before the first Bash command this session, present these facts:",
-        "",
-        "1. The current user request in one sentence",
-        "2. What this specific command verifies or produces",
         "",
         "Present the facts, then retry the same operation.",
     )
@@ -312,27 +450,51 @@ def evaluate(data: dict) -> str | None:
 
     session_key = resolve_session_key(data)
     state_file = _state_file(session_key)
+    transcript_path = data.get("transcript_path") or data.get("transcriptPath") or ""
 
     if tool in {"Edit", "Write"}:
         file_path = tool_input.get("file_path") or ""
-        if not file_path or is_claude_settings_path(file_path):
+        if not file_path or is_claude_settings_path(file_path) or is_working_doc_path(file_path):
             return None
         if is_checked(state_file, file_path):
+            return None
+        # Edit on a file already Read this session: investigation already
+        # happened, the gate would just force restating known facts. Mark it
+        # checked so we don't re-scan the transcript on subsequent edits.
+        if tool == "Edit" and transcript_has_read_of(transcript_path, file_path):
+            mark_checked(state_file, file_path)
             return None
         mark_checked(state_file, file_path)
         return deny(edit_gate_msg(file_path) if tool == "Edit" else write_gate_msg(file_path))
 
     if tool == "MultiEdit":
         edits = tool_input.get("edits") or []
+        unchecked: list[str] = []
+        seen: set[str] = set()
         for edit in edits:
             if not isinstance(edit, dict):
                 continue
             file_path = edit.get("file_path") or ""
-            if not file_path or is_claude_settings_path(file_path) or is_checked(state_file, file_path):
+            if (
+                not file_path
+                or file_path in seen
+                or is_claude_settings_path(file_path)
+                or is_working_doc_path(file_path)
+                or is_checked(state_file, file_path)
+            ):
                 continue
-            mark_checked(state_file, file_path)
-            return deny(edit_gate_msg(file_path))
-        return None
+            if transcript_has_read_of(transcript_path, file_path):
+                # Already investigated upstream; mark and skip.
+                mark_checked(state_file, file_path)
+                seen.add(file_path)
+                continue
+            seen.add(file_path)
+            unchecked.append(file_path)
+        if not unchecked:
+            return None
+        for fp in unchecked:
+            mark_checked(state_file, fp)
+        return deny(multiedit_gate_msg(unchecked))
 
     if tool == "Bash":
         command = tool_input.get("command") or ""
@@ -344,9 +506,6 @@ def evaluate(data: dict) -> str | None:
                 return None
             mark_checked(state_file, key)
             return deny(destructive_bash_msg())
-        if not is_checked(state_file, ROUTINE_BASH_KEY):
-            mark_checked(state_file, ROUTINE_BASH_KEY)
-            return deny(routine_bash_msg())
         return None
 
     return None
