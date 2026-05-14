@@ -6,11 +6,7 @@ State file location: `dev/local/autopilot/state.json`
 
 ```json
 {
-  "prd": {
-    "filename": "00004-feature-x.md",
-    "path": "dev/local/prds/wip/00004-feature-x.md",
-    "name": "00004-feature-x"
-  },
+  "prd": "00004-feature-x.md",
   "phase": "work",
   "next_phase": "work",
   "catchup_mode": "skipped",
@@ -39,10 +35,10 @@ State file location: `dev/local/autopilot/state.json`
   "review_cycles": [
     {
       "cycle": 1,
-      "issue_count": 5,
-      "severity": { "critical": 0, "high": 1, "medium": 3, "low": 1 },
-      "auto_fixed": 3,
-      "escalated": 1,
+      "review_file": "dev/local/reviews/00004-feature-x-review-01.md",
+      "agents": {"alice": "available", "bob": "available", "carl": "disabled", "diana": "available"},
+      "issues_found": 5,
+      "follow_up_tasks": 3,
       "deferred": 1,
       "recurring_issues": []
     }
@@ -107,8 +103,8 @@ State file location: `dev/local/autopilot/state.json`
       }
     ]
   },
-  "started_at": "2026-03-16T10:00:00Z",
-  "updated_at": "2026-03-16T10:30:00Z"
+  "doubts": [],
+  "needs_attention": false
 }
 ```
 
@@ -116,9 +112,7 @@ State file location: `dev/local/autopilot/state.json`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `prd.filename` | string | PRD filename without path |
-| `prd.path` | string | Relative path from project root |
-| `prd.name` | string | Filename without extension (used in dashboard) |
+| `prd` | string | PRD filename (with `.md` extension), e.g. `"00004-feature-x.md"`. Resolves to `dev/local/prds/wip/<prd>` while active, or `dev/local/prds/stalled/<prd>` after a Phase 0 / Phase 2 stall move. Written by Phase 0 step 6 at PRD selection. The dashboard derives `name` by stripping the extension. |
 | `phase` | enum | Current phase: `prd-selection`, `catchup`, `planning`, `work`, `review`, `decision-gate`, `rework`, `blind-review`, `doubt-review`, `done`, `paused` |
 | `next_phase` | string | Phase the next iteration of `/run-autopilot` will run. Written by `/run-autopilot` immediately before the `signal` file. Read by `autoclaude` to pick `--model` for the next launch. Empty string means "no preference; consumer defaults to Opus." |
 | `catchup_mode` | enum | `"run"` (default), `"skip"` (PRD frontmatter requested skip), or `"skipped"` (Phase 1 was bypassed for this PRD). Set at Phase 0 from PRD frontmatter `catchup:`; defaults to `"run"` on missing/malformed frontmatter. |
@@ -130,18 +124,17 @@ State file location: `dev/local/autopilot/state.json`
 | `tasks[].model` | enum? | Optional per-task model tier: `"haiku"`, `"sonnet"`, `"opus"`. Reserved for PRD 00025 (per-task model tier). Unset in this PRD; `/work` inherits the session model when absent. |
 | `tasks[].attempts` | object[]? | Optional per-task execution log: `{"attempt": int, "model": string, "outcome": "completed"\|"aborted"\|"review_flagged"\|"rework_failed", "review_cycle": int\|null, "cause": string\|null}`. Records each Work pass on the task. Rework reads the last entry's model to determine the next tier. Reserved for PRD 00025; not written in this PRD. |
 | `task_aborts` | object[] | Appended by `autopilot_context_cap_hook.py` when context exceeds 180K during Work phase: `{"task_id": string, "turn": int, "total_input_tokens": int, "cause": "context_overrun"\|"subagent_prompt_overrun"}`. `turn` is `-1` when unknown (the transcript usage line carries no turn counter; `/work`'s `subagent_prompt_overrun` writer also uses `-1`). Empty array on fresh state. |
-| `stall_reason` | object? | Present only when `/plan-tasks` cannot split a task below the 150K token budget. Shape: `{"stalled": "oversized_task", "task": "<task-id>", "estimated_tokens": int}`. **Merged** (not replacing) into state by `/plan-tasks` per its "Stall behavior" section, then **cleared** by `/run-autopilot` Phase 2 after the PRD is moved to `dev/local/prds/stalled/`. Absent in normal operation. |
-| `review_cycles` | object[] | History of each review cycle |
+| `stall_reason` | object? | Present when a PRD must be moved to `dev/local/prds/stalled/`. Three shapes today: `{"stalled": "oversized_task", "task": "<id>", "estimated_tokens": int}` (written by `/plan-tasks` per its "Stall behavior" section), `{"stalled": "context_overrun", "task": "<id>", "total_input_tokens": int}` (written by `autopilot_context_cap_hook.py` when a Work turn exceeds 180K), and `{"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": int}` (written by `/work` Subagent Dispatch Budget when an assembled subagent prompt exceeds 50K after one trim pass). **Merged** (not replacing) into state by the writer, then **cleared** by `/run-autopilot` — Phase 0 handles `context_overrun` and `subagent_prompt_overrun` on the next session start, Phase 2 handles `oversized_task` inline. Absent in normal operation. |
+| `review_cycles` | object[] | History of each review cycle. Each entry: `{"cycle": int, "review_file": "<path>", "agents": {"alice": "...", "bob": "...", "carl": "...", "diana": "..."}, "issues_found": int, "follow_up_tasks": int, "deferred": int, "recurring_issues": string[]}`. Cycles 3+ may also carry `decision_gate`, `rework_commits`, `rework_notes`, `cycle3_fix_audit`, `test_run` written by user-override paths (see live state for examples). |
 | `review_cycles[].recurring_issues` | string[] | Issue descriptions that appeared in a previous cycle |
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
 | `deferred_decisions` | object[] | Decisions requiring user input. May include optional `research` field when research was attempted but inconclusive. |
-| `doubts` | object[] | Findings from doubt review: `{"description": "...", "category": "fix\|verify\|known", "justification?": "...", "status": "pending\|resolved"}`. `justification` required for `known` items (why it can't be fixed in scope). |
+| `doubts` | object[] | Findings from doubt review: `{"description": "...", "category": "fix\|verify\|known", "justification?": "...", "status": "pending\|resolved"}`. `justification` required for `known` items (why it can't be fixed in scope). Empty array on fresh state. |
+| `needs_attention` | bool | Dashboard flag. Set to `true` by `~/.claude/hooks/set-pidash-attention.py` (Notification hook for permission prompts) and cleared to `false` by `~/.claude/hooks/clear-pidash-attention.py` (PostToolUse). Not written by `/run-autopilot` directly; included here so the dashboard can read a complete state object. |
 | `batch` | object? | Tracks completed PRDs across sessions |
 | `batch.id` | string | Batch ID: `yyyymmddHHMM` timestamp of first execution |
 | `batch.mode` | string | Always `"autopilot"` |
 | `batch.completed_prds` | object[] | PRDs finished so far: `{"filename", "cycles", "autonomous_decisions", "escalated_decisions"}` |
-| `started_at` | ISO 8601 | Session start time |
-| `updated_at` | ISO 8601 | Last state change time |
 
 **Note on PRD 00025 reservation:** `tasks[].model` and `tasks[].attempts[]` are reserved by PRD 00024 for PRD 00025 (per-task model tier). `/plan-tasks` and `/work` do not read or write these fields in this PRD — `/work` inherits the session model unset. Landing the schema fields now means PRD 00025 lands additively: it adds a `/plan-tasks` classifier that writes `task.model`, and a `/work` dispatcher that reads it. No re-work of the autopilot loop or `autoclaude` is needed at that point.
 

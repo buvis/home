@@ -71,6 +71,43 @@ Print a banner at each phase transition:
 
 ## Phase 0: PRD Selection
 
+### Handle Work-phase stall (from a prior session)
+
+Before anything else, read `dev/local/autopilot/state.json`. If
+`stall_reason.stalled` is either `"context_overrun"` (Work turn exceeded
+180K — `autopilot_context_cap_hook.py` prepared the handoff) or
+`"subagent_prompt_overrun"` (`/work` Subagent Dispatch Budget aborted a
+task whose assembled prompt exceeded 50K after one trim pass), the
+previous session's Work phase aborted cleanly and the shell wrapper
+restarted us. Recover the same way Phase 2 handles `oversized_task`:
+
+1. The stalled PRD filename is `state.prd` (a string, e.g.
+   `"00024-feature-x.md"` — see `references/state-schema.md`).
+2. Query `TaskList` and `TaskUpdate(status: "deleted")` every task — the
+   stalled Work session left in-progress/pending tasks behind that would
+   otherwise trip Phase 2's `TaskList`-skip on the next PRD.
+3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
+4. `mv` the PRD from `dev/local/prds/wip/<filename>` to
+   `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
+5. Clear `stall_reason` from state. Reset PRD-specific fields the same way
+   Phase 9 step 9 does for the next PRD: `phases_completed: []`, `cycle: 1`,
+   `tasks_total: 0`, `tasks_completed: 0`, clear
+   `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`.
+   Preserve `batch`. Set `next_phase: "catchup"`.
+6. Print (substitute the actual `stall_reason.stalled` value):
+   ```
+   ── AUTOPILOT ── PRD: {prd-name} ── STALLED ({stall_reason.stalled}) ──
+   ── moved to dev/local/prds/stalled/ ── advancing to next PRD ────────
+   ```
+7. Fall through to step 1 below (auto-select the next PRD in this same
+   session — the shell loop already restarted us; no second `task_aborted`
+   signal is needed).
+
+If `stall_reason.stalled` is anything else (or absent), continue with
+normal PRD selection below.
+
+### Normal PRD selection
+
 1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, `mv` to `wip/`.
 2. Otherwise, auto-select (never ask the user):
    a. Check `dev/local/prds/wip/`:
@@ -119,7 +156,7 @@ Invoke `/plan-tasks` with the selected PRD.
 2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 4 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
 3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
 4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
-5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, clear `tasks`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`. Preserve `batch`. Set `next_phase: "catchup"`.
+5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`. Preserve `batch`. Set `next_phase: "catchup"`.
 6. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
@@ -245,7 +282,7 @@ Spec-only verification by a reviewer with no implementation context. Invoke `/re
 After the review:
 
 1. **No Critical/Important findings** → update state: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. Proceed to Phase 8.
-2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`, **and update task counts (`tasks_total`/`tasks_completed`)** — same as Phase 8 Execution step 5, since `[BLIND]` tasks change the counts. Then proceed to Phase 8. Do not loop back to Phase 4.
+2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. **Also update task counts (`tasks_total`/`tasks_completed`)** since `[BLIND]` tasks change them — same task-count-update mechanic Phase 8 Execution step 5 applies after `[DOUBT]` tasks (the `phase`/`next_phase` values themselves differ between the two phases). Then proceed to Phase 8. Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning but proceed.
 
 Minor findings: defer to batch end (append to `deferred_decisions` in state).
@@ -335,7 +372,7 @@ Summary:
 ### Continuation
 
 9. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, clear tasks/decisions/review_cycles/doubts. Preserve `batch` field. Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop starts a fresh session). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/decisions/review_cycles/doubts. Preserve `batch` field. Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop starts a fresh session). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
@@ -401,7 +438,13 @@ Summary:
 
 Autopilot supports automatic session cycling via a signal file + Stop hook. This enables unattended PRD-to-PRD transitions while keeping sessions interactive.
 
-**Signal file:** `dev/local/autopilot/signal` — written at Phase 3 hand-off and Phase 9 completion with `next` (more PRDs) or `done` (backlog empty). Always paired with a `state.next_phase` write that happens immediately before — `autoclaude` reads `next_phase` to pick `--model` for the next launch.
+**Signal file:** `dev/local/autopilot/signal` — possible values:
+
+- `next` — written at Phase 3 hand-off and Phase 9 step 9 when more PRDs remain. Shell wrapper continues the loop.
+- `done` — written at the end of batch-end review. Shell wrapper exits the loop.
+- `task_aborted` — written by the model when `autopilot_context_cap_hook.py` fires on a 180K Work-turn overrun. Shell wrapper continues the loop; Phase 0 of the next session moves the stalled PRD to `dev/local/prds/stalled/` and picks the next PRD. The hook prepares `state.stall_reason = {"stalled": "context_overrun", ...}` and appends to `state.task_aborts` before instructing the model to write the signal.
+
+Every signal write is paired with a `state.next_phase` write that happens immediately before — `autoclaude` reads `next_phase` to pick `--model` for the next launch.
 
 ### Loop Detection
 
@@ -416,11 +459,11 @@ while true; do
   claude "/run-autopilot"
   signal=$(cat dev/local/autopilot/signal 2>/dev/null)
   rm -f dev/local/autopilot/signal
-  if [ "$signal" != "next" ]; then
-    echo "Backlog drained."
-    break
-  fi
-  echo "Starting next PRD..."
+  case "$signal" in
+    next)         echo "Starting next PRD..." ;;
+    task_aborted) echo "Work task hit context cap; PRD will be stalled. Continuing..." ;;
+    *)            echo "Backlog drained."; break ;;
+  esac
 done
 ```
 
