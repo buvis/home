@@ -47,11 +47,27 @@ PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Tim
 2. Measure: `len(prompt.encode("utf-8"))` (Python) or `printf '%s' "$prompt" | wc -c` (shell).
 3. If the prompt exceeds 50 000 bytes:
    - Trim by removing the lowest-priority context first (large example files, full architecture docs). Re-measure.
-   - If still oversized after one trim pass, abort the task. Append to `state.task_aborts[]`:
-     ```json
-     {"task_id": "<id>", "turn": -1, "total_input_tokens": <prompt-bytes/4>, "cause": "subagent_prompt_overrun"}
-     ```
-     Report cause `subagent_prompt_overrun` and stop work on this task.
+   - If still oversized after one trim pass, abort the task. Wire the abort
+     through the same stall handoff the runtime context-cap hook uses, so
+     `/run-autopilot` Phase 0 of the next session moves the PRD to
+     `dev/local/prds/stalled/` and continues with the next PRD (parallel
+     to `context_overrun`):
+     1. Append to `state.task_aborts[]`:
+        ```json
+        {"task_id": "<id>", "turn": -1, "total_input_tokens": <prompt-bytes/4>, "cause": "subagent_prompt_overrun"}
+        ```
+     2. Set `state.stall_reason`:
+        ```json
+        {"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": <prompt-bytes>}
+        ```
+     3. **Only if `$_AUTOPILOT_LOOP` is set** (per `/run-autopilot` "Loop
+        Detection" — manual sessions have no shell wrapper to restart on
+        SIGINT), write `task_aborted` to the autopilot signal file. Use
+        walk-up discipline to find the autopilot dir from cwd, then write
+        to `<autopilot_dir>/signal`. Skip the signal write when
+        `$_AUTOPILOT_LOOP` is unset; the next manual `/run-autopilot`
+        invocation will resume via `state.stall_reason`.
+     4. Report cause `subagent_prompt_overrun` and stop work on this task.
 4. Prepend the abort-instruction line verbatim to the prompt:
    ```
    Abort and report if you read more than 100K of total input. Return the partial result and an abort_reason: context_overrun field.
@@ -140,9 +156,9 @@ For the first available task:
 
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. **Sync state file** (see Dashboard State Sync)
-3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. Walk up from `$PWD` to find the autopilot dir (same pattern the hook uses — agents may `cd` into a subdirectory during the task), then remove the marker inside it:
+3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file (added cycle-5+1), but the explicit Bash clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Walk up from the resolved physical cwd to find the autopilot dir (same pattern the hook uses, including `Path.resolve()`-style symlink resolution and a root-inclusive check — agents may `cd` into a subdirectory or through a symlink during the task), then remove the marker inside it:
    ```bash
-   d=$PWD; while [ "$d" != "/" ]; do [ -d "$d/dev/local/autopilot" ] && { rm -f "$d/dev/local/autopilot/.cap-fired"; break; }; d=$(dirname "$d"); done
+   d=$(pwd -P); while :; do [ -d "$d/dev/local/autopilot" ] && { rm -f "$d/dev/local/autopilot/.cap-fired"; break; }; [ "$d" = "/" ] && break; d=$(dirname "$d"); done
    ```
    No-op when no ancestor has the dir (non-autopilot runs) or the marker is already absent (first task of the phase).
 4. Use `TaskGet` to read full task description

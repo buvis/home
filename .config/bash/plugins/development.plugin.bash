@@ -12,15 +12,32 @@ about-plugin 'functions for software development'
 # The stderr log prints the source label separately from the resolved
 # phase so debugging "why did this launch on opus" is unambiguous. The
 # source is the literal next_phase value, or one of "<missing>" (no
-# state.json), "<empty>" (key absent/null), "<parse-error>" (jq failed
-# on an existing file).
+# state.json found in cwd or any ancestor), "<empty>" (key absent, null,
+# or explicit empty string "" — /run-autopilot writes next_phase: "" at
+# batch end), or "<parse-error>" (jq failed on an existing file).
+#
+# state.json is located via walk-up from $PWD to / so the model dispatch
+# survives autoclaude being invoked from a subdirectory. The hook
+# (autopilot_context_cap_hook.py) does the same walk-up; without it here
+# the entire model-dispatch feature silently no-ops when cwd != project
+# root.
 _autoclaude_pick_model() {
-  local raw next_phase source model jq_rc
-  if [ ! -f dev/local/autopilot/state.json ]; then
+  local raw next_phase source model jq_rc d state_file
+  state_file=""
+  d=$(pwd -P)
+  while :; do
+    if [ -f "$d/dev/local/autopilot/state.json" ]; then
+      state_file="$d/dev/local/autopilot/state.json"
+      break
+    fi
+    [ "$d" = "/" ] && break
+    d=$(dirname "$d")
+  done
+  if [ -z "$state_file" ]; then
     raw=""
     source="<missing>"
   else
-    raw=$(jq -r '.next_phase // ""' dev/local/autopilot/state.json 2>/dev/null)
+    raw=$(jq -r '.next_phase // ""' "$state_file" 2>/dev/null)
     jq_rc=$?
     if [ "$jq_rc" -ne 0 ]; then
       source="<parse-error>"
@@ -80,13 +97,23 @@ autoclaude() {
       _autopilot_loop_cleanup
     fi
 
-    if [ "$signal" != "next" ]; then
-      printf '\nBacklog drained.\n'
-      trap - INT TERM
-      unset _AUTOPILOT_LOOP
-      return
-    fi
-
-    printf '\nStarting next PRD…\n'
+    case "$signal" in
+      next)
+        printf '\nStarting next PRD…\n'
+        ;;
+      task_aborted)
+        # Work-phase context cap fired. The hook has already set
+        # stall_reason and appended to task_aborts; /run-autopilot Phase 0
+        # in the next session will move the PRD to dev/local/prds/stalled/
+        # and pick the next PRD. Treat as continue-loop.
+        printf '\nWork task hit context cap; PRD will be stalled. Continuing…\n'
+        ;;
+      *)
+        printf '\nBacklog drained.\n'
+        trap - INT TERM
+        unset _AUTOPILOT_LOOP
+        return
+        ;;
+    esac
   done
 }
