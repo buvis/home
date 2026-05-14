@@ -27,6 +27,8 @@ State file location: `dev/local/autopilot/state.json`
   "task_aborts": [
     {"task_id": "task-uuid-7", "turn": -1, "total_input_tokens": 192340, "cause": "context_overrun"}
   ],
+  "replan_count": 0,
+  "rework_task_ids": ["task-uuid-3"],
   "stall_reason": {
     "stalled": "oversized_task",
     "task": "task-uuid-8",
@@ -101,7 +103,9 @@ State file location: `dev/local/autopilot/state.json`
         "autonomous_decisions": 3,
         "escalated_decisions": 0
       }
-    ]
+    ],
+    "catchup_completed_at": "2026-03-16T10:42:13Z",
+    "catchup_head_sha": "a1b2c3d4e5f6789..."
   },
   "doubts": [],
   "needs_attention": false
@@ -112,19 +116,23 @@ State file location: `dev/local/autopilot/state.json`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `prd` | string | PRD filename (with `.md` extension), e.g. `"00004-feature-x.md"`. Resolves to `dev/local/prds/wip/<prd>` while active, or `dev/local/prds/stalled/<prd>` after a Phase 0 / Phase 2 stall move. Written by Phase 0 step 6 at PRD selection. The dashboard derives `name` by stripping the extension. |
+| `prd` | string | PRD filename (with `.md` extension), e.g. `"00004-feature-x.md"`. Resolves to `dev/local/prds/wip/<prd>` while active, or `dev/local/prds/stalled/<prd>` after a Phase 2 (`oversized_task`) or Phase 6 (`escalation_exhausted`) stall move. Phase 0's `context_overrun`/`subagent_prompt_overrun` handlers do NOT move the PRD — they replan in place (PRD stays in `wip/`). Written by Phase 0 step 6 at PRD selection. The dashboard derives `name` by stripping the extension. |
 | `phase` | enum | Current phase: `prd-selection`, `catchup`, `planning`, `work`, `review`, `decision-gate`, `rework`, `blind-review`, `doubt-review`, `done`, `paused` |
 | `next_phase` | string | Phase the next iteration of `/run-autopilot` will run. Written by `/run-autopilot` immediately before the `signal` file. Read by `autoclaude` to pick `--model` for the next launch. Empty string means "no preference; consumer defaults to Opus." |
-| `catchup_mode` | enum | `"run"` (default), `"skip"` (PRD frontmatter requested skip), or `"skipped"` (Phase 1 was bypassed for this PRD). Set at Phase 0 from PRD frontmatter `catchup:`; defaults to `"run"` on missing/malformed frontmatter. |
+| `catchup_mode` | enum | `"run"` (default; Phase 1 honors the batch cache), `"skip"` (PRD frontmatter requested skip), `"force"` (PRD frontmatter forces full catchup ignoring batch cache), or `"skipped"` (Phase 1 was bypassed for this PRD). Set at Phase 0 from PRD frontmatter `catchup:`; defaults to `"run"` on missing/malformed frontmatter. |
 | `phases_completed` | string[] | Phases finished this session |
 | `cycle` | int | Current review-rework cycle (starts at 1) |
 | `tasks_total` | int | Total task count from TaskList (pending + in_progress + completed) |
 | `tasks_completed` | int | Number of completed tasks from TaskList |
 | `tasks` | object[] | Task list from TaskList: `{"id": "<task-id>", "name": "...", "status": "pending\|in_progress\|completed", "model"?: "haiku\|sonnet\|opus", "attempts"?: object[]}`. Include `id` — a PostToolUse hook uses it to sync status changes automatically. |
-| `tasks[].model` | enum? | Optional per-task model tier: `"haiku"`, `"sonnet"`, `"opus"`. Reserved for PRD 00025 (per-task model tier). Unset in this PRD; `/work` inherits the session model when absent. |
-| `tasks[].attempts` | object[]? | Optional per-task execution log: `{"attempt": int, "model": string, "outcome": "completed"\|"aborted"\|"review_flagged"\|"rework_failed", "review_cycle": int\|null, "cause": string\|null}`. Records each Work pass on the task. Rework reads the last entry's model to determine the next tier. Reserved for PRD 00025; not written in this PRD. |
-| `task_aborts` | object[] | Appended by `autopilot_context_cap_hook.py` when context exceeds 180K during Work phase: `{"task_id": string, "turn": int, "total_input_tokens": int, "cause": "context_overrun"\|"subagent_prompt_overrun"}`. `turn` is `-1` when unknown (the transcript usage line carries no turn counter; `/work`'s `subagent_prompt_overrun` writer also uses `-1`). Empty array on fresh state. |
-| `stall_reason` | object? | Present when a PRD must be moved to `dev/local/prds/stalled/`. Three shapes today: `{"stalled": "oversized_task", "task": "<id>", "estimated_tokens": int}` (written by `/plan-tasks` per its "Stall behavior" section), `{"stalled": "context_overrun", "task": "<id>", "total_input_tokens": int}` (written by `autopilot_context_cap_hook.py` when a Work turn exceeds 180K), and `{"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": int}` (written by `/work` Subagent Dispatch Budget when an assembled subagent prompt exceeds 50K after one trim pass). **Merged** (not replacing) into state by the writer, then **cleared** by `/run-autopilot` — Phase 0 handles `context_overrun` and `subagent_prompt_overrun` on the next session start, Phase 2 handles `oversized_task` inline. Absent in normal operation. |
+| `tasks[].model` | enum? | Per-task model tier: `"haiku"`, `"sonnet"`, `"opus"`. Mirror of `task.metadata.model` (the canonical source `/work` reads via `TaskGet`). Written by /run-autopilot Phase 3 snapshot (initial; mirrors metadata.model that plan-tasks set via `TaskCreate(metadata={model})` in step 4.7) and rewritten by /run-autopilot Phase 6 escalation (paired `TaskUpdate(metadata={model})` + direct `state.tasks[i].model` write per the metadata.model↔state.tasks[].model sync; see SKILL.md Phase 6). The dashboard and the review phase read this snapshot field; `/work` reads `task.metadata.model`. When absent (plans created before PRD 00025), `/work` omits `model` and subagents inherit the session model. |
+| `tasks[].attempts` | object[]? | Per-task execution log: `{"attempt": int, "model": string, "outcome": "completed"\|"aborted"\|"review_flagged"\|"rework_failed", "review_cycle": int\|null, "cause": string\|null}`. Records each Work pass on the task. Appended by `/work` at task exit (success or abort). Outcome upgraded later by /run-autopilot Phase 6: `review_flagged` at the start of escalation (step 2), then `rework_failed` if the chain exhausts at `opus` (step 3's escalation-exhausted branch). Rework reads the last entry's `model` to determine the next tier. Absent on plans created before PRD 00025. |
+| `tasks[].estimated_tokens` | int? | Per-task input-token budget estimate produced by plan-tasks step 4.7 tier classifier. Used by the hydration round-trip to restore TaskCreate metadata across sessions. Written by plan-tasks step 4.7 via `TaskCreate(metadata={estimated_tokens})`; mirrored into the Phase 3 snapshot; round-tripped by the State Management hydration sub-step. Absent when plan-tasks did not record a budget estimate. |
+| `tasks[].est_context_peak` | int? | Per-task estimated peak working-context size produced by plan-tasks step 4.7. Used to predict subagent dispatch budget headroom. Written by plan-tasks step 4.7 via `TaskCreate(metadata={est_context_peak})`; mirrored into the Phase 3 snapshot; round-tripped by the State Management hydration sub-step. Absent when plan-tasks did not record a context estimate. |
+| `task_aborts` | object[] | Per-task abort log: `{"task_id": string, "turn": int, "total_input_tokens": int, "cause": "context_overrun"\|"subagent_prompt_overrun"}`. Two writers (matching the Session Loop `task_aborted` signal table): (a) `autopilot_context_cap_hook.py` appends a `cause: "context_overrun"` entry when a Work turn exceeds 180K; (b) `/work` Subagent Dispatch Budget appends a `cause: "subagent_prompt_overrun"` entry when an assembled subagent prompt exceeds 50K after one trim pass. Both writers set `turn: -1` when the actual turn is unknown (the transcript usage line carries no turn counter). Empty array on fresh state. |
+| `replan_count` | int? | Number of replans applied to the current PRD after Phase 0 saw a `context_overrun` or `subagent_prompt_overrun` stall. Incremented by Phase 0's replan procedure before each retry. When > 2, Phase 0 PAUSEs instead of replanning (loop guard). Reset to 0 by Phase 9 step 9 when the PRD completes. Absent or 0 means the current PRD has not been replanned. |
+| `rework_task_ids` | string[]? | Set by `/run-autopilot` Phase 6 (rework) to instruct `/work` to process only those task IDs at their escalated tier. Non-empty puts `/work` in rework mode (skip completed-not-flagged tasks; re-iterate the listed IDs). Cleared (set to `[]`) by `/run-autopilot` after the rework `/work` pass finishes. Empty/absent means full-plan dispatch — the default Phase 3 behavior. |
+| `stall_reason` | object? | Signals a pending recovery action. Four shapes: `{"stalled": "oversized_task", "task": "<id>", "estimated_tokens": int}` (written by `/plan-tasks` — triggers a stall move to `dev/local/prds/stalled/`); `{"stalled": "context_overrun", "task": "<id>", "total_input_tokens": int}` (written by `autopilot_context_cap_hook.py` when a Work turn exceeds 180K — triggers Phase 0's **replan procedure**, not a stall move; see `replan_count` and `/run-autopilot` Phase 0 "Handle Work-phase abort"); `{"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": int}` (written by `/work` Subagent Dispatch Budget when an assembled subagent prompt exceeds 50K after one trim pass — also triggers the replan procedure); `{"stalled": "escalation_exhausted", "task": "<id>"}` (written by `/run-autopilot` Phase 6 when a task at tier `opus` fails rework — Phase 6 performs its own stall move inline). **Merged** (not replacing) into state by the writer, then **cleared** by `/run-autopilot`. Lifecycle handoff: Phase 2 handles `oversized_task` inline with a stall move; Phase 0 of the next session handles `context_overrun` and `subagent_prompt_overrun` via the replan procedure (no stall move — the PRD stays in `wip/`, planning re-runs with `replan-context.md`); Phase 6 handles `escalation_exhausted` inline (it owns the rework path and does its own move + clear before signaling — Phase 0 should never see this in normal operation, and treats it as crash recovery if it does). Absent in normal operation. |
 | `review_cycles` | object[] | History of each review cycle. Each entry: `{"cycle": int, "review_file": "<path>", "agents": {"alice": "...", "bob": "...", "carl": "...", "diana": "..."}, "issues_found": int, "follow_up_tasks": int, "deferred": int, "recurring_issues": string[]}`. Cycles 3+ may also carry `decision_gate`, `rework_commits`, `rework_notes`, `cycle3_fix_audit`, `test_run` written by user-override paths (see live state for examples). |
 | `review_cycles[].recurring_issues` | string[] | Issue descriptions that appeared in a previous cycle |
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
@@ -135,8 +143,10 @@ State file location: `dev/local/autopilot/state.json`
 | `batch.id` | string | Batch ID: `yyyymmddHHMM` timestamp of first execution |
 | `batch.mode` | string | Always `"autopilot"` |
 | `batch.completed_prds` | object[] | PRDs finished so far: `{"filename", "cycles", "autonomous_decisions", "escalated_decisions"}` |
+| `batch.catchup_completed_at` | string? | ISO 8601 UTC timestamp recorded when the most recent full `/catchup` invocation in this batch completed. Read by Phase 1 "Batch cache check": if present, < 4h old, AND `batch.catchup_head_sha` matches current HEAD, Phase 1 runs a delta refresh instead of full catchup. Written by Phase 1 after full catchup completes. Preserved by Phase 9 step 9 across PRD-to-PRD state resets so subsequent PRDs in the same batch can reuse the cache. Absent on first PRD of a batch and on plans that never ran full catchup. |
+| `batch.catchup_head_sha` | string? | Git HEAD SHA captured at the moment full `/catchup` completed in this batch. Paired with `catchup_completed_at` for the Phase 1 cache check. Written and preserved on the same lifecycle as `catchup_completed_at`. |
 
-**Note on PRD 00025 reservation:** `tasks[].model` and `tasks[].attempts[]` are reserved by PRD 00024 for PRD 00025 (per-task model tier). `/plan-tasks` and `/work` do not read or write these fields in this PRD — `/work` inherits the session model unset. Landing the schema fields now means PRD 00025 lands additively: it adds a `/plan-tasks` classifier that writes `task.model`, and a `/work` dispatcher that reads it. No re-work of the autopilot loop or `autoclaude` is needed at that point.
+**Note on PRD 00025:** `tasks[].model`, `tasks[].attempts[]`, and `rework_task_ids[]` are active fields written and read by `/plan-tasks` (Tier classifier), `/work` (per-task model dispatch + attempt logging + rework-mode iteration), and `/run-autopilot` Phase 6 (review-driven tier escalation).
 
 ## Research Evidence Schema
 
@@ -217,8 +227,8 @@ Used to determine which phases to skip:
 | Phase | Skip if |
 |-------|---------|
 | catchup | `"catchup"` in `phases_completed` |
-| planning | `TaskList` returns pending or completed tasks |
-| work | All tasks completed, none pending |
+| planning | `TaskList` returns pending or completed tasks (evaluate **after** hydrating from `state.tasks` — see SKILL.md Phase 2) |
+| work | All tasks completed, none pending (evaluate **after** hydrating from `state.tasks` — see SKILL.md Phase 3) |
 | review | Review file exists for current cycle in `dev/local/reviews/` |
 | blind-review | `"blind-review"` in `phases_completed` |
 | doubt-review | `"doubt-review"` in `phases_completed` |

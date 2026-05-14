@@ -61,9 +61,9 @@ def _abort_instructions(signal_path: Path) -> str:
         "signal write (the session is manual; the next /run-autopilot "
         "invocation resumes via state.json). The hook has already "
         "appended the abort record to state.task_aborts and set "
-        "state.stall_reason; /run-autopilot Phase 0 will move the PRD to "
-        "dev/local/prds/stalled/ on the next session and continue with "
-        "the next PRD."
+        "state.stall_reason; /run-autopilot Phase 0 will replan the PRD "
+        "in place on the next session (PRD stays in dev/local/prds/wip/) "
+        "with the remaining scope split into smaller tasks."
     )
 
 
@@ -300,11 +300,13 @@ def main() -> None:
     aborts.append(abort_entry)
     state["task_aborts"] = aborts
 
-    # Set stall_reason so /run-autopilot Phase 0 moves the PRD to
-    # dev/local/prds/stalled/ on the next session and continues with the next
-    # PRD. The shell wrapper treats the `task_aborted` signal as "continue
-    # loop" (parallel to `next`); without stall_reason set here the next
-    # session would re-enter Work on the same PRD and hit the cap again.
+    # Set stall_reason so /run-autopilot Phase 0 replans the PRD in place
+    # on the next session (PRD stays in dev/local/prds/wip/; the next
+    # session re-runs planning with the remaining scope split into smaller
+    # tasks). The shell wrapper treats the `task_aborted` signal as
+    # "continue loop" (parallel to `next`); without stall_reason set here
+    # the next session would re-enter Work on the same PRD and hit the cap
+    # again.
     state["stall_reason"] = {
         "stalled": "context_overrun",
         "task": task_id,

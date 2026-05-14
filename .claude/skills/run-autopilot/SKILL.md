@@ -54,6 +54,24 @@ At every state update, query `TaskList` and write current counts to the state fi
 
 This keeps the dashboard progress bar accurate.
 
+### Hydrate TaskList from state.tasks (shared sub-step)
+
+`TaskList` is per-session storage (`~/.claude/tasks/<session-id>/`). Every fresh autopilot session — handoff from Phase 3, restart after a context-cap abort, or any manual re-invocation — starts with an **empty** TaskList even when `state.tasks` carries the full snapshot from the prior session. Phase skipping (planning, work) and per-task model dispatch both rely on TaskList, so without rehydration the new session operates with no task tracker at all.
+
+Run this hydration **before any phase invokes `/work` or queries TaskList for routing** — specifically: Phase 2 (before the skip-rule check), Phase 3 (before `/work`), Phase 6 (before rework `/work`), Phase 7 (after `/review-blindly`, before creating `[BLIND]` tasks), Phase 8 (before `[DOUBT]` `/work`).
+
+**Procedure:**
+
+1. Query `TaskList`. If it returns **any** tasks, no-op (already populated for this session).
+2. Read `state.tasks` from `dev/local/autopilot/state.json`. If absent or empty, no-op (nothing to hydrate).
+3. For each entry in `state.tasks` **in declared order** (do NOT reorder):
+   - `TaskCreate` with `subject: name`. `TaskCreate` assigns ids sequentially starting at 1, so the new ids align with `state.tasks[].id` numbering by construction.
+   - If the entry carries `model` / `estimated_tokens` / `est_context_peak` / `attempts`, pass them through as `metadata` on `TaskCreate`. `/work`'s per-task model dispatch consumes `metadata.model` only (PRD 00025); the other three are preserved so the TaskList round-trip stays lossless across sessions — future tooling and dashboards can read them via `TaskGet` without re-deriving from `state.tasks`.
+4. After all `TaskCreate` calls succeed, walk `state.tasks` again and `TaskUpdate(status: ...)` to match the recorded status (`pending` / `in_progress` / `completed`). Skip entries where status is already `pending` (the TaskCreate default).
+5. Verify with a final `TaskList` that the count matches `len(state.tasks)`. If it doesn't, abort with a state error (do NOT silently continue — a count mismatch means hydration is corrupt and subsequent phase skipping will mis-fire).
+
+**Idempotency:** if a phase re-enters this sub-step on the same session (e.g. Phase 6 after Phase 3), step 1 short-circuits. Safe to call as a precondition on every `/work` entry point.
+
 ### Live Dashboard
 
 The user can run `pidash` (from buvis-gems) in a separate terminal pane to watch progress in real time. It watches `dev/local/autopilot/state.json` automatically — no action needed from autopilot beyond keeping the state file updated.
@@ -71,37 +89,84 @@ Print a banner at each phase transition:
 
 ## Phase 0: PRD Selection
 
-### Handle Work-phase stall (from a prior session)
+### Handle Work-phase abort (from a prior session)
 
 Before anything else, read `dev/local/autopilot/state.json`. If
-`stall_reason.stalled` is either `"context_overrun"` (Work turn exceeded
+`stall_reason.stalled` is `"context_overrun"` (Work turn exceeded
 180K — `autopilot_context_cap_hook.py` prepared the handoff) or
 `"subagent_prompt_overrun"` (`/work` Subagent Dispatch Budget aborted a
 task whose assembled prompt exceeded 50K after one trim pass), the
-previous session's Work phase aborted cleanly and the shell wrapper
-restarted us. Recover the same way Phase 2 handles `oversized_task`:
+previous session's Work phase aborted from a hook. **The PRD is not
+broken — one of its tasks was scoped too big for a single Work turn.**
+Instead of stalling the PRD, replan it with smaller tasks and resume.
 
-1. The stalled PRD filename is `state.prd` (a string, e.g.
-   `"00024-feature-x.md"` — see `references/state-schema.md`).
-2. Query `TaskList` and `TaskUpdate(status: "deleted")` every task — the
-   stalled Work session left in-progress/pending tasks behind that would
-   otherwise trip Phase 2's `TaskList`-skip on the next PRD.
-3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
-4. `mv` the PRD from `dev/local/prds/wip/<filename>` to
-   `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
-5. Clear `stall_reason` from state. Reset PRD-specific fields the same way
-   Phase 9 step 9 does for the next PRD: `phases_completed: []`, `cycle: 1`,
-   `tasks_total: 0`, `tasks_completed: 0`, clear
-   `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`.
-   Preserve `batch`. Set `next_phase: "catchup"`.
-6. Print (substitute the actual `stall_reason.stalled` value):
+(`escalation_exhausted` is owned inline by Phase 6 — the rework path is
+inside the autopilot flow, so it does its own stall move + clear before
+signaling. Phase 0 should never see `escalation_exhausted` in normal
+operation. If it does, treat it as corrupt-state crash recovery (the
+crash landed between Phase 6's `mv` and its `stall_reason` clear, so
+the PRD is already in `dev/local/prds/stalled/` but state still points
+at it): log a warning, clear `stall_reason`, do NOT re-run the move
+(Phase 6 already moved the PRD), AND reset PRD-specific fields the same
+way Phase 9 step 9 does for the next PRD — `phases_completed: []`,
+`cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`,
+clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`rework_task_ids`,
+preserve `batch`, set `next_phase: "catchup"` — then fall through to
+normal PRD selection so the next PRD gets picked cleanly.)
+
+#### Replan procedure
+
+1. The aborted PRD filename is `state.prd`. Identify the aborted task from `state.task_aborts[-1]` (most recent abort): `task_id`, `cause`.
+2. Read `state.replan_count` (default 0 if absent). Increment in memory.
+3. **Loop guard:** if the incremented value is `> 2` → PAUSE. Print:
    ```
-   ── AUTOPILOT ── PRD: {prd-name} ── STALLED ({stall_reason.stalled}) ──
-   ── moved to dev/local/prds/stalled/ ── advancing to next PRD ────────
+   ── AUTOPILOT ── PRD: {prd-name} ── PAUSED ──────────────────────────
+   ── replanned twice and still aborting; scope likely wrong ─────────
+   ── aborted task: {task_id}, cause: {cause} ─────────────────────────
+   ── inspect dev/local/autopilot/state.json and decide how to proceed
    ```
-7. Fall through to step 1 below (auto-select the next PRD in this same
-   session — the shell loop already restarted us; no second `task_aborted`
-   signal is needed).
+   Do NOT move the PRD anywhere. Do NOT clear state. STOP and wait for the user. The user will edit the PRD, delete tasks manually, or run `/run-autopilot status` to inspect.
+4. Otherwise, prepare the replan:
+   a. Build the completed-work summary AND capture the aborted-task title first (before any deletion). The data available pre-hydration is the `state.tasks[]` snapshot (`{id, name, status, model?, attempts?}` per state-schema row 127) and `state.task_aborts[-1]` (`{task_id, cause}`); `TaskList` is empty in the fresh session, and `attempts[]` does not carry commit refs (see state-schema row 129 enum). So: for the **completed-work summary**, filter `state.tasks` to `status == "completed"` and capture each entry's `name`; if the user wants commit refs in the replan context, they come from `git log` on the active branch, not from `attempts[]`. For the **aborted task**, look up `state.task_aborts[-1].task_id` in `state.tasks[]` and capture its `name`. Description is intentionally not part of the snapshot; the task name + the PRD itself give plan-tasks enough context to scope the replan. Both captures must happen before step 4b clears `state.tasks`.
+   b. Query `TaskList` and `TaskUpdate(status: "deleted")` for every task regardless of status. Then clear `state.tasks` entirely (`[]`). The completed work is captured in step 4a's summary and the committed code itself; keeping completed entries in `state.tasks` alongside new plan-tasks output would collide on the fresh `TaskCreate` ids (which start at 1) and corrupt the dashboard.
+   c. Write `dev/local/autopilot/replan-context.md` (overwrite if exists):
+      ```markdown
+      # Replan Context
+
+      PRD: {state.prd}
+      Replan attempt: {replan_count} of 2
+      Trigger: {stall_reason.stalled} on task {task_id}
+
+      ## Completed work (do NOT re-plan)
+
+      - {task name from state.tasks[]} {optional: commit-ref from `git log` on active branch, if helpful}
+      - ...
+
+      ## Aborted task
+
+      {aborted task name captured in step 4a; omit this section if step 4a found no matching entry}
+
+      ## Directive
+
+      Plan ONLY the remaining PRD scope (work not in "Completed work" above).
+      Target ≤ 75 000 tokens per task (half the standard 150K budget) — the
+      last attempt aborted at runtime, so split fine-grained.
+      ```
+   d. Update state:
+      - Set `state.replan_count` to the incremented value.
+      - Remove `"planning"` and `"work"` from `phases_completed` (keep `"catchup"` — the capsule is still good for the same branch).
+      - `state.tasks: []`, `tasks_total: 0`, `tasks_completed: 0` (already cleared in step 4b).
+      - Clear `stall_reason`.
+      - `rework_task_ids: []` (defensive — a stale array would put the next Phase 3 incorrectly into rework mode against deleted task IDs).
+      - Set `phase: "planning"`, `next_phase: "planning"`.
+5. Print:
+   ```
+   ── AUTOPILOT ── PRD: {prd-name} ── REPLAN ({replan_count}/2) ───────
+   ── trigger: {stall_reason.stalled} on {task_id} ────────────────────
+   ── cleared {n} tasks ({m} completed kept in replan-context.md) ─────
+   ── handing off to fresh session for planning ───────────────────────
+   ```
+6. Hand off: if `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` and STOP. Otherwise STOP and wait for the user to re-invoke `/run-autopilot`. The next session lands at Phase 2 (planning is no longer in `phases_completed`); Phase 2 will detect `replan-context.md` and pass it to `/plan-tasks`.
 
 If `stall_reason.stalled` is anything else (or absent), continue with
 normal PRD selection below.
@@ -116,7 +181,7 @@ normal PRD selection below.
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`
-4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD.
+4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency.
 5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 6. Initialize/update state with selected PRD, preserve `batch` field
 7. Print progress:
@@ -131,32 +196,59 @@ normal PRD selection below.
 
 When skipped via `catchup_mode == "skip"`: do not invoke `/catchup`. Add `"catchup"` to `phases_completed`, set `state.catchup_mode = "skipped"` (so subsequent re-entries also skip), set `phase: "planning"` and `next_phase: "planning"`, and proceed to Phase 2.
 
-Otherwise, invoke `/catchup` skill.
+Otherwise, decide between **full catchup** and **delta refresh** using the batch cache.
 
-After completion, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"` and `next_phase: "planning"`.
+### Batch cache check
+
+The capsule (`dev/local/project-capsule.md`) is the persisted output of catchup: invariants, architecture decisions, GitHub state, project memories. Subsequent phases and their subagents read the capsule when they need that context — not TaskList, not state.json. So between PRDs in the same batch on the same branch, the heavy gather phase of `/catchup` (full diff, blast radius, reverse deps, GitHub state) produces output that's already accurate; re-running it costs ~60-95s and ~50K tokens per PRD with no information gain.
+
+`state.batch.catchup_completed_at` (ISO 8601) and `state.batch.catchup_head_sha` (current branch HEAD when last full catchup completed) record the cache. **Skip the full catchup and run a delta refresh** when ALL of the following hold:
+
+1. `state.catchup_mode != "force"` — PRD frontmatter `catchup: force` overrides the cache.
+2. `state.batch.catchup_completed_at` is present AND less than 4 hours old.
+3. `state.batch.catchup_head_sha` matches the current `git rev-parse HEAD` on the active branch.
+
+If any condition fails → **full catchup**: invoke `/catchup`. After completion, write `state.batch.catchup_completed_at = <now>` and `state.batch.catchup_head_sha = <current HEAD>`. These fields persist across PRDs in the batch (Phase 9 step 9 preserves them).
+
+If all conditions hold → **delta refresh** (no `/catchup` invocation):
+
+- Re-read all PRDs in `dev/local/prds/wip/` (the active set has changed since last catchup; new PRDs may have entered, old ones moved to `done/`).
+- Update the Active Work section of `dev/local/project-capsule.md` with the current PRD list (use the same format Phase 9 step 7 uses). Leave Key Invariants, Architecture Decisions, Component Boundaries, GitHub State, Project Health, and Project Memories untouched — those reflect batch-stable knowledge.
+- Print a one-line note: `── AUTOPILOT ── catchup: delta refresh (cache <Xm> old, HEAD <sha7>) ──`
+
+After either path completes, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"` and `next_phase: "planning"`.
 
 ### Frontmatter examples
 
 - `---\ncatchup: skip\n---` → `state.catchup_mode = "skip"`. Phase 1 records mode `skipped`, adds `"catchup"` to `phases_completed`, advances to planning.
-- PRD with no frontmatter → `state.catchup_mode = "run"`. Phase 1 runs `/catchup` as today.
+- `---\ncatchup: force\n---` → `state.catchup_mode = "force"`. Phase 1 ignores the batch cache and runs full `/catchup`.
+- PRD with no frontmatter → `state.catchup_mode = "run"`. Phase 1 honors the batch cache (delta refresh when fresh, full catchup otherwise).
 - `---\ncatchup: invalid\n---` → `state.catchup_mode = "run"`, warning logged.
 - `---\ncatchup\n---` (malformed YAML) → `state.catchup_mode = "run"`, warning logged.
 
 ## Phase 2: Planning
 
-**Skip if:** `TaskList` returns any pending or completed tasks (tasks already exist).
+**First, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management above). This is mandatory — the skip rule below depends on it. Initial planning has nothing to hydrate (no-ops on empty `state.tasks`) and replan clears `state.tasks` deliberately (also no-ops); the case the hydration covers is a resumed PRD whose prior session populated `state.tasks` and handed off (e.g., the post-Phase-3 handoff). Without the hydration, the skip rule below sees an empty TaskList and mistakenly re-runs `/plan-tasks`.
+
+**Skip if:** `TaskList` returns any pending or completed tasks (tasks already exist). Evaluate this **after** the hydration step above completes.
+
+### Replan mode
+
+Before invoking `/plan-tasks`, check for `dev/local/autopilot/replan-context.md`. If present, this is a replan triggered by a Phase 0 abort handler. Pass the file to `/plan-tasks` (see `plan-tasks/SKILL.md` "Replan mode") so it scopes to remaining work and uses the tighter ≤75K per-task budget. `/plan-tasks` deletes the file after successful planning.
+
+If `replan-context.md` is absent, run /plan-tasks normally — first-pass planning for a fresh PRD.
 
 Invoke `/plan-tasks` with the selected PRD.
 
 ### Handle plan-tasks stall (oversized task)
 
-`/plan-tasks` exits non-zero and writes `state.stall_reason` when a task cannot be split below the 150K token budget (see `plan-tasks/SKILL.md` "Stall behavior"). When this happens:
+`/plan-tasks` exits non-zero and writes `state.stall_reason` when a task cannot be split below the per-task budget (150K standard, 75K in replan mode — see `plan-tasks/SKILL.md` "Stall behavior" and "Detect replan mode"). When this happens:
 
 1. Read `dev/local/autopilot/state.json`. If `stall_reason.stalled == "oversized_task"`, do NOT proceed to Phase 3.
 2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 4 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
 3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
 4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
-5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`. Preserve `batch`. Set `next_phase: "catchup"`.
+5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`rework_task_ids`. Preserve `batch`. Set `next_phase: "catchup"`. Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
 6. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
@@ -173,12 +265,14 @@ After completion, query `TaskList` and update state: add `"planning"` to `phases
 
 ## Phase 3: Work
 
-**Skip if:** All tasks completed, none pending.
+**Skip if:** All tasks completed, none pending. Evaluate **after** running the hydration sub-step (below) — otherwise a fresh session sees TaskList empty and mistakenly treats "no pending" as "all done".
+
+**First, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management above). This is the critical entry point for the post-handoff and post-context-cap session paths.
 
 Before invoking `/work`, query `TaskList` and write the full task snapshot to `dev/local/autopilot/state.json`:
 - `tasks_total`: total count
 - `tasks_completed`: completed count
-- `tasks`: array of `{"id": "<task-id>", "name": "<title>", "status": "pending|in_progress|completed"}` for EVERY task
+- `tasks`: array of `{"id": "<task-id>", "name": "<title>", "status": "pending|in_progress|completed", ...metadata}` for EVERY task. The snapshot **must preserve every field plan-tasks or Phase 6 may have written** — at minimum: `model` (when set by plan-tasks tier classifier or Phase 6 escalation), `attempts` (the per-attempt log; see "Attempt logging" in `/work`), `estimated_tokens` and `est_context_peak` (when plan-tasks recorded a budget estimate). Stripping these on snapshot would break the hydration round-trip (subsequent sessions read them back into TaskList metadata) and lose Phase 6's tier-escalation history across the handoff. Treat the snapshot as merge-preserving over `state.tasks[i]`, not a three-field replacement.
 
 **Include the task `id` field** — a PostToolUse hook on TaskUpdate uses it to automatically sync status changes to the dashboard. This is mandatory.
 
@@ -263,15 +357,74 @@ Log every decision in state file (`autonomous_decisions` or `deferred_decisions`
 
 ## Phase 6: Rework
 
-Tag follow-up tasks from review findings with `[C{cycle}]` prefix and tasks from decision-gate resolutions with `[D{cycle}]` prefix. Both use the current cycle number.
+Two task kinds enter this phase:
 
-Before invoking `/work`, update state with current task counts.
+- **Review-flagged original-plan tasks** (`[C{cycle}]` prefix): a task `/work` already attempted that the review phase wants re-done. These are retries — escalate the model tier per the rule below.
+- **Decision-gate follow-ups** (`[D{cycle}]` prefix): brand-new tasks created from decision-gate resolutions. These are first-pass work, not retries — they default to `sonnet` (no escalation applies). Apply the `/plan-tasks` Tier classifier here too if you have the inputs (PRD slice, files-touched estimate); otherwise default `sonnet`.
 
-Invoke `/work` on follow-up tasks (auto-fixable ones + user-approved ones only).
+Both prefixes use the current cycle number. Both kinds dispatch through the same rework-mode `/work` invocation — see "Dispatch rework" below for how each gets its tier set and queued.
+
+### Hydrate before any TaskUpdate (PRD 00025)
+
+**Run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management above) BEFORE the "Escalate review-flagged tasks by tier" section's `TaskUpdate` calls. The rework session almost always inherits an empty TaskList from the post-Phase-3 handoff — running escalation TaskUpdate calls against an empty tracker either errors on unknown IDs or silently no-ops, losing the status→pending transition and dashboard visibility. Hydration is the first action of Phase 6, no exceptions.
+
+### Escalate review-flagged tasks by tier (PRD 00025)
+
+For each review-flagged original-plan task in the current cycle's review output:
+
+1. Look up `state.tasks[i].attempts[-1]` — the last `/work` pass's entry, written by `/work` Attempt logging.
+2. If `state.tasks[i].attempts` is empty or absent (legacy-plan task with no attempt log — covered by step 3's "no prior attempt" case and the closing paragraph after step 5), skip this step entirely and proceed to step 3's next-tier computation. Otherwise, rewrite that entry's `outcome` to `"review_flagged"` (it was `"completed"` when `/work` exited; review just flagged it).
+3. Compute the next tier in the chain `haiku → sonnet → opus`:
+   - **no prior attempt** (`state.tasks[i].attempts` empty or absent — covers both pre-PRD-00025 legacy plans and PRD-00025 tasks that crashed before the first attempt log wrote) → treat as `"sonnet"`; next is `"opus"`. **Metric caveat**: when this branch fires for a PRD-00025 task whose actual pass ran `haiku`, it inflates the apparent sonnet→opus escalation rate vs the PRD's ≤2% target. The branch is rare (crash before first attempt-log write) and the conservative jump-to-opus is the right correctness choice; just don't read sonnet→opus telemetry without accounting for it.
+   - last attempt at `"haiku"` → next is `"sonnet"`
+   - last attempt at `"sonnet"` → next is `"opus"`
+   - last attempt at `"opus"` → **escalation exhausted**: rewrite the entry's `outcome` to `"rework_failed"`, then merge into state:
+     ```json
+     "stall_reason": {"stalled": "escalation_exhausted", "task": "<id>"}
+     ```
+     (The `outcome` rewrite is forensic — sub-step 3 below clears `state.tasks` immediately after the stall move, so the `"rework_failed"` value only persists in pre-clear observers (the pidash dashboard reading state.json, any PostToolUse hook firing between the rewrite and the clear). It documents the failure mode for external observers in the brief window before reset; the durable record lives in the PRD's commit history and in `stall_reason.stalled` itself.)
+     Then perform the **stall move**, identical to Phase 2's `oversized_task` handler. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3). This ordering matters because a crash between the two leaves the PRD in `stalled/` with stale state still referencing it — Phase 0's `escalation_exhausted` crash-recovery branch (under "Handle Work-phase abort") detects this and recovers by clearing state without re-running the move.
+     1. `mkdir -p dev/local/prds/stalled` if missing.
+     2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
+     3. Clear `stall_reason` from state. Reset PRD-specific fields the same way Phase 9 step 9 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`rework_task_ids`. Preserve `batch`. Set `next_phase: "catchup"`. Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
+     4. Print:
+        ```
+        ── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──
+        ── moved to dev/local/prds/stalled/ ── advancing to next PRD ──────
+        ```
+     5. If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` and STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+4. Otherwise (chain not exhausted), persist the escalated tier in BOTH places so `/work` and the state snapshot stay in sync, then queue the task for rework:
+   - `TaskUpdate(taskId="<id>", metadata={"model": "<next_tier>"})` — canonical source `/work` reads via `TaskGet` (see `work/SKILL.md` "Per-task model dispatch").
+   - Write the same value to `state.tasks[i].model` — the snapshot the dashboard and the next review cycle read.
+   - Append the task ID to `state.rework_task_ids` (create the array if absent).
+5. Reset `state.tasks[i].status` back to `"pending"` via `TaskUpdate(taskId, status="pending")` so `/work` will iterate it again. **Reverse status transitions (`completed` → `pending`) are supported** — the hydration sub-step (State Management above) relies on the same mechanism to restore `completed` status on a fresh session, and the PostToolUse status-sync hook treats whatever `TaskUpdate` writes as the new ground truth.
+
+The "no prior attempt" case in step 3 covers both pre-PRD-00025 legacy plans (which lack `metadata.model` and `attempts[]` entirely) and PRD-00025 tasks that crash before the first attempt log writes (rare but possible). Both are treated as `"sonnet"` for the next-tier computation, so first escalation goes to `"opus"`.
+
+### Dispatch rework
+
+Build the rework batch from two sources:
+
+1. **Review-flagged `[C{cycle}]` tasks** — `state.rework_task_ids` already contains their IDs (appended in step 4 above), and their `metadata.model` + `state.tasks[i].model` already carry the escalated tier.
+2. **Decision-gate `[D{cycle}]` follow-ups** — for each new task created from a decision-gate resolution:
+   - Compute the tier: start with the `/plan-tasks` Tier classifier output if the inputs are available (PRD slice, files-touched estimate); otherwise default to `sonnet`. Then apply the **PRD `default_model` floor** the same way `/plan-tasks` step 4.7 does: `final_tier = max(tier, default_model)` — a PRD with `default_model: opus` must produce `opus` for every `[D]` follow-up, never a lower tier. **Reading `default_model` at Phase 6 runtime:** re-parse the PRD frontmatter from `dev/local/prds/wip/<state.prd>` using the same YAML-tolerant parse Phase 0 step 4 applies for `catchup:`. Look for `default_model:`. Accepted values: `haiku`, `sonnet`, `opus`. Behavior matches `/plan-tasks` step 4.7 exactly: absent frontmatter or unset `default_model:` → no override (silent; classifier output passes through); malformed YAML or invalid value → no override AND log a one-line warning, then classifier output passes through; valid value → apply `final_tier = max(tier, default_model)`. `default_model` is intentionally NOT persisted to state — the PRD frontmatter is the single source of truth.
+   - `TaskCreate(metadata={"model": final_tier, ...})`.
+   - Append the new task's ID to `state.rework_task_ids` AND insert a merge-preserving snapshot into `state.tasks[]` carrying `{id, name, status, model}` plus any classifier-produced fields (`estimated_tokens`, `est_context_peak`) — same merge-preserving rule Phase 3 establishes for the original-plan snapshot. The dashboard sees the new task and `/work` rework mode iterates it.
+
+Hydration already ran at the top of Phase 6 (see "Hydrate before any TaskUpdate" above) — the rework session inherits a populated TaskList by this point, so the `TaskUpdate` and `TaskCreate` calls operate on real tasks.
+
+After both sources are merged into `rework_task_ids`, update state with current task counts. Invoke `/work` — it reads `state.rework_task_ids` and enters **rework mode** (see `work/SKILL.md` "Rework-mode task filter"), processing only the listed IDs at the tier each task carries in `metadata.model`; non-listed completed tasks are skipped.
 
 The work skill may parallelize independent rework tasks when `superpowers:dispatching-parallel-agents` is available (see work skill's "Parallel dispatch for independent rework fixes").
 
-Increment cycle counter. Update state: set `phase: "review"` and `next_phase: "review"`, update task counts. Loop back to Phase 4.
+### After /work returns
+
+1. Clear `state.rework_task_ids` (set to `[]`).
+2. Increment cycle counter.
+3. Update state: set `phase: "review"` and `next_phase: "review"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them).
+4. Loop back to Phase 4.
+
+Cross-references: `references/state-schema.md` (`rework_task_ids`, `tasks[].model`, `tasks[].attempts`, `stall_reason` shapes); `work/SKILL.md` Per-task model dispatch, Attempt logging, Rework-mode task filter.
 
 ## Phase 7: Blind Review
 
@@ -282,7 +435,7 @@ Spec-only verification by a reviewer with no implementation context. Invoke `/re
 After the review:
 
 1. **No Critical/Important findings** → update state: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. Proceed to Phase 8.
-2. **Critical or Important findings** → create tasks tagged `[BLIND]`, invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. **Also update task counts (`tasks_total`/`tasks_completed`)** since `[BLIND]` tasks change them — same task-count-update mechanic Phase 8 Execution step 5 applies after `[DOUBT]` tasks (the `phase`/`next_phase` values themselves differ between the two phases). Then proceed to Phase 8. Do not loop back to Phase 4.
+2. **Critical or Important findings** → **first run the "Hydrate TaskList from state.tasks" sub-step** (the blind-review session is fresh; TaskList is empty). Then create tasks tagged `[BLIND]` (each `TaskCreate` gets a new id appended to the hydrated list) and insert a merge-preserving snapshot for each new `[BLIND]` task into `state.tasks` (carrying `{id, name, status}`; the tier classifier does not run on [BLIND] tasks — they default to the running session's model unless you opt to set `metadata.model` explicitly). Invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. **Also update task counts (`tasks_total`/`tasks_completed`) only — do NOT rewrite `state.tasks` here; `/work` already wrote `attempts[]` entries directly to `state.tasks` for the `[BLIND]` tasks, and a bare TaskList snapshot would strip them** (same rationale as Phase 6 step 3 and Phase 8 step 5). Then proceed to Phase 8. Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning but proceed.
 
 Minor findings: defer to batch end (append to `deferred_decisions` in state).
@@ -295,7 +448,11 @@ This phase runs once per PRD.
 
 Final sanity check before completion. Invoke `/review-with-doubt`.
 
-The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope). Process each:
+The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope).
+
+**Before processing any FIX/VERIFY items, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management). This guarantees subsequent `[DOUBT]` `TaskCreate` calls get ids appended after the hydrated original-plan tasks (rather than overwriting id 1 in an empty tracker).
+
+Process each:
 
 ### Handling FIX items
 
@@ -320,9 +477,9 @@ After classifying all items:
 
 1. If no FIX or VERIFY tasks → proceed to Phase 9. KNOWN items (if any) will be surfaced at batch end.
 2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
-3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop.
+3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
-5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts.
+5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks).
 
 KNOWN items keep `"status": "pending"` — Phase 9 step 5 collects these into the batch deferred log for batch-end review.
 
@@ -372,7 +529,7 @@ Summary:
 ### Continuation
 
 9. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/decisions/review_cycles/doubts. Preserve `batch` field. Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop starts a fresh session). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`rework_task_ids` (the next PRD starts a fresh plan, not a rework dispatch), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop starts a fresh session). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
@@ -442,7 +599,7 @@ Autopilot supports automatic session cycling via a signal file + Stop hook. This
 
 - `next` — written at Phase 3 hand-off and Phase 9 step 9 when more PRDs remain. Shell wrapper continues the loop.
 - `done` — written at the end of batch-end review. Shell wrapper exits the loop.
-- `task_aborted` — written by the model when `autopilot_context_cap_hook.py` fires on a 180K Work-turn overrun. Shell wrapper continues the loop; Phase 0 of the next session moves the stalled PRD to `dev/local/prds/stalled/` and picks the next PRD. The hook prepares `state.stall_reason = {"stalled": "context_overrun", ...}` and appends to `state.task_aborts` before instructing the model to write the signal.
+- `task_aborted` — written by the model in two cases: (a) when `autopilot_context_cap_hook.py` fires on a 180K Work-turn overrun (the hook prepares `state.stall_reason = {"stalled": "context_overrun", ...}`); or (b) when `/work` Subagent Dispatch Budget aborts a task whose assembled subagent prompt exceeded 50K after one trim pass (`/work` prepares `state.stall_reason = {"stalled": "subagent_prompt_overrun", ...}`). In both cases the writer appends to `state.task_aborts` before instructing the model to write the signal. Shell wrapper continues the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see Phase 0 step 1's replan procedure).
 
 Every signal write is paired with a `state.next_phase` write that happens immediately before — `autoclaude` reads `next_phase` to pick `--model` for the next launch.
 
@@ -461,7 +618,7 @@ while true; do
   rm -f dev/local/autopilot/signal
   case "$signal" in
     next)         echo "Starting next PRD..." ;;
-    task_aborted) echo "Work task hit context cap; PRD will be stalled. Continuing..." ;;
+    task_aborted) echo "Work task hit context cap; PRD will be replanned. Continuing..." ;;
     *)            echo "Backlog drained."; break ;;
   esac
 done
