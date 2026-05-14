@@ -48,9 +48,9 @@ PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Tim
 3. If the prompt exceeds 50 000 bytes:
    - Trim by removing the lowest-priority context first (large example files, full architecture docs). Re-measure.
    - If still oversized after one trim pass, abort the task. Wire the abort
-     through the same stall handoff the runtime context-cap hook uses, so
-     `/run-autopilot` Phase 0 of the next session moves the PRD to
-     `dev/local/prds/stalled/` and continues with the next PRD (parallel
+     through the same handoff the runtime context-cap hook uses, so
+     `/run-autopilot` Phase 0 of the next session replans the PRD in place
+     (PRD stays in `wip/`; see Phase 0 step 1's replan procedure — parallel
      to `context_overrun`):
      1. Append to `state.task_aborts[]`:
         ```json
@@ -67,13 +67,65 @@ PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Tim
         to `<autopilot_dir>/signal`. Skip the signal write when
         `$_AUTOPILOT_LOOP` is unset; the next manual `/run-autopilot`
         invocation will resume via `state.stall_reason`.
-     4. Report cause `subagent_prompt_overrun` and stop work on this task.
+     4. Append an attempt-log entry per the "Attempt logging" section:
+        `outcome: "aborted"`, `cause: "subagent_prompt_overrun"`,
+        `model` from `task.metadata.model`,
+        `review_cycle: null` (Phase 3) or current `state.cycle` (rework).
+     5. Report cause `subagent_prompt_overrun` and stop work on this task.
 4. Prepend the abort-instruction line verbatim to the prompt:
    ```
    Abort and report if you read more than 100K of total input. Return the partial result and an abort_reason: context_overrun field.
    ```
 
 **Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under Sonnet 4.6's 200K standard-tier ceiling.
+
+## Per-task model dispatch
+
+Before any Agent call for a task, read `task.metadata.model` (or equivalently `state.tasks[i].model` — `/run-autopilot` keeps the two in sync) and pass it as the Agent tool's `model` parameter.
+
+Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps. The list below is illustrative, not exhaustive — when the prose says "every Agent call", it means every one:
+
+- Agent A (test author, step 2.7), plus any quality-gate or A/C-round re-dispatches (step 2.8, 2.85)
+- Agent C (adversarial validator, step 2.85)
+- Agent B (implementor, step 3)
+- Agent B re-dispatches on test failure (step 5.5)
+- Code reviewer (step 5.7)
+- Agent B fix-on-review re-dispatch (step 5.7)
+- Agent B re-dispatches on full-suite regression (step 7)
+
+If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
+
+Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
+
+**Legacy plans** (created before PRD 00025) have no `metadata.model`. Omit the `model` parameter — subagents inherit the session model. This preserves the pre-PRD-00025 behavior bit-for-bit.
+
+The **Subagent Dispatch Budget** (50K bytes, 100K subagent-internal cap) applies regardless of tier. Haiku doesn't earn a smaller cap; opus doesn't earn a larger one.
+
+## Attempt logging
+
+At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug) or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`:
+
+```json
+{
+  "attempt": <len(existing attempts) + 1>,
+  "model": "<tier>",
+  "outcome": "completed" | "aborted",
+  "review_cycle": <int | null>,
+  "cause": "<string | null>"
+}
+```
+
+**Field semantics**:
+
+- `attempt`: 1-indexed; `len(existing) + 1`.
+- `model`: the tier `/work` used for this pass. Read from `task.metadata.model` when set. On legacy plans where `metadata.model` is absent, record the effective session-inherited tier as a string (e.g. `"sonnet"` for a Work-phase Sonnet 4.6 launch). Always a string — never `null`.
+- `outcome`: `/work` writes only `"completed"` or `"aborted"`. Later phases upgrade earlier entries — `/run-autopilot` Phase 6 (Rework) step 2 rewrites a `"completed"` entry's outcome to `"review_flagged"` at the start of escalation, then later rewrites a flagged entry's outcome to `"rework_failed"` when the rework pass also fails at the top of the chain.
+- `review_cycle`: `null` on a first/Phase-3 attempt; set to the current `state.cycle` integer when the pass is a rework re-dispatch (see step 1.5 "Rework-mode task filter (PRD 00025)").
+- `cause`: `null` on success; on abort, the reason — `"context_overrun"`, `"subagent_prompt_overrun"`, `"timeout"`, `"error"`.
+
+**Write procedure**: read `state.json`, append to `tasks[i].attempts[]` (create the array if absent), write back atomically. Merge — do not replace siblings. Walk up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in step 2.
+
+Cross-reference: `references/state-schema.md` `tasks[].attempts` row defines the canonical shape.
 
 ## Tool Selection
 
@@ -149,6 +201,23 @@ Use `TaskList` tool to see all tasks. Filter for:
 - No owner assigned
 
 **Update `dev/local/prd-cycle.json`** with the full task list (see Dashboard State File above).
+
+### 1.5. Rework-mode task filter (PRD 00025)
+
+Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from cwd to find the autopilot dir, same pattern as the cap-marker reset in step 2). Two modes:
+
+| `rework_task_ids` | Mode | Iteration source |
+|-------------------|------|------------------|
+| absent or `[]` | **default (full-plan)** | The pending-and-unblocked subset from step 1's `TaskList` filter, in TaskList order. This is the Phase 3 first-pass behavior. |
+| non-empty array | **rework mode** | The listed task IDs read directly from `state.rework_task_ids`, in array order — **bypass step 1's status filter entirely**. Each ID is fetched via `TaskGet` regardless of current status (`pending` after Phase 6's reset, or `completed` if Phase 6's reset hasn't fired yet). Tasks NOT in the list are skipped entirely — no Agent A/B/C dispatch, no commits. |
+
+**In rework mode, each task's status is set to `in_progress` at start** via `TaskUpdate` (overwriting whatever the prior status was — `pending` after Phase 6's reset, or `completed` on a defensive re-entry) and to `completed` at end — same lifecycle as a default-mode pass, so the dashboard reflects rework progress.
+
+**In rework mode, the Attempt logging entry** (see "Attempt logging" above) sets `review_cycle` to the current `state.cycle` value (not null), `model` to the escalated tier read from `task.metadata.model` (set by `/run-autopilot` Phase 6), and `outcome` to `"completed"` or `"aborted"` as normal.
+
+**`/work` does NOT modify `rework_task_ids` itself.** Clearing is `/run-autopilot` Phase 6's responsibility, after this `/work` invocation returns. **If `/work` aborts mid-rework** (context overrun, Subagent Dispatch Budget overrun, unrecoverable error), `rework_task_ids` survives in state — this is correct recovery behavior: the next `/run-autopilot` session resumes with the same rework batch and re-attempts the listed tasks at their already-escalated tier. Phase 6's clear runs only on the successful `/work` return.
+
+Cross-reference: `references/state-schema.md` `rework_task_ids` row; `run-autopilot/SKILL.md` Phase 6 (rework) tier-escalation rule.
 
 ### 2. Claim and start task
 
@@ -289,9 +358,9 @@ Agent B's job: make the failing tests pass. Tests ARE the spec.
 | Result | Action |
 |--------|--------|
 | Success | Continue to step 5 |
-| Timeout | Split task (see below), mark original as blocked |
-| Context exceeded | Split task, mark original as blocked |
-| Error | Invoke systematic-debugging if available (see below), otherwise report to user |
+| Timeout | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "timeout"`). Split task (see below), mark original as blocked. |
+| Context exceeded | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "context_overrun"`). Split task, mark original as blocked. |
+| Error | Invoke systematic-debugging if available (see below). On unrecoverable error, append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "error"`) and report to user. |
 
 ### 4.5. Debug on error (if superpowers available)
 
@@ -346,9 +415,10 @@ Skip for documentation-only or configuration-only tasks.
 ### 6. Mark complete and sync
 
 1. Use `TaskUpdate` to set `status: completed`
-2. **Sync state file** (see Dashboard State Sync) — mandatory
-3. Return to step 1 for next task
-4. When no pending tasks remain, proceed to step 7 (do NOT stop here)
+2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass.
+3. **Sync state file** (see Dashboard State Sync) — mandatory
+4. Return to step 1 for next task
+5. When no pending tasks remain, proceed to step 7 (do NOT stop here)
 
 ### 7. Final verification (once per work phase)
 
