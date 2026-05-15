@@ -8,7 +8,9 @@ session.
 
 Walking up from cwd is mandatory: the agent may `cd` into a subdirectory
 during the session, so a hard-coded relative `dev/local/autopilot/signal`
-silently misses the signal. (Observed 2026-05-11.)
+silently misses the signal. (Observed 2026-05-11.) The walk-up itself lives
+in the shared `_walk_up.find_autopilot_dir` helper; this hook only appends
+`signal` to the discovered dir.
 
 Stdlib only. Self-contained — no _common import (this script lives outside
 ~/.claude/hooks/).
@@ -20,30 +22,26 @@ import subprocess
 import sys
 from pathlib import Path
 
+from _walk_up import find_autopilot_dir
+
 PS_TIMEOUT_SEC = 2
-SIGNAL_REL_PATH = Path("dev") / "local" / "autopilot" / "signal"
 
 
 def find_signal_file(start: Path) -> Path | None:
     """Walk up from `start` looking for dev/local/autopilot/signal.
 
-    Returns the path if found, None otherwise. Stops at filesystem root.
+    Delegates the walk-up to the shared `_walk_up.find_autopilot_dir` helper,
+    then checks for the `signal` file in the discovered autopilot dir.
+    Returns the path if found, None otherwise.
     """
+    autopilot_dir = find_autopilot_dir(start)
+    if autopilot_dir is None:
+        return None
+    candidate = autopilot_dir / "signal"
     try:
-        current = start.resolve()
+        return candidate if candidate.is_file() else None
     except OSError:
         return None
-    while True:
-        candidate = current / SIGNAL_REL_PATH
-        try:
-            if candidate.is_file():
-                return candidate
-        except OSError:
-            pass
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent
 
 
 def _drain_stdin() -> None:

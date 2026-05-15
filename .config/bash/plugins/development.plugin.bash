@@ -16,23 +16,18 @@ about-plugin 'functions for software development'
 # or explicit empty string "" — /run-autopilot writes next_phase: "" at
 # batch end), or "<parse-error>" (jq failed on an existing file).
 #
-# state.json is located via walk-up from $PWD to / so the model dispatch
-# survives autoclaude being invoked from a subdirectory. The hook
-# (autopilot_context_cap_hook.py) does the same walk-up; without it here
-# the entire model-dispatch feature silently no-ops when cwd != project
-# root.
+# state.json is located via the shared walk-up helper (_walk_up.py) so the
+# model dispatch survives autoclaude being invoked from a subdirectory. The
+# hook (autopilot_context_cap_hook.py) uses the same helper; without the
+# walk-up here the entire model-dispatch feature silently no-ops when
+# cwd != project root.
 _autoclaude_pick_model() {
-  local raw next_phase source model jq_rc d state_file
+  local raw next_phase source model jq_rc autopilot_dir state_file
   state_file=""
-  d=$(pwd -P)
-  while :; do
-    if [ -f "$d/dev/local/autopilot/state.json" ]; then
-      state_file="$d/dev/local/autopilot/state.json"
-      break
-    fi
-    [ "$d" = "/" ] && break
-    d=$(dirname "$d")
-  done
+  autopilot_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash)
+  if [ -n "$autopilot_dir" ] && [ -f "$autopilot_dir/state.json" ]; then
+    state_file="$autopilot_dir/state.json"
+  fi
   if [ -z "$state_file" ]; then
     raw=""
     source="<missing>"
