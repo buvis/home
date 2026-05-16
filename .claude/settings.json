@@ -292,6 +292,7 @@
         ]
       },
       {
+        "matcher": "Bash|Read|Grep|Agent|WebFetch|WebSearch|mcp__.*",
         "hooks": [
           {
             "type": "command",
