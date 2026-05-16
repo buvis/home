@@ -149,6 +149,8 @@ After both writes succeed, exit non-zero so `/run-autopilot` Phase 2 detects the
 
 The bytes/4 heuristic is accurate within ±20% for source code, less accurate for prose-heavy markdown. When the largest input is markdown (PRD prose, docs), round up. When estimates land within 10% of the threshold (150K standard / 75K replan), prefer splitting — the runtime context cap hook (Phase 2 of PRD 00024) will abort tasks that overrun anyway, and a planned split is cheaper than a runtime abort.
 
+**30K overhead re-derivation:** The constant was measured by reading `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` from the first `message.usage` line in a fresh Sonnet 4.6 Work-phase transcript (zero task context loaded — just the system prompt, tool defs, and active skills). Re-derive when upgrading the model or adding/removing skills: start an empty `/work` session, read the first usage line from `~/.claude/projects/<hash>/<session>.jsonl`, sum the three token fields. Update the constant and the worked example if the new value differs by more than 5K.
+
 ### 4.7. Assign per-task model tier
 
 For each task, classify a model tier and persist it as `metadata.model: "haiku"|"sonnet"|"opus"` so `/work` can dispatch each subagent at the right tier (PRD 00025).
