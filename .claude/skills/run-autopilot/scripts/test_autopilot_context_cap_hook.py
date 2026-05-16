@@ -432,6 +432,81 @@ class ContextCapHookTests(unittest.TestCase):
         context = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("$_AUTOPILOT_LOOP", context)
 
+    # Symlink and unreadable-path edge cases ---------------------------------
+
+    def test_dangling_symlink_at_autopilot_path_is_noop(self) -> None:
+        """A dangling symlink where dev/local/autopilot/ would be must not
+        be returned as the autopilot dir. is_dir() returns False on dangling
+        symlinks, so the walk-up skips it and returns None, making the hook
+        a no-op (no valid autopilot dir found).
+        """
+        with tempfile.TemporaryDirectory() as plain:
+            plain_path = Path(plain)
+            ap_dir = plain_path / "dev" / "local" / "autopilot"
+            ap_dir.parent.mkdir(parents=True)
+            os.symlink("/nonexistent/path/that/does/not/exist", str(ap_dir))
+            transcript = plain_path / "t.jsonl"
+            transcript.write_text(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
+            result = subprocess.run(
+                [sys.executable, str(HOOK)],
+                input=json.dumps({"transcript_path": str(transcript)}),
+                capture_output=True,
+                text=True,
+                cwd=str(plain_path),
+                timeout=5,
+            )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_unreadable_transcript_path_is_noop(self) -> None:
+        """When transcript_path exists but is not readable (permissions 000),
+        _latest_usage_total must return None and the hook must be a no-op.
+        Verifies the OSError path in _latest_usage_total.
+        """
+        self.fx.write_state(phase="work")
+        self.fx.transcript.write_text(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
+        original_mode = self.fx.transcript.stat().st_mode
+        self.fx.transcript.chmod(0o000)
+        self.addCleanup(self.fx.transcript.chmod, original_mode)
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_transcript_with_no_usage_lines_is_noop(self) -> None:
+        """A transcript containing only non-usage JSON (no message.usage field)
+        must cause the hook to return None from _latest_usage_total and be a
+        no-op — no abort emitted even at very large file sizes.
+        """
+        self.fx.write_state(phase="work")
+        lines = [
+            {"type": "user", "message": {"content": "hello"}},
+            {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
+            {"type": "tool_result", "content": [{"type": "text", "text": "output"}]},
+        ]
+        self.fx.write_transcript_lines(lines)
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_transcript_truncated_mid_line_is_noop(self) -> None:
+        """A transcript whose last line is truncated mid-JSON (no closing brace)
+        must not crash the hook. Partial lines are silently skipped by the
+        JSON parser, and if no complete usage line is found, returns None.
+        """
+        self.fx.write_state(phase="work")
+        with self.fx.transcript.open("w") as f:
+            f.write(json.dumps(self.fx.usage_line(input_tokens=50_000)) + "\n")
+            # Write a partial line (truncated JSON object, no newline)
+            f.write('{"message": {"usage": {"input_tokens": 999999')
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        # The truncated line has the high-token data but is unparseable;
+        # the hook should pick up the complete 50K line (under threshold).
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
     # Performance ------------------------------------------------------------
 
     def test_hook_main_completes_under_100ms_in_process(self) -> None:
