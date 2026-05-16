@@ -288,7 +288,7 @@ After completion, query `TaskList` again and update state: add `"work"` to `phas
 After Phase 3 completes, do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
 
 1. Update `state.next_phase` to `"review"` (the phase the next session will run). This is what `autoclaude` reads to pick the model for the next launch (Opus for review).
-2. Write the signal only when running inside the loop (see "Loop Detection" under Session Loop): if `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the Stop hook reads this and auto-exits the session; the shell loop wrapper relies on it; never ask the user to press Ctrl+D). If unset, skip the signal write — the session will stay interactive and the user will re-invoke `/run-autopilot` manually.
+2. Write the signal only when running inside the loop (see "Loop Detection" under Session Loop): if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path. Never use a bare relative `dev/local/autopilot/signal` — the cwd may have changed during the work phase. If unset, skip the signal write — the session will stay interactive and the user will re-invoke `/run-autopilot` manually.
 3. Print:
 
 ```
@@ -534,7 +534,7 @@ Summary:
 ### Continuation
 
 9. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`rework_task_ids` (the next PRD starts a fresh plan, not a rework dispatch), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop starts a fresh session). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`rework_task_ids` (the next PRD starts a fresh plan, not a rework dispatch), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see Loop Detection) to write `next` to the signal file at the absolute path (never a bare relative path). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
@@ -613,6 +613,19 @@ Every signal write is paired with a `state.next_phase` write that happens immedi
 The shell wrapper (the `autoclaude` function in `~/.config/bash/plugins/development.plugin.bash`) exports `_AUTOPILOT_LOOP=$$` before invoking `claude`. The skill MUST only write `dev/local/autopilot/signal` when this env var is set — writing it without a loop wrapper present causes the Stop hook to SIGINT the session with no restart, which surprises the user.
 
 Check before every signal write with a Bash call such as `echo "${_AUTOPILOT_LOOP-}"` (always exits 0; prints empty when unset) and treat empty output as "not in loop, skip signal". Do NOT use `printenv _AUTOPILOT_LOOP` — it exits 1 when the variable is unset, which the Bash tool surfaces as an error. When skipping the signal, still print the handoff banner and STOP — the session simply stays interactive and the user re-invokes `/run-autopilot` (the next session resumes via `state.json` skip conditions).
+
+**Canonical signal-write procedure:** Always derive the signal path using the walk-up helper so the write lands in the correct absolute location even if the model's cwd has changed (e.g., after Bash `cd` calls during a work task). Use two sequential Bash calls:
+
+```bash
+# Step 1: resolve the autopilot dir
+python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash
+# → prints the resolved absolute path, e.g. /Users/bob/.claude/dev/local/autopilot
+
+# Step 2: write signal using the resolved path (substitute the path from step 1)
+python3 -c "open('/resolved/path/from/step-1/signal', 'w').write('next')"
+```
+
+Or equivalently use the Write tool with the absolute path returned by step 1. All "write signal" instructions in Phase 3, Phase 9, Phase 0, Phase 2, and Phase 6 must follow this procedure.
 
 **Shell wrapper:**
 

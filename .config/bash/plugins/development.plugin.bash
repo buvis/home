@@ -86,8 +86,11 @@ autoclaude() {
     claude --model "$model_id" --name "${PWD##*/}" --permission-mode acceptEdits "/run-autopilot"
     _autopilot_loop_cleanup
 
-    signal=$(cat dev/local/autopilot/signal 2>/dev/null)
-    rm -f dev/local/autopilot/signal
+    local _ap_dir
+    _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
+    [ -z "$_ap_dir" ] && _ap_dir="dev/local/autopilot"
+    signal=$(cat "$_ap_dir/signal" 2>/dev/null)
+    rm -f "$_ap_dir/signal"
 
     if [ "$(git rev-parse HEAD 2>/dev/null)" != "$before_sha" ]; then
       local report
