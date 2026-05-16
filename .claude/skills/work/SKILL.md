@@ -180,15 +180,7 @@ Use `use-codex` skill when the task involves:
 
 ## Dashboard State Sync
 
-After EVERY `TaskUpdate` call, sync `dev/local/prd-cycle.json`:
-
-1. Call `TaskList` to get all current task states
-2. Read `dev/local/prd-cycle.json`
-3. Update `tasks` array: `[{"id": "<id>", "name": "title", "status": "pending|in_progress|completed"}, ...]`
-4. Recalculate `tasks_completed` and `tasks_total`
-5. Write the file back
-
-This is not optional — the user watches this file in real time via pidash.
+`pidash` watches `dev/local/autopilot/state.json` automatically via PostToolUse hooks on `TaskUpdate` and `Agent` calls — no manual sync required from `/work`. Keep `state.tasks[].status` accurate (updated in step 2 at task start and in step 6 at task end) and the dashboard reflects progress in real time.
 
 ## Workflow
 
@@ -200,7 +192,6 @@ Use `TaskList` tool to see all tasks. Filter for:
 - No blockers (empty `blockedBy`)
 - No owner assigned
 
-**Update `dev/local/prd-cycle.json`** with the full task list (see Dashboard State File above).
 
 ### 1.5. Rework-mode task filter (PRD 00025)
 
