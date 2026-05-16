@@ -67,7 +67,7 @@ Read all PRDs from `dev/local/prds/wip/`. Extract success criteria, acceptance c
 
 Load architecture docs: AGENTS.md, agent_docs/, and any `dev/local/` architecture notes. Reviewers benefit from seeing invariants and boundaries.
 
-Build markdown of completed tasks with descriptions.
+Build markdown of completed tasks with descriptions. **One row per task — never merge rows.** If a task was implemented in the same commit as another task (folded), it still gets its own row; note the shared commit SHA and the companion task IDs in the row's description so the cycle-N task→commit table stays unambiguous.
 
 Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to `dev/local/tmp/review-prd-{id}.md` using the **Write tool** (not bash). Then run (from project root):
 
