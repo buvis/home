@@ -68,7 +68,10 @@ Run this hydration **before any phase invokes `/work` or queries TaskList for ro
    - `TaskCreate` with `subject: name`. `TaskCreate` assigns ids sequentially starting at 1, so the new ids align with `state.tasks[].id` numbering by construction.
    - If the entry carries `model` / `estimated_tokens` / `est_context_peak` / `attempts`, pass them through as `metadata` on `TaskCreate`. `/work`'s per-task model dispatch consumes `metadata.model` only (PRD 00025); the other three are preserved so the TaskList round-trip stays lossless across sessions — future tooling and dashboards can read them via `TaskGet` without re-deriving from `state.tasks`.
 4. After all `TaskCreate` calls succeed, walk `state.tasks` again and `TaskUpdate(status: ...)` to match the recorded status (`pending` / `in_progress` / `completed`). Skip entries where status is already `pending` (the TaskCreate default).
-5. Verify with a final `TaskList` that the count matches `len(state.tasks)`. If it doesn't, abort with a state error (do NOT silently continue — a count mismatch means hydration is corrupt and subsequent phase skipping will mis-fire).
+5. Verify hydration integrity against `TaskList`:
+   - **Count check**: the number of tasks in `TaskList` must equal `len(state.tasks)`. If not, abort with a state error.
+   - **ID-alignment check**: for each entry in `state.tasks`, verify its `id` appears in the `TaskList` result. The sequential-id assumption (`state.tasks[0].id == "1"`, etc.) breaks when `state.tasks` contains non-sequential IDs from manual edits, deletions, or `[C{n}]`/`[D{n}]` suffixes. Count-only verification would silently let a misaligned hydration proceed, causing `/work` to dispatch against wrong task IDs.
+   - If either check fails, abort with a clear error message naming the mismatched IDs. Do NOT silently continue.
 
 **Idempotency:** if a phase re-enters this sub-step on the same session (e.g. Phase 6 after Phase 3), step 1 short-circuits. Safe to call as a precondition on every `/work` entry point.
 
