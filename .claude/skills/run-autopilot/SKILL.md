@@ -519,7 +519,11 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    Observations: {any operational gotchas useful for next iteration}
    ```
    If the capsule doesn't exist yet (catchup was skipped), create a minimal one with just the Active Work section.
-8. Print per-PRD summary:
+8. Print per-PRD summary. Run the tier-escalation aggregator first:
+   ```bash
+   python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py dev/local/autopilot/state.json
+   ```
+   Then print:
 
 ```
 ── AUTOPILOT ── PRD: {prd-name} ── DONE ── {n} cycles ─────────────
@@ -529,7 +533,10 @@ Summary:
 - Autonomous decisions: {count}
 - Escalated decisions: {count}
 - Follow-up tasks fixed: {count}
+- {tier_escalation_metrics output, indented two spaces}
 ```
+
+   If the script exits non-zero or produces no output (no attempt data yet), omit the tier-escalation line — do not fail Phase 9.
 
 ### Continuation
 
