@@ -360,6 +360,8 @@ Log every decision in state file (`autonomous_decisions` or `deferred_decisions`
 
 ## Phase 6: Rework
 
+**Session model:** Phase 6 runs in the same session as Phase 4 (review). That session uses Opus 4.7 (per `autoclaude`'s `next_phase = "review"` → Opus mapping). The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate rework handoff is needed: the session model handles review quality; per-task dispatch handles implementation correctness. This resolves PRD 00024 cycle-1 item 1.
+
 Two task kinds enter this phase:
 
 - **Review-flagged original-plan tasks** (`[C{cycle}]` prefix): a task `/work` already attempted that the review phase wants re-done. These are retries — escalate the model tier per the rule below.
