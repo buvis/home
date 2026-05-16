@@ -31,6 +31,10 @@ _autoclaude_pick_model() {
   if [ -z "$state_file" ]; then
     raw=""
     source="<missing>"
+  elif ! command -v jq >/dev/null 2>&1; then
+    printf 'autoclaude: jq not found in PATH; defaulting to Opus\n' >&2
+    source="<jq-missing>"
+    raw=""
   else
     raw=$(jq -r '.next_phase // ""' "$state_file" 2>/dev/null)
     jq_rc=$?
@@ -38,6 +42,9 @@ _autoclaude_pick_model() {
       source="<parse-error>"
       raw=""
     elif [ -z "$raw" ] || [ "$raw" = "null" ]; then
+      # jq -r prints the literal string "null" for JSON-null values when no
+      # // fallback is in the query; // "" already coerces null → empty, so
+      # this "null" check is defensive for future query simplifications.
       source="<empty>"
       raw=""
     else
