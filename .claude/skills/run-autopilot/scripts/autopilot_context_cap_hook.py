@@ -26,6 +26,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from _walk_up import find_autopilot_dir
+
 USAGE_LIMIT = 180_000
 # Walk the transcript backwards in 64KB chunks until a `message.usage`
 # line is found or MAX_TAIL_BYTES is read. A fixed 64KB tail risked
@@ -34,8 +36,6 @@ USAGE_LIMIT = 180_000
 # usage line and EOF. 4MB caps the worst case at ~60ms of decode work.
 TAIL_CHUNK_BYTES = 64 * 1024
 MAX_TAIL_BYTES = 4 * 1024 * 1024
-
-AUTOPILOT_REL_PATH = Path("dev") / "local" / "autopilot"
 
 def _abort_instructions(signal_path: Path) -> str:
     """Build the abort instructions with the resolved absolute signal path.
@@ -65,31 +65,6 @@ def _abort_instructions(signal_path: Path) -> str:
         "in place on the next session (PRD stays in dev/local/prds/wip/) "
         "with the remaining scope split into smaller tasks."
     )
-
-
-def _find_autopilot_dir(start: Path) -> Path | None:
-    """Walk up from `start` looking for dev/local/autopilot/.
-
-    Returns the resolved path if found, None otherwise. Stops at filesystem
-    root. Mirrors the walk-up pattern in autopilot_stop_hook.py — agent may
-    cd into a subdirectory during work, so a hard-coded relative
-    `dev/local/autopilot` resolution silently misses the dir.
-    """
-    try:
-        current = start.resolve()
-    except OSError:
-        return None
-    while True:
-        candidate = current / AUTOPILOT_REL_PATH
-        try:
-            if candidate.is_dir():
-                return candidate
-        except OSError:
-            pass
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent
 
 
 def _read_stdin() -> dict[str, Any]:
@@ -198,6 +173,31 @@ def _in_progress_task_id(state: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _merge_abort_to_state(
+    autopilot_dir: Path,
+    abort_entry: dict[str, Any],
+    stall_reason: dict[str, Any],
+) -> bool:
+    """Re-read state.json, merge abort fields, write atomically.
+
+    Re-reading immediately before writing minimizes the race window with
+    concurrent model writes via the Edit tool. The model writes fields like
+    tasks[].status and tasks_completed that the hook must not overwrite;
+    merging onto a fresh read rather than the initial read (done earlier for
+    phase/task checks) captures those concurrent updates.
+    """
+    fresh = _load_state(autopilot_dir)
+    if fresh is None:
+        return False
+    aborts = fresh.get("task_aborts")
+    if not isinstance(aborts, list):
+        aborts = []
+    aborts.append(abort_entry)
+    fresh["task_aborts"] = aborts
+    fresh["stall_reason"] = stall_reason
+    return _atomic_write_state(autopilot_dir, fresh)
+
+
 def _atomic_write_state(autopilot_dir: Path, state: dict[str, Any]) -> bool:
     """Write state.json atomically. Return True on success, False on failure.
 
@@ -250,7 +250,7 @@ def main() -> None:
     if not isinstance(transcript_path_str, str) or not transcript_path_str:
         return
 
-    autopilot_dir = _find_autopilot_dir(Path.cwd())
+    autopilot_dir = find_autopilot_dir(Path.cwd())
     if autopilot_dir is None:
         return
 
@@ -294,20 +294,7 @@ def main() -> None:
         "cause": "context_overrun",
     }
 
-    aborts = state.get("task_aborts")
-    if not isinstance(aborts, list):
-        aborts = []
-    aborts.append(abort_entry)
-    state["task_aborts"] = aborts
-
-    # Set stall_reason so /run-autopilot Phase 0 replans the PRD in place
-    # on the next session (PRD stays in dev/local/prds/wip/; the next
-    # session re-runs planning with the remaining scope split into smaller
-    # tasks). The shell wrapper treats the `task_aborted` signal as
-    # "continue loop" (parallel to `next`); without stall_reason set here
-    # the next session would re-enter Work on the same PRD and hit the cap
-    # again.
-    state["stall_reason"] = {
+    stall_reason = {
         "stalled": "context_overrun",
         "task": task_id,
         "total_input_tokens": total,
@@ -320,7 +307,11 @@ def main() -> None:
     # from, silently degrading to a normal PRD start with the original PRD
     # still in wip/. Better to let the hook fire again on the next
     # PostToolUse and try the write again.
-    if not _atomic_write_state(autopilot_dir, state):
+    #
+    # _merge_abort_to_state re-reads state.json fresh before writing so
+    # concurrent model edits (tasks[].status, tasks_completed) are not
+    # silently overwritten by this hook's stale initial read.
+    if not _merge_abort_to_state(autopilot_dir, abort_entry, stall_reason):
         return
 
     try:
