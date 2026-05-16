@@ -346,6 +346,57 @@ class ContextCapHookTests(unittest.TestCase):
         # Stderr should carry a diagnostic explaining the skip.
         self.assertIn("state.json write failed", result.stderr)
 
+    # Race safety: merge-write preserves concurrent model edits ---------------
+
+    def test_existing_task_aborts_preserved_on_merge_write(self) -> None:
+        """Merge-write must append to existing task_aborts, not overwrite.
+
+        If state.json already has aborts from a prior hook fire or a prior
+        replan, the new entry must be appended, not the list replaced.
+        """
+        prior_abort = {
+            "task_id": "task-prior",
+            "turn": -1,
+            "total_input_tokens": 100,
+            "cause": "context_overrun",
+        }
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+            task_aborts=[prior_abort],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(len(state["task_aborts"]), 2)
+        self.assertEqual(state["task_aborts"][0]["task_id"], "task-prior")
+        self.assertEqual(state["task_aborts"][1]["task_id"], "task-x")
+
+    def test_merge_write_preserves_non_abort_fields(self) -> None:
+        """Merge-write must preserve fields the hook does not own.
+
+        The hook writes task_aborts and stall_reason. All other fields
+        (tasks_completed, tasks[].status, etc.) are owned by the model
+        or /work; the hook must not overwrite them with stale values from
+        its initial state read.
+
+        Note: this test cannot simulate a true concurrent write (subprocess
+        + no sync), but verifies that fields not touched by the hook survive
+        the merge-write — the property the re-read achieves.
+        """
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+            tasks_completed=7,
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["tasks_completed"], 7)
+        self.assertEqual(len(state["task_aborts"]), 1)
+
     # Abort-instruction robustness ------------------------------------------
 
     def test_abort_instructions_use_absolute_signal_path(self) -> None:
