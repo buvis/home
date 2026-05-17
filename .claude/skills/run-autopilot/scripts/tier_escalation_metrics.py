@@ -51,16 +51,23 @@ def _compute(tasks: list[dict[str, Any]]) -> dict[str, Any]:
     escalated: list[str] = []
     chains: dict[str, int] = {}
     rework_failed: list[str] = []
+    # first-pass success: {tier: [total_first, succeeded_first]}
+    fps_counts: dict[str, list[int]] = {t: [0, 0] for t in TIERS}
+    total_attempts = 0
 
     for task in tasks:
         attempts: list[dict[str, Any]] = task.get("attempts") or []
         if not attempts:
             continue
 
+        total_attempts += len(attempts)
         first = attempts[0]
         initial_tier = first.get("model") or "unknown"
         if initial_tier in by_tier:
             by_tier[initial_tier] += 1
+            fps_counts[initial_tier][0] += 1
+            if first.get("outcome") == "completed":
+                fps_counts[initial_tier][1] += 1
 
         rework_attempts = [a for a in attempts if a.get("review_cycle") is not None]
         if not rework_attempts:
@@ -85,7 +92,23 @@ def _compute(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         if total_sonnet_first > 0
         else 0.0
     )
+
+    total_haiku_first = by_tier.get("haiku", 0)
+    haiku_to_sonnet = chains.get("haiku→sonnet", 0)
+    h2s_rate = (
+        round(haiku_to_sonnet / total_haiku_first * 100, 1)
+        if total_haiku_first > 0
+        else 0.0
+    )
+
     overall_rate = round(len(escalated) / total * 100, 1) if total > 0 else 0.0
+    avg_attempts = round(total_attempts / total, 1) if total > 0 else 0.0
+
+    first_pass_success: dict[str, float] = {}
+    for t in TIERS:
+        count, succeeded = fps_counts[t]
+        if count > 0:
+            first_pass_success[t] = round(succeeded / count * 100, 1)
 
     return {
         "total_tasks": total,
@@ -96,6 +119,9 @@ def _compute(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         "rework_failed": rework_failed,
         "overall_rate": overall_rate,
         "sonnet_to_opus_rate": s2o_rate,
+        "haiku_to_sonnet_rate": h2s_rate,
+        "avg_attempts": avg_attempts,
+        "first_pass_success": first_pass_success,
     }
 
 
@@ -103,7 +129,8 @@ def format_metrics(m: dict[str, Any]) -> str:
     lines: list[str] = []
     total = m["total_tasks"]
     lines.append(
-        f"Tier escalation ({m['escalated_count']}/{total} tasks, {m['overall_rate']}%):"
+        f"Tier escalation ({m['escalated_count']}/{total} tasks with attempts,"
+        f" {m['overall_rate']}%):"
     )
     tier_parts = ", ".join(
         f"{t}: {m['by_tier'][t]}" for t in TIERS if m["by_tier"].get(t, 0) > 0
@@ -121,18 +148,27 @@ def format_metrics(m: dict[str, Any]) -> str:
     s2o = m["sonnet_to_opus_rate"]
     target_ok = "OK" if s2o <= 2.0 else "OVER TARGET"
     lines.append(f"  sonnet→opus rate: {s2o}% (PRD-00025 target ≤2% — {target_ok})")
+    h2s = m["haiku_to_sonnet_rate"]
+    lines.append(f"  haiku→sonnet rate: {h2s}%")
+    lines.append(f"  avg attempts per task: {m['avg_attempts']}")
+    fps = m.get("first_pass_success") or {}
+    if fps:
+        fps_parts = ", ".join(f"{t}: {fps[t]}%" for t in TIERS if t in fps)
+        lines.append(f"  first-pass success — {fps_parts}")
     return "\n".join(lines)
 
 
-def main() -> None:
-    if len(sys.argv) > 1:
-        state_path = Path(sys.argv[1])
-    else:
-        state_path = _find_state()
-        if state_path is None:
-            print("tier_escalation_metrics: state.json not found", file=sys.stderr)
-            sys.exit(1)
+def _write_metrics_file(report: str, state_path: Path, state: dict[str, Any]) -> None:
+    batch_id: str | None = (state.get("batch") or {}).get("id")
+    if not batch_id:
+        return
+    metrics_dir = state_path.parent / "metrics"
+    metrics_dir.mkdir(exist_ok=True)
+    (metrics_dir / f"{batch_id}-tier-metrics.md").write_text(report)
 
+
+def run(state_path: Path) -> None:
+    """Load state, compute metrics, print and write the report."""
     state = _load_state(state_path)
     if state is None:
         print(f"tier_escalation_metrics: cannot read {state_path}", file=sys.stderr)
@@ -145,7 +181,21 @@ def main() -> None:
         return
 
     m = _compute(tasks_with_attempts)
-    print(format_metrics(m))
+    report = format_metrics(m)
+    print(report)
+    _write_metrics_file(report, state_path, state)
+
+
+def main() -> None:
+    if len(sys.argv) > 1:
+        state_path = Path(sys.argv[1])
+    else:
+        state_path = _find_state()
+        if state_path is None:
+            print("tier_escalation_metrics: state.json not found", file=sys.stderr)
+            sys.exit(1)
+
+    run(state_path)
 
 
 if __name__ == "__main__":

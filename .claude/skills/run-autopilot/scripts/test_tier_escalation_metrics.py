@@ -113,14 +113,14 @@ class TestAverageAttemptsPerTask(unittest.TestCase):
 
 class TestFirstPassSuccessPerTier(unittest.TestCase):
     def test_sonnet_first_pass_success(self) -> None:
-        # 3 sonnet-first tasks: 2 completed first pass, 1 escalated
+        # 3 sonnet-first tasks: 2 completed first pass, 1 review-flagged on first pass
         tasks = [
             _make_task("1", [_attempt("sonnet", "completed")]),
             _make_task("2", [_attempt("sonnet", "completed")]),
             _make_task(
                 "3",
                 [
-                    _attempt("sonnet", "completed"),
+                    _attempt("sonnet", "review_flagged"),
                     _attempt("opus", "completed", review_cycle=1),
                 ],
             ),
