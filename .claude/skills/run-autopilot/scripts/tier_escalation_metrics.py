@@ -69,7 +69,14 @@ def _compute(tasks: list[dict[str, Any]]) -> dict[str, Any]:
             if first.get("outcome") == "completed":
                 fps_counts[initial_tier][1] += 1
 
-        rework_attempts = [a for a in attempts if a.get("review_cycle") is not None]
+        # A rework attempt is, by definition, an attempt AFTER the first.
+        # A single-attempt task is never an escalation even when its lone
+        # attempt carries review_cycle (a [D]/[BLIND] follow-up task is
+        # planned and worked during a rework cycle, so /work logs its first
+        # attempt with review_cycle set — that is not an escalation).
+        rework_attempts = [
+            a for a in attempts[1:] if a.get("review_cycle") is not None
+        ]
         if not rework_attempts:
             continue
 
