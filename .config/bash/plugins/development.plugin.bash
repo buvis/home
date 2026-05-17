@@ -109,9 +109,9 @@ autoclaude() {
       task_aborted)
         # Work-phase context cap fired. The hook has already set
         # stall_reason and appended to task_aborts; /run-autopilot Phase 0
-        # in the next session will move the PRD to dev/local/prds/stalled/
-        # and pick the next PRD. Treat as continue-loop.
-        printf '\nWork task hit context cap; PRD will be stalled. Continuing…\n'
+        # in the next session will replan the PRD in place (PRD stays in
+        # dev/local/prds/wip/) and resume. Treat as continue-loop.
+        printf '\nWork task hit context cap; PRD will be replanned. Continuing…\n'
         ;;
       *)
         printf '\nBacklog drained.\n'
