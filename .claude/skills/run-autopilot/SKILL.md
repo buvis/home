@@ -44,7 +44,7 @@ Create `dev/local/autopilot/` and subdirectories if missing. Initialize state fi
 
 When `/run-autopilot` is invoked and `dev/local/autopilot/state.json` exists with `batch.completed_prds`, this is a continuation after a session restart. Preserve `batch.completed_prds` (including `batch.id`) and proceed to Phase 0 to pick the next PRD.
 
-Clean up stale signal file at start: delete `dev/local/autopilot/signal` if it exists.
+Clean up stale signal file at start: locate the autopilot dir with the canonical walk-up helper (`_walk_up.py --bash`, see "Canonical signal-write procedure" in Loop Detection) and delete `<autopilot_dir>/signal` if it exists. Do not use a bare relative path.
 
 ### Task Counts
 
