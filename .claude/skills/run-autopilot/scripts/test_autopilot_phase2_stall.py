@@ -1,9 +1,20 @@
-"""Integration tests for the Phase 2 oversized_task stall path.
+"""Procedure-invariant tests for the Phase 2 oversized_task stall path.
 
-Covers SKILL.md Phase 2 "Handle plan-tasks stall (oversized task)" steps:
+These are NOT live `/run-autopilot` integration tests. SKILL.md Phase 2 is
+prose executed by the model, not callable code, so there is no real flow to
+drive end-to-end. Instead `apply_stall_procedure` (below) is a faithful
+re-implementation of the SKILL.md "Handle plan-tasks stall (oversized task)"
+steps, and the tests assert its filesystem/state invariants. They catch
+regressions in the documented procedure's shape; they do not verify that the
+model actually follows it.
+
+Covers the SKILL.md stall steps that have a checkable invariant:
   - PRD moved from wip/ to stalled/
   - stall_reason cleared from state
-  - PRD-specific fields reset (phases_completed, cycle, tasks, etc.)
+  - PRD-specific fields reset (phases_completed, cycle, tasks, etc.) — note
+    `tasks` reset to [] stands in for the SKILL.md "delete pre-stall tasks"
+    step; the real TaskUpdate(status="deleted") calls are a model action
+    against the TaskList API and are out of scope for a stdlib unittest
   - batch field preserved
   - stalled/ directory created if absent
   - sequence prefix preserved on moved PRD
