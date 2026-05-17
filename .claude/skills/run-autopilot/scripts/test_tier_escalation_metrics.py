@@ -199,6 +199,22 @@ class TestOverallRateDenominatorLabel(unittest.TestCase):
         m = tmet._compute(tasks)
         self.assertEqual(m["escalated_count"], 1)
 
+    def test_single_attempt_with_review_cycle_is_not_escalation(self) -> None:
+        # A [D]/[BLIND] follow-up task is planned and worked during a rework
+        # cycle, so /work logs its lone first attempt with review_cycle set.
+        # A single-attempt task never escalated — it must NOT be counted as
+        # an escalation and must produce no escalation chain.
+        tasks = [
+            _make_task("1", [_attempt("sonnet", "completed", review_cycle=1)]),
+            _make_task("2", [_attempt("haiku", "completed", review_cycle=2)]),
+        ]
+        m = tmet._compute(tasks)
+        self.assertEqual(m["escalated_count"], 0)
+        self.assertEqual(m["chains"], {})
+        # The genuine first-pass metrics still see these tasks.
+        self.assertEqual(m["by_tier"]["sonnet"], 1)
+        self.assertEqual(m["by_tier"]["haiku"], 1)
+
 
 class TestFormatMetricsOutputLines(unittest.TestCase):
     def test_haiku_sonnet_rate_in_output(self) -> None:
