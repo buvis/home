@@ -61,3 +61,7 @@ Alice (Opus) and Diana (Sonnet) both use Claude models but reason differently. S
 ## Dynamic Agent Count
 
 Consolidation accepts any number of NAME:FILE pairs. Consensus scales with active agent count (Full = N/N, Majority = >50%, Minority = <=50%). Adding, removing, or disabling agents requires no script changes. When Carl (Gemini) returns, adding a fourth agent just means passing one more pair.
+
+## Incremental Reviews on Rework Cycles
+
+Cycle 1 reviews the full PRD diff against the branch base. Cycle 2+ (rework cycles) scope the diff to commits since the previous cycle's `head_sha`, and hand reviewers the prior findings to verify. This is deliberate, not a coverage gap: re-running three reviewers over the entire branch diff every cycle is the dominant token cost of a multi-cycle PRD, and the unchanged code was already reviewed in cycle 1. Coverage is preserved — prior findings are explicitly re-checked, the scoped diff catches rework regressions, and (under autopilot) blind review and doubt review still examine the whole result. Do not "fix" this back to a full diff every cycle.

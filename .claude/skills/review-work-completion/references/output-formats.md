@@ -132,6 +132,7 @@ Example: PRD `00004-exchanger-web-ui-v1.md` → review `00004-exchanger-web-ui-v
 prd: dev/local/prds/wip/<prd-filename>
 review: 1
 date: YYYY-MM-DD
+head_sha: <git HEAD sha at review time>
 agents:
   alice: available
   bob: available
@@ -140,6 +141,8 @@ agents:
 ---
 
 Agent states: `available` (ran successfully), `unavailable` (failed after retries), `disabled` (not invoked).
+
+`head_sha`: the `git rev-parse HEAD` value captured when this review ran. The next rework cycle reads it and passes `--since <head_sha>` to `gather-context.sh`, scoping that cycle's diff to the rework commits. Absent on review files created before this field existed — consumers fall back to a full-branch diff.
 
 # Review: <prd-name>
 
