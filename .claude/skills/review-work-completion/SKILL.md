@@ -69,13 +69,30 @@ Load architecture docs: AGENTS.md, agent_docs/, and any `dev/local/` architectur
 
 Build markdown of completed tasks with descriptions. **One row per task — never merge rows.** If a task was implemented in the same commit as another task (folded), it still gets its own row; note the shared commit SHA and the companion task IDs in the row's description so the cycle-N task→commit table stays unambiguous.
 
-Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to `dev/local/tmp/review-prd-{id}.md` using the **Write tool** (not bash). Then run (from project root):
+Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to `dev/local/tmp/review-prd-{id}.md` using the **Write tool** (not bash).
+
+**Determine review scope (full vs incremental).** With `Glob`, list existing review files for this PRD: `dev/local/reviews/<prd-name>-review-*.md` (PRD filename without the `.md` extension).
+
+- **No prior review file** → cycle 1, a **full review**. Run `gather-context.sh` without `--since`.
+- **A prior review file exists** → this is a rework cycle, an **incremental review**. Read the highest-numbered prior file's `head_sha` frontmatter field.
+  - `head_sha` present → pass `--since <head_sha>` to `gather-context.sh`. The diff then covers only the rework commits since that cycle, not the whole PRD branch — the prior cycle already reviewed the full diff. Also read that file's consolidated findings; step 4 hands them to the reviewers to verify.
+  - `head_sha` absent (file predates this field) → fall back to a full review (omit `--since`).
+
+Capture the current HEAD now — `git rev-parse HEAD` — and hold it; step 8 stamps it into this cycle's review file as `head_sha`.
+
+Run `gather-context.sh` (from project root). Full review:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/gather-context.sh dev/local/tmp/review-tasks-{id}.md dev/local/tmp/review-prd-{id}.md
 ```
 
-Both args are optional — omit if no tasks/PRD available. Outputs context file and diff file paths to `dev/local/tmp/`.
+Incremental review (rework cycle) — prepend `--since <prior-cycle-head-sha>`:
+
+```bash
+~/.claude/skills/review-work-completion/scripts/gather-context.sh --since <prior-cycle-head-sha> dev/local/tmp/review-tasks-{id}.md dev/local/tmp/review-prd-{id}.md
+```
+
+Both positional args are optional — omit if no tasks/PRD available. Outputs context file and diff file paths to `dev/local/tmp/`.
 
 ### 4. Prepare agent prompts
 
@@ -88,6 +105,10 @@ For each active agent, use the **Write tool** (not bash heredocs) to create `dev
 > **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character - expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
 
 With 1M context, agent prompts can include more background — full PRD, architecture summary, relevant module interfaces — rather than compressed summaries. Richer context produces better reviews.
+
+**For an incremental review** (step 3 found a prior cycle): add to each agent prompt the prior cycle's consolidated findings, plus this instruction:
+
+> This is an **incremental review** of the rework done since the previous review cycle — the diff is scoped to changes since then. Two jobs: (1) for each prior finding listed below, verify it is now resolved in the code; (2) review the scoped diff for any regression the rework introduced. You need not re-review unchanged code; the previous cycle already reviewed the full implementation.
 
 ### 5. Run agent review
 
@@ -133,5 +154,7 @@ See `references/output-formats.md` for task description format.
 Create at `dev/local/reviews/`.
 
 See `references/output-formats.md` for filename convention, frontmatter, and content format.
+
+Stamp the `head_sha` frontmatter field with the HEAD sha captured in step 3 — the next rework cycle reads it to scope its diff via `--since`.
 
 Include all findings even if zero issues.

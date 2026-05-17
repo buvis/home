@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Gathers review context into dev/local/tmp/
-# Usage: gather-context.sh [tasks_file] [prd_summary_file]
+# Usage: gather-context.sh [--since <ref>] [tasks_file] [prd_summary_file]
+#   --since <ref>:    diff base for an incremental review (rework cycles);
+#                     when omitted or invalid, diffs against the branch base
 #   tasks_file:       path to file containing tasks markdown (optional)
 #   prd_summary_file: path to file containing PRD summary (optional)
 # Outputs: paths to created files (one per line)
@@ -8,8 +10,25 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(pwd)"
-TASKS_FILE="${1:-}"
-PRD_FILE="${2:-}"
+
+# Parse args: optional `--since <ref>` flag, then up to two positionals.
+SINCE_REF=""
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --since)
+      SINCE_REF="${2:-}"
+      shift
+      [[ $# -gt 0 ]] && shift
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+TASKS_FILE="${POSITIONAL[0]:-}"
+PRD_FILE="${POSITIONAL[1]:-}"
 
 TASKS_MD=""
 PRD_SUMMARY=""
@@ -45,7 +64,7 @@ CREATED_FILES+=("$CONTEXT_FILE")
 
   # Try: remote default branch (most reliable)
   if [[ -z "$BASE_BRANCH" ]]; then
-    BASE_BRANCH=$(git -C "$PROJECT_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    BASE_BRANCH=$(git -C "$PROJECT_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)
   fi
 
   # Try: find merge-base with common defaults
@@ -69,14 +88,25 @@ CREATED_FILES+=("$CONTEXT_FILE")
     done
   fi
 
-  if [[ -n "$BASE_BRANCH" ]]; then
+  # Resolve the diff base: an explicit, valid --since <ref> (incremental
+  # rework review) overrides the detected branch base.
+  DIFF_BASE="$BASE_BRANCH"
+  DIFF_SCOPE="full review (vs ${BASE_BRANCH:-unknown base})"
+  if [[ -n "$SINCE_REF" ]] && git -C "$PROJECT_ROOT" rev-parse --verify "$SINCE_REF" >/dev/null 2>&1; then
+    DIFF_BASE="$SINCE_REF"
+    DIFF_SCOPE="incremental review (changes since ${SINCE_REF})"
+  fi
+
+  if [[ -n "$DIFF_BASE" ]]; then
     echo "### Changed Files"
+    echo "_Diff scope: ${DIFF_SCOPE}_"
+    echo
     echo '```'
-    git -C "$PROJECT_ROOT" diff "$BASE_BRANCH" --stat 2>/dev/null || echo "_No diff available_"
+    git -C "$PROJECT_ROOT" diff "$DIFF_BASE" --stat 2>/dev/null || echo "_No diff available_"
     echo '```'
     echo
     DIFF_FILE="$TMP_DIR/review-diff-${_ID}.diff"
-    git -C "$PROJECT_ROOT" diff "$BASE_BRANCH" > "$DIFF_FILE" 2>/dev/null || echo "_No diff available_" > "$DIFF_FILE"
+    git -C "$PROJECT_ROOT" diff "$DIFF_BASE" > "$DIFF_FILE" 2>/dev/null || echo "_No diff available_" > "$DIFF_FILE"
     CREATED_FILES+=("$DIFF_FILE")
     echo "### Diff Content"
     echo "Full diff available at: $DIFF_FILE"
