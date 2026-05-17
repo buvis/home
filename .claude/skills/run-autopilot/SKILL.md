@@ -651,7 +651,7 @@ done
 
 (The real `autoclaude` function is more involved — it exports `_AUTOPILOT_LOOP`, traps signals, and cleans up orphaned children — but the loop contract is the same.)
 
-**Required:** A Stop hook that auto-exits when the signal file exists. See `scripts/autopilot-stop-hook.sh`. Configure in `settings.json`:
+**Required:** A Stop hook that auto-exits when the signal file exists. See `scripts/autopilot_stop_hook.py`. Configure in `settings.json`:
 
 ```json
 {
@@ -659,7 +659,7 @@ done
     "Stop": [
       {
         "matcher": "",
-        "command": "~/.claude/skills/run-autopilot/scripts/autopilot-stop-hook.sh"
+        "command": "~/.claude/skills/run-autopilot/scripts/autopilot_stop_hook.py"
       }
     ]
   }
