@@ -521,7 +521,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    If the capsule doesn't exist yet (catchup was skipped), create a minimal one with just the Active Work section.
 8. Print per-PRD summary. Run the tier-escalation aggregator first:
    ```bash
-   python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py dev/local/autopilot/state.json
+   python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py
    ```
    Then print:
 
