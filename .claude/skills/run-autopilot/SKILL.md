@@ -169,7 +169,7 @@ normal PRD selection so the next PRD gets picked cleanly.)
    ── cleared {n} tasks ({m} completed kept in replan-context.md) ─────
    ── handing off to fresh session for planning ───────────────────────
    ```
-6. Hand off: if `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` and STOP. Otherwise STOP and wait for the user to re-invoke `/run-autopilot`. The next session lands at Phase 2 (planning is no longer in `phases_completed`); Phase 2 will detect `replan-context.md` and pass it to `/plan-tasks`.
+6. Hand off: if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path, then STOP. Otherwise STOP and wait for the user to re-invoke `/run-autopilot`. The next session lands at Phase 2 (planning is no longer in `phases_completed`); Phase 2 will detect `replan-context.md` and pass it to `/plan-tasks`.
 
 If `stall_reason.stalled` is anything else (or absent), continue with
 normal PRD selection below.
@@ -257,7 +257,7 @@ Invoke `/plan-tasks` with the selected PRD.
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
    ── moved to dev/local/prds/stalled/ ── advancing to next PRD ────
    ```
-7. If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` (same mechanism as Phase 9 PRD-to-PRD transition) and STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+7. If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path (same mechanism as Phase 9 PRD-to-PRD transition), then STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 
 **Other outcomes from `/plan-tasks`:**
 
@@ -397,7 +397,7 @@ For each review-flagged original-plan task in the current cycle's review output:
         ── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──
         ── moved to dev/local/prds/stalled/ ── advancing to next PRD ──────
         ```
-     5. If `$_AUTOPILOT_LOOP` is set, write `next` to `dev/local/autopilot/signal` and STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+     5. If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path, then STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 4. Otherwise (chain not exhausted), persist the escalated tier in BOTH places so `/work` and the state snapshot stay in sync, then queue the task for rework:
    - `TaskUpdate(taskId="<id>", metadata={"model": "<next_tier>"})` — canonical source `/work` reads via `TaskGet` (see `work/SKILL.md` "Per-task model dispatch").
    - Write the same value to `state.tasks[i].model` — the snapshot the dashboard and the next review cycle read.
@@ -600,7 +600,7 @@ Summary:
 
      Wait for user decisions on each PRD chunk before showing the next. For "fix now" items, execute the fix before continuing. For "create issue", create a GitHub issue with the context shown.
 
-     After all PRD chunks are reviewed (or user says stop), delete the deferred JSON. Set `next_phase: ""` (empty; nothing more to run). If `$_AUTOPILOT_LOOP` is set, write `done` to `dev/local/autopilot/signal` (the stop hook auto-exits and the shell loop sees `done` and stops). If unset, skip the signal write — leave the session interactive.
+     After all PRD chunks are reviewed (or user says stop), delete the deferred JSON. Set `next_phase: ""` (empty; nothing more to run). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `done` to the signal file at the absolute path (the stop hook auto-exits and the shell loop sees `done` and stops). If unset, skip the signal write — leave the session interactive.
      If the deferred JSON doesn't exist or is empty, do the same signal-write-if-in-loop step immediately.
 
 ## Session Loop
