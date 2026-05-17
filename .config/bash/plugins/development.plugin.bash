@@ -88,7 +88,14 @@ autoclaude() {
 
     local _ap_dir
     _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
-    [ -z "$_ap_dir" ] && _ap_dir="dev/local/autopilot"
+    if [ -z "$_ap_dir" ]; then
+      # Walk-up failed (python3 missing or import error). Fall back to an
+      # absolute path anchored at the current dir rather than a bare
+      # relative path, so the signal read/delete does not silently target
+      # the wrong directory if cwd has drifted.
+      printf 'autoclaude: _walk_up.py failed; falling back to %s/dev/local/autopilot\n' "$PWD" >&2
+      _ap_dir="$PWD/dev/local/autopilot"
+    fi
     signal=$(cat "$_ap_dir/signal" 2>/dev/null)
     rm -f "$_ap_dir/signal"
 
