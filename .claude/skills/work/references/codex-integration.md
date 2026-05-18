@@ -1,6 +1,6 @@
 # Codex Integration
 
-How to invoke Codex via `copilot` CLI for task implementation. The helper script auto-detects the latest `gpt-*-codex` model from `copilot --help`.
+How to invoke Codex for task implementation. Dispatch the `use-codex` helper script (`~/.claude/skills/use-codex/scripts/codex-run.sh`) - never call `codex`/`copilot` directly. The helper auto-detects its backend: the native `codex` CLI when installed, the `copilot` CLI as fallback. On the copilot backend it defaults to `gpt-5.4` (1x multiplier); on the codex backend it uses codex's own configured default. See the `use-codex` skill for the full flag reference.
 
 ## Prompt Template
 
@@ -32,13 +32,15 @@ Instructions:
 
 ## Permission Modes
 
+These are `codex-run.sh` helper flags. Pass the prompt with `-f <file>`.
+
 | Task type | Flags |
 |-----------|-------|
-| Analysis only | `-p "prompt"` (default, interactive approval) |
-| Code changes | `--allow-all-tools -p "prompt"` |
-| Needs network or broad access | `--allow-all -p "prompt"` |
+| Analysis only | `-f prompt.txt` (default, read-only) |
+| Code changes | `-a -f prompt.txt` (auto-approve tools) |
+| Needs network or broad access | `-y -f prompt.txt` (full permissions) |
 
-## TDD Implementation Mode (Agent B)
+## TDD Implementation Mode (Ivan)
 
 When tests already exist from step 2.7, use this prompt variant instead of the standard template:
 
@@ -71,7 +73,7 @@ The task's acceptance criteria prose is intentionally omitted. Tests ARE the spe
 
 ### Timeout
 
-Copilot has a context/time limit. Signs of timeout:
+The Codex agent has a context/time limit. Signs of timeout:
 - Incomplete changes
 - Missing files mentioned in plan
 - Abrupt stop mid-implementation
@@ -85,7 +87,7 @@ Large codebases may exceed context window.
 **Fix**:
 - Specify exact files to work with
 - Split into file-specific tasks
-- Use `--add-dir <DIR>` to narrow scope
+- Use `-d <DIR>` to narrow scope
 
 ### Wrong approach
 

@@ -1,6 +1,6 @@
 # Gemini Integration
 
-How to invoke Gemini via `copilot` CLI for task implementation. The helper script auto-detects the latest `gemini-*-pro` model from `copilot --help`.
+How to invoke Gemini for task implementation via the `~/.claude/skills/use-gemini/scripts/gemini-run.sh` helper, which wraps the native Gemini CLI. Always pass the prompt with `-f <file>`. With no `-m`, the CLI uses its default model.
 
 ## Prompt Template
 
@@ -32,22 +32,23 @@ Instructions:
 
 ## Permission Modes
 
+All flags are passed to `gemini-run.sh`.
+
 | Task type | Flags |
 |-----------|-------|
-| Analysis only | `-p "prompt"` (no extra flags) |
-| Code changes | `--allow-all-tools -p "prompt"` |
-| Full autonomy | `--allow-all -p "prompt"` or `--yolo -p "prompt"` |
-| Specific dirs | `--add-dir <path> -p "prompt"` |
+| Analysis only | `-f prompt.txt` (no extra flags) |
+| Code changes | `-a -f prompt.txt` (auto-approve edit tools) |
+| Full autonomy | `-y -f prompt.txt` (auto-approve all tools) |
+| Specific dirs | `-d <path> -f prompt.txt` |
 
 ## Execution Modes
 
 | Mode | Flag | Use case |
 |------|------|----------|
-| Non-interactive | `-p "prompt"` | Scripted execution, exits after completion |
+| Non-interactive | `-f prompt.txt` | Scripted execution, exits after completion |
 | Interactive | `-i "prompt"` | Needs user input during execution |
-| Silent | `-s -p "prompt"` | Clean output for parsing |
 
-## TDD Implementation Mode (Agent B)
+## TDD Implementation Mode (Ivan)
 
 When tests already exist from step 2.7, use this prompt variant instead of the standard template:
 
@@ -82,13 +83,13 @@ The task's acceptance criteria prose is intentionally omitted. Tests ARE the spe
 
 Gemini may need access to files outside the working directory.
 
-**Fix**: Use `--add-dir <path>` to grant access to additional directories.
+**Fix**: Use `-d <path>` to grant access to additional directories.
 
 ### Tool approval interrupts
 
 Default mode prompts for tool approval.
 
-**Fix**: Use `--allow-all-tools` for auto-approval, or `--allow-all` for full permissions.
+**Fix**: Use `-a` for auto-approval of edit tools, or `-y` for full permissions.
 
 ### Wrong approach
 
@@ -103,4 +104,4 @@ Gemini took an unexpected direction.
 
 Incomplete work needs continuation.
 
-**Fix**: Use `copilot --continue` to resume most recent session, or `copilot --resume` to pick a session.
+**Fix**: Use `gemini-run.sh -c` to resume the most recent session, or `-r <ID>` to pick a session.

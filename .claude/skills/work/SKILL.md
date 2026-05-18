@@ -26,21 +26,26 @@ This skill runs inside an **automated autopilot loop**. The user is not watching
 
 ```
 for each pending task:
-    1. TaskUpdate(in_progress) → sync state file
-    2. Agent A writes tests (from requirements only)
-    3. test quality gate (main session)
-    4. Agent C tries to break tests (adversarial validation)
-    5. commit tests
-    6. Agent B implements against failing tests
-    7. verify THIS task's tests pass (retry Agent B if needed)
-    8. commit implementation
-    9. TaskUpdate(completed) → sync state file
+    a. TaskUpdate(in_progress) → sync state file
+    b. Tess writes tests (from requirements only)
+    c. test quality gate (main session)
+    d. Devon tries to break tests (adversarial validation)
+    e. commit tests
+    f. Ivan implements against failing tests
+    g. verify THIS task's tests pass (retry Ivan if needed)
+    h. commit implementation
+    i. TaskUpdate(completed) → sync state file
 
 after all tasks complete:
-    10. run full verification suite ONCE (see step 7)
+    j. run full verification suite ONCE (see step 7 below)
 ```
 
-**Per-task verification runs only the tests Agent A wrote in step 2.7, not the full project suite.** The full suite (workspace tests, smoke, integration, lint) runs once at the end. This is deliberate: per-task full-suite runs compound to 40+ minutes of redundant test time across a 20-task phase.
+The loop steps above are lettered on purpose — they are a conceptual
+sequence, distinct from the numbered section headers (`### 1`…`### 7`)
+that the rest of this skill cross-references. "step 7" always means the
+section, never a loop step.
+
+**Per-task verification runs only the tests Tess wrote in step 2.7, not the full project suite.** The full suite (workspace tests, smoke, integration, lint) runs once at the end. This is deliberate: per-task full-suite runs compound to 40+ minutes of redundant test time across a 20-task phase.
 
 If you find yourself writing an Agent prompt that mentions multiple tasks, STOP — you are about to violate this rule.
 
@@ -48,62 +53,15 @@ See **Subagent Dispatch Budget** below — every Agent dispatch must satisfy it.
 
 ## Subagent Dispatch Budget
 
-Every prompt passed to the Agent tool (Agent A test author, Agent B implementor, Agent C adversary, or code reviewer) must be **≤ 50 000 bytes**.
+Every prompt passed to the Agent tool (Tess, Ivan, Devon, or the code reviewer) must be **≤ 50 000 bytes**, with the abort-instruction line prepended. Measure before every dispatch; trim the lowest-priority context once, and if still oversized abort the task with cause `subagent_prompt_overrun`.
 
-PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Time" above), so the runtime context cap from PRD 00024 cannot abort a subagent that grows past 200K. The bound must be enforced at dispatch time, before the Agent call.
-
-**Procedure before every Agent dispatch:**
-
-1. Assemble the prompt string (task description + relevant file paths + test patterns + code-quality rules block + abort instruction).
-2. Measure: write the assembled prompt to `/tmp/dispatch-prompt-<task-id>.txt` (per-task filename — a fixed name collides when independent rework tasks dispatch in parallel), then check size with `wc -c /tmp/dispatch-prompt-<task-id>.txt` (pass the path as an argument — no `<` redirect).
-3. If the prompt exceeds 50 000 bytes:
-   - Trim by removing the lowest-priority context first (large example files, full architecture docs). Re-measure.
-   - If still oversized after one trim pass, abort the task. Wire the abort
-     through the same handoff the runtime context-cap hook uses, so
-     `/run-autopilot` Phase 0 of the next session replans the PRD in place
-     (PRD stays in `wip/`; see Phase 0 step 1's replan procedure — parallel
-     to `context_overrun`):
-     1. Append to `state.task_aborts[]`:
-        ```json
-        {"task_id": "<id>", "turn": -1, "total_input_tokens": <prompt-bytes/4>, "cause": "subagent_prompt_overrun"}
-        ```
-     2. Set `state.stall_reason`:
-        ```json
-        {"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": <prompt-bytes>}
-        ```
-     3. **Only if `$_AUTOPILOT_LOOP` is set** (per `/run-autopilot` "Loop
-        Detection" — manual sessions have no shell wrapper to restart on
-        SIGINT), write `task_aborted` to the autopilot signal file. Use
-        walk-up discipline to find the autopilot dir from cwd, then write
-        to `<autopilot_dir>/signal`. Skip the signal write when
-        `$_AUTOPILOT_LOOP` is unset; the next manual `/run-autopilot`
-        invocation will resume via `state.stall_reason`.
-     4. Append an attempt-log entry per the "Attempt logging" section:
-        `outcome: "aborted"`, `cause: "subagent_prompt_overrun"`,
-        `model` from `task.metadata.model`,
-        `review_cycle: null` (Phase 3) or current `state.cycle` (rework).
-     5. Report cause `subagent_prompt_overrun` and stop work on this task.
-4. Prepend the abort-instruction line verbatim to the prompt:
-   ```
-   Abort and report if you read more than 100K of total input. Return the partial result and an abort_reason: context_overrun field.
-   ```
-
-**Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under Sonnet 4.6's 200K standard-tier ceiling.
+See `references/subagent-dispatch.md` for the measurement procedure, the verbatim abort-instruction line, the abort-handoff steps, and the rationale. Read it before your first Agent dispatch in a session.
 
 ## Subagent Watchdog
 
-Every Agent dispatch in this skill (Agent A, B, C, or the code reviewer) must be wrapped in a watchdog. A dispatched subagent can crash, lose its result, or hang silently — and a foreground `Agent` call then blocks this session **indefinitely** with no signal. Observed failure: a dead subagent left the parent session blocked for 1.5 hours until the user manually intervened.
+Every Agent dispatch must be wrapped in a watchdog: dispatch with `run_in_background: true`, wait with `Monitor` (15-minute timeout), and on timeout `TaskStop` the agent and handle it as the **Result lost / hung** row of step 4's table (which routes to the infrastructure-failure circuit breaker, step 4.2). A foreground `Agent` call that hangs blocks this session indefinitely — never dispatch one unwatched.
 
-**Dispatch protocol — applies to every Agent call:**
-
-1. Dispatch with `run_in_background: true` (plus `model` per "Per-task model dispatch"). Record the dispatch wall-clock time.
-2. Wait for the background agent using the `Monitor` tool with a **15-minute** timeout. The harness re-invokes you when a background agent finishes — do not poll in a tight loop.
-3. If `Monitor` reports the agent completed within the deadline, retrieve its result (`TaskOutput`) and continue to the result handling in step 4.
-4. If the 15-minute deadline elapses with no completion, the agent is **presumed hung**: call `TaskStop` on it and handle it as **Timeout** per step 4's result table.
-
-A background dispatch does **not** relax the one-task-at-a-time rule: dispatch one agent, wait for it (or its watchdog), then proceed. Never have two plan-task agents in flight at once. The watchdog converts a silent infinite block into a detectable timeout that step 4 already knows how to handle.
-
-**Copilot-CLI dispatches** (`use-sonnet`/`use-codex`/`use-gemini` helper scripts, which run as background Bash tasks) follow the same protocol: dispatch with `run_in_background: true`, then wait with `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min, the max per call) — it returns on completion or at the deadline; on a still-running return, re-issue the wait once, then treat a second timeout as a hang. Never hand-roll a `while`/`if`/`wc -c` stability loop in `Monitor` or `Bash` to detect completion: its shell control flow cannot be statically analyzed by Warden, so it prompts for approval and stalls an unattended autopilot run.
+See `references/subagent-dispatch.md` for the full dispatch protocol, helper-script (`use-sonnet`/`use-codex`/`use-gemini`) handling, and the three distinct deadlines (15 min / 10 min / 20 min, by mechanism). Read it before your first Agent dispatch in a session.
 
 ## Per-task model dispatch
 
@@ -111,13 +69,13 @@ Before any Agent call for a task, read `task.metadata.model` (or equivalently `s
 
 Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps. The list below is illustrative, not exhaustive — when the prose says "every Agent call", it means every one:
 
-- Agent A (test author, step 2.7), plus any quality-gate or A/C-round re-dispatches (step 2.8, 2.85)
-- Agent C (adversarial validator, step 2.85)
-- Agent B (implementor, step 3)
-- Agent B re-dispatches on test failure (step 5.5)
+- Tess (test author, step 2.7), plus any quality-gate or Tess/Devon-round re-dispatches (step 2.8, 2.85)
+- Devon (adversarial validator, step 2.85)
+- Ivan (implementor, step 3)
+- Ivan re-dispatches on test failure (step 5.5)
 - Code reviewer (step 5.7)
-- Agent B fix-on-review re-dispatch (step 5.7)
-- Agent B re-dispatches on full-suite regression (step 7)
+- Ivan fix-on-review re-dispatch (step 5.7)
+- Ivan re-dispatches on full-suite regression (step 7)
 
 If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
 
@@ -129,29 +87,9 @@ The **Subagent Dispatch Budget** (50K bytes, 100K subagent-internal cap) applies
 
 ## Attempt logging
 
-At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug) or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`:
+At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`.
 
-```json
-{
-  "attempt": <len(existing attempts) + 1>,
-  "model": "<tier>",
-  "outcome": "completed" | "aborted",
-  "review_cycle": <int | null>,
-  "cause": "<string | null>"
-}
-```
-
-**Field semantics**:
-
-- `attempt`: 1-indexed; `len(existing) + 1`.
-- `model`: the tier `/work` used for this pass. Read from `task.metadata.model` when set. On legacy plans where `metadata.model` is absent, record the effective session-inherited tier as a string (e.g. `"sonnet"` for a Work-phase Sonnet 4.6 launch). Always a string — never `null`.
-- `outcome`: `/work` writes only `"completed"` or `"aborted"`. Later phases upgrade earlier entries — `/run-autopilot` Phase 6 (Rework) step 2 rewrites a `"completed"` entry's outcome to `"review_flagged"` at the start of escalation, then later rewrites a flagged entry's outcome to `"rework_failed"` when the rework pass also fails at the top of the chain.
-- `review_cycle`: `null` on a first/Phase-3 attempt; set to the current `state.cycle` integer when the pass is a rework re-dispatch (see step 1.5 "Rework-mode task filter (PRD 00025)").
-- `cause`: `null` on success; on abort, the reason — `"context_overrun"`, `"subagent_prompt_overrun"`, `"timeout"`, `"error"`, `"subagent_infra_failure"`.
-
-**Write procedure**: read `state.json`, append to `tasks[i].attempts[]` (create the array if absent), write back atomically. Merge — do not replace siblings. Walk up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in step 2.
-
-Cross-reference: `references/state-schema.md` `tasks[].attempts` row defines the canonical shape.
+See `references/attempt-logging.md` for the entry schema, field semantics, and the atomic write procedure.
 
 ## Tool Selection
 
@@ -226,7 +164,7 @@ Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from
 | `rework_task_ids` | Mode | Iteration source |
 |-------------------|------|------------------|
 | absent or `[]` | **default (full-plan)** | The pending-and-unblocked subset from step 1's `TaskList` filter, in TaskList order. This is the Phase 3 first-pass behavior. |
-| non-empty array | **rework mode** | The listed task IDs read directly from `state.rework_task_ids`, in array order — **bypass step 1's status filter entirely**. Each ID is fetched via `TaskGet` regardless of current status (`pending` after Phase 6's reset, or `completed` if Phase 6's reset hasn't fired yet). Tasks NOT in the list are skipped entirely — no Agent A/B/C dispatch, no commits. |
+| non-empty array | **rework mode** | The listed task IDs read directly from `state.rework_task_ids`, in array order — **bypass step 1's status filter entirely**. Each ID is fetched via `TaskGet` regardless of current status (`pending` after Phase 6's reset, or `completed` if Phase 6's reset hasn't fired yet). Tasks NOT in the list are skipped entirely — no Tess/Ivan/Devon dispatch, no commits. |
 
 **In rework mode, each task's status is set to `in_progress` at start** via `TaskUpdate` (overwriting whatever the prior status was — `pending` after Phase 6's reset, or `completed` on a defensive re-entry) and to `completed` at end — same lifecycle as a default-mode pass, so the dashboard reflects rework progress.
 
@@ -234,7 +172,7 @@ Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from
 
 **`/work` does NOT modify `rework_task_ids` itself.** Clearing is `/run-autopilot` Phase 6's responsibility, after this `/work` invocation returns. **If `/work` aborts mid-rework** (context overrun, Subagent Dispatch Budget overrun, unrecoverable error), `rework_task_ids` survives in state — this is correct recovery behavior: the next `/run-autopilot` session resumes with the same rework batch and re-attempts the listed tasks at their already-escalated tier. Phase 6's clear runs only on the successful `/work` return.
 
-Cross-reference: `references/state-schema.md` `rework_task_ids` row; `run-autopilot/SKILL.md` Phase 6 (rework) tier-escalation rule.
+Cross-reference: `run-autopilot/references/state-schema.md` `rework_task_ids` row; `run-autopilot/SKILL.md` Phase 6 (rework) tier-escalation rule.
 
 ### 2. Claim and start task
 
@@ -261,15 +199,15 @@ Before dispatching to Codex/Gemini, load relevant context into the prompt:
 
 **Ambiguity check (Think Before Coding):** Re-read the task description. If scope, data shape, target surface, or success criteria are unclear, stop and ask the user rather than picking silently. See `references/code-quality-principles.md` §1 and `references/code-quality-examples.md` §1 for what counts as a hidden assumption worth surfacing.
 
-### 2.7. Write tests first (Agent A - test author)
+### 2.7. Write tests first (Tess - test author)
 
 Dispatch a separate agent to write tests from requirements only. This agent must NOT receive implementation hints or architecture deep-dives - only what a user of the API would know.
 
-**Agent A runs as:** Claude Code subagent (Agent tool), not Codex/Gemini. It's a focused task that benefits from direct file access for reading test patterns.
+**Tess runs as:** Claude Code subagent (Agent tool), not Codex/Gemini. It's a focused task that benefits from direct file access for reading test patterns.
 
 **Skip for:** test-only, docs-only, or config-only tasks.
 
-**Agent A receives:**
+**Tess receives:**
 - Task description and acceptance criteria
 - The **exact file paths** the task touches and the **exact symbol names** to test, taken from the plan task — not "find the relevant file"
 - Public interfaces/types relevant to the task
@@ -278,54 +216,54 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 
 **Scope the agent explicitly.** Add to the prompt: "Read only the files listed above. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope." Open-ended discovery is where subagents burn turns and stall.
 
-**Agent A does NOT receive:**
-- Implementation strategy or architecture docs (loaded in step 2.5 for the main session and Agent B only)
+**Tess does NOT receive:**
+- Implementation strategy or architecture docs (loaded in step 2.5 for the main session and Ivan only)
 - "How to build this" context
 - Access to modify non-test files
 
-See `references/test-author-prompt.md` for the full prompt template — it now embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Agent A from writing speculative tests or silently assuming input shape.
+See `references/test-author-prompt.md` for the full prompt template — it now embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Tess from writing speculative tests or silently assuming input shape.
 
-Agent A prompts must satisfy the **Subagent Dispatch Budget** (see section above the Workflow): ≤ 50K bytes, abort-instruction line prepended.
+Tess prompts must satisfy the **Subagent Dispatch Budget** (see section above the Workflow): ≤ 50K bytes, abort-instruction line prepended.
 
 ### 2.8. Test quality gate (main session)
 
-Before committing Agent A's tests, review them in the main session against this checklist:
+Before committing Tess's tests, review them in the main session against this checklist:
 
 1. **Behavior names?** Each test name describes a behavior ("rejects empty email"), not an implementation detail ("calls validateEmail")
 2. **Real assertions?** Assertions check outputs/effects, not mock internals
 3. **Edge cases?** Empty, null, boundary, error, and concurrent cases covered where relevant
 4. **No tautologies?** Tests don't just restate what the code obviously does
 
-If any check fails, dispatch Agent A again with specific feedback about what's weak. Max 2 quality gate retries.
+If any check fails, dispatch Tess again with specific feedback about what's weak. Max 2 quality gate retries.
 
-**Total Agent A budget:** max 5 dispatches across the entire test authoring phase (quality gate + adversarial rounds combined). If exhausted, flag weakness in task output and proceed. Don't block the pipeline forever.
+**Total Tess budget:** max 5 dispatches across the entire test authoring phase (quality gate + adversarial rounds combined). If exhausted, flag weakness in task output and proceed. Don't block the pipeline forever.
 
-### 2.85. Adversarial validation (Agent C - devil's advocate)
+### 2.85. Adversarial validation (Devon - devil's advocate)
 
-Dispatch Agent C to try to write a **wrong** implementation that passes all of Agent A's tests. Agent C's goal is to exploit weak tests.
+Dispatch Devon to try to write a **wrong** implementation that passes all of Tess's tests. Devon's goal is to exploit weak tests.
 
-**Agent C runs as:** Claude Code subagent (Agent tool). It needs file write access and the project's test runner to actually execute its wrong implementation against the tests.
+**Devon runs as:** Claude Code subagent (Agent tool). It needs file write access and the project's test runner to actually execute its wrong implementation against the tests.
 
-**Agent C receives:**
-- The test files from Agent A
+**Devon receives:**
+- The test files from Tess
 - Public interfaces/types (so its wrong implementation compiles)
 - Access to the project's test runner
 
-**Agent C receives nothing else.** No task description, no acceptance criteria, no architecture docs.
+**Devon receives nothing else.** No task description, no acceptance criteria, no architecture docs.
 
-**Agent C's job:** Write an implementation that is clearly wrong (hardcoded values, ignored edge cases, shortcut if/else chains), run the tests against it, and report which tests it broke through.
+**Devon's job:** Write an implementation that is clearly wrong (hardcoded values, ignored edge cases, shortcut if/else chains), run the tests against it, and report which tests it broke through.
 
 **Outcomes:**
 
-| Agent C result | Action |
+| Devon result | Action |
 |----------------|--------|
 | Cannot break tests (tests catch all exploits) | Tests are strong. Proceed to 2.9. |
-| Breaks tests with wrong impl that passes | Send Agent C's exploit back to Agent A: "These tests can be passed by: {wrong impl}. Strengthen them." Then re-run Agent C against strengthened tests. Max 2 A/C rounds. |
+| Breaks tests with wrong impl that passes | Send Devon's exploit back to Tess: "These tests can be passed by: {wrong impl}. Strengthen them." Then re-run Devon against strengthened tests. Max 2 Tess/Devon rounds. |
 | 2 A/C rounds exhausted | Flag weakness in task output, proceed anyway. |
 
 See `references/adversarial-test-prompt.md` for the full prompt template.
 
-Agent C prompts must satisfy the **Subagent Dispatch Budget**: ≤ 50K bytes, abort-instruction line prepended.
+Devon prompts must satisfy the **Subagent Dispatch Budget**: ≤ 50K bytes, abort-instruction line prepended.
 
 ### 2.9. Commit tests
 
@@ -338,16 +276,16 @@ git commit -m "test(<scope>): add tests for <feature>"
 
 Tests are committed separately before implementation. This makes the TDD boundary auditable in git history.
 
-### 3. Implement against tests (Agent B - implementor)
+### 3. Implement against tests (Ivan - implementor)
 
-Agent B's job: make the failing tests pass. Tests ARE the spec.
+Ivan's job: make the failing tests pass. Tests ARE the spec.
 
-**Agent B receives:**
+**Ivan receives:**
 - Failing test file paths and their content
 - Architecture context (AGENTS.md, interfaces, relevant modules)
 - Existing code patterns to follow
 
-**Agent B does NOT receive:**
+**Ivan does NOT receive:**
 - The task's acceptance criteria prose (tests replace this)
 - Permission to modify test files
 
@@ -356,22 +294,23 @@ Agent B's job: make the failing tests pass. Tests ARE the spec.
 1. "Make all failing tests pass. Do NOT modify test files."
 2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
 3. The abort-instruction line from the **Subagent Dispatch Budget** section. Measure the assembled prompt before dispatching; if > 50K bytes, trim or abort the task with cause `subagent_prompt_overrun`.
-4. The **exact file paths** Agent B may read and modify, plus: "Read only the files listed. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope."
+4. The **exact file paths** Ivan may read and modify, plus: "Read only the files listed. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope."
 
-**If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Agent B and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
+**If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
 **Determine task domain** (see Tool Selection above), then:
 
 **For Codex tasks:**
 
-- Model: `gpt-5.2-codex` (default) or user preference
-- Sandbox: `workspace-write` for code changes
+- Model: helper default (codex's own configured default, or `gpt-5.4` on the copilot fallback) unless the user specifies `-m`
+- Permissions: `-a` (auto-approve tools) for code changes
+- Prompt: `-f <file>` for non-interactive runs
 - See `references/codex-integration.md` (TDD implementation mode)
 
 **For Gemini tasks:**
 
-- Permissions: `--allow-all-tools` for code changes
-- Mode: `-p` for non-interactive
+- Permissions: `-a` (auto-approve edit tools) for code changes
+- Prompt: `-f <file>` for non-interactive runs
 - See `references/gemini-integration.md` (TDD implementation mode)
 
 ### 4. Handle result
@@ -416,13 +355,13 @@ Commit message rules:
 
 ### 5.5. Verify THIS task's tests pass
 
-Run **only** the specific tests Agent A wrote in step 2.7. Do NOT run the full project test suite, smoke tests, integration tests, or lint here — those run once at the end of the phase (step 7).
+Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full project test suite, smoke tests, integration tests, or lint here — those run once at the end of the phase (step 7).
 
 - Target the narrowest scope that covers the new tests:
   - Rust: `cargo test -p <crate> --test <test_file>` or `cargo test -p <crate> <module::test_name>`
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
-- If tests fail, dispatch Agent B again with the failure output. Never dispatch Agent A to weaken tests.
+- If tests fail, dispatch Ivan again with the failure output. Never dispatch Tess to weaken tests.
 - **Retry prompts must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
 - Max 2 implementation retries before escalating to the user.
 - If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
@@ -436,7 +375,7 @@ If `superpowers:requesting-code-review` is in the available skills list, dispatc
 1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
 2. Dispatch code-reviewer subagent with task subject, description, and SHA range
 3. Handle result:
-   - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues (dispatch Agent B with the code-quality rules block from `references/code-quality-principles.md` plus: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."), re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
+   - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues (dispatch Ivan with the code-quality rules block from `references/code-quality-principles.md` plus: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."), re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
    - **Minor issues only or approved**: note minors, proceed to step 6.
    - **Reviewer failed/timed out**: log warning, proceed - Phase 4's PRD-level review catches remaining issues.
 
@@ -468,7 +407,7 @@ Run each as a separate Bash call. Do not chain with `&&`.
 
 1. Identify which task(s) introduced the regression. The failing test output usually points at a specific module; cross-reference against the task commits.
 2. Re-open the offending task via `TaskUpdate(status: in_progress)` and sync state file.
-3. Dispatch Agent B with the failure output to fix it. Include the code-quality rules block from `references/code-quality-principles.md` and add: "Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code." Do NOT relax the failing test.
+3. Dispatch Ivan with the failure output to fix it. Include the code-quality rules block from `references/code-quality-principles.md` and add: "Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code." Do NOT relax the failing test.
 4. After the fix commits, re-run **only** the previously failing commands from step 7 (not the whole suite again) to confirm the fix.
 5. Mark the task completed and re-sync.
 6. Repeat until the full suite is green.
@@ -511,9 +450,11 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern.
 
 ## Reference Files
 
-- `references/test-author-prompt.md` - Test author (Agent A) prompt template
-- `references/adversarial-test-prompt.md` - Adversarial validator (Agent C) prompt template
+- `references/test-author-prompt.md` - Test author (Tess) prompt template
+- `references/adversarial-test-prompt.md` - Adversarial validator (Devon) prompt template
 - `references/codex-integration.md` - Codex prompt templates and patterns
 - `references/gemini-integration.md` - Gemini prompt templates and patterns
-- `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Agent B prompts
+- `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Ivan prompts
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
+- `references/subagent-dispatch.md` - Dispatch Budget + Watchdog: how to safely make an Agent call
+- `references/attempt-logging.md` - `state.tasks[].attempts[]` entry schema and write procedure
