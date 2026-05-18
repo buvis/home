@@ -957,3 +957,232 @@ def test_extracted_kinds_are_within_pinned_enum(git_repo):
         f"expected class 'Box' at line 1 to be extracted: {syms}"
     assert ("open", "method", 2) in syms, \
         f"expected method 'open' at line 2 to be extracted: {syms}"
+
+
+# ---------------------------------------------------------------------------
+# _compute_dep_edges: import-only matching
+# ---------------------------------------------------------------------------
+
+def test_dep_edges_absent_when_other_layer_named_only_in_comment(tmp_path):
+    """A file that mentions another layer only in a comment must NOT produce a dep edge.
+
+    A wrong impl that does bare-word search on the full file text would find the
+    layer name inside the comment and emit a spurious edge — this test catches that.
+    """
+    ui_dir = tmp_path / "ui"
+    ui_dir.mkdir()
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+
+    # "db" appears only in a comment and a string literal — no import
+    (ui_dir / "view.py").write_text(
+        "# TODO: do not import from db directly\n"
+        "x = 'the db layer is off-limits'\n"
+        "def render():\n"
+        "    return None\n"
+    )
+    (db_dir / "models.py").write_text("def query(): pass\n")
+
+    layers = {"ui": [ui_dir / "view.py"], "db": [db_dir / "models.py"]}
+    edges = run._compute_dep_edges(layers)
+
+    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
+    assert not ui_to_db, (
+        "dep edge ui->db must NOT be produced when 'db' appears only in a comment/string; "
+        f"got edges: {edges}"
+    )
+
+
+def test_dep_edges_present_when_file_imports_other_layer(tmp_path):
+    """A file that imports from another layer MUST produce a dep edge to that layer.
+
+    A wrong impl that strips all edges (or only matches bare-word occurrences
+    outside imports) would return no edges and fail this test.
+    """
+    ui_dir = tmp_path / "ui"
+    ui_dir.mkdir()
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+
+    # Actual Python import of the "db" layer
+    (ui_dir / "view.py").write_text(
+        "from db import models\n"
+        "\n"
+        "def render():\n"
+        "    return models.query()\n"
+    )
+    (db_dir / "models.py").write_text("def query(): pass\n")
+
+    layers = {"ui": [ui_dir / "view.py"], "db": [db_dir / "models.py"]}
+    edges = run._compute_dep_edges(layers)
+
+    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
+    assert ui_to_db, (
+        "dep edge ui->db must be produced when ui/view.py imports from 'db'; "
+        f"got edges: {edges}"
+    )
+    assert ui_to_db[0]["count"] >= 1, (
+        f"dep edge ui->db count must be >= 1, got {ui_to_db[0]['count']}"
+    )
+
+
+def test_dep_edges_absent_when_import_targets_different_layer(tmp_path):
+    """Only imports whose path matches the layer name should produce an edge.
+
+    Guards against an impl that fires on any import line regardless of target.
+    'ui' imports 'services', not 'db' — no ui->db edge must appear.
+    """
+    ui_dir = tmp_path / "ui"
+    ui_dir.mkdir()
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+    svc_dir = tmp_path / "services"
+    svc_dir.mkdir()
+
+    (ui_dir / "view.py").write_text(
+        "import services\n"
+        "# db is mentioned here but not imported\n"
+        "def render():\n"
+        "    return services.get()\n"
+    )
+    (db_dir / "models.py").write_text("def query(): pass\n")
+    (svc_dir / "api.py").write_text("def get(): pass\n")
+
+    layers = {
+        "ui": [ui_dir / "view.py"],
+        "db": [db_dir / "models.py"],
+        "services": [svc_dir / "api.py"],
+    }
+    edges = run._compute_dep_edges(layers)
+
+    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
+    assert not ui_to_db, (
+        "dep edge ui->db must NOT appear when ui only imports 'services', not 'db'; "
+        f"got edges: {edges}"
+    )
+    ui_to_svc = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "services"]
+    assert ui_to_svc, (
+        "dep edge ui->services must be present since ui imports 'services'; "
+        f"got edges: {edges}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _compute_dep_edges: non-Python import syntax (Gap 1)
+# ---------------------------------------------------------------------------
+
+def test_dep_edges_present_for_rust_use_statement(tmp_path):
+    """A Rust file using `use db::models;` MUST produce a dep edge to the 'db' layer.
+
+    A wrong impl that only scans Python `import`/`from` lines would miss Rust
+    `use` syntax and return no edges — this test forces non-Python import handling.
+    """
+    api_dir = tmp_path / "api"
+    api_dir.mkdir()
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+
+    (api_dir / "handler.rs").write_text(
+        "use db::models;\n"
+        "\n"
+        "pub fn handle() -> db::models::User {\n"
+        "    db::models::User::default()\n"
+        "}\n"
+    )
+    (db_dir / "models.rs").write_text("pub struct User;\n")
+
+    layers = {"api": [api_dir / "handler.rs"], "db": [db_dir / "models.rs"]}
+    edges = run._compute_dep_edges(layers)
+
+    api_to_db = [e for e in edges if e["from_layer"] == "api" and e["to_layer"] == "db"]
+    assert api_to_db, (
+        "dep edge api->db must be produced when api/handler.rs uses `use db::models;`; "
+        f"got edges: {edges}"
+    )
+    assert api_to_db[0]["count"] >= 1, (
+        f"dep edge api->db count must be >= 1, got {api_to_db[0]['count']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _compute_error_style: Go support
+# ---------------------------------------------------------------------------
+
+def test_go_idiomatic_error_handling_classifies_as_result(tmp_path):
+    """A Go-only repo using idiomatic if-err-nil style must classify as 'result'.
+
+    A wrong impl with no Go branch returns 'unknown' — this test catches that.
+    Returning 'mixed' or 'exceptions' would also fail.
+    """
+    go_dir = tmp_path / "cmd"
+    go_dir.mkdir()
+
+    (go_dir / "main.go").write_text(
+        'package main\n\n'
+        'import (\n'
+        '    "errors"\n'
+        '    "fmt"\n'
+        ')\n\n'
+        'func run() error {\n'
+        '    if err := doWork(); err != nil {\n'
+        '        return fmt.Errorf("run failed: %w", err)\n'
+        '    }\n'
+        '    return nil\n'
+        '}\n\n'
+        'func doWork() error {\n'
+        '    if false {\n'
+        '        return errors.New("something went wrong")\n'
+        '    }\n'
+        '    if err := validate(); err != nil {\n'
+        '        return err\n'
+        '    }\n'
+        '    return nil\n'
+        '}\n\n'
+        'func validate() error { return nil }\n'
+    )
+
+    layers = {"cmd": [go_dir / "main.go"]}
+    style = run._compute_error_style(layers)
+
+    assert style == "result", (
+        f"Go-only repo with idiomatic if-err-nil / errors.New / fmt.Errorf must classify "
+        f"as 'result', got {style!r}. A missing Go branch returns 'unknown'."
+    )
+
+
+def test_go_panic_error_handling_classifies_as_exceptions(tmp_path):
+    """A Go-only repo using panic() for errors (no if-err-nil) must classify as 'exceptions'.
+
+    A wrong impl that returns 'result' whenever the substring 'err' appears
+    (even in a comment) would fail here — the word 'err' exists only in a comment,
+    while the actual error handling is panic-style.
+    """
+    go_dir = tmp_path / "cmd"
+    go_dir.mkdir()
+
+    (go_dir / "main.go").write_text(
+        'package main\n\n'
+        '// Note: we do not use err return values here; panics signal failure.\n'
+        'func mustOpen(path string) []byte {\n'
+        '    data, ok := readFile(path)\n'
+        '    if !ok {\n'
+        '        panic("failed to open " + path)\n'
+        '    }\n'
+        '    return data\n'
+        '}\n\n'
+        'func readFile(path string) ([]byte, bool) {\n'
+        '    if path == "" {\n'
+        '        return nil, false\n'
+        '    }\n'
+        '    return []byte(path), true\n'
+        '}\n'
+    )
+
+    layers = {"cmd": [go_dir / "main.go"]}
+    style = run._compute_error_style(layers)
+
+    assert style == "exceptions", (
+        f"Go-only repo that uses panic() (no if-err-nil, 'err' only in a comment) "
+        f"must classify as 'exceptions', got {style!r}. "
+        f"A wrong impl keying on bare 'err' substring would return 'result'."
+    )
