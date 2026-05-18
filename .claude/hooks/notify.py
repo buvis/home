@@ -185,7 +185,7 @@ def show_desktop_notification(title: str, msg: str) -> None:
         log_line(f"[{now_local()}] Skipped: user present, terminal-notifier not available")
         return
     try:
-        subprocess.run(
+        proc = subprocess.run(
             [
                 "terminal-notifier",
                 "-title", title,
@@ -201,6 +201,9 @@ def show_desktop_notification(title: str, msg: str) -> None:
         )
     except (FileNotFoundError, subprocess.SubprocessError):
         log_line(f"[{now_local()}] ERROR: terminal-notifier failed")
+        return
+    if proc.returncode != 0:
+        log_line(f"[{now_local()}] ERROR: terminal-notifier exited {proc.returncode}")
         return
     log_line(f"[{now_local()}] System notification shown (user present)")
 
