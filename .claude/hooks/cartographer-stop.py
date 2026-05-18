@@ -25,7 +25,10 @@ def main() -> None:
             return
 
         data = json.loads(atlas_json.read_text(encoding="utf-8"))
-        head_sha = data["head_sha"]
+        head_sha = data.get("head_sha")
+        if head_sha is None:
+            append_audit({"event": "cartographer-stop", "reason": "no-git"})
+            return
         surveyed_at = datetime.fromisoformat(data["surveyed_at"])
 
         max_commits = 50
@@ -42,6 +45,9 @@ def main() -> None:
             capture_output=True,
             text=True,
         )
+        if result.returncode != 0:
+            append_audit({"event": "cartographer-stop", "reason": "git-error"})
+            return
         commits = int(result.stdout.strip())
 
         now = datetime.now(timezone.utc)
