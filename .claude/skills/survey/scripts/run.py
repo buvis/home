@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 from _lib_cartographer import project_hash, try_import_tree_sitter, append_audit
 
 _FILE_CAP = 50
+_ATLAS_MD_BUDGET = 5120
 
 
 def _get_head_sha(repo_path: Path) -> Optional[str]:
@@ -322,14 +323,19 @@ def _atomic_write(path: Path, content: str) -> None:
         raise
 
 
-def _fit_to_budget(content: str) -> tuple[str, bool]:
-    budget = 5120
+def _append_footer(content: str) -> str:
+    """Append the truncation footer, trimming content if needed to stay within budget."""
     footer = "\n*atlas truncated*"
-    if len(content.encode()) <= budget:
+    if len((content + footer).encode()) <= _ATLAS_MD_BUDGET:
+        return content + footer
+    max_bytes = _ATLAS_MD_BUDGET - len(footer.encode())
+    return content.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore") + footer
+
+
+def _fit_to_budget(content: str) -> tuple[str, bool]:
+    if len(content.encode()) <= _ATLAS_MD_BUDGET:
         return content, False
-    max_bytes = budget - len(footer.encode())
-    truncated_text = content.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
-    return truncated_text + footer, True
+    return _append_footer(content), True
 
 
 def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
@@ -381,15 +387,9 @@ def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
     md_content, md_truncated = _fit_to_budget(md_content)
     if md_truncated:
         atlas["truncated"] = True
-    # If truncated (file cap or md budget), ensure footer visible in md
+    # If truncated (file cap), ensure footer visible in md
     if atlas.get("truncated") and "*atlas truncated*" not in md_content:
-        footer = "\n*atlas truncated*"
-        budget = 5120
-        if len((md_content + footer).encode()) <= budget:
-            md_content = md_content + footer
-        else:
-            max_bytes = budget - len(footer.encode())
-            md_content = md_content.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore") + footer
+        md_content = _append_footer(md_content)
 
     atlas_path = atlas_dir / "atlas.json"
     md_path = atlas_dir / "atlas.md"
