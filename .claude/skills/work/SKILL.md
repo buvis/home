@@ -240,11 +240,11 @@ For the first available task:
 
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. **Sync state file** (see Dashboard State Sync)
-3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file (added cycle-5+1), but the explicit Bash clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Use the shared walk-up helper (`_walk_up.py --bash`, which resolves symlinks and walks up to find the autopilot dir) to locate the dir, then remove the marker inside it:
+3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file (added cycle-5+1), but the explicit Bash clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Run the shared walk-up helper in `--clear-cap` mode — it resolves symlinks, walks up to the autopilot dir, and removes `<autopilot_dir>/.cap-fired` internally:
    ```bash
-   d=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash) && rm -f "$d/.cap-fired"
+   python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --clear-cap
    ```
-   No-op when no ancestor has the dir (`--bash` exits non-zero, so the `&&` skips the `rm`) or the marker is already absent (first task of the phase).
+   No-op when no ancestor has the dir or the marker is already absent (first task of the phase); always exits 0. Use exactly this single-command form — no `d=$(...)` shell variable, so the permission matcher can resolve it.
 4. Use `TaskGet` to read full task description
 
 ### 2.5. Load project context

@@ -22,6 +22,11 @@ Bash entry:
     autopilot_dir=$(python3 .../scripts/_walk_up.py --bash)
     # prints resolved dir to stdout; exits 0 on hit, 1 on miss
     # optional second arg: start directory (default cwd)
+
+    python3 .../scripts/_walk_up.py --clear-cap
+    # walks up, removes <autopilot_dir>/.cap-fired; always exits 0.
+    # A single-binary alternative to `d=$(... --bash) && rm "$d/.cap-fired"`:
+    # no shell variable, so permission matchers can resolve the command.
 """
 
 from __future__ import annotations
@@ -66,11 +71,32 @@ def _main_bash() -> int:
     return 0
 
 
+def _main_clear_cap() -> int:
+    """Locate the autopilot dir and remove the per-task `.cap-fired` marker.
+
+    Best-effort: a no-op when no ancestor has the dir or the marker is
+    already absent. Always exits 0 — callers treat cap-marker clearing as
+    fire-and-forget. Doing the walk-up and unlink inside Python keeps the
+    Bash caller a single bare-binary invocation, so permission matchers can
+    resolve it (no `d=$(...)` shell variable).
+    """
+    autopilot_dir = find_autopilot_dir(Path.cwd())
+    if autopilot_dir is not None:
+        try:
+            (autopilot_dir / ".cap-fired").unlink()
+        except OSError:
+            pass
+    return 0
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "--bash":
         sys.exit(_main_bash())
+    if len(sys.argv) >= 2 and sys.argv[1] == "--clear-cap":
+        sys.exit(_main_clear_cap())
     sys.stderr.write(
         "usage: _walk_up.py --bash [start_dir]\n"
+        "       _walk_up.py --clear-cap\n"
         "       (or import find_autopilot_dir from Python)\n"
     )
     sys.exit(2)
