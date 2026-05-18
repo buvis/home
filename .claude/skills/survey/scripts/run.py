@@ -104,19 +104,32 @@ def _extract_tree_sitter(f: Path, ts_module) -> list[tuple[str, str, int]]:
         source = f.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
-    result = ts_module.process(
-        source, ts_module.ProcessConfig(language=lang, structure=True)
-    )
-    results: list[tuple[str, str, int]] = []
-    _ts_walk(result.structure, False, results)
-    return results
+    try:
+        result = ts_module.process(
+            source, ts_module.ProcessConfig(language=lang, structure=True)
+        )
+        results: list[tuple[str, str, int]] = []
+        _ts_walk(result.structure, False, results)
+        return results
+    except Exception:
+        return []
 
 
 def _extract_file_symbols(f: Path) -> list[tuple[str, str, int]]:
     ts_module = try_import_tree_sitter()
-    if ts_module is not None:
-        return _extract_tree_sitter(f, ts_module)
-    return _extract_file_symbols_regex(f)
+    if ts_module is None:
+        return _extract_file_symbols_regex(f)
+    results = _extract_tree_sitter(f, ts_module)
+    if f.suffix == ".go":
+        # tree_sitter_language_pack 1.8.0 yields no structure items for Go
+        # `type X struct` / `type X interface`; merge them in from the regex
+        # extractor so Go types are not dropped from the atlas.
+        seen = set(results)
+        for sym in _extract_file_symbols_regex(f):
+            if sym[1] in ("class", "interface") and sym not in seen:
+                results.append(sym)
+                seen.add(sym)
+    return results
 
 
 def _extract_file_symbols_regex(f: Path) -> list[tuple[str, str, int]]:
