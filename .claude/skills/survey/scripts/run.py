@@ -210,6 +210,11 @@ def _compute_error_style(layers: dict[str, list[Path]]) -> str:
         elif ext == ".py":
             exception_count += len(re.findall(r"\braise\b", text))
             exception_count += len(re.findall(r"\btry\b", text))
+        elif ext == ".go":
+            result_count += len(re.findall(r"\berr\s*!=\s*nil\b", text))
+            result_count += len(re.findall(r"\berrors\.New\(", text))
+            result_count += len(re.findall(r"\bfmt\.Errorf\(", text))
+            exception_count += len(re.findall(r"\bpanic\(", text))
 
     total = result_count + exception_count
     if total == 0:
@@ -226,8 +231,24 @@ def _compute_error_style(layers: dict[str, list[Path]]) -> str:
     return "mixed"
 
 
+def _import_pattern(name: str) -> re.Pattern:
+    esc = re.escape(name)
+    return re.compile(
+        rf'(?:^|(?<=\n))\s*(?:'
+        rf'(?:import|from)\s+{esc}(?:\b|/)'
+        rf'|import\s+\S.*from\s+["\'][^"\']*\b{esc}(?:[/"\'`])'
+        rf'|require\s*\(\s*["\'][^"\']*\b{esc}(?:[/"\'`])'
+        rf'|use\s+{esc}(?:::|;)'
+        rf'|import\s+"[^"]*\b{esc}(?:[/"])'
+        rf'|"[^"]*\b{esc}(?:[/"])'
+        rf')',
+        re.MULTILINE,
+    )
+
+
 def _compute_dep_edges(layers: dict[str, list[Path]]) -> list[dict]:
     layer_names = set(layers.keys())
+    patterns = {name: _import_pattern(name) for name in layer_names}
     counts: dict[tuple[str, str], int] = {}
     for from_layer, files in layers.items():
         for f in files:
@@ -238,7 +259,7 @@ def _compute_dep_edges(layers: dict[str, list[Path]]) -> list[dict]:
             for name in layer_names:
                 if name == from_layer:
                     continue
-                if re.search(rf"\b{re.escape(name)}\b", text):
+                if patterns[name].search(text):
                     key = (from_layer, name)
                     counts[key] = counts.get(key, 0) + 1
     return [{"from_layer": f, "to_layer": t, "count": c} for (f, t), c in counts.items()]
