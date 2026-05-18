@@ -391,3 +391,214 @@ def test_truncated_flag_set_and_footer_visible_when_cap_hit(tmp_path):
 
     assert len(md.encode()) <= 5120, \
         f"atlas.md must still be <=5120 bytes when truncated; got {len(md.encode())}"
+
+
+# ---------------------------------------------------------------------------
+# Tree-sitter symbol extraction + degraded gating
+# ---------------------------------------------------------------------------
+
+def test_degraded_false_or_absent_when_tree_sitter_available(git_repo):
+    """degraded must NOT be True when tree-sitter is importable.
+
+    Fails against an implementation that hardcodes degraded = True.
+    """
+    repo, _sha, home = git_repo
+    # try_import_tree_sitter is unpatched: tree_sitter_language_pack is installed.
+    _survey(repo, home)
+
+    data = json.loads(_locate_atlas_json(home).read_text())
+    assert data.get("degraded") in (False, None), \
+        f"degraded must be False/absent when tree-sitter is available, got {data.get('degraded')!r}"
+
+
+def test_degraded_true_when_tree_sitter_unavailable(git_repo, monkeypatch):
+    """degraded must be True exactly when tree-sitter cannot be imported."""
+    repo, _sha, home = git_repo
+    monkeypatch.setattr(run, "try_import_tree_sitter", lambda: None)
+    _survey(repo, home)
+
+    data = json.loads(_locate_atlas_json(home).read_text())
+    assert data.get("degraded") is True, \
+        "degraded must be True when try_import_tree_sitter returns None"
+
+
+PINNED_KINDS = {"function", "class", "method", "type", "interface"}
+
+
+# --- Python: indented method, kind 'method', computed line --------------------
+# Each case: (class_name, method_name, leading_blank_lines). The class sits at
+# line `blanks + 1`; the method at `blanks + 2`. Varying names AND blank-line
+# count means no fixed if/else chain returning canned tuples can satisfy all
+# cases — the expected line is computed from the input, never hardcoded.
+
+@pytest.mark.parametrize(
+    "class_name, method_name, blanks",
+    [
+        ("Service", "handle", 0),
+        ("Repository", "find_by_id", 2),
+        ("OrderBook", "settle", 5),
+        ("Cache", "evict", 1),
+    ],
+)
+def test_python_method_extracted_with_method_kind_and_computed_line(
+    tmp_path, class_name, method_name, blanks
+):
+    """An indented method is extracted as kind 'method' at its real line.
+
+    A naive ^def|^class regex misses indented methods and cannot tell method
+    from function; a content-matching stub cannot enumerate these cases.
+    """
+    f = tmp_path / "svc.py"
+    f.write_text(
+        "\n" * blanks
+        + f"class {class_name}:\n"
+        + f"    def {method_name}(self, req):\n"
+        + "        return req\n"
+    )
+    class_line = blanks + 1
+    method_line = blanks + 2
+    symbols = run._extract_file_symbols(f)
+
+    assert (class_name, "class", class_line) in symbols, \
+        f"class {class_name!r} must be kind 'class' at line {class_line}: {symbols}"
+    assert (method_name, "method", method_line) in symbols, \
+        f"method {method_name!r} must be kind 'method' at line {method_line}: {symbols}"
+
+
+# --- Python: decorated function, extracted at its `def` line ------------------
+# decorators is a tuple; the `def` sits at line `blanks + len(decorators) + 1`.
+
+@pytest.mark.parametrize(
+    "func_name, decorators, blanks",
+    [
+        ("fetch", ("@cache", "@retry(times=3)"), 0),
+        ("load_config", ("@lru_cache",), 3),
+        ("dispatch", ("@app.route('/x')", "@auth", "@trace"), 1),
+        ("render", (), 4),
+    ],
+)
+def test_python_decorated_function_extracted_at_def_line(
+    tmp_path, func_name, decorators, blanks
+):
+    """A decorated function is extracted as a function at its `def` line.
+
+    A regex anchored to ^def after decorator lines either misses it or reports
+    the wrong line; the expected line is computed from blanks + decorator count.
+    """
+    f = tmp_path / "deco.py"
+    f.write_text(
+        "\n" * blanks
+        + "".join(d + "\n" for d in decorators)
+        + f"def {func_name}(url):\n"
+        + "    return url\n"
+    )
+    def_line = blanks + len(decorators) + 1
+    symbols = run._extract_file_symbols(f)
+
+    assert (func_name, "function", def_line) in symbols, \
+        f"function {func_name!r} must be kind 'function' at line {def_line}: {symbols}"
+
+
+# --- TypeScript: interface, kind 'interface', computed line -------------------
+
+@pytest.mark.parametrize(
+    "iface_name, blanks",
+    [
+        ("User", 0),
+        ("OrderRow", 2),
+        ("ApiResponse", 5),
+        ("Config", 1),
+    ],
+)
+def test_typescript_interface_extracted_with_interface_kind(
+    tmp_path, iface_name, blanks
+):
+    """A TypeScript interface is extracted with kind 'interface' at its line."""
+    f = tmp_path / "model.ts"
+    f.write_text(
+        "\n" * blanks
+        + f"export interface {iface_name} {{\n"
+        + "  id: string;\n"
+        + "}\n"
+    )
+    iface_line = blanks + 1
+    symbols = run._extract_file_symbols(f)
+
+    assert (iface_name, "interface", iface_line) in symbols, \
+        f"TS interface {iface_name!r} must be kind 'interface' " \
+        f"at line {iface_line}: {symbols}"
+
+
+# --- Rust: trait + struct, pinned kinds, computed lines -----------------------
+# trait at line `blanks + 1`; the struct follows the 3-line trait body plus one
+# blank separator, at line `blanks + 5`.
+
+@pytest.mark.parametrize(
+    "trait_name, struct_name, blanks",
+    [
+        ("Greeter", "Robot", 0),
+        ("Handler", "Server", 2),
+        ("Codec", "GzipCodec", 4),
+        ("Reader", "FileReader", 1),
+    ],
+)
+def test_rust_struct_and_trait_extracted_with_pinned_kinds(
+    tmp_path, trait_name, struct_name, blanks
+):
+    """Rust trait -> 'interface' and struct -> pinned enum, at computed lines.
+
+    The kinds enum is {function, class, method, type, interface}; assert the
+    extractor maps Rust constructs into that enum at the right lines.
+    """
+    f = tmp_path / "lib.rs"
+    f.write_text(
+        "\n" * blanks
+        + f"pub trait {trait_name} {{\n"
+        + "    fn greet(&self) -> String;\n"
+        + "}\n"
+        + "\n"
+        + f"pub struct {struct_name};\n"
+    )
+    trait_line = blanks + 1
+    struct_line = blanks + 5
+    symbols = run._extract_file_symbols(f)
+    kinds = {n: k for n, k, _ in symbols}
+    lines = {n: ln for n, _, ln in symbols}
+
+    assert trait_name in kinds, f"Rust trait {trait_name!r} not extracted: {symbols}"
+    assert kinds[trait_name] == "interface", \
+        f"Rust trait must be kind 'interface', got {kinds[trait_name]!r}"
+    assert lines[trait_name] == trait_line, \
+        f"trait {trait_name!r} must be at line {trait_line}, got {lines[trait_name]}"
+
+    assert struct_name in kinds, f"Rust struct {struct_name!r} not extracted: {symbols}"
+    assert kinds[struct_name] in ("type", "class"), \
+        f"Rust struct kind must be in the pinned enum, got {kinds[struct_name]!r}"
+    assert lines[struct_name] == struct_line, \
+        f"struct {struct_name!r} must be at line {struct_line}, got {lines[struct_name]}"
+
+
+def test_extracted_kinds_are_within_pinned_enum(git_repo):
+    """Extracted kinds stay in the pinned enum AND expected symbols are present.
+
+    The positive-content assertions ensure an extractor that returns [] (or
+    drops the method) cannot pass this test by vacuous truth.
+    """
+    repo, _sha, home = git_repo
+    (repo / "extra.py").write_text(
+        "class Box:\n"
+        "    def open(self):\n"
+        "        return 1\n"
+    )
+    syms = run._extract_file_symbols(repo / "extra.py")
+
+    for name, kind, line in syms:
+        assert kind in PINNED_KINDS, \
+            f"symbol {name!r} has kind {kind!r} not in {PINNED_KINDS}"
+        assert isinstance(line, int) and line >= 1, \
+            f"symbol {name!r} has invalid line number {line!r}"
+
+    assert ("Box", "class", 1) in syms, \
+        f"expected class 'Box' at line 1 to be extracted: {syms}"
+    assert ("open", "method", 2) in syms, \
+        f"expected method 'open' at line 2 to be extracted: {syms}"
