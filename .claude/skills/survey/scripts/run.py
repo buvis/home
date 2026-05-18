@@ -5,9 +5,10 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 from _lib_cartographer import project_hash, try_import_tree_sitter, append_audit
@@ -85,7 +86,7 @@ _TS_KIND_MAP = {
 _TS_CLASS_KINDS = {"Class", "Struct", "Trait", "Impl"}
 
 
-def _ts_walk(items, in_class: bool, results: list[tuple[str, str, int]]) -> None:
+def _ts_walk(items: Iterable[Any], in_class: bool, results: list[tuple[str, str, int]]) -> None:
     for item in items:
         raw_kind = str(item.kind)
         kind = _TS_KIND_MAP.get(raw_kind)
@@ -97,7 +98,7 @@ def _ts_walk(items, in_class: bool, results: list[tuple[str, str, int]]) -> None
         _ts_walk(item.children, child_in_class, results)
 
 
-def _extract_tree_sitter(f: Path, ts_module) -> list[tuple[str, str, int]]:
+def _extract_tree_sitter(f: Path, ts_module: Any) -> list[tuple[str, str, int]]:
     lang = _TS_LANG_BY_EXT.get(f.suffix)
     if lang is None:
         return []
