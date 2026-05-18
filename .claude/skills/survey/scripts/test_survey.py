@@ -578,6 +578,191 @@ def test_rust_struct_and_trait_extracted_with_pinned_kinds(
         f"struct {struct_name!r} must be at line {struct_line}, got {lines[struct_name]}"
 
 
+# ---------------------------------------------------------------------------
+# atlas.md: implementations index uses file:line, not layer:line
+# ---------------------------------------------------------------------------
+
+def _section_body(content: str, header: str) -> str:
+    """Return the text between `header` and the next ## heading (or EOF)."""
+    start = content.find(f"## {header}")
+    assert start != -1, f"Section '## {header}' not found in atlas.md"
+    after = content.find("\n## ", start + 1)
+    return content[start: after] if after != -1 else content[start:]
+
+
+def _make_repo_with_symbol(tmp_path, subdir: str, filename: str, symbol: str, line: int) -> tuple:
+    """
+    Create a git repo containing one Python file at `subdir/filename`.
+    The file has `line - 1` blank lines then `def symbol():`.
+    Returns (repo_path, home_path, relative_file_path).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    layer_dir = repo / subdir
+    layer_dir.mkdir(parents=True, exist_ok=True)
+
+    src_file = layer_dir / filename
+    src_file.write_text("\n" * (line - 1) + f"def {symbol}():\n    pass\n")
+
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "add symbol"], cwd=repo, check=True, capture_output=True)
+
+    home = tmp_path / "home"
+    home.mkdir()
+    return repo, home, f"{subdir}/{filename}"
+
+
+@pytest.mark.parametrize(
+    "subdir, filename, symbol, sym_line",
+    [
+        ("handlers", "order_handler.py", "process_order", 3),
+        ("services", "user_svc.py", "create_user", 5),
+    ],
+)
+def test_implementations_index_uses_file_path_not_layer_name(
+    tmp_path, subdir, filename, symbol, sym_line
+):
+    """Implementations index must show the source file path, not a bare layer name.
+
+    Fails against the current `layer:line` rendering: the bare layer directory
+    (e.g. 'handlers') must not be the only file reference; the actual filename
+    (e.g. 'order_handler.py') must appear in the entry for the symbol.
+    """
+    repo, home, rel_path = _make_repo_with_symbol(tmp_path, subdir, filename, symbol, sym_line)
+    _survey(repo, home)
+
+    content = _locate_atlas_md(home).read_text()
+    section = _section_body(content, "Existing implementations index")
+
+    # The entry for this symbol must contain the actual filename
+    assert filename in section, (
+        f"atlas.md implementations index must reference the source file "
+        f"'{filename}', not a bare layer name.\nSection:\n{section}"
+    )
+
+    # The line number must appear
+    assert str(sym_line) in section, (
+        f"atlas.md implementations index must include line number {sym_line} "
+        f"for symbol '{symbol}'.\nSection:\n{section}"
+    )
+
+    # A bare layer-only reference (subdir + colon, no filename) must not be
+    # the pattern used — the real path component must be the filename, not the dir.
+    # We check that the filename itself (not just the directory) is present,
+    # which the assertion above already covers.  Additionally assert no entry
+    # looks like "`symbol` (function) - subdir:line" (layer-only format).
+    layer_only_pattern = f"{subdir}:{sym_line}"
+    assert layer_only_pattern not in section, (
+        f"atlas.md implementations index must not use the bare layer reference "
+        f"'{layer_only_pattern}'; it must show the actual file path.\nSection:\n{section}"
+    )
+
+
+@pytest.mark.parametrize(
+    "subdir, filename, class_name, class_line, plain_func, func_line",
+    [
+        ("ports/payment", "payment_port.py", "PaymentPort", 1, "helper_util", 5),
+        ("adapters/email", "email_adapter.py", "EmailAdapter", 1, "build_headers", 5),
+    ],
+)
+def test_extension_points_uses_file_path_not_layer_name(
+    tmp_path, subdir, filename, class_name, class_line, plain_func, func_line
+):
+    """Extension points section: full file path shown and kind filter enforced.
+
+    Two requirements in one fixture:
+    1. The FULL nested relative path (e.g. ports/payment/payment_port.py:1) must
+       appear as one contiguous substring — not just the filename alone, which would
+       allow a layer/filename impl (dropping intermediate dirs) to pass.
+    2. A class-based extension point IS present in the section; a plain top-level
+       function in the same file is NOT — confirming the kind filter (interface/class
+       only, not every function).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    layer_dir = repo / subdir
+    layer_dir.mkdir(parents=True, exist_ok=True)
+
+    src_file = layer_dir / filename
+    # class at line 1, plain function at line 5 (3 blank lines of separation)
+    src_file.write_text(
+        f"class {class_name}:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        f"def {plain_func}():\n"
+        "    pass\n"
+    )
+
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "add ext point"], cwd=repo, check=True, capture_output=True)
+
+    home = tmp_path / "home"
+    home.mkdir()
+    _survey(repo, home)
+
+    content = _locate_atlas_md(home).read_text()
+    section = _section_body(content, "Extension points")
+
+    # The FULL nested path + line must be a single contiguous substring.
+    full_path_ref = f"{subdir}/{filename}:{class_line}"
+    assert full_path_ref in section, (
+        f"atlas.md extension points must contain the full nested path reference "
+        f"'{full_path_ref}' as a contiguous substring. A layer/filename impl that "
+        f"drops intermediate directories would fail this check.\nSection:\n{section}"
+    )
+
+    # The class-based extension point must appear in the section.
+    assert class_name in section, (
+        f"atlas.md extension points must include the class/interface '{class_name}'."
+        f"\nSection:\n{section}"
+    )
+
+    # The plain top-level function must NOT appear in the extension points section —
+    # this confirms the kind filter (only interfaces/classes, not every function).
+    assert plain_func not in section, (
+        f"atlas.md extension points must NOT include plain function '{plain_func}'; "
+        f"extension points are for interfaces/abstractions, not every function."
+        f"\nSection:\n{section}"
+    )
+
+
+def test_implementations_index_file_path_includes_relative_directory(tmp_path):
+    """The file reference in the implementations index must be the full relative path.
+
+    Uses a file nested two levels deep (core/domain/aggregate_root.py) so an impl
+    that drops intermediate directories (emitting core/aggregate_root.py) also fails.
+    The complete path must appear as one contiguous substring, not directory and
+    filename asserted separately.
+    """
+    subdir = "core/domain"
+    filename = "aggregate_root.py"
+    symbol = "apply_event"
+    sym_line = 6
+
+    repo, home, rel_path = _make_repo_with_symbol(tmp_path, subdir, filename, symbol, sym_line)
+    _survey(repo, home)
+
+    content = _locate_atlas_md(home).read_text()
+    section = _section_body(content, "Existing implementations index")
+
+    # The FULL nested path followed by the line number must appear as one contiguous
+    # substring. Asserting directory and filename separately would allow an impl that
+    # drops the intermediate 'domain/' segment (e.g. emitting core/aggregate_root.py)
+    # to pass this test.
+    full_path_ref = f"core/domain/aggregate_root.py:{sym_line}"
+    assert full_path_ref in section, (
+        f"atlas.md implementations index must contain the full path reference "
+        f"'{full_path_ref}' as a contiguous substring. Asserting directory and filename "
+        f"separately would allow a wrong impl (e.g. 'core/aggregate_root.py') to pass.\n"
+        f"Section:\n{section}"
+    )
+
+
 def test_extracted_kinds_are_within_pinned_enum(git_repo):
     """Extracted kinds stay in the pinned enum AND expected symbols are present.
 
