@@ -7,6 +7,17 @@ description: Use when executing already-planned tasks one at a time, dispatching
 
 Implement pending tasks one-by-one, committing after each completion.
 
+## CRITICAL: Never Ask the User to Run Commands
+
+This skill runs inside an **automated autopilot loop**. The user is not watching. Do not ask the user to run tests, commands, or do anything manually. The only valid reasons to surface output to the user are:
+
+1. A genuinely irreversible action that requires explicit confirmation (e.g. force-pushing a shared branch).
+2. More than two consecutive failed attempts at the same automated step with no remaining fallback.
+
+**When test verification is blocked** (e.g. all cargo processes were backgrounded and the build lock was contended): if the code compiles cleanly and the logic change is correct by inspection, commit and proceed. The full-suite verification run at the end of the phase will catch regressions. Do not stop and ask the user to run anything.
+
+**When cargo commands get backgrounded by the session**: the Bash tool may background long-running commands regardless of the `run_in_background` flag. Wait for background completions via Monitor (up to 20 minutes for full test suites). Never launch a second cargo command while one is still running — they contend on the build lock and jam the shell. If a Monitor times out, read the output file directly; if the file is empty the build lock was still held, wait longer before retrying.
+
 ## CRITICAL: One Task at a Time
 
 **STOP.** Before dispatching ANY Agent/Codex/Gemini call, verify you are sending it EXACTLY ONE task. PostToolUse hooks do not fire inside subagents — batching tasks into one Agent call makes pidash show stale progress for the entire duration.
@@ -79,6 +90,19 @@ PostToolUse hooks do not fire inside subagents (see "CRITICAL: One Task at a Tim
 
 **Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under Sonnet 4.6's 200K standard-tier ceiling.
 
+## Subagent Watchdog
+
+Every Agent dispatch in this skill (Agent A, B, C, or the code reviewer) must be wrapped in a watchdog. A dispatched subagent can crash, lose its result, or hang silently — and a foreground `Agent` call then blocks this session **indefinitely** with no signal. Observed failure: a dead subagent left the parent session blocked for 1.5 hours until the user manually intervened.
+
+**Dispatch protocol — applies to every Agent call:**
+
+1. Dispatch with `run_in_background: true` (plus `model` per "Per-task model dispatch"). Record the dispatch wall-clock time.
+2. Wait for the background agent using the `Monitor` tool with a **15-minute** timeout. The harness re-invokes you when a background agent finishes — do not poll in a tight loop.
+3. If `Monitor` reports the agent completed within the deadline, retrieve its result (`TaskOutput`) and continue to the result handling in step 4.
+4. If the 15-minute deadline elapses with no completion, the agent is **presumed hung**: call `TaskStop` on it and handle it as **Timeout** per step 4's result table.
+
+A background dispatch does **not** relax the one-task-at-a-time rule: dispatch one agent, wait for it (or its watchdog), then proceed. Never have two plan-task agents in flight at once. The watchdog converts a silent infinite block into a detectable timeout that step 4 already knows how to handle.
+
 ## Per-task model dispatch
 
 Before any Agent call for a task, read `task.metadata.model` (or equivalently `state.tasks[i].model` — `/run-autopilot` keeps the two in sync) and pass it as the Agent tool's `model` parameter.
@@ -121,7 +145,7 @@ At every task exit — success in step 6, abort in step 4 (timeout / context exc
 - `model`: the tier `/work` used for this pass. Read from `task.metadata.model` when set. On legacy plans where `metadata.model` is absent, record the effective session-inherited tier as a string (e.g. `"sonnet"` for a Work-phase Sonnet 4.6 launch). Always a string — never `null`.
 - `outcome`: `/work` writes only `"completed"` or `"aborted"`. Later phases upgrade earlier entries — `/run-autopilot` Phase 6 (Rework) step 2 rewrites a `"completed"` entry's outcome to `"review_flagged"` at the start of escalation, then later rewrites a flagged entry's outcome to `"rework_failed"` when the rework pass also fails at the top of the chain.
 - `review_cycle`: `null` on a first/Phase-3 attempt; set to the current `state.cycle` integer when the pass is a rework re-dispatch (see step 1.5 "Rework-mode task filter (PRD 00025)").
-- `cause`: `null` on success; on abort, the reason — `"context_overrun"`, `"subagent_prompt_overrun"`, `"timeout"`, `"error"`.
+- `cause`: `null` on success; on abort, the reason — `"context_overrun"`, `"subagent_prompt_overrun"`, `"timeout"`, `"error"`, `"subagent_infra_failure"`.
 
 **Write procedure**: read `state.json`, append to `tasks[i].attempts[]` (create the array if absent), write back atomically. Merge — do not replace siblings. Walk up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in step 2.
 
@@ -245,9 +269,12 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 
 **Agent A receives:**
 - Task description and acceptance criteria
+- The **exact file paths** the task touches and the **exact symbol names** to test, taken from the plan task — not "find the relevant file"
 - Public interfaces/types relevant to the task
 - Existing test patterns (one sample test file from the project)
 - Test framework and conventions used
+
+**Scope the agent explicitly.** Add to the prompt: "Read only the files listed above. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope." Open-ended discovery is where subagents burn turns and stall.
 
 **Agent A does NOT receive:**
 - Implementation strategy or architecture docs (loaded in step 2.5 for the main session and Agent B only)
@@ -327,6 +354,7 @@ Agent B's job: make the failing tests pass. Tests ARE the spec.
 1. "Make all failing tests pass. Do NOT modify test files."
 2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
 3. The abort-instruction line from the **Subagent Dispatch Budget** section. Measure the assembled prompt before dispatching; if > 50K bytes, trim or abort the task with cause `subagent_prompt_overrun`.
+4. The **exact file paths** Agent B may read and modify, plus: "Read only the files listed. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope."
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Agent B and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
@@ -352,6 +380,15 @@ Agent B's job: make the failing tests pass. Tests ARE the spec.
 | Timeout | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "timeout"`). Split task (see below), mark original as blocked. |
 | Context exceeded | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "context_overrun"`). Split task, mark original as blocked. |
 | Error | Invoke systematic-debugging if available (see below). On unrecoverable error, append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "error"`) and report to user. |
+| Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — the agent produced nothing usable. Apply the **infrastructure-failure circuit breaker** (step 4.2). |
+
+### 4.2. Infrastructure-failure circuit breaker
+
+A lost/empty Agent result or a watchdog-killed hang is an infrastructure failure, not a content failure. Do **not** silently re-dispatch in a loop — two back-to-back infrastructure failures on the same task was the observed cause of a multi-hour stall.
+
+1. Check the working tree (`git status --short`). A crashed agent may have left partial, uncommitted, **unverified** changes. Note them in the task output; do not commit them blind and do not assume they compile.
+2. Re-dispatch the **same** task at most **once**. Track infrastructure re-dispatches per task — this cap is separate from the test-failure retry cap (step 5.5) and the review-cycle cap (step 5.7).
+3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`, and escalate to the user. Do **not** advance to the next task.
 
 ### 4.5. Debug on error (if superpowers available)
 
