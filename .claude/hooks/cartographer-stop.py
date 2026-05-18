@@ -1,37 +1,74 @@
-"""PostToolUse hook: mark atlas stale when files are modified.
-
-Fires on Write, Edit, MultiEdit; writes staleness.flag with an ISO 8601 UTC
-timestamp to the project's atlas directory. Exits 0 silently on any error so
-it never crashes the host tool.
-"""
+"""Stop hook: detect atlas staleness after a session ends."""
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 
-from _lib_cartographer import atlas_dir, project_hash
-
-_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
+from _lib_cartographer import append_audit, atlas_dir, project_hash
 
 
 def main() -> None:
     try:
-        data = json.load(sys.stdin)
-        tool_name = data.get("tool_name", "")
-        if tool_name not in _WRITE_TOOLS:
+        json.loads(sys.stdin.read())
+
+        cwd = os.getcwd()
+        h, _, _ = project_hash(cwd)
+        adir = atlas_dir(h)
+        atlas_json = adir / "atlas.json"
+
+        if not atlas_json.exists():
+            append_audit({"event": "cartographer-stop", "reason": "no-atlas"})
             return
-        tool_input = data.get("tool_input") or {}
-        file_path = tool_input.get("file_path") or tool_input.get("path")
-        cwd = str(Path.cwd()) if file_path is None else str(Path(file_path).parent)
-        h, _name, _remote = project_hash(cwd)
-        atlas_path = atlas_dir(h)
-        atlas_path.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).isoformat()
-        (atlas_path / "staleness.flag").write_text(ts, encoding="utf-8")
+
+        data = json.loads(atlas_json.read_text(encoding="utf-8"))
+        head_sha = data["head_sha"]
+        surveyed_at = datetime.fromisoformat(data["surveyed_at"])
+
+        max_commits = 50
+        max_days = 14
+        staleness = data.get("staleness") or {}
+        if "max_commits" in staleness:
+            max_commits = staleness["max_commits"]
+        if "max_days" in staleness:
+            max_days = staleness["max_days"]
+
+        result = subprocess.run(
+            ["git", "rev-list", "--count", f"{head_sha}..HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        commits = int(result.stdout.strip())
+
+        now = datetime.now(timezone.utc)
+        if surveyed_at.tzinfo is None:
+            surveyed_at = surveyed_at.replace(tzinfo=timezone.utc)
+        age_days = (now - surveyed_at).total_seconds() / 86400
+
+        if commits >= max_commits or age_days >= max_days:
+            (adir / "staleness.flag").touch()
+            append_audit({
+                "event": "cartographer-stop",
+                "reason": "stale-flag-set",
+                "commits": commits,
+                "age_days": age_days,
+            })
+        else:
+            append_audit({
+                "event": "cartographer-stop",
+                "reason": "fresh",
+                "commits": commits,
+                "age_days": age_days,
+            })
     except Exception:
-        return
+        try:
+            append_audit({"event": "cartographer-stop", "reason": "skip"})
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
