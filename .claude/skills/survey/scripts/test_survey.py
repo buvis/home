@@ -344,6 +344,101 @@ def test_refresh_removes_staleness_flag_file(git_repo):
 
 
 # ---------------------------------------------------------------------------
+# Bare invocation: no-op when atlas is fresh (no staleness.flag)
+# ---------------------------------------------------------------------------
+
+def test_bare_survey_is_a_noop_when_atlas_is_fresh(git_repo, capsys):
+    """Bare /survey must not re-survey when atlas.json exists and staleness.flag is absent.
+
+    A wrong implementation that always re-surveys would update surveyed_at,
+    causing this test to fail.
+    """
+    repo, _sha, home = git_repo
+    _survey(repo, home)
+    capsys.readouterr()  # drain output from the first survey
+
+    atlas_path = _locate_atlas_json(home)
+    ts_before = json.loads(atlas_path.read_text())["surveyed_at"]
+
+    _survey(repo, home)  # bare — no flags
+
+    ts_after = json.loads(atlas_path.read_text())["surveyed_at"]
+    assert ts_after == ts_before, \
+        "bare /survey must not update surveyed_at when atlas is fresh (no staleness.flag)"
+
+    out = capsys.readouterr().out
+    assert out.strip(), "bare /survey skip must print an explicit skip reason to stdout"
+
+
+def test_bare_survey_runs_when_staleness_flag_is_present(git_repo):
+    """Bare /survey must re-survey when staleness.flag is present.
+
+    A wrong implementation that skips unconditionally regardless of the flag
+    would leave surveyed_at unchanged, causing this test to fail.
+    """
+    repo, _sha, home = git_repo
+    _survey(repo, home)
+
+    atlas_path = _locate_atlas_json(home)
+    flag_path = atlas_path.parent / "staleness.flag"
+    ts_before = json.loads(atlas_path.read_text())["surveyed_at"]
+    flag_path.touch()
+
+    _survey(repo, home)  # bare — staleness.flag present
+
+    ts_after = json.loads(atlas_path.read_text())["surveyed_at"]
+    assert ts_after != ts_before, \
+        "bare /survey must re-survey (update surveyed_at) when staleness.flag is present"
+    assert not flag_path.exists(), \
+        "bare /survey must remove staleness.flag after a successful rebuild"
+
+
+def test_bare_survey_runs_when_atlas_is_missing(tmp_path):
+    """Bare /survey must run the survey when atlas.json does not exist.
+
+    A wrong implementation that always skips would leave no atlas.json,
+    causing _locate_atlas_json to raise.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    # No prior survey — atlas is absent
+    _survey(repo, home)  # bare — no flags
+
+    assert _locate_atlas_json(home).exists(), \
+        "bare /survey must create atlas.json when it does not yet exist"
+
+
+# ---------------------------------------------------------------------------
+# --refresh: always re-surveys even on a fresh atlas
+# ---------------------------------------------------------------------------
+
+def test_refresh_resurveys_even_when_atlas_is_fresh(git_repo):
+    """--refresh must re-survey regardless of whether atlas.json is fresh.
+
+    A wrong implementation that honours the fresh-atlas skip for --refresh
+    would leave surveyed_at unchanged, causing this test to fail.
+    """
+    repo, _sha, home = git_repo
+    _survey(repo, home)
+
+    atlas_path = _locate_atlas_json(home)
+    flag_path = atlas_path.parent / "staleness.flag"
+    # Ensure fresh: atlas exists, no staleness.flag
+    assert not flag_path.exists(), "precondition: no staleness.flag after first survey"
+    ts_before = json.loads(atlas_path.read_text())["surveyed_at"]
+
+    _survey(repo, home, refresh=True)
+
+    ts_after = json.loads(atlas_path.read_text())["surveyed_at"]
+    assert ts_after != ts_before, \
+        "--refresh must update surveyed_at even when the atlas was already fresh"
+
+
+# ---------------------------------------------------------------------------
 # Status line printed to stdout
 # ---------------------------------------------------------------------------
 
