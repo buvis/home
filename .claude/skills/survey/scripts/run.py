@@ -59,7 +59,67 @@ def _classify_name(name: str) -> str:
     return "other"
 
 
+_TS_LANG_BY_EXT = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".rs": "rust",
+    ".go": "go",
+}
+
+# StructureItem.kind (str) -> pinned kind enum.
+_TS_KIND_MAP = {
+    "Class": "class",
+    "Function": "function",
+    "Method": "method",
+    "Interface": "interface",
+    "Trait": "interface",
+    "Struct": "type",
+    "Enum": "type",
+}
+
+# StructureItem.kind values whose body holds methods rather than functions.
+_TS_CLASS_KINDS = {"Class", "Struct", "Trait", "Impl"}
+
+
+def _ts_walk(items, in_class: bool, results: list[tuple[str, str, int]]) -> None:
+    for item in items:
+        raw_kind = str(item.kind)
+        kind = _TS_KIND_MAP.get(raw_kind)
+        if kind is not None and item.name:
+            if kind == "function" and in_class:
+                kind = "method"
+            results.append((item.name, kind, item.span.start_line + 1))
+        child_in_class = in_class or raw_kind in _TS_CLASS_KINDS
+        _ts_walk(item.children, child_in_class, results)
+
+
+def _extract_tree_sitter(f: Path, ts_module) -> list[tuple[str, str, int]]:
+    lang = _TS_LANG_BY_EXT.get(f.suffix)
+    if lang is None:
+        return []
+    try:
+        source = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    result = ts_module.process(
+        source, ts_module.ProcessConfig(language=lang, structure=True)
+    )
+    results: list[tuple[str, str, int]] = []
+    _ts_walk(result.structure, False, results)
+    return results
+
+
 def _extract_file_symbols(f: Path) -> list[tuple[str, str, int]]:
+    ts_module = try_import_tree_sitter()
+    if ts_module is not None:
+        return _extract_tree_sitter(f, ts_module)
+    return _extract_file_symbols_regex(f)
+
+
+def _extract_file_symbols_regex(f: Path) -> list[tuple[str, str, int]]:
     results = []
     try:
         lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -260,7 +320,7 @@ def _fit_to_budget(content: str) -> tuple[str, bool]:
 
 
 def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
-    try_import_tree_sitter()  # warm import cache; regex fallback used below
+    degraded = try_import_tree_sitter() is None
     layers, truncated = _scan_layers(repo_path)
 
     symbols_by_layer: dict[str, list[tuple[str, str, int]]] = {}
@@ -284,7 +344,7 @@ def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
         "naming": naming,
         "error_style": error_style,
         "dependency_edges": dependency_edges,
-        "degraded": True,
+        "degraded": degraded,
     }
 
     head_sha = _get_head_sha(repo_path)
