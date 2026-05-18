@@ -165,5 +165,37 @@ class TestSendNtfy(unittest.TestCase):
                     urlopen.assert_called_once()
 
 
+class TestShowDesktopNotification(unittest.TestCase):
+    def _run(self, returncode: int) -> list[str]:
+        logs: list[str] = []
+        proc = MagicMock()
+        proc.returncode = returncode
+        with patch("notify.shutil.which", return_value="/usr/bin/terminal-notifier"):
+            with patch("notify.subprocess.run", return_value=proc):
+                with patch("notify.log_line", side_effect=logs.append):
+                    notify.show_desktop_notification("T", "M")
+        return logs
+
+    def test_logs_shown_on_success(self) -> None:
+        logs = self._run(0)
+        self.assertTrue(any("shown" in line for line in logs))
+        self.assertFalse(any("ERROR" in line for line in logs))
+
+    def test_logs_error_on_nonzero_exit(self) -> None:
+        # terminal-notifier exit 0 means it ran, not that macOS displayed the
+        # banner — but a non-zero exit is an unambiguous failure that must not
+        # be logged as success.
+        logs = self._run(1)
+        self.assertTrue(any("ERROR" in line for line in logs))
+        self.assertFalse(any("shown" in line for line in logs))
+
+    def test_skips_when_not_installed(self) -> None:
+        logs: list[str] = []
+        with patch("notify.shutil.which", return_value=None):
+            with patch("notify.log_line", side_effect=logs.append):
+                notify.show_desktop_notification("T", "M")
+        self.assertTrue(any("Skipped" in line for line in logs))
+
+
 if __name__ == "__main__":
     unittest.main()
