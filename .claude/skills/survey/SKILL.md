@@ -18,10 +18,11 @@ The atlas lives at `~/.claude/cartographer/projects/<hash>/`:
 
 ## Arguments
 
-- *(no argument)* — Survey if no atlas exists. No-op if a fresh atlas exists.
-  Rebuild if `staleness.flag` is set.
-- `--if-missing` — Run a survey only when `atlas.json` is absent or
-  `staleness.flag` is present; otherwise a logged no-op. Used by `/catchup`.
+- *(no argument)* — No-op if `atlas.json` exists and `staleness.flag` is absent
+  (prints a skip reason). Runs the survey otherwise (atlas missing or stale).
+- `--if-missing` — Identical skip condition to the bare invocation: no-op when
+  `atlas.json` exists and `staleness.flag` is absent; surveys otherwise. Used
+  by `/catchup`.
 - `--refresh` — Force a full re-survey, bypassing the staleness check. Clears
   `staleness.flag` on success. Preserves any `[manual]` override block in
   `atlas.json` byte-for-byte; rewrites every other field.
