@@ -1,350 +1,330 @@
 import argparse
-import ast
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
-from _lib_cartographer import project_hash
+from _lib_cartographer import project_hash, try_import_tree_sitter, append_audit
+
+_FILE_CAP = 50
 
 
-_LAYER_MAP: dict[str, str] = {
-    "api": "api", "cli": "cli", "hooks": "hooks", "lib": "lib",
-    "libs": "lib", "tests": "tests", "scripts": "scripts",
-    "skills": "skills", "config": "config",
-}
+def _get_head_sha(repo_path: Path) -> Optional[str]:
+    r = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_path, capture_output=True, text=True,
+    )
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
-def _detect_layers(repo_path: Path) -> list[dict]:
-    subdirs = [p for p in repo_path.iterdir() if p.is_dir()]
-    if not subdirs:
-        files = [
-            str(f) for f in repo_path.glob("**/*")
-            if f.is_file() and "__pycache__" not in str(f) and ".git" not in str(f)
-        ][:50]
-        return [{"name": "root", "path": str(repo_path), "files": files}]
+def _scan_layers(repo_path: Path) -> tuple[dict[str, list[Path]], bool]:
+    top_dirs = [
+        p for p in repo_path.iterdir()
+        if p.is_dir() and not p.name.startswith(".")
+    ]
+    truncated = False
+    layers: dict[str, list[Path]] = {}
 
-    layers = []
-    for d in subdirs:
-        files = [
-            str(f) for f in d.glob("**/*")
-            if f.is_file() and "__pycache__" not in str(f) and ".git" not in str(f)
-        ][:50]
-        layers.append({
-            "name": _LAYER_MAP.get(d.name, "other"),
-            "path": str(d),
-            "files": files,
-        })
-    return layers
+    if not top_dirs:
+        files = [f for f in repo_path.iterdir() if f.is_file() and not f.name.startswith(".")]
+        if len(files) > _FILE_CAP:
+            truncated = True
+            files = files[:_FILE_CAP]
+        layers["root"] = files
+        return layers, truncated
 
+    for d in top_dirs:
+        all_files = [f for f in d.rglob("*") if f.is_file()]
+        if len(all_files) > _FILE_CAP:
+            truncated = True
+            all_files = all_files[:_FILE_CAP]
+        layers[d.name] = all_files
 
-def _write_atlas_json(
-    atlas_path: Path,
-    layers: list,
-    symbols: list,
-    naming: dict,
-    error_handling: dict,
-    forbidden_imports: list,
-    dependency_edges: list,
-) -> None:
-    h, _, _ = project_hash(str(atlas_path.parent))
-    atlas: dict = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "project_hash": h,
-        "layers": layers,
-        "symbols": symbols,
-        "naming_conventions": naming,
-        "error_handling": error_handling,
-        "forbidden_imports": forbidden_imports,
-        "dependency_edges": dependency_edges,
-    }
-    atlas_path.parent.mkdir(parents=True, exist_ok=True)
-    atlas_path.write_text(json.dumps(atlas, indent=2))
-
-
-def _extract_symbols(layers: list[dict]) -> list[dict]:
-    _CAP = 500
-    results: list[dict] = []
-    for layer in layers:
-        layer_name = layer["name"]
-        for file_path in layer.get("files", []):
-            if not file_path.endswith(".py"):
-                continue
-            try:
-                source = Path(file_path).read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(source, filename=file_path)
-            except SyntaxError:
-                continue
-            for node in ast.iter_child_nodes(tree):
-                if isinstance(node, ast.ClassDef):
-                    results.append({"file": file_path, "kind": "class", "name": node.name, "layer": layer_name})
-                elif isinstance(node, ast.FunctionDef):
-                    results.append({"file": file_path, "kind": "function", "name": node.name, "layer": layer_name})
-                if len(results) >= _CAP:
-                    return results
-    return results
-
-
-_NAMING_ORDER = ["snake_case", "CamelCase", "UPPER_SNAKE", "camelCase", "other"]
-_NAMING_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("UPPER_SNAKE", re.compile(r"^[A-Z][A-Z0-9_]*$")),
-    ("CamelCase",   re.compile(r"^[A-Z][a-zA-Z0-9]*$")),
-    ("snake_case",  re.compile(r"^[a-z][a-z0-9_]*$")),
-    ("camelCase",   re.compile(r"^[a-z][a-zA-Z0-9]*$")),
-]
+    return layers, truncated
 
 
 def _classify_name(name: str) -> str:
-    for category, pattern in _NAMING_PATTERNS:
-        if pattern.match(name):
-            return category
+    if re.match(r"^[A-Z][a-zA-Z0-9]*$", name):
+        return "PascalCase"
+    if re.match(r"^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$", name):
+        return "camelCase"
+    if re.match(r"^[a-z][a-z0-9_]*$", name):
+        return "snake_case"
     return "other"
 
 
-def _compute_naming_conventions(symbols: list[dict]) -> dict:
-    if not symbols:
-        return {}
+def _extract_file_symbols(f: Path) -> list[tuple[str, str, int]]:
+    results = []
+    try:
+        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return results
+    ext = f.suffix
+    for i, line in enumerate(lines, 1):
+        if ext == ".py":
+            m = re.match(r"^(?:def|class)\s+(\w+)", line)
+            if m:
+                kind = "class" if line.lstrip().startswith("class") else "function"
+                results.append((m.group(1), kind, i))
+        elif ext in (".ts", ".tsx", ".js", ".jsx"):
+            m = re.match(r"^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)", line)
+            if m:
+                results.append((m.group(1), "function", i))
+            m = re.match(r"^\s*(?:export\s+)?class\s+(\w+)", line)
+            if m:
+                results.append((m.group(1), "class", i))
+            m = re.match(r"^\s*(?:export\s+)?interface\s+(\w+)", line)
+            if m:
+                results.append((m.group(1), "interface", i))
+        elif ext == ".rs":
+            m = re.match(r"^\s*(?:pub\s+)?fn\s+(\w+)", line)
+            if m:
+                results.append((m.group(1), "function", i))
+            m = re.match(r"^\s*(?:pub\s+)?struct\s+(\w+)", line)
+            if m:
+                results.append((m.group(1), "class", i))
+            m = re.match(r"^\s*(?:pub\s+)?trait\s+(\w+)", line)
+            if m:
+                results.append((m.group(1), "interface", i))
+        elif ext == ".go":
+            m = re.match(r"^\s*func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)", line)
+            if m:
+                results.append((m.group(1), "function", i))
+            m = re.match(r"^\s*type\s+(\w+)\s+(?:struct|interface)", line)
+            if m:
+                kind = "interface" if "interface" in line else "class"
+                results.append((m.group(1), kind, i))
+    return results
 
-    layers: dict[str, dict[str, int]] = {}
-    for sym in symbols:
-        layer = sym["layer"]
-        if layer not in layers:
-            layers[layer] = {"snake_case": 0, "CamelCase": 0, "UPPER_SNAKE": 0, "camelCase": 0, "other": 0}
-        layers[layer][_classify_name(sym["name"])] += 1
 
-    result = {}
-    for layer, counts in layers.items():
-        dominant = max(_NAMING_ORDER, key=lambda c: (counts[c], -_NAMING_ORDER.index(c)))
-        result[layer] = {**counts, "dominant": dominant}
-    return result
+def _naming_counts(symbols: list[tuple[str, str, int]]) -> dict[str, int]:
+    counts: dict[str, int] = {"camelCase": 0, "snake_case": 0, "PascalCase": 0}
+    for name, _, _ in symbols:
+        c = _classify_name(name)
+        if c in counts:
+            counts[c] += 1
+    return counts
 
 
-def _detect_error_handling(layers: list[dict]) -> dict:
-    if not layers:
-        return {}
+def _compute_error_style(layers: dict[str, list[Path]]) -> str:
+    sample: list[Path] = []
+    for files in layers.values():
+        sample.extend(files)
+        if len(sample) >= 50:
+            sample = sample[:50]
+            break
 
-    result: dict[str, dict] = {}
-    for layer in layers:
-        name = layer["name"]
-        try_except = 0
-        raises = 0
-        returns_none_on_error = 0
+    result_count = 0
+    exception_count = 0
+    for f in sample:
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        ext = f.suffix
+        if ext == ".rs":
+            result_count += len(re.findall(r"Result<", text))
+            exception_count += len(re.findall(r"panic!", text))
+        elif ext in (".ts", ".tsx", ".js", ".jsx"):
+            exception_count += len(re.findall(r"\bthrow\b", text))
+        elif ext == ".py":
+            exception_count += len(re.findall(r"\braise\b", text))
+            exception_count += len(re.findall(r"\btry\b", text))
 
-        for file_path in layer.get("files", []):
-            if not file_path.endswith(".py"):
-                continue
+    total = result_count + exception_count
+    if total == 0:
+        return "unknown"
+    if result_count == 0:
+        return "exceptions"
+    if exception_count == 0:
+        return "result"
+    dominant = result_count / total
+    if dominant >= 0.7:
+        return "result"
+    if (1 - dominant) >= 0.7:
+        return "exceptions"
+    return "mixed"
+
+
+def _compute_dep_edges(layers: dict[str, list[Path]]) -> list[dict]:
+    layer_names = set(layers.keys())
+    counts: dict[tuple[str, str], int] = {}
+    for from_layer, files in layers.items():
+        for f in files:
             try:
-                source = Path(file_path).read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(source, filename=file_path)
-            except SyntaxError:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
                 continue
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Try):
-                    try_except += 1
-                elif isinstance(node, ast.Raise):
-                    raises += 1
-
-            for func in ast.walk(tree):
-                if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for name in layer_names:
+                if name == from_layer:
                     continue
-                for node in ast.walk(func):
-                    if not isinstance(node, ast.Try):
-                        continue
-                    for handler in node.handlers:
-                        for stmt in ast.walk(handler):
-                            if (
-                                isinstance(stmt, ast.Return)
-                                and (stmt.value is None or isinstance(stmt.value, ast.Constant) and stmt.value.value is None)
-                            ):
-                                returns_none_on_error += 1
-                                break
-                        else:
-                            continue
-                        break
-
-        if try_except == 0 and raises == 0 and returns_none_on_error == 0:
-            dominant_style = "unknown"
-        elif (raises + try_except) > returns_none_on_error:
-            dominant_style = "exceptions"
-        else:
-            dominant_style = "return_none"
-
-        result[name] = {
-            "try_except": try_except,
-            "raises": raises,
-            "returns_none_on_error": returns_none_on_error,
-            "dominant_style": dominant_style,
-        }
-
-    return result
+                if re.search(rf"\b{re.escape(name)}\b", text):
+                    key = (from_layer, name)
+                    counts[key] = counts.get(key, 0) + 1
+    return [{"from_layer": f, "to_layer": t, "count": c} for (f, t), c in counts.items()]
 
 
-_ATLAS_MD_BUDGET = 5120
+def _default_forbidden(layers: dict[str, list[Path]]) -> list[dict]:
+    if "ui" in layers and "db" in layers:
+        return [{"from": "ui", "to": "db", "reason": "ui must not import db directly"}]
+    return []
 
 
-def _render_atlas_md(
-    atlas: dict,
-    symbol_cap: int,
-    dependency_edges: list,
-    forbidden_imports: list,
-) -> str:
+def _build_atlas_md(atlas: dict, symbols_by_layer: dict[str, list[tuple[str, str, int]]]) -> str:
+    layers = atlas.get("layers", {})
+    naming = atlas.get("naming", {})
+    error_style = atlas.get("error_style", "unknown")
+
     lines: list[str] = []
 
-    # 1. Title
-    lines.append(f"# Atlas: {atlas.get('project_hash', 'unknown')}")
+    lines.append("## Where things live")
+    lines.append("")
+    for layer_name, files in layers.items():
+        lines.append(f"- **{layer_name}**: {len(files)} files")
     lines.append("")
 
-    # 2. Metadata
-    lines.append(f"Generated: {atlas.get('generated_at', '')}")
+    lines.append("## Naming conventions")
+    lines.append("")
+    for layer_name, counts in naming.items():
+        dominant = max(counts, key=lambda k: counts[k])
+        lines.append(
+            f"- **{layer_name}**: {dominant} "
+            f"(camelCase={counts['camelCase']}, snake_case={counts['snake_case']}, PascalCase={counts['PascalCase']})"
+        )
     lines.append("")
 
-    # 3. Layers table
-    lines.append("## Layers")
+    lines.append("## Error-handling style")
     lines.append("")
-    lines.append("| Layer | Files | Dominant Naming |")
-    lines.append("| --- | --- | --- |")
-    naming = atlas.get("naming_conventions", {})
-    for layer in atlas.get("layers", []):
-        name = layer["name"]
-        file_count = len(layer.get("files", []))
-        dominant = naming.get(name, {}).get("dominant", "—")
-        lines.append(f"| {name} | {file_count} | {dominant} |")
+    lines.append(f"Detected style: **{error_style}**")
     lines.append("")
 
-    # 4. Symbols table (top N)
-    lines.append(f"## Symbols (top {symbol_cap})")
+    lines.append("## Existing implementations index")
     lines.append("")
-    lines.append("| File | Kind | Name |")
-    lines.append("| --- | --- | --- |")
-    for s in atlas.get("symbols", [])[:symbol_cap]:
-        fname = Path(s["file"]).name
-        lines.append(f"| {fname} | {s['kind']} | {s['name']} |")
-    lines.append("")
-
-    # 5. Error Handling table
-    lines.append("## Error Handling")
-    lines.append("")
-    lines.append("| Layer | Style | try/except | raises |")
-    lines.append("| --- | --- | --- | --- |")
-    for layer_name, info in atlas.get("error_handling", {}).items():
-        style = info.get("dominant_style", "—")
-        try_except = info.get("try_except", 0)
-        raises = info.get("raises", 0)
-        lines.append(f"| {layer_name} | {style} | {try_except} | {raises} |")
+    count = 0
+    for layer_name, syms in symbols_by_layer.items():
+        for name, kind, lineno in syms:
+            if count >= 20:
+                break
+            lines.append(f"- `{name}` ({kind}) - {layer_name}:{lineno}")
+            count += 1
+        if count >= 20:
+            break
+    if count == 0:
+        lines.append("_(no symbols found)_")
     lines.append("")
 
-    # 6. Forbidden Imports (skip if empty)
-    if forbidden_imports:
-        lines.append("## Forbidden Imports")
-        lines.append("")
-        for item in forbidden_imports:
-            lines.append(f"- {item}")
-        lines.append("")
-
-    # 7. Key Dependencies (skip if empty)
-    if dependency_edges:
-        lines.append("## Key Dependencies")
-        lines.append("")
-        for edge in dependency_edges:
-            lines.append(f"- {edge['from_layer']} → {edge['to_layer']}")
-        lines.append("")
+    lines.append("## Extension points")
+    lines.append("")
+    ext_count = 0
+    for layer_name, syms in symbols_by_layer.items():
+        for name, kind, lineno in syms:
+            if kind in ("interface", "class") and ext_count < 10:
+                lines.append(f"- `{name}` ({kind}) - {layer_name}:{lineno}")
+                ext_count += 1
+    if ext_count == 0:
+        lines.append("_(no interfaces or abstract bases found)_")
+    lines.append("")
 
     return "\n".join(lines)
 
 
-_ATLAS_MD_BUDGET = 5120
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
-def _write_atlas_md(md_path: Path, atlas: dict) -> None:
-    edges = atlas.get("dependency_edges", [])
-    forbidden = atlas.get("forbidden_imports", [])
+def _fit_to_budget(content: str) -> tuple[str, bool]:
+    budget = 5120
+    footer = "\n*atlas truncated*"
+    if len(content.encode()) <= budget:
+        return content, False
+    max_bytes = budget - len(footer.encode())
+    truncated_text = content.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+    return truncated_text + footer, True
 
-    # Render full content first (top 20 symbols, all edges/imports)
-    content = _render_atlas_md(atlas, 20, edges, forbidden)
-    truncated = False
 
-    # Progressively reduce symbol rows
-    if len(content.encode()) > _ATLAS_MD_BUDGET:
-        truncated = True
-        for cap in (15, 10, 5, 0):
-            content = _render_atlas_md(atlas, cap, edges, forbidden)
-            if len(content.encode()) <= _ATLAS_MD_BUDGET:
-                break
+def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
+    try_import_tree_sitter()  # warm import cache; regex fallback used below
+    layers, truncated = _scan_layers(repo_path)
 
-    # Drop dependency edges
-    if len(content.encode()) > _ATLAS_MD_BUDGET:
-        truncated = True
-        content = _render_atlas_md(atlas, 0, [], forbidden)
+    symbols_by_layer: dict[str, list[tuple[str, str, int]]] = {}
+    for layer_name, files in layers.items():
+        syms: list[tuple[str, str, int]] = []
+        for f in files:
+            syms.extend(_extract_file_symbols(f))
+        symbols_by_layer[layer_name] = syms
 
-    # Drop forbidden imports
-    if len(content.encode()) > _ATLAS_MD_BUDGET:
-        truncated = True
-        content = _render_atlas_md(atlas, 0, [], [])
+    naming: dict[str, dict[str, int]] = {k: _naming_counts(v) for k, v in symbols_by_layer.items()}
+    error_style = _compute_error_style(layers)
+    forbidden_imports = _default_forbidden(layers)
+    dependency_edges = _compute_dep_edges(layers)
+
+    layers_out: dict[str, list[str]] = {k: [str(f) for f in v] for k, v in layers.items()}
+
+    atlas: dict = {
+        "surveyed_at": datetime.now(timezone.utc).isoformat(),
+        "layers": layers_out,
+        "forbidden_imports": forbidden_imports,
+        "naming": naming,
+        "error_style": error_style,
+        "dependency_edges": dependency_edges,
+        "degraded": True,
+    }
+
+    head_sha = _get_head_sha(repo_path)
+    if head_sha:
+        atlas["head_sha"] = head_sha
 
     if truncated:
-        content = content + "\n<!-- truncated to 5KB budget -->"
+        atlas["truncated"] = True
 
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(content)
+    if prior_manual is not None:
+        atlas["[manual]"] = prior_manual
 
+    md_content = _build_atlas_md(atlas, symbols_by_layer)
+    md_content, md_truncated = _fit_to_budget(md_content)
+    if md_truncated:
+        atlas["truncated"] = True
+    # If truncated (file cap or md budget), ensure footer visible in md
+    if atlas.get("truncated") and "*atlas truncated*" not in md_content:
+        footer = "\n*atlas truncated*"
+        budget = 5120
+        if len((md_content + footer).encode()) <= budget:
+            md_content = md_content + footer
+        else:
+            max_bytes = budget - len(footer.encode())
+            md_content = md_content.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore") + footer
 
-_FORBIDDEN_MODULES: set[str] = {
-    "subprocess", "pickle", "ctypes", "eval", "exec",
-    "os.system", "commands", "popen",
-}
+    atlas_path = atlas_dir / "atlas.json"
+    md_path = atlas_dir / "atlas.md"
 
+    _atomic_write(atlas_path, json.dumps(atlas, indent=2))
+    _atomic_write(md_path, md_content)
 
-def _detect_forbidden_imports(layers: list[dict]) -> list[dict]:
-    results: list[dict] = []
-    for layer in layers:
-        layer_name = layer["name"]
-        for file_path in layer.get("files", []):
-            if not file_path.endswith(".py"):
-                continue
-            try:
-                source = Path(file_path).read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(source, filename=file_path)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name in _FORBIDDEN_MODULES:
-                            results.append({"module": alias.name, "file": file_path, "layer": layer_name})
-                elif isinstance(node, ast.ImportFrom):
-                    module = node.module or ""
-                    if module in _FORBIDDEN_MODULES:
-                        results.append({"module": module, "file": file_path, "layer": layer_name})
-    return results
+    size = atlas_path.stat().st_size
+    print(f"surveyed: {repo_path} ({size} bytes)")
 
+    flag = atlas_dir / "staleness.flag"
+    if flag.exists():
+        flag.unlink()
 
-def _detect_dependency_edges(layers: list[dict], repo_path: Path) -> list[dict]:
-    layer_names: set[str] = {layer["name"] for layer in layers}
-    counts: dict[tuple[str, str], int] = {}
-    for layer in layers:
-        from_name = layer["name"]
-        for file_path in layer.get("files", []):
-            if not file_path.endswith(".py"):
-                continue
-            try:
-                source = Path(file_path).read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(source, filename=file_path)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        root = alias.name.split(".")[0]
-                        if root in layer_names and root != from_name:
-                            counts[(from_name, root)] = counts.get((from_name, root), 0) + 1
-                elif isinstance(node, ast.ImportFrom):
-                    root = (node.module or "").split(".")[0]
-                    if root in layer_names and root != from_name:
-                        counts[(from_name, root)] = counts.get((from_name, root), 0) + 1
-    return [{"from_layer": f, "to_layer": t, "count": c} for (f, t), c in counts.items()]
+    append_audit({"event": "survey", "path": str(repo_path)})
 
 
 def main(_args: argparse.Namespace | None = None, _home: Path | None = None) -> None:
@@ -356,26 +336,25 @@ def main(_args: argparse.Namespace | None = None, _home: Path | None = None) -> 
 
     home = _home if _home is not None else Path.home()
     repo_path = Path.cwd()
+
     h, _, _ = project_hash(str(repo_path))
-    atlas_path = home / ".claude" / "cartographer" / "projects" / h / "atlas.json"
-    if _args.if_missing and atlas_path.exists():
+    atlas_dir = home / ".claude" / "cartographer" / "projects" / h
+    atlas_path = atlas_dir / "atlas.json"
+    flag_path = atlas_dir / "staleness.flag"
+
+    if _args.if_missing and atlas_path.exists() and not flag_path.exists():
+        print(f"skipped: atlas already exists at {atlas_path}")
         return
 
-    if _args.refresh:
-        flag = atlas_path.parent / "staleness.flag"
-        if flag.exists():
-            flag.unlink()
+    prior_manual = None
+    if atlas_path.exists():
+        try:
+            prior_data = json.loads(atlas_path.read_text(encoding="utf-8"))
+            prior_manual = prior_data.get("[manual]")
+        except (json.JSONDecodeError, OSError):
+            pass
 
-    md_path = atlas_path.parent / "atlas.md"
-
-    layers = _detect_layers(repo_path) or []
-    symbols = _extract_symbols(layers) or []
-    naming = _compute_naming_conventions(symbols) or {}
-    error_handling = _detect_error_handling(layers) or {}
-    forbidden_imports = _detect_forbidden_imports(layers) or []
-    dependency_edges = _detect_dependency_edges(layers, repo_path) or []
-    _write_atlas_json(atlas_path, layers, symbols, naming, error_handling, forbidden_imports, dependency_edges)
-    _write_atlas_md(md_path, {})
+    _do_survey(repo_path, atlas_dir, prior_manual)
 
 
 if __name__ == "__main__":
