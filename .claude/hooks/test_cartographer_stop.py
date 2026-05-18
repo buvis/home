@@ -289,3 +289,81 @@ def test_flag_created_at_exactly_commit_threshold(tmp_path, monkeypatch):
 
     assert (atlas_dir / "staleness.flag").exists(), "Exactly 50 commits must trigger the flag (>= threshold)"
     assert audit_events[-1]["reason"] == "stale-flag-set"
+
+
+def test_non_git_atlas_missing_head_sha_logs_no_git_reason(tmp_path, monkeypatch):
+    """atlas.json without head_sha (non-git atlas) -> audit reason no-git, hook does not crash."""
+    repo = _make_git_repo(tmp_path)
+    atlas_dir = tmp_path / "atlas"
+    atlas_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write atlas.json WITHOUT head_sha to simulate a non-git-directory atlas.
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    (atlas_dir / "atlas.json").write_text(json.dumps({"surveyed_at": recent.isoformat()}))
+
+    mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
+    _run_hook(mod, monkeypatch)
+
+    assert len(audit_events) == 1, "Exactly one audit event must be appended"
+    assert audit_events[-1]["reason"] == "no-git", (
+        f"Expected reason 'no-git' for missing head_sha, got {audit_events[-1]['reason']!r}"
+    )
+
+
+def test_non_git_atlas_does_not_produce_skip_reason(tmp_path, monkeypatch):
+    """Missing head_sha must be handled explicitly as no-git, not collapsed into the catch-all skip."""
+    repo = _make_git_repo(tmp_path)
+    atlas_dir = tmp_path / "atlas"
+    atlas_dir.mkdir(parents=True, exist_ok=True)
+
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    (atlas_dir / "atlas.json").write_text(json.dumps({"surveyed_at": recent.isoformat()}))
+
+    mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
+    _run_hook(mod, monkeypatch)
+
+    assert audit_events[-1]["reason"] != "skip", (
+        "Missing head_sha must produce reason 'no-git', not the catch-all 'skip'"
+    )
+
+
+def test_invalid_head_sha_logs_git_error_reason(tmp_path, monkeypatch):
+    """atlas.json with a bogus head_sha that git rev-list cannot resolve -> audit reason git-error, hook does not crash."""
+    repo = _make_git_repo(tmp_path)
+    atlas_dir = tmp_path / "atlas"
+    atlas_dir.mkdir(parents=True, exist_ok=True)
+
+    # A SHA that does not exist in the repo causes git rev-list to fail.
+    bogus_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    (atlas_dir / "atlas.json").write_text(
+        json.dumps({"head_sha": bogus_sha, "surveyed_at": recent.isoformat()})
+    )
+
+    mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
+    _run_hook(mod, monkeypatch)
+
+    assert len(audit_events) == 1, "Exactly one audit event must be appended"
+    assert audit_events[-1]["reason"] == "git-error", (
+        f"Expected reason 'git-error' for bad head_sha, got {audit_events[-1]['reason']!r}"
+    )
+
+
+def test_git_error_does_not_produce_skip_reason(tmp_path, monkeypatch):
+    """git rev-list failure must be handled explicitly as git-error, not collapsed into the catch-all skip."""
+    repo = _make_git_repo(tmp_path)
+    atlas_dir = tmp_path / "atlas"
+    atlas_dir.mkdir(parents=True, exist_ok=True)
+
+    bogus_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    (atlas_dir / "atlas.json").write_text(
+        json.dumps({"head_sha": bogus_sha, "surveyed_at": recent.isoformat()})
+    )
+
+    mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
+    _run_hook(mod, monkeypatch)
+
+    assert audit_events[-1]["reason"] != "skip", (
+        "git rev-list failure must produce reason 'git-error', not the catch-all 'skip'"
+    )
