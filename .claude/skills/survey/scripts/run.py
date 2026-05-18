@@ -249,7 +249,7 @@ def _default_forbidden(layers: dict[str, list[Path]]) -> list[dict]:
     return []
 
 
-def _build_atlas_md(atlas: dict, symbols_by_layer: dict[str, list[tuple[str, str, int]]]) -> str:
+def _build_atlas_md(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]]) -> str:
     layers = atlas.get("layers", {})
     naming = atlas.get("naming", {})
     error_style = atlas.get("error_style", "unknown")
@@ -280,11 +280,11 @@ def _build_atlas_md(atlas: dict, symbols_by_layer: dict[str, list[tuple[str, str
     lines.append("## Existing implementations index")
     lines.append("")
     count = 0
-    for layer_name, syms in symbols_by_layer.items():
-        for name, kind, lineno in syms:
+    for syms in file_syms_by_layer.values():
+        for rel_path, name, kind, lineno in syms:
             if count >= 20:
                 break
-            lines.append(f"- `{name}` ({kind}) - {layer_name}:{lineno}")
+            lines.append(f"- `{name}` ({kind}) - {rel_path}:{lineno}")
             count += 1
         if count >= 20:
             break
@@ -295,10 +295,10 @@ def _build_atlas_md(atlas: dict, symbols_by_layer: dict[str, list[tuple[str, str
     lines.append("## Extension points")
     lines.append("")
     ext_count = 0
-    for layer_name, syms in symbols_by_layer.items():
-        for name, kind, lineno in syms:
+    for syms in file_syms_by_layer.values():
+        for rel_path, name, kind, lineno in syms:
             if kind in ("interface", "class") and ext_count < 10:
-                lines.append(f"- `{name}` ({kind}) - {layer_name}:{lineno}")
+                lines.append(f"- `{name}` ({kind}) - {rel_path}:{lineno}")
                 ext_count += 1
     if ext_count == 0:
         lines.append("_(no interfaces or abstract bases found)_")
@@ -337,11 +337,18 @@ def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
     layers, truncated = _scan_layers(repo_path)
 
     symbols_by_layer: dict[str, list[tuple[str, str, int]]] = {}
+    file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]] = {}
     for layer_name, files in layers.items():
         syms: list[tuple[str, str, int]] = []
+        file_syms: list[tuple[str, str, str, int]] = []
         for f in files:
-            syms.extend(_extract_file_symbols(f))
+            extracted = _extract_file_symbols(f)
+            syms.extend(extracted)
+            rel_path = str(f.relative_to(repo_path))
+            for name, kind, lineno in extracted:
+                file_syms.append((rel_path, name, kind, lineno))
         symbols_by_layer[layer_name] = syms
+        file_syms_by_layer[layer_name] = file_syms
 
     naming: dict[str, dict[str, int]] = {k: _naming_counts(v) for k, v in symbols_by_layer.items()}
     error_style = _compute_error_style(layers)
@@ -370,7 +377,7 @@ def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
     if prior_manual is not None:
         atlas["[manual]"] = prior_manual
 
-    md_content = _build_atlas_md(atlas, symbols_by_layer)
+    md_content = _build_atlas_md(atlas, file_syms_by_layer)
     md_content, md_truncated = _fit_to_budget(md_content)
     if md_truncated:
         atlas["truncated"] = True
