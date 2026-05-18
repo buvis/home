@@ -108,7 +108,8 @@
       "Read(**/credentials.json)",
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
   "hooks": {
     "PreToolUse": [
@@ -301,6 +302,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Users/bob/.claude/hooks/context-mode-cache-heal.mjs\""
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
@@ -316,7 +327,8 @@
     "git-ferry@buvis-plugins": true,
     "strunk@buvis-plugins": true,
     "aegis@buvis-plugins": true,
-    "claude-checkup@buvis-plugins": true
+    "claude-checkup@buvis-plugins": true,
+    "context-mode@context-mode": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {
@@ -330,6 +342,12 @@
       "source": {
         "source": "github",
         "repo": "revfactory/harness"
+      }
+    },
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
       }
     }
   },
@@ -346,5 +364,6 @@
         "mcp/youtube-transcript"
       ]
     }
-  }
+  },
+  "skipAutoPermissionPrompt": true
 }

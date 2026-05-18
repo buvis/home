@@ -24,6 +24,12 @@ With 1M context, research stays in-flight through implementation.
 - End plans with unresolved questions.
 - One question at a time, concise, with enough context to answer quickly.
 
+## Toolchain
+
+- CLI tools and language runtimes are managed with **mise**. Installs live under `~/.local/share/mise/installs/<tool>/<version>/`; shims at `~/.local/share/mise/shims/`.
+- Global `npm ls -g`, `/opt/homebrew/bin`, `/usr/local/bin` will NOT list mise-managed tools - don't conclude a tool is missing from those. Locate one with `mise which <tool>`; run one not on PATH via `mise exec -- <tool>`.
+- Not every install gets a shim - `mise which` can resolve a tool even when `command -v` fails. If a tool is missing from PATH, suggest `mise reshim`.
+
 ## Dotfiles repo
 
 - Tracked in a bare repo at `~/.buvis`, work-tree is `$HOME`. Run git as `git --git-dir=~/.buvis --work-tree=~ <cmd>` (no shell alias assumed).

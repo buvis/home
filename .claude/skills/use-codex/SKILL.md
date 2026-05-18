@@ -44,6 +44,16 @@ GitHub Copilot bills models with a per-request multiplier. The CLI does not expo
 | Resume specific session | `--resume [sessionId]` |
 | Scripting (clean output) | `-s -p "prompt"` |
 
+## Background Dispatch and Waiting
+
+A `codex-run.sh` call can run for many minutes. When you need to do other work while it runs, or you are inside an autopilot run:
+
+1. Dispatch the helper script with `run_in_background: true`. The dispatch tool result returns the task's output file path.
+2. Wait with the `TaskOutput` tool: `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min is the max per call). It returns when the task completes or at the deadline. It is the watchdog.
+3. On completion, `Read` the output file. On a timeout return, treat it as an infrastructure hang (see Error Handling); do not silently re-dispatch.
+
+**Never hand-roll a polling loop.** Do not pass a `while`/`if`/`wc -c` stability loop to `Monitor` or `Bash` to detect completion. Such commands contain shell control flow that Warden cannot statically analyze, so they prompt for approval, which stalls an unattended autopilot run. The harness already notifies you when a background task finishes; `TaskOutput` is the only wait primitive you need.
+
 ## Following Up
 
 - After every `copilot` command, use `AskUserQuestion` to confirm next steps or decide whether to resume.

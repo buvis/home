@@ -43,6 +43,7 @@ alwaysAllow:
   - mdbook
   - codex
   - copilot
+  - pi
   - claude
   - mise
   - curl
