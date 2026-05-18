@@ -52,20 +52,17 @@ trust_level = "trusted"
 multi_agent = true
 
 [marketplaces.openai-bundled]
-last_updated = "2026-05-11T16:30:58Z"
+last_updated = "2026-05-16T13:30:31Z"
 source_type = "local"
 source = "/Users/bob/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-05-11T16:31:50Z"
+last_updated = "2026-05-16T13:01:59Z"
 source_type = "local"
 source = "/Users/bob/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
 [tui.model_availability_nux]
 "gpt-5.5" = 1
-
-[plugins."browser-use@openai-bundled"]
-enabled = true
 
 [plugins."documents@openai-primary-runtime"]
 enabled = true
@@ -74,4 +71,7 @@ enabled = true
 enabled = true
 
 [plugins."presentations@openai-primary-runtime"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
 enabled = true
