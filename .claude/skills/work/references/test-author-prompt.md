@@ -1,6 +1,6 @@
-# Test Author Prompt (Agent A)
+# Test Author Prompt (Tess)
 
-Agent A writes tests from requirements. It has NOT seen and must NOT think about implementation.
+Tess writes tests from requirements. She has NOT seen and must NOT think about implementation.
 
 ## Prompt Template
 
@@ -46,21 +46,21 @@ Do NOT:
 
 ## Context Selection
 
-When building Agent A's prompt, include:
+When building Tess's prompt, include:
 
 | Include | Why |
 |---------|-----|
-| Task description + acceptance criteria | The spec Agent A tests against |
-| Public types/interfaces | So Agent A knows the API surface |
-| One sample test file | So Agent A follows project conventions |
+| Task description + acceptance criteria | The spec Tess tests against |
+| Public types/interfaces | So Tess knows the API surface |
+| One sample test file | So Tess follows project conventions |
 | Test framework config | So imports and assertions are correct |
 
 | Exclude | Why |
 |---------|-----|
 | Architecture docs | Would leak implementation thinking |
-| AGENTS.md internals | Same - Agent A doesn't need to know how things are built |
+| AGENTS.md internals | Same - Tess doesn't need to know how things are built |
 | Implementation files | Defeats the entire purpose |
-| "How to build this" guidance | Agent A is a test author, not an implementor |
+| "How to build this" guidance | Tess is a test author, not an implementor |
 
 ## Retry Prompt (after quality gate failure)
 

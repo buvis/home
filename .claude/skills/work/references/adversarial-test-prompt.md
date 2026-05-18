@@ -1,6 +1,6 @@
-# Adversarial Test Validator Prompt (Agent C)
+# Adversarial Test Validator Prompt (Devon)
 
-Agent C tries to break Agent A's tests by writing a wrong implementation that passes them. If it succeeds, the tests are too weak. Unlike a thought exercise, Agent C must actually write the code and run the tests to prove its exploit works.
+Devon tries to break Tess's tests by writing a wrong implementation that passes them. If it succeeds, the tests are too weak. Unlike a thought exercise, Devon must actually write the code and run the tests to prove its exploit works.
 
 ## Prompt Template
 
@@ -48,31 +48,31 @@ You receive NOTHING about what the code should actually do. You only see tests a
 
 | Include | Why |
 |---------|-----|
-| Test file contents | The thing Agent C is trying to break |
+| Test file contents | The thing Devon is trying to break |
 | Public types/interfaces | So wrong implementation compiles |
-| Test runner command | So Agent C can verify exploits |
+| Test runner command | So Devon can verify exploits |
 
 | Exclude | Why |
 |---------|-----|
-| Task description | Agent C shouldn't know what "correct" looks like |
+| Task description | Devon shouldn't know what "correct" looks like |
 | Acceptance criteria | Same - would leak the spec |
 | Architecture docs | Not needed for adversarial validation |
 
-## Feedback to Agent A (when Agent C succeeds)
+## Feedback to Tess (when Devon succeeds)
 
-When Agent C finds an exploit, send this back to Agent A:
+When Devon finds an exploit, send this back to Tess:
 
 ```
 Your tests can be passed by a wrong implementation:
 
-{Agent C's wrong implementation}
+{Devon's wrong implementation}
 
 Test output (all passing):
-{Agent C's test run output}
+{Devon's test run output}
 
 Weak points:
-{Agent C's explanation of which tests are weak}
+{Devon's explanation of which tests are weak}
 
 Strengthen these specific tests so the above exploit no longer works.
-Do not change tests that Agent C could NOT break.
+Do not change tests that Devon could NOT break.
 ```
