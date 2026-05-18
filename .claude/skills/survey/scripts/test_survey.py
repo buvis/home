@@ -489,6 +489,81 @@ def test_truncated_flag_set_and_footer_visible_when_cap_hit(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Truncation: atlas.md byte budget exceeded (no per-layer file cap)
+# ---------------------------------------------------------------------------
+
+def test_small_repo_not_truncated(git_repo):
+    """A small repo (atlas.md well under 5120 bytes) must NOT be marked truncated.
+
+    Kills the always-truncate exploit: a correct _fit_to_budget returns content
+    unchanged with was_truncated=False when it is under budget.
+    """
+    repo, _sha, home = git_repo
+    _survey(repo, home)
+
+    data = json.loads(_locate_atlas_json(home).read_text())
+    assert data.get("truncated") is not True, (
+        "atlas.json must NOT have truncated:true for a small repo under the 5120-byte budget; "
+        f"got truncated={data.get('truncated')!r}"
+    )
+
+    md = _locate_atlas_md(home).read_text()
+    assert len(md.encode()) < 5120, (
+        f"precondition failed: small git_repo atlas.md is {len(md.encode())} bytes, "
+        "expected well under 5120"
+    )
+    assert "*atlas truncated*" not in md, (
+        "atlas.md must NOT contain '*atlas truncated*' for a small repo under the byte budget"
+    )
+
+
+def test_truncated_flag_and_footer_when_byte_budget_exceeded(tmp_path):
+    """Repo with many layers (each < 50 files) whose atlas.md exceeds 5120 bytes.
+
+    This exercises the byte-budget truncation path (_fit_to_budget returns
+    md_truncated=True) independently of the per-layer file cap.  Both
+    atlas.json truncated:true and the visible *atlas truncated* footer must
+    be present, and atlas.md must still be <=5120 bytes.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    # Create enough layers (each with a few files) to push atlas.md past 5120
+    # bytes without hitting the 50-file-per-layer cap.  The naming-conventions
+    # section alone emits ~60 bytes per layer; 50 layers ~ 3 000 bytes there
+    # plus "Where things live" and headers easily exceeds the 5120-byte budget.
+    for layer_idx in range(50):
+        layer_dir = repo / f"layer_{layer_idx:02d}"
+        layer_dir.mkdir()
+        for file_idx in range(3):
+            (layer_dir / f"module_{file_idx}.py").write_text(
+                f"def function_in_layer_{layer_idx}_file_{file_idx}():\n    pass\n"
+            )
+
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "many layers"], cwd=repo, check=True, capture_output=True)
+
+    home = tmp_path / "home"
+    home.mkdir()
+    _survey(repo, home)
+
+    data = json.loads(_locate_atlas_json(home).read_text())
+    assert data.get("truncated") is True, (
+        "atlas.json must have truncated:true when atlas.md byte budget is exceeded"
+    )
+
+    md = _locate_atlas_md(home).read_text()
+    assert "*atlas truncated*" in md, (
+        "atlas.md must contain the visible literal '*atlas truncated*' when byte budget exceeded"
+    )
+
+    assert len(md.encode()) <= 5120, (
+        f"atlas.md must still be <=5120 bytes after byte-budget truncation; got {len(md.encode())}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tree-sitter symbol extraction + degraded gating
 # ---------------------------------------------------------------------------
 
