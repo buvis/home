@@ -96,12 +96,12 @@ Every Agent dispatch in this skill (Tess, Ivan, Devon, or the code reviewer) mus
 
 A background dispatch does **not** relax the one-task-at-a-time rule: dispatch one agent, wait for it (or its watchdog), then proceed. Never have two plan-task agents in flight at once. The watchdog converts a silent infinite block into a detectable failure that the Handle result table routes to the circuit breaker.
 
-**Helper-script dispatches** (`use-sonnet`/`use-codex`/`use-gemini` helper scripts, which run as background Bash tasks) follow the same protocol: dispatch with `run_in_background: true`, then wait with `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min, the max per call) — it returns on completion or at the deadline; on a still-running return, re-issue the wait once, then treat a second timeout as a hang. Never hand-roll a `while`/`if`/`wc -c` stability loop in `Monitor` or `Bash` to detect completion: its shell control flow cannot be statically analyzed by Warden, so it prompts for approval and stalls an unattended autopilot run. At each terminal state, **dispatch-log append** (see "Dispatch-log append" above) with `dispatch_type: "codex"` or `"gemini"` and the matching outcome: `completed` on success, `timeout` on first-wait deadline, `hung` on second-wait deadline.
+**Helper-script dispatches** (`use-codex`/`use-gemini` helper scripts, which run as background Bash tasks) follow the same protocol: dispatch with `run_in_background: true`, then wait with `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min, the max per call) — it returns on completion or at the deadline; on a still-running return, re-issue the wait once, then treat a second timeout as a hang. Never hand-roll a `while`/`if`/`wc -c` stability loop in `Monitor` or `Bash` to detect completion: its shell control flow cannot be statically analyzed by Warden, so it prompts for approval and stalls an unattended autopilot run. At each terminal state, **dispatch-log append** (see "Dispatch-log append" above) with `dispatch_type: "codex"` or `"gemini"` and the matching outcome: `completed` on success, `timeout` on first-wait deadline, `hung` on second-wait deadline.
 
 **Three deadlines exist, by mechanism — keep them distinct:**
 
 - **15 min** — `Monitor` watchdog on Tess/Ivan/Devon/reviewer dispatches (this section).
-- **10 min × 2** — `TaskOutput` waits on `use-sonnet`/`use-codex`/`use-gemini` helper-script Bash dispatches (paragraph above).
+- **10 min × 2** — `TaskOutput` waits on `use-codex`/`use-gemini` helper-script Bash dispatches (paragraph above).
 - **20 min** — `Monitor` waits on backgrounded `cargo` full-suite runs (see `SKILL.md` "CRITICAL: Never Ask the User to Run Commands").
 
 They differ because the work differs — a full Rust test suite legitimately runs longer than a single-task subagent. Do not unify them into one number.
