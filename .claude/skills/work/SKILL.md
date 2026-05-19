@@ -318,10 +318,10 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 | Result | Action |
 |--------|--------|
 | Success | Continue to step 5 |
-| Timeout | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "timeout"`). Split task (see below), mark original as blocked. |
-| Context exceeded | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "context_overrun"`). Split task, mark original as blocked. |
-| Error | Invoke systematic-debugging if available (see below). On unrecoverable error, append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "error"`) and report to user. |
-| Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — the agent produced nothing usable. Apply the **infrastructure-failure circuit breaker** (step 4.2). |
+| Timeout | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "timeout"`). Dispatch-log append (`outcome: "timeout"`) per `references/subagent-dispatch.md` "Dispatch-log append". Split task (see below), mark original as blocked. |
+| Context exceeded | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "context_overrun"`). Dispatch-log append (`outcome: "context_overrun"`) per `references/subagent-dispatch.md` "Dispatch-log append". Split task, mark original as blocked. |
+| Error | Invoke systematic-debugging if available (see below). On unrecoverable error, append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "error"`). Dispatch-log append (`outcome: "error"`) per `references/subagent-dispatch.md` "Dispatch-log append". Report to user. |
+| Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. Dispatch-log append (`outcome: "hung"`) per `references/subagent-dispatch.md` "Dispatch-log append". This is an infrastructure failure, not real work — the agent produced nothing usable. Apply the **infrastructure-failure circuit breaker** (step 4.2). |
 
 ### 4.2. Infrastructure-failure circuit breaker
 
@@ -329,7 +329,7 @@ A lost/empty Agent result or a watchdog-killed hang is an infrastructure failure
 
 1. Check the working tree (`git status --short`). A crashed agent may have left partial, uncommitted, **unverified** changes. Note them in the task output; do not commit them blind and do not assume they compile.
 2. Re-dispatch the **same** task at most **once**. Track infrastructure re-dispatches per task — this cap is separate from the test-failure retry cap (step 5.5) and the review-cycle cap (step 5.7).
-3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`, and escalate to the user. Do **not** advance to the next task.
+3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`. Dispatch-log append (`outcome: "infra_failure"`) per `references/subagent-dispatch.md` "Dispatch-log append". Escalate to the user. Do **not** advance to the next task.
 
 ### 4.5. Debug on error (if superpowers available)
 
