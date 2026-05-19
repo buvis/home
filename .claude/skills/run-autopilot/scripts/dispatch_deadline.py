@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -27,7 +28,7 @@ def _percentile(data: list[float], pct: float) -> float:
     return sorted_data[rank]
 
 
-def _load_entries(path: Path) -> list[dict]:
+def _load_entries(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     entries = []
