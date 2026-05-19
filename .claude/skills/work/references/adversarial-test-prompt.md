@@ -35,7 +35,7 @@ Rules:
 2. Your implementation MUST be obviously wrong (not just suboptimal)
 3. Do NOT modify test files
 4. For each exploit, explain which test is too weak and what assertion would prevent it
-5. Clean up your wrong implementation before returning (delete/revert the files you wrote)
+5. Clean up your wrong implementation before returning. Do NOT use `rm` — it is denied to subagents and will fail. Instead, use the Write tool to OVERWRITE every file you created with a single placeholder line (`# adversarial placeholder - overwritten by implementor`). The Write tool always works. Never ask for permission to delete; just overwrite and report the path.
 
 Output format:
 - If you CAN break the tests: show the wrong implementation, the passing test output, and explain which tests are weak
