@@ -1068,6 +1068,73 @@ def test_dep_edges_absent_when_import_targets_different_layer(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _compute_dep_edges: import-block matching, not bare line-leading strings
+# ---------------------------------------------------------------------------
+
+def test_dep_edges_absent_for_line_leading_string_outside_import(tmp_path):
+    """A line-leading quoted string naming a layer (e.g. a list entry
+    "db/replica",) outside any import block must NOT produce a dep edge.
+
+    The Go import-block alternative of _import_pattern previously matched any
+    line-leading string literal containing a layer name, not only entries
+    inside an `import (...)` block — emitting spurious edges.
+    """
+    ui_dir = tmp_path / "ui"
+    ui_dir.mkdir()
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+
+    # "db/replica" is a line-leading string in a slice literal, not an import.
+    (ui_dir / "routes.go").write_text(
+        "package ui\n"
+        "\n"
+        "var paths = []string{\n"
+        '\t"db/replica",\n'
+        '\t"cache/local",\n'
+        "}\n"
+    )
+    (db_dir / "models.go").write_text("package db\n")
+
+    layers = {"ui": [ui_dir / "routes.go"], "db": [db_dir / "models.go"]}
+    edges = run._compute_dep_edges(layers)
+
+    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
+    assert not ui_to_db, (
+        "dep edge ui->db must NOT be produced from a line-leading string literal "
+        f"outside an import block; got edges: {edges}"
+    )
+
+
+def test_dep_edges_present_for_go_grouped_import_block(tmp_path):
+    """A Go file importing another layer inside an `import (...)` block MUST
+    still produce a dep edge — restricting to import blocks must not break
+    grouped-import matching."""
+    ui_dir = tmp_path / "ui"
+    ui_dir.mkdir()
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+
+    (ui_dir / "view.go").write_text(
+        "package ui\n"
+        "\n"
+        "import (\n"
+        '\t"fmt"\n'
+        '\t"myrepo/db"\n'
+        ")\n"
+    )
+    (db_dir / "models.go").write_text("package db\n")
+
+    layers = {"ui": [ui_dir / "view.go"], "db": [db_dir / "models.go"]}
+    edges = run._compute_dep_edges(layers)
+
+    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
+    assert ui_to_db, (
+        "dep edge ui->db must be produced for a Go grouped import of 'db'; "
+        f"got edges: {edges}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # _compute_dep_edges: non-Python import syntax (Gap 1)
 # ---------------------------------------------------------------------------
 

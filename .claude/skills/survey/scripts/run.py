@@ -241,7 +241,7 @@ def _import_pattern(name: str) -> re.Pattern:
         rf'|require\s*\(\s*["\'][^"\']*\b{esc}(?:[/"\'`])'
         rf'|use\s+{esc}(?:::|;)'
         rf'|import\s+"[^"]*\b{esc}(?:[/"])'
-        rf'|"[^"]*\b{esc}(?:[/"])'
+        rf'|import\s*\([^)]*"[^"]*\b{esc}(?:[/"])'
         rf')',
         re.MULTILINE,
     )
