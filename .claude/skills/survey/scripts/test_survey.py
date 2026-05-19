@@ -274,6 +274,85 @@ def test_manual_block_preserved_on_resurvey(git_repo):
         f"[manual] content was altered: {data2['[manual]']!r}"
 
 
+def _repo_with_layers(tmp_path, layers):
+    """A committed git repo with one Python file in each named top-level layer."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    for layer in layers:
+        (repo / layer).mkdir()
+        (repo / layer / "mod.py").write_text("def f():\n    return 1\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "layers"], cwd=repo, check=True, capture_output=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    return repo, home
+
+
+def test_manual_forbidden_imports_blacklist_adds_rule(tmp_path):
+    """A [manual] forbidden_imports blacklist entry must be added to forbidden_imports."""
+    repo, home = _repo_with_layers(tmp_path, ("ui", "db", "services"))
+    _survey(repo, home)
+
+    atlas_path = _locate_atlas_json(home)
+    data = json.loads(atlas_path.read_text())
+    data["[manual]"] = {
+        "forbidden_imports": {
+            "blacklist": [{"from": "ui", "to": "services", "reason": "manual rule"}],
+        }
+    }
+    atlas_path.write_text(json.dumps(data))
+
+    _survey(repo, home, refresh=True)
+
+    data2 = json.loads(_locate_atlas_json(home).read_text())
+    pairs = {(r["from"], r["to"]) for r in data2["forbidden_imports"]}
+    assert ("ui", "services") in pairs, \
+        "[manual] forbidden_imports blacklist entry must be added to the written rules"
+
+
+def test_manual_forbidden_imports_whitelist_removes_default_rule(tmp_path):
+    """A [manual] forbidden_imports whitelist entry must remove a default heuristic rule."""
+    repo, home = _repo_with_layers(tmp_path, ("ui", "db"))
+    _survey(repo, home)
+
+    atlas_path = _locate_atlas_json(home)
+    data = json.loads(atlas_path.read_text())
+    default_pairs = {(r["from"], r["to"]) for r in data["forbidden_imports"]}
+    assert ("ui", "db") in default_pairs, \
+        "precondition: default heuristic must forbid ui->db when both layers exist"
+
+    data["[manual]"] = {
+        "forbidden_imports": {"whitelist": [{"from": "ui", "to": "db"}]}
+    }
+    atlas_path.write_text(json.dumps(data))
+
+    _survey(repo, home, refresh=True)
+
+    data2 = json.loads(_locate_atlas_json(home).read_text())
+    pairs = {(r["from"], r["to"]) for r in data2["forbidden_imports"]}
+    assert ("ui", "db") not in pairs, \
+        "[manual] forbidden_imports whitelist entry must remove the ui->db default rule"
+
+
+def test_default_forbidden_imports_when_no_manual_override(tmp_path):
+    """With a [manual] block carrying no forbidden_imports key, the default set is written."""
+    repo, home = _repo_with_layers(tmp_path, ("ui", "db"))
+    _survey(repo, home)
+
+    atlas_path = _locate_atlas_json(home)
+    data = json.loads(atlas_path.read_text())
+    data["[manual]"] = {"note": "unrelated manual content"}
+    atlas_path.write_text(json.dumps(data))
+
+    _survey(repo, home, refresh=True)
+
+    data2 = json.loads(_locate_atlas_json(home).read_text())
+    pairs = {(r["from"], r["to"]) for r in data2["forbidden_imports"]}
+    assert ("ui", "db") in pairs, \
+        "default ui->db heuristic must still apply when [manual] has no forbidden_imports override"
+
+
 # ---------------------------------------------------------------------------
 # --if-missing: no-op when atlas exists without staleness.flag
 # ---------------------------------------------------------------------------
