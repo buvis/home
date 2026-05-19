@@ -122,6 +122,11 @@ def _extract_file_symbols(f: Path) -> list[tuple[str, str, int]]:
     if ts_module is None:
         return _extract_file_symbols_regex(f)
     results = _extract_tree_sitter(f, ts_module)
+    if not results:
+        # tree-sitter parsed nothing (unsupported language or a per-file parse
+        # failure): fall back to the regex extractor so a malformed file does
+        # not silently drop all of its symbols from the atlas.
+        results = _extract_file_symbols_regex(f)
     if f.suffix == ".go":
         # tree_sitter_language_pack 1.8.0 yields no structure items for Go
         # `type X struct` / `type X interface`; merge them in from the regex
