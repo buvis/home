@@ -46,6 +46,11 @@ def _parse_args(argv: list[str]) -> dict | None:
     try:
         ns, unknown = parser.parse_known_args(argv)
     except (SystemExit, Exception):
+        # argparse raises SystemExit (which is NOT an Exception subclass) when
+        # a required argument is missing or malformed. Catch it explicitly,
+        # alongside Exception, so a parse failure returns None for the caller
+        # to handle rather than terminating the process — log_dispatch must
+        # never abort /work.
         return None
 
     if unknown:
