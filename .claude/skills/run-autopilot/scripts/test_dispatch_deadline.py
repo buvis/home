@@ -281,5 +281,87 @@ class TestSampleFiltering(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "400")
 
 
+class TestNoArgumentInvocation(unittest.TestCase):
+    def test_no_args_prints_usage_to_stderr_and_exits_nonzero(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0, "must exit non-zero with no args")
+        self.assertGreater(
+            len(result.stderr.strip()), 0, "must print usage message to stderr"
+        )
+        self.assertNotIn(
+            "Traceback", result.stderr, "must not emit a Python traceback"
+        )
+
+
+class TestMissingDurationField(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+        self.root = Path(self._tmpdir)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _write_log(self, entries: list[dict]) -> Path:
+        p = self.root / "dispatch-log.jsonl"
+        p.write_text(_make_log(entries))
+        return p
+
+    def test_missing_duration_s_does_not_crash(self) -> None:
+        # One malformed completed entry (no duration_s) + 5 valid ones at 200s.
+        # Script must exit 0 and the malformed entry must be skipped (only 5 valid
+        # samples, giving p95*2 = 400).
+        valid = [
+            _entry("codex", "completed", 200.0, task_id=str(i)) for i in range(5)
+        ]
+        malformed = _entry("codex", "completed", 0.0, task_id="bad")
+        del malformed["duration_s"]
+        log = self._write_log(valid + [malformed])
+        result = _run_deadline("codex", log)
+        self.assertEqual(result.returncode, 0, f"crashed: stderr={result.stderr!r}")
+
+    def test_missing_duration_s_entry_excluded_from_sample_count(self) -> None:
+        # 4 valid completed entries + 1 malformed (no duration_s) = 4 usable samples.
+        # 4 < 5 threshold → cold-start → 900.
+        # If the malformed entry were counted (even as 0), the sample count would reach
+        # 5 and the script would compute a non-900 value.
+        valid = [
+            _entry("codex", "completed", 200.0, task_id=str(i)) for i in range(4)
+        ]
+        malformed = _entry("codex", "completed", 0.0, task_id="bad")
+        del malformed["duration_s"]
+        log = self._write_log(valid + [malformed])
+        result = _run_deadline("codex", log)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "900",
+            "malformed entry must not count toward the 5-sample threshold",
+        )
+
+    def test_valid_and_invalid_entries_mixed_only_valid_count(self) -> None:
+        # 5 valid completed entries at 200s + 3 malformed (no duration_s).
+        # Only 5 valid samples → p95*2 = 400.
+        valid = [
+            _entry("codex", "completed", 200.0, task_id=str(i)) for i in range(5)
+        ]
+        malformed_entries = []
+        for j in range(3):
+            e = _entry("codex", "completed", 0.0, task_id=f"bad-{j}")
+            del e["duration_s"]
+            malformed_entries.append(e)
+        log = self._write_log(valid + malformed_entries)
+        result = _run_deadline("codex", log)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "400",
+            "only valid entries with duration_s must count",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
