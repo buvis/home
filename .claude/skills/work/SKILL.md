@@ -317,7 +317,7 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 
 | Result | Action |
 |--------|--------|
-| Success | Continue to step 5 |
+| Success | Continue to step 5. The `completed` dispatch-log append for this dispatch is performed by the Subagent Watchdog (step 3) per `references/subagent-dispatch.md` "Dispatch-log append" — no separate append is needed in this row. |
 | Timeout | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "timeout"`). Dispatch-log append (`outcome: "timeout"`) per `references/subagent-dispatch.md` "Dispatch-log append". Split task (see below), mark original as blocked. |
 | Context exceeded | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "context_overrun"`). Dispatch-log append (`outcome: "context_overrun"`) per `references/subagent-dispatch.md` "Dispatch-log append". Split task, mark original as blocked. |
 | Error | Invoke systematic-debugging if available (see below). On unrecoverable error, append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "error"`). Dispatch-log append (`outcome: "error"`) per `references/subagent-dispatch.md` "Dispatch-log append". Report to user. |
