@@ -373,11 +373,34 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
 If `superpowers:requesting-code-review` is in the available skills list, dispatch a code review after commit and verification:
 
 1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
-2. Dispatch code-reviewer subagent with task subject, description, and SHA range
+2. Dispatch code-reviewer subagent with task subject, description, and SHA range. Append the **Simplification mandate** below to the reviewer's prompt verbatim.
 3. Handle result:
    - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues (dispatch Ivan with the code-quality rules block from `references/code-quality-principles.md` plus: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."), re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
    - **Minor issues only or approved**: note minors, proceed to step 6.
    - **Reviewer failed/timed out**: log warning, proceed - Phase 4's PRD-level review catches remaining issues.
+
+**Simplification mandate** — append verbatim to the code-reviewer prompt:
+
+> Beyond bugs, actively hunt for simplification in the diff under review. For
+> every added or changed file, ask "what would make this simpler to read
+> without changing what it does?" and flag concrete behavior-preserving
+> opportunities to: reduce complexity (needless indirection, dead branches,
+> single-caller abstractions, nesting deeper than 4 levels, functions over 50
+> lines); eliminate redundancy (logic duplicated within the diff or against
+> existing code, a helper that reimplements a stdlib or existing utility);
+> improve naming (names that state intent, no opaque abbreviations); and
+> remove dead code. Follow CLAUDE.md / AGENTS.md conventions and the
+> surrounding code's style.
+>
+> Classify a concrete behavior-preserving simplification as **Important**, not
+> Minor — Minor findings are not fixed in this loop. Give file:line, the
+> current shape, and the simpler replacement.
+>
+> Do not over-simplify: never propose a change that trades clarity for
+> brevity, drops error handling, collapses a deliberate boundary, or removes a
+> documented invariant. Simpler means easier to read and maintain, not shorter
+> at any cost. If a change would alter behavior, it is out of scope — do not
+> flag it.
 
 Skip for documentation-only or configuration-only tasks.
 
@@ -386,8 +409,32 @@ Skip for documentation-only or configuration-only tasks.
 1. Use `TaskUpdate` to set `status: completed`
 2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass.
 3. **Sync state file** (see Dashboard State Sync) — mandatory
-4. Return to step 1 for next task
-5. When no pending tasks remain, proceed to step 7 (do NOT stop here)
+4. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
+
+### 6.5. Task-boundary handoff check
+
+After step 6, decide whether to finish the remaining tasks in this session or hand them to a fresh one.
+
+The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.handoff-requested` marker into the autopilot dir once this session's context crosses the **soft** threshold — below the **hard** cap that triggers the destructive abort+replan. Handing off at a task boundary, where every task through step 6 is committed and `state.tasks` is synced, is lossless: the next `/run-autopilot` session re-enters Phase 3 and `/work` resumes with the remaining pending tasks (Phase 3's skip rule only skips when *no* tasks are pending). This keeps a multi-task Work phase from ballooning into the hard cap.
+
+1. **If no pending tasks remain**, skip this step — proceed to step 7. Final verification runs in whichever session finishes the last task.
+2. Resolve the autopilot dir and check for the marker:
+   ```bash
+   python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash
+   ```
+   It prints the absolute autopilot dir. Read `<dir>/.handoff-requested`. **If it is absent**, return to step 1 for the next task — no handoff.
+3. **If `.handoff-requested` is present:**
+   a. Confirm the working tree is clean (`git status --short` empty). Every task through step 6 commits its tests (step 2.9) and implementation (step 5), so it should be. If it is NOT clean, do not hand off — investigate and commit or resolve the uncommitted work first.
+   b. Remove both `<dir>/.handoff-requested` and `<dir>/.cap-fired`, inlining the absolute paths from step 2 (no shell variable, so the permission matcher resolves the command). The fresh session re-evaluates its budget from a clean slate.
+   c. Print the handoff banner:
+      ```
+      ── WORK ── handoff at task boundary ────────────────────────────
+      ── {completed} tasks done, {pending} pending — context near soft cap
+      ── fresh session resumes the remaining tasks ───────────────────
+      ```
+   d. Check `$_AUTOPILOT_LOOP` (`echo "${_AUTOPILOT_LOOP-}"`). If set, write `next` to the autopilot `signal` file at its absolute path, then STOP. If unset, STOP without the signal write — the user re-invokes `/run-autopilot`, which resumes via `state.json`.
+
+   **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3, hydrates TaskList from `state.tasks`, and re-invokes `/work` for the pending tasks.
 
 ### 7. Final verification (once per work phase)
 

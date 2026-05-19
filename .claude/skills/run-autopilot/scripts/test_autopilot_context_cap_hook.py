@@ -232,6 +232,49 @@ class ContextCapHookTests(unittest.TestCase):
         )
         self.assertEqual(abort_entry["task_id"], "unknown")
 
+    # Window-aware cap -------------------------------------------------------
+
+    def test_large_window_does_not_fire_below_500k(self) -> None:
+        """A 1M-window session (context_window written by autoclaude) uses the
+        500K cap, so a 200K Work turn — which fires on a 200K-window model —
+        is a no-op here."""
+        self.fx.write_state(phase="work", context_window=1_000_000)
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_large_window_fires_above_500k(self) -> None:
+        """A 1M-window session aborts once context exceeds the 500K cap, and
+        the abort message reports the 500K cap (not the 150K default)."""
+        self.fx.write_state(
+            phase="work",
+            context_window=1_000_000,
+            tasks=[{"id": "task-big", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
+        out = json.loads(result.stdout)
+        self.assertIn("500K", out["hookSpecificOutput"]["additionalContext"])
+
+    def test_standard_window_fires_above_150k(self) -> None:
+        """An explicit 200K context_window uses the 150K cap — same as the
+        absent-field default — and the abort message reports ~150K."""
+        self.fx.write_state(
+            phase="work",
+            context_window=200_000,
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
+        out = json.loads(result.stdout)
+        self.assertIn("150K", out["hookSpecificOutput"]["additionalContext"])
+
     # Walk-up cases ---------------------------------------------------------
 
     def test_finds_autopilot_dir_when_cwd_is_subdirectory(self) -> None:
@@ -659,6 +702,128 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertEqual(captured.getvalue().strip(), "")
         # Bounded read should still complete fast — well under 500ms.
         self.assertLess(elapsed_ms, 500, f"hook took {elapsed_ms:.0f}ms")
+
+
+    # Soft-threshold handoff ------------------------------------------------
+
+    def test_soft_threshold_writes_handoff_marker_standard(self) -> None:
+        """Standard window: usage between the soft (105K) and hard (150K)
+        caps writes `.handoff-requested` carrying the in-progress task id.
+        The path is non-destructive — no `.cap-fired`, no abort envelope,
+        no state mutation, no task-abort log."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+        handoff = self.fx.autopilot_dir / ".handoff-requested"
+        self.assertTrue(handoff.exists())
+        self.assertEqual(handoff.read_text().strip(), "task-x")
+
+        # Non-destructive: hard-cap artifacts must NOT appear.
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+        self.assertFalse((self.fx.autopilot_dir / "task-abort").exists())
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["task_aborts"], [])
+        self.assertNotIn("stall_reason", state)
+
+    def test_soft_threshold_writes_handoff_marker_large_window(self) -> None:
+        """1M window: usage between the soft (320K) and hard (500K) caps
+        writes `.handoff-requested`. A 200K turn (which would soft-fire on a
+        standard window) stays a no-op here — covered by the standard-window
+        no-op tests; this asserts the large-window soft band."""
+        self.fx.write_state(
+            phase="work",
+            context_window=1_000_000,
+            tasks=[{"id": "task-big", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        handoff = self.fx.autopilot_dir / ".handoff-requested"
+        self.assertTrue(handoff.exists())
+        self.assertEqual(handoff.read_text().strip(), "task-big")
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_below_soft_threshold_writes_no_marker(self) -> None:
+        """Usage under the soft cap writes neither marker."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=80_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".handoff-requested").exists())
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_hard_cap_overrun_writes_no_handoff_marker(self) -> None:
+        """A hard-cap overrun takes the abort path and must NOT also write
+        `.handoff-requested` — the two paths are mutually exclusive."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
+        self.assertFalse((self.fx.autopilot_dir / ".handoff-requested").exists())
+
+    def test_handoff_marker_same_task_not_rewritten(self) -> None:
+        """When `.handoff-requested` already names the in-progress task, a
+        redundant PostToolUse fire is a no-op (one-shot per task)."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        (self.fx.autopilot_dir / ".handoff-requested").write_text("task-x")
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertEqual(
+            (self.fx.autopilot_dir / ".handoff-requested").read_text().strip(),
+            "task-x",
+        )
+
+    def test_handoff_marker_stale_task_overwritten(self) -> None:
+        """A `.handoff-requested` marker naming an earlier task is rewritten
+        with the current task id, so the handoff request stays current after
+        the session advances."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-new", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        (self.fx.autopilot_dir / ".handoff-requested").write_text("task-old")
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.fx.autopilot_dir / ".handoff-requested").read_text().strip(),
+            "task-new",
+        )
+
+    def test_cap_fired_marker_for_same_task_blocks_soft_path(self) -> None:
+        """When `.cap-fired` already named the in-progress task (hard-cap
+        abort already prepared), the hook early-returns before the soft
+        check — no `.handoff-requested` is written for that task."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        (self.fx.autopilot_dir / ".cap-fired").write_text("task-x")
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".handoff-requested").exists())
 
 
 if __name__ == "__main__":
