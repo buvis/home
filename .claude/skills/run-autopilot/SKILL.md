@@ -456,9 +456,12 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    Observations: {any operational gotchas useful for next iteration}
    ```
    If the capsule doesn't exist yet (catchup was skipped), create a minimal one with just the Active Work section.
-8. Print per-PRD summary. Run the tier-escalation aggregator first:
+8. Print per-PRD summary. Run the tier-escalation aggregator and dispatch-health aggregator first:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py
+   ```
+   ```bash
+   python3 ~/.claude/skills/run-autopilot/scripts/dispatch_health_metrics.py
    ```
    Then print:
 
@@ -471,9 +474,10 @@ Summary:
 - Escalated decisions: {count}
 - Follow-up tasks fixed: {count}
 - {tier_escalation_metrics output, indented two spaces}
+- {dispatch_health_metrics output, indented two spaces}
 ```
 
-   If the script exits non-zero or produces no output (no attempt data yet), omit the tier-escalation line — do not fail Phase 9.
+   If either script exits non-zero or produces no output, omit its line — do not fail Phase 9.
 
 ### Continuation
 
