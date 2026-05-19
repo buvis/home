@@ -304,10 +304,17 @@ def test_if_missing_surveys_when_atlas_absent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# --if-missing: rebuilds when staleness.flag file is present on disk
+# --if-missing: no-op when atlas exists, even if a staleness.flag is present
 # ---------------------------------------------------------------------------
 
-def test_if_missing_rebuilds_when_staleness_flag_file_present(git_repo):
+def test_if_missing_skips_stale_atlas(git_repo):
+    """--if-missing surveys only when atlas.json is absent.
+
+    When the atlas already exists it is a no-op even if staleness.flag is
+    present: the stale atlas is left untouched for the bare invocation or
+    --refresh to rebuild. (/catchup uses --if-missing precisely because it
+    only needs an atlas to exist, not a fresh one.)
+    """
     repo, _sha, home = git_repo
     _survey(repo, home)
     atlas_path = _locate_atlas_json(home)
@@ -319,10 +326,10 @@ def test_if_missing_rebuilds_when_staleness_flag_file_present(git_repo):
 
     _survey(repo, home, if_missing=True)
 
-    assert atlas_path.stat().st_mtime != mtime_before, \
-        "--if-missing must rebuild atlas.json when staleness.flag is present"
-    assert not flag_path.exists(), \
-        "--if-missing must remove staleness.flag after a successful rebuild"
+    assert atlas_path.stat().st_mtime == mtime_before, \
+        "--if-missing must NOT rebuild atlas.json when it already exists (even if stale)"
+    assert flag_path.exists(), \
+        "--if-missing must leave staleness.flag in place when it skips a stale atlas"
 
 
 # ---------------------------------------------------------------------------
