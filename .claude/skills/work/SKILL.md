@@ -61,7 +61,7 @@ See `references/subagent-dispatch.md` for the measurement procedure, the verbati
 
 Every Agent dispatch must be wrapped in a watchdog: dispatch with `run_in_background: true`, wait with `Monitor` (15-minute timeout), and on timeout `TaskStop` the agent and handle it as the **Result lost / hung** row of step 4's table (which routes to the infrastructure-failure circuit breaker, step 4.2). A foreground `Agent` call that hangs blocks this session indefinitely — never dispatch one unwatched.
 
-See `references/subagent-dispatch.md` for the full dispatch protocol, helper-script (`use-sonnet`/`use-codex`/`use-gemini`) handling, and the three distinct deadlines (15 min / 10 min / 20 min, by mechanism). Read it before your first Agent dispatch in a session.
+See `references/subagent-dispatch.md` for the full dispatch protocol, helper-script (`use-codex`/`use-gemini`) handling, and the three distinct deadlines (15 min / 10 min / 20 min, by mechanism). Read it before your first Agent dispatch in a session.
 
 ## Per-task model dispatch
 
