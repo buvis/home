@@ -34,13 +34,23 @@ def _make_tree() -> Path:
     return root
 
 
-def _invoke(root: Path, loop_value: str | None = "1", extra_args: list[str] | None = None) -> subprocess.CompletedProcess:
-    """Run log_dispatch.py from root; set _AUTOPILOT_LOOP to loop_value (None = unset)."""
+def _invoke(
+    root: Path,
+    loop_value: str | None = "1",
+    extra_args: list[str] | None = None,
+    args: list[str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Run log_dispatch.py from root; set _AUTOPILOT_LOOP to loop_value (None = unset).
+
+    When `args` is given it replaces BASE_ARGS entirely; otherwise BASE_ARGS plus
+    any `extra_args` are used.
+    """
     env = {k: v for k, v in os.environ.items() if k != "_AUTOPILOT_LOOP"}
     if loop_value is not None:
         env["_AUTOPILOT_LOOP"] = loop_value
+    cmd_args = args if args is not None else BASE_ARGS + (extra_args or [])
     return subprocess.run(
-        [sys.executable, str(SCRIPT)] + BASE_ARGS + (extra_args or []),
+        [sys.executable, str(SCRIPT)] + cmd_args,
         cwd=str(root),
         env=env,
         capture_output=True,
@@ -177,15 +187,7 @@ class TestSchemaValidity(unittest.TestCase):
             "--duration-s", "7.25",
             "--attempt", "3",
         ]
-        env = {k: v for k, v in os.environ.items() if k != "_AUTOPILOT_LOOP"}
-        env["_AUTOPILOT_LOOP"] = "1"
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT)] + distinct_args,
-            cwd=str(self._root),
-            env=env,
-            capture_output=True,
-            text=True,
-        )
+        result = _invoke(self._root, loop_value="1", args=distinct_args)
         self.assertEqual(result.returncode, 0, f"stderr={result.stderr!r}")
         line = _log_file(self._root).read_text().strip()
         record = json.loads(line)
