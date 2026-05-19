@@ -350,13 +350,27 @@ def _atomic_write(path: Path, content: str) -> None:
         raise
 
 
+def _trim_lines_to_budget(content: str, max_bytes: int) -> str:
+    """Drop whole trailing lines until content fits max_bytes.
+
+    Truncation removes complete lines from the end, so lower-priority sections
+    shrink or disappear without ever cutting a line mid-token. A section header
+    left dangling with no entries beneath it is dropped too.
+    """
+    lines = content.split("\n")
+    while lines and len("\n".join(lines).encode()) > max_bytes:
+        lines.pop()
+    while lines and (lines[-1] == "" or lines[-1].startswith("## ")):
+        lines.pop()
+    return "\n".join(lines)
+
+
 def _append_footer(content: str) -> str:
-    """Append the truncation footer, trimming content if needed to stay within budget."""
+    """Append the truncation footer, trimming whole lines if needed to stay within budget."""
     footer = "\n*atlas truncated*"
     if len((content + footer).encode()) <= _ATLAS_MD_BUDGET:
         return content + footer
-    max_bytes = _ATLAS_MD_BUDGET - len(footer.encode())
-    return content.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore") + footer
+    return _trim_lines_to_budget(content, _ATLAS_MD_BUDGET - len(footer.encode())) + footer
 
 
 def _fit_to_budget(content: str) -> tuple[str, bool]:

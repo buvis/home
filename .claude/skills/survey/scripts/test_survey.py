@@ -8,6 +8,7 @@ atlas.json / atlas.md.  No internal helpers are imported or patched.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -567,6 +568,67 @@ def test_truncated_flag_and_footer_when_byte_budget_exceeded(tmp_path):
 
     assert len(md.encode()) <= 5120, (
         f"atlas.md must still be <=5120 bytes after byte-budget truncation; got {len(md.encode())}"
+    )
+
+
+# A complete line the atlas.md renderer can emit. Truncation must drop whole
+# lines, so every surviving line (footer aside) must match one of these forms.
+_COMPLETE_MD_LINE = re.compile(
+    r"^(?:"
+    r"|## .+"
+    r"|Detected style: \*\*\w+\*\*"
+    r"|- \*\*[^*]+\*\*: \d+ files"
+    r"|- \*\*[^*]+\*\*: \w+ \(camelCase=\d+, snake_case=\d+, PascalCase=\d+\)"
+    r"|- `[^`]+` \(\w+\) - .+:\d+"
+    r"|_\([^)]+\)_"
+    r")$"
+)
+
+
+def test_byte_budget_truncation_keeps_every_line_well_formed(tmp_path):
+    """Per-section truncation must drop whole lines, never byte-chop mid-token.
+
+    A raw UTF-8 byte slice cuts the rendered document at an arbitrary offset,
+    leaving a final line cut mid-token (e.g. '- **layer_2'). Per-section
+    truncation drops complete entries instead, so every surviving line stays a
+    well-formed markdown line the renderer could have emitted.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    # Many layers (each < 50 files) -> atlas.md exceeds the 5120-byte budget
+    # via the leading sections, forcing the byte-budget truncation path.
+    for layer_idx in range(50):
+        layer_dir = repo / f"layer_{layer_idx:02d}"
+        layer_dir.mkdir()
+        for file_idx in range(3):
+            (layer_dir / f"module_{file_idx}.py").write_text(
+                f"def function_in_layer_{layer_idx}_file_{file_idx}():\n    pass\n"
+            )
+
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "many layers"], cwd=repo, check=True, capture_output=True)
+
+    home = tmp_path / "home"
+    home.mkdir()
+    _survey(repo, home)
+
+    md = _locate_atlas_md(home).read_text()
+    # Precondition: this repo actually triggers truncation.
+    assert "*atlas truncated*" in md, "precondition: repo must exceed the 5120-byte budget"
+    assert len(md.encode()) <= 5120
+
+    body = md[: md.rindex("*atlas truncated*")].rstrip("\n")
+    for line in body.split("\n"):
+        assert _COMPLETE_MD_LINE.match(line), (
+            f"truncated atlas.md has a line cut mid-token: {line!r}; per-section "
+            "truncation must drop whole entries, not slice raw UTF-8 bytes"
+        )
+
+    # The highest-priority section must survive truncation.
+    assert "## Where things live" in body, (
+        "per-section truncation must keep the leading 'Where things live' section"
     )
 
 
