@@ -21,6 +21,10 @@ about-plugin 'functions for software development'
 # hook (autopilot_context_cap_hook.py) uses the same helper; without the
 # walk-up here the entire model-dispatch feature silently no-ops when
 # cwd != project root.
+#
+# It also records the picked model's context window in state.json
+# (context_window) so the cap hook can size its per-task cap to the
+# window (200K-window -> ~150K cap; 1M-window -> 500K cap).
 _autoclaude_pick_model() {
   local raw next_phase source model jq_rc autopilot_dir state_file
   state_file=""
@@ -56,6 +60,26 @@ _autoclaude_pick_model() {
     work) model="claude-sonnet-4-6" ;;
     *)    model="claude-opus-4-7" ;;
   esac
+  # Record the launched model's context window in state.json so the
+  # Work-phase context cap hook (autopilot_context_cap_hook.py) can size
+  # its cap: a 200K-window model is capped below native auto-compact
+  # (~165K), a 1M-window model gets a higher cost-bounded cap. The hook
+  # cannot read the window from the transcript (the plain model id is
+  # recorded, never the [1m] variant), so the launcher records it here.
+  if [ -n "$state_file" ] && command -v jq >/dev/null 2>&1; then
+    local window cw_tmp
+    case "$model" in
+      claude-sonnet-4-6) window=200000 ;;
+      *)                 window=1000000 ;;
+    esac
+    cw_tmp="${state_file}.cwtmp"
+    if jq --argjson cw "$window" '.context_window = $cw' "$state_file" > "$cw_tmp" 2>/dev/null; then
+      command mv -f -- "$cw_tmp" "$state_file"
+    else
+      rm -f "$cw_tmp"
+      printf 'autoclaude: failed to write context_window to state.json\n' >&2
+    fi
+  fi
   printf 'autoclaude: source=%s phase=%s model=%s\n' "$source" "$next_phase" "$model" >&2
   printf '%s\n' "$model"
 }
@@ -103,9 +127,13 @@ autoclaude() {
       local report
       report=$(ls -t dev/local/autopilot/reports/*-report.md 2>/dev/null | head -1)
 
+      # desloppify_run.py wraps `codex exec --json` with live progress and
+      # a heartbeat so a long pass (a legitimate `cargo test --workspace`)
+      # is visibly alive rather than a silent black box. No hard timeout —
+      # a stuck run surfaces a loud idle banner instead of being killed.
       CLEANUP_SINCE="$before_sha" AUTOPILOT_REPORT="$report" \
-        ~/.claude/skills/use-codex/scripts/codex-run.sh -m gpt-5.5 -a \
-        -f ~/.claude/skills/run-autopilot/prompts/de-sloppify.md
+        python3 ~/.claude/skills/run-autopilot/scripts/desloppify_run.py \
+        ~/.claude/skills/run-autopilot/prompts/de-sloppify.md --model gpt-5.5
       _autopilot_loop_cleanup
     fi
 
