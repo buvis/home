@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: abort autopilot Work tasks before they exceed 180K context.
+"""PostToolUse hook: keep autopilot Work sessions inside a context budget.
 
 Reads PostToolUse JSON on stdin (`session_id`, `transcript_path`), tails the
-session transcript to find the most recent `message.usage`, and on overrun
-emits an `additionalContext` envelope telling the model to abort cleanly.
+session transcript to find the most recent `message.usage`, and acts on two
+thresholds:
+
+- **Hard cap** — on overrun, emits an `additionalContext` envelope telling
+  the model to abort cleanly; `/run-autopilot` Phase 0 then replans the PRD.
+- **Soft cap** (below the hard cap) — writes a `.handoff-requested` marker.
+  This is non-destructive: state.json is untouched and no envelope is
+  emitted. `/work` checks the marker at a task boundary (after a task
+  commits) and hands off to a fresh session, which resumes Phase 3 with the
+  remaining pending tasks — no replan, no lost work. The soft cap keeps a
+  multi-task Work phase from ballooning into the destructive hard-cap path.
 
 Active only when `dev/local/autopilot/state.json` exists with `phase == "work"`.
 The autopilot directory is located by walking up from cwd (the agent may
@@ -28,7 +37,35 @@ from typing import Any
 
 from _walk_up import find_autopilot_dir
 
-USAGE_LIMIT = 180_000
+# Per-task context cap, sized to the model's context window. The window
+# is read from state.json `context_window`, written by autoclaude before
+# each launch (it knows the --model it picked). The hook cannot derive the
+# window itself: transcript assistant messages record the plain model id
+# (`claude-sonnet-4-6`), never the `[1m]` window variant.
+#
+# Standard 200K-window models (Sonnet 4.6, today's Work-phase model): the
+# cap MUST sit below the native auto-compact trigger (~165-169K; observed
+# compactMetadata preTokens 168737) or native compaction fires first and
+# the clean abort+replan path never runs.
+#
+# 1M-window models: native compaction is far off (~820K), so the cap is a
+# pure cost ceiling. Cost scales linearly with context (every turn
+# re-sends the whole window as input), so the cap bounds per-task spend
+# rather than tracking the window — 500K is the chosen ceiling.
+CAP_STANDARD_WINDOW = 150_000
+CAP_LARGE_WINDOW = 500_000
+# A context_window at or above this counts as a large (1M-class) window.
+LARGE_WINDOW_MIN = 400_000
+# Soft caps sit below the hard caps. Crossing one writes the
+# `.handoff-requested` marker so `/work` hands off at the next task
+# boundary — a lossless alternative to the hard-cap abort+replan. The gap
+# between soft and hard is sized to cover roughly one more Work task:
+# ~45K for a standard-window task, ~180K for a large-window task (the
+# observed per-task footprint of ~125K plus margin). A task that still
+# overruns the hard cap before `/work` reaches its boundary falls through
+# to the unchanged abort path.
+SOFT_STANDARD_WINDOW = 105_000
+SOFT_LARGE_WINDOW = 320_000
 # Walk the transcript backwards in 64KB chunks until a `message.usage`
 # line is found or MAX_TAIL_BYTES is read. A fixed 64KB tail risked
 # missing the latest usage line when a single large tool result (Bash
@@ -37,7 +74,7 @@ USAGE_LIMIT = 180_000
 TAIL_CHUNK_BYTES = 64 * 1024
 MAX_TAIL_BYTES = 4 * 1024 * 1024
 
-def _abort_instructions(signal_path: Path) -> str:
+def _abort_instructions(signal_path: Path, limit: int) -> str:
     """Build the abort instructions with the resolved absolute signal path.
 
     Two robustness rules:
@@ -54,7 +91,7 @@ def _abort_instructions(signal_path: Path) -> str:
        before writing.
     """
     return (
-        "Context cap reached (~180K tokens). Abort current task cleanly: "
+        f"Context cap reached (~{limit // 1000}K tokens). Abort current task cleanly: "
         "commit any safe partial work, then — only if $_AUTOPILOT_LOOP is "
         f"set (autopilot shell loop wrapper) — write 'task_aborted' to "
         f"{signal_path} and exit. If $_AUTOPILOT_LOOP is unset, skip the "
@@ -86,6 +123,33 @@ def _load_state(autopilot_dir: Path) -> dict[str, Any] | None:
         return json.loads((autopilot_dir / "state.json").read_text())
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _usage_limit(state: dict[str, Any]) -> int:
+    """Pick the context cap for this session from its model's window.
+
+    `context_window` is written into state.json by autoclaude before each
+    launch. Absent → assume the 200K standard tier (the conservative
+    default: capping a large-window session too low only over-triggers
+    replan, it never breaks the abort path).
+    """
+    window = state.get("context_window")
+    if isinstance(window, int) and window >= LARGE_WINDOW_MIN:
+        return CAP_LARGE_WINDOW
+    return CAP_STANDARD_WINDOW
+
+
+def _soft_limit(state: dict[str, Any]) -> int:
+    """Pick the soft handoff threshold for this session's model window.
+
+    Mirrors `_usage_limit`'s window classification. Absent `context_window`
+    → standard tier (conservative: a lower soft cap only triggers an earlier
+    handoff, never breaks anything).
+    """
+    window = state.get("context_window")
+    if isinstance(window, int) and window >= LARGE_WINDOW_MIN:
+        return SOFT_LARGE_WINDOW
+    return SOFT_STANDARD_WINDOW
 
 
 def _usage_total_from_line(line: str) -> int | None:
@@ -233,12 +297,41 @@ def _append_task_abort_log(autopilot_dir: Path, entry: dict[str, Any]) -> None:
         pass
 
 
-def _emit_abort_envelope(autopilot_dir: Path) -> None:
+def _request_handoff(autopilot_dir: Path, task_id: str) -> None:
+    """Write the `.handoff-requested` marker (one-shot per task).
+
+    Unlike the hard-cap abort, this is non-destructive: state.json is left
+    untouched, no abort record is appended, and no envelope is emitted.
+    `/work` checks the marker at a task boundary (after a task commits) and
+    hands off cleanly to a fresh session, which resumes Phase 3 with the
+    remaining pending tasks — no replan.
+
+    The marker carries the in-progress task id, mirroring `.cap-fired`. When
+    it already names the current task this is a redundant PostToolUse fire
+    and the function is a no-op; when it names an earlier task (the session
+    advanced without `/work` honoring the marker) it is overwritten so the
+    request stays current. Best-effort: an unwritable autopilot dir is
+    swallowed, same contract as the marker write on the abort path.
+    """
+    marker = autopilot_dir / ".handoff-requested"
+    if marker.exists():
+        try:
+            if marker.read_text().strip() == task_id:
+                return
+        except OSError:
+            return
+    try:
+        marker.write_text(task_id)
+    except OSError:
+        pass
+
+
+def _emit_abort_envelope(autopilot_dir: Path, limit: int) -> None:
     signal_path = autopilot_dir / "signal"
     payload = {
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": _abort_instructions(signal_path),
+            "additionalContext": _abort_instructions(signal_path, limit),
         }
     }
     print(json.dumps(payload))
@@ -278,9 +371,17 @@ def main() -> None:
         except OSError:
             return
 
+    limit = _usage_limit(state)
     transcript_path = Path(transcript_path_str)
     total = _latest_usage_total(transcript_path)
-    if total is None or total <= USAGE_LIMIT:
+    if total is None:
+        return
+    if total <= limit:
+        # Below the hard cap. Above the soft cap, request a clean
+        # task-boundary handoff (lossless) instead of the destructive
+        # abort+replan the hard cap triggers.
+        if total > _soft_limit(state):
+            _request_handoff(autopilot_dir, task_id)
         return
 
     abort_entry = {
@@ -323,7 +424,7 @@ def main() -> None:
 
     _append_task_abort_log(autopilot_dir, abort_entry)
 
-    _emit_abort_envelope(autopilot_dir)
+    _emit_abort_envelope(autopilot_dir, limit)
 
 
 if __name__ == "__main__":
