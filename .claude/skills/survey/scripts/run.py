@@ -449,10 +449,16 @@ def main(_args: argparse.Namespace | None = None, _home: Path | None = None) -> 
     atlas_path = atlas_dir / "atlas.json"
     flag_path = atlas_dir / "staleness.flag"
 
-    fresh_atlas = atlas_path.exists() and not flag_path.exists()
-    if not _args.refresh and fresh_atlas:
-        print(f"skipped: atlas already exists at {atlas_path}")
-        return
+    if not _args.refresh:
+        if _args.if_missing:
+            # --if-missing surveys only when the atlas is absent; an existing
+            # atlas (fresh or stale) is left for the bare run / --refresh.
+            if atlas_path.exists():
+                print(f"skipped: atlas already exists at {atlas_path}")
+                return
+        elif atlas_path.exists() and not flag_path.exists():
+            print(f"skipped: atlas already exists at {atlas_path}")
+            return
 
     prior_manual = None
     if atlas_path.exists():
