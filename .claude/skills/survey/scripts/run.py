@@ -277,6 +277,33 @@ def _default_forbidden(layers: dict[str, list[Path]]) -> list[dict]:
     return []
 
 
+def _compute_forbidden(layers: dict[str, list[Path]], prior_manual: object) -> list[dict]:
+    """Heuristic forbidden-import rules, adjusted by a [manual] override.
+
+    The [manual] block may carry a `forbidden_imports` override with `whitelist`
+    (import pairs to allow, removing a matching default rule) and `blacklist`
+    (pairs to forbid, adding a rule) keys. Absent or unrelated [manual] content
+    leaves the default heuristic set untouched.
+    """
+    rules = _default_forbidden(layers)
+    if not isinstance(prior_manual, dict):
+        return rules
+    override = prior_manual.get("forbidden_imports")
+    if not isinstance(override, dict):
+        return rules
+
+    whitelist = {(e.get("from"), e.get("to")) for e in override.get("whitelist", [])}
+    rules = [r for r in rules if (r.get("from"), r.get("to")) not in whitelist]
+
+    existing = {(r.get("from"), r.get("to")) for r in rules}
+    for entry in override.get("blacklist", []):
+        pair = (entry.get("from"), entry.get("to"))
+        if pair not in existing:
+            rules.append(entry)
+            existing.add(pair)
+    return rules
+
+
 def _build_atlas_md(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]]) -> str:
     layers = atlas.get("layers", {})
     naming = atlas.get("naming", {})
@@ -399,7 +426,7 @@ def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
 
     naming: dict[str, dict[str, int]] = {k: _naming_counts(v) for k, v in symbols_by_layer.items()}
     error_style = _compute_error_style(layers)
-    forbidden_imports = _default_forbidden(layers)
+    forbidden_imports = _compute_forbidden(layers, prior_manual)
     dependency_edges = _compute_dep_edges(layers)
 
     layers_out: dict[str, list[str]] = {k: [str(f) for f in v] for k, v in layers.items()}
