@@ -749,6 +749,31 @@ def test_rust_struct_and_trait_extracted_with_pinned_kinds(
 
 
 # ---------------------------------------------------------------------------
+# _extract_file_symbols: regex fallback when tree-sitter yields nothing
+# ---------------------------------------------------------------------------
+
+def test_regex_fallback_used_when_tree_sitter_extraction_returns_empty(
+    tmp_path, monkeypatch
+):
+    """When tree-sitter is importable but _extract_tree_sitter yields no
+    symbols for a file (e.g. a per-file parse failure), _extract_file_symbols
+    must fall back to the regex extractor instead of dropping every symbol.
+    """
+    f = tmp_path / "svc.py"
+    f.write_text("def handler(req):\n    return req\n")
+
+    # tree-sitter stays importable, but extraction yields nothing for this file.
+    monkeypatch.setattr(run, "_extract_tree_sitter", lambda *a, **k: [])
+
+    symbols = run._extract_file_symbols(f)
+    names = {n for n, _, _ in symbols}
+    assert "handler" in names, (
+        "regex fallback must recover symbols when tree-sitter extraction "
+        f"returns empty; got {symbols}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # atlas.md: implementations index uses file:line, not layer:line
 # ---------------------------------------------------------------------------
 
