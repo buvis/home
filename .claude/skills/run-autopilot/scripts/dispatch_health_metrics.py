@@ -12,7 +12,6 @@ A missing or empty log produces a zero-state report; exit 0 always.
 from __future__ import annotations
 
 import json
-import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -105,7 +104,7 @@ def _default_report(entries: list[dict[str, Any]]) -> str:
     if durations_by_type:
         for dtype in sorted(durations_by_type.keys()):
             durs = durations_by_type[dtype]
-            p50 = statistics.median(durs)
+            p50 = _percentile(durs, 50)
             p95 = _percentile(durs, 95)
             lines.append(f"  {dtype}: p50={p50:.1f}s  p95={p95:.1f}s")
     else:
@@ -117,10 +116,7 @@ def _default_report(entries: list[dict[str, Any]]) -> str:
         if e.get("outcome") != "completed":
             failure_counts[e.get("task_name", "unknown")] += 1
 
-    recurring = sorted(
-        ((name, count) for name, count in failure_counts.items()),
-        key=lambda x: -x[1],
-    )
+    recurring = sorted(failure_counts.items(), key=lambda x: -x[1])
 
     lines.append("Top recurring failure tasks:")
     if recurring:
