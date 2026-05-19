@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _dispatch_log import find_dispatch_log, load_entries, percentile
