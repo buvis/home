@@ -298,7 +298,13 @@ class TestConcurrentWrites(unittest.TestCase):
             self.assertEqual(set(record.keys()), VALID_FIELDS)
 
     def test_many_concurrent_writers_produce_all_intact_lines(self) -> None:
-        """30 concurrent writers produce exactly 30 valid JSON lines — real locking required."""
+        """30 concurrent writers produce exactly 30 valid JSON lines.
+
+        Verifies the O_APPEND atomic-append guarantee: log_dispatch.py opens the
+        file with O_APPEND and emits each newline-terminated line in a single
+        os.write(), so concurrent appends below PIPE_BUF never interleave or
+        truncate. No fcntl lock is used — POSIX O_APPEND atomicity is the contract.
+        """
         n = 30
         env = {**os.environ, "_AUTOPILOT_LOOP": "99"}
         cmd = [sys.executable, str(SCRIPT)] + BASE_ARGS
