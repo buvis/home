@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -32,8 +33,6 @@ VALID_OUTCOMES = {
 
 def _parse_args(argv: list[str]) -> dict | None:
     """Return parsed args as a dict, or None on any error."""
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--prd", required=True)
     parser.add_argument("--task-id", required=True)
