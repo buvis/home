@@ -273,8 +273,12 @@ def test_flag_not_created_at_boundary_below_commit_threshold(tmp_path, monkeypat
     assert audit_events[-1]["reason"] == "fresh"
 
 
-def test_flag_created_at_exactly_commit_threshold(tmp_path, monkeypatch):
-    """Exactly 50 commits -> flag created. The threshold is >=, not >."""
+def test_no_flag_at_exactly_commit_threshold(tmp_path, monkeypatch):
+    """Exactly 50 commits -> NO flag. PRD 00011: staleness is '>50 commits', strict.
+
+    PRD line 23 Success Metrics and Phase 2e ('51 commits -> flag') require a
+    strict greater-than: the flag fires at 51, not at exactly 50.
+    """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
 
@@ -287,8 +291,9 @@ def test_flag_created_at_exactly_commit_threshold(tmp_path, monkeypatch):
     mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
     _run_hook(mod, monkeypatch)
 
-    assert (atlas_dir / "staleness.flag").exists(), "Exactly 50 commits must trigger the flag (>= threshold)"
-    assert audit_events[-1]["reason"] == "stale-flag-set"
+    assert not (atlas_dir / "staleness.flag").exists(), \
+        "Exactly 50 commits must NOT trigger the flag; PRD requires strict >50"
+    assert audit_events[-1]["reason"] == "fresh"
 
 
 def test_non_git_atlas_missing_head_sha_logs_no_git_reason(tmp_path, monkeypatch):

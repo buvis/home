@@ -55,7 +55,7 @@ def main() -> None:
             surveyed_at = surveyed_at.replace(tzinfo=timezone.utc)
         age_days = (now - surveyed_at).total_seconds() / 86400
 
-        if commits >= max_commits or age_days >= max_days:
+        if commits > max_commits or age_days > max_days:
             (adir / "staleness.flag").touch()
             append_audit({
                 "event": "cartographer-stop",
