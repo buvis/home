@@ -55,6 +55,9 @@ def _find_log() -> Path:
 
 def main() -> None:
     args = sys.argv[1:]
+    if len(args) < 1:
+        print("Usage: python3 dispatch_deadline.py <dispatch_type> [log-path]", file=sys.stderr)
+        sys.exit(1)
     dispatch_type = args[0]
     log_path = Path(args[1]) if len(args) > 1 else _find_log()
 
@@ -62,7 +65,9 @@ def main() -> None:
     durations = [
         float(e["duration_s"])
         for e in entries
-        if e.get("outcome") == "completed" and e.get("dispatch_type") == dispatch_type
+        if e.get("outcome") == "completed"
+        and e.get("dispatch_type") == dispatch_type
+        and e.get("duration_s") is not None
     ]
 
     if len(durations) < 5:
