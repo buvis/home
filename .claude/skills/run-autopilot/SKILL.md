@@ -451,7 +451,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
 
 1. **Regroup commits produced by this PRD.** Operate on the range `state.work_start_sha..HEAD`. **This step runs unconditionally — do NOT gate it on `deferred_decisions` being empty or `doubts` being resolved.** Run the four sub-behaviors below in order; emit exactly **one** outcome line per the four shapes documented in `references/batch-report-format.md` (Regroup Outcome). Record the chosen outcome line in state so step 7 can include it in the batch report.
 
-   a. **Remote guard.** Check whether any commit in `state.work_start_sha..HEAD` exists on a remote-tracking branch. Use `git branch -r --contains <sha>` per commit, or batch via `git log --remotes --no-walk state.work_start_sha..HEAD`. If ANY commit in the range is present on a remote, skip regrouping entirely and record the outcome line `skipped: remote guard (commits already on remote)`. Proceed to step 2 unchanged — no history rewrite occurs.
+   a. **Remote guard.** Check whether any commit in `<work_start_sha>..HEAD` exists on a remote-tracking branch. For each `<sha>` in `git log --format=%H <work_start_sha>..HEAD`, run `git branch -r --contains <sha>`: if any invocation prints at least one remote-tracking ref, that commit is already on a remote. If ANY commit in the range is present on a remote, skip regrouping entirely and record the outcome line `skipped: remote guard (commits already on remote)`. Proceed to step 2 unchanged — no history rewrite occurs.
 
    b. **Granularity assessment.** Read `git log --stat state.work_start_sha..HEAD`. Judge whether the commits are too granular. Guidance:
       - Collapse each task's `test`+`impl` pair into one logical commit when they describe the same change.
