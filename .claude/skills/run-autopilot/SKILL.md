@@ -193,6 +193,8 @@ Before invoking `/work`, query `TaskList` and write the full task snapshot to `d
 
 **Include the task `id` field** — a PostToolUse hook on TaskUpdate uses it to automatically sync status changes to the dashboard. This is mandatory.
 
+**Capture `work_start_sha` before dispatching `/work`.** Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches will produce — read by Phase 9 step 1's regrouping procedure (remote guard, granularity assessment, cherry-pick rewrite). Capture happens **once per PRD, before `/work` runs**. In a multi-PRD batch each PRD overwrites the prior PRD's value at this step, so ranges never overlap.
+
 Invoke `/work` skill. It runs until all tasks complete.
 
 After completion, query `TaskList` again and update state: add `"work"` to `phases_completed`, set `phase: "review"` and `next_phase: "review"`, write updated `tasks`/`tasks_total`/`tasks_completed`.
@@ -308,6 +310,24 @@ Both prefixes use the current cycle number. Both kinds dispatch through the same
 **Run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management above) BEFORE the "Escalate review-flagged tasks by tier" section's `TaskUpdate` calls. The rework session almost always inherits an empty TaskList from the post-Phase-3 handoff — running escalation TaskUpdate calls against an empty tracker either errors on unknown IDs or silently no-ops, losing the status→pending transition and dashboard visibility. Hydration is the first action of Phase 6, no exceptions.
 
 ### Escalate review-flagged tasks by tier (PRD 00025)
+
+**Escalation caveat — diagnose the failure before escalating.** The tier chain
+`haiku → sonnet → opus` assumes a review failure means the model wasn't capable
+enough. That is often wrong. A review failure caused by a **spec-transmission
+gap** — the implementer built a self-consistent *wrong* thing because the task
+description never carried the PRD's exact contract (field names, enum values,
+hook kind, thresholds) — is not a capability failure. Escalating the tier costs
+more and does not address the cause: a stronger model fed the same thin task
+description can fail the same way. Before escalating, look at the cycle's review
+findings. If they are predominantly spec-misread (wrong schema, wrong API,
+missing feature, wrong artifact kind) rather than implementation-quality bugs
+(edge cases, perf, logic errors), the real fix is a **corrected task
+description** — and the review's follow-up tasks should already carry the exact
+contract verbatim. In that case keep the **same tier**; do not escalate. Record
+the decision and rationale in `autonomous_decisions`. Escalate the tier only
+when the prior attempt genuinely struggled on a correctly-specified task. (Root
+cause of the original gap: `plan-tasks` must copy the PRD's contract and
+acceptance criteria verbatim into each task — see `plan-tasks/SKILL.md` step 4.)
 
 For each review-flagged original-plan task in the current cycle's review output:
 
@@ -552,7 +572,7 @@ Autopilot supports automatic session cycling via a signal file + Stop hook. This
 
 - `next` — written at Phase 3 hand-off and Phase 9 step 9 when more PRDs remain. Shell wrapper continues the loop.
 - `done` — written at the end of batch-end review. Shell wrapper exits the loop.
-- `task_aborted` — written by the model in two cases: (a) when `autopilot_context_cap_hook.py` fires on a 180K Work-turn overrun (the hook prepares `state.stall_reason = {"stalled": "context_overrun", ...}`); or (b) when `/work` Subagent Dispatch Budget aborts a task whose assembled subagent prompt exceeded 50K after one trim pass (`/work` prepares `state.stall_reason = {"stalled": "subagent_prompt_overrun", ...}`). In both cases the writer appends to `state.task_aborts` before instructing the model to write the signal. Shell wrapper continues the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see Phase 0 step 1's replan procedure).
+- `task_aborted` — written by the model in two cases: (a) when `autopilot_context_cap_hook.py` fires on a Work-turn context-cap overrun (the hook prepares `state.stall_reason = {"stalled": "context_overrun", ...}`); or (b) when `/work` Subagent Dispatch Budget aborts a task whose assembled subagent prompt exceeded 50K after one trim pass (`/work` prepares `state.stall_reason = {"stalled": "subagent_prompt_overrun", ...}`). In both cases the writer appends to `state.task_aborts` before instructing the model to write the signal. Shell wrapper continues the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see Phase 0 step 1's replan procedure).
 
 Every signal write is paired with a `state.next_phase` write that happens immediately before — `autoclaude` reads `next_phase` to pick `--model` for the next launch.
 
