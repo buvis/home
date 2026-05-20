@@ -22,6 +22,30 @@ After each PRD, append a section:
 - Completed: {ISO 8601 timestamp}
 - Cycles: {n}
 - Tasks: {completed}/{total}
+- Regroup: {one of the four outcome lines below}
+
+### Regroup Outcome
+
+Phase 9 step 1 emits exactly **one** of the following lines per PRD. Use the
+exact strings verbatim — do not paraphrase or change punctuation:
+
+```
+regrouped: N -> M commits
+skipped: commits already well-grouped
+skipped: remote guard (commits already on remote)
+skipped: cherry-pick conflict, history left untouched
+```
+
+- `regrouped: N -> M commits` — granularity assessment produced a regroup plan
+  and the cherry-pick rewrite completed successfully. `N` is the original
+  commit count in `work_start_sha..HEAD`; `M` is the new commit count.
+- `skipped: commits already well-grouped` — granularity assessment decided
+  no-op; history unchanged.
+- `skipped: remote guard (commits already on remote)` — the range included a
+  commit already on a remote-tracking branch; no rewrite attempted.
+- `skipped: cherry-pick conflict, history left untouched` — a cherry-pick
+  conflict triggered the conflict-safe abort; the backup branch restored the
+  original `HEAD`.
 
 ### Autonomous Decisions
 
