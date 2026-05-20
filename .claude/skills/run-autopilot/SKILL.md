@@ -453,7 +453,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
 
    a. **Remote guard.** Check whether any commit in `<work_start_sha>..HEAD` exists on a remote-tracking branch. For each `<sha>` in `git log --format=%H <work_start_sha>..HEAD`, run `git branch -r --contains <sha>`: if any invocation prints at least one remote-tracking ref, that commit is already on a remote. If ANY commit in the range is present on a remote, skip regrouping entirely and record the outcome line `skipped: remote guard (commits already on remote)`. Proceed to step 2 unchanged — no history rewrite occurs.
 
-   b. **Granularity assessment.** Read `git log --stat state.work_start_sha..HEAD`. Judge whether the commits are too granular. Guidance:
+   b. **Granularity assessment.** Read `git log --stat <work_start_sha>..HEAD`. Judge whether the commits are too granular. Guidance:
       - Collapse each task's `test`+`impl` pair into one logical commit when they describe the same change.
       - Fold trivial fixups (typo fixes, formatting touch-ups, docstring tweaks) into the commit that introduced the code being fixed.
       - Merge commits that together form one coherent change.
@@ -463,17 +463,17 @@ This phase runs once per PRD. It does not loop back to Phase 4.
       - Otherwise, produce a **regroup plan**: an ordered list of groups, each group a list of source SHAs (in cherry-pick order) and a new commit message.
 
    c. **Cherry-pick regroup.** Execute the regroup plan from step 1b:
-      i. Create a backup branch at the current `HEAD`: `git branch autopilot-regroup-backup-<batch_id>-<prd-number>` (or any unique name). This is the safety net for step 1d.
-      ii. `git reset --hard state.work_start_sha`.
+      i. Create a backup branch at the current `HEAD`: `git branch autopilot-regroup-backup-<batch_id>-<prd-number>`. Use this exact naming scheme so the conflict-safe abort (step 1d) and any later inspection can locate the backup by predictable name.
+      ii. `git reset --hard <work_start_sha>`.
       iii. For each group in the plan, in order:
          - For each source SHA in the group: `git cherry-pick -n <sha>` (stages the changes without committing).
          - After all SHAs in the group are cherry-picked: `git commit -m "<group's new conventional-commit message>"`.
-      iv. On successful completion of all groups: delete the backup branch (`git branch -D <backup>`). Record the outcome line `regrouped: N -> M commits` (N = original commit count in the range, M = new commit count).
+      iv. On successful completion of all groups: delete the backup branch (`git branch -D autopilot-regroup-backup-<batch_id>-<prd-number>`). Record the outcome line `regrouped: N -> M commits` (N = original commit count in the range, M = new commit count).
       v. **Never push.** This procedure contains no `git push` command. Pushing is out of scope; the user pushes manually after reviewing the regrouped history.
 
    d. **Conflict-safe abort.** If ANY `git cherry-pick` in step 1c.iii returns a conflict (non-zero exit, `CONFLICT` in output, or staged conflict markers):
       i. `git cherry-pick --abort` to clear the partial cherry-pick state.
-      ii. `git reset --hard <backup-branch>` to restore the original `HEAD`.
+      ii. `git reset --hard autopilot-regroup-backup-<batch_id>-<prd-number>` to restore the original `HEAD`.
       iii. Leave the backup branch in place (do NOT delete) so the user can inspect what was attempted.
       iv. Record the outcome line `skipped: cherry-pick conflict, history left untouched`.
       v. **Fail loud, do not retry silently.** Record the failure (via the outcome line above) and stop. Do not loop back to step 1b with a different grouping. The user investigates manually.
