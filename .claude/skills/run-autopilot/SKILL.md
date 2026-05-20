@@ -449,7 +449,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
 
 ## Phase 9: Completion
 
-1. **Regroup commits produced by this PRD.** Operate on the range `state.work_start_sha..HEAD`. **This step runs unconditionally — do NOT gate it on `deferred_decisions` being empty or `doubts` being resolved.** Run the four sub-behaviors below in order; emit exactly **one** outcome line per the four shapes documented in `references/batch-report-format.md` (Regroup Outcome). Record the chosen outcome line in state so step 7 can include it in the batch report.
+1. **Regroup commits produced by this PRD.** Operate on the range `<work_start_sha>..HEAD` (where `<work_start_sha>` is `state.work_start_sha`). **This step runs unconditionally — do NOT gate it on `deferred_decisions` being empty or `doubts` being resolved.** Run the four sub-behaviors below in order; emit exactly **one** outcome line per the four shapes documented in `references/batch-report-format.md` (Regroup Outcome). Write the chosen outcome line to `state.regroup_outcome` (see `references/state-schema.md`) so step 7 can include it in the batch report.
 
    a. **Remote guard.** Check whether any commit in `<work_start_sha>..HEAD` exists on a remote-tracking branch. For each `<sha>` in `git log --format=%H <work_start_sha>..HEAD`, run `git branch -r --contains <sha>`: if any invocation prints at least one remote-tracking ref, that commit is already on a remote. If ANY commit in the range is present on a remote, skip regrouping entirely and record the outcome line `skipped: remote guard (commits already on remote)`. Proceed to step 2 unchanged — no history rewrite occurs.
 
@@ -489,7 +489,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
-7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). Include the regroup outcome line recorded in step 1. See `references/batch-report-format.md` for format.
+7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). Read `state.regroup_outcome` (set by step 1) and include it as the `- Regroup:` bullet in the per-PRD section. See `references/batch-report-format.md` for format.
 7b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). For each non-trivial entry in `autonomous_decisions` from the state file, append one row:
     ```
     | {YYYY-MM-DD} | {decision summary} | {rationale or research evidence} | batch-{batch_id} PRD {prd-number} |
