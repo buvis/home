@@ -137,12 +137,12 @@ The capsule (`dev/local/project-capsule.md`) is the persisted output of catchup:
 2. `state.batch.catchup_completed_at` is present AND less than 4 hours old.
 3. `state.batch.catchup_head_sha` matches the current `git rev-parse HEAD` on the active branch.
 
-If any condition fails → **full catchup**: invoke `/catchup`. After completion, write `state.batch.catchup_completed_at = <now>` and `state.batch.catchup_head_sha = <current HEAD>`. These fields persist across PRDs in the batch (Phase 9 step 9 preserves them).
+If any condition fails → **full catchup**: invoke `/catchup`. After completion, write `state.batch.catchup_completed_at = <now>` and `state.batch.catchup_head_sha = <current HEAD>`. These fields persist across PRDs in the batch (Phase 9 step 10 preserves them).
 
 If all conditions hold → **delta refresh** (no `/catchup` invocation):
 
 - Re-read all PRDs in `dev/local/prds/wip/` (the active set has changed since last catchup; new PRDs may have entered, old ones moved to `done/`).
-- Update the Active Work section of `dev/local/project-capsule.md` with the current PRD list (use the same format Phase 9 step 7 uses). Leave Key Invariants, Architecture Decisions, Component Boundaries, GitHub State, Project Health, and Project Memories untouched — those reflect batch-stable knowledge.
+- Update the Active Work section of `dev/local/project-capsule.md` with the current PRD list (use the same format Phase 9 step 8 uses). Leave Key Invariants, Architecture Decisions, Component Boundaries, GitHub State, Project Health, and Project Memories untouched — those reflect batch-stable knowledge.
 - Print a one-line note: `── AUTOPILOT ── catchup: delta refresh (cache <Xm> old, HEAD <sha7>) ──`
 
 After either path completes, update state: add `"catchup"` to `phases_completed`, set `phase: "planning"` and `next_phase: "planning"`.
@@ -443,28 +443,59 @@ After classifying all items:
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
 5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks).
 
-KNOWN items keep `"status": "pending"` — Phase 9 step 5 collects these into the batch deferred log for batch-end review.
+KNOWN items keep `"status": "pending"` — Phase 9 step 6 collects these into the batch deferred log for batch-end review.
 
 This phase runs once per PRD. It does not loop back to Phase 4.
 
 ## Phase 9: Completion
 
-1. Update state: set `phase: "done"` and `next_phase: "done"`
-2. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix)
-3. Append completed PRD to `batch.completed_prds` in state file
-4. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
-5. Append items to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (create if missing). Collect from the current state file:
+1. **Regroup commits produced by this PRD.** Operate on the range `state.work_start_sha..HEAD`. **This step runs unconditionally — do NOT gate it on `deferred_decisions` being empty or `doubts` being resolved.** Run the four sub-behaviors below in order; emit exactly **one** outcome line per the four shapes documented in `references/batch-report-format.md` (Regroup Outcome). Record the chosen outcome line in state so step 7 can include it in the batch report.
+
+   a. **Remote guard.** Check whether any commit in `state.work_start_sha..HEAD` exists on a remote-tracking branch. Use `git branch -r --contains <sha>` per commit, or batch via `git log --remotes --no-walk state.work_start_sha..HEAD`. If ANY commit in the range is present on a remote, skip regrouping entirely and record the outcome line `skipped: remote guard (commits already on remote)`. Proceed to step 2 unchanged — no history rewrite occurs.
+
+   b. **Granularity assessment.** Read `git log --stat state.work_start_sha..HEAD`. Judge whether the commits are too granular. Guidance:
+      - Collapse each task's `test`+`impl` pair into one logical commit when they describe the same change.
+      - Fold trivial fixups (typo fixes, formatting touch-ups, docstring tweaks) into the commit that introduced the code being fixed.
+      - Merge commits that together form one coherent change.
+      - You may reorder commits across tasks to group by feature when grouping reads more cleanly than chronological order.
+      - New messages use conventional-commit format (`type(scope): description`).
+      - If the commits are already coherent (each commit is a logical unit; no obvious collapses), decide **no-op**: record the outcome line `skipped: commits already well-grouped` and skip the cherry-pick rewrite (proceed to step 2 unchanged).
+      - Otherwise, produce a **regroup plan**: an ordered list of groups, each group a list of source SHAs (in cherry-pick order) and a new commit message.
+
+   c. **Cherry-pick regroup.** Execute the regroup plan from step 1b:
+      i. Create a backup branch at the current `HEAD`: `git branch autopilot-regroup-backup-<batch_id>-<prd-number>` (or any unique name). This is the safety net for step 1d.
+      ii. `git reset --hard state.work_start_sha`.
+      iii. For each group in the plan, in order:
+         - For each source SHA in the group: `git cherry-pick -n <sha>` (stages the changes without committing).
+         - After all SHAs in the group are cherry-picked: `git commit -m "<group's new conventional-commit message>"`.
+      iv. On successful completion of all groups: delete the backup branch (`git branch -D <backup>`). Record the outcome line `regrouped: N -> M commits` (N = original commit count in the range, M = new commit count).
+      v. **Never push.** This procedure contains no `git push` command. Pushing is out of scope; the user pushes manually after reviewing the regrouped history.
+
+   d. **Conflict-safe abort.** If ANY `git cherry-pick` in step 1c.iii returns a conflict (non-zero exit, `CONFLICT` in output, or staged conflict markers):
+      i. `git cherry-pick --abort` to clear the partial cherry-pick state.
+      ii. `git reset --hard <backup-branch>` to restore the original `HEAD`.
+      iii. Leave the backup branch in place (do NOT delete) so the user can inspect what was attempted.
+      iv. Record the outcome line `skipped: cherry-pick conflict, history left untouched`.
+      v. **Fail loud, do not retry silently.** Record the failure (via the outcome line above) and stop. Do not loop back to step 1b with a different grouping. The user investigates manually.
+
+   After one outcome line is recorded, proceed to step 2. All subsequent Phase 9 steps operate on the post-regroup `HEAD` (which equals the original `HEAD` when any skip path fired in 1a/1b/1d, or the new regrouped `HEAD` after a successful 1c).
+
+2. Update state: set `phase: "done"` and `next_phase: "done"`
+3. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix)
+4. Append completed PRD to `batch.completed_prds` in state file
+5. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
+6. Append items to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (create if missing). Collect from the current state file:
    - `deferred_decisions` with status `"pending"` or `"deferred"` -> type `"deferred_decision"` (preserve original `type` field if present, e.g. `"doubt-overflow"`)
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
-6. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). See `references/batch-report-format.md` for format.
-6b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). For each non-trivial entry in `autonomous_decisions` from the state file, append one row:
+7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). Include the regroup outcome line recorded in step 1. See `references/batch-report-format.md` for format.
+7b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). For each non-trivial entry in `autonomous_decisions` from the state file, append one row:
     ```
     | {YYYY-MM-DD} | {decision summary} | {rationale or research evidence} | batch-{batch_id} PRD {prd-number} |
     ```
     Dedupe: grep the decision summary before appending; skip if already present.
-7. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
+8. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
    ```markdown
    ## Active Work
 
@@ -476,7 +507,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    Observations: {any operational gotchas useful for next iteration}
    ```
    If the capsule doesn't exist yet (catchup was skipped), create a minimal one with just the Active Work section.
-8. Print per-PRD summary. Run the tier-escalation aggregator and dispatch-health aggregator first:
+9. Print per-PRD summary. Run the tier-escalation aggregator and dispatch-health aggregator first:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py
    ```
@@ -501,7 +532,7 @@ Summary:
 
 ### Continuation
 
-9. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
+10. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
    - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`rework_task_ids` (the next PRD starts a fresh plan, not a rework dispatch), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see Loop Detection) to write `next` to the signal file at the absolute path (never a bare relative path). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
@@ -521,7 +552,7 @@ Summary:
 
      Before exiting, collect ALL pending items from across the batch and present them to the user. This is mandatory if any items exist - never auto-exit with unreviewed items.
 
-     **Source:** `dev/local/autopilot/deferred/{batch_id}-deferred.json` (single source of truth - all items were written here at Phase 9 step 5 of each PRD). Contains four item types:
+     **Source:** `dev/local/autopilot/deferred/{batch_id}-deferred.json` (single source of truth - all items were written here at Phase 9 step 6 of each PRD). Contains four item types:
      - `deferred_decision` - issues that failed research or were deferred for other reasons
      - `doubt` - unresolved findings from doubt review
      - `doubt-overflow` - FIX/VERIFY items deferred when doubt review found >5 issues (present under UNRESOLVED DOUBTS)
@@ -570,7 +601,7 @@ Autopilot supports automatic session cycling via a signal file + Stop hook. This
 
 **Signal file:** `dev/local/autopilot/signal` — possible values:
 
-- `next` — written at Phase 3 hand-off and Phase 9 step 9 when more PRDs remain. Shell wrapper continues the loop.
+- `next` — written at Phase 3 hand-off and Phase 9 step 10 when more PRDs remain. Shell wrapper continues the loop.
 - `done` — written at the end of batch-end review. Shell wrapper exits the loop.
 - `task_aborted` — written by the model in two cases: (a) when `autopilot_context_cap_hook.py` fires on a Work-turn context-cap overrun (the hook prepares `state.stall_reason = {"stalled": "context_overrun", ...}`); or (b) when `/work` Subagent Dispatch Budget aborts a task whose assembled subagent prompt exceeded 50K after one trim pass (`/work` prepares `state.stall_reason = {"stalled": "subagent_prompt_overrun", ...}`). In both cases the writer appends to `state.task_aborts` before instructing the model to write the signal. Shell wrapper continues the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see Phase 0 step 1's replan procedure).
 
