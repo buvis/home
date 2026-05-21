@@ -47,7 +47,7 @@ PostToolUse hooks do not fire inside subagents (see `SKILL.md` "CRITICAL: One Ta
 **Procedure before every Agent dispatch:**
 
 1. Assemble the prompt string (task description + relevant file paths + test patterns + code-quality rules block + abort instruction).
-2. Measure: write the assembled prompt to `/tmp/dispatch-prompt-<task-id>.txt` (per-task filename — a fixed name collides when independent rework tasks dispatch in parallel), then check size with `wc -c /tmp/dispatch-prompt-<task-id>.txt` (pass the path as an argument — no `<` redirect).
+2. Measure: write the assembled prompt to `/tmp/dispatch-prompt-<task-id>.txt` (per-task filename — a fixed name collides when independent rework tasks dispatch in parallel), then check size with `wc -c /tmp/dispatch-prompt-<task-id>.txt` (pass the path as an argument — no `<` redirect). **Absolute path required** — relative `tmp/...` or `../../tmp/...` paths trip auto-mode's classifier and stall an unattended autopilot run on a permission prompt, even though `/tmp/**` is in `permissions.allow`. The autoMode allowlist matches the *literal* path the tool was invoked with.
 3. If the prompt exceeds 50 000 bytes:
    - Trim by removing the lowest-priority context first (large example files, full architecture docs). Re-measure.
    - If still oversized after one trim pass, abort the task. Wire the abort
