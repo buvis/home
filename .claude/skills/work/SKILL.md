@@ -89,6 +89,17 @@ The **Subagent Dispatch Budget** (50K bytes, 100K subagent-internal cap) applies
 
 At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`.
 
+Each entry carries both the routing decision (`implementor`) and, for qwen-eligible attempts, the preflight outcome (`preflight_outcome`). Sourcing rules:
+
+- **`implementor`** — `"claude"`, `"gemini"`, or `"qwen"`, reflecting what actually dispatched (NOT what the step-3 routing table initially picked):
+  - Routing table picked Gemini → `"gemini"`.
+  - Routing table picked Claude at any tier → `"claude"`.
+  - Routing table picked qwen, preflight was `"healthy"`, qwen dispatch ran → `"qwen"`.
+  - Routing table picked qwen but preflight failed and step 3 fell back to Claude at the task's original tier → `"claude"` (the Claude dispatch is what actually ran).
+- **`preflight_outcome`** — sourced from the step-3 preflight probe:
+  - For attempts on qwen-eligible tasks (`task.metadata.qwen_eligible == true` at attempt start): one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`.
+  - For attempts on non-qwen-eligible tasks (UI tasks, `opus`-tier tasks, backend tasks where `qwen_eligible` is `false` or absent): `null`.
+
 See `references/attempt-logging.md` for the entry schema, field semantics, and the atomic write procedure.
 
 ## Tool Selection
@@ -316,6 +327,8 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 
 - `"healthy"` → proceed with the qwen dispatch.
 - `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see Attempt logging section above).
+
+Record the preflight outcome for the attempt-log entry (see "Attempt logging" section above). The dispatch decision (qwen vs Claude fallback) determines `implementor`.
 
 Preflight does NOT run on Claude or Gemini dispatches.
 
