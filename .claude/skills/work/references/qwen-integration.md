@@ -114,7 +114,7 @@ Qwen narrates "all tests pass" or "implementation complete" in its final report 
 
 ### Slow dispatch
 
-Local inference is slow; a `qwen-run.sh` call can run for many minutes. The `use-qwen` skill prescribes background dispatch with `TaskOutput(task_id, block=true, timeout=600000)` (10-min wait, max two waits before treating as a hang). `references/subagent-dispatch.md` documents the same 10-min × 2 watchdog pattern for qwen helper-script dispatches.
+Local inference is slow; a `qwen-run.sh` call can run for many minutes. The `use-qwen` skill prescribes background dispatch with `TaskOutput(task_id, block=true, timeout=600000)` (10-min wait; on a still-running return, re-issue the wait once, then treat a second timeout as a hang). `references/subagent-dispatch.md` documents the same 10-min × 2 watchdog pattern for qwen helper-script dispatches.
 
 ### Wrong model loaded
 
