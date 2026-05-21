@@ -298,20 +298,19 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
-**Determine task domain** (see Tool Selection above), then:
+**Deterministic routing table.** Pick the implementor by reading the claimed task's tier (`task.metadata.model`) and qwen-eligibility flag (`task.metadata.qwen_eligible`), then cross-referencing against the "Gemini-first tasks" UI definition listed earlier in this file. No re-judging here — `qwen_eligible` is computed upstream by `/plan-tasks` (companion PRD 00032) and already encodes backend (not UI) + `haiku`/`sonnet` tier + `<=2`-files. If the field is absent (legacy plans produced before PRD 00032 landed), treat it as `false`.
 
-**For Codex tasks:**
+| Task class | Implementor | Reference |
+|------------|-------------|-----------|
+| UI / visual task (per "Gemini-first tasks" list) | Gemini if available, else Claude at the task's tier | `references/gemini-integration.md` |
+| Backend `opus` tier | Claude Opus (Agent dispatch) | — |
+| Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
+| Backend, `qwen_eligible == true`, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
+| Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=3`-file `sonnet` task → Claude Sonnet) | — |
 
-- Model: helper default (codex's own configured default, or `gpt-5.4` on the copilot fallback) unless the user specifies `-m`
-- Permissions: `-a` (auto-approve tools) for code changes
-- Prompt: `-f <file>` for non-interactive runs
-- See `references/codex-integration.md` (TDD implementation mode)
+qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
 
-**For Gemini tasks:**
-
-- Permissions: `-a` (auto-approve edit tools) for code changes
-- Prompt: `-f <file>` for non-interactive runs
-- See `references/gemini-integration.md` (TDD implementation mode)
+`use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** (≤ 50 000 bytes, abort-instruction line prepended) and the **Subagent Watchdog** — see `references/subagent-dispatch.md`.
 
 ### 4. Handle result
 
