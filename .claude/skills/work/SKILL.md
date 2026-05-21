@@ -1,6 +1,6 @@
 ---
 name: work
-description: Use when executing already-planned tasks one at a time, dispatching to Codex or Gemini and committing after each. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
+description: Use when executing already-planned tasks one at a time, dispatching the implementor (Gemini for UI, qwen or Claude for backend) and committing after each. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
 ---
 
 # Work Through Tasks
@@ -20,7 +20,7 @@ This skill runs inside an **automated autopilot loop**. The user is not watching
 
 ## CRITICAL: One Task at a Time
 
-**STOP.** Before dispatching ANY Agent/Codex/Gemini call, verify you are sending it EXACTLY ONE task. PostToolUse hooks do not fire inside subagents — batching tasks into one Agent call makes pidash show stale progress for the entire duration.
+**STOP.** Before dispatching ANY Agent or helper-script call, verify you are sending it EXACTLY ONE task. PostToolUse hooks do not fire inside subagents — batching tasks into one Agent call makes pidash show stale progress for the entire duration.
 
 **The loop runs in YOUR session (the main session), not inside a subagent:**
 
@@ -104,13 +104,16 @@ See `references/attempt-logging.md` for the entry schema, field semantics, and t
 
 ## Tool Selection
 
-Choose the right tool based on task domain:
+Pick the implementor by task domain. The deterministic routing table in step 3 below is the single source of truth — this section names the categories that table uses.
 
-| Domain | Tool | Rationale |
-|--------|------|-----------|
-| Backend, APIs, business logic | Codex | Strong at algorithms, data flow, system design |
-| Frontend, UI, visual design | Gemini | Better aesthetic judgment, visual coherence |
-| Mixed (e.g., full-stack feature) | Split task or use both sequentially |  |
+| Domain | Implementor | Rationale |
+|--------|-------------|-----------|
+| Frontend, UI, visual design (per "Gemini-first tasks" below) | Gemini via `use-gemini` | Better aesthetic judgment, visual coherence |
+| Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` | Zero token cost on `≤2`-file backend tasks the test gate keeps honest |
+| Backend, `opus` tier OR `qwen_eligible == false` OR qwen unhealthy | Claude at the task's tier (Agent dispatch) | Default backend implementor; the safety net when qwen is excluded or unavailable |
+| Mixed (e.g., full-stack feature) | Split the task | UI piece → Gemini; backend piece → qwen-or-Claude per the routing table |
+
+Codex (`use-codex`) is **not** an implementor. It appears only in the review path — see `references/codex-integration.md`.
 
 ### Gemini-first tasks
 
@@ -141,17 +144,6 @@ Before implementing, critically review this design spec.
 Suggest improvements to colors, spacing, typography, or layout.
 Challenge anything that feels generic or could be more distinctive.
 ```
-
-### Codex-first tasks
-
-Use `use-codex` skill when the task involves:
-
-- Database schemas, migrations
-- API endpoints, business logic
-- Authentication, authorization
-- Data processing, algorithms
-- Testing, CI/CD configuration
-- Backend infrastructure
 
 ## Dashboard State Sync
 
@@ -200,7 +192,7 @@ For the first available task:
 
 ### 2.5. Load project context
 
-Before dispatching to Codex/Gemini, load relevant context into the prompt:
+Before dispatching the implementor, load relevant context into the prompt:
 
 - AGENTS.md / agent_docs/ architecture docs
 - Active PRD from `dev/local/prds/wip/`
@@ -214,7 +206,7 @@ Before dispatching to Codex/Gemini, load relevant context into the prompt:
 
 Dispatch a separate agent to write tests from requirements only. This agent must NOT receive implementation hints or architecture deep-dives - only what a user of the API would know.
 
-**Tess runs as:** Claude Code subagent (Agent tool), not Codex/Gemini. It's a focused task that benefits from direct file access for reading test patterns.
+**Tess runs as:** Claude Code subagent (Agent tool), not a helper-script implementor (`use-gemini`, `use-qwen`). It's a focused task that benefits from direct file access for reading test patterns.
 
 **Skip for:** test-only, docs-only, or config-only tasks.
 
@@ -502,7 +494,7 @@ When a tool can't complete a task (timeout/complexity), split it:
 | Multiple files | One task per file |
 | Multiple features | One task per feature |
 | Large refactor | Extract → transform → cleanup |
-| Full-stack feature | Backend task (Codex) → Frontend task (Gemini) |
+| Full-stack feature | Backend task (qwen or Claude per the routing table) → Frontend task (Gemini) |
 
 ### Parallel dispatch for independent rework fixes
 
@@ -519,7 +511,7 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern.
 
 - `references/test-author-prompt.md` - Test author (Tess) prompt template
 - `references/adversarial-test-prompt.md` - Adversarial validator (Devon) prompt template
-- `references/codex-integration.md` - Codex prompt templates and patterns
+- `references/codex-integration.md` - Codex review-only usage
 - `references/gemini-integration.md` - Gemini prompt templates and patterns
 - `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Ivan prompts
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
