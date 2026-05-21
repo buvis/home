@@ -13,7 +13,7 @@ At every terminal outcome of a dispatch, append one entry to `dev/local/autopilo
 ```bash
 python3 ~/.claude/skills/run-autopilot/scripts/log_dispatch.py \
   --prd <prd> --task-id <id> --task-name <name> \
-  --dispatch-type <tess|ivan|devon|reviewer|codex|gemini> \
+  --dispatch-type <tess|ivan|devon|reviewer|codex|gemini|qwen> \
   --model <model> --outcome <outcome> \
   --duration-s <seconds> --attempt <n>
 ```
@@ -35,6 +35,9 @@ python3 ~/.claude/skills/run-autopilot/scripts/log_dispatch.py \
 | Helper-script (codex/gemini) completed | `completed` |
 | Helper-script (codex/gemini) timed out | `timeout` |
 | Helper-script (codex/gemini) hung after second wait | `hung` |
+| Helper-script (qwen) completed | `completed` |
+| Helper-script (qwen) timed out | `timeout` |
+| Helper-script (qwen) hung after second wait | `hung` |
 
 **Additive rule:** the log-append does NOT replace `state.task_aborts[]` or `state.tasks[].attempts[]` writes — both continue exactly as before. This is an additional record only.
 
@@ -96,7 +99,9 @@ Every Agent dispatch in this skill (Tess, Ivan, Devon, or the code reviewer) mus
 
 A background dispatch does **not** relax the one-task-at-a-time rule: dispatch one agent, wait for it (or its watchdog), then proceed. Never have two plan-task agents in flight at once. The watchdog converts a silent infinite block into a detectable failure that the Handle result table routes to the circuit breaker.
 
-**Helper-script dispatches** (`use-codex`/`use-gemini` helper scripts, which run as background Bash tasks) follow the same protocol: dispatch with `run_in_background: true`, then wait with `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min, the max per call) — it returns on completion or at the deadline; on a still-running return, re-issue the wait once, then treat a second timeout as a hang. Never hand-roll a `while`/`if`/`wc -c` stability loop in `Monitor` or `Bash` to detect completion: its shell control flow cannot be statically analyzed by Warden, so it prompts for approval and stalls an unattended autopilot run. At each terminal state, **dispatch-log append** (see "Dispatch-log append" above) with `dispatch_type: "codex"` or `"gemini"` and the matching outcome: `completed` on success, `timeout` on first-wait deadline, `hung` on second-wait deadline.
+**Helper-script dispatches** (`use-codex`/`use-gemini`/`use-qwen` helper scripts, which run as background Bash tasks) follow the same protocol: dispatch with `run_in_background: true`, then wait with `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min, the max per call) — it returns on completion or at the deadline; on a still-running return, re-issue the wait once, then treat a second timeout as a hang. Never hand-roll a `while`/`if`/`wc -c` stability loop in `Monitor` or `Bash` to detect completion: its shell control flow cannot be statically analyzed by Warden, so it prompts for approval and stalls an unattended autopilot run. At each terminal state, **dispatch-log append** (see "Dispatch-log append" above) with `dispatch_type: "codex"`, `"gemini"`, or `"qwen"` and the matching outcome: `completed` on success, `timeout` on first-wait deadline, `hung` on second-wait deadline.
+
+**qwen helper-script deadline.** qwen dispatches use the **10 min × 2 `TaskOutput`** wait pattern above — the same as `use-codex` and `use-gemini` — NOT the 15-min `Monitor` watchdog (which applies to Agent dispatches like Tess / Ivan / Devon / reviewer). The `pi` invocation that `qwen-run.sh` wraps is a Bash helper-script dispatch, so the helper-script deadline applies. Local-inference latency on a 30B-parameter qwen model can routinely exceed several minutes; the 10-min × 2 budget accommodates that without conflating it with the Agent watchdog.
 
 **Three deadlines exist, by mechanism — keep them distinct:**
 
