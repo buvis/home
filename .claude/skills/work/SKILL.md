@@ -312,6 +312,13 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 
 `use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** (≤ 50 000 bytes, abort-instruction line prepended) and the **Subagent Watchdog** — see `references/subagent-dispatch.md`.
 
+**Qwen infra preflight.** When (and only when) the routing table picks qwen, run the three-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper. The probe is fast and exists to keep an unhealthy qwen backend from silently hanging or returning garbage. Verdicts:
+
+- `"healthy"` → proceed with the qwen dispatch.
+- `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see Attempt logging section above).
+
+Preflight does NOT run on Claude or Gemini dispatches.
+
 ### 4. Handle result
 
 | Result | Action |
@@ -361,6 +368,7 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - If tests fail, dispatch Ivan again with the failure output. Never dispatch Tess to weaken tests.
+- **If the failing attempt's implementor was qwen** (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again. The max-2 retry budget below then applies to the Claude Sonnet re-dispatches. The qwen attempt does NOT consume a slot in that budget; it consumed the (single) qwen attempt.
 - **Retry prompts must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
 - Max 2 implementation retries before escalating to the user.
 - If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
