@@ -193,7 +193,7 @@ Before invoking `/work`, query `TaskList` and write the full task snapshot to `d
 
 **Include the task `id` field** — a PostToolUse hook on TaskUpdate uses it to automatically sync status changes to the dashboard. This is mandatory.
 
-**Capture `work_start_sha` before dispatching `/work`.** Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches will produce — read by Phase 9 step 1's regrouping procedure (remote guard, granularity assessment, cherry-pick rewrite). Capture happens **once per PRD, before `/work` runs**. In a multi-PRD batch each PRD overwrites the prior PRD's value at this step, so ranges never overlap.
+**Capture `work_start_sha` before dispatching `/work`.** Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches will produce — read by Phase 9 step 1's regrouping procedure (remote guard, granularity assessment, cherry-pick rewrite, conflict-safe abort). Capture happens **once per PRD, before `/work` runs**. In a multi-PRD batch each PRD overwrites the prior PRD's value at this step, so ranges never overlap.
 
 Invoke `/work` skill. It runs until all tasks complete.
 
@@ -476,7 +476,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
       ii. `git reset --hard autopilot-regroup-backup-<batch_id>-<prd-number>` to restore the original `HEAD`.
       iii. Leave the backup branch in place (do NOT delete) so the user can inspect what was attempted.
       iv. Record the outcome line `skipped: cherry-pick conflict, history left untouched`.
-      v. **Fail loud, do not retry silently.** Record the failure (via the outcome line above) and stop. Do not loop back to step 1b with a different grouping. The user investigates manually.
+      v. **Fail loud, do not retry silently.** Record the failure (via the outcome line above) and stop **regrouping** — do not loop back to step 1b with a different grouping. Phase 9 itself continues normally: control flows to step 2 with the conflict outcome line recorded, just like any other Phase 9 step 1 outcome. The user investigates the backup branch manually.
 
    After one outcome line is recorded, proceed to step 2. All subsequent Phase 9 steps operate on the post-regroup `HEAD` (which equals the original `HEAD` when any skip path fired in 1a/1b/1d, or the new regrouped `HEAD` after a successful 1c).
 
