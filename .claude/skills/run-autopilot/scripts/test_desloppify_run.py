@@ -1,14 +1,15 @@
 """Tests for desloppify_run.py.
 
 Covers the pure, schema-tolerant pieces: the `--json` event summarizer,
-the duration formatter, and `main`'s argument-error exits. The
-subprocess + heartbeat-thread orchestration is integration-level and not
-exercised here.
+the duration formatter, `_collect_qwen_task_ids`, and `main`'s
+argument-error exits. The subprocess + heartbeat-thread orchestration is
+integration-level and not exercised here.
 
 Stdlib-only unittest.
 """
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -122,6 +123,139 @@ class FmtSecsTests(unittest.TestCase):
 
     def test_exact_ten_minutes(self) -> None:
         self.assertEqual(dr._fmt_secs(600), "10m00s")
+
+
+class CollectQwenTaskIdsTests(unittest.TestCase):
+    """`_collect_qwen_task_ids` is the QWEN_TASK_IDS-hint source for the
+    batched de-slop pass — it must be honest about completed qwen attempts
+    and schema-tolerant against missing/malformed state.json."""
+
+    def _write_state(self, tmpdir: Path, state: dict) -> Path:
+        autopilot_dir = tmpdir / "autopilot"
+        autopilot_dir.mkdir()
+        (autopilot_dir / "state.json").write_text(json.dumps(state))
+        return autopilot_dir
+
+    def test_returns_empty_when_autopilot_dir_is_none(self) -> None:
+        self.assertEqual(dr._collect_qwen_task_ids(None), [])
+
+    def test_returns_empty_when_state_json_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = Path(tmp) / "autopilot"
+            autopilot_dir.mkdir()
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
+
+    def test_returns_empty_on_malformed_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = Path(tmp) / "autopilot"
+            autopilot_dir.mkdir()
+            (autopilot_dir / "state.json").write_text("{not valid json")
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
+
+    def test_collects_two_qwen_completed_task_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    {"id": "1", "attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                    {"id": "2", "attempts": [
+                        {"implementor": "claude", "outcome": "completed"},
+                    ]},
+                    {"id": "3", "attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                ],
+            })
+            self.assertEqual(
+                dr._collect_qwen_task_ids(autopilot_dir), ["1", "3"]
+            )
+
+    def test_returns_empty_when_no_qwen_completions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    {"id": "1", "attempts": [
+                        {"implementor": "claude", "outcome": "completed"},
+                    ]},
+                ],
+            })
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
+
+    def test_excludes_qwen_aborted_attempts(self) -> None:
+        """A qwen attempt that failed step 5.5 (aborted/failed outcome)
+        should NOT be in the QWEN_TASK_IDS hint — the commit range was
+        produced by the Claude Sonnet re-dispatch, not by qwen."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    {"id": "1", "attempts": [
+                        {"implementor": "qwen", "outcome": "aborted"},
+                        {"implementor": "claude", "outcome": "completed"},
+                    ]},
+                ],
+            })
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
+
+    def test_one_entry_per_task_even_with_multiple_qwen_completions(self) -> None:
+        """The break-on-match guard prevents duplicate entries for a single
+        task. Two completed qwen attempts on one task would otherwise yield
+        the same id twice and inflate the QWEN_TASK_IDS hint."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    {"id": "1", "attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                ],
+            })
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["1"])
+
+    def test_handles_null_attempts_field(self) -> None:
+        """A state where `attempts` is explicitly null (rather than absent
+        or an array) must not crash — best-effort de-slop never breaks
+        the loop."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    {"id": "1", "attempts": None},
+                    {"id": "2", "attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                ],
+            })
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["2"])
+
+    def test_skips_non_dict_task_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    "garbage",
+                    {"id": "1", "attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                    None,
+                ],
+            })
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["1"])
+
+    def test_skips_qwen_attempt_with_missing_task_id(self) -> None:
+        """A completed qwen attempt on a task with no `id` field is
+        silently dropped — the QWEN_TASK_IDS hint requires an id to scope
+        the codex pass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {
+                "tasks": [
+                    {"attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                    {"id": "2", "attempts": [
+                        {"implementor": "qwen", "outcome": "completed"},
+                    ]},
+                ],
+            })
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["2"])
 
 
 class MainArgErrorTests(unittest.TestCase):
