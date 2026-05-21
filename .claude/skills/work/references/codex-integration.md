@@ -1,99 +1,52 @@
 # Codex Integration
 
-How to invoke Codex for task implementation. Dispatch the `use-codex` helper script (`~/.claude/skills/use-codex/scripts/codex-run.sh`) - never call `codex`/`copilot` directly. The helper auto-detects its backend: the native `codex` CLI when installed, the `copilot` CLI as fallback. On the copilot backend it defaults to `gpt-5.4` (1x multiplier); on the codex backend it uses codex's own configured default. See the `use-codex` skill for the full flag reference.
+Codex is **a review tool only** in this skill — never an implementor. UI tasks route to Gemini and backend tasks route to qwen or Claude per `work` SKILL.md's deterministic routing table; Codex appears strictly in the review path.
 
-## Prompt Template
+## Where Codex is invoked today
 
-```
-Task: {task.subject}
+Codex IS currently invoked as a reviewer from `/run-autopilot` Phase 4 (PRD-level review) — specifically by `skills/review-work-completion`, which dispatches the "Bob" reviewer subagent that runs `~/.claude/skills/use-codex/scripts/codex-run.sh` against a review prompt (see `skills/review-work-completion/references/agent-invocation.md`). Codex is also the executor of the batched de-slop pass run by `skills/run-autopilot/scripts/desloppify_run.py` (a cleanup pass over the PRD's `CLEANUP_SINCE..HEAD` range). These are the two ways `/work` indirectly produces work that Codex touches.
 
-Description:
-{task.description}
+`/work` itself does not invoke Codex directly. The per-task code review at step 5.7 dispatches a Claude Agent code-reviewer, not Codex.
 
-Acceptance Criteria:
-{task.acceptance_criteria or "Complete the task as described"}
+## Invocation
 
-Architecture:
-{relevant sections from AGENTS.md or agent_docs/architecture.md}
+Codex review invocations go through the `use-codex` helper script — never through bare `codex` or `copilot` CLI calls. The helper auto-detects its backend: the native `codex` CLI when installed, the `copilot` CLI as fallback. On the copilot backend it defaults to `gpt-5.4` (1x multiplier); on the codex backend it uses codex's own configured default. See the `use-codex` skill for the full flag reference.
 
-Key invariants:
-{domain rules and boundaries from AGENTS.md or agent_docs/}
+Pass the prompt with `-f <file>` (read from temp file, avoids shell-escaping issues). Reviewers use the `-a` flag (auto-approve tools) so they can run test/lint commands as part of verification — review output is read-only against the codebase, but the reviewer still needs tool access to execute its checks.
 
-Context:
-- Working directory: {cwd}
-- Relevant files: {list files if known}
+Standard review-call shape:
 
-Instructions:
-1. Read existing code before making changes
-2. Follow existing patterns and conventions
-3. Run tests if available
-4. Keep changes minimal and focused
+```bash
+~/.claude/skills/use-codex/scripts/codex-run.sh -a -f /tmp/review-prompt.txt
 ```
 
-## Permission Modes
+The dispatch is a Bash helper-script call from the parent session, governed by the 10-min × 2 `TaskOutput` deadline documented in `references/subagent-dispatch.md` (Helper-script dispatches). It is NOT the 15-min `Monitor` watchdog (that one applies only to Agent dispatches — the implementor and the test-author subagents).
 
-These are `codex-run.sh` helper flags. Pass the prompt with `-f <file>`.
+## Prompt-template note
 
-| Task type | Flags |
-|-----------|-------|
-| Analysis only | `-f prompt.txt` (default, read-only) |
-| Code changes | `-a -f prompt.txt` (auto-approve tools) |
-| Needs network or broad access | `-y -f prompt.txt` (full permissions) |
+Review prompts live with the reviewing skill, not here:
 
-## TDD Implementation Mode (Ivan)
+- PRD-level reviewer ("Bob") prompts: `skills/review-work-completion/references/agent-prompts.md`
+- Batched de-slop prompt: `skills/run-autopilot/prompts/de-sloppify.md`
 
-When tests already exist from step 2.7, use this prompt variant instead of the standard template:
-
-```
-Failing tests exist at: {test_file_paths}
-
-Make all failing tests pass.
-
-Architecture:
-{relevant sections from AGENTS.md or agent_docs/architecture.md}
-
-Key invariants:
-{domain rules and boundaries from AGENTS.md or agent_docs/}
-
-Context:
-- Working directory: {cwd}
-- Relevant files: {list files if known}
-
-Rules:
-1. Do NOT modify test files
-2. Read the tests to understand expected behavior
-3. Implement minimal code to pass all tests
-4. Follow existing patterns and conventions
-5. Run tests after implementation to verify
-```
-
-The task's acceptance criteria prose is intentionally omitted. Tests ARE the spec.
+This file does not duplicate those templates — they belong to the consumers that own the review semantics. A skill that adds a NEW Codex-driven review path should write its own prompt template adjacent to its SKILL.md, then link back here.
 
 ## Common Issues
 
 ### Timeout
 
-The Codex agent has a context/time limit. Signs of timeout:
-- Incomplete changes
-- Missing files mentioned in plan
-- Abrupt stop mid-implementation
+Codex hit a content-time limit during a long review (e.g. a large diff, a full test-suite re-run as part of verification).
 
-**Fix**: Split task into smaller pieces.
+**Fix**: Either narrow the review scope (specify exact files instead of a sprawling commit range) or split the work into multiple smaller review passes. Never re-dispatch the same review against the same prompt on a timeout — that is the hung-helper case and routes through `references/subagent-dispatch.md` instead.
 
 ### Context exceeded
 
-Large codebases may exceed context window.
+The codebase slice the reviewer was asked to consider exceeded codex's context window.
 
-**Fix**:
-- Specify exact files to work with
-- Split into file-specific tasks
-- Use `-d <DIR>` to narrow scope
+**Fix**: Narrow scope. Pass `-d <DIR>` to constrain the working directory the reviewer can read. Trim the prompt to the specific files / commits in question rather than full architecture docs.
 
 ### Wrong approach
 
-Codex took an unexpected direction.
+The reviewer's report drifted into a redesign instead of staying behavior-focused.
 
-**Fix**:
-- Be more specific in prompt
-- Add constraints: "Do NOT create new files" or "Use existing X pattern"
-- Reference specific files: "Follow pattern in src/existing.ts"
+**Fix**: The review prompt template (in the consumer skill) should explicitly state the reviewer's scope (`flag bugs and concrete simplifications, do not propose redesigns`). If the prompt is correct and the reviewer still drifts, that is a model-fit issue and the consumer skill should consider switching the reviewer to a different backend.
