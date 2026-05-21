@@ -64,6 +64,7 @@ skipped: commits already well-grouped
 skipped: remote guard (commits already on remote)
 skipped: cherry-pick conflict, history left untouched
 skipped: work_start_sha missing
+skipped: not in a git working directory
 ```
 
 - `regrouped: N -> M commits` — granularity assessment produced a regroup plan
@@ -81,6 +82,12 @@ skipped: work_start_sha missing
   crashed before Phase 3 wrote it). The presence guard at the top of Phase 9
   step 1 skipped all sub-behaviors to avoid expanding the range to "all
   reachable commits".
+- `skipped: not in a git working directory` — `git rev-parse
+  --is-inside-work-tree` exited non-zero in the cwd. The bare-repo dotfile
+  case (e.g. `~/.buvis` work-tree at `$HOME`) is the canonical example: the
+  repo exists but bare `git` commands fail without `--git-dir=<bare>
+  --work-tree=<dir>` prefixes. The preflight check at the top of Phase 9
+  step 1 skipped all sub-behaviors.
 
 At batch completion, append:
 
