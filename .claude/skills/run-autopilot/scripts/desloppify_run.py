@@ -77,7 +77,7 @@ def _collect_qwen_task_ids(autopilot_dir: Path | None) -> list[str]:
     for task in state.get("tasks", []):
         if not isinstance(task, dict):
             continue
-        for attempt in task.get("attempts", []) or []:
+        for attempt in task.get("attempts") or []:
             if not isinstance(attempt, dict):
                 continue
             if (attempt.get("implementor") == "qwen"
