@@ -34,6 +34,7 @@ Stdlib only.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,42 @@ from _walk_up import find_autopilot_dir
 # silence with no child process is well past any normal think/tool gap.
 HEARTBEAT_SECS = 60
 IDLE_BANNER_SECS = 600
+
+
+def _collect_qwen_task_ids(autopilot_dir: Path | None) -> list[str]:
+    """Return task IDs whose `state.tasks[i].attempts[]` include a
+    qwen-implemented + completed dispatch in this PRD's state.
+
+    The de-sloppify pass uses the returned list as a hint so codex can scope
+    over qwen-implemented commit ranges (qwen has known idiom drift the
+    batched pass exists to catch). When the list is empty (no qwen
+    completions in the current PRD), the pass still runs over the full
+    `CLEANUP_SINCE..HEAD` range — the qwen scope is additive, not a filter.
+
+    Schema-tolerant: any missing/malformed state.json yields an empty list,
+    falling back to today's behavior (codex sees no `QWEN_TASK_IDS` hint).
+    """
+    if autopilot_dir is None:
+        return []
+    state_path = autopilot_dir / "state.json"
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, ValueError):
+        return []
+    qwen_ids: list[str] = []
+    for task in state.get("tasks", []):
+        if not isinstance(task, dict):
+            continue
+        for attempt in task.get("attempts", []) or []:
+            if not isinstance(attempt, dict):
+                continue
+            if (attempt.get("implementor") == "qwen"
+                    and attempt.get("outcome") == "completed"):
+                tid = task.get("id")
+                if tid is not None:
+                    qwen_ids.append(str(tid))
+                break
+    return qwen_ids
 
 
 def summarize_event(obj: object) -> tuple[str, bool]:
@@ -265,12 +302,18 @@ def main(argv: list[str]) -> int:
         cmd += ["-m", model]
     cmd.append(prompt)
 
+    qwen_ids = _collect_qwen_task_ids(log_dir)
+    env = os.environ.copy()
+    env["QWEN_TASK_IDS"] = ",".join(qwen_ids)
+    qwen_note = (f"qwen task ids: {','.join(qwen_ids)}" if qwen_ids
+                 else "no qwen-implemented tasks in this PRD")
     print(f"▸ de-sloppify: launching codex exec (model={model or 'default'}, "
-          f"sandbox={sandbox})", flush=True)
+          f"sandbox={sandbox}, {qwen_note})", flush=True)
 
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            env=env,
         )
     except OSError as exc:
         print(f"desloppify_run: failed to launch codex: {exc}",

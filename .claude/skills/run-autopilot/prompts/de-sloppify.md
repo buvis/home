@@ -8,7 +8,7 @@ Remove only real slop from the recent changes while preserving behavior. Do not 
 
 ## Task
 
-1. Read `CLEANUP_SINCE` and `AUTOPILOT_REPORT` from the environment.
+1. Read `CLEANUP_SINCE`, `AUTOPILOT_REPORT`, and `QWEN_TASK_IDS` from the environment.
 2. If `CLEANUP_SINCE` is set, inspect `git diff $CLEANUP_SINCE..HEAD --stat` and `git diff $CLEANUP_SINCE..HEAD`.
 3. If `CLEANUP_SINCE` is empty, review the most recent commits on the current branch.
 4. Review every changed file in scope against the rules below.
@@ -16,6 +16,16 @@ Remove only real slop from the recent changes while preserving behavior. Do not 
 6. Run the project’s test suite and linter/formatter using the project’s standard commands.
 7. If you changed files, commit with message: `refactor: remove slop from recent changes`
 8. Append results to the autopilot report.
+
+## qwen-implemented commit ranges
+
+`QWEN_TASK_IDS` is a comma-separated list of task IDs whose attempts include a qwen-implemented + completed dispatch in this PRD's state. Empty (or unset) → no qwen-implemented work in this PRD; behave exactly as before.
+
+When non-empty:
+
+- The qwen-implemented commit ranges within `CLEANUP_SINCE..HEAD` are in scope for the same cleanup rules as everything else — qwen has known idiom drift (over-claims completeness, under-covers multi-file tasks, occasional speculative abstractions) the batched pass exists to catch. Inspect the listed task IDs first; commit messages and the autopilot report typically reference task IDs and let you identify which commits belong to each.
+- Apply the same scope rules below to qwen commits as to any other commit. Do NOT add a separate qwen-only pass or a separate commit — there is exactly **one** batched de-slop pass per PRD regardless of task count, and Claude/Gemini-implemented commits are unchanged by this scoping (they get the same cleanup pass they have always received).
+- If you cannot determine which commits belong to a listed qwen task, treat the full `CLEANUP_SINCE..HEAD` range as in scope (today's behavior). The qwen scope is additive, not a filter.
 
 ## Scope rules
 
