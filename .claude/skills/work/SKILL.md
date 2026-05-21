@@ -72,12 +72,14 @@ Applies to **every** Agent call this skill dispatches, including follow-up dispa
 - Tess (test author, step 2.7), plus any quality-gate or Tess/Devon-round re-dispatches (step 2.8, 2.85)
 - Devon (adversarial validator, step 2.85)
 - Ivan (implementor, step 3)
-- Ivan re-dispatches on test failure (step 5.5)
+- Ivan re-dispatches on test failure (step 5.5) — see qwen carve-out below
 - Code reviewer (step 5.7)
 - Ivan fix-on-review re-dispatch (step 5.7)
 - Ivan re-dispatches on full-suite regression (step 7)
 
 If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
+
+**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), the step-5.5 re-dispatch targets **Claude Sonnet** regardless of `task.metadata.model`. This is the PRD 00031 one-shot qwen attempt budget: qwen failure escalates to Sonnet on the next attempt, with zero qwen retries. The override applies to the *first* re-dispatch only — subsequent re-dispatches within the max-2 budget at step 5.5 are Claude Sonnet too, never qwen. All non-step-5.5 Agent calls (Tess, Devon, code reviewer, step-5.7 fix, step-7 regression fix) continue to obey `task.metadata.model` with no exceptions.
 
 Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
 
@@ -373,7 +375,7 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - If tests fail, dispatch Ivan again with the failure output. Never dispatch Tess to weaken tests.
-- **If the failing attempt's implementor was qwen** (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again. The max-2 retry budget below then applies to the Claude Sonnet re-dispatches. The qwen attempt does NOT consume a slot in that budget; it consumed the (single) qwen attempt.
+- **If the failing attempt's implementor was qwen** (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again. This is the carve-out from the "Per-task model dispatch" section above: the re-dispatch tier is Sonnet, not `task.metadata.model`. The max-2 retry budget below then applies to the Claude Sonnet re-dispatches. The qwen attempt does NOT consume a slot in that budget; it consumed the (single) qwen attempt.
 - **Retry prompts must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
 - Max 2 implementation retries before escalating to the user.
 - If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
