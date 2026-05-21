@@ -79,7 +79,7 @@ Applies to **every** Agent call this skill dispatches, including follow-up dispa
 
 If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
 
-**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), the step-5.5 re-dispatch targets **Claude Sonnet** regardless of `task.metadata.model`. This is the PRD 00031 one-shot qwen attempt budget: qwen failure escalates to Sonnet on the next attempt, with zero qwen retries. The override applies to the *first* re-dispatch only — subsequent re-dispatches within the max-2 budget at step 5.5 are Claude Sonnet too, never qwen. All non-step-5.5 Agent calls (Tess, Devon, code reviewer, step-5.7 fix, step-7 regression fix) continue to obey `task.metadata.model` with no exceptions.
+**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again. This is the PRD 00031 one-shot qwen attempt budget: qwen failure escalates to Sonnet on the next attempt, with zero qwen retries, and the normal max-2 step-5.5 retry budget then runs entirely on Claude Sonnet. All non-step-5.5 Agent calls (Tess, Devon, code reviewer, step-5.7 fix, step-7 regression fix) continue to obey `task.metadata.model` with no exceptions.
 
 Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
 
