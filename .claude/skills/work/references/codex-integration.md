@@ -35,7 +35,7 @@ This file does not duplicate those templates — they belong to the consumers th
 
 ### Timeout
 
-Codex hit a content-time limit during a long review (e.g. a large diff, a full test-suite re-run as part of verification).
+Codex hit a context/time limit during a long review (e.g. a large diff, a full test-suite re-run as part of verification).
 
 **Fix**: Either narrow the review scope (specify exact files instead of a sprawling commit range) or split the work into multiple smaller review passes. Never re-dispatch the same review against the same prompt on a timeout — that is the hung-helper case and routes through `references/subagent-dispatch.md` instead.
 
