@@ -183,9 +183,11 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
 
     def test_excludes_qwen_aborted_attempts(self) -> None:
-        """A qwen attempt that failed step 5.5 (aborted/failed outcome)
-        should NOT be in the QWEN_TASK_IDS hint — the commit range was
-        produced by the Claude Sonnet re-dispatch, not by qwen."""
+        """A qwen attempt that failed step 5.5 (aborted outcome) should
+        NOT be in the QWEN_TASK_IDS hint — an aborted qwen attempt never
+        produced a commit, so there is no qwen-implemented commit range
+        for the de-slop pass to scope over (the actual commits on that
+        task came from a subsequent Claude re-dispatch instead)."""
         with tempfile.TemporaryDirectory() as tmp:
             autopilot_dir = self._write_state(Path(tmp), {
                 "tasks": [
