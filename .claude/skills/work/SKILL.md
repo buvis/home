@@ -115,6 +115,8 @@ Pick the implementor by task domain. The deterministic routing table in step 3 b
 | Backend, `opus` tier OR `qwen_eligible == false` OR qwen unhealthy | Claude at the task's tier (Agent dispatch) | Default backend implementor; the safety net when qwen is excluded or unavailable |
 | Mixed (e.g., full-stack feature) | Split the task | UI piece → Gemini; backend piece → qwen-or-Claude per the routing table |
 
+In the "Claude at the task's tier" row, the tier comes from `task.metadata.model` (`haiku` → Claude Haiku, `sonnet` → Claude Sonnet, `opus` → Claude Opus). The step-3 routing table below spells these out per row; this section is the by-domain summary, step 3 is the source-of-truth precedence ladder.
+
 Codex (`use-codex`) is **not** an implementor. It appears only in the review path — see `references/codex-integration.md`.
 
 ### Gemini-first tasks
@@ -305,15 +307,24 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 
 **Deterministic routing table.** Pick the implementor by reading the claimed task's tier (`task.metadata.model`) and qwen-eligibility flag (`task.metadata.qwen_eligible`), then cross-referencing against the "Gemini-first tasks" UI definition listed earlier in this file. No re-judging here — `qwen_eligible` is computed upstream by `/plan-tasks` (companion PRD 00032) and already encodes backend (not UI) + `haiku`/`sonnet` tier + `<=2`-files. If the field is absent (legacy plans produced before PRD 00032 landed), treat it as `false`.
 
+**Evaluation precedence (ordered).** Apply these checks in order; the first one that matches wins. The rows are written as overlapping conditions, but in practice `qwen_eligible == true` already excludes UI and `opus`, so the check order below resolves any apparent overlap deterministically:
+
+1. **UI / visual task?** (per the "Gemini-first tasks" list above) — route to Gemini.
+2. **`task.metadata.model == "opus"`?** — route to Claude Opus.
+3. **`task.metadata.qwen_eligible == true` AND qwen infra healthy?** — route to local qwen.
+4. **Otherwise** (backend at `haiku`/`sonnet` with qwen_eligible false/absent OR qwen unhealthy) — route to Claude at `task.metadata.model`.
+
 | Task class | Implementor | Reference |
 |------------|-------------|-----------|
-| UI / visual task (per "Gemini-first tasks" list) | Gemini if available, else Claude at the task's tier | `references/gemini-integration.md` |
+| UI / visual task (per "Gemini-first tasks" list) | Gemini if available, else Claude at `task.metadata.model` | `references/gemini-integration.md` |
 | Backend `opus` tier | Claude Opus (Agent dispatch) | — |
 | Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
 | Backend, `qwen_eligible == true`, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=3`-file `sonnet` task → Claude Sonnet) | — |
 
 qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
+
+**Gemini availability check.** "Gemini if available" means the `use-gemini` helper resolves AND can run a no-op probe. Concretely: `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND `mise which gemini` (or `command -v gemini`) exits 0. If either fails, fall back to Claude at `task.metadata.model` for that UI task. Treat a runtime helper-script failure (non-zero exit, no output) the same way: record the failure and re-dispatch the task to Claude at the task's tier. Cross-reference: `references/gemini-integration.md`.
 
 `use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** (≤ 50 000 bytes, abort-instruction line prepended) and the **Subagent Watchdog** — see `references/subagent-dispatch.md`.
 
