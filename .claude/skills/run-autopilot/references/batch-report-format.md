@@ -22,7 +22,7 @@ After each PRD, append a section:
 - Completed: {ISO 8601 timestamp}
 - Cycles: {n}
 - Tasks: {completed}/{total}
-- Regroup: {one of the four Regroup Outcome lines documented below}
+- Regroup: {one of the five Regroup Outcome lines documented below}
 
 ### Autonomous Decisions
 
@@ -63,6 +63,7 @@ regrouped: N -> M commits
 skipped: commits already well-grouped
 skipped: remote guard (commits already on remote)
 skipped: cherry-pick conflict, history left untouched
+skipped: work_start_sha missing
 ```
 
 - `regrouped: N -> M commits` — granularity assessment produced a regroup plan
@@ -75,6 +76,11 @@ skipped: cherry-pick conflict, history left untouched
 - `skipped: cherry-pick conflict, history left untouched` — a cherry-pick
   conflict triggered the conflict-safe abort; the backup branch restored the
   original `HEAD`.
+- `skipped: work_start_sha missing` — `state.work_start_sha` was absent or
+  empty (legacy state.json from before the field existed, or a session that
+  crashed before Phase 3 wrote it). The presence guard at the top of Phase 9
+  step 1 skipped all sub-behaviors to avoid expanding the range to "all
+  reachable commits".
 
 At batch completion, append:
 
