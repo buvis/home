@@ -511,12 +511,15 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    Observations: {any operational gotchas useful for next iteration}
    ```
    If the capsule doesn't exist yet (catchup was skipped), create a minimal one with just the Active Work section.
-9. Print per-PRD summary. Run the tier-escalation aggregator and dispatch-health aggregator first:
+9. Print per-PRD summary. Run the tier-escalation aggregator, dispatch-health aggregator, and bloat-metric aggregator first:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py
    ```
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/dispatch_health_metrics.py
+   ```
+   ```bash
+   python3 ~/.claude/skills/run-autopilot/scripts/slop_metrics.py
    ```
    Then print:
 
@@ -530,9 +533,12 @@ Summary:
 - Follow-up tasks fixed: {count}
 - {tier_escalation_metrics output, indented two spaces}
 - {dispatch_health_metrics output, indented two spaces}
+- {slop_metrics output, indented two spaces}
 ```
 
-   If either script exits non-zero or produces no output, omit its line — do not fail Phase 9.
+   If any script exits non-zero or produces no output, omit its line — do not fail Phase 9.
+
+   **Append the bloat metric block to the batch report.** After printing the per-PRD summary above, append the captured `slop_metrics.py` stdout (the `### Bloat metric` block) to `dev/local/autopilot/reports/{batch_id}-report.md` so the block lands in this PRD's section of the report (which step 7 wrote earlier in this phase). Use the Write tool to read the existing report file, append `"\n\n" + block`, and write the file back. Skip the append if `slop_metrics.py` produced no output. The block format is documented in `references/batch-report-format.md` "Bloat Metric".
 
 ### Continuation
 

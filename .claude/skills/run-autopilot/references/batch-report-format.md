@@ -48,9 +48,46 @@ After each PRD, append a section:
 | Issue | Severity | Reason |
 |-------|----------|--------|
 | Cross-PRD API consistency check | high | needs context from multiple PRDs |
+
+### Bloat metric
+
+- Net lines added: 432
+- Acceptance criteria items: 5
+- Lines per AC: 86.4
+- Median across last 5 PRDs: 38.0
+- Status: HIGH (2.3x median)
 ```
 
 Omit empty sections (e.g. if no escalated decisions, skip that table).
+
+## Bloat Metric
+
+The `### Bloat metric` block is appended to each PRD's section at Phase 9 step 9
+by `scripts/slop_metrics.py`. It reports diff size relative to the rolling
+median across recent PRDs — informational only, no auto-trigger.
+
+Fields:
+
+- **Net lines added** — `insertions - deletions` from
+  `git diff --shortstat <work_start_sha>..HEAD`.
+- **Acceptance criteria items** — count of `- [ ]` checkbox tasks under the
+  PRD's `## Implementation Phases` section.
+- **Lines per AC** — `net_lines / max(1, ac_count)`.
+- **Median across last 5 PRDs** — median of up to the 5 most-recent
+  `Lines per AC` values found in this batch report and any older
+  `*-report.md` files. `n/a` when fewer than 3 prior values exist.
+- **Status** — one of:
+  - `LOW` — ratio < 1.5x median
+  - `NORMAL` — 1.5x ≤ ratio ≤ 2.5x
+  - `HIGH` — ratio > 2.5x
+  - `INSUFFICIENT_DATA` — fewer than 3 prior values; ratio not computed
+
+When NORMAL, LOW, or HIGH, the status line includes the ratio in parentheses
+(e.g. `HIGH (2.3x median)`).
+
+The metric is a tripwire for inspection, not a gate. A HIGH status invites the
+operator to read the diff with a slop-checking eye; it does not block the
+batch or auto-trigger an extra deslop pass.
 
 ## Regroup Outcome
 
