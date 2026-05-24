@@ -259,13 +259,15 @@ Each of the following yields `qwen_eligible = false` independently:
 
 The flag is computed **from** the classifier output; it does **not** alter the classifier. Rules 1-3 above are unchanged.
 
-**Persist** the tier alongside the existing token estimate in `TaskCreate(metadata={...})`:
+**Persist** the tier and the `qwen_eligible` flag alongside the existing token estimate in `TaskCreate(metadata={...})`, e.g.:
 
 ```json
-{"estimated_tokens": 87000, "est_context_peak": 107000, "model": "sonnet"}
+{"estimated_tokens": 72000, "est_context_peak": 92000, "model": "sonnet", "qwen_eligible": true}
 ```
 
-On legacy plans created before PRD 00025, `metadata.model` is simply absent — `/work` falls back to omitting the Agent `model` parameter so subagents inherit the session model (backwards-compatible).
+`qwen_eligible` is persisted on **every** task `plan-tasks` creates. `/work` reads the field directly and does no re-judging — it routes per `qwen_eligible` + its own qwen infra preflight (see `~/.claude/skills/work/SKILL.md`).
+
+On legacy plans created before PRD 00025, `metadata.model` is simply absent — `/work` falls back to omitting the Agent `model` parameter so subagents inherit the session model (backwards-compatible). Likewise, on legacy plans created before PRD 00032, `metadata.qwen_eligible` is absent and `/work` treats it as `false` (routes to Claude at the task's tier).
 
 ### 5. Set dependencies
 
