@@ -239,6 +239,26 @@ This guarantees:
 - `default_model: haiku` is a no-op (`haiku` is already the floor of the precedence; classifier output stands as-is).
 - Rule 1's `opus` escalations are never demoted by any `default_model` value.
 
+**`qwen_eligible` computation**
+
+After Rules 1-3 produce a tier and the PRD frontmatter override (above) settles `final_tier`, compute the `qwen_eligible` boolean that `/work` (PRD 00031) reads to decide qwen routing. The formula is:
+
+```
+qwen_eligible = model in {haiku, sonnet} AND files_touched <= 2 AND task is backend (not UI)
+```
+
+- `model` is the tier produced by Rules 1-3 + override (the same value persisted as `metadata.model`).
+- `files_touched` is the per-task file count already used in step 4.5 / Rule 1 / Rule 2.
+- **UI** = the task matches the **"Gemini-first tasks"** list in `~/.claude/skills/work/SKILL.md` (colors, layouts, components, typography, animations, responsive, any user-facing surface). Anything not matching that list is **backend**. Reuse `work`'s list as the single source of truth so producer and consumer agree by construction.
+
+Each of the following yields `qwen_eligible = false` independently:
+
+- `model == "opus"` (opus tier is never qwen-eligible).
+- `files_touched >= 3` (qwen under-covers multi-file tasks).
+- The task matches the UI list (Gemini's domain, not qwen's).
+
+The flag is computed **from** the classifier output; it does **not** alter the classifier. Rules 1-3 above are unchanged.
+
 **Persist** the tier alongside the existing token estimate in `TaskCreate(metadata={...})`:
 
 ```json
