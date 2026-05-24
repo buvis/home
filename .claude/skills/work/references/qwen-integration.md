@@ -11,8 +11,8 @@ A fast three-check probe MUST run before any qwen dispatch. The probe takes one 
 The three checks, in order:
 
 1. **`pi` resolvable on PATH.** `command -v pi` exits 0. On failure: `preflight_outcome = "pi_missing"`.
-2. **llama.cpp `/v1/models` endpoint reachable.** A short-timeout HTTP GET against the configured base URL's `/v1/models` returns a 2xx response. Read the base URL from `~/.pi/agent/models.json` under the `llamacpp` provider's `baseUrl` field. On any failure (connection refused, timeout, non-2xx, missing config): `preflight_outcome = "endpoint_unreachable"`.
-3. **Configured qwen model id present in the endpoint's model list.** Parse the `/v1/models` JSON response (`data[].id`). The configured model id (read from `~/.pi/agent/models.json` under the `llamacpp` provider's `models[].id`, defaulting to `qwen3-coder-30b-a3b-q4`) must appear in that list. On absence: `preflight_outcome = "model_id_missing"`.
+2. **llama.cpp `/v1/models` endpoint reachable.** An HTTP GET against the configured base URL's `/v1/models` returns a 2xx response within **3 seconds** (a healthy local llamacpp responds in tens of ms; 3s is conservative slack for a busy laptop). Read the base URL from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.baseUrl`. On any failure (connection refused, timeout ≥ 3s, non-2xx, missing config): `preflight_outcome = "endpoint_unreachable"`.
+3. **Configured qwen model id present in the endpoint's model list.** Parse the `/v1/models` JSON response (`data[].id`). The configured model id (read from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.models[].id`, defaulting to `qwen3-coder-30b-a3b-q4`) must appear in that list. On absence: `preflight_outcome = "model_id_missing"`.
 
 **Inputs**: PATH, the llama.cpp server endpoint (from `~/.pi/agent/models.json`'s `baseUrl`), the configured qwen model id (from the same file's `models[].id` — reused from the `use-qwen` skill's prerequisites).
 

@@ -183,11 +183,18 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
 
     def test_excludes_qwen_aborted_attempts(self) -> None:
-        """A qwen attempt that failed step 5.5 (aborted outcome) should
-        NOT be in the QWEN_TASK_IDS hint — an aborted qwen attempt never
-        produced a commit, so there is no qwen-implemented commit range
-        for the de-slop pass to scope over (the actual commits on that
-        task came from a subsequent Claude re-dispatch instead)."""
+        """A qwen attempt with outcome=aborted is excluded from the
+        QWEN_TASK_IDS hint by the outcome=="completed" filter.
+
+        Note: step 5 (commit) precedes step 5.5 (verify) in the work
+        skill, so an aborted qwen pass CAN leave a qwen-authored commit
+        in HEAD. The exclusion is still correct via additive scope —
+        the de-slop pass scans the full `CLEANUP_SINCE..HEAD` diff so no
+        commit slips through; the hint just doesn't flag this task for
+        special qwen attention. Aborted qwen entries always sit beside
+        a successful Phase-6 rework entry (Claude) on the same task, so
+        the cleanup of any residual qwen code still happens via the
+        diff-wide pass."""
         with tempfile.TemporaryDirectory() as tmp:
             autopilot_dir = self._write_state(Path(tmp), {
                 "tasks": [
@@ -213,6 +220,14 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
                 ],
             })
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["1"])
+
+    def test_handles_null_tasks_field(self) -> None:
+        """A state where the top-level `tasks` key is explicitly null
+        (rather than absent or an array) must not crash — best-effort
+        de-slop never breaks the loop, and JSON permits null at any key."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = self._write_state(Path(tmp), {"tasks": None})
+            self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
 
     def test_handles_null_attempts_field(self) -> None:
         """A state where `attempts` is explicitly null (rather than absent
