@@ -526,6 +526,7 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern.
 - `references/adversarial-test-prompt.md` - Adversarial validator (Devon) prompt template
 - `references/codex-integration.md` - Codex review-only usage
 - `references/gemini-integration.md` - Gemini prompt templates and patterns
+- `references/qwen-integration.md` - qwen dispatch + three-check preflight protocol
 - `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Ivan prompts
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
 - `references/subagent-dispatch.md` - Dispatch Budget + Watchdog: how to safely make an Agent call
