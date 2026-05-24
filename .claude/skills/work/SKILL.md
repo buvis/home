@@ -393,6 +393,46 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
 
 **Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
 
+### 5.6. Self-deslop pre-commit pass
+
+After step 5.5's tests pass and BEFORE the per-task code review at step 5.7, dispatch a fresh subagent to prune slop from the implementor's diff. The per-task review then runs against the leaner diff, which means review-rework cycles add defensive fixes on top of a smaller base. Best-effort: this step never blocks the task and never triggers retries.
+
+**Skip rule.** Measure the implementor's most recent commit:
+
+```bash
+git diff --shortstat HEAD~1..HEAD
+```
+```bash
+git diff-tree --no-commit-id --name-only -r HEAD
+```
+
+Compute `net_lines = insertions - deletions` (from `--shortstat`) and `file_count` (lines from `diff-tree`). If `net_lines < 30` OR `file_count < 2`, skip the dispatch — the cleanup overhead exceeds the slop budget for trivially small changes. Record `self_deslop: "skipped:trivial"` on the latest attempt (see "Outcome logging" below) and proceed directly to step 5.7.
+
+**Dispatch contract.** Otherwise, dispatch a **fresh** Agent call (NOT the implementor's session — fresh context breaks the "I built this" attachment that biases same-session self-reviews) at `task.metadata.model`. Same tier as the implementor keeps cost proportional. The dispatch must satisfy the **Subagent Dispatch Budget** (≤ 50K bytes, abort-instruction line prepended) and the **Subagent Watchdog** (15-minute timeout via `Monitor`, `TaskStop` on timeout) — see `references/subagent-dispatch.md`.
+
+**Prompt construction.** Build the subagent prompt from `references/self-deslop-prompt.md` by substituting:
+
+- `{{task_subject}}`, `{{task_description}}`, `{{task_acceptance_criteria}}` from `TaskGet` on the current task.
+- `{{test_files}}` from the tests Tess wrote in step 2.7 (the same set step 5.5 just ran).
+- `{{diff_files}}` from `git diff-tree --no-commit-id --name-only -r HEAD`.
+- `{{slop_catalog}}` from the `## What to remove` section of `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` — read the file at dispatch time and inline the section verbatim. This keeps the deslop prompt as the single source of truth for slop patterns; when it grows entries, the next step-5.6 dispatch picks them up without a code change here.
+
+**Outcome logging.** Write the result to `state.tasks[i].attempts[-1].self_deslop` (the most recent attempt entry, written by step 6's Attempt logging):
+
+| Subagent outcome | `self_deslop` value | Proceed to 5.7 against |
+|------------------|---------------------|------------------------|
+| Committed `chore: prune slop from ...` | `"committed:{sha}"` (full SHA from the new commit) | the pruned diff (HEAD now includes the cleanup commit) |
+| Returned "no slop found", no commit | `"noop"` | the original implementor diff |
+| Watchdog timeout (`TaskStop` fired) | `"timeout"` | the original implementor diff |
+| Dispatch failed or subagent errored | `"errored:{short_cause}"` (e.g. `errored:dispatch_failed`, `errored:prompt_overrun`) | the original implementor diff |
+| Skip rule fired | `"skipped:trivial"` (no dispatch occurred) | the original implementor diff |
+
+In every non-committed outcome, the implementor's original commit stands and step 5.7 reviews it directly. **Do not retry self-deslop on failure** — best-effort means single attempt only.
+
+**Why a fresh dispatch, not extending Ivan's prompt.** Ivan's prompt already injects the code-quality rules block (`references/code-quality-principles.md`). Adding "after passing tests, prune your diff" to the same prompt is cheap but ineffective: same model + same session + "this is my work" attachment defeats slop detection. Empirically, models defend their own output. A separate dispatch with task-as-external framing breaks that loop while staying at the same tier budget.
+
+**Cross-references:** `references/self-deslop-prompt.md` (the template), `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` (the slop catalog), `~/.claude/skills/run-autopilot/references/state-schema.md` (`tasks[].attempts[].self_deslop` field).
+
 ### 5.7. Per-task code review (if superpowers available)
 
 If `superpowers:requesting-code-review` is in the available skills list, dispatch a code review after commit and verification:
@@ -531,3 +571,4 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern.
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
 - `references/subagent-dispatch.md` - Dispatch Budget + Watchdog: how to safely make an Agent call
 - `references/attempt-logging.md` - `state.tasks[].attempts[]` entry schema and write procedure
+- `references/self-deslop-prompt.md` - Step 5.6 prompt template (placeholders + `{{slop_catalog}}` substitution)
