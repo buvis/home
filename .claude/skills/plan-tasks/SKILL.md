@@ -262,6 +262,7 @@ Output:
 - Total tasks created
 - Execution order (phases)
 - Any PRD ambiguities needing clarification
+- **Irreducible-coupling reports**: for every `>=3`-file backend task kept whole because step 4.6's eligibility trigger judged it not cleanly separable, report the task and the coupling. The task will route to Claude (not qwen) at its tier — surface why so the planner sees the routing consequence rather than the task being silently kept whole.
 
 ## Granularity Guide
 
