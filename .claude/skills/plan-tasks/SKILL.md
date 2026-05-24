@@ -35,10 +35,10 @@ Before reading the PRD, check for `dev/local/autopilot/replan-context.md`. If pr
 
 When `replan-context.md` exists:
 
-1. Read it. The file lists completed-work entries (tasks already done, code already shipped — do NOT re-plan these) and an aborted task (the trigger).
-2. Use a **per-task budget of 75 000 tokens** (half the standard 150K) for the rest of this invocation. Treat 75K as the hard threshold in step 4.6's split logic, not 150K.
+1. Read it. The file lists completed-work entries (tasks already done, code already shipped — do NOT re-plan these), an aborted task (the trigger), and a `Budget:` line.
+2. Read the `Budget: {n} tokens per task` line from the file. Use that value as the per-task budget for the rest of this invocation — treat it as the hard threshold in step 4.6's split logic, not 150K. If the line is absent, fall back to 75 000.
 3. Treat the PRD scope as "everything the PRD asks for **minus** the completed-work entries." When analyzing the PRD in step 3 and decomposing in step 4, skip capabilities already listed under "Completed work" in `replan-context.md`.
-4. After all `TaskCreate` calls in step 4 succeed (planning completes without stalling), delete `replan-context.md` — it's consumed. Do NOT delete on stall — autopilot's loop guard relies on the file being present to recognize the second-attempt replan as a retry of the same recovery.
+4. After all `TaskCreate` calls in step 4 succeed (planning completes without stalling), delete `replan-context.md` — it's consumed. Do NOT delete on stall.
 
 When `replan-context.md` is absent → normal first-pass planning. Use the 150K threshold.
 
@@ -71,12 +71,33 @@ Location: {file paths or how to find them}
 
 Reuse: {existing patterns, utilities, or modules to build on — if any}
 
+Contract (verbatim from PRD — copy exact names, do NOT paraphrase):
+- {every exact field name, enum value, type shape, API signature, file/hook
+   kind, and threshold the PRD specifies for this task}
+
 Details:
 - {specific requirement 1}
 - {specific requirement 2}
 
+Acceptance criteria:
+- {the PRD's per-task "Acceptance:" clause(s), copied verbatim}
+
 Verify: {how to confirm it's done}
 ```
+
+**The `Contract` and `Acceptance criteria` sections are mandatory and must be
+copied verbatim from the PRD — never paraphrased, never summarized.** `/work`
+hands each task to a test author (Tess) who writes tests *from the task
+description alone*, having never seen the PRD. If the task says "write the
+atlas JSON" instead of naming the exact keys (`head_sha`, `surveyed_at`,
+`error_style`, …), Tess invents a plausible-but-wrong schema, the implementer
+builds to those tests, and TDD locks in the wrong contract — a self-consistent
+failure that only surfaces at the PRD-level review, after every task is "done".
+When the PRD pins a name, an enum value, a type, a file kind ("Stop hook" vs
+"PostToolUse hook"), or a numeric threshold, that exact string goes into the
+task. This is what the "Unambiguous" and "Self-contained" task qualities above
+mean in practice. If the PRD itself is vague on a contract the task needs,
+surface it in step 6 as an ambiguity — do not let the implementer guess.
 
 ### 4.5. Estimate per-task context budget
 
@@ -96,7 +117,7 @@ estimated_tokens = sum(file_bytes/4 for file in task.files_touched)
 - `plan_text_bytes`: bytes of the task's own description/details.
 - `30000`: overhead constant for system prompt + tool defs + skill texts at Sonnet 4.6.
 
-**Threshold:** 150 000 tokens (or 75 000 in replan mode — see step 2.5). `est_context_peak = estimated_tokens + 20000` (20K headroom for response generation).
+**Threshold:** 150 000 tokens normally; in replan mode, the value from `replan-context.md`'s `Budget:` line (step 2.5). `est_context_peak = estimated_tokens + 20000` (20K headroom for response generation).
 
 **Persist** both values in the task's `TaskCreate(metadata={...})` field:
 
@@ -118,9 +139,16 @@ est_context_peak    = 72 000 + 20 000           =  92 000
 
 Below the 150K threshold → task ships as-is.
 
-### 4.6. Split oversized tasks
+### 4.6. Split tasks
 
-When `estimated_tokens > THRESHOLD` (150K normally, 75K in replan mode per step 2.5), split:
+Step 4.6 has **two independent split triggers**. The existing context-budget trigger is unchanged; the eligibility trigger is new (PRD 00032) and pushes separable backend work toward the `<=2`-file shape that `/work` can route to qwen.
+
+- **Context-budget trigger** (always active): when `estimated_tokens > THRESHOLD` (150K normally; replan-context.md budget in replan mode), the task is too big for a single context window.
+- **Eligibility trigger** (infra-gated, see the qwen infra preflight subsection below): a **backend** task touching `>=3` files is split toward `<=2`-file pieces so each subtask can route to qwen. The split is valid only when **cleanly separable** — judged from the PRD's Functional Decomposition and Dependency Graph, with each resulting piece required to independently compile and carry its own passing tests (no piece depends on a symbol another piece introduces).
+
+When **both** triggers apply to the same task, a **single split pass** satisfies both — do not run two passes. After splitting, each subtask is re-estimated per step 4.5.
+
+The existing context-budget split mechanics, the one-split-attempt rule, and the stall behavior below are **unchanged** by the eligibility trigger — both triggers share them:
 
 1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 30K overhead applies once per task. Re-estimate each subtask.
 2. **Capability boundary second.** If a task touches only one file and still exceeds the threshold, split along capability boundaries inside the PRD's Functional Decomposition section.
