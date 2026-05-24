@@ -98,7 +98,7 @@ Each entry carries both the routing decision (`implementor`) and, for qwen-eligi
   - Routing table picked Claude at any tier → `"claude"`.
   - Routing table picked qwen, preflight was `"healthy"`, qwen dispatch ran → `"qwen"`.
   - Routing table picked qwen but preflight failed and step 3 fell back to Claude at the task's original tier → `"claude"` (the Claude dispatch is what actually ran).
-- **`preflight_outcome`** — sourced from the step-3 preflight probe:
+- **`preflight_outcome`** — sourced from the step-3 preflight probe. Always written explicitly — never omit the key. For non-qwen attempts write the literal JSON `null`; do not drop the field from the entry.
   - For attempts on qwen-eligible tasks (`task.metadata.qwen_eligible == true` at attempt start): one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`.
   - For attempts on non-qwen-eligible tasks (UI tasks, `opus`-tier tasks, backend tasks where `qwen_eligible` is `false` or absent): `null`.
 
