@@ -148,6 +148,15 @@ Step 4.6 has **two independent split triggers**. The existing context-budget tri
 
 When **both** triggers apply to the same task, a **single split pass** satisfies both — do not run two passes. After splitting, each subtask is re-estimated per step 4.5.
 
+**Qwen infra preflight (gates the eligibility trigger only):**
+
+Before applying the eligibility split trigger, `plan-tasks` runs the qwen infra preflight — the three-check probe (`pi` on PATH, llama.cpp `/v1/models` reachable, configured qwen model id present) defined in `~/.claude/skills/work/references/qwen-integration.md` (PRD 00031). The probe is fast; it exists so the eligibility split is only paid for when qwen can actually consume the result.
+
+- **Healthy** → the eligibility trigger is active for this PRD's tasks.
+- **Unhealthy, or the probe is unavailable because PRD 00031 has not yet landed** (e.g. `~/.claude/skills/work/references/qwen-integration.md` is absent, `pi` is missing, the llama.cpp endpoint is unreachable, or the configured model id is absent from the served list) → the eligibility trigger is **skipped entirely**; tasks keep their original shape and route to Claude.
+
+The **context-budget trigger is not gated** by the preflight and remains active regardless of qwen's status. The **step-4.7 `qwen_eligible` computation is not gated** either — it is always computed and persisted on every task (staying inert until `work` reads it).
+
 The existing context-budget split mechanics, the one-split-attempt rule, and the stall behavior below are **unchanged** by the eligibility trigger — both triggers share them:
 
 1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 30K overhead applies once per task. Re-estimate each subtask.
