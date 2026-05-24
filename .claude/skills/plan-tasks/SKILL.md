@@ -157,6 +157,12 @@ Before applying the eligibility split trigger, `plan-tasks` runs the qwen infra 
 
 The **context-budget trigger is not gated** by the preflight and remains active regardless of qwen's status. The **step-4.7 `qwen_eligible` computation is not gated** either — it is always computed and persisted on every task (staying inert until `work` reads it).
 
+**Opus-signal exemption (skips the eligibility trigger only):**
+
+A task whose text carries an opus signal is **not split for eligibility**. The opus-signal set is **not redefined here** — step 4.6 reuses the exact signal list **defined by step 4.7 Rule 1**, as a single source of truth: if Rule 1's signal list changes, step 4.6 inherits the change automatically because it references rather than copies it.
+
+This check is a **plain text scan** of the task title + description against Rule 1's signal phrases (lowercased, per Rule 1's case-insensitivity note); it does **not** require running the full step-4.7 classifier. A match short-circuits the eligibility trigger and the task keeps its original shape. The context-budget trigger is unaffected — an opus-signal task that also exceeds the context budget is still split for that reason.
+
 The existing context-budget split mechanics, the one-split-attempt rule, and the stall behavior below are **unchanged** by the eligibility trigger — both triggers share them:
 
 1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 30K overhead applies once per task. Re-estimate each subtask.
