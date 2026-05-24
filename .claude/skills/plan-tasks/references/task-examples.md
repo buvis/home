@@ -97,6 +97,55 @@ Fix: Lowercase email before lookup in findUserByEmail()
 Verify: Can login with any case variation of registered email
 ```
 
+## Example 5: Separable vs Coupled Splits (Step 4.6 Eligibility Trigger)
+
+Step 4.6's eligibility trigger splits a backend task touching `>=3` files toward `<=2`-file pieces — **only when cleanly separable**. The judgment is read off the PRD's Functional Decomposition and Dependency Graph, with a hard floor that each resulting piece must independently compile and carry its own passing tests. The two examples below show one task that splits and one that must stay whole.
+
+### Separable — splits into `<=2`-file pieces
+
+Task as originally planned:
+
+```
+Add cache metrics + LRU eviction + invalidation hooks to the cache layer
+
+Location: src/cache/metrics.rs (new), src/cache/lru.rs, src/cache/invalidation.rs, src/cache/mod.rs
+
+Files touched: 4 (backend, sonnet tier)
+```
+
+Functional Decomposition signals (from the PRD):
+- **Capability A: Cache observability** — owns `metrics.rs`. Distinct feature; no other capability lists `metrics.rs`.
+- **Capability B: Cache eviction policy** — owns `lru.rs`. Distinct feature.
+- **Capability C: Cache invalidation hooks** — owns `invalidation.rs` and an additive entry in `mod.rs`.
+
+Dependency Graph signals: A, B, C all listed as **independent leaves** (no `depends on:` arrows between them). Each capability's tests live alongside its own file.
+
+Verdict — **separable**. Step 4.6 splits into:
+
+- Subtask 1 (`<=2` files): `metrics.rs` + the `mod.rs` re-export it needs — Capability A.
+- Subtask 2 (1 file): `lru.rs` — Capability B.
+- Subtask 3 (1 file): `invalidation.rs` — Capability C.
+
+Each subtask compiles standalone, ships its own tests, and routes to qwen. The original task is replaced by the three subtasks.
+
+### Coupled — stays whole, routes to Claude
+
+Task as originally planned:
+
+```
+Introduce the Storage trait and migrate FileStorage and S3Storage to implement it
+
+Location: src/storage/mod.rs (Storage trait, new), src/storage/file.rs, src/storage/s3.rs
+
+Files touched: 3 (backend, sonnet tier)
+```
+
+Functional Decomposition signal (from the PRD): a **single capability** ("Storage abstraction") owns all three files. There is no second capability to split along.
+
+Dependency Graph signal: `file.rs` and `s3.rs` both list `mod.rs` as a `depends on:` source — they implement the `Storage` trait the new `mod.rs` defines. The trait cannot be split from its implementations: shipping `file.rs`'s `impl Storage` without `mod.rs`'s `trait Storage` leaves the build red between commits (no such trait to implement).
+
+Verdict — **not cleanly separable**. Step 4.6 keeps the task whole and step 6 reports it under irreducible-coupling. The task routes to Claude at its tier (sonnet), not qwen.
+
 ## Task Size Guidelines
 
 | Scope | Task count |
