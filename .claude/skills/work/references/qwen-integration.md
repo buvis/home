@@ -22,6 +22,17 @@ The three checks, in order:
 
 The preflight runs once per task attempt. It does NOT run on Claude or Gemini dispatches.
 
+## One-shot attempt budget — and why it always escalates to Sonnet
+
+A qwen-routed task gets exactly one qwen attempt. If qwen's output fails the step-5.5 per-task test gate, the re-dispatch targets **Claude Sonnet** regardless of the task's original tier (`haiku` → Sonnet, `sonnet` → Sonnet). qwen never re-runs for the same task.
+
+The fixed-Sonnet target is intentional and asymmetric vs. the **preflight-failure** fallback (which keeps the original tier: `haiku` → Haiku, `sonnet` → Sonnet). Two different failure shapes, two different recoveries:
+
+- **Preflight failure** is an *infrastructure* signal — qwen was unreachable, missing a model, or had no resolvable `pi`. The task itself was never attempted; nothing observable suggests the task is harder than its plan-time tier said. Preserve the tier the planner picked.
+- **Step-5.5 gate failure after a qwen attempt** is a *correctness* signal — qwen produced code that did not pass the tests Tess wrote. The empirical evidence from this attempt says the task is harder than its qwen-eligible classification implied (qwen-eligible = `≤2`-file + `haiku`/`sonnet`). A retry at the same tier on the same model family would be cheap but risk under-powering the retry; Sonnet is the conservative floor that any qwen-eligible task can re-run at. Escalating from `haiku` to `sonnet` here is the price of having tried qwen in the first place.
+
+The normal max-2 step-5.5 retry budget then applies to the Sonnet re-dispatches (not qwen). The qwen attempt does NOT consume a slot in that budget — it consumed the (single) qwen attempt instead.
+
 ## Prompt Template
 
 ```
