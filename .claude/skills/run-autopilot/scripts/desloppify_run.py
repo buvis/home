@@ -74,7 +74,10 @@ def _collect_qwen_task_ids(autopilot_dir: Path | None) -> list[str]:
     except (OSError, ValueError):
         return []
     qwen_ids: list[str] = []
-    for task in state.get("tasks", []):
+    # `state.get("tasks", [])` returns None when the JSON key is present
+    # with a null value; `or []` collapses that to an iterable. Same
+    # defensive pattern as `task.get("attempts") or []` below.
+    for task in state.get("tasks") or []:
         if not isinstance(task, dict):
             continue
         for attempt in task.get("attempts") or []:
