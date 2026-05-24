@@ -13,6 +13,20 @@ Answer each question honestly. Do not defend earlier work. Silence on a question
 
 If you found fewer than 3 doubts total, you are not looking hard enough. Go back and scrutinize more carefully.
 
+## Phase 1.5: Slop check
+
+Phase 1 catches correctness doubts — gaps, edge cases, broken assumptions. Phase 1.5 catches aesthetic and structural slop that passes every functional gate. A correct-but-bloated implementation still wastes the reader's time. Answer each question on your diff:
+
+1. **Bloat ratio**: compare your diff size (net lines added) to the acceptance-criteria word count. If your diff is 5-10x larger than the spec suggests, name the bloat as a doubt — quote the specific module/function and how much smaller it should be.
+2. **Defensive impossibility**: is any error handling, validation, or guard clause responding to a state that cannot occur from the current control flow? Name each one as a doubt (file:line + the impossible state).
+3. **Single-caller abstraction**: is any helper, interface, factory, builder, or layer of indirection used from exactly one call site, with no current testability or architectural justification? Name each one (the abstraction's definition + the single caller).
+4. **Comment paraphrasing**: do any comments restate the code on the next line instead of explaining why? Name each one (file:line). Multi-paragraph docstrings on trivial functions count.
+5. **Framework-verification tests**: do any tests verify the language/library/framework rather than your code's behavior? Mock-confirming tests (only assertion is `mock.assert_called_with(...)`), existence checks, snapshot tests where shape is not the contract — name each.
+
+If you found fewer than 2 slop items in a non-trivial change (>30 net lines, >1 file touched), you are not looking hard enough. Re-read the diff with the lens of "what would the most minimal correct version look like?" and try again.
+
+Slop items flow through Phase 2 classification (FIX / VERIFY / KNOWN) and Phase 3 actions like any other doubt — no separate handling.
+
 ## Phase 2: Classify each doubt
 
 For every doubt surfaced above, classify it:
