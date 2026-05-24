@@ -664,6 +664,12 @@ done
 
 Without the hook, sessions remain interactive but require manual exit (Ctrl+D) between PRDs. The shell loop still handles restart.
 
+### Batched de-slop pass
+
+The qwen-tagged batched de-slop pass (PRD 00031) is **invoked from the `autoclaude` shell wrapper between sessions**, not from any phase inside this skill. After each `claude` call returns, the wrapper compares `git rev-parse HEAD` against the session-start SHA; if HEAD moved, it runs `scripts/desloppify_run.py` over `CLEANUP_SINCE..HEAD` (with `_collect_qwen_task_ids` reading `state.tasks[].attempts[]` to ensure qwen commit ranges are covered).
+
+Phase 9 deliberately does NOT invoke `desloppify_run.py` — the shell-wrapper invocation is the single source of truth. Adding a Phase 9 invocation would cause the pass to run twice (once before the Phase 9 signal exit, once after when the wrapper sees HEAD moved). If you are checking whether de-slop is wired up, look in `~/.config/bash/plugins/development.plugin.bash` (the `autoclaude` function), not here.
+
 ## Shell Command Rules
 
 - **Never chain commands** with `&&`, `|`, or `;` in a single Bash call. Use separate Bash tool calls instead.
