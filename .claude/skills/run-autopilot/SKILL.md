@@ -408,7 +408,9 @@ The fresh session reads `dev/local/autopilot/state.json` (`"blind-review"` in `p
 
 **Skip if:** `"doubt-review"` in `phases_completed` in state file.
 
-Final sanity check before completion. Invoke `/review-with-doubt`.
+**Apply the doubt-review rubric.** This phase applies the numbered rubric at `references/doubt-review-rubric.md`. The rubric's content MUST be embedded inline into the `/review-with-doubt` invocation context (it cannot be referenced as a path — the doubt review runs in a subagent that receives a self-contained prompt). The doubt-review output MUST record `R{n}: pass|fail` for every rule in the rubric — one rule per line, no other text on the line, no rationale. A rule the reviewer cannot evaluate counts as `fail`; never omit the line. Rule IDs are stable; do not renumber.
+
+Final sanity check before completion. Invoke `/review-with-doubt` with the rubric content inlined as additional context. Require the doubt-review output to include the per-rule verdict block (`R{n}: pass|fail` lines) alongside the existing FIX/VERIFY/KNOWN categorization.
 
 The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope).
 
@@ -441,7 +443,8 @@ After classifying all items:
 2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
 3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
-5. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks).
+5. Record per-rule verdicts. Read the `R{n}: pass|fail` block from the doubt-review output and append it to `state.doubts_rubric_verdicts` as an array of `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` objects. Every rubric rule must have an entry. The downstream coverage parser (PRD 00038's `review_coverage.py`) reads these verdicts from the raw doubt-review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
+6. Update state: add `"doubt-review"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks).
 
 KNOWN items keep `"status": "pending"` — Phase 9 step 6 collects these into the batch deferred log for batch-end review.
 
