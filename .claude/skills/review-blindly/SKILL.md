@@ -19,6 +19,8 @@ Extract the original requirements. This is the ONLY narrative context the review
 
 Also load the numbered blind-review rubric from `references/rubric.md`. Its contents will be embedded inline into the reviewer's prompt (see Step 2). The rubric is spec-only by design — it does NOT introduce implementation context. Inline embedding (not a file reference) is REQUIRED because the blind reviewer is dispatched with a self-contained prompt and cannot resolve relative paths.
 
+**Template substitution.** Step 2's prompt block uses the placeholder `{contents of references/rubric.md}`. When assembling the dispatch, read `references/rubric.md` and substitute its full file contents at that placeholder. The rubric file is the single source of truth — never copy the rules into this SKILL.md.
+
 ### Step 2: Dispatch Blind Reviewer
 
 Pin the reviewer to Sonnet for model diversity — different family from the typical Opus implementer breaks shared priors and gives you actual independence rather than narrative-only blindness.
@@ -38,61 +40,7 @@ Task tool (general-purpose):
 
     ## The Rubric (binary pass/fail rules, spec-only)
 
-    # Review-Blindly Rubric
-
-    This rubric provides binary pass/fail criteria for the spec-only hostile audit performed by the review-blindly skill. The reviewer's prompt contains ONLY the PRD — no diff, no file list, no implementation summary, no implementer self-review. The reviewer must independently locate and read the relevant code to evaluate each rule against the spec.
-
-    ## Rules
-
-    ### Spec Compliance
-
-    R1: The implementation satisfies all specified behaviors and outputs described in the PRD.
-
-    R2: All stated data formats and structures in the PRD are preserved in the implementation.
-
-    R3: Every API endpoint or interface specified in the PRD is implemented with the correct signature and behavior.
-
-    R4: All stated performance requirements and constraints from the PRD are met.
-
-    R5: The implementation matches all specified error handling behaviors and status codes.
-
-    ### Scope Creep
-
-    R6: No new functionality or features beyond those explicitly specified in the PRD are present.
-
-    R7: No additional parameters, options, or flags are added beyond those in the PRD.
-
-    R8: No new external dependencies or libraries are introduced beyond those specified.
-
-    ### Security
-
-    R9: All specified authentication mechanisms from the PRD are implemented and enforced.
-
-    R10: Required input validation and sanitization are present as specified in the PRD.
-
-    R11: Any specified rate-limiting or throttling controls are implemented as described.
-
-    ### Data Safety
-
-    R12: No destructive operations (delete, update, etc.) are performed without proper safeguards.
-
-    R13: All data migrations include rollback or reversal mechanisms as specified.
-
-    R14: No unguarded database queries or file operations are present in the implementation.
-
-    ### Acceptance Criteria
-
-    R15: All acceptance criteria for Phase 1 tasks are satisfied in the implementation.
-
-    R16: All acceptance criteria for Phase 2 tasks are satisfied in the implementation.
-
-    R17: All acceptance criteria for Phase 3 tasks are satisfied in the implementation.
-
-    ### Out-of-Scope
-
-    R18: All items explicitly marked as out-of-scope in the PRD are absent from the implementation.
-
-    R19: No features or functionality mentioned in the PRD as out-of-scope are present in the diff.
+    {contents of references/rubric.md}
 
     ## Your Job
 
