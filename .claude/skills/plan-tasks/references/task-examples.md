@@ -133,12 +133,14 @@ Each subtask compiles standalone, ships its own tests, and routes to qwen. The o
 Task as originally planned:
 
 ```
-Introduce the Storage trait and migrate FileStorage and S3Storage to implement it
+Add Storage trait + FileStorage + S3Storage implementations
 
 Location: src/storage/mod.rs (Storage trait, new), src/storage/file.rs, src/storage/s3.rs
 
 Files touched: 3 (backend, sonnet tier)
 ```
+
+Task text contains no step-4.7 Rule 1 opus signals (`design`, `architect`, `introduce`, `novel algorithm`, `concurrency`, `migrate`, `refactor across`), so step 4.6's opus-signal exemption does **not** fire and the eligibility trigger actually evaluates clean separability — the path this example illustrates.
 
 Functional Decomposition signal (from the PRD): a **single capability** ("Storage abstraction") owns all three files. There is no second capability to split along.
 
