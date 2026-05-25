@@ -43,6 +43,15 @@ After each PRD, append a section:
 |-------|----------|--------|
 | Edge case in token refresh | medium | resolved |
 
+### Doubt Rubric Verdicts
+
+| Rule | Verdict |
+|------|---------|
+| R1 | pass |
+| R2 | fail |
+
+One row per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. Source: `state.doubts_rubric_verdicts`, written by Phase 8 step 5 from the doubt-review subagent output. This table is the autopilot-internal summary; PRD 00038's `review_coverage.py` parses the raw doubt-review output directly. Omit this section if `doubts_rubric_verdicts` is absent or empty for the PRD.
+
 ### Deferred to Batch End
 
 | Issue | Severity | Reason |
