@@ -139,7 +139,7 @@ est_context_peak    = 72 000 + 20 000           =  92 000
 
 Below the 150K threshold → task ships as-is.
 
-### 4.6. Split tasks
+### 4.6. Split tasks (context + eligibility)
 
 Step 4.6 has **two independent split triggers**. The existing context-budget trigger is unchanged; the eligibility trigger is new (PRD 00032) and pushes separable backend work toward the `<=2`-file shape that `/work` can route to qwen.
 
