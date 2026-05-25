@@ -144,7 +144,7 @@ Below the 150K threshold → task ships as-is.
 Step 4.6 has **two independent split triggers**. The existing context-budget trigger is unchanged; the eligibility trigger is new (PRD 00032) and pushes separable backend work toward the `<=2`-file shape that `/work` can route to qwen.
 
 - **Context-budget trigger** (always active): when `estimated_tokens > THRESHOLD` (150K normally; replan-context.md budget in replan mode), the task is too big for a single context window.
-- **Eligibility trigger** (infra-gated, see the qwen infra preflight subsection below): a **backend** task touching `>=3` files is split toward `<=2`-file pieces so each subtask can route to qwen. The split is valid only when **cleanly separable** — judged from the PRD's Functional Decomposition and Dependency Graph, with each resulting piece required to independently compile and carry its own passing tests (no piece depends on a symbol another piece introduces).
+- **Eligibility trigger** (infra-gated, see the qwen infra preflight subsection below): a **backend** task touching `>=3` files is split toward `<=2`-file pieces so each subtask can route to qwen. The split is valid only when **cleanly separable** — judged from the PRD's Functional Decomposition and Dependency Graph, with each resulting piece required to independently compile and carry its own passing tests (no piece depends on a symbol another piece introduces). **A trait definition cannot be split from its implementations.**
 
 When **both** triggers apply to the same task, a **single split pass** satisfies both — do not run two passes. After splitting, each subtask is re-estimated per step 4.5.
 
