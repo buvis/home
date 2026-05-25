@@ -109,6 +109,10 @@ State file location: `dev/local/autopilot/state.json`
     "catchup_head_sha": "a1b2c3d4e5f6789..."
   },
   "doubts": [],
+  "doubts_rubric_verdicts": [
+    {"rule_id": "R1", "verdict": "pass"},
+    {"rule_id": "R2", "verdict": "fail"}
+  ],
   "needs_attention": false
 }
 ```
@@ -143,6 +147,7 @@ State file location: `dev/local/autopilot/state.json`
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
 | `deferred_decisions` | object[] | Decisions requiring user input. May include optional `research` field when research was attempted but inconclusive. |
 | `doubts` | object[] | Findings from doubt review: `{"description": "...", "category": "fix\|verify\|known", "justification?": "...", "status": "pending\|resolved"}`. `justification` required for `known` items (why it can't be fixed in scope). Empty array on fresh state. |
+| `doubts_rubric_verdicts` | object[]? | Per-rule verdict block recorded by `/run-autopilot` Phase 8 step 5 from the doubt-review subagent output. Each entry: `{"rule_id": "R{n}", "verdict": "pass"\|"fail"}`. One entry per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. Written by Phase 8 step 5 after the doubt-review subagent returns; read by Phase 9 step 7 if surfaced in the batch report (the durable record lives in the raw doubt-review output, which PRD 00038's `review_coverage.py` parses directly — this state field is the autopilot-internal summary). Cleared by Phase 9 step 10 on PRD-to-PRD reset (per-PRD scope). Absent on PRDs that have not yet reached Phase 8 and on state files written before this field existed. |
 | `needs_attention` | bool | Dashboard flag. Set to `true` by `~/.claude/hooks/set-pidash-attention.py` (Notification hook for permission prompts) and cleared to `false` by `~/.claude/hooks/clear-pidash-attention.py` (PostToolUse). Not written by `/run-autopilot` directly; included here so the dashboard can read a complete state object. |
 | `batch` | object? | Tracks completed PRDs across sessions |
 | `batch.id` | string | Batch ID: `yyyymmddHHMM` timestamp of first execution |
