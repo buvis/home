@@ -140,7 +140,7 @@ Location: src/storage/mod.rs (Storage trait, new), src/storage/file.rs, src/stor
 Files touched: 3 (backend, sonnet tier)
 ```
 
-Task text contains no step-4.7 Rule 1 opus signals (`design`, `architect`, `introduce`, `novel algorithm`, `concurrency`, `migrate`, `refactor across`), so step 4.6's opus-signal exemption does **not** fire and the eligibility trigger actually evaluates clean separability — the path this example illustrates.
+Task text contains no step-4.7 Rule 1 opus signals (see Rule 1 for the canonical list), so step 4.6's opus-signal exemption does **not** fire and the eligibility trigger actually evaluates clean separability — the path this example illustrates.
 
 Functional Decomposition signal (from the PRD): a **single capability** ("Storage abstraction") owns all three files. There is no second capability to split along.
 
