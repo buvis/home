@@ -1,6 +1,6 @@
 # Review-Blindly Rubric
 
-This rubric provides binary pass/fail criteria for the spec-only hostile audit performed by the review-blindly skill. The reviewer has access only to the PRD and the implementation diff, with no additional context about how the implementation works internally. Each rule must be answered using only these two sources.
+This rubric provides binary pass/fail criteria for the spec-only hostile audit performed by the review-blindly skill. The reviewer's prompt contains ONLY the PRD — no diff, no file list, no implementation summary, no implementer self-review. The reviewer must independently locate and read the relevant code to evaluate each rule against the spec.
 
 ## Rules
 
