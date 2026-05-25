@@ -52,4 +52,4 @@ R17: All acceptance criteria for Phase 3 tasks are satisfied in the implementati
 
 R18: All items explicitly marked as out-of-scope in the PRD are absent from the implementation.
 
-R19: No features or functionality mentioned in the PRD as out-of-scope are present in the diff.
+R19: No features or functionality mentioned in the PRD as out-of-scope are present in the codebase the reviewer inspected.
