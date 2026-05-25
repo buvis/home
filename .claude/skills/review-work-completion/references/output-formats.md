@@ -3,6 +3,7 @@
 ## Contents
 
 - [Agent Output Format](#agent-output-format-single-source-of-truth)
+- [Per-Rule Verdict Format](#per-rule-verdict-format)
 - [Consolidation Rules](#consolidation-rules)
 - [Consolidated Findings Table](#consolidated-findings-table)
 - [Issue Documentation Format](#issue-documentation-format)
@@ -33,6 +34,33 @@ Each agent outputs issues in this exact format:
 [BOB] 🟠 Missing error handling strategy | File: N/A | Task: general
 [DIANA] 🟡 PRD section 2.3 not implemented | File: N/A | Task: 5
 ```
+
+## Per-Rule Verdict Format
+
+In addition to issue lines, every reviewer emits one verdict line per rule in the
+numbered rubric inlined into their prompt (see `references/rubric.md` for
+`review-work-completion`; analogous files exist for `review-blindly` and the
+`run-autopilot` Phase 8 doubt-review).
+
+Exact line shape — one rule per line, no other text on the line, no rationale:
+
+```
+R1: pass
+R2: fail
+R3: pass
+```
+
+Rule IDs (`R{n}`) are stable. Reviewers MUST answer every rule. A rule the
+reviewer cannot evaluate (insufficient context, blocked by sandbox, etc.)
+counts as a `fail` — never omit the line.
+
+> **Note:** `consolidate-findings.sh` parses only lines matching the
+> `[{AGENT}] {emoji} ... | File: ... | Task: ...` issue format and silently
+> drops everything else. So `R{n}: pass|fail` lines do NOT survive
+> consolidation into the findings table — they live only in the raw
+> per-agent output files under `dev/local/reviews/.../`. The downstream
+> coverage parser (PRD 00038's `review_coverage.py`) reads verdicts from
+> those raw outputs, not from the consolidated table.
 
 ## Consolidation Rules
 
@@ -136,7 +164,7 @@ head_sha: <git HEAD sha at review time>
 agents:
   alice: available
   bob: available
-  carl: disabled
+  carl: available
   diana: available
 ---
 
