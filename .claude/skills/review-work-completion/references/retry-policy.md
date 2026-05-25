@@ -20,8 +20,9 @@ If an agent's output doesn't match the required format:
 
 ## Per-Rule Verdict Completeness
 
-The reviewer prompt embeds a numbered rubric (see `references/rubric.md`) and mandates one `R{n}: pass|fail` line per rule. After parsing the agent's output, count the `R{n}` lines and compare against the rubric's expected rule IDs.
+The reviewer prompt embeds a numbered rubric (see `references/rubric.md`) and mandates one `R{n}: pass|fail` line per rule. After parsing the agent's output:
 
-1. If any expected `R{n}` line is missing, send one retry: "Your output is missing the per-rule verdict for {missing rule IDs}. Emit one line per rule in this exact shape: `R{n}: pass` or `R{n}: fail`. One rule per line, no other text on the line, no rationale. A rule you cannot evaluate counts as `fail` — never omit the line."
-2. If still incomplete after retry, mark each unspecified rule as `fail` in the consolidated record and note `(verdict warning: missing R{n}, ...)` next to that agent's findings in consolidation.
-3. Combined with the issue-line retry above, the **total retry budget per agent is one retry**: the same retry can ask the agent to fix both the issue-line format and the missing verdicts together when both gates fail.
+1. For each expected rule ID `R{n}`, look for a line matching the exact regex `^R{n}:\s+(pass|fail)\s*$`. A line is **incomplete** when it is absent for an expected rule ID, OR when a line for an expected rule ID exists but its value is anything other than the literal token `pass` or `fail` (e.g. `R5: ok`, `R5: maybe`, `R5: pass (some rationale)`, `R5: PASS`).
+2. If any expected rule's line is incomplete, send one retry: "Your output is missing or malformed for the per-rule verdict on {missing/malformed rule IDs}. Emit one line per rule in this exact shape: `R{n}: pass` or `R{n}: fail` — lowercase token, no extra text, no rationale, no trailing punctuation. One rule per line. A rule you cannot evaluate counts as `fail` — never omit or fudge the line."
+3. If still incomplete after retry, mark each unsatisfied rule as `fail` in the consolidated record and note `(verdict warning: missing/malformed R{n}, ...)` next to that agent's findings in consolidation.
+4. Combined with the issue-line retry above, the **total retry budget per agent is one retry**: the same retry can ask the agent to fix both the issue-line format and the missing/malformed verdicts together when both gates fail.
