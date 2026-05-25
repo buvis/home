@@ -249,7 +249,7 @@ qwen_eligible = model in {haiku, sonnet} AND files_touched <= 2 AND task is back
 
 - `model` is the tier produced by Rules 1-3 + override (the same value persisted as `metadata.model`).
 - `files_touched` is the per-task file count already used in step 4.5 / Rule 1 / Rule 2.
-- **UI** = the task matches the **"Gemini-first tasks"** list in `~/.claude/skills/work/SKILL.md` (colors, layouts, components, typography, animations, responsive, any user-facing surface). Anything not matching that list is **backend**. Reuse `work`'s list as the single source of truth so producer and consumer agree by construction.
+- **UI** = the task matches the **"Gemini-first tasks"** list in `~/.claude/skills/work/SKILL.md`. Anything not matching that list is **backend**. Reuse `work`'s list as the single source of truth so producer and consumer agree by construction — do not restate the list here; if it changes in `work`, this rule inherits the change.
 
 Each of the following yields `qwen_eligible = false` independently:
 
