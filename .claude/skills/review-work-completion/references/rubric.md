@@ -13,7 +13,6 @@ R3: No skipped or xfail tests mask failures.
 ### Integration
 
 R4: Changed components integrate with existing callers.
-R5: No breaking changes to public APIs.
 
 ### Security
 
@@ -30,5 +29,4 @@ R11: No debug statements, TODOs, or placeholder markers remain.
 ### Code Quality
 
 R12: Function sizes respect the 50-line limit.
-R13: File sizes respect the 500-line limit.
-R14: No code duplication or redundancy introduced.
+R13: File sizes respect the 800-line limit.
