@@ -617,5 +617,131 @@ class ReviewCoverageTests(unittest.TestCase):
         self.assertIn("src/bar.py", content)
 
 
+CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
+
+
+def _run_consolidate(
+    reviewer_pairs: list[str],
+    *,
+    prd: "Path | None" = None,
+    diff_range: "str | None" = None,
+    surface: "str | None" = None,
+    rubric: "Path | None" = None,
+    repo: "Path | None" = None,
+    write_aggregate: "Path | None" = None,
+) -> "subprocess.CompletedProcess[str]":
+    cmd = ["bash", str(CONSOLIDATE_SCRIPT)]
+    if prd is not None:
+        cmd += ["--prd", str(prd)]
+    if diff_range is not None:
+        cmd += ["--diff-range", diff_range]
+    if surface is not None:
+        cmd += ["--surface", surface]
+    if rubric is not None:
+        cmd += ["--rubric", str(rubric)]
+    if repo is not None:
+        cmd += ["--repo", str(repo)]
+    if write_aggregate is not None:
+        cmd += ["--write-aggregate", str(write_aggregate)]
+    cmd.extend(reviewer_pairs)
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+class TestConsolidateFindingsCoverage(unittest.TestCase):
+    """Tests for the coverage-gate wiring in consolidate-findings.sh."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+
+    def test_exits_zero_on_complete_coverage_block(self) -> None:
+        """Complete block embedded in reviewer output with coverage args -> exit 0."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+        out = self.tmp / "rev.txt"
+        out.write_text(
+            "[ALICE] 🟡 Minor | File: src/foo.py | Task: T1\n\n"
+            "---review-coverage---\n"
+            "files:\n  src/foo.py: reviewed\n  src/bar.py: reviewed\n"
+            "tests:\n  pytest: pass=3 fail=0 skip=0\n"
+            "features:\n  Alpha: verified\n  Beta: verified\n"
+            "rubric:\n  R1: pass\n  R2: pass\n  R3: pass\n"
+            "---end-review-coverage---\n"
+        )
+        result = _run_consolidate(
+            [f"ALICE:{out}"],
+            prd=prd, diff_range=base_sha, surface="work-completion", rubric=rubric, repo=repo,
+        )
+        self.assertEqual(result.returncode, 0)
+
+    def test_exits_nonzero_when_reviewer_has_no_block(self) -> None:
+        """Reviewer output with no coverage block and coverage args -> exit non-zero."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+        out = self.tmp / "rev.txt"
+        out.write_text("[ALICE] 🟡 Minor | File: src/foo.py | Task: T1\n")
+        result = _run_consolidate(
+            [f"ALICE:{out}"],
+            prd=prd, diff_range=base_sha, surface="work-completion", rubric=rubric, repo=repo,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_exits_nonzero_on_incomplete_block_missing_feature(self) -> None:
+        """Block missing PRD feature 'Beta' -> exit non-zero."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp, features=["Alpha", "Beta"])
+        rubric = _write_rubric(self.tmp)
+        out = self.tmp / "rev.txt"
+        out.write_text(
+            "---review-coverage---\n"
+            "files:\n  src/foo.py: reviewed\n  src/bar.py: reviewed\n"
+            "tests:\n  pytest: pass=3 fail=0 skip=0\n"
+            "features:\n  Alpha: verified\n"  # Beta omitted
+            "rubric:\n  R1: pass\n  R2: pass\n  R3: pass\n"
+            "---end-review-coverage---\n"
+        )
+        result = _run_consolidate(
+            [f"ALICE:{out}"],
+            prd=prd, diff_range=base_sha, surface="work-completion", rubric=rubric, repo=repo,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_writes_aggregate_file_on_pass(self) -> None:
+        """--write-aggregate + complete block -> aggregate file with coverage delimiters."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+        out = self.tmp / "rev.txt"
+        agg = self.tmp / "agg.txt"
+        out.write_text(
+            "---review-coverage---\n"
+            "files:\n  src/foo.py: reviewed\n  src/bar.py: reviewed\n"
+            "tests:\n  pytest: pass=3 fail=0 skip=0\n"
+            "features:\n  Alpha: verified\n  Beta: verified\n"
+            "rubric:\n  R1: pass\n  R2: pass\n  R3: pass\n"
+            "---end-review-coverage---\n"
+        )
+        result = _run_consolidate(
+            [f"ALICE:{out}"],
+            prd=prd, diff_range=base_sha, surface="work-completion",
+            rubric=rubric, repo=repo, write_aggregate=agg,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(agg.exists(), "aggregate file not written")
+        content = agg.read_text()
+        self.assertIn("---review-coverage---", content)
+        self.assertIn("---end-review-coverage---", content)
+
+    def test_backwards_compat_without_coverage_args(self) -> None:
+        """Without coverage args, exits 0 regardless of reviewer content."""
+        out = self.tmp / "rev.txt"
+        out.write_text("[ALICE] 🟡 Minor | File: src/foo.py | Task: T1\n")
+        result = _run_consolidate([f"ALICE:{out}"])
+        self.assertEqual(result.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
