@@ -412,6 +412,8 @@ The fresh session reads `dev/local/autopilot/state.json` (`"blind-review"` in `p
 
 Final sanity check before completion. Invoke `/review-with-doubt` with the rubric content inlined as additional context. Require the doubt-review output to include the per-rule verdict block (`R{n}: pass|fail` lines) alongside the existing FIX/VERIFY/KNOWN categorization.
 
+**Inline the coverage-block requirement.** Also pass the `---review-coverage---` block requirement (per `references/review-coverage-format.md`) as additional context into the `/review-with-doubt` invocation. The doubt-review output MUST include a `---review-coverage---` block with the `files`, `features`, and `rubric` dimensions filled (leave `tests` for the aggregate). PRD 00038's `review_coverage.py` parses this block downstream; a missing block fails the Phase 8 verdict.
+
 The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope).
 
 **Before processing any FIX/VERIFY items, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management). This guarantees subsequent `[DOUBT]` `TaskCreate` calls get ids appended after the hydrated original-plan tasks (rather than overwriting id 1 in an empty tracker).

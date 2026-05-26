@@ -17,7 +17,7 @@ Extract the original requirements. This is the ONLY narrative context the review
 
 **Do NOT include:** implementation summaries, file lists, notes about how it was built, implementer's self-review.
 
-Also load the numbered blind-review rubric from `references/rubric.md`. Its contents will be embedded inline into the reviewer's prompt (see Step 2). The rubric is spec-only by design — it does NOT introduce implementation context. Inline embedding (not a file reference) is REQUIRED because the blind reviewer is dispatched with a self-contained prompt and cannot resolve relative paths.
+Also load the numbered blind-review rubric from `references/rubric.md`. Its contents will be embedded inline into the reviewer's prompt (see Step 2). The rubric is spec-only by design — it does NOT introduce implementation context. Inline embedding (not a file reference) is REQUIRED because the blind reviewer is dispatched with a self-contained prompt and cannot resolve relative paths. Also note that the dispatched prompt embeds the `---review-coverage---` block format inline (per `references/review-coverage-format.md`); the format does NOT need to be loaded separately.
 
 **Template substitution.** Step 2's prompt block uses the placeholder `{contents of references/rubric.md}`. When assembling the dispatch, read `references/rubric.md` and substitute its full file contents at that placeholder. The rubric file is the single source of truth — never copy the rules into this SKILL.md.
 
@@ -83,6 +83,36 @@ Task tool (general-purpose):
     R{n}: fail
     ```
     One rule per line, no other text on the line, no rationale. Answer every rule — a rule you cannot evaluate (insufficient context, no implementation found, etc.) counts as `fail`; never omit the line. Rule IDs are stable; do not renumber.
+
+    ## Coverage Block (mandatory at end of output)
+
+    Emit a `---review-coverage---` block as the LAST thing in your output. Fill three dimensions: `files`, `features`, `rubric`. Leave `tests` empty (the consolidation step fills it). The `files` dimension covers files the blind reviewer inspects (since the blind reviewer must find the code itself).
+
+    Format (delimiters are EXACT strings on their own lines):
+
+    ---review-coverage---
+    files:
+      <path>: reviewed
+      <path>: n/a:<reason>
+    tests:
+      pending: filled by consolidation
+    features:
+      <feature name>: verified
+      <feature name>: reviewed
+      <feature name>: failed
+    rubric:
+      R{n}: pass
+      R{n}: fail
+    ---end-review-coverage---
+
+    Rules:
+    - `files`: one entry per diff path. Value is `reviewed` or `n/a:<reason>` (free text after the colon).
+    - `tests`: leave it as the single line `pending: filled by consolidation`. Do NOT report test counts; consolidation runs the suite and fills the aggregate.
+    - `features`: one entry per PRD `#### Feature:` heading. Value is `verified` / `reviewed` / `failed`.
+    - `rubric`: one entry per rule ID from the surface's rubric. Value is `pass` / `fail`. Lowercase only.
+    - A feature or rule you cannot evaluate counts as `failed` / `fail` — never omit the line.
+
+    Source of truth for the block format: `~/.claude/skills/review-work-completion/references/review-coverage-format.md`.
 ```
 
 ### Step 3: Act on Findings
