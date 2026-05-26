@@ -576,5 +576,46 @@ class ReviewCoverageTests(unittest.TestCase):
         )
 
 
+    # ------------------------------------------------------------------
+    # Fix 4: --write-aggregate emits a well-formed block on pass
+    # ------------------------------------------------------------------
+
+    def test_write_aggregate_emits_well_formed_block_on_pass(self) -> None:
+        """--write-aggregate writes a complete block when coverage passes."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed", "src/bar.py": "reviewed"},
+            tests="pytest: pass=5 fail=0 skip=0",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        agg_path = self.tmp / "agg.txt"
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--write-aggregate", str(agg_path)],
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(agg_path.exists(), "aggregate file was not written")
+
+        content = agg_path.read_text()
+        self.assertIn("---review-coverage---", content)
+        self.assertIn("---end-review-coverage---", content)
+        for header in ("files:", "tests:", "features:", "rubric:"):
+            self.assertIn(header, content)
+        self.assertIn("src/foo.py", content)
+        self.assertIn("src/bar.py", content)
+
+
 if __name__ == "__main__":
     unittest.main()
