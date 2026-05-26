@@ -133,7 +133,7 @@ def _load_block(path: Path) -> dict[str, dict[str, str]]:
         _validate_verdicts(sections)
     except ValueError as exc:
         msg = str(exc)
-        m = re.search(r"offending key: (\S+)", msg)
+        m = re.search(r"offending key: (.+)$", msg)
         detail = m.group(1) if m else msg
         _fail("MALFORMED_BLOCK", detail)
         return {}  # unreachable
@@ -188,6 +188,8 @@ def _diff_files(diff_range: str, repo: Path) -> list[str]:
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        _fail("MISSING_FILES", f"git diff failed: {result.stderr.strip()}")
     return [f for f in result.stdout.splitlines() if f.strip()]
 
 
@@ -262,6 +264,13 @@ def _write_aggregate(merged: dict[str, dict[str, str]], out: Path) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+SURFACE_RUBRIC_DEFAULTS: dict[str, Path] = {
+    "work-completion": Path(__file__).parent / ".." / "references" / "rubric.md",
+    "blindly": Path(__file__).parent / ".." / ".." / "review-blindly" / "references" / "rubric.md",
+    "doubt": Path(__file__).parent / ".." / ".." / "run-autopilot" / "references" / "doubt-review-rubric.md",
+}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gate review coverage blocks.")
     parser.add_argument("--surface", required=True,
@@ -280,13 +289,16 @@ def main() -> None:
 
     diff = _diff_files(args.diff_range, args.repo)
     features = _prd_features(args.prd)
-    rules = _rubric_rules(args.rubric) if args.rubric else []
+
+    rubric_path: Path = args.rubric if args.rubric else SURFACE_RUBRIC_DEFAULTS[args.surface].resolve()
+    if not rubric_path.exists():
+        _fail("MISSING_RUBRIC_RULE", f"rubric file not found: {rubric_path}")
+    rules = _rubric_rules(rubric_path)
 
     _check_missing_files(merged, diff)
     _check_empty_tests(merged)
     _check_unmapped_features(merged, features)
-    if rules:
-        _check_missing_rubric_rules(merged, rules)
+    _check_missing_rubric_rules(merged, rules)
 
     if args.write_aggregate:
         _write_aggregate(merged, args.write_aggregate)
