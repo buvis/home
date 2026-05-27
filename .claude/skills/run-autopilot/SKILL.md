@@ -110,7 +110,7 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`
-4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency.
+4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision-gate cap check (out of scope here; that's a separate task).
 5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 6. Initialize/update state with selected PRD, preserve `batch` field
 7. Print progress:
@@ -154,6 +154,9 @@ After either path completes, update state: add `"catchup"` to `phases_completed`
 - PRD with no frontmatter → `state.catchup_mode = "run"`. Phase 1 honors the batch cache (delta refresh when fresh, full catchup otherwise).
 - `---\ncatchup: invalid\n---` → `state.catchup_mode = "run"`, warning logged.
 - `---\ncatchup\n---` (malformed YAML) → `state.catchup_mode = "run"`, warning logged.
+- `---\nrework_cap: 5\n---` → `state.rework_cap = 5`. Phase 5 cap check allows 5 review cycles before pausing.
+- `---\nrework_cap: abc\n---` → `state.rework_cap = 3`, warning logged. Invalid value falls back to the default.
+- PRD with no `rework_cap` field → `state.rework_cap = 3` (default). Phase 5 cap check allows 3 review cycles before pausing.
 
 ## Phase 2: Planning
 
