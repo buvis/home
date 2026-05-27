@@ -231,13 +231,30 @@ After completion, update state: set `phase: "decision-gate"` and `next_phase: "d
 
 ## Phase 5: Decision Gate
 
+### Cap check — evaluate FIRST, before Safety Checks
+
+Before reading the review output or evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
+
+Read `state.cycle` (starts at 1; the number of the review cycle just completed) and `state.rework_cap` (the effective cap, set by Phase 0 from PRD frontmatter — default 3; see Phase 0 step 4).
+
+**Rework is allowed while `cycle < cap`; when `cycle >= cap` the gate pauses instead of reworking.**
+
+Worked example, cap 3:
+
+- cycle 1 review fails → `1 < 3` → rework → cycle 2.
+- cycle 2 fails → `2 < 3` → rework → cycle 3.
+- cycle 3 fails → `3 >= 3` → **pause, no 4th rework**.
+
+Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5 → pause).
+
+When the cap is hit (`state.cycle >= state.rework_cap`), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes, no signal write). When the cap is NOT hit, continue with "Read the review output" below.
+
 Read the review output. Categorize each finding using `references/decision-framework.md`.
 
 ### Safety Checks — evaluate BEFORE classifying individual issues:
 
 | Condition | Action |
 |-----------|--------|
-| Cycle 3 reached | PAUSE: escalate ALL remaining issues regardless of severity |
 | >10 follow-up tasks from review | PAUSE: scope alarm — ask user before proceeding |
 | Issue count not decreasing vs previous cycle | PAUSE: escalate immediately — fixes aren't working |
 | Same issue reappearing after previous fix | Route to research-then-decide Protocol B |
@@ -266,7 +283,6 @@ Execute the research protocol. If verdict is "proceed", treat as auto-fix. If ve
 
 **PAUSE** (present to user, block progress):
 - >10 follow-up tasks from review (scope alarm)
-- Cycle 3 reached (hard stop)
 - Decision blocks subsequent tasks (e.g. API shape needed before frontend can proceed)
 - Data model choice that all remaining work depends on
 
