@@ -98,6 +98,7 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
 
 - `stall_reason.stalled` is `"context_overrun"` or `"subagent_prompt_overrun"` — the previous session's Work phase aborted from a hook. The PRD is not broken; one task was scoped too big. **Follow `references/recovery.md` → "Work-phase abort: replan procedure"**, then STOP (the next session resumes at Phase 2 planning).
 - `stall_reason.stalled` is `"escalation_exhausted"` — Phase 6 owns this inline; seeing it at Phase 0 means a crash landed mid-stall-move. **Follow `references/recovery.md` → "Crash recovery: escalation_exhausted seen at Phase 0"**, then fall through to Normal PRD selection.
+- `state.phase == "paused"` AND `state.cap_pause_reason` is set (the previous session's Phase 5 cap-pause behavior fired). The capped PRD is still in `dev/local/prds/wip/`; do NOT treat it as fresh PRD selection. **Follow `references/recovery.md` → "Cap-Pause Resume Handler"** — it presents the recorded unresolved findings and cycle count to the user and branches on resume/abandon.
 - `stall_reason` is anything else or absent — continue with Normal PRD selection below.
 
 ### Normal PRD selection
