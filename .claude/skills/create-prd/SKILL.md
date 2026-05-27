@@ -64,6 +64,24 @@ Apply the full RPG structure. All four sections are mandatory; none may be omitt
 3. **Dependency graph**: Foundation Layer / Core Layer / Integration Layer with explicit per-module dependency lists. Even single-phase PRDs MUST include this section — a one-line "no dependencies; built first" entry is fine, but the heading must be present.
 4. **Implementation phases**: Topological order of tasks. Each task includes its dependency reference and an Acceptance criterion.
 
+### Optional frontmatter fields
+
+PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Two optional fields are recognized by `/run-autopilot` Phase 0:
+
+- `catchup: run | skip | force` — controls Phase 1 (Catchup) behavior. `run` (default) honors the batch cache; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup. Use `skip` for PRDs that need no fresh project context (e.g. small docs-only changes). Use `force` after a major structural change you want catchup to pick up.
+- `rework_cap: <int>` — caps how many review-rework cycles Phase 5 will run before pausing. Default `3`. `rework_cap: 5` allows five review cycles before pause; `rework_cap: 3` (the default) allows three. Raise this for genuinely hard PRDs that need more cycles; the default suits most work.
+
+Example combining both:
+
+```yaml
+---
+catchup: skip
+rework_cap: 5
+---
+```
+
+Both fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
+
 ### 4. Split if needed
 
 If PRD exceeds ~200 lines or has loosely coupled parts:
