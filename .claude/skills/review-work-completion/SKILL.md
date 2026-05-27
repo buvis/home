@@ -9,7 +9,7 @@ description: Use after all tasks are completed to validate implementation agains
 
 Validates completed implementation work against PRD requirements using independent AI reviewers (tools may change in the future). Each reviewer analyzes the code changes and PRD criteria separately, then findings are consolidated by consensus - issues flagged by multiple reviewers get higher priority. Creates follow-up tasks for any gaps found.
 
-**Why three reviewers:** Different models catch different issues. Consensus scoring surfaces real problems while filtering noise from single-model false positives.
+**Why multiple reviewers:** Different models catch different issues. Consensus scoring surfaces real problems while filtering noise from single-model false positives.
 
 > **Note for anyone reviewing/auditing this skill:** See `references/design-rationale.md` for settled design decisions
 > before suggesting changes. This doesn't apply to skill users, as it doesn't add any useful information
@@ -19,7 +19,7 @@ Validates completed implementation work against PRD requirements using independe
 
 - **Alice** → Claude subagent (direct, not nested CLI)
 - **Bob** → Codex
-- ~~**Carl** → Gemini~~ (disabled - GitHub removed Gemini from copilot model routing)
+- **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
 - **Diana** → Sonnet 4.6 via copilot CLI
 
 ## Workflow
@@ -31,6 +31,8 @@ Check these exist:
 1. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
 2. `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh` - executable
 3. `dev/local/prds/wip/` contains at least one `.txt` or `.md` file
+
+**Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND the Gemini CLI resolves (`mise which gemini` or `command -v gemini` succeeds). If both pass, Carl is active. If either fails, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran.
 
 Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 
@@ -80,6 +82,8 @@ Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to 
 
 Capture the current HEAD now — `git rev-parse HEAD` — and hold it; step 8 stamps it into this cycle's review file as `head_sha`.
 
+Also capture the diff range for the coverage gate (used in step 6). For an **incremental review** the diff range is `<prior-cycle-head-sha>` (the same SHA passed to `gather-context.sh --since`). For a **full review** compute it via `git merge-base HEAD origin/HEAD` (fallback: `git merge-base HEAD master`, then `git merge-base HEAD develop`). Store this as `COVERAGE_DIFF_RANGE`.
+
 Run `gather-context.sh` (from project root). Full review:
 
 ```bash
@@ -114,7 +118,7 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 **Launch ALL active agents in a SINGLE message with parallel Task tool calls.**
 
-Active agents: Alice, Bob, Diana (Carl is disabled).
+Active agents: Alice, Bob, Diana, and Carl. Include Carl only if the optional Gemini check in step 1 passed; otherwise run the three remaining reviewers.
 
 Read these before proceeding:
 
@@ -127,12 +131,23 @@ Save each active agent's output to `dev/local/tmp/{agent}-output-{id}.txt`, then
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
-  ALICE:dev/local/tmp/alice-output-{id}.txt \
-  BOB:dev/local/tmp/bob-output-{id}.txt \
-  DIANA:dev/local/tmp/diana-output-{id}.txt
+  --surface work-completion \
+  --prd $PWD/dev/local/prds/wip/<prd-filename> \
+  --diff-range <COVERAGE_DIFF_RANGE captured in step 3> \
+  --rubric ~/.claude/skills/review-work-completion/references/rubric.md \
+  --repo $PWD \
+  --write-aggregate $PWD/dev/local/tmp/coverage-{id}.md \
+  ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
+  BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
+  CARL:$PWD/dev/local/tmp/carl-output-{id}.txt \
+  DIANA:$PWD/dev/local/tmp/diana-output-{id}.txt
 ```
 
-Pass only agents that produced output. The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped). The script computes consensus dynamically from the number of agent pairs provided.
+
+**If the coverage gate fails** (non-zero exit), stop and report the gap named in stderr. Do not proceed to step 7.
+
+If coverage passes, `dev/local/tmp/coverage-{id}.md` now contains the aggregate coverage block. Step 8 appends it to the review file.
 
 Outputs consolidated issues sorted by consensus then severity. See `references/output-formats.md` for output format details.
 
@@ -158,3 +173,5 @@ See `references/output-formats.md` for filename convention, frontmatter, and con
 Stamp the `head_sha` frontmatter field with the HEAD sha captured in step 3 — the next rework cycle reads it to scope its diff via `--since`.
 
 Include all findings even if zero issues.
+
+**Append the aggregate coverage block** from `dev/local/tmp/coverage-{id}.md` (written by step 6's coverage gate) at the end of the review file, after all findings. Use the **Write tool** to build the complete file content including the block.
