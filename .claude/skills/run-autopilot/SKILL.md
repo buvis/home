@@ -249,6 +249,37 @@ Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5
 
 When the cap is hit (`state.cycle >= state.rework_cap`), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes, no signal write). When the cap is NOT hit, continue with "Read the review output" below.
 
+### Cap-pause behavior
+
+Executed only when the Cap check above fired (`state.cycle >= state.rework_cap`). This sub-section is the ONLY writer of the `cap_pause_reason` state field; it is a separate top-level field from `stall_reason` (which has different shapes — `oversized_task`, `context_overrun`, `subagent_prompt_overrun`, `escalation_exhausted` — and a different lifecycle).
+
+1. **Collect unresolved findings.** Read the current review-cycle output (the same review file Phase 4 produced) and gather every finding that has not yet been resolved by an earlier cycle. Format each finding minimally — at least `{"issue": <description>, "severity": <"critical"|"high"|"medium"|"low">, "consensus": <"N/M">}` — additional fields are allowed.
+
+2. **Write `cap_pause_reason` to `state.json`.** Merge (do NOT replace siblings) the field:
+   ```json
+   "cap_pause_reason": {
+     "cycle": <state.cycle>,
+     "cap": <state.rework_cap>,
+     "unresolved_findings": [ ... ]
+   }
+   ```
+
+3. **Set `state.phase` and `state.next_phase`.** Both become `"paused"`. The Phase 0 Cap-Pause Resume Handler (a separate task) is what clears these on resume.
+
+4. **Best-effort dashboard hint (optional).** MAY set `state.needs_attention = true`. This is a hint only — `needs_attention` is dashboard-only state cleared by the `clear-pidash-attention.py` PostToolUse hook on the next tool call, so it does NOT survive and MUST NOT be relied on as the pause indicator. The authoritative cap-pause signal is `phase == "paused"` PLUS `cap_pause_reason` being set (NOT `needs_attention`).
+
+5. **Do NOT write the signal file.** The normal Phase 3 / Phase 5 hand-off / Phase 9 transitions write `next` to `dev/local/autopilot/signal` so the shell wrapper relaunches into the next phase or PRD. Cap-pause is the explicit exception: do NOT invoke the canonical walk-up signal-write procedure. The shell wrapper sees no signal and exits its loop cleanly; the user re-invokes `/run-autopilot` to handle the pause.
+
+6. **Print the cap-pause banner:**
+   ```
+   ── AUTOPILOT ── PRD: {prd-name} ── CAP PAUSE (cycle {n}/{cap}) ─────
+   ── {k} unresolved findings — see state.json cap_pause_reason ───────
+   ── re-invoke /run-autopilot to resume or abandon ───────────────────
+   ```
+   Substitute `{prd-name}` from `state.prd` (strip the `.md` extension), `{n}` from `state.cycle`, `{cap}` from `state.rework_cap`, and `{k}` from `len(unresolved_findings)`.
+
+7. **STOP.** Do NOT proceed to Phase 6. Do NOT continue into Classification, Outcomes, or the Hand-off-to-blind-review sub-section. The paused `state.json` is the durable signal that this PRD is awaiting user action; the Phase 0 Cap-Pause Resume Handler picks it up on the next `/run-autopilot` invocation.
+
 Read the review output. Categorize each finding using `references/decision-framework.md`.
 
 ### Safety Checks — evaluate BEFORE classifying individual issues:
