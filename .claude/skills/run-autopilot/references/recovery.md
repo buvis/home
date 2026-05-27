@@ -104,3 +104,46 @@ Then perform the **stall move**, identical to the "plan-tasks stall: oversized t
    ── moved to dev/local/prds/stalled/ ── advancing to next PRD ──────
    ```
 5. If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" under Loop Detection in `SKILL.md`) to write `next` to the signal file at the absolute path, then STOP. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+
+## Cap-Pause Resume Handler
+
+Reached from **Phase 0** when `state.phase == "paused"` AND `state.cap_pause_reason` is set — Phase 5's cap-pause behavior fired in a prior session because the review-rework cap was hit (`state.cycle >= state.rework_cap`). The PRD is still in `dev/local/prds/wip/` and was not advanced. This handler presents the recorded findings to the user and branches on resume or abandon. It is the ONLY consumer of `cap_pause_reason`; it MUST clear the field on resume.
+
+1. **Read the cap-pause state.** From `state.json`: `state.cycle`, `state.rework_cap`, `state.cap_pause_reason.unresolved_findings` (the list of findings Phase 5 collected), and the PRD filename in `state.prd`.
+
+2. **Present the findings to the user.** Use the `AskUserQuestion` tool (the same direct-input mechanism other handlers use for resume/abandon decisions). Show:
+   - The PRD name (strip the `.md` extension).
+   - The cycle / cap (`{cycle}/{cap}`).
+   - Every entry from `cap_pause_reason.unresolved_findings` — each entry's issue, severity, and consensus.
+   Offer two choices:
+   - **Resume** (optionally with a raised cap).
+   - **Abandon** (leave the PRD in place for manual handling).
+
+3. **On "resume":**
+   a. Clear `cap_pause_reason` from `state.json` (delete the key entirely; merge-preserving on all other fields).
+   b. Set `state.phase = "review"` and `state.next_phase = "review"` (the resume continues at Phase 4, which the fresh session reaches via the existing review-phase skip rules).
+   c. If the user selected a raised cap, write the new integer to `state.rework_cap`. Otherwise leave `state.rework_cap` unchanged.
+   d. **Do NOT move the PRD.** It is in `dev/local/prds/wip/` and stays there.
+   e. **Do NOT replan tasks.** The existing `state.tasks` and TaskList state is preserved; the resume picks up at the next review cycle.
+   f. **Hand off to a fresh session for Phase 4.** Use the same signal-file + Stop-hook mechanism as the Phase 3 hand-off: if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" under Loop Detection in `SKILL.md`) to write `next` to the signal file at the absolute path. If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually.
+   g. Print:
+      ```
+      ── AUTOPILOT ── PRD: {prd-name} ── RESUMING from cap pause ──────
+      ── cap: {cap} ── continuing at Phase 4 (review) in fresh session
+      ```
+   h. STOP.
+
+4. **On "abandon":**
+   a. Do NOT clear `cap_pause_reason`. Do NOT change `state.phase` / `state.next_phase`. Do NOT move the PRD.
+   b. Print:
+      ```
+      ── AUTOPILOT ── PRD: {prd-name} ── ABANDONED at cap pause ──────
+      ── PRD left in dev/local/prds/wip/ for manual handling ─────────
+      ── re-invoke /run-autopilot to revisit, or move/delete the PRD manually
+      ```
+   c. Do NOT write the signal file (the shell wrapper exits the loop).
+   d. STOP.
+
+5. The cap-paused PRD is NEVER re-selected as new work by Phase 0's Normal PRD selection — the handler check fires BEFORE Normal PRD selection (see SKILL.md Phase 0 "Handle Work-phase abort" sub-section) and short-circuits the flow.
+
+6. The handler runs once per cap-pause event. After step 3's resume clears `cap_pause_reason`, subsequent Phase 0 invocations see no cap-pause state and fall through to Normal PRD selection or other recovery branches as usual.
