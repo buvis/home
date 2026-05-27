@@ -12,6 +12,7 @@ State file location: `dev/local/autopilot/state.json`
   "catchup_mode": "skipped",
   "phases_completed": ["catchup", "planning"],
   "cycle": 1,
+  "rework_cap": 3,
   "tasks_total": 6,
   "tasks_completed": 2,
   "tasks": [
@@ -34,6 +35,13 @@ State file location: `dev/local/autopilot/state.json`
     "stalled": "oversized_task",
     "task": "task-uuid-8",
     "estimated_tokens": 167000
+  },
+  "cap_pause_reason": {
+    "cycle": 3,
+    "cap": 3,
+    "unresolved_findings": [
+      {"issue": "...", "severity": "high", "consensus": "3/3"}
+    ]
   },
   "review_cycles": [
     {
@@ -127,6 +135,7 @@ State file location: `dev/local/autopilot/state.json`
 | `catchup_mode` | enum | `"run"` (default; Phase 1 honors the batch cache), `"skip"` (PRD frontmatter requested skip), `"force"` (PRD frontmatter forces full catchup ignoring batch cache), or `"skipped"` (Phase 1 was bypassed for this PRD). Set at Phase 0 from PRD frontmatter `catchup:`; defaults to `"run"` on missing/malformed frontmatter. |
 | `phases_completed` | string[] | Phases finished this session |
 | `cycle` | int | Current review-rework cycle (starts at 1) |
+| `rework_cap` | int | Effective review-rework cycle cap for the current PRD. Parsed by Phase 0 from PRD frontmatter field `rework_cap: <int>`; defaults to `3` when absent, missing, or invalid. Compared against `cycle` at Phase 5 decision gate: rework allowed while `cycle < rework_cap`; pause when `cycle >= rework_cap`. Per-PRD scope — must be cleared by Phase 9 step 10 on PRD-to-PRD reset when those fields are wired up (out of scope for the row introducing it). |
 | `tasks_total` | int | Total task count from TaskList (pending + in_progress + completed) |
 | `tasks_completed` | int | Number of completed tasks from TaskList |
 | `tasks` | object[] | Task list from TaskList: `{"id": "<task-id>", "name": "...", "status": "pending\|in_progress\|completed", "model"?: "haiku\|sonnet\|opus", "attempts"?: object[]}`. Include `id` — a PostToolUse hook uses it to sync status changes automatically. |
@@ -142,13 +151,14 @@ State file location: `dev/local/autopilot/state.json`
 | `context_window` | int? | Context window (tokens) of the model the current session launched on. Written by `autoclaude` (`_autoclaude_pick_model`) before each launch: `200000` for the Sonnet 4.6 Work tier, `1000000` for Opus. Read by `autopilot_context_cap_hook.py` to size the Work-phase context cap — window ≥ 400000 → 500K cap, otherwise 150K (the cap must stay below native auto-compact, which fires ~165K on a 200K window). Absent → hook assumes the 150K standard-tier cap (conservative: capping a large-window session too low only over-triggers replan). |
 | `rework_task_ids` | string[]? | Set by `/run-autopilot` Phase 6 (rework) to instruct `/work` to process only those task IDs at their escalated tier. Non-empty puts `/work` in rework mode (skip completed-not-flagged tasks; re-iterate the listed IDs). Cleared (set to `[]`) by `/run-autopilot` after the rework `/work` pass finishes. Empty/absent means full-plan dispatch — the default Phase 3 behavior. |
 | `stall_reason` | object? | Signals a pending recovery action. Four shapes: `{"stalled": "oversized_task", "task": "<id>", "estimated_tokens": int}` (written by `/plan-tasks` — triggers a stall move to `dev/local/prds/stalled/`); `{"stalled": "context_overrun", "task": "<id>", "total_input_tokens": int}` (written by `autopilot_context_cap_hook.py` when a Work turn exceeds the context cap — triggers Phase 0's **replan procedure**, not a stall move; see `replan_count` and `/run-autopilot` Phase 0 "Handle Work-phase abort"); `{"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": int}` (written by `/work` Subagent Dispatch Budget when an assembled subagent prompt exceeds 50K after one trim pass — also triggers the replan procedure); `{"stalled": "escalation_exhausted", "task": "<id>"}` (written by `/run-autopilot` Phase 6 when a task at tier `opus` fails rework — Phase 6 performs its own stall move inline). **Merged** (not replacing) into state by the writer, then **cleared** by `/run-autopilot`. Lifecycle handoff: Phase 2 handles `oversized_task` inline with a stall move; Phase 0 of the next session handles `context_overrun` and `subagent_prompt_overrun` via the replan procedure (no stall move — the PRD stays in `wip/`, planning re-runs with `replan-context.md`); Phase 6 handles `escalation_exhausted` inline (it owns the rework path and does its own move + clear before signaling — Phase 0 should never see this in normal operation, and treats it as crash recovery if it does). Absent in normal operation. |
+| `cap_pause_reason` | object? | Set by Phase 5 when the rework cap is hit (`cycle >= rework_cap`). Records the unresolved review findings and the cycle count. Shape: `{"cycle": int, "cap": int, "unresolved_findings": object[]}`. **Distinct from `stall_reason`'s `oversized_task`, `context_overrun`, `subagent_prompt_overrun`, and `escalation_exhausted` shapes** — `cap_pause_reason` is a separate top-level state field, not another `stall_reason` discriminator. The authoritative, durable indicator of a cap pause is `phase == "paused"` PLUS this field — not `needs_attention`. Cleared by the Phase 0 Cap-Pause Resume Handler on user "resume". Per-PRD scope — must be cleared by Phase 9 step 10 on PRD-to-PRD reset when those fields are wired up (out of scope for the row introducing it). Absent in normal operation. |
 | `review_cycles` | object[] | History of each review cycle. Each entry: `{"cycle": int, "review_file": "<path>", "agents": {"alice": "...", "bob": "...", "carl": "...", "diana": "..."}, "issues_found": int, "follow_up_tasks": int, "deferred": int, "recurring_issues": string[]}`. Cycles 3+ may also carry `decision_gate`, `rework_commits`, `rework_notes`, `cycle3_fix_audit`, `test_run` written by user-override paths (see live state for examples). |
 | `review_cycles[].recurring_issues` | string[] | Issue descriptions that appeared in a previous cycle |
 | `autonomous_decisions` | object[] | Decisions made without user input. May include optional `research` field for research-backed decisions. |
 | `deferred_decisions` | object[] | Decisions requiring user input. May include optional `research` field when research was attempted but inconclusive. |
 | `doubts` | object[] | Findings from doubt review: `{"description": "...", "category": "fix\|verify\|known", "justification?": "...", "status": "pending\|resolved"}`. `justification` required for `known` items (why it can't be fixed in scope). Empty array on fresh state. |
 | `doubts_rubric_verdicts` | object[]? | Per-rule verdict block recorded by `/run-autopilot` Phase 8 step 5 from the doubt-review subagent output. Each entry: `{"rule_id": "R{n}", "verdict": "pass"\|"fail"}`. One entry per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. Written by Phase 8 step 5 after the doubt-review subagent returns; used by Phase 9 step 7 to populate the "Doubt Rubric Verdicts" section of the batch report (see `references/batch-report-format.md`). The durable record lives in the raw doubt-review output, which PRD 00038's `review_coverage.py` parses directly — this state field is the autopilot-internal summary. Cleared by Phase 9 step 10 on PRD-to-PRD reset (per-PRD scope). Absent on PRDs that have not yet reached Phase 8 and on state files written before this field existed. |
-| `needs_attention` | bool | Dashboard flag. Set to `true` by `~/.claude/hooks/set-pidash-attention.py` (Notification hook for permission prompts) and cleared to `false` by `~/.claude/hooks/clear-pidash-attention.py` (PostToolUse). Not written by `/run-autopilot` directly; included here so the dashboard can read a complete state object. |
+| `needs_attention` | bool | Dashboard flag. Set to `true` by `~/.claude/hooks/set-pidash-attention.py` (Notification hook for permission prompts) and cleared to `false` by `~/.claude/hooks/clear-pidash-attention.py` (PostToolUse). Not written by `/run-autopilot` directly; included here so the dashboard can read a complete state object. **Dashboard-only state — NOT the authoritative cap-pause signal.** The PostToolUse hook clears this on the next tool call, so a Phase 5 write of `needs_attention = true` does not survive and must not be relied on as the pause indicator. The authoritative cap-pause signal is `phase == "paused"` plus `cap_pause_reason` being set. Phase 5 cap-pause behavior MAY set `needs_attention = true` as a best-effort dashboard hint but MUST NOT rely on it.
 | `batch` | object? | Tracks completed PRDs across sessions |
 | `batch.id` | string | Batch ID: `yyyymmddHHMM` timestamp of first execution |
 | `batch.mode` | string | Always `"autopilot"` |
