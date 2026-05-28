@@ -134,16 +134,17 @@ Reached from **Phase 0** when `state.phase == "paused"` AND `state.cap_pause_rea
    h. STOP.
 
 4. **On "abandon":**
-   a. Do NOT clear `cap_pause_reason`. Do NOT change `state.phase` / `state.next_phase`. Do NOT move the PRD.
+   a. Do NOT clear `cap_pause_reason`. Do NOT change `state.phase` / `state.next_phase`. Do NOT move the PRD. The paused state survives by design — the user wants autopilot to stay out of the way.
    b. Print:
       ```
       ── AUTOPILOT ── PRD: {prd-name} ── ABANDONED at cap pause ──────
       ── PRD left in dev/local/prds/wip/ for manual handling ─────────
       ── re-invoke /run-autopilot to revisit, or move/delete the PRD manually
       ```
-   c. Do NOT write the signal file (the shell wrapper exits the loop).
+   c. Do NOT write the signal file (the shell wrapper exits the loop, so there is no automatic re-entry).
    d. STOP.
+   e. **Re-entry behavior.** Because the abandon branch leaves `cap_pause_reason` set, a future manual `/run-autopilot` invocation will re-trigger this handler with the same findings — it does NOT loop autonomously (no signal is written, so the shell wrapper exited; only an explicit user re-invocation re-enters). To exit the cap-pause loop permanently the user must EITHER pick "resume" (clears `cap_pause_reason` per step 3) OR manually edit `state.json` / move the PRD out of `dev/local/prds/wip/`.
 
 5. The cap-paused PRD is NEVER re-selected as new work by Phase 0's Normal PRD selection — the handler check fires BEFORE Normal PRD selection (see SKILL.md Phase 0 "Handle Work-phase abort" sub-section) and short-circuits the flow.
 
-6. The handler runs once per cap-pause event. After step 3's resume clears `cap_pause_reason`, subsequent Phase 0 invocations see no cap-pause state and fall through to Normal PRD selection or other recovery branches as usual.
+6. The handler clears the cap-pause event only on "resume" (step 3 deletes `cap_pause_reason`). On "abandon" the event persists — see step 4.e for the re-entry contract.
