@@ -232,27 +232,30 @@ After completion, update state: set `phase: "decision-gate"` and `next_phase: "d
 
 ## Phase 5: Decision Gate
 
-### Cap check — evaluate FIRST, before Safety Checks
+### Cap check — evaluate after reading review, before rework dispatch
 
-Before reading the review output or evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
+The cap is a gate on REWORK, not on Phase 5 itself. **First, read the review output** (see "Read the review output" further below). If it converged (no unresolved findings remain), the cap is irrelevant — proceed directly to Outcomes "No issues found" → Phase 7 hand-off. The PRD success metric "passes review within three cycles is completely unaffected" requires this: a clean cycle-3 convergence at cap=3 must reach Phase 7, not cap-pause.
+
+Otherwise (unresolved findings remain), before evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
 
 Read `state.cycle` (starts at 1; the number of the review cycle just completed) and `state.rework_cap` (the effective cap, set by Phase 0 from PRD frontmatter — default 3; see Phase 0 step 4).
 
-**Rework is allowed while `cycle < cap`; when `cycle >= cap` the gate pauses instead of reworking.**
+**Rework is allowed while `cycle < cap`; when `cycle >= cap` AND rework would otherwise be dispatched, the gate pauses instead of reworking.**
 
 Worked example, cap 3:
 
 - cycle 1 review fails → `1 < 3` → rework → cycle 2.
 - cycle 2 fails → `2 < 3` → rework → cycle 3.
 - cycle 3 fails → `3 >= 3` → **pause, no 4th rework**.
+- cycle 3 converges (0 findings) → cap irrelevant → Phase 7 hand-off (no pause).
 
 Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5 → pause).
 
-When the cap is hit (`state.cycle >= state.rework_cap`), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes, no signal write). When the cap is NOT hit, continue with "Read the review output" below.
+When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND unresolved findings remain), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes, no signal write). When the cap is NOT hit (or the review converged with no findings), continue with the normal Outcomes flow below.
 
 ### Cap-pause behavior
 
-Executed only when the Cap check above fired (`state.cycle >= state.rework_cap`). This sub-section is the ONLY writer of the `cap_pause_reason` state field; it is a separate top-level field from `stall_reason` (which has different shapes — `oversized_task`, `context_overrun`, `subagent_prompt_overrun`, `escalation_exhausted` — and a different lifecycle).
+Executed only when the Cap check above fired (`state.cycle >= state.rework_cap` AND the review did not converge). This sub-section is the ONLY writer of the `cap_pause_reason` state field; it is a separate top-level field from `stall_reason` (which has different shapes — `oversized_task`, `context_overrun`, `subagent_prompt_overrun`, `escalation_exhausted` — and a different lifecycle).
 
 1. **Collect unresolved findings.** Read the current review-cycle output (the same review file Phase 4 produced) and gather every finding that has not yet been resolved by an earlier cycle. Format each finding minimally — at least `{"issue": <description>, "severity": <"critical"|"high"|"medium"|"low">, "consensus": <"N/M">}` — additional fields are allowed.
 
