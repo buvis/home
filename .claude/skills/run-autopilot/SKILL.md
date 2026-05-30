@@ -567,12 +567,37 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
+6a. Refresh this PRD's audit file header. The file is `dev/local/reviews/<prd-base>-audit.md` (where `<prd-base>` is the PRD filename without `.md`).
+
+    CONTRACT: "At Phase 9, refresh a header with counts (autonomous N, deferred N, doubts N)."
+
+    Counts:
+    - Autonomous N = `len(state.autonomous_decisions)`
+    - Deferred N = `len(state.deferred_decisions)`
+    - Doubts N = `len(state.doubts)`
+
+    Procedure (Read-then-Write; never blind-overwrite entries; never a shell redirect):
+    1. Read the audit file.
+    2. If it already exists, locate the header block (the lines from `# Decision Audit Log:` through the first blank line after `Started:`). Insert or replace `Completed:` and the counts line immediately after the `Started:` line:
+       ```
+       Completed: <ISO 8601 timestamp>
+       Autonomous: <N>  |  Deferred: <N>  |  Doubts: <N>
+       ```
+       Leave everything below the header (all `###` entries) untouched.
+    3. Write the full content back using the Write tool.
+
+    No-decisions edge case: if no decisions were captured this run (all three counts are 0), the audit file may not exist yet. CONTRACT: "the audit file exists with a header and an explicit \"no decisions recorded\" rather than being absent or empty." Ensure the file exists: create it with the standard header (title, `PRD:` line, `Started:` line from the session start, `Completed:` line, and `Autonomous: 0  |  Deferred: 0  |  Doubts: 0`), then append a single line `no decisions recorded`. Use the Write tool.
+
 7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). Read `state.regroup_outcome` (set by step 1) and include it as the `- Regroup:` bullet in the per-PRD section. See `references/batch-report-format.md` for format.
-7b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). For each non-trivial entry in `autonomous_decisions` from the state file, append one row:
+7b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). When `decisions.md` is absent (user has not opted in), this projection is skipped; `audit.md` is written either way.
+
+    When `decisions.md` exists: read this PRD's `audit.md` (`dev/local/reviews/<prd-base>-audit.md`), filter to non-trivial autonomous entries (entries whose `<PHASE>` label is `autonomous` and whose decision summary is substantive, not trivial bookkeeping), and append one row per entry to `decisions.md` in the existing format:
     ```
     | {YYYY-MM-DD} | {decision summary} | {rationale or research evidence} | batch-{batch_id} PRD {prd-number} |
     ```
-    Dedupe: grep the decision summary before appending; skip if already present.
+    The existing dedupe (grep before append) is preserved: grep the decision summary against `decisions.md` before appending; skip if already present.
+
+    `audit.md` is the **single source of truth** for any decision narrative. `decisions.md` is a grep-friendly projection of `audit.md` so the two cannot diverge (one writer, one source).
 8. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
    ```markdown
    ## Active Work
