@@ -40,6 +40,19 @@ Create `dev/local/autopilot/` and subdirectories if missing. Initialize state fi
 
 **Invariant:** every state mutation that advances `phase` MUST also set `next_phase` to the same value. `autoclaude` reads `next_phase` to pick `--model` for the next launch (Work → Sonnet 4.6; everything else → Opus 4.7). If the two ever diverge, the next session may land on the wrong model. Empty `next_phase` (e.g. backlog drained) means "no preference; autoclaude defaults to Opus."
 
+### Decision audit logging
+
+At every decision point, autopilot appends one entry to `dev/local/reviews/<prd-base>-audit.md` following the procedure and entry format in `references/audit-log-format.md`. The `<PHASE>` label in each entry's heading comes from the decision source:
+
+- `autonomous` - every append to `state.autonomous_decisions[]`
+- `deferred` - every append to `state.deferred_decisions[]`
+- `doubt` - every append to `state.doubts[]`
+- `planning` - the Phase 2 PAUSE site for requirements clarifications (this source has no `state.json` array of its own; the audit-append fires directly at the PAUSE site, not off a state write - "The audit-append for a planning clarification therefore fires directly at the Phase 2 PAUSE site, not off a `state.json` write.")
+
+Entries appear incrementally - the file is inspectable mid-run, not only at completion. Each entry is written at the moment the decision is made. The path resolves from the PRD base name alone, so a handoff to a fresh session continues the same file automatically.
+
+The append uses the Read-then-Write-tool procedure defined in `references/audit-log-format.md`: Read current content, append the new entry, Write back the full content. Never a shell redirect. Never a blind overwrite.
+
 ### Resuming
 
 When `/run-autopilot` is invoked and `dev/local/autopilot/state.json` exists with `batch.completed_prds`, this is a continuation after a session restart. Preserve `batch.completed_prds` (including `batch.id`) and proceed to Phase 0 to pick the next PRD.
@@ -172,6 +185,8 @@ Before invoking `/plan-tasks`, check for `dev/local/autopilot/replan-context.md`
 If `replan-context.md` is absent, run /plan-tasks normally — first-pass planning for a fresh PRD.
 
 Invoke `/plan-tasks` with the selected PRD.
+
+**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question, present it to the user and wait for the answer. Once answered, append a `planning` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase label: `planning`). This source has no `state.json` array - "The audit-append for a planning clarification therefore fires directly at the Phase 2 PAUSE site, not off a `state.json` write." If the clarification's outcome also produces an autonomous or deferred decision, that decision is logged through its normal array and both entries may cross-reference each other.
 
 ### Handle plan-tasks stall (oversized task)
 
@@ -321,7 +336,7 @@ Execute the research protocol. If verdict is "proceed", treat as auto-fix. If ve
 - Decision blocks subsequent tasks (e.g. API shape needed before frontend can proceed)
 - Data model choice that all remaining work depends on
 
-Log every decision in state file (`autonomous_decisions` or `deferred_decisions`).
+Log every decision in state file (`autonomous_decisions` or `deferred_decisions`). Every append to `state.autonomous_decisions[]` ALSO appends an `autonomous` audit entry to `dev/local/reviews/<prd-base>-audit.md` (following `references/audit-log-format.md`, phase `review-cycle-<n>` using `state.cycle`). Every append to `state.deferred_decisions[]` ALSO appends a `deferred` audit entry the same way.
 
 ### Outcomes:
 
@@ -378,7 +393,7 @@ missing feature, wrong artifact kind) rather than implementation-quality bugs
 (edge cases, perf, logic errors), the real fix is a **corrected task
 description** — and the review's follow-up tasks should already carry the exact
 contract verbatim. In that case keep the **same tier**; do not escalate. Record
-the decision and rationale in `autonomous_decisions`. Escalate the tier only
+the decision and rationale in `autonomous_decisions` and append an `autonomous` audit entry to `dev/local/reviews/<prd-base>-audit.md` (following `references/audit-log-format.md`). Escalate the tier only
 when the prior attempt genuinely struggled on a correctly-specified task. (Root
 cause of the original gap: `plan-tasks` must copy the PRD's contract and
 acceptance criteria verbatim into each task — see `plan-tasks/SKILL.md` step 4.)
@@ -437,7 +452,7 @@ After the review:
 2. **Critical or Important findings** → **first run the "Hydrate TaskList from state.tasks" sub-step** (the blind-review session is fresh; TaskList is empty). Then create tasks tagged `[BLIND]` (each `TaskCreate` gets a new id appended to the hydrated list) and insert a merge-preserving snapshot for each new `[BLIND]` task into `state.tasks` (carrying `{id, name, status}`; the tier classifier does not run on [BLIND] tasks — they default to the running session's model unless you opt to set `metadata.model` explicitly). Invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. **Also update task counts (`tasks_total`/`tasks_completed`) only — do NOT rewrite `state.tasks` here; `/work` already wrote `attempts[]` entries directly to `state.tasks` for the `[BLIND]` tasks, and a bare TaskList snapshot would strip them** (same rationale as Phase 6 step 3 and Phase 8 step 5). Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below). Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning, then update state the same way as outcome 1 (add `"blind-review"` to `phases_completed`, set `phase` and `next_phase` to `"doubt-review"`) and hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below).
 
-Minor findings: defer to batch end (append to `deferred_decisions` in state).
+Minor findings: defer to batch end (append to `deferred_decisions` in state). Each such append ALSO appends a `deferred` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
 
 This phase runs once per PRD.
 
@@ -477,18 +492,18 @@ Process each:
 ### Handling FIX items
 
 1. Create a task tagged `[DOUBT]` for each FIX item.
-2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`
+2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`).
 
 ### Handling VERIFY items
 
 VERIFY items are resolved during the review itself (the doubt skill runs checks and reclassifies as FIX or dismissed). If any survive unresolved:
 1. Treat as FIX — create a `[DOUBT]` task.
-2. Add to `doubts` in state with `"category": "verify"`.
+2. Add to `doubts` in state with `"category": "verify"`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`).
 
 ### Handling KNOWN items
 
 KNOWN items cannot be fixed in this scope. They flow to batch-end review for the user to decide.
-1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`
+1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`).
 2. Do NOT create tasks for KNOWN items — they are deferred, not actionable here.
 
 ### Execution
@@ -496,7 +511,7 @@ KNOWN items cannot be fixed in this scope. They flow to batch-end review for the
 After classifying all items:
 
 1. If no FIX or VERIFY tasks → proceed to Phase 9. KNOWN items (if any) will be surfaced at batch end.
-2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
+2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Each such append ALSO appends a `deferred` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`). Log warning but do NOT PAUSE. Proceed to Phase 9.
 3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
 5. Record per-rule verdicts. Read the `R{n}: pass|fail` block from the doubt-review output and append it to `state.doubts_rubric_verdicts` as an array of `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` objects. Every rubric rule must have an entry. The downstream coverage parser (PRD 00038's `review_coverage.py`) reads these verdicts from the raw doubt-review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
