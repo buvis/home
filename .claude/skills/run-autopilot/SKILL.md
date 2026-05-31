@@ -173,7 +173,7 @@ If `replan-context.md` is absent, run /plan-tasks normally — first-pass planni
 
 Invoke `/plan-tasks` with the selected PRD.
 
-**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question, present it to the user and wait for the answer. Once answered, append a `planning` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase label: `planning`). This source has no `state.json` array - "The audit-append for a planning clarification therefore fires directly at the Phase 2 PAUSE site, not off a `state.json` write." If the clarification's outcome also produces an autonomous or deferred decision, that decision is logged through its normal array and both entries may cross-reference each other.
+**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question, present it to the user and wait for the answer. Once answered, append a `planning` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase label: `planning`). This source has no `state.json` array; the audit-append fires directly at the Phase 2 PAUSE site, not off a `state.json` write. If the clarification's outcome also produces an autonomous or deferred decision, that decision is logged through its normal array and both entries may cross-reference each other.
 
 ### Handle plan-tasks stall (oversized task)
 
@@ -293,9 +293,9 @@ Read the review output. Categorize each finding using `references/decision-frame
 | Condition | Action |
 |-----------|--------|
 | >10 follow-up tasks from review | PAUSE: scope alarm — ask user before proceeding |
-| Issue count not decreasing vs previous cycle | PAUSE: escalate immediately — fixes aren't working |
+| Issue count not decreasing vs previous cycle | LOG and continue — a steady cycle is not a failure; the Phase 5 rework cap is the backstop |
 | Same issue reappearing after previous fix | Route to research-then-decide Protocol B |
-| A sub-skill errored during this cycle | PAUSE: report error, don't retry automatically |
+| A sub-skill errored during this cycle | LOG and continue; PAUSE only if the SAME sub-skill errors again on the next cycle (a single transient error must not break an unattended run) |
 
 ### Classification (per finding):
 
