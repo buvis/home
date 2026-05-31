@@ -36,24 +36,9 @@ dev/local/autopilot/
 
 State file: `dev/local/autopilot/state.json` — see `references/state-schema.md` for schema.
 
-Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition.
+Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, written incrementally: each decision site below appends an entry under its **source** label — `autonomous`, `deferred`, `doubt`, or `planning` (never a phase-specific value like `review-cycle-2`; cycle/phase context goes in the entry body so the Phase 9 step 7b projection can filter autonomous entries by label `== autonomous`). Entry format, append procedure, projection, and handoff rules live in `references/audit-log-format.md`.
 
 **Invariant:** every state mutation that advances `phase` MUST also set `next_phase` to the same value. `autoclaude` reads `next_phase` to pick `--model` for the next launch (Work → Sonnet 4.6; everything else → Opus 4.7). If the two ever diverge, the next session may land on the wrong model. Empty `next_phase` (e.g. backlog drained) means "no preference; autoclaude defaults to Opus."
-
-### Decision audit logging
-
-At every decision point, autopilot appends one entry to `dev/local/reviews/<prd-base>-audit.md` following the procedure and entry format in `references/audit-log-format.md`. The `<PHASE>` label in each entry's heading comes from the decision source:
-
-- `autonomous` - every append to `state.autonomous_decisions[]`
-- `deferred` - every append to `state.deferred_decisions[]`
-- `doubt` - every append to `state.doubts[]`
-- `planning` - the Phase 2 PAUSE site for requirements clarifications (this source has no `state.json` array of its own; the audit-append fires directly at the PAUSE site, not off a state write - "The audit-append for a planning clarification therefore fires directly at the Phase 2 PAUSE site, not off a `state.json` write.")
-
-The `<PHASE>` heading label is ALWAYS one of these four source categories — never a phase-specific value like `review-cycle-2` or `doubt-review`. Per-phase or per-cycle context (e.g. which review cycle a decision was made in, or that a doubt came from the doubt review) belongs in the entry's **Decision** body text, not in the heading. This keeps the heading label a closed four-value set so the Phase 9 step 6b `decisions.md` projection can filter autonomous-source entries by `<PHASE>` label == `autonomous`.
-
-Entries appear incrementally - the file is inspectable mid-run, not only at completion. Each entry is written at the moment the decision is made. The path resolves from the PRD base name alone, so a handoff to a fresh session continues the same file automatically.
-
-The append uses the Read-then-Write-tool procedure defined in `references/audit-log-format.md`: Read current content, append the new entry, Write back the full content. Never a shell redirect. Never a blind overwrite.
 
 ### Resuming
 
@@ -569,40 +554,10 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
-6a. Refresh this PRD's audit file header. The file is `dev/local/reviews/<prd-base>-audit.md` (where `<prd-base>` is the PRD filename without `.md`).
-
-    CONTRACT: "At Phase 9, refresh a header with counts (autonomous N, deferred N, doubts N)."
-
-    Counts:
-    - Autonomous N = `len(state.autonomous_decisions)`
-    - Deferred N = `len(state.deferred_decisions)`
-    - Doubts N = `len(state.doubts)`
-
-    Procedure (Read-then-Write; never blind-overwrite entries; never a shell redirect):
-    1. Read the audit file.
-    2. If it already exists, locate the header block (the lines from `# Decision Audit Log:` through the first blank line after `Started:`). Insert or replace `Completed:` and the counts line immediately after the `Started:` line:
-       ```
-       Completed: <ISO 8601 timestamp>
-       Autonomous: <N>  |  Deferred: <N>  |  Doubts: <N>
-       ```
-       Leave everything below the header (all `###` entries) untouched.
-    3. Write the full content back using the Write tool.
-
-    No-decisions edge case: if no decisions were captured this run (all three counts are 0), the audit file may not exist yet. CONTRACT: "the audit file exists with a header and an explicit \"no decisions recorded\" rather than being absent or empty." Ensure the file exists: create it with the standard header (title, `PRD:` line, `Started:` line, `Completed:` line, and `Autonomous: 0  |  Deferred: 0  |  Doubts: 0`), then append a single line `no decisions recorded`. Use the Write tool. Because the file was never created during the run, no earlier `Started:` timestamp exists — use the current Phase 9 timestamp for BOTH `Started:` and `Completed:`.
+6a. Refresh this PRD's audit file header (`dev/local/reviews/<prd-base>-audit.md`, `<prd-base>` = PRD filename without `.md`) with the completion counts (autonomous N, deferred N, doubts N). Follow the **"Phase 9 Header Refresh Procedure"** in `references/audit-log-format.md` — it covers the count sourcing, the Read-then-Write step sequence, and the no-decisions edge case (create the file with a header + "no decisions recorded" when all counts are 0).
 
 7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). Read `state.regroup_outcome` (set by step 1) and include it as the `- Regroup:` bullet in the per-PRD section. See `references/batch-report-format.md` for format.
-7b. Append autonomous decisions to `dev/local/decisions.md` if that file exists (skip if absent - user opts in by creating it). When `decisions.md` is absent (user has not opted in), this projection is skipped; `audit.md` is written either way.
-
-    When `decisions.md` exists: read this PRD's `audit.md` (`dev/local/reviews/<prd-base>-audit.md`), filter to non-trivial autonomous entries, and append one row per entry to `decisions.md` in the existing format:
-
-    An entry qualifies when BOTH hold: (a) its `<PHASE>` heading label is `autonomous`; and (b) it is non-trivial — it has a non-empty **Rationale** AND its **Choice** is an actual decision or action, not a pure status/bookkeeping note. Trivial (skip): Choice like "logged", "noted", "no action needed". Substantive (include): Choice like "Adopt library X over Y" backed by a reasoned Rationale. The criterion is parseable from the entry's `Choice`/`Rationale` fields alone.
-
-    ```
-    | {YYYY-MM-DD} | {decision summary} | {rationale or research evidence} | batch-{batch_id} PRD {prd-number} |
-    ```
-    The existing dedupe (grep before append) is preserved: grep the decision summary against `decisions.md` before appending; skip if already present.
-
-    `audit.md` is the **single source of truth** for any decision narrative. `decisions.md` is a grep-friendly projection of `audit.md` so the two cannot diverge (one writer, one source).
+7b. Project autonomous decisions into `dev/local/decisions.md` when that opt-in file exists (skip when absent; `audit.md` is written either way). Follow the **"decisions.md Projection"** procedure in `references/audit-log-format.md` — it covers the qualify criterion (label `autonomous` + non-trivial), the row format, dedupe, and the single-source rule.
 8. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
    ```markdown
    ## Active Work

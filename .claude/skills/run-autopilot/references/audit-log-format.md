@@ -81,7 +81,38 @@ Completed: <ISO 8601 timestamp>
 Autonomous: <N>  |  Deferred: <N>  |  Doubts: <N>
 ```
 
-This is the identical end state SKILL.md Phase 9 step 6a describes ("Insert or replace `Completed:` and the counts line immediately after the `Started:` line"). Keep the counts consistent with the batch report's completion summary (see `references/batch-report-format.md` Phase 9 per-PRD section).
+This is the identical end state SKILL.md Phase 9 step 6a describes. Keep the counts consistent with the batch report's completion summary (see `references/batch-report-format.md` Phase 9 per-PRD section).
+
+## Phase 9 Header Refresh Procedure
+
+Invoked by SKILL.md Phase 9 step 6a. The counts come from state (`Autonomous = len(state.autonomous_decisions)`, `Deferred = len(state.deferred_decisions)`, `Doubts = len(state.doubts)`).
+
+Read-then-Write; never blind-overwrite entries; never a shell redirect:
+
+1. Read the audit file.
+2. If it already exists, locate the header block (the lines from `# Decision Audit Log:` through the first blank line after `Started:`). Insert or replace `Completed:` and the counts line immediately after the `Started:` line:
+   ```
+   Completed: <ISO 8601 timestamp>
+   Autonomous: <N>  |  Deferred: <N>  |  Doubts: <N>
+   ```
+   Leave everything below the header (all `###` entries) untouched.
+3. Write the full content back using the Write tool.
+
+**No-decisions edge case**: if no decisions were captured this run (all three counts are 0), the audit file may not exist yet. The contract is that "the audit file exists with a header and an explicit \"no decisions recorded\" rather than being absent or empty." Ensure the file exists: create it with the standard header (title, `PRD:` line, `Started:` line, `Completed:` line, and `Autonomous: 0  |  Deferred: 0  |  Doubts: 0`), then append a single line `no decisions recorded`. Use the Write tool. Because the file was never created during the run, no earlier `Started:` timestamp exists — use the current Phase 9 timestamp for BOTH `Started:` and `Completed:`.
+
+## decisions.md Projection
+
+Invoked by SKILL.md Phase 9 step 7b, and only when `dev/local/decisions.md` exists (it is an opt-in global table; when absent, the projection is skipped and `audit.md` is still written). `audit.md` is the **single source of truth** for any decision narrative; `decisions.md` is a grep-friendly projection of it, so the two cannot diverge (one writer, one source).
+
+Procedure: read this PRD's `audit.md`, filter to non-trivial autonomous entries, and append one row per entry to `decisions.md` in this format:
+
+```
+| {YYYY-MM-DD} | {decision summary} | {rationale or research evidence} | batch-{batch_id} PRD {prd-number} |
+```
+
+An entry qualifies when BOTH hold: (a) its `<PHASE>` heading label is `autonomous`; and (b) it is non-trivial — it has a non-empty **Rationale** AND its **Choice** is an actual decision or action, not a pure status/bookkeeping note. Trivial (skip): Choice like "logged", "noted", "no action needed". Substantive (include): Choice like "Adopt library X over Y" backed by a reasoned Rationale. The criterion is parseable from the entry's `Choice`/`Rationale` fields alone.
+
+Dedupe is preserved: grep the decision summary against `decisions.md` before appending; skip if already present.
 
 ## Handoff Safety
 
