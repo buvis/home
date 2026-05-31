@@ -57,7 +57,7 @@ Four sources produce entries:
 - `state.doubts[]` - findings from the doubt review.
 - Planning clarifications - the Phase 2 PAUSE site, where `/plan-tasks` stops for a requirements question. This source has no `state.json` array of its own; the audit-append fires directly at the PAUSE site.
 
-Each source maps to a `<PHASE>` label in the entry heading: `autonomous`, `deferred`, `planning`, `doubt`.
+Each source maps to a `<PHASE>` label in the entry heading: `autonomous`, `deferred`, `planning`, `doubt`. This label is **always** the source category, regardless of which autopilot phase emitted the entry — a decision made during review cycle 2 still uses `autonomous` (not `review-cycle-2`), and a doubt-review finding still uses `doubt` (not `doubt-review`). Per-phase or per-cycle context belongs in the entry's **Decision** body text. Keeping the label a closed four-value set is what lets the Phase 9 `decisions.md` projection filter autonomous-source entries by `<PHASE>` label == `autonomous`.
 
 ## Header
 
