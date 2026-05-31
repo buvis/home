@@ -70,7 +70,7 @@ PRD: `<prd filename>`
 Started: <ISO 8601 timestamp>
 ```
 
-At Phase 9, refresh the header by replacing the `Started:` line with a summary block:
+At Phase 9, refresh the header in place: **keep** the `Started:` line and **insert** a `Completed:` line plus a counts line immediately after it (do not delete `Started:`). The header goes from the two-line form above to:
 
 ```markdown
 # Decision Audit Log: <prd-base>
@@ -81,7 +81,7 @@ Completed: <ISO 8601 timestamp>
 Autonomous: <N>  |  Deferred: <N>  |  Doubts: <N>
 ```
 
-Keep the counts consistent with the batch report's completion summary (see `references/batch-report-format.md` Phase 9 per-PRD section).
+This is the identical end state SKILL.md Phase 9 step 6a describes ("Insert or replace `Completed:` and the counts line immediately after the `Started:` line"). Keep the counts consistent with the batch report's completion summary (see `references/batch-report-format.md` Phase 9 per-PRD section).
 
 ## Handoff Safety
 
