@@ -49,6 +49,8 @@ At every decision point, autopilot appends one entry to `dev/local/reviews/<prd-
 - `doubt` - every append to `state.doubts[]`
 - `planning` - the Phase 2 PAUSE site for requirements clarifications (this source has no `state.json` array of its own; the audit-append fires directly at the PAUSE site, not off a state write - "The audit-append for a planning clarification therefore fires directly at the Phase 2 PAUSE site, not off a `state.json` write.")
 
+The `<PHASE>` heading label is ALWAYS one of these four source categories — never a phase-specific value like `review-cycle-2` or `doubt-review`. Per-phase or per-cycle context (e.g. which review cycle a decision was made in, or that a doubt came from the doubt review) belongs in the entry's **Decision** body text, not in the heading. This keeps the heading label a closed four-value set so the Phase 9 step 6b `decisions.md` projection can filter autonomous-source entries by `<PHASE>` label == `autonomous`.
+
 Entries appear incrementally - the file is inspectable mid-run, not only at completion. Each entry is written at the moment the decision is made. The path resolves from the PRD base name alone, so a handoff to a fresh session continues the same file automatically.
 
 The append uses the Read-then-Write-tool procedure defined in `references/audit-log-format.md`: Read current content, append the new entry, Write back the full content. Never a shell redirect. Never a blind overwrite.
@@ -336,7 +338,7 @@ Execute the research protocol. If verdict is "proceed", treat as auto-fix. If ve
 - Decision blocks subsequent tasks (e.g. API shape needed before frontend can proceed)
 - Data model choice that all remaining work depends on
 
-Log every decision in state file (`autonomous_decisions` or `deferred_decisions`). Every append to `state.autonomous_decisions[]` ALSO appends an `autonomous` audit entry to `dev/local/reviews/<prd-base>-audit.md` (following `references/audit-log-format.md`, phase `review-cycle-<n>` using `state.cycle`). Every append to `state.deferred_decisions[]` ALSO appends a `deferred` audit entry the same way.
+Log every decision in state file (`autonomous_decisions` or `deferred_decisions`). Every append to `state.autonomous_decisions[]` ALSO appends an `autonomous` audit entry to `dev/local/reviews/<prd-base>-audit.md` (following `references/audit-log-format.md`; the heading label is `autonomous` — note the review cycle, `state.cycle`, in the entry's Decision text rather than in the heading). Every append to `state.deferred_decisions[]` ALSO appends a `deferred` audit entry the same way.
 
 ### Outcomes:
 
@@ -492,18 +494,18 @@ Process each:
 ### Handling FIX items
 
 1. Create a task tagged `[DOUBT]` for each FIX item.
-2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`).
+2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
 
 ### Handling VERIFY items
 
 VERIFY items are resolved during the review itself (the doubt skill runs checks and reclassifies as FIX or dismissed). If any survive unresolved:
 1. Treat as FIX — create a `[DOUBT]` task.
-2. Add to `doubts` in state with `"category": "verify"`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`).
+2. Add to `doubts` in state with `"category": "verify"`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
 
 ### Handling KNOWN items
 
 KNOWN items cannot be fixed in this scope. They flow to batch-end review for the user to decide.
-1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`).
+1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
 2. Do NOT create tasks for KNOWN items — they are deferred, not actionable here.
 
 ### Execution
@@ -511,7 +513,7 @@ KNOWN items cannot be fixed in this scope. They flow to batch-end review for the
 After classifying all items:
 
 1. If no FIX or VERIFY tasks → proceed to Phase 9. KNOWN items (if any) will be surfaced at batch end.
-2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Each such append ALSO appends a `deferred` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase `doubt-review`). Log warning but do NOT PAUSE. Proceed to Phase 9.
+2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Each such append ALSO appends a `deferred` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`. Log warning but do NOT PAUSE. Proceed to Phase 9.
 3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
 5. Record per-rule verdicts. Read the `R{n}: pass|fail` block from the doubt-review output and append it to `state.doubts_rubric_verdicts` as an array of `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` objects. Every rubric rule must have an entry. The downstream coverage parser (PRD 00038's `review_coverage.py`) reads these verdicts from the raw doubt-review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
