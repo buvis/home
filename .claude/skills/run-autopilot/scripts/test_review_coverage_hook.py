@@ -254,6 +254,75 @@ class MainPassesCorrectReviewFileTests(unittest.TestCase):
         self.assertEqual(Path(actual_review_file), expected_review_file)
 
 
+class MainBlocksCleanlyWhenPrdMissingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+
+    def _make_reviews_dir(self) -> Path:
+        reviews = self.repo / "dev" / "local" / "reviews"
+        reviews.mkdir(parents=True, exist_ok=True)
+        return reviews
+
+    def test_main_blocks_cleanly_when_prd_file_missing(self) -> None:
+        """main() returns 2, deletes the signal, and writes a clear stderr
+        message naming the missing PRD - no Python traceback - when the PRD
+        file exists in neither prds/wip/ nor prds/done/."""
+        import contextlib
+        import io
+
+        autopilot_dir = _make_autopilot_dir(
+            self.repo, phase="blind-review", prd="missing.md", write_signal=True
+        )
+        reviews_dir = self._make_reviews_dir()
+        # Create the review file so the review-file check passes.
+        (reviews_dir / "missing-review-1.md").write_text("review content")
+        # Deliberately create NO PRD file in prds/wip/ or prds/done/.
+
+        signal_file = autopilot_dir / "signal"
+        self.assertTrue(signal_file.exists())
+
+        buf = io.StringIO()
+        with mock.patch.object(
+            hook, "find_autopilot_dir", return_value=autopilot_dir
+        ):
+            with contextlib.redirect_stderr(buf):
+                result = hook.main()
+
+        stderr_output = buf.getvalue()
+        self.assertEqual(result, 2)
+        self.assertFalse(signal_file.exists(), "signal must be deleted even when PRD is missing")
+        self.assertNotIn("Traceback", stderr_output, "must not expose a Python traceback")
+        self.assertIn("missing.md", stderr_output, "stderr must name the missing PRD file")
+
+
+class DeleteSignalLogsLoudlyOnOsErrorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.autopilot_dir = Path(self.tmp.name)
+
+    def test_delete_signal_logs_loudly_on_oserror(self) -> None:
+        """delete_signal must not raise when unlink fails, and must write a
+        warning to stderr so the failure is never silently swallowed."""
+        import contextlib
+        import io
+
+        # Create a non-empty directory named 'signal'; unlink on a directory
+        # raises OSError, giving us a deterministic failure path.
+        signal_dir = self.autopilot_dir / "signal"
+        signal_dir.mkdir()
+        (signal_dir / "dummy").write_text("non-empty")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            # Must not raise.
+            hook.delete_signal(self.autopilot_dir)
+
+        self.assertGreater(len(buf.getvalue()), 0, "stderr must contain a warning on OSError")
+
+
 class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()

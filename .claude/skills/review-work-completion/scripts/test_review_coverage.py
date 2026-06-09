@@ -608,6 +608,93 @@ class ReviewCoverageTests(unittest.TestCase):
 
 
     # ------------------------------------------------------------------
+    # Gap 6: duplicate section header -> MALFORMED_BLOCK
+    # ------------------------------------------------------------------
+
+    def test_duplicate_section_header_is_malformed(self) -> None:
+        """Block with a repeated section header (two 'files:' lines) -> MALFORMED_BLOCK.
+        All four required sections are present so the failure is specifically the
+        duplicate, not a missing-section error."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        block.write_text(
+            "---review-coverage---\n"
+            "files:\n"
+            "  src/foo.py: reviewed\n"
+            "files:\n"                       # duplicate header
+            "  src/bar.py: reviewed\n"
+            "tests:\n"
+            "  pytest: pass=5 fail=0 skip=0\n"
+            "features:\n"
+            "  Alpha: verified\n"
+            "  Beta: verified\n"
+            "rubric:\n"
+            "  R1: pass\n"
+            "  R2: pass\n"
+            "  R3: pass\n"
+            "---end-review-coverage---\n"
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("MALFORMED_BLOCK"),
+            f"Expected MALFORMED_BLOCK prefix, got: {result.stderr[:80]!r}",
+        )
+
+    # ------------------------------------------------------------------
+    # Gap 7: out-of-order sections -> MALFORMED_BLOCK
+    # ------------------------------------------------------------------
+
+    def test_out_of_order_sections_is_malformed(self) -> None:
+        """Block whose sections appear out of order (tests before files; all four
+        present, no duplicates) -> MALFORMED_BLOCK. The format mandates the fixed
+        order: files, tests, features, rubric."""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        block.write_text(
+            "---review-coverage---\n"
+            "tests:\n"                       # tests before files (wrong order)
+            "  pytest: pass=5 fail=0 skip=0\n"
+            "files:\n"
+            "  src/foo.py: reviewed\n"
+            "  src/bar.py: reviewed\n"
+            "features:\n"
+            "  Alpha: verified\n"
+            "  Beta: verified\n"
+            "rubric:\n"
+            "  R1: pass\n"
+            "  R2: pass\n"
+            "  R3: pass\n"
+            "---end-review-coverage---\n"
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("MALFORMED_BLOCK"),
+            f"Expected MALFORMED_BLOCK prefix, got: {result.stderr[:80]!r}",
+        )
+
+    # ------------------------------------------------------------------
     # Fix 4: --write-aggregate emits a well-formed block on pass
     # ------------------------------------------------------------------
 
