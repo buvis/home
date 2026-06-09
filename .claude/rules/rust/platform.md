@@ -1,3 +1,7 @@
+---
+paths:
+  - "**/*.rs"
+---
 # Rust Platform Notes
 
 ## macOS Code Signing
