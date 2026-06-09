@@ -219,6 +219,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 ~/.claude/skills/run-autopilot/scripts/review_coverage_hook.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.claude/hooks/track_cost.py",
             "timeout": 10
           }
