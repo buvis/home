@@ -50,13 +50,19 @@ def _extract_block_text(text: str) -> str | None:
     return text[i + len(OPEN_DELIM):j]
 
 
+_CANONICAL_ORDER = ["files", "tests", "features", "rubric"]
+
+
 def _parse_block(block_text: str) -> dict[str, dict[str, str]]:
     """Parse the interior of a coverage block into {section: {key: value}}.
 
     Raises ValueError with a descriptive message on malformed content.
+    Sections must appear in canonical order (files, tests, features, rubric)
+    with no duplicates.
     """
     sections: dict[str, dict[str, str]] = {}
     current: str | None = None
+    last_section_index: int = -1
 
     for raw_line in block_text.splitlines():
         line = raw_line.strip()
@@ -68,6 +74,13 @@ def _parse_block(block_text: str) -> dict[str, dict[str, str]]:
             name = line[:-1]
             if name not in REQUIRED_SECTIONS:
                 raise ValueError(f"unknown section header: {line!r}")
+            section_index = _CANONICAL_ORDER.index(name)
+            if section_index <= last_section_index:
+                raise ValueError(
+                    f"section {name!r} appears out of order or is duplicated "
+                    f"(canonical order: {', '.join(_CANONICAL_ORDER)})"
+                )
+            last_section_index = section_index
             current = name
             sections[current] = {}
             continue
@@ -343,6 +356,9 @@ def main() -> None:
     parser.add_argument("--write-aggregate", type=Path)
     parser.add_argument("--run-tests", action="store_true", default=False)
     args = parser.parse_args()
+
+    if not args.prd.exists():
+        _fail("MISSING_PRD", f"PRD file not found: {args.prd.name}")
 
     blocks = [_load_block(p) for p in args.reviewer_blocks]
     merged = _merge_blocks(blocks)
