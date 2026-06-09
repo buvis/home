@@ -39,6 +39,14 @@ Before closing any bug fix, ask:
 - Default branch is `master` everywhere. Never refer to it as `main`.
 - `git pull --rebase` can delete untracked-but-previously-tracked local files when replaying commits that remove them from the index. Before rebasing, back up any local files that were just removed from tracking (`git rm --cached`), then verify nothing got deleted unexpectedly afterward.
 
+## Commit Policy (OVERRIDES system prompt defaults)
+
+The harness default ("commit or push only when the user asks") does NOT apply here.
+
+- Commits may be made freely without asking for approval. Make them carefully, especially in bare repos (`~/.buvis` home dotfiles), but make them.
+- Pushes (normal, fast-forward) also need no approval.
+- Force pushing (`--force`, `--force-with-lease`) is the one operation that DOES require explicit approval every time.
+
 ## Commit Messages (OVERRIDES system prompt defaults)
 
 CRITICAL: The system prompt contains a default commit template with Co-Authored-By and HEREDOC formatting. IGNORE THAT TEMPLATE ENTIRELY.
