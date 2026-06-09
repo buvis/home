@@ -32,6 +32,7 @@ IDLE_THRESHOLD_SEC = 300
 LID_CLOSED_BELOW = 70
 NTFY_TIMEOUT_SEC = 8
 PRESENCE_TIMEOUT_SEC = 5
+AUTOPILOT_CONTINUATION_VALUES = frozenset({"next", "task_aborted"})
 
 
 def project_name(cwd: str) -> str:
@@ -54,10 +55,62 @@ def build_event_strings(payload: dict[str, Any]) -> tuple[str, str, str]:
     return event, f"Claude [{project}]: {event}", msg
 
 
+def find_autopilot_signal(start: str) -> Path | None:
+    """Walk up from `start` looking for dev/local/autopilot/signal.
+
+    Mirrors the walk-up in skills/run-autopilot/scripts/_walk_up.py, kept
+    inline here to keep this hook self-contained (no cross-skill imports).
+    """
+    if not start:
+        return None
+    try:
+        current = Path(start).resolve()
+    except OSError:
+        return None
+    for directory in (current, *current.parents):
+        candidate = directory / "dev" / "local" / "autopilot" / "signal"
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def autopilot_continuation_pending(cwd: str) -> bool:
+    """Return True when an autoclaude loop iteration will restart Claude.
+
+    Only suppresses notifications when BOTH conditions hold: the wrapper has
+    exported `_AUTOPILOT_LOOP` for this process tree, AND autopilot has
+    written a continuation value into the signal file. Either signal alone is
+    unreliable — env alone misfires on the "Backlog drained" path; a stray
+    signal file alone could survive a previous run.
+    """
+    if not os.environ.get("_AUTOPILOT_LOOP"):
+        return False
+    signal_file = find_autopilot_signal(cwd)
+    if signal_file is None:
+        return False
+    try:
+        content = signal_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return content in AUTOPILOT_CONTINUATION_VALUES
+
+
+ROTATE_THRESHOLD_BYTES = 5 * 1024 * 1024
+
+
 def log_line(line: str) -> None:
-    """Append a single line (with newline) to notify.log."""
-    log_path("notify.log").parent.mkdir(parents=True, exist_ok=True)
-    with log_path("notify.log").open("a", encoding="utf-8") as fh:
+    """Append a single line (with newline) to notify.log, rotating past ~5 MB."""
+    path = log_path("notify.log")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if path.stat().st_size > ROTATE_THRESHOLD_BYTES:
+            path.replace(path.with_suffix(path.suffix + ".1"))
+    except OSError:
+        pass
+    with path.open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")
 
 
@@ -214,6 +267,11 @@ def main() -> None:
 
     log_line(f"[{now_local()}] Hook triggered: {event}")
     log_line(json.dumps(payload, ensure_ascii=False))
+
+    if event == "Stop" and autopilot_continuation_pending(str(payload.get("cwd") or "")):
+        log_line(f"[{now_local()}] Suppressed: autopilot continuation pending")
+        log_line("---")
+        return
 
     idle_sec = read_idle_seconds()
     screensaver = screensaver_active()
