@@ -52,12 +52,18 @@ export HISTSIZE=50000
 shopt -s histappend
 PROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 
+# Increase file handles limits for smooth Claude coding
+ulimit -n 65536
+
 # Support Android development
 export ANDROID_NDK_HOME=/opt/homebrew/share/android-ndk
 export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
+
+# Enable system rg for Claude Grep tool
+export USE_BUILTIN_RIPGREP=0
 
 # Initialize mise shims and autocompletion
 command -v mise >/dev/null && eval "$(mise activate bash)"
