@@ -1010,6 +1010,50 @@ class ReviewCoverageTests(unittest.TestCase):
         )
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_non_directory_work_tree_override_fails_clean_missing_files(self) -> None:
+        """An AUTOPILOT_GIT_WORK_TREE that EXISTS but is not a directory must
+        still yield the clean MISSING_FILES gap kind, not a raw
+        NotADirectoryError from using it as cwd. (exists() is not enough.)"""
+        non_repo = self.tmp / "not-a-repo"
+        non_repo.mkdir()
+        bare = self.tmp / "bare.git"
+        _git(["init", "--bare", str(bare)], self.tmp)
+        file_work_tree = self.tmp / "a-file"
+        file_work_tree.write_text("i am a file, not a dir\n")
+
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed"},
+            tests="none: diff touches no code",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        env = _hermetic_env()
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        env["AUTOPILOT_GIT_DIR"] = str(bare)
+        env["AUTOPILOT_GIT_WORK_TREE"] = str(file_work_tree)
+
+        result = _run(
+            prd=prd,
+            diff_range="HEAD~1..HEAD",
+            rubric=rubric,
+            repo=non_repo,
+            reviewer_blocks=[block],
+            env=env,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("MISSING_FILES"),
+            f"Expected MISSING_FILES prefix, got: {result.stderr[:120]!r}",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("NotADirectoryError", result.stderr)
+
 
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
 
