@@ -192,6 +192,13 @@ def _merge_blocks(blocks: list[dict[str, dict[str, str]]]) -> dict[str, dict[str
     return merged
 
 
+def _strip_reviewer_test_counts(tests: dict[str, str]) -> dict[str, str]:
+    """Keep only the sentinel keys (`none`/`pending`). Reviewers never assert
+    real test counts — those come solely from the consolidation test run — so a
+    fabricated `pass=N fail=N skip=N` entry is discarded here."""
+    return {k: v for k, v in tests.items() if k in ("none", "pending")}
+
+
 # ---------------------------------------------------------------------------
 # External data gathering
 # ---------------------------------------------------------------------------
@@ -211,9 +218,10 @@ def _diff_files(diff_range: str, repo: Path) -> tuple[list[str], Path]:
     # project root has no .git and a plain `git diff` from it fails.
     git_dir = os.environ.get("AUTOPILOT_GIT_DIR") or str(Path.home() / ".buvis")
     work_tree = os.environ.get("AUTOPILOT_GIT_WORK_TREE") or str(Path.home())
-    # Require work_tree to exist before using it as cwd: a bad override would
-    # otherwise raise a raw OSError instead of the clean MISSING_FILES gap kind.
-    if Path(git_dir).exists() and Path(work_tree).exists():
+    # Both must be real directories before use: work_tree becomes the subprocess
+    # cwd, so a path that is missing OR a non-directory would otherwise raise a
+    # raw OSError instead of the clean MISSING_FILES gap kind.
+    if Path(git_dir).is_dir() and Path(work_tree).is_dir():
         fallback = subprocess.run(
             ["git", f"--git-dir={git_dir}", f"--work-tree={work_tree}",
              "diff", "--name-only", diff_range],
@@ -369,14 +377,9 @@ def main() -> None:
     features = _prd_features(args.prd)
 
     if args.run_tests:
-        # Reviewers never assert test results. In the --run-tests path (the
-        # consolidation/production path) real counts come only from the test
-        # run below, so drop any reviewer-supplied non-sentinel `tests` entry —
-        # otherwise a fabricated `pass=N fail=N skip=N` would satisfy
-        # _check_empty_tests on a diff whose changed files include no test file.
-        merged["tests"] = {
-            k: v for k, v in merged["tests"].items() if k in ("none", "pending")
-        }
+        # Reviewers never assert test results: real counts come only from the
+        # consolidation test run, so drop any non-sentinel reviewer entry first.
+        merged["tests"] = _strip_reviewer_test_counts(merged["tests"])
         summary = _run_changed_tests(diff, work_tree)
         if summary is not None:
             merged["tests"].pop("pending", None)
