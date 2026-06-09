@@ -1,4 +1,4 @@
-"""Tests for review_coverage_hook.py (module does NOT exist yet — TDD red phase).
+"""Tests for review_coverage_hook.py.
 
 Pins the public API of the hook that blocks session exit when the just-completed
 review surface's saved review file lacks a complete coverage block.
