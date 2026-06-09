@@ -16,6 +16,7 @@ Exit 0 = coverage complete. Non-zero = gap found; stderr starts with gap kind.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -188,9 +189,26 @@ def _diff_files(diff_range: str, repo: Path) -> list[str]:
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        _fail("MISSING_FILES", f"git diff failed: {result.stderr.strip()}")
-    return [f for f in result.stdout.splitlines() if f.strip()]
+    if result.returncode == 0:
+        return [f for f in result.stdout.splitlines() if f.strip()]
+
+    # Fallback for bare-repo work-trees (e.g. ~/.buvis-backed $HOME), where the
+    # project root has no .git and a plain `git diff` from it fails.
+    git_dir = os.environ.get("AUTOPILOT_GIT_DIR") or str(Path.home() / ".buvis")
+    work_tree = os.environ.get("AUTOPILOT_GIT_WORK_TREE") or str(Path.home())
+    if Path(git_dir).exists():
+        fallback = subprocess.run(
+            ["git", f"--git-dir={git_dir}", f"--work-tree={work_tree}",
+             "diff", "--name-only", diff_range],
+            cwd=work_tree,
+            capture_output=True,
+            text=True,
+        )
+        if fallback.returncode == 0:
+            return [f for f in fallback.stdout.splitlines() if f.strip()]
+
+    _fail("MISSING_FILES", f"git diff failed: {result.stderr.strip()}")
+    return []  # unreachable; satisfies type checker without suppression
 
 
 def _prd_features(prd: Path) -> list[str]:
