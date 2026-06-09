@@ -6,9 +6,19 @@ about-plugin 'functions for software development'
 #   SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
 # }
 
-# Pick the Claude model for the next /run-autopilot launch by reading
-# state.next_phase. Work phase -> Sonnet 4.6 (200K standard tier); every
-# other phase -> Opus 4.7. Missing/empty next_phase defaults to Opus.
+# Pick the Claude model for the next /run-autopilot launch, phase-based:
+# judgment phases (catchup, planning, reviews) launch on Opus 4.8 1M; the
+# work phase launches on plain Sonnet 4.6 (200K window, subscription-billed
+# — the [1m] variant bills API credits, never use it here). Work-session
+# coordination is mechanical and per-task implementor dispatch inside /work
+# tiers the heavy lifting. The 200K window means the context cap hook sizes
+# a ~150K cap; that is intentional — replan-on-overrun (task_aborted →
+# Phase 0 replan with the tighter per-task budget) handles overruns, and a
+# replan escalates the relaunch to Opus via state.launch_model.
+# state.launch_model (haiku|sonnet|opus) overrides the work-phase pick —
+# the Phase 2→3 handoff writes it: "opus" for PRD default_model: opus or
+# post-replan escalation, "sonnet" otherwise. It is ignored for non-work
+# phases so a stale value can never demote a review session.
 # The stderr log prints the source label separately from the resolved
 # phase so debugging "why did this launch on opus" is unambiguous. The
 # source is the literal next_phase value, or one of "<missing>" (no
@@ -26,7 +36,7 @@ about-plugin 'functions for software development'
 # (context_window) so the cap hook can size its per-task cap to the
 # window (200K-window -> ~150K cap; 1M-window -> 500K cap).
 _autoclaude_pick_model() {
-  local raw next_phase source model jq_rc autopilot_dir state_file
+  local raw next_phase source model window launch_override jq_rc autopilot_dir state_file
   state_file=""
   autopilot_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash)
   if [ -n "$autopilot_dir" ] && [ -f "$autopilot_dir/state.json" ]; then
@@ -56,10 +66,34 @@ _autoclaude_pick_model() {
     fi
   fi
   next_phase="${raw:-catchup}"
-  case "$next_phase" in
-    work) model="claude-sonnet-4-6" ;;
-    *)    model="claude-opus-4-7" ;;
-  esac
+  model="claude-opus-4-8"
+  window=1000000
+  if [ "$next_phase" = "work" ]; then
+    launch_override=""
+    if [ -n "$state_file" ] && command -v jq >/dev/null 2>&1; then
+      launch_override=$(jq -r '.launch_model // ""' "$state_file" 2>/dev/null) || launch_override=""
+      [ "$launch_override" = "null" ] && launch_override=""
+    fi
+    case "$launch_override" in
+    opus)
+      model="claude-opus-4-8"
+      window=1000000
+      ;;
+    haiku)
+      model="claude-haiku-4-5-20251001"
+      window=200000
+      ;;
+    sonnet | "")
+      model="claude-sonnet-4-6"
+      window=200000
+      ;;
+    *)
+      printf 'autoclaude: invalid launch_model %s; using sonnet\n' "$launch_override" >&2
+      model="claude-sonnet-4-6"
+      window=200000
+      ;;
+    esac
+  fi
   # Record the launched model's context window in state.json so the
   # Work-phase context cap hook (autopilot_context_cap_hook.py) can size
   # its cap: a 200K-window model is capped below native auto-compact
@@ -67,20 +101,16 @@ _autoclaude_pick_model() {
   # cannot read the window from the transcript (the plain model id is
   # recorded, never the [1m] variant), so the launcher records it here.
   if [ -n "$state_file" ] && command -v jq >/dev/null 2>&1; then
-    local window cw_tmp
-    case "$model" in
-      claude-sonnet-4-6) window=200000 ;;
-      *)                 window=1000000 ;;
-    esac
+    local cw_tmp
     cw_tmp="${state_file}.cwtmp"
-    if jq --argjson cw "$window" '.context_window = $cw' "$state_file" > "$cw_tmp" 2>/dev/null; then
+    if jq --argjson cw "$window" '.context_window = $cw' "$state_file" >"$cw_tmp" 2>/dev/null; then
       command mv -f -- "$cw_tmp" "$state_file"
     else
       rm -f "$cw_tmp"
       printf 'autoclaude: failed to write context_window to state.json\n' >&2
     fi
   fi
-  printf 'autoclaude: source=%s phase=%s model=%s\n' "$source" "$next_phase" "$model" >&2
+  printf 'autoclaude: source=%s phase=%s launch_model=%s model=%s window=%s\n' "$source" "$next_phase" "${launch_override:-<unset>}" "$model" "$window" >&2
   printf '%s\n' "$model"
 }
 
@@ -102,12 +132,11 @@ autoclaude() {
   trap '_autopilot_loop_cleanup; unset _AUTOPILOT_LOOP; trap - TERM; kill -TERM $$' TERM
 
   while true; do
-    local before_sha signal model_id
+    local signal model_id
 
-    before_sha=$(git rev-parse HEAD 2>/dev/null)
     model_id=$(_autoclaude_pick_model)
 
-    claude --model "$model_id" --name "${PWD##*/}" --permission-mode acceptEdits "/run-autopilot"
+    claude --model "$model_id" --name "${PWD##*/}" --permission-mode bypassPermissions "/run-autopilot"
     _autopilot_loop_cleanup
 
     local _ap_dir
@@ -123,37 +152,23 @@ autoclaude() {
     signal=$(cat "$_ap_dir/signal" 2>/dev/null)
     rm -f "$_ap_dir/signal"
 
-    if [ "$(git rev-parse HEAD 2>/dev/null)" != "$before_sha" ]; then
-      local report
-      report=$(ls -t dev/local/autopilot/reports/*-report.md 2>/dev/null | head -1)
-
-      # desloppify_run.py wraps `codex exec --json` with live progress and
-      # a heartbeat so a long pass (a legitimate `cargo test --workspace`)
-      # is visibly alive rather than a silent black box. No hard timeout —
-      # a stuck run surfaces a loud idle banner instead of being killed.
-      CLEANUP_SINCE="$before_sha" AUTOPILOT_REPORT="$report" \
-        python3 ~/.claude/skills/run-autopilot/scripts/desloppify_run.py \
-        ~/.claude/skills/run-autopilot/prompts/de-sloppify.md --model gpt-5.5
-      _autopilot_loop_cleanup
-    fi
-
     case "$signal" in
-      next)
-        printf '\nStarting next PRD…\n'
-        ;;
-      task_aborted)
-        # Work-phase context cap fired. The hook has already set
-        # stall_reason and appended to task_aborts; /run-autopilot Phase 0
-        # in the next session will replan the PRD in place (PRD stays in
-        # dev/local/prds/wip/) and resume. Treat as continue-loop.
-        printf '\nWork task hit context cap; PRD will be replanned. Continuing…\n'
-        ;;
-      *)
-        printf '\nBacklog drained.\n'
-        trap - INT TERM
-        unset _AUTOPILOT_LOOP
-        return
-        ;;
+    next)
+      printf '\nStarting next PRD…\n'
+      ;;
+    task_aborted)
+      # Work-phase context cap fired. The hook has already set
+      # stall_reason and appended to task_aborts; /run-autopilot Phase 0
+      # in the next session will replan the PRD in place (PRD stays in
+      # dev/local/prds/wip/) and resume. Treat as continue-loop.
+      printf '\nWork task hit context cap; PRD will be replanned. Continuing…\n'
+      ;;
+    *)
+      printf '\nBacklog drained.\n'
+      trap - INT TERM
+      unset _AUTOPILOT_LOOP
+      return
+      ;;
     esac
   done
 }

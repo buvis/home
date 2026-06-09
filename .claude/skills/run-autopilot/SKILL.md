@@ -38,7 +38,7 @@ State file: `dev/local/autopilot/state.json` — see `references/state-schema.md
 
 Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, **rendered once at Phase 9 finalize from the `state.json` decision arrays** (`autonomous_decisions`, `deferred_decisions`, `doubts`). `state.json` is the single in-run source of truth — decisions are NOT mirrored to `audit.md` incrementally per decision. Each rendered entry carries a **source** label (`autonomous`, `deferred`, or `doubt`); cycle/phase context goes in the entry body so the Phase 9 `decisions.md` projection can filter autonomous entries by label. Entry format, the Phase 9 render procedure, and the projection live in `references/audit-log-format.md`.
 
-**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. `autoclaude` now launches **every** session on Opus 1M (see `_autoclaude_pick_model`) — per-task cost tiering happens inside `/work`, so `next_phase` no longer drives the launch model and is kept only for the launcher's debug log. The authoritative resume signal is `phase` + `phases_completed`.
+**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. `autoclaude` reads `next_phase` to pick the launch model (see `_autoclaude_pick_model`): `work` launches on Sonnet (200K window, subscription-billed), every other phase on Opus 1M. `state.launch_model` (`haiku`|`sonnet`|`opus`), written at the Phase 2→3 handoff, overrides the work-phase pick — PRD `default_model: opus` and post-replan escalation launch the work session on Opus instead. `launch_model` is ignored for non-work phases, so a stale value can never demote a review session. Per-task implementor tiering inside `/work` is unchanged and stacks on top. The authoritative resume signal is `phase` + `phases_completed`.
 
 ### Resuming
 
@@ -186,6 +186,27 @@ Invoke `/plan-tasks` with the selected PRD.
 
 After completion, query `TaskList` and update state: add `"planning"` to `phases_completed`, set `phase: "work"` and `next_phase: "work"`, write `tasks`/`tasks_total`/`tasks_completed` snapshot (see Phase 3 for format).
 
+### Hand off to a fresh session for work
+
+**Guard: this handoff runs ONLY when `/plan-tasks` actually ran in this session.** A session whose Phase 2 was skipped (tasks already existed after hydration) IS the work session — `autoclaude` already launched it on the work-phase model. Performing the handoff from such a session would signal-relaunch into an identical session and loop forever. When Phase 2 was skipped, proceed directly to Phase 3.
+
+After the state update above, do NOT continue into Phase 3 in this session. The work session launches on a different model (`autoclaude` maps `next_phase: "work"` → Sonnet unless `launch_model` overrides), so it needs a session boundary. Use the same signal-file + Stop-hook mechanism as the Phase 3→4 handoff:
+
+1. **Set `state.launch_model`** (merge, do not replace siblings):
+   - `"opus"` when the PRD frontmatter has `default_model: opus` (re-parse it from `dev/local/prds/wip/<state.prd>` with the same YAML-tolerant parse Phase 0 step 4 applies for `catchup:`; absent/malformed → no override) OR `state.replan_count >= 1` (a prior work session stalled on this PRD — escalate the whole session rather than risk a cap-abort loop).
+   - `"sonnet"` otherwise. Always write the field explicitly — it must not carry over from a prior PRD.
+2. Write the signal only when running inside the loop (see "Loop Detection" under Session Loop): if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure to write `next` to the signal file at the absolute path. Never use a bare relative path. If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually (the work phase then runs on this session's model; acceptable outside the loop).
+3. Print:
+
+```
+── AUTOPILOT ── PRD: {prd-name} ── Phase 2 (Planning) complete ─────
+── AUTOPILOT ── handing off to fresh session for work ──────────────
+```
+
+4. **STOP.** Do NOT invoke `/work` in this session.
+
+The fresh session reads `dev/local/autopilot/state.json` (with `phases_completed=["catchup", "planning"]`), skips Phases 1-2 via their skip conditions, and resumes at Phase 3 on the launch model `autoclaude` picked.
+
 ## Phase 3: Work
 
 **Skip if:** All tasks completed, none pending. Evaluate **after** running the hydration sub-step (below) — otherwise a fresh session sees TaskList empty and mistakenly treats "no pending" as "all done".
@@ -209,7 +230,7 @@ After completion, query `TaskList` again and update state: add `"work"` to `phas
 
 After Phase 3 completes, do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
 
-1. Update `state.next_phase` to `"review"` (the phase the next session will run). The next session resumes at this phase; the launcher runs it on Opus 1M like every session.
+1. Update `state.next_phase` to `"review"` (the phase the next session will run). The next session resumes at this phase; the launcher maps `review` → Opus 1M (only `work` launches on Sonnet).
 2. Write the signal only when running inside the loop (see "Loop Detection" under Session Loop): if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path. Never use a bare relative `dev/local/autopilot/signal` — the cwd may have changed during the work phase. If unset, skip the signal write — the session will stay interactive and the user will re-invoke `/run-autopilot` manually.
 3. Print:
 
@@ -337,7 +358,7 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 When the flow is about to enter Phase 7 — the review-rework loop has converged (the "No issues found" outcome above) or exhausted its cycles — do NOT continue into Phase 7 in this session. Phase 7 spawns a blind reviewer and must start with a clean context window, uncluttered by this session's review findings and rework. Use the same signal-file + Stop-hook mechanism as the Phase 3 hand-off:
 
 1. Add `"review"` to `phases_completed` — the marker Phase 4 reads to skip the whole review-rework loop on resume.
-2. Set `phase` and `next_phase` to `"blind-review"`. The next session resumes here on Opus 1M like every session.
+2. Set `phase` and `next_phase` to `"blind-review"`. The next session resumes here on Opus 1M (non-work phase).
 3. Write the signal only when running inside the loop: if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path. Never use a bare relative path. If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually.
 4. Print:
 
@@ -352,7 +373,7 @@ The fresh session reads `dev/local/autopilot/state.json` (with `"review"` in `ph
 
 ## Phase 6: Rework
 
-**Session model:** Phase 6 runs in the same session as Phase 4 (review), on Opus 1M (every session launches on Opus). The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate rework handoff is needed: the session model handles review quality; per-task dispatch handles implementation correctness.
+**Session model:** Phase 6 runs in the same session as Phase 4 (review), on Opus 1M (the launcher maps every non-work phase to Opus). The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate rework handoff is needed: the session model handles review quality; per-task dispatch handles implementation correctness.
 
 Two task kinds enter this phase:
 
@@ -585,7 +606,7 @@ Summary:
 ### Continuation
 
 10. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha` (the next PRD starts a fresh plan, not a rework dispatch; `work_start_sha` and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see Loop Detection) to write `next` to the signal file at the absolute path (never a bare relative path). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha` (the next PRD starts a fresh plan, not a rework dispatch; `work_start_sha` and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh), and clear `launch_model` (per-PRD work-session tier; the next PRD's Phase 2→3 handoff rewrites it — clearing is defensive, and `autoclaude` ignores it outside `next_phase: "work"` anyway). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see Loop Detection) to write `next` to the signal file at the absolute path (never a bare relative path). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
