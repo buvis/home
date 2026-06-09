@@ -113,6 +113,10 @@ def main() -> int:
 
     review_file = review_file_for(surface, prd_base, reviews_dir)
     if review_file is None or not review_file.exists():
+        sys.stderr.write(
+            f"review coverage: no {surface} review file found for {prd_base}; "
+            "blocking session exit\n"
+        )
         delete_signal(autopilot_dir)
         return 2
 
@@ -124,6 +128,9 @@ def main() -> int:
 
     code, msg = run_gate(review_file, surface, prd_path, diff_range, repo)
     if code != 0:
+        sys.stderr.write(
+            f"review coverage gap [{surface}]: {msg}; blocking session exit\n"
+        )
         delete_signal(autopilot_dir)
         return 2
     return 0
