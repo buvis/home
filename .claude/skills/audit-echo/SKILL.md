@@ -32,7 +32,7 @@ Report shape:
 
 ## Step 3: Top-noisy symbols
 
-For deny events, count `(symbol, file)` pairs where the same key resolved to a `second-attempt` allow within the next 5 events of the same session. These are duplicate-detection-then-override cases: high candidates for stopword expansion.
+For deny events, count `(symbol, file)` pairs that were later overridden by a `second-attempt` allow in the same session (matched on the hook's own retry signal: same `file` and symbol set, each retry consumed once). These are duplicate-detection-then-override cases: high candidates for stopword expansion. Note: pairing on the `reason == "second-attempt"` marker is exact; do not approximate it with an N-event proximity window (that inflates the override count).
 
 Report the top 10 by deny-count, with second-attempt ratio. Anything with second-attempt ratio ≥50% over ≥5 occurrences is **HIGH** severity — propose adding to the stopword frozenset.
 

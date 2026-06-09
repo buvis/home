@@ -1,6 +1,6 @@
 ---
 name: create-skill
-description: Use when running the local skill validator (validate_skill.py) on a personal skill, or applying user frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "skill-creator", "create skill", "lint skill", "skill compliance".
+description: Use when running the skill validator or applying user frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "skill-creator", "create skill", "lint skill", "skill compliance".
 ---
 
 # Skill Creator
@@ -202,6 +202,8 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 - Move heavy reference to separate files
 - Don't repeat what's in cross-referenced skills
 - Reference other skills by name, not `@` paths (`@` force-loads files, burning context)
+
+**Before validating**, scan [references/common-pitfalls.md](references/common-pitfalls.md) for friction patterns hit by prior skill builds: cross-script imports in flat `scripts/`, Echo's name-led duplicate detection, missing `chmod +x` on scripts, **path solicitation for user-supplied files** (skills don't take CLI args), **batched state changes** (per-decision changes must be enforced as immediate, not eventual), **"three options" must mean three distinct alternatives** (not "mine + your own + skip"), **card-text and picker-options must share one canonical order AND one label scheme** (otherwise users re-map between A/B/C/D and 1/2/3/4 and trust drops), **review-style skills need a comprehension pass before a critique pass** (without it, findings drift to surface flaws and miss structural issues), and the inline-`awk` recipe for migrating from a monolithic command file.
 
 ### Step 5: Validate the Skill
 

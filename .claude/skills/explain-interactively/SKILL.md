@@ -1,6 +1,6 @@
 ---
 name: explain-interactively
-description: Turn a codebase into an interactive HTML course for non-technical learners. Triggers on "turn this into a course", "explain interactively", "codebase walkthrough", "teach this code".
+description: Use when turning a codebase into an interactive HTML course for non-technical learners. Triggers on "turn this into a course", "explain interactively", "codebase walkthrough", "teach this code".
 metadata:
   original-author: zarazhangrui/codebase-to-course
 ---

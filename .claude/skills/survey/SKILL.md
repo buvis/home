@@ -1,12 +1,12 @@
 ---
 name: survey
-description: Use when building or refreshing the Cartographer per-repo atlas — a small codebase map of layers, naming conventions, error style, and extension points. Triggers on "/survey", "survey repo", "refresh atlas", "rebuild codebase map".
+description: Use when building or refreshing the Cartographer per-repo atlas, a small codebase map of layers, naming conventions, error style, and extension points. Triggers on "/survey", "survey repo", "refresh atlas", "rebuild codebase map".
 ---
 
 # Survey
 
 Build or refresh the Cartographer **atlas** for the current repository — a
-proactive map of "where things live" that downstream phases (Recon Gate,
+proactive map of "where things live" that downstream phases (Recon Brief,
 Architect, Conformance) consult before deciding where to make a change.
 
 The atlas lives at `~/.claude/cartographer/projects/<hash>/`:
