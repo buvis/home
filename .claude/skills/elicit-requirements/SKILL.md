@@ -60,6 +60,7 @@ Read `references/question-bank.md`. Select questions appropriate to the depth le
 **Rules:**
 - One question per message. Concise, with enough context to answer quickly.
 - Use `AskUserQuestion` tool with multiple-choice options when the question fits that format. Open-ended for scope boundaries and risk identification.
+- **Mark the recommended option.** When one option is clearly best, make it the first option, append ` (Recommended)` to its label, and state the one-line rationale in its description. If no option is clearly best, present them neutrally and say so.
 - Skip questions the input or brownfield analysis already answers. Note the inferred answer in the discovery log.
 - After each answer, append the Q&A pair to the Discovery Log section of the working discovery file. This survives compaction.
 - For comprehensive depth: after all questions, review answers for contradictions. If found, ask a contradiction resolution question.
