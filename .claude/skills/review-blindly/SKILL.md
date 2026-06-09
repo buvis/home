@@ -115,6 +115,31 @@ Task tool (general-purpose):
     Source of truth for the block format: `~/.claude/skills/review-work-completion/references/review-coverage-format.md`.
 ```
 
+### Step 2.5: Gate Coverage and Write the Review File
+
+After the blind reviewer returns, do the following in order.
+
+1. Write the reviewer's FULL output (ending with its `---review-coverage---` block) to a temp block file:
+   ```
+   dev/local/reviews/.blind-reviewer-block.md
+   ```
+
+2. Resolve `<prd-base>` = the PRD filename without its `.md` extension. Read `work_start_sha` from `dev/local/autopilot/state.json` to form the diff range `<work_start_sha>..HEAD`. If no `state.json` exists (standalone, non-autopilot run), fall back to `master...HEAD`. Do not crash on a missing state file.
+
+3. Invoke the coverage gate (do NOT pass `--rubric`; the gate resolves the `blindly` rubric via `SURFACE_RUBRIC_DEFAULTS`):
+   ```bash
+   python3 ~/.claude/skills/review-work-completion/scripts/review_coverage.py \
+     --surface blindly \
+     --prd <prd-path> \
+     --diff-range <work_start_sha>..HEAD \
+     --reviewer-block dev/local/reviews/.blind-reviewer-block.md \
+     --write-aggregate dev/local/reviews/.blind-aggregate.md
+   ```
+
+4. **Fail loud:** if the gate exits non-zero, the blind review FAILS. Surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, or `MISSING_RUBRIC_RULE`) and its detail. Do NOT produce a clean verdict.
+
+5. On exit 0: write `dev/local/reviews/<prd>-blind-review.md` containing the reviewer's findings prose followed by the aggregate coverage block from `dev/local/reviews/.blind-aggregate.md`. Note in the file that this name is intentionally distinct from the `-review-NN.md` pattern (it does not collide with the Phase 4 cycle-skip glob), and that the autopilot Phase 2 Stop hook re-checks this file's aggregate block.
+
 ### Step 3: Act on Findings
 
 - **Critical:** Fix immediately, re-run blind review on affected areas
