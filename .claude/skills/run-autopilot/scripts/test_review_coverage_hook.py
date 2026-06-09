@@ -123,6 +123,11 @@ class MainTests(unittest.TestCase):
         # repo root is tmp; autopilot dir is repo/dev/local/autopilot
         # so repo = autopilot_dir.parents[2]
         self.repo = Path(self.tmp.name)
+        # The hook only gates inside the autopilot shell loop; mark these
+        # tests as loop-wrapped so they exercise the gate logic.
+        loop_env = mock.patch.dict(os.environ, {"_AUTOPILOT_LOOP": "1"})
+        loop_env.start()
+        self.addCleanup(loop_env.stop)
 
     def _make_reviews_dir(self) -> Path:
         reviews = self.repo / "dev" / "local" / "reviews"
@@ -149,6 +154,30 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
         self.assertFalse(signal_file.exists())
+
+    def test_main_exit0_outside_loop_without_gating(self) -> None:
+        # Footgun fix: outside the autopilot shell loop ($_AUTOPILOT_LOOP unset)
+        # the hook must never block exit, even when state.json is parked in a
+        # review phase. It must not resolve the autopilot dir or run the gate —
+        # a leftover review-phase state must not deadlock unrelated sessions
+        # that merely share the cwd tree.
+        autopilot_dir = _make_autopilot_dir(
+            self.repo, phase="blind-review", prd="X.md", work_start_sha="abc"
+        )
+        signal_file = autopilot_dir / "signal"
+        self.assertTrue(signal_file.exists())
+
+        def _must_not_be_called(*args, **kwargs):
+            raise AssertionError("hook must not act outside the autopilot loop")
+
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            hook, "find_autopilot_dir", side_effect=_must_not_be_called
+        ), mock.patch.object(hook, "run_gate", side_effect=_must_not_be_called):
+            result = hook.main()
+
+        self.assertEqual(result, 0)
+        # signal left intact — no handoff was gated
+        self.assertTrue(signal_file.exists())
 
     def test_main_exit0_on_non_review_phase(self) -> None:
         autopilot_dir = _make_autopilot_dir(self.repo, phase="planning")
@@ -225,6 +254,11 @@ class MainPassesCorrectReviewFileTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
+        # The hook only gates inside the autopilot shell loop; mark these
+        # tests as loop-wrapped so they exercise the gate logic.
+        loop_env = mock.patch.dict(os.environ, {"_AUTOPILOT_LOOP": "1"})
+        loop_env.start()
+        self.addCleanup(loop_env.stop)
 
     def _make_reviews_dir(self) -> Path:
         reviews = self.repo / "dev" / "local" / "reviews"
@@ -259,6 +293,11 @@ class MainBlocksCleanlyWhenPrdMissingTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
+        # The hook only gates inside the autopilot shell loop; mark these
+        # tests as loop-wrapped so they exercise the gate logic.
+        loop_env = mock.patch.dict(os.environ, {"_AUTOPILOT_LOOP": "1"})
+        loop_env.start()
+        self.addCleanup(loop_env.stop)
 
     def _make_reviews_dir(self) -> Path:
         reviews = self.repo / "dev" / "local" / "reviews"
@@ -328,6 +367,11 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
+        # The hook only gates inside the autopilot shell loop; mark these
+        # tests as loop-wrapped so they exercise the gate logic.
+        loop_env = mock.patch.dict(os.environ, {"_AUTOPILOT_LOOP": "1"})
+        loop_env.start()
+        self.addCleanup(loop_env.stop)
 
     def test_main_blocks_when_review_file_missing(self) -> None:
         autopilot_dir = _make_autopilot_dir(

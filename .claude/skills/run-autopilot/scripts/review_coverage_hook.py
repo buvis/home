@@ -9,6 +9,7 @@ loop does not immediately re-trigger).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -89,6 +90,15 @@ def main() -> int:
         sys.stdin.read()
     except OSError:
         pass
+
+    # Only gate review coverage inside the autopilot shell loop. Interactive
+    # sessions and manual /run-autopilot runs never write the signal file, so
+    # there is no automated review handoff to gate; blocking their exit on a
+    # leftover review-phase state.json deadlocks unrelated work that merely
+    # shares the cwd tree. Per SKILL.md "Loop Detection", $_AUTOPILOT_LOOP
+    # marks a loop-wrapped session.
+    if not os.environ.get("_AUTOPILOT_LOOP"):
+        return 0
 
     autopilot_dir = find_autopilot_dir(Path.cwd())
     if autopilot_dir is None:
