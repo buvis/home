@@ -48,21 +48,45 @@ trust_level = "trusted"
 [projects."/Users/bob/Documents/New project"]
 trust_level = "trusted"
 
+[projects."/Users/bob/.claude"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/calcard-mcp"]
+trust_level = "trusted"
+
+[projects."/Users/bob/.claude/skills/run-autopilot/scripts"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/.local/myplacetodie"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/claude-checkup"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/claude-aegis"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/claude-strunk"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/claude-warden"]
+trust_level = "trusted"
+
 [features]
 multi_agent = true
 
 [marketplaces.openai-bundled]
-last_updated = "2026-05-16T13:30:31Z"
+last_updated = "2026-05-20T11:02:10Z"
 source_type = "local"
 source = "/Users/bob/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-05-16T13:01:59Z"
+last_updated = "2026-05-20T12:02:24Z"
 source_type = "local"
 source = "/Users/bob/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
 [tui.model_availability_nux]
-"gpt-5.5" = 1
+"gpt-5.5" = 2
 
 [plugins."documents@openai-primary-runtime"]
 enabled = true
