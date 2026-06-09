@@ -164,6 +164,7 @@ def _run(
     repo: Path,
     reviewer_blocks: list[Path],
     extra_args: list[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable, str(PARSER_PATH),
@@ -177,7 +178,7 @@ def _run(
         cmd += ["--reviewer-block", str(rb)]
     if extra_args:
         cmd += extra_args
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +931,84 @@ class ReviewCoverageTests(unittest.TestCase):
             result.stderr.startswith("EMPTY_TESTS"),
             f"Expected EMPTY_TESTS prefix, got: {result.stderr[:80]!r}",
         )
+
+    def test_run_tests_strips_fabricated_reviewer_counts_on_code_only_diff(self) -> None:
+        """Reviewers never assert test results. Under --run-tests, a reviewer
+        that FABRICATES a `pass=N fail=N skip=N` line on a code-only diff (no
+        changed test file, so the consolidation run produces no real counts)
+        must NOT satisfy the gate: the forged entry is discarded and the gate
+        fails EMPTY_TESTS. This closes the reviewer-hearsay hole where a
+        fabricated count bypassed test enforcement on a code-only diff."""
+        repo, base_sha = _setup_repo(self.tmp)  # src/foo.py, src/bar.py: not tests
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed", "src/bar.py": "reviewed"},
+            tests="pytest: pass=99 fail=0 skip=0",  # forged by a dishonest reviewer
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {result.stderr[:80]!r}",
+        )
+
+    def test_invalid_work_tree_override_fails_clean_missing_files(self) -> None:
+        """A bad AUTOPILOT_GIT_WORK_TREE override must yield the clean
+        MISSING_FILES gap kind, not a raw OSError traceback. The plain git
+        diff fails (the --repo dir is not a git repo), the bare-repo fallback
+        is attempted, but the overridden work-tree does not exist -> the gate
+        fails loud with MISSING_FILES rather than crashing on cwd."""
+        non_repo = self.tmp / "not-a-repo"
+        non_repo.mkdir()
+        bare = self.tmp / "bare.git"
+        _git(["init", "--bare", str(bare)], self.tmp)
+        missing_work_tree = self.tmp / "does-not-exist"
+
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed"},
+            tests="none: diff touches no code",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        env = _hermetic_env()
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        env["AUTOPILOT_GIT_DIR"] = str(bare)
+        env["AUTOPILOT_GIT_WORK_TREE"] = str(missing_work_tree)
+
+        result = _run(
+            prd=prd,
+            diff_range="HEAD~1..HEAD",
+            rubric=rubric,
+            repo=non_repo,
+            reviewer_blocks=[block],
+            env=env,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("MISSING_FILES"),
+            f"Expected MISSING_FILES prefix, got: {result.stderr[:120]!r}",
+        )
+        self.assertNotIn("Traceback", result.stderr)
 
 
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
