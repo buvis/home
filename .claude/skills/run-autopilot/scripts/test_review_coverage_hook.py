@@ -573,5 +573,105 @@ class ReviewCoverageGitIntegrationTests(unittest.TestCase):
         self.assertNotIn("MISSING_FILES", result.stderr)
 
 
+class RunGateHookIntegrationTests(unittest.TestCase):
+    """Drive the REAL review_coverage_hook.run_gate() against a real bare repo.
+
+    Closes the residual half of cycle-1's [2/2] "hook->gate->git path never
+    tested" finding: the gate-level integration test exercised review_coverage.py
+    directly, never the hook's own invocation of the real gate. These tests call
+    hook.run_gate() (no mock) so the hook -> subprocess(review_coverage.py) ->
+    bare-repo git resolution path — the exact cycle-1 production deadlock path —
+    is executed end to end. They would fail if review_coverage.py's bare-repo
+    _diff_files fallback regressed.
+    """
+
+    def setUp(self) -> None:
+        self.rubric_ids = _rubric_rule_ids(WORK_COMPLETION_RUBRIC)
+        self.assertTrue(self.rubric_ids, "real rubric must yield rule IDs")
+        self.feature = "Example feature"
+
+    def _bare_repo_worktree(self) -> tuple[Path, Path, str]:
+        """Build a bare git dir + work-tree with a 2-commit range touching
+        gamma.py. Returns (gitdir, worktree, diff_range). The work-tree has no
+        .git link, so plain `git -C <worktree>` fails — the hook's gate must use
+        the AUTOPILOT_GIT_DIR/WORK_TREE fallback to resolve the diff."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base_dir = Path(tmp.name)
+        worktree = base_dir / "home"
+        gitdir = base_dir / "repo.git"
+        worktree.mkdir()
+        _git(["init", "--bare", str(gitdir)])
+
+        env = dict(os.environ)
+        env["GIT_DIR"] = str(gitdir)
+        env["GIT_WORK_TREE"] = str(worktree)
+        _git(["config", "user.name", "Tess"], env=env)
+        _git(["config", "user.email", "tess@example.com"], env=env)
+
+        (worktree / "gamma.py").write_text("a = 1\n")
+        _git(["add", "gamma.py"], env=env)
+        _git(["commit", "-m", "init"], env=env)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], env=env,
+                              capture_output=True, text=True).stdout.strip()
+        (worktree / "gamma.py").write_text("a = 2\n")
+        _git(["commit", "-am", "change"], env=env)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], env=env,
+                             capture_output=True, text=True).stdout.strip()
+        return gitdir, worktree, f"{base}..{head}"
+
+    def _write_prd(self, root: Path) -> Path:
+        prd = root / "prd.md"
+        prd.write_text(f"# PRD\n\n#### Feature: {self.feature}\n\nbody\n")
+        return prd
+
+    def _gate_env(self, gitdir: Path, worktree: Path) -> dict[str, str]:
+        """os.environ minus standard GIT_DIR/GIT_WORK_TREE (so native git can't
+        short-circuit) plus only the autopilot bare-repo override."""
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        env["AUTOPILOT_GIT_DIR"] = str(gitdir)
+        env["AUTOPILOT_GIT_WORK_TREE"] = str(worktree)
+        return env
+
+    def test_run_gate_passes_through_hook_against_bare_repo(self) -> None:
+        """Complete coverage: hook.run_gate -> real gate -> bare-repo fallback
+        resolves gamma.py and the block covers it -> exit 0. This only passes if
+        the hook actually drives the real gate and the bare-repo fallback works."""
+        gitdir, worktree, diff_range = self._bare_repo_worktree()
+        prd = self._write_prd(worktree)
+        # run_gate writes its aggregate under <repo>/dev/local/reviews/.
+        (worktree / "dev" / "local" / "reviews").mkdir(parents=True)
+        review = worktree / "review.md"
+        review.write_text(_coverage_block(["gamma.py"], self.rubric_ids, self.feature))
+
+        with mock.patch.dict(os.environ, self._gate_env(gitdir, worktree), clear=True):
+            code, msg = hook.run_gate(
+                review, "work-completion", prd, diff_range, worktree
+            )
+
+        self.assertEqual(code, 0, msg=f"hook.run_gate gap: {msg}")
+
+    def test_run_gate_reports_gap_through_hook_against_bare_repo(self) -> None:
+        """Incomplete coverage: the block omits the changed gamma.py. The hook's
+        real gate must resolve gamma.py via the bare-repo fallback and fail
+        MISSING_FILES naming it (proving resolution happened, not a git error)."""
+        gitdir, worktree, diff_range = self._bare_repo_worktree()
+        prd = self._write_prd(worktree)
+        (worktree / "dev" / "local" / "reviews").mkdir(parents=True)
+        review = worktree / "review.md"
+        # Cover NO files — gamma.py is the changed file and is omitted.
+        review.write_text(_coverage_block([], self.rubric_ids, self.feature))
+
+        with mock.patch.dict(os.environ, self._gate_env(gitdir, worktree), clear=True):
+            code, msg = hook.run_gate(
+                review, "work-completion", prd, diff_range, worktree
+            )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("MISSING_FILES", msg)
+        self.assertIn("gamma.py", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
