@@ -82,7 +82,7 @@ def find_and_signal_claude(start_pid: int) -> bool:
     pid = start_pid
     while pid > 1:
         comm = comm_for(pid)
-        if comm and "claude" in comm:
+        if comm and os.path.basename(comm) == "claude":
             try:
                 os.kill(pid, signal.SIGINT)
             except OSError:

@@ -14,6 +14,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HOOK_PATH = Path(__file__).parent / "autopilot_stop_hook.py"
 
@@ -91,6 +92,52 @@ class FindSignalFileTests(unittest.TestCase):
         deep.mkdir(parents=True)
         result = hook.find_signal_file(deep)
         self.assertEqual(result.resolve(), nearer_sig.resolve())
+
+
+class FindAndSignalClaudeProcessMatchTests(unittest.TestCase):
+    """The Stop hook walks the process tree to SIGINT the claude process.
+
+    The match must be an EXACT process basename, not a substring: a sibling
+    helper named `claude-helper` (or any `*claude*`) must not be mistaken for
+    the loop's claude process and killed.
+    """
+
+    def _run(self, comms, parents, start_pid):
+        killed: list[int] = []
+        with mock.patch.object(hook, "comm_for", lambda pid: comms.get(pid, "")), \
+                mock.patch.object(hook, "parent_of", lambda pid: parents.get(pid, 0)), \
+                mock.patch.object(hook.os, "kill", lambda pid, sig: killed.append(pid)):
+            result = hook.find_and_signal_claude(start_pid)
+        return result, killed
+
+    def test_substring_claude_not_matched(self) -> None:
+        # 'claude-helper' must NOT be treated as the claude process.
+        result, killed = self._run(
+            comms={100: "claude-helper", 50: "bash", 1: "init"},
+            parents={100: 50, 50: 1},
+            start_pid=100,
+        )
+        self.assertFalse(result)
+        self.assertEqual(killed, [])
+
+    def test_exact_claude_matched(self) -> None:
+        result, killed = self._run(
+            comms={100: "node", 50: "claude", 1: "init"},
+            parents={100: 50, 50: 1},
+            start_pid=100,
+        )
+        self.assertTrue(result)
+        self.assertEqual(killed, [50])
+
+    def test_full_path_comm_basename_matched(self) -> None:
+        # Some `ps` variants print a full path in comm; basename must match.
+        result, killed = self._run(
+            comms={100: "/usr/local/bin/claude", 1: "init"},
+            parents={100: 1},
+            start_pid=100,
+        )
+        self.assertTrue(result)
+        self.assertEqual(killed, [100])
 
 
 if __name__ == "__main__":
