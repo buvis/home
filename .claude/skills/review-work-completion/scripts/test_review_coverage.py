@@ -73,6 +73,37 @@ def _setup_repo(tmp: Path, code_files: list[str] | None = None) -> tuple[Path, s
     return repo, base_sha
 
 
+def _setup_repo_with_test_file(
+    tmp: Path, *, rel: str, body: str
+) -> tuple[Path, str]:
+    """
+    Create a tiny two-commit repo whose single changed file is a REAL pytest
+    file containing `body`. Returns (repo_path, base_sha).
+
+    `_setup_repo` only writes a `# comment` stub, which pytest cannot run; this
+    variant writes runnable test source so --run-tests can discover and run it.
+    """
+    repo = tmp / "repo"
+    repo.mkdir()
+
+    _git(["init"], repo)
+    _git(["config", "core.autocrlf", "false"], repo)
+
+    readme = repo / "README.md"
+    readme.write_text("base\n")
+    _git(["add", "README.md"], repo)
+    _git(["commit", "-m", "init"], repo)
+    base_sha = _git(["rev-parse", "HEAD"], repo)
+
+    p = repo / Path(rel)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body)
+    _git(["add", "."], repo)
+    _git(["commit", "-m", "feature"], repo)
+
+    return repo, base_sha
+
+
 def _write_prd(tmp: Path, features: list[str] | None = None) -> Path:
     features = features or ["Alpha", "Beta"]
     lines = ["# PRD\n\nSome intro.\n"]
@@ -617,6 +648,170 @@ class ReviewCoverageTests(unittest.TestCase):
         self.assertIn("src/bar.py", content)
 
 
+    # ------------------------------------------------------------------
+    # --run-tests contract
+    # ------------------------------------------------------------------
+
+    def test_run_tests_fills_pending_from_changed_passing_test(self) -> None:
+        """--run-tests runs a changed passing test file and fills the pending
+        tests dimension with real counts -> exit 0, aggregate tests line shows
+        pass=N fail=N skip=N (not the pending sentinel)."""
+        repo, base_sha = _setup_repo_with_test_file(
+            self.tmp, rel="src/test_thing.py", body="def test_ok():\n    assert True\n"
+        )
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/test_thing.py": "reviewed"},
+            tests="pending: filled by consolidation",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        agg_path = self.tmp / "agg.txt"
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests", "--write-aggregate", str(agg_path)],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(agg_path.exists(), "aggregate file was not written")
+        content = agg_path.read_text()
+        # The pending sentinel must have been replaced by real counts.
+        self.assertNotIn("pending: filled by consolidation", content)
+        self.assertRegex(content, r"pass=\d+ fail=\d+ skip=\d+")
+        # One passing test -> pass=1 fail=0.
+        self.assertIn("pass=1", content)
+        self.assertIn("fail=0", content)
+
+    def test_pending_only_tests_dimension_for_code_diff_fails(self) -> None:
+        """Hardened completeness: code diff whose tests section is ONLY
+        'pending: filled by consolidation' and no --run-tests -> EMPTY_TESTS.
+        (This is the bug being fixed: pending previously passed.)"""
+        repo, base_sha = _setup_repo(self.tmp)
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed", "src/bar.py": "reviewed"},
+            tests="pending: filled by consolidation",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {result.stderr[:80]!r}",
+        )
+
+    def test_run_tests_with_no_changed_test_file_fails(self) -> None:
+        """--run-tests with reviewed code files but NO changed test file: no
+        counts can be produced -> EMPTY_TESTS."""
+        repo, base_sha = _setup_repo(self.tmp)  # src/foo.py, src/bar.py: not tests
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed", "src/bar.py": "reviewed"},
+            tests="pending: filled by consolidation",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {result.stderr[:80]!r}",
+        )
+
+    def test_run_tests_on_docs_only_diff_passes(self) -> None:
+        """--run-tests on a docs-only diff with 'none: diff touches no code'
+        sentinel -> exit 0 (no code to test)."""
+        repo, base_sha = _setup_repo(self.tmp, code_files=["docs/guide.md"])
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"docs/guide.md": "n/a:docs only"},
+            tests="none: diff touches no code",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests"],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_run_tests_failing_test_records_counts_and_still_passes_gate(self) -> None:
+        """Coverage completeness is NOT test success: --run-tests on a changed
+        FAILING test file records fail>0 and STILL exits 0 (tests were run and
+        counted)."""
+        repo, base_sha = _setup_repo_with_test_file(
+            self.tmp, rel="src/test_thing.py", body="def test_bad():\n    assert False\n"
+        )
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/test_thing.py": "reviewed"},
+            tests="pending: filled by consolidation",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        agg_path = self.tmp / "agg.txt"
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests", "--write-aggregate", str(agg_path)],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        content = agg_path.read_text()
+        self.assertRegex(content, r"pass=\d+ fail=\d+ skip=\d+")
+        # The failing test must be reflected as fail>0, not silently zeroed.
+        self.assertNotIn("fail=0", content)
+        self.assertIn("fail=1", content)
+
+
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
 
 
@@ -629,8 +824,11 @@ def _run_consolidate(
     rubric: "Path | None" = None,
     repo: "Path | None" = None,
     write_aggregate: "Path | None" = None,
+    run_tests: bool = False,
 ) -> "subprocess.CompletedProcess[str]":
     cmd = ["bash", str(CONSOLIDATE_SCRIPT)]
+    if run_tests:
+        cmd += ["--run-tests"]
     if prd is not None:
         cmd += ["--prd", str(prd)]
     if diff_range is not None:
@@ -734,6 +932,31 @@ class TestConsolidateFindingsCoverage(unittest.TestCase):
         content = agg.read_text()
         self.assertIn("---review-coverage---", content)
         self.assertIn("---end-review-coverage---", content)
+
+    def test_run_tests_passthrough_fills_pending_block(self) -> None:
+        """consolidate-findings.sh forwards --run-tests: a reviewer output whose
+        tests section is 'pending: filled by consolidation' with a changed
+        passing test file in the diff -> exit 0 (gate filled real counts)."""
+        repo, base_sha = _setup_repo_with_test_file(
+            self.tmp, rel="src/test_thing.py", body="def test_ok():\n    assert True\n"
+        )
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+        out = self.tmp / "rev.txt"
+        out.write_text(
+            "---review-coverage---\n"
+            "files:\n  src/test_thing.py: reviewed\n"
+            "tests:\n  pending: filled by consolidation\n"
+            "features:\n  Alpha: verified\n  Beta: verified\n"
+            "rubric:\n  R1: pass\n  R2: pass\n  R3: pass\n"
+            "---end-review-coverage---\n"
+        )
+        result = _run_consolidate(
+            [f"ALICE:{out}"],
+            prd=prd, diff_range=base_sha, surface="work-completion",
+            rubric=rubric, repo=repo, run_tests=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_backwards_compat_without_coverage_args(self) -> None:
         """Without coverage args, exits 0 regardless of reviewer content."""
