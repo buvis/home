@@ -211,7 +211,9 @@ def _diff_files(diff_range: str, repo: Path) -> tuple[list[str], Path]:
     # project root has no .git and a plain `git diff` from it fails.
     git_dir = os.environ.get("AUTOPILOT_GIT_DIR") or str(Path.home() / ".buvis")
     work_tree = os.environ.get("AUTOPILOT_GIT_WORK_TREE") or str(Path.home())
-    if Path(git_dir).exists():
+    # Require work_tree to exist before using it as cwd: a bad override would
+    # otherwise raise a raw OSError instead of the clean MISSING_FILES gap kind.
+    if Path(git_dir).exists() and Path(work_tree).exists():
         fallback = subprocess.run(
             ["git", f"--git-dir={git_dir}", f"--work-tree={work_tree}",
              "diff", "--name-only", diff_range],
@@ -367,6 +369,14 @@ def main() -> None:
     features = _prd_features(args.prd)
 
     if args.run_tests:
+        # Reviewers never assert test results. In the --run-tests path (the
+        # consolidation/production path) real counts come only from the test
+        # run below, so drop any reviewer-supplied non-sentinel `tests` entry —
+        # otherwise a fabricated `pass=N fail=N skip=N` would satisfy
+        # _check_empty_tests on a diff whose changed files include no test file.
+        merged["tests"] = {
+            k: v for k, v in merged["tests"].items() if k in ("none", "pending")
+        }
         summary = _run_changed_tests(diff, work_tree)
         if summary is not None:
             merged["tests"].pop("pending", None)
