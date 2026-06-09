@@ -43,10 +43,12 @@ alwaysAllow:
   - mdbook
   - codex
   - copilot
+  - gemini
   - pi
   - claude
   - mise
   - curl
+  - mempalace
   # Safe shell utilities (read-only or harmless)
   - ls
   - pwd
