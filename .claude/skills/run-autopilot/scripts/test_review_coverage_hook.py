@@ -283,5 +283,226 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
         self.assertFalse(signal_file.exists(), "signal file must be deleted when review file is missing")
 
 
+# ---------------------------------------------------------------------------
+# REAL integration tests of review_coverage.py (no mocks of run_gate / git).
+#
+# These exercise the hook -> gate -> git path end to end via subprocess against
+# real temp git repos, pinning PRD 00038 [D1]: the gate must resolve changed
+# files when the project root is a bare-repo work-tree (git data in a separate
+# dir), where plain `git -C <root> diff` fails.
+# ---------------------------------------------------------------------------
+
+import os
+import subprocess
+
+
+GATE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "review-work-completion"
+    / "scripts"
+    / "review_coverage.py"
+)
+WORK_COMPLETION_RUBRIC = (
+    Path(__file__).resolve().parents[2]
+    / "review-work-completion"
+    / "references"
+    / "rubric.md"
+)
+
+
+def _git(args: list[str], cwd: str | None = None, env: dict | None = None) -> None:
+    """Run a git command, raising with captured output on failure."""
+    subprocess.run(["git", *args], cwd=cwd, env=env, check=True,
+                   capture_output=True, text=True)
+
+
+def _rubric_rule_ids(rubric_path: Path) -> list[str]:
+    """Extract the R<n> rule IDs from the real work-completion rubric."""
+    import re
+
+    ids = []
+    for line in rubric_path.read_text().splitlines():
+        m = re.match(r"^(R\d+):", line)
+        if m:
+            ids.append(m.group(1))
+    return ids
+
+
+def _coverage_block(files: list[str], rubric_ids: list[str], feature: str) -> str:
+    """Build a complete ---review-coverage--- block covering the given inputs."""
+    lines = ["---review-coverage---", "files:"]
+    for f in files:
+        lines.append(f"  {f}: reviewed")
+    lines.append("tests:")
+    lines.append("  tests/test_x.py: pass=1 fail=0 skip=0")
+    lines.append("features:")
+    lines.append(f"  {feature}: verified")
+    lines.append("rubric:")
+    for rid in rubric_ids:
+        lines.append(f"  {rid}: pass")
+    lines.append("---end-review-coverage---")
+    return "\n".join(lines) + "\n"
+
+
+class ReviewCoverageGitIntegrationTests(unittest.TestCase):
+    """End-to-end subprocess tests against real git repos. No mocks."""
+
+    def setUp(self) -> None:
+        self.rubric_ids = _rubric_rule_ids(WORK_COMPLETION_RUBRIC)
+        self.assertTrue(self.rubric_ids, "real rubric must yield rule IDs")
+        self.feature = "Example feature"
+
+    def _write_prd(self, root: Path) -> Path:
+        prd = root / "prd.md"
+        prd.write_text(f"# PRD\n\n#### Feature: {self.feature}\n\nbody\n")
+        return prd
+
+    def _run_gate(self, repo: Path, diff_range: str, prd: Path,
+                  review: Path, env: dict | None = None) -> subprocess.CompletedProcess:
+        argv = [
+            sys.executable, str(GATE_PATH),
+            "--surface", "work-completion",
+            "--prd", str(prd),
+            "--diff-range", diff_range,
+            "--reviewer-block", str(review),
+            "--rubric", str(WORK_COMPLETION_RUBRIC),
+            "--repo", str(repo),
+        ]
+        return subprocess.run(argv, capture_output=True, text=True, env=env)
+
+    def _normal_repo_with_range(self) -> tuple[Path, str, list[str]]:
+        """Build a plain git repo with a 2-commit range; return (root, range, files)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        _git(["init"], cwd=str(root))
+        _git(["config", "user.name", "Tess"], cwd=str(root))
+        _git(["config", "user.email", "tess@example.com"], cwd=str(root))
+
+        (root / "alpha.py").write_text("x = 1\n")
+        (root / "beta.py").write_text("y = 2\n")
+        _git(["add", "alpha.py", "beta.py"], cwd=str(root))
+        _git(["commit", "-m", "init"], cwd=str(root))
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
+                              capture_output=True, text=True).stdout.strip()
+
+        (root / "alpha.py").write_text("x = 2\n")
+        (root / "beta.py").write_text("y = 3\n")
+        _git(["commit", "-am", "change"], cwd=str(root))
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
+                             capture_output=True, text=True).stdout.strip()
+
+        diff_range = f"{base}..{head}"
+        changed = subprocess.run(
+            ["git", "diff", "--name-only", diff_range], cwd=str(root),
+            capture_output=True, text=True,
+        ).stdout.split()
+        self.assertEqual(sorted(changed), ["alpha.py", "beta.py"])
+        return root, diff_range, changed
+
+    def test_complete_coverage_passes_on_normal_repo(self) -> None:
+        """Regression: a plain git repo with full coverage exits 0."""
+        root, diff_range, changed = self._normal_repo_with_range()
+        prd = self._write_prd(root)
+        review = root / "review.md"
+        review.write_text(_coverage_block(changed, self.rubric_ids, self.feature))
+
+        result = self._run_gate(root, diff_range, prd, review)
+
+        self.assertEqual(result.returncode, 0,
+                         msg=f"stderr: {result.stderr}")
+
+    def test_missing_file_in_block_fails_missing_files(self) -> None:
+        """Dropping a changed file from the block yields MISSING_FILES."""
+        root, diff_range, changed = self._normal_repo_with_range()
+        prd = self._write_prd(root)
+        review = root / "review.md"
+        # Cover only the first changed file; omit the rest.
+        review.write_text(
+            _coverage_block(changed[:1], self.rubric_ids, self.feature)
+        )
+
+        result = self._run_gate(root, diff_range, prd, review)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("MISSING_FILES", result.stderr)
+        for omitted in changed[1:]:
+            self.assertIn(omitted, result.stderr)
+
+    def test_bare_repo_worktree_resolves_changed_files(self) -> None:
+        """Bare-repo work-tree (no .git in root) must still resolve changed files.
+
+        Reproduces PRD 00038 [D1] faithfully: git data lives in a separate bare
+        dir and the work-tree root has NO .git link and NO standard GIT_DIR in
+        the gate's environment, so plain `git -C <root> diff` fails with 'Not a
+        git repository' — exactly the real ~/.buvis-backed .claude condition.
+
+        The gate must fall back to the documented bare-repo-home convention. That
+        fallback location defaults to ~/.buvis + $HOME in production but is
+        overridable for tests via AUTOPILOT_GIT_DIR / AUTOPILOT_GIT_WORK_TREE.
+        Standard GIT_DIR/GIT_WORK_TREE are deliberately cleared from the gate env
+        so this test exercises the fix's own resolution logic, not native git.
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base_dir = Path(tmp.name)
+        worktree = base_dir / "home"
+        gitdir = base_dir / "repo.git"
+        worktree.mkdir()
+        _git(["init", "--bare", str(gitdir)])
+
+        env = dict(os.environ)
+        env["GIT_DIR"] = str(gitdir)
+        env["GIT_WORK_TREE"] = str(worktree)
+        _git(["config", "user.name", "Tess"], env=env)
+        _git(["config", "user.email", "tess@example.com"], env=env)
+
+        (worktree / "gamma.py").write_text("a = 1\n")
+        _git(["add", "gamma.py"], env=env)
+        _git(["commit", "-m", "init"], env=env)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], env=env,
+                              capture_output=True, text=True).stdout.strip()
+
+        (worktree / "gamma.py").write_text("a = 2\n")
+        _git(["commit", "-am", "change"], env=env)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], env=env,
+                             capture_output=True, text=True).stdout.strip()
+        diff_range = f"{base}..{head}"
+
+        # Sanity: prove plain `git -C <worktree>` fails here (the bug condition).
+        plain = subprocess.run(
+            ["git", "-C", str(worktree), "diff", "--name-only", diff_range],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(
+            plain.returncode, 0,
+            "precondition: plain git diff from work-tree cwd must fail",
+        )
+
+        prd = self._write_prd(worktree)
+        review = worktree / "review.md"
+        review.write_text(
+            _coverage_block(["gamma.py"], self.rubric_ids, self.feature)
+        )
+
+        # Gate env: NO standard GIT_DIR/GIT_WORK_TREE (so native git can't
+        # short-circuit), only the autopilot fallback override pointing at the
+        # test's bare repo. This is what the real fix must honor.
+        gate_env = dict(os.environ)
+        gate_env.pop("GIT_DIR", None)
+        gate_env.pop("GIT_WORK_TREE", None)
+        gate_env["AUTOPILOT_GIT_DIR"] = str(gitdir)
+        gate_env["AUTOPILOT_GIT_WORK_TREE"] = str(worktree)
+
+        result = self._run_gate(worktree, diff_range, prd, review, env=gate_env)
+
+        self.assertEqual(
+            result.returncode, 0,
+            msg=("gate must resolve changed files via the bare-repo-home "
+                 f"fallback; stderr: {result.stderr}"),
+        )
+        self.assertNotIn("MISSING_FILES", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
