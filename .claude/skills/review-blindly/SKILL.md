@@ -142,7 +142,7 @@ After the blind reviewer returns, do the following in order.
    pass/fail/skip counts. The reviewer leaves `tests` as the `pending` sentinel;
    the gate replaces it. Without real counts, a code diff fails `EMPTY_TESTS`.
 
-4. **Fail loud:** if the gate exits non-zero, the blind review FAILS. Surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, or `MISSING_RUBRIC_RULE`) and its detail. Do NOT produce a clean verdict.
+4. **Fail loud:** if the gate exits non-zero, the blind review FAILS. Surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, `MISSING_RUBRIC_RULE`, or `MISSING_PRD`) and its detail. Do NOT produce a clean verdict.
 
 5. On exit 0: write `dev/local/reviews/<prd>-blind-review.md` containing the reviewer's findings prose followed by the aggregate coverage block from `dev/local/reviews/.blind-aggregate.md`. Note in the file that this name is intentionally distinct from the `-review-NN.md` pattern (it does not collide with the Phase 4 cycle-skip glob), and that the autopilot Phase 2 Stop hook re-checks this file's aggregate block.
 

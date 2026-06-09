@@ -52,8 +52,8 @@ def review_file_for(surface: str, prd_base: str, reviews_dir: Path) -> Path | No
 def delete_signal(autopilot_dir: Path) -> None:
     try:
         (autopilot_dir / "signal").unlink(missing_ok=True)
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"review coverage: warning: failed to delete signal: {exc}\n")
 
 
 def run_gate(
