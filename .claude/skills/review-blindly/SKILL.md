@@ -133,8 +133,14 @@ After the blind reviewer returns, do the following in order.
      --prd <prd-path> \
      --diff-range <work_start_sha>..HEAD \
      --reviewer-block dev/local/reviews/.blind-reviewer-block.md \
+     --run-tests \
      --write-aggregate dev/local/reviews/.blind-aggregate.md
    ```
+
+   `--run-tests` makes the gate run the changed test files (`test_*.py` / `*_test.py`
+   in the diff) once and fill the aggregate's `tests` dimension with real
+   pass/fail/skip counts. The reviewer leaves `tests` as the `pending` sentinel;
+   the gate replaces it. Without real counts, a code diff fails `EMPTY_TESTS`.
 
 4. **Fail loud:** if the gate exits non-zero, the blind review FAILS. Surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, or `MISSING_RUBRIC_RULE`) and its detail. Do NOT produce a clean verdict.
 

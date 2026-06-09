@@ -136,6 +136,7 @@ Save each active agent's output to `dev/local/tmp/{agent}-output-{id}.txt`, then
   --diff-range <COVERAGE_DIFF_RANGE captured in step 3> \
   --rubric ~/.claude/skills/review-work-completion/references/rubric.md \
   --repo $PWD \
+  --run-tests \
   --write-aggregate $PWD/dev/local/tmp/coverage-{id}.md \
   ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \

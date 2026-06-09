@@ -493,8 +493,13 @@ Branch on its exit code:
      --prd dev/local/prds/wip/<state.prd> \
      --diff-range <state.work_start_sha>..HEAD \
      --reviewer-block <doubt-output-file> \
+     --run-tests \
      --write-aggregate dev/local/reviews/.doubt-aggregate.md
    ```
+   `--run-tests` makes the gate run the changed test files (`test_*.py` / `*_test.py`
+   in the diff range) once and fill the aggregate's `tests` dimension with real
+   pass/fail/skip counts; the doubt reviewer leaves `tests` as the `pending`
+   sentinel. A code diff whose tests dimension stays unfilled fails `EMPTY_TESTS`.
 4. If the gate exits non-zero: the doubt review FAILS — surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, or `MISSING_RUBRIC_RULE`) and its detail; do NOT continue to findings classification.
 5. On exit 0: write `dev/local/reviews/<prd>-doubt-review.md` (where `<prd>` = `<prd-base>`) containing the doubt findings (FIX / VERIFY / KNOWN) followed by the aggregate coverage block from `dev/local/reviews/.doubt-aggregate.md`. (This filename is intentionally distinct from the `-review-NN.md` pattern — no collision with the Phase 4 cycle-skip glob. The autopilot Phase 2 Stop hook re-checks this file's aggregate block when `state.phase == "done"`.)
 
