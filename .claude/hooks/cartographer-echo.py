@@ -63,6 +63,9 @@ _STOPWORDS: frozenset[str] = frozenset(
     {
         "__init__", "__main__", "main", "init", "setup", "run", "start", "stop",
         "new", "default", "clone", "eq", "hash", "to_string", "from_string",
+        # Generic names defined across many files; collisions are not duplicates.
+        # Added 2026-05-31 from audit-echo (top recurring deny symbols).
+        "create", "setUp", "Result",
     }
 )
 _MIN_SYMBOL_LEN: int = 4  # drop length <= 3
@@ -109,7 +112,11 @@ def is_test_file_path(file_path: str) -> bool:
     norm = file_path.replace("\\", "/")
     if any(seg in norm for seg in _TEST_DIR_SEGMENTS):
         return True
-    return any(norm.endswith(suffix) for suffix in _TEST_FILE_SUFFIXES)
+    if any(norm.endswith(suffix) for suffix in _TEST_FILE_SUFFIXES):
+        return True
+    # pytest prefix convention: test_*.py
+    base = norm.rsplit("/", 1)[-1]
+    return base.startswith("test_") and base.endswith(".py")
 
 
 def file_extension(file_path: str) -> str:
@@ -245,9 +252,31 @@ def extract_symbols(content: str, ext: str) -> list[str]:
 
 # --- match scoring ---
 
-_IDENT_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _LEVENSHTEIN_MEDIUM: int = 2
 _WEAK_OVERLAP_MIN: int = 6
+_SNIPPET_AUDIT_CAP: int = 200  # max chars of candidate snippet stored per match
+
+# A blocking (strong/medium) match requires the candidate snippet to DEFINE a
+# same- or near-named symbol, not merely mention it. Without this gate every
+# usage site (`-> Result`, `create(x)`, a type annotation) scores "strong" and
+# denies; the 2026-05 audit showed those denies were overridden ~99% of the
+# time. Captures the declared identifier after a definition keyword, allowing
+# leading visibility/async modifiers and an optional Go method receiver.
+_DEF_NAME_RE = re.compile(
+    r"^\s*"
+    r"(?:export\s+|default\s+|pub(?:\([^)]*\))?\s+|public\s+|private\s+"
+    r"|protected\s+|static\s+|async\s+|abstract\s+|final\s+|unsafe\s+)*"
+    r"(?:def|class|fn|func|struct|enum|trait|interface|type|union|function"
+    r"|const|let|var)\b"
+    r"(?:\s+\([^)]*\))?"  # optional Go method receiver: func (r *T) Name
+    r"\s+([A-Za-z_]\w*)"
+)
+
+
+def _defined_name(snippet: str) -> str | None:
+    """Return the identifier a snippet defines, or None if it is not a definition."""
+    match = _DEF_NAME_RE.match(snippet)
+    return match.group(1) if match else None
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -288,16 +317,22 @@ def _longest_common_substring_len(a: str, b: str) -> int:
 
 
 def score_match(symbol: str, candidate: dict) -> str | None:
-    """Classify a ripgrep candidate against `symbol`. Returns score or None."""
+    """Classify a ripgrep candidate against `symbol`. Returns score or None.
+
+    Strong/medium (the blocking tiers) require the snippet to DEFINE the symbol
+    (exact name) or a near name (Levenshtein <= _LEVENSHTEIN_MEDIUM). A bare
+    mention at a usage site can only ever score "weak" (non-blocking).
+    """
     snippet = candidate.get("snippet") or ""
-    tokens = _IDENT_TOKEN_RE.findall(snippet)
-    if symbol in tokens:
-        return "strong"
-    # Levenshtein on tokens; short-circuit when length diff alone > threshold.
-    for tok in tokens:
-        if abs(len(tok) - len(symbol)) > _LEVENSHTEIN_MEDIUM:
-            continue
-        if _levenshtein(symbol, tok) <= _LEVENSHTEIN_MEDIUM:
+    defined = _defined_name(snippet)
+    if defined is not None:
+        if defined == symbol:
+            return "strong"
+        # Near-name definition (typo/variant duplicate).
+        if (
+            abs(len(defined) - len(symbol)) <= _LEVENSHTEIN_MEDIUM
+            and _levenshtein(symbol, defined) <= _LEVENSHTEIN_MEDIUM
+        ):
             return "medium"
     # Weak: shared contiguous substring of ≥6 chars anywhere in the snippet.
     if _longest_common_substring_len(symbol, snippet) >= _WEAK_OVERLAP_MIN:
@@ -312,7 +347,9 @@ def decide(
 
     Returns `(decision, matches)` where `matches` is the list of blocking
     scored matches (empty when allowed). Each match is
-    `{"symbol", "file", "line", "score"}`.
+    `{"symbol", "file", "line", "score", "snippet"}`. The snippet (capped) is
+    recorded so the audit log carries the evidence a deny fired on, making
+    matcher tuning data-driven instead of inferred.
     """
     blocking: list[dict] = []
     for sym in symbols:
@@ -325,6 +362,7 @@ def decide(
                         "file": cand.get("file", ""),
                         "line": cand.get("line", 0),
                         "score": score,
+                        "snippet": (cand.get("snippet") or "")[:_SNIPPET_AUDIT_CAP],
                     }
                 )
     return ("deny" if blocking else "allow", blocking)
@@ -333,7 +371,8 @@ def decide(
 # --- ripgrep candidate search ---
 
 _RG_TIMEOUT_SEC: float = 1.0
-_RG_MAX_HITS_PER_SYMBOL: int = 5
+_RG_MAX_HITS_PER_SYMBOL: int = 5  # hits handed to scoring
+_RG_SCAN_LIMIT: int = 50  # hits collected before definition-first ranking
 _RG_EXCLUDE_GLOBS: tuple[str, ...] = (
     "!.git", "!node_modules", "!vendor", "!dist", "!build",
     "!__pycache__", "!target", "!.venv",
@@ -397,9 +436,13 @@ def search_candidates(symbol: str, root: Path, target_file: Path) -> list[dict]:
         if cand_abs == target_abs:
             continue
         out.append({"file": file_part, "line": lineno, "snippet": snippet})
-        if len(out) >= _RG_MAX_HITS_PER_SYMBOL:
+        if len(out) >= _RG_SCAN_LIMIT:
             break
-    return out
+    # Only definition lines can block, so rank them ahead of usage sites before
+    # truncating: a stable sort keeps rg's order within each group, ensuring the
+    # hit cap never drops the duplicate definition behind unrelated call sites.
+    out.sort(key=lambda c: _defined_name(c["snippet"]) is None)
+    return out[:_RG_MAX_HITS_PER_SYMBOL]
 
 
 def filter_stopwords(symbols: list[str], file_path: str) -> list[str]:
