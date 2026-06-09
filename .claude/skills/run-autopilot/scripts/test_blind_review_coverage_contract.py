@@ -2,8 +2,8 @@
 and output filename, and its canonical coverage block must parse and validate
 under the real review_coverage.py with rubric IDs matching blind rubric.md.
 
-Tests 1 and 2 are RED by design — the SKILL.md edit has not happened yet.
-Tests 3-5 exercise the parser with a well-formed block.  Stdlib-only.
+Tests 1 and 2 pin the SKILL.md gate invocation and output filename; tests 3-5
+exercise the parser with a well-formed block.  Stdlib-only.
 """
 
 import importlib.util

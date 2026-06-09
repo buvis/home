@@ -9,8 +9,6 @@ This covers a DIFFERENT concern from test_doubt_review_prompt_contract.py,
 which tests the PROMPT's emitted block shape. Here we test the CONSUMPTION
 side: the gate-call contract and output filename pinned in SKILL.md.
 
-Tests 1 and 2 are expected to fail until the Phase 8 edit lands (correct TDD red).
-
 Stdlib-only; run with: python3 .../test_phase8_doubt_review_file_contract.py
 """
 
