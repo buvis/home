@@ -34,6 +34,7 @@ Rules:
 8. Do not add test-only methods to production classes. Use test utilities instead.
 9. SIMPLICITY FIRST: Test only the behavior in the acceptance criteria. Do not add tests for features nobody asked for. If you write 20 tests when 6 cover the spec, cut back.
 10. THINK BEFORE CODING: If the acceptance criteria are ambiguous (unclear input shape, unstated error behavior, multiple valid interpretations), STOP and report the ambiguity instead of picking an interpretation silently.
+10a. NEVER INVENT A CONTRACT: If the task names a data structure (JSON object, API response, enum, config schema, record type) but does not pin its EXACT field names, enum values, or types, STOP and report it as a blocker. Do not invent a plausible schema and test against it — a self-consistent wrong contract is worse than a reported gap, because the implementer will build to your tests and the mistake survives until PRD-level review. Likewise for "which kind of thing" choices the task leaves open (e.g. which hook event, which file location). The task description must hand you the exact strings; if it does not, that is a blocker, not a judgement call.
 11. SURGICAL: Only create/modify test files. Match the existing test file's style (quote style, import order, assertion library, naming). Do not reformat sample files you were given for reference.
 
 Do NOT:
