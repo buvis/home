@@ -1,22 +1,23 @@
-"""Tests for desloppify_run.py.
+"""Tests for codex_review_run.py.
 
 Covers the pure, schema-tolerant pieces: the `--json` event summarizer,
-the duration formatter, `_collect_qwen_task_ids`, and `main`'s
-argument-error exits. The subprocess + heartbeat-thread orchestration is
-integration-level and not exercised here.
+the duration formatter, `_collect_qwen_task_ids`, `main`'s argument-error
+exits, and the exit contract (3=codex unavailable, 4=ran but failed) the
+doubt phase relies on for its Claude fallback.
 
 Stdlib-only unittest.
 """
 
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).parent / "desloppify_run.py"
+MODULE_PATH = Path(__file__).parent / "codex_review_run.py"
 
-_spec = importlib.util.spec_from_file_location("desloppify_run", MODULE_PATH)
+_spec = importlib.util.spec_from_file_location("codex_review_run", MODULE_PATH)
 dr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dr)
 
@@ -283,6 +284,81 @@ class MainArgErrorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             missing = str(Path(tmp) / "nope.md")
             self.assertEqual(dr.main(["desloppify_run.py", missing]), 2)
+
+
+class ExitContractTests(unittest.TestCase):
+    """The doubt phase relies on an honest exit contract so it can fall back
+    to a Claude review: 0=ok, 3=codex unavailable, 4=codex ran but failed
+    (nonzero exit OR a usage-limit/quota/error event in the stream). The old
+    behavior returned 0 on a quota-blocked run — a silent no-op recorded as
+    success — which is the bug this fixes.
+    """
+
+    def _run_with_fake_codex(self, body: str, cwd: Path | None = None) -> int:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpp = Path(tmp)
+            shim = tmpp / "codex"
+            shim.write_text("#!/usr/bin/env bash\n" + body + "\n")
+            shim.chmod(0o755)
+            prompt = tmpp / "p.md"
+            prompt.write_text("review this diff")
+            old_path = os.environ.get("PATH", "")
+            old_cwd = os.getcwd()
+            os.environ["PATH"] = str(tmpp) + os.pathsep + old_path
+            # Isolate cwd so find_autopilot_dir does not resolve to a real
+            # dev/local/autopilot up the tree (which would pollute it).
+            os.chdir(str(cwd) if cwd else str(tmpp))
+            try:
+                return dr.main(["codex_review_run.py", str(prompt)])
+            finally:
+                os.environ["PATH"] = old_path
+                os.chdir(old_cwd)
+
+    def test_missing_codex_returns_3(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt = Path(tmp) / "p.md"
+            prompt.write_text("x")
+            old_path = os.environ.get("PATH", "")
+            os.environ["PATH"] = tmp  # empty dir: no codex on PATH
+            try:
+                self.assertEqual(
+                    dr.main(["codex_review_run.py", str(prompt)]), 3
+                )
+            finally:
+                os.environ["PATH"] = old_path
+
+    def test_usage_limit_event_returns_4(self) -> None:
+        body = ("printf '%s\\n' "
+                "'{\"message\":\"You have hit your usage limit\"}'\nexit 0")
+        self.assertEqual(self._run_with_fake_codex(body), 4)
+
+    def test_codex_nonzero_exit_returns_4(self) -> None:
+        body = ("printf '%s\\n' "
+                "'{\"msg\":{\"type\":\"agent_message\",\"message\":\"hi\"}}'"
+                "\nexit 7")
+        self.assertEqual(self._run_with_fake_codex(body), 4)
+
+    def test_clean_run_returns_0(self) -> None:
+        body = ("printf '%s\\n' "
+                "'{\"msg\":{\"type\":\"agent_message\",\"message\":\"ok\"}}'"
+                "\nexit 0")
+        self.assertEqual(self._run_with_fake_codex(body), 0)
+
+    def test_clean_run_captures_review_output_to_file(self) -> None:
+        # codex's final agent_message (the review text) must be written to
+        # <autopilot_dir>/codex-review-output.md so the doubt phase can read
+        # it back as the reviewer's findings + verdicts + coverage block.
+        with tempfile.TemporaryDirectory() as work:
+            ap = Path(work) / "dev" / "local" / "autopilot"
+            ap.mkdir(parents=True)
+            body = ("printf '%s\\n' "
+                    "'{\"msg\":{\"type\":\"agent_message\",\"message\":"
+                    "\"FIX:\\n- none\\nR1: pass\"}}'\nexit 0")
+            rc = self._run_with_fake_codex(body, cwd=Path(work))
+            self.assertEqual(rc, 0)
+            out = ap / "codex-review-output.md"
+            self.assertTrue(out.exists())
+            self.assertIn("R1: pass", out.read_text())
 
 
 if __name__ == "__main__":

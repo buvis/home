@@ -36,9 +36,9 @@ dev/local/autopilot/
 
 State file: `dev/local/autopilot/state.json` — see `references/state-schema.md` for schema.
 
-Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, written incrementally: each decision site below appends an entry under its **source** label — `autonomous`, `deferred`, `doubt`, or `planning` (never a phase-specific value like `review-cycle-2`; cycle/phase context goes in the entry body so the Phase 9 step 7b projection can filter autonomous entries by label `== autonomous`). Entry format, append procedure, projection, and handoff rules live in `references/audit-log-format.md`.
+Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, **rendered once at Phase 9 finalize from the `state.json` decision arrays** (`autonomous_decisions`, `deferred_decisions`, `doubts`). `state.json` is the single in-run source of truth — decisions are NOT mirrored to `audit.md` incrementally per decision. Each rendered entry carries a **source** label (`autonomous`, `deferred`, or `doubt`); cycle/phase context goes in the entry body so the Phase 9 `decisions.md` projection can filter autonomous entries by label. Entry format, the Phase 9 render procedure, and the projection live in `references/audit-log-format.md`.
 
-**Invariant:** every state mutation that advances `phase` MUST also set `next_phase` to the same value. `autoclaude` reads `next_phase` to pick `--model` for the next launch (Work → Sonnet 4.6; everything else → Opus 4.7). If the two ever diverge, the next session may land on the wrong model. Empty `next_phase` (e.g. backlog drained) means "no preference; autoclaude defaults to Opus."
+**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. `autoclaude` now launches **every** session on Opus 1M (see `_autoclaude_pick_model`) — per-task cost tiering happens inside `/work`, so `next_phase` no longer drives the launch model and is kept only for the launcher's debug log. The authoritative resume signal is `phase` + `phases_completed`.
 
 ### Resuming
 
@@ -173,7 +173,7 @@ If `replan-context.md` is absent, run /plan-tasks normally — first-pass planni
 
 Invoke `/plan-tasks` with the selected PRD.
 
-**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question, present it to the user and wait for the answer. Once answered, append a `planning` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md` (phase label: `planning`). This source has no `state.json` array; the audit-append fires directly at the Phase 2 PAUSE site, not off a `state.json` write. If the clarification's outcome also produces an autonomous or deferred decision, that decision is logged through its normal array and both entries may cross-reference each other.
+**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question, present it to the user and wait for the answer. Once answered, record the clarification and its resolution in `state.autonomous_decisions` (label `autonomous`) so the Phase 9 audit render captures it. Do not write `audit.md` here.
 
 ### Handle plan-tasks stall (oversized task)
 
@@ -199,7 +199,7 @@ Before invoking `/work`, query `TaskList` and write the full task snapshot to `d
 
 **Include the task `id` field** — a PostToolUse hook on TaskUpdate uses it to automatically sync status changes to the dashboard. This is mandatory.
 
-**Capture `work_start_sha` before dispatching `/work`.** Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches will produce — read by Phase 9 step 1's regrouping procedure (remote guard, granularity assessment, cherry-pick rewrite, conflict-safe abort). Capture happens **once per PRD, before `/work` runs**. In a multi-PRD batch each PRD overwrites the prior PRD's value at this step, so ranges never overlap.
+**Capture `work_start_sha` before dispatching `/work`.** Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches produce — read by Phase 8 to scope the codex doubt review's diff (`<work_start_sha>..HEAD`). Capture happens **once per PRD, before `/work` runs**. In a multi-PRD batch each PRD overwrites the prior PRD's value at this step, so ranges never overlap.
 
 Invoke `/work` skill. It runs until all tasks complete.
 
@@ -209,7 +209,7 @@ After completion, query `TaskList` again and update state: add `"work"` to `phas
 
 After Phase 3 completes, do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
 
-1. Update `state.next_phase` to `"review"` (the phase the next session will run). This is what `autoclaude` reads to pick the model for the next launch (Opus for review).
+1. Update `state.next_phase` to `"review"` (the phase the next session will run). The next session resumes at this phase; the launcher runs it on Opus 1M like every session.
 2. Write the signal only when running inside the loop (see "Loop Detection" under Session Loop): if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path. Never use a bare relative `dev/local/autopilot/signal` — the cwd may have changed during the work phase. If unset, skip the signal write — the session will stay interactive and the user will re-invoke `/run-autopilot` manually.
 3. Print:
 
@@ -295,7 +295,7 @@ Read the review output. Categorize each finding using `references/decision-frame
 | >10 follow-up tasks from review | PAUSE: scope alarm — ask user before proceeding |
 | Issue count not decreasing vs previous cycle | LOG and continue — a steady cycle is not a failure; the Phase 5 rework cap is the backstop |
 | Same issue reappearing after previous fix | Route to research-then-decide Protocol B |
-| A sub-skill errored during this cycle | LOG and continue; PAUSE only if the SAME sub-skill errors again on the next cycle (a single transient error must not break an unattended run) |
+| A reviewer or sub-skill errored transiently during this review cycle | LOG and continue using the reviewers/sub-skills that succeeded (graceful degradation - e.g. a quota-exhausted reviewer is skipped, per the review skill). PAUSE only if the cycle cannot complete at all (no reviewer produced parseable output). A single transient error must not break an unattended run. |
 
 ### Classification (per finding):
 
@@ -323,7 +323,7 @@ Execute the research protocol. If verdict is "proceed", treat as auto-fix. If ve
 - Decision blocks subsequent tasks (e.g. API shape needed before frontend can proceed)
 - Data model choice that all remaining work depends on
 
-Log every decision in state file (`autonomous_decisions` or `deferred_decisions`). Every append to `state.autonomous_decisions[]` ALSO appends an `autonomous` audit entry to `dev/local/reviews/<prd-base>-audit.md` (following `references/audit-log-format.md`; the heading label is `autonomous` — note the review cycle, `state.cycle`, in the entry's Decision text rather than in the heading). Every append to `state.deferred_decisions[]` ALSO appends a `deferred` audit entry the same way.
+Log every decision in the state file (`autonomous_decisions` or `deferred_decisions`); note the review cycle (`state.cycle`) in the entry's Decision text. The Phase 9 audit render reads these arrays — do not write `audit.md` here.
 
 ### Outcomes:
 
@@ -337,7 +337,7 @@ Log every decision in state file (`autonomous_decisions` or `deferred_decisions`
 When the flow is about to enter Phase 7 — the review-rework loop has converged (the "No issues found" outcome above) or exhausted its cycles — do NOT continue into Phase 7 in this session. Phase 7 spawns a blind reviewer and must start with a clean context window, uncluttered by this session's review findings and rework. Use the same signal-file + Stop-hook mechanism as the Phase 3 hand-off:
 
 1. Add `"review"` to `phases_completed` — the marker Phase 4 reads to skip the whole review-rework loop on resume.
-2. Set `phase` and `next_phase` to `"blind-review"`. `autoclaude` reads `next_phase` to pick the model for the next launch (Opus for blind review).
+2. Set `phase` and `next_phase` to `"blind-review"`. The next session resumes here on Opus 1M like every session.
 3. Write the signal only when running inside the loop: if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" in Loop Detection) to write `next` to the signal file at the absolute path. Never use a bare relative path. If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually.
 4. Print:
 
@@ -352,7 +352,7 @@ The fresh session reads `dev/local/autopilot/state.json` (with `"review"` in `ph
 
 ## Phase 6: Rework
 
-**Session model:** Phase 6 runs in the same session as Phase 4 (review). That session uses Opus 4.7 (per `autoclaude`'s `next_phase = "review"` → Opus mapping). The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate rework handoff is needed: the session model handles review quality; per-task dispatch handles implementation correctness. This resolves PRD 00024 cycle-1 item 1.
+**Session model:** Phase 6 runs in the same session as Phase 4 (review), on Opus 1M (every session launches on Opus). The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate rework handoff is needed: the session model handles review quality; per-task dispatch handles implementation correctness.
 
 Two task kinds enter this phase:
 
@@ -380,7 +380,7 @@ missing feature, wrong artifact kind) rather than implementation-quality bugs
 (edge cases, perf, logic errors), the real fix is a **corrected task
 description** — and the review's follow-up tasks should already carry the exact
 contract verbatim. In that case keep the **same tier**; do not escalate. Record
-the decision and rationale in `autonomous_decisions` and append an `autonomous` audit entry to `dev/local/reviews/<prd-base>-audit.md` (following `references/audit-log-format.md`). Escalate the tier only
+the decision and rationale in `autonomous_decisions` (the Phase 9 audit render reads it). Escalate the tier only
 when the prior attempt genuinely struggled on a correctly-specified task. (Root
 cause of the original gap: `plan-tasks` must copy the PRD's contract and
 acceptance criteria verbatim into each task — see `plan-tasks/SKILL.md` step 4.)
@@ -439,7 +439,7 @@ After the review:
 2. **Critical or Important findings** → **first run the "Hydrate TaskList from state.tasks" sub-step** (the blind-review session is fresh; TaskList is empty). Then create tasks tagged `[BLIND]` (each `TaskCreate` gets a new id appended to the hydrated list) and insert a merge-preserving snapshot for each new `[BLIND]` task into `state.tasks` (carrying `{id, name, status}`; the tier classifier does not run on [BLIND] tasks — they default to the running session's model unless you opt to set `metadata.model` explicitly). Invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind-review"` to `phases_completed`, set `phase: "doubt-review"` and `next_phase: "doubt-review"`. **Also update task counts (`tasks_total`/`tasks_completed`) only — do NOT rewrite `state.tasks` here; `/work` already wrote `attempts[]` entries directly to `state.tasks` for the `[BLIND]` tasks, and a bare TaskList snapshot would strip them** (same rationale as Phase 6 step 3 and Phase 8 step 5). Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below). Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning, then update state the same way as outcome 1 (add `"blind-review"` to `phases_completed`, set `phase` and `next_phase` to `"doubt-review"`) and hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below).
 
-Minor findings: defer to batch end (append to `deferred_decisions` in state). Each such append ALSO appends a `deferred` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
+Minor findings: defer to batch end (append to `deferred_decisions` in state).
 
 This phase runs once per PRD.
 
@@ -464,11 +464,23 @@ The fresh session reads `dev/local/autopilot/state.json` (`"blind-review"` in `p
 
 **Skip if:** `"doubt-review"` in `phases_completed` in state file.
 
-**Apply the doubt-review rubric.** This phase applies the numbered rubric at `references/doubt-review-rubric.md`. The rubric's content MUST be embedded inline into the `/review-with-doubt` invocation context (it cannot be referenced as a path — the doubt review runs in a subagent that receives a self-contained prompt). The doubt-review output MUST record `R{n}: pass|fail` for every rule in the rubric — one rule per line, no other text on the line, no rationale. A rule the reviewer cannot evaluate counts as `fail`; never omit the line. Rule IDs are stable; do not renumber.
+**Apply the doubt-review rubric.** This phase applies the numbered rubric at `references/doubt-review-rubric.md` (rules R1-R5). The doubt-review output MUST record `R{n}: pass|fail` for every rule — one rule per line, no other text on the line, no rationale. A rule the reviewer cannot evaluate counts as `fail`; never omit the line. Rule IDs are stable; do not renumber.
 
-Final sanity check before completion. Invoke `/review-with-doubt` with the rubric content inlined as additional context. Require the doubt-review output to include the per-rule verdict block (`R{n}: pass|fail` lines) alongside the existing FIX/VERIFY/KNOWN categorization.
+**Run codex as the primary doubt reviewer, with a Claude fallback.** codex is strong at skeptical review, so this phase runs it — but a codex outage must never skip a mandated review, so it falls back to Claude. Procedure (sequential Bash calls — never a bare relative path):
 
-**Inline the coverage-block requirement.** Also pass the `---review-coverage---` block requirement (per `references/review-coverage-format.md`) as additional context into the `/review-with-doubt` invocation. The doubt-review output MUST include a `---review-coverage---` block with the `files`, `features`, and `rubric` dimensions filled (leave `tests` for the aggregate). PRD 00038's `review_coverage.py` parses this block downstream; a missing block fails the Phase 8 verdict.
+1. Resolve the autopilot dir: `python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash`.
+2. Build a self-contained prompt: read `prompts/doubt-review.md`, append the PRD content, the diff range (`<state.work_start_sha>..HEAD`), and the changed-file list (so codex can fill the coverage block's `files`/`features` dimensions), and write the combined prompt to `dev/local/autopilot/doubt-prompt.md` (Write tool, absolute path).
+3. Run codex: `python3 ~/.claude/skills/run-autopilot/scripts/codex_review_run.py <autopilot_dir>/doubt-prompt.md`.
+
+Branch on its exit code:
+- **exit 0** → read the review from `<autopilot_dir>/codex-review-output.md`. This is the doubt-review output: FIX/VERIFY/KNOWN findings, the `R{n}: pass|fail` block, and the `---review-coverage---` block.
+- **exit 3 (codex unavailable) or exit 4 (codex ran but failed, e.g. usage-limit/quota)** → print the loud banner, then run the Claude fallback:
+  ```
+  ── AUTOPILOT ── codex unavailable for doubt review; running on Claude ──
+  ```
+  Invoke `/review-with-doubt` with the `references/doubt-review-rubric.md` content inlined as additional context (it runs in a subagent that needs a self-contained prompt), and instruct it to apply the same **de-slop lens** the codex prompt uses (flag over-engineering, dead code, single-caller abstractions, and AI-slop in the diff). Require the identical output: FIX/VERIFY/KNOWN, the `R{n}: pass|fail` block, and the `---review-coverage---` block.
+
+**Coverage block (both paths).** The output MUST include a `---review-coverage---` block with `files`, `features`, and `rubric` filled and `tests` left as `pending: filled by consolidation`. The exact format is defined in `skills/review-work-completion/references/review-coverage-format.md`. PRD 00038's `review_coverage.py` parses this block downstream; a missing or malformed block fails the Phase 8 verdict.
 
 The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope).
 
@@ -479,18 +491,18 @@ Process each:
 ### Handling FIX items
 
 1. Create a task tagged `[DOUBT]` for each FIX item.
-2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
+2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`.
 
 ### Handling VERIFY items
 
 VERIFY items are resolved during the review itself (the doubt skill runs checks and reclassifies as FIX or dismissed). If any survive unresolved:
 1. Treat as FIX — create a `[DOUBT]` task.
-2. Add to `doubts` in state with `"category": "verify"`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
+2. Add to `doubts` in state with `"category": "verify"`.
 
 ### Handling KNOWN items
 
 KNOWN items cannot be fixed in this scope. They flow to batch-end review for the user to decide.
-1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`. Each append to `state.doubts[]` ALSO appends a `doubt` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`.
+1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`.
 2. Do NOT create tasks for KNOWN items — they are deferred, not actionable here.
 
 ### Execution
@@ -498,7 +510,7 @@ KNOWN items cannot be fixed in this scope. They flow to batch-end review for the
 After classifying all items:
 
 1. If no FIX or VERIFY tasks → proceed to Phase 9. KNOWN items (if any) will be surfaced at batch end.
-2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Each such append ALSO appends a `deferred` audit entry to `dev/local/reviews/<prd-base>-audit.md` following `references/audit-log-format.md`. Log warning but do NOT PAUSE. Proceed to Phase 9.
+2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
 3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
 5. Record per-rule verdicts. Read the `R{n}: pass|fail` block from the doubt-review output and append it to `state.doubts_rubric_verdicts` as an array of `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` objects. Every rubric rule must have an entry. The downstream coverage parser (PRD 00038's `review_coverage.py`) reads these verdicts from the raw doubt-review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
@@ -510,40 +522,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
 
 ## Phase 9: Completion
 
-1. **Regroup commits produced by this PRD.** Operate on the range `<work_start_sha>..HEAD` (where `<work_start_sha>` is `state.work_start_sha`). **This step runs unconditionally — do NOT gate it on `deferred_decisions` being empty or `doubts` being resolved.** Run the sub-behaviors below in order; emit exactly **one** outcome line per the six shapes documented in `references/batch-report-format.md` (Regroup Outcome). Write the chosen outcome line to `state.regroup_outcome` (see `references/state-schema.md`) so step 7 can include it in the batch report.
-
-   a_env. **Git working-tree check.** Run `git rev-parse --is-inside-work-tree`. If it exits non-zero (the cwd is not inside a normal git working tree — e.g. the dotfiles bare-repo case where the repo is reached via `git --git-dir=<bare> --work-tree=<home>` and all later sub-behaviors' bare `git` commands would fail with "not a git repository"), skip all remaining sub-behaviors (1a0, 1a, 1b, 1c, 1d) and record the outcome line `skipped: not in a git working directory`. Proceed to step 2 unchanged — no history rewrite occurs. This check runs first because every later sub-behavior calls bare `git` from the cwd; without a `.git` directory those calls error before reaching any other guard.
-
-   a0. **`work_start_sha` presence guard.** Read `state.work_start_sha`. If it is absent or an empty string (the field is optional in the schema — Phase 3 normally writes it, but a legacy state.json or a session that crashed before Phase 3 wrote the field can leave it unset), skip all remaining sub-behaviors (1a, 1b, 1c, 1d) and record the outcome line `skipped: work_start_sha missing`. Proceed to step 2 unchanged — no history rewrite occurs. This guard runs first because every later sub-behavior interpolates `<work_start_sha>` into a git command; an empty value would expand `git log ..HEAD` into "all reachable commits", which would silently regroup history far beyond the current PRD.
-
-   a. **Remote guard.** Check whether any commit in `<work_start_sha>..HEAD` exists on a remote-tracking branch. For each `<sha>` in `git log --format=%H <work_start_sha>..HEAD`, run `git branch -r --contains <sha>`: if any invocation prints at least one remote-tracking ref, that commit is already on a remote. If ANY commit in the range is present on a remote, skip regrouping entirely and record the outcome line `skipped: remote guard (commits already on remote)`. Proceed to step 2 unchanged — no history rewrite occurs.
-
-   b. **Granularity assessment.** Read `git log --stat <work_start_sha>..HEAD`. Judge whether the commits are too granular. Guidance:
-      - Collapse each task's `test`+`impl` pair into one logical commit when they describe the same change.
-      - Fold trivial fixups (typo fixes, formatting touch-ups, docstring tweaks) into the commit that introduced the code being fixed.
-      - Merge commits that together form one coherent change.
-      - You may reorder commits across tasks to group by feature when grouping reads more cleanly than chronological order.
-      - New messages use conventional-commit format (`type(scope): description`).
-      - If the commits are already coherent (each commit is a logical unit; no obvious collapses), decide **no-op**: record the outcome line `skipped: commits already well-grouped` and skip the cherry-pick rewrite (proceed to step 2 unchanged).
-      - Otherwise, produce a **regroup plan**: an ordered list of groups, each group a list of source SHAs (in cherry-pick order) and a new commit message.
-
-   c. **Cherry-pick regroup.** Execute the regroup plan from step 1b:
-      i. Create a backup branch at the current `HEAD`. The branch name is `autopilot-regroup-backup-<batch_id>-<prd-number>`, where `<batch_id>` is `state.batch.id` and `<prd-number>` is the `00XXX` numeric prefix extracted from `state.prd`'s filename (e.g., `state.prd = "00027-autopilot-commit-regrouping-v1.md"` yields `<prd-number> = 00027`). Use this exact naming scheme so the conflict-safe abort (step 1d) and any later inspection can locate the backup by predictable name. **Orphan-backup check:** before creating the branch, run `git rev-parse --verify autopilot-regroup-backup-<batch_id>-<prd-number>` (exits 0 if the branch exists). If it exists — a prior conflict-safe abort or crashed run left it behind — delete it with `git branch -D autopilot-regroup-backup-<batch_id>-<prd-number>` and print a one-line note: `── AUTOPILOT ── deleted orphan backup branch autopilot-regroup-backup-<batch_id>-<prd-number> ──`. Then create the fresh backup branch with `git branch autopilot-regroup-backup-<batch_id>-<prd-number>`. The orphan check is required because step 1c.ii (`git reset --hard <work_start_sha>`) would discard the current HEAD's commits with no valid backup for this run if `git branch` silently failed on a name collision.
-      ii. `git reset --hard <work_start_sha>`.
-      iii. For each group in the plan, in order:
-         - For each source SHA in the group: `git cherry-pick -n <sha>` (stages the changes without committing).
-         - After all SHAs in the group are cherry-picked: `git commit -m "<group's new conventional-commit message>"`.
-      iv. On successful completion of all groups: delete the backup branch (`git branch -D autopilot-regroup-backup-<batch_id>-<prd-number>`). Record the outcome line `regrouped: N -> M commits` (N = original commit count in the range, M = new commit count).
-      v. **Never push.** This procedure contains no `git push` command. Pushing is out of scope; the user pushes manually after reviewing the regrouped history.
-
-   d. **Conflict-safe abort.** If ANY `git cherry-pick` in step 1c.iii returns a conflict (non-zero exit, `CONFLICT` in output, or staged conflict markers):
-      i. `git cherry-pick --abort` to clear the partial cherry-pick state.
-      ii. `git reset --hard autopilot-regroup-backup-<batch_id>-<prd-number>` to restore the original `HEAD`.
-      iii. Leave the backup branch in place (do NOT delete) so the user can inspect what was attempted.
-      iv. Record the outcome line `skipped: cherry-pick conflict, history left untouched`.
-      v. **Fail loud, do not retry silently.** Record the failure (via the outcome line above) and stop **regrouping** — do not loop back to step 1b with a different grouping. Phase 9 itself continues normally: control flows to step 2 with the conflict outcome line recorded, just like any other Phase 9 step 1 outcome. The user investigates the backup branch manually.
-
-   After one outcome line is recorded, proceed to step 2. All subsequent Phase 9 steps operate on the post-regroup `HEAD` (which equals the original `HEAD` when any skip path fired in 1a/1b/1d, or the new regrouped `HEAD` after a successful 1c).
+1. **Commit history is left as-is.** Autopilot does NOT rewrite the PRD's commit history. The former cherry-pick regroup engine never pushed — it only churned local history the user re-reviewed before pushing anyway — so it was pure risk (conflict aborts, backup branches) for no shipped benefit. The user squashes/groups commits manually before pushing.
 
 2. Update state: set `phase: "done"` and `next_phase: "done"`
 3. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix)
@@ -554,9 +533,9 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
    Each entry gets tagged with `prd` (filename) and `cycle`. Preserve the full `research` field when present - this is the only copy that survives state reset. Skip this step if nothing to write.
-6a. Refresh this PRD's audit file header (`dev/local/reviews/<prd-base>-audit.md`, `<prd-base>` = PRD filename without `.md`) with the completion counts (autonomous N, deferred N, doubts N). Follow the **"Phase 9 Header Refresh Procedure"** in `references/audit-log-format.md` — it covers the count sourcing, the Read-then-Write step sequence, and the no-decisions edge case (create the file with a header + "no decisions recorded" when all counts are 0).
+6a. **Render this PRD's audit file** `dev/local/reviews/<prd-base>-audit.md` (`<prd-base>` = PRD filename without `.md`) ONCE from the state decision arrays — this is the ONLY writer of `audit.md`. Write in a single pass (Write tool): a header (PRD, started/completed timestamps, counts `autonomous N | deferred N | doubts N`), then one entry per item in `state.autonomous_decisions` (label `autonomous`), `state.deferred_decisions` (`deferred`), and `state.doubts` (`doubt`), using the entry format in `references/audit-log-format.md`. When all three arrays are empty, write the header plus a single `no decisions recorded` line.
 
-7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). Read `state.regroup_outcome` (set by step 1) and include it as the `- Regroup:` bullet in the per-PRD section. See `references/batch-report-format.md` for format.
+7. Append PRD summary to `dev/local/autopilot/reports/{batch_id}-report.md` (create with header if missing). See `references/batch-report-format.md` for format.
 7b. Project autonomous decisions into `dev/local/decisions.md` when that opt-in file exists (skip when absent; `audit.md` is written either way). Follow the **"decisions.md Projection"** procedure in `references/audit-log-format.md` — it covers the qualify criterion (label `autonomous` + non-trivial), the row format, dedupe, and the single-source rule.
 8. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
    ```markdown
@@ -570,17 +549,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
    Observations: {any operational gotchas useful for next iteration}
    ```
    If the capsule doesn't exist yet (catchup was skipped), create a minimal one with just the Active Work section.
-9. Print per-PRD summary. Run the tier-escalation aggregator, dispatch-health aggregator, and bloat-metric aggregator first:
-   ```bash
-   python3 ~/.claude/skills/run-autopilot/scripts/tier_escalation_metrics.py
-   ```
-   ```bash
-   python3 ~/.claude/skills/run-autopilot/scripts/dispatch_health_metrics.py
-   ```
-   ```bash
-   python3 ~/.claude/skills/run-autopilot/scripts/slop_metrics.py
-   ```
-   Then print:
+9. Print per-PRD summary:
 
 ```
 ── AUTOPILOT ── PRD: {prd-name} ── DONE ── {n} cycles ─────────────
@@ -590,19 +559,12 @@ Summary:
 - Autonomous decisions: {count}
 - Escalated decisions: {count}
 - Follow-up tasks fixed: {count}
-- {tier_escalation_metrics output, indented two spaces}
-- {dispatch_health_metrics output, indented two spaces}
-- {slop_metrics output, indented two spaces}
 ```
-
-   If any script exits non-zero or produces no output, omit its line — do not fail Phase 9.
-
-   **Append the bloat metric block to the batch report.** After printing the per-PRD summary above, append the captured `slop_metrics.py` stdout (the `### Bloat metric` block) to `dev/local/autopilot/reports/{batch_id}-report.md` so the block lands in this PRD's section of the report (which step 7 wrote earlier in this phase). Use the Write tool to read the existing report file, append `"\n\n" + block`, and write the file back. Skip the append if `slop_metrics.py` produced no output. The block format is documented in `references/batch-report-format.md` "Bloat Metric".
 
 ### Continuation
 
 10. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`regroup_outcome` (the next PRD starts a fresh plan, not a rework dispatch; `work_start_sha`, `regroup_outcome`, and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see Loop Detection) to write `next` to the signal file at the absolute path (never a bare relative path). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha` (the next PRD starts a fresh plan, not a rework dispatch; `work_start_sha` and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `next_phase: "catchup"` (the next PRD starts at catchup; Opus tier). If `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see Loop Detection) to write `next` to the signal file at the absolute path (never a bare relative path). If unset, skip the signal write — the session stays interactive and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
@@ -729,11 +691,17 @@ done
 
 Without the hook, sessions remain interactive but require manual exit (Ctrl+D) between PRDs. The shell loop still handles restart.
 
-### Batched de-slop pass
+### De-slop is part of the doubt review (Phase 8)
 
-The qwen-tagged batched de-slop pass (PRD 00031) is **invoked from the `autoclaude` shell wrapper between sessions**, not from any phase inside this skill. After each `claude` call returns, the wrapper compares `git rev-parse HEAD` against the session-start SHA; if HEAD moved, it runs `scripts/desloppify_run.py` over `CLEANUP_SINCE..HEAD` (with `_collect_qwen_task_ids` reading `state.tasks[].attempts[]` to ensure qwen commit ranges are covered).
-
-Phase 9 deliberately does NOT invoke `desloppify_run.py` — the shell-wrapper invocation is the single source of truth. Adding a Phase 9 invocation would cause the pass to run twice (once before the Phase 9 signal exit, once after when the wrapper sees HEAD moved). If you are checking whether de-slop is wired up, look in `~/.config/bash/plugins/development.plugin.bash` (the `autoclaude` function), not here.
+There is no separate between-session de-slop pass. The standalone codex pass that
+once ran from the `autoclaude` wrapper after every commit was removed: it was an
+unconditional external call that fell silently dead when codex hit its usage
+limit. De-slopping now happens **inside Phase 8** — codex conducts the doubt
+review with an added de-slop lens (see Phase 8). The codex runner is
+`scripts/codex_review_run.py` (it returns exit 3 when codex is unavailable and 4
+when codex ran but failed, so Phase 8 can fall back to a Claude review rather
+than silently skip). If you are checking how de-slop is wired, look at Phase 8,
+not the `autoclaude` function.
 
 ## Shell Command Rules
 
@@ -746,7 +714,7 @@ Phase 9 deliberately does NOT invoke `desloppify_run.py` — the shell-wrapper i
 
 | Situation | Action |
 |-----------|--------|
-| Sub-skill invocation fails | PAUSE, report which skill failed and error |
+| Sub-skill invocation fails outright (no usable result; the phase cannot proceed) | PAUSE, report which skill failed and error. A transient reviewer/sub-skill error *during the Phase 4-6 review-rework cycle* is the Phase 5 Safety Checks row's domain instead (graceful degradation, not a PAUSE). |
 | No PRDs anywhere | STOP with message about /create-prd |
 | State file corrupted | Delete it, restart from Phase 0 |
 | Review produces no parseable output | PAUSE, report — don't retry |
