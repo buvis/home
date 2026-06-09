@@ -167,11 +167,13 @@ class MainTests(unittest.TestCase):
         self.assertTrue(signal_file.exists())
 
     def test_main_exit0_when_gate_passes(self) -> None:
+        # phase "doubt-review" means the blind review just finished -> blindly
+        # surface -> <prd>-blind-review.md.
         autopilot_dir = _make_autopilot_dir(
             self.repo, phase="doubt-review", prd="Y.md", write_signal=True
         )
         reviews_dir = self._make_reviews_dir()
-        (reviews_dir / "Y-doubt-review.md").write_text("doubt review content")
+        (reviews_dir / "Y-blind-review.md").write_text("blind review content")
 
         signal_file = autopilot_dir / "signal"
 
@@ -230,8 +232,10 @@ class MainPassesCorrectReviewFileTests(unittest.TestCase):
         return reviews
 
     def test_main_passes_resolved_review_file_to_gate(self) -> None:
+        # phase "done" means the doubt review just finished -> doubt surface
+        # -> <prd>-doubt-review.md.
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="doubt-review", prd="Y.md", write_signal=True
+            self.repo, phase="done", prd="Y.md", write_signal=True
         )
         reviews_dir = self._make_reviews_dir()
         expected_review_file = reviews_dir / "Y-doubt-review.md"
