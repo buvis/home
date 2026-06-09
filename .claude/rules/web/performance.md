@@ -8,7 +8,7 @@ paths:
   - "**/*.html"
   - "**/*.vue"
 ---
-> Extends ../performance.md with web-specific performance content.
+> Web-specific performance rules (Core Web Vitals, bundle budgets, rendering).
 
 # Web Performance Rules
 

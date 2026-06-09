@@ -1,6 +1,6 @@
 # Rationalizations Catalog
 
-Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each entry: the excuse, why it's wrong, and the counter-action. Cited inline by Cartographer's Echo and Recon Gate deny messages, and surfaced in `/architect` planning prompts.
+Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each entry: the excuse, why it's wrong, and the counter-action. Cited inline by Cartographer's Echo deny messages, and surfaced in `/architect` planning prompts.
 
 ## Excuses
 
