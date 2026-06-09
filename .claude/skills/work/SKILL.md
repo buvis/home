@@ -1,6 +1,6 @@
 ---
 name: work
-description: Use when executing already-planned tasks one at a time, dispatching the implementor (Gemini for UI, qwen or Claude for backend) and committing after each. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
+description: Use when executing already-planned tasks one at a time, dispatching the implementor and committing after each. Triggers on "work on tasks", "implement tasks", "start working", "execute the plan", "do the work".
 ---
 
 # Work Through Tasks
@@ -323,6 +323,8 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=3`-file `sonnet` task → Claude Sonnet) | — |
 
 qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
+
+**Re-evaluate the routing table for EVERY claimed task — no session-level memory.** The table is per-task, and so is the one-shot qwen budget: a qwen attempt on task A (success OR failure) never excludes qwen for task B. Do not generalize a fallback ("qwen was slow on the last task, route the rest to Claude") — that decision belongs to the table and the preflight, not to session memory. Observed failure mode (2026-06-09, ddb): 9/9 tasks were `qwen_eligible: true` with healthy infra, task 1 correctly routed to qwen, then tasks 2-9 silently went to Claude with no preflight recorded. Self-check before each Ivan dispatch: if `task.metadata.qwen_eligible == true` and you are about to dispatch Claude, the attempt log MUST carry a non-`"healthy"` `preflight_outcome` justifying the fallback — if it would read `null` or `"healthy"`, you skipped the table; run it now.
 
 **Gemini availability check.** "Gemini if available" means the `use-gemini` helper resolves AND can run a no-op probe. Concretely: `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND `mise which gemini` (or `command -v gemini`) exits 0. If either fails, fall back to Claude at `task.metadata.model` for that UI task. Treat a runtime helper-script failure (non-zero exit, no output) the same way: record the failure and re-dispatch the task to Claude at the task's tier. Cross-reference: `references/gemini-integration.md`.
 
