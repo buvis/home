@@ -1,5 +1,7 @@
 #!/bin/bash
-# Run Codex model via copilot CLI
+# Run a Codex agent non-interactively. Prefers the native `codex` CLI;
+# falls back to `copilot`. Every call is a fresh, one-shot run - there is
+# no interactive or resume mode (this helper feeds automated dispatch).
 
 set -eo pipefail
 
@@ -8,47 +10,57 @@ if command -v mise &>/dev/null; then
     PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
-# Curated 1x-multiplier default. Picking the "highest-versioned" model
-# silently lands on premium tiers (gpt-5.5 burned 25% of monthly Copilot
-# quota in one run). Multipliers are not exposed via the CLI, so we hardcode
-# Copilot's own recommended default and require -m/--model to opt into a
-# higher-multiplier tier. Verify current multipliers in the GitHub Copilot
-# dashboard before bumping this value.
-DEFAULT_MODEL="gpt-5.4"
-MODEL="$DEFAULT_MODEL"
-MODE="prompt"  # prompt, interactive, resume, continue
+# Backend selection: the native codex CLI is preferred (OpenAI ChatGPT
+# subscription, no per-request billing multiplier). copilot is the fallback
+# when codex is not installed.
+if command -v codex &>/dev/null; then
+    BACKEND="codex"
+elif command -v copilot &>/dev/null; then
+    BACKEND="copilot"
+else
+    echo "ERROR: neither 'codex' nor 'copilot' CLI found on PATH" >&2
+    exit 1
+fi
+
+# Curated 1x-multiplier default for the copilot backend only. Picking the
+# "highest-versioned" model silently lands on premium tiers (gpt-5.5 burned
+# 25% of monthly Copilot quota in one run). Multipliers are not exposed via
+# the CLI, so we hardcode Copilot's own recommended default and require
+# -m/--model to opt into a higher-multiplier tier. The codex backend has no
+# multiplier, so it uses codex's own configured default unless -m is given.
+DEFAULT_COPILOT_MODEL="gpt-5.4"
+MODEL=""
+MODEL_SET=""
 ALLOW_TOOLS=""
 ALLOW_ALL=""
 SILENT=""
-ADD_DIRS=()
+ADD_DIRS=()    # both CLIs accept --add-dir DIR
 PROMPT=""
 PROMPT_FILE=""
 
 usage() {
     echo "Usage: $0 [options] [prompt]"
     echo ""
-    echo "Default model: $DEFAULT_MODEL (1x multiplier on Copilot)."
-    echo "Use -m to opt into a higher-multiplier model (e.g. gpt-5.5)."
+    echo "Backend: $BACKEND (codex preferred, copilot fallback)."
+    echo "copilot default model: $DEFAULT_COPILOT_MODEL (1x multiplier)."
+    echo "Use -m to override; on copilot a higher-multiplier model may apply."
+    echo ""
+    echo "Runs are non-interactive and one-shot. There is no resume mode."
     echo ""
     echo "Options:"
-    echo "  -m, --model MODEL      Override model (default: $DEFAULT_MODEL)"
-    echo "  -i, --interactive      Interactive mode with initial prompt"
-    echo "  -a, --allow-tools      Auto-approve tool use"
-    echo "  -y, --yolo             Full permissions (allow-all)"
-    echo "  -s, --silent           Silent mode (clean output for scripting)"
+    echo "  -m, --model MODEL      Override model (copilot default: $DEFAULT_COPILOT_MODEL)"
+    echo "  -a, --allow-tools      Auto-approve tool use (codex: --sandbox workspace-write)"
+    echo "  -y, --yolo             Full permissions (codex: bypass approvals + sandbox)"
+    echo "  -s, --silent           Silent mode (copilot only; ignored on codex)"
     echo "  -d, --dir DIR          Allow access to directory (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
     echo "  -o, --output FILE      Write output to file (via tee)"
-    echo "  -r, --resume [ID]      Resume session (optionally specify ID)"
-    echo "  -c, --continue         Resume most recent session"
     echo "  -h, --help             Show this help"
     echo ""
     echo "Examples:"
     echo "  $0 'Analyze the codebase'"
-    echo "  $0 -a 'Fix the bug in auth.ts'"
-    echo "  $0 -y 'Refactor the module'"
-    echo "  $0 -m gpt-5.5 -p 'Hard reasoning task'   # premium tier"
-    echo "  $0 -r"
+    echo "  $0 -a -f /tmp/prompt.txt"
+    echo "  $0 -y -f /tmp/prompt.txt"
 }
 
 # Parse arguments
@@ -56,18 +68,15 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -m|--model)
             MODEL="$2"
+            MODEL_SET=1
             shift 2
             ;;
-        -i|--interactive)
-            MODE="interactive"
-            shift
-            ;;
         -a|--allow-tools)
-            ALLOW_TOOLS="--allow-all-tools"
+            ALLOW_TOOLS=1
             shift
             ;;
         -y|--yolo)
-            ALLOW_ALL="--allow-all"
+            ALLOW_ALL=1
             shift
             ;;
         -s|--silent)
@@ -85,18 +94,6 @@ while [[ $# -gt 0 ]]; do
         -o|--output)
             OUTPUT_FILE="$2"
             shift 2
-            ;;
-        -r|--resume)
-            MODE="resume"
-            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
-                PROMPT="$2"
-                shift
-            fi
-            shift
-            ;;
-        -c|--continue)
-            MODE="continue"
-            shift
             ;;
         -h|--help)
             usage
@@ -118,6 +115,12 @@ if [ -n "$PROMPT_FILE" ]; then
     PROMPT=$(cat "$PROMPT_FILE")
 fi
 
+if [ -z "$PROMPT" ]; then
+    echo "ERROR: Prompt required"
+    usage
+    exit 1
+fi
+
 # Build and run command
 run_cmd() {
     if [ -n "$OUTPUT_FILE" ]; then
@@ -127,31 +130,35 @@ run_cmd() {
     fi
 }
 
-case $MODE in
-    resume)
-        if [ -n "$PROMPT" ]; then
-            run_cmd copilot --model "$MODEL" --resume "$PROMPT"
-        else
-            run_cmd copilot --model "$MODEL" --resume
-        fi
-        ;;
-    continue)
-        run_cmd copilot --model "$MODEL" --continue
-        ;;
-    interactive)
-        if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required for interactive mode"
-            usage
-            exit 1
-        fi
-        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -i "$PROMPT"
-        ;;
-    prompt)
-        if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required"
-            usage
-            exit 1
-        fi
-        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
-        ;;
-esac
+run_codex() {
+    # Map permission flags to codex sandbox policy.
+    local sandbox=()
+    if [ -n "$ALLOW_ALL" ]; then
+        sandbox=(--dangerously-bypass-approvals-and-sandbox)
+    elif [ -n "$ALLOW_TOOLS" ]; then
+        sandbox=(--sandbox workspace-write)
+    else
+        sandbox=(--sandbox read-only)
+    fi
+
+    local model=()
+    [ -n "$MODEL_SET" ] && model=(-m "$MODEL")
+
+    run_cmd codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}" "$PROMPT"
+}
+
+run_copilot() {
+    local model="${MODEL:-$DEFAULT_COPILOT_MODEL}"
+    local allow_tools=""
+    local allow_all=""
+    [ -n "$ALLOW_TOOLS" ] && allow_tools="--allow-all-tools"
+    [ -n "$ALLOW_ALL" ] && allow_all="--allow-all"
+
+    run_cmd copilot --model "$model" $allow_tools $allow_all $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
+}
+
+if [ "$BACKEND" = "codex" ]; then
+    run_codex
+else
+    run_copilot
+fi
