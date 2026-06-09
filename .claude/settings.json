@@ -15,23 +15,60 @@
       "Write(./dev/local/**)",
       "Write(~/git/**/dev/local/**)",
       "Read(/tmp/**)",
+      "Read(/tmp/*)",
       "Read(/private/tmp/**)",
+      "Read(/private/tmp/*)",
       "Read(/var/folders/**)",
+      "Read(/var/folders/*)",
       "Read(/private/var/folders/**)",
+      "Read(/private/var/folders/*)",
       "Write(/tmp/**)",
+      "Write(/tmp/*)",
       "Write(/private/tmp/**)",
+      "Write(/private/tmp/*)",
       "Write(/var/folders/**)",
+      "Write(/var/folders/*)",
       "Write(/private/var/folders/**)",
+      "Write(/private/var/folders/*)",
       "Edit(/tmp/**)",
+      "Edit(/tmp/*)",
       "Edit(/private/tmp/**)",
+      "Edit(/private/tmp/*)",
       "Edit(/var/folders/**)",
+      "Edit(/var/folders/*)",
       "Edit(/private/var/folders/**)",
+      "Edit(/private/var/folders/*)",
+      "Read(tmp/**)",
+      "Read(tmp/*)",
+      "Read(**/tmp/**)",
+      "Read(**/tmp/*)",
+      "Write(tmp/**)",
+      "Write(tmp/*)",
+      "Write(**/tmp/**)",
+      "Write(**/tmp/*)",
+      "Edit(tmp/**)",
+      "Edit(tmp/*)",
+      "Edit(**/tmp/**)",
+      "Edit(**/tmp/*)",
       "Grep(*)",
       "Glob(*)",
       "WebSearch",
       "WebFetch(*)",
       "Read(~/.claude/skills/**)",
+      "Read(~/.claude/dev/local/**)",
+      "Read(~/.claude/dev/local/*)",
+      "Write(~/.claude/dev/local/**)",
+      "Write(~/.claude/dev/local/*)",
+      "Edit(~/.claude/dev/local/**)",
+      "Edit(~/.claude/dev/local/*)",
+      "Read(/Users/bob/.local/tmp/claude-dev/**)",
+      "Read(/Users/bob/.local/tmp/claude-dev/*)",
+      "Write(/Users/bob/.local/tmp/claude-dev/**)",
+      "Write(/Users/bob/.local/tmp/claude-dev/*)",
+      "Edit(/Users/bob/.local/tmp/claude-dev/**)",
+      "Edit(/Users/bob/.local/tmp/claude-dev/*)",
       "mcp__claude_ai_Context7__*",
+      "mcp__plugin_context-mode_context-mode__*",
       "Bash(git:*)",
       "Bash(rm:*)",
       "Bash(gh:*)",
@@ -59,6 +96,7 @@
       "Bash(mise:*)",
       "Bash(curl:*)",
       "Bash(ls:*)",
+      "Bash(bash -n:*)",
       "Bash(pwd:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
@@ -90,7 +128,6 @@
       "Bash(touch:*)",
       "Bash(sed:*)",
       "Bash(awk:*)",
-      "Bash(bash:*)",
       "Bash(kill:*)",
       "Bash(pkill:*)",
       "Bash(docker:*)",
@@ -107,9 +144,18 @@
       "Read(**/secrets/**)",
       "Read(**/credentials.json)",
       "Read(**/id_rsa)",
-      "Read(**/id_ed25519)"
+      "Read(**/id_ed25519)",
+      "Read(**/id_ecdsa)",
+      "Read(**/id_dsa)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/.aws/**)",
+      "Read(**/.ssh/**)"
     ],
-    "defaultMode": "auto"
+    "defaultMode": "default",
+    "additionalDirectories": [
+      "/Users/bob/.local/tmp/claude-dev"
+    ]
   },
   "hooks": {
     "PreToolUse": [
@@ -326,7 +372,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Users/bob/.claude/hooks/context-mode-cache-heal.mjs\""
+            "command": "\"/Users/bob/.claude/hooks/context-mode-cache-heal.mjs\"",
+            "timeout": 30
           }
         ]
       }
@@ -372,6 +419,14 @@
   "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
   "agentPushNotifEnabled": true,
+  "skipAutoPermissionPrompt": true,
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Writes, edits, and deletes under any `dev/local/` directory (including `~/.claude/dev/local/`) are working documents — PRDs, autopilot state, scratch files, plans, signal files. They are NOT agent configuration or self-modification. Allow without prompting.",
+      "Reads, writes, edits, and deletes under any temporary directory — absolute (`/tmp/`, `/private/tmp/`, `/var/folders/`, `/private/var/folders/`) or relative (`tmp/`, `**/tmp/`) — are scratch artifacts (dispatch prompts, test logs, intermediate files). They are NOT agent configuration or self-modification. Allow without prompting."
+    ]
+  },
   "mcpServers": {
     "youtube_transcript": {
       "command": "docker",
@@ -383,5 +438,5 @@
       ]
     }
   },
-  "skipAutoPermissionPrompt": true
+  "model": "claude-fable-5[1m]"
 }
