@@ -423,6 +423,26 @@ def test_search_candidates_finds_definition_elsewhere(tmp_path: Path) -> None:
     assert candidates[0]["line"] == 1
 
 
+def test_search_candidates_ranks_definition_first(tmp_path: Path) -> None:
+    """With many usage sites and one definition, the definition is not dropped.
+
+    Usage sites outnumber the hit cap; the definition lives in another file.
+    Definition-first ranking must surface it at position 0 regardless of rg
+    order, so the duplicate is never lost behind unrelated call sites.
+    """
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    usage_lines = "\n".join(f"    total{i} = aggregate_query(pool)" for i in range(8))
+    (root / "callers.py").write_text(usage_lines + "\n")
+    (root / "queries.py").write_text("def aggregate_query(pool):\n    return pool\n")
+    target = root / "new.py"
+    target.write_text("# target\n")
+    candidates = mod.search_candidates("aggregate_query", root, target)
+    assert candidates, "expected candidates"
+    assert mod._defined_name(candidates[0]["snippet"]) == "aggregate_query"
+
+
 def test_search_candidates_excludes_target_file(tmp_path: Path) -> None:
     mod = _import_hook_module()
     root = tmp_path / "proj"
@@ -1015,6 +1035,98 @@ def test_decide_allows_on_weak_only() -> None:
     assert decision == "allow"
     # Weak matches are NOT included in deny matches list (which is for the envelope).
     assert matches == []
+
+
+# --- Definition-aware matching: a usage site must NOT block (audit 2026-05) ---
+
+
+def test_score_match_usage_site_not_strong() -> None:
+    """A call/usage of the exact name is not a duplicate definition -> not blocking."""
+    mod = _import_hook_module()
+    cand = {"file": "u.py", "line": 1, "snippet": "total = formatPrice(item)"}
+    assert mod.score_match("formatPrice", cand) != "strong"
+    assert mod.score_match("formatPrice", cand) != "medium"
+
+
+def test_score_match_type_annotation_not_strong() -> None:
+    """Exact name in a type position (e.g. `-> Result`) must not block."""
+    mod = _import_hook_module()
+    cand = {"file": "u.rs", "line": 1, "snippet": "pub fn run() -> Result<(), Error> {"}
+    assert mod.score_match("Result", cand) != "strong"
+    assert mod.score_match("Result", cand) != "medium"
+
+
+def test_score_match_strong_rust_fn() -> None:
+    mod = _import_hook_module()
+    cand = {"file": "u.rs", "line": 1, "snippet": "pub fn formatPrice(p: i32) -> i32 {"}
+    assert mod.score_match("formatPrice", cand) == "strong"
+
+
+def test_score_match_strong_go_method_receiver() -> None:
+    mod = _import_hook_module()
+    cand = {"file": "u.go", "line": 1, "snippet": "func (s *Svc) formatPrice(p int) int {"}
+    assert mod.score_match("formatPrice", cand) == "strong"
+
+
+def test_decide_allows_usage_site_only() -> None:
+    mod = _import_hook_module()
+    groups = {
+        "aggregate_query": [
+            {"file": "a.rs", "line": 1, "snippet": "let rows = aggregate_query(&pool);"},
+        ],
+    }
+    decision, matches = mod.decide(["aggregate_query"], groups)
+    assert decision == "allow"
+    assert matches == []
+
+
+def test_defined_name_extracts_declared_identifier() -> None:
+    mod = _import_hook_module()
+    assert mod._defined_name("def foo(x):") == "foo"
+    assert mod._defined_name("class Bar:") == "Bar"
+    assert mod._defined_name("pub fn baz() {") == "baz"
+    assert mod._defined_name("func (r *T) Qux() {") == "Qux"
+    assert mod._defined_name("    x = foo()") is None
+    assert mod._defined_name("return formatPrice(a)") is None
+
+
+def test_decide_match_records_snippet() -> None:
+    """Blocking matches carry the snippet so the audit log holds the evidence."""
+    mod = _import_hook_module()
+    groups = {
+        "formatPrice": [{"file": "u.py", "line": 1, "snippet": "def formatPrice(p):"}],
+    }
+    _decision, matches = mod.decide(["formatPrice"], groups)
+    assert matches[0]["snippet"] == "def formatPrice(p):"
+
+
+def test_decide_match_snippet_capped() -> None:
+    mod = _import_hook_module()
+    long_snippet = "def formatPrice(" + "x" * 500 + "):"
+    groups = {"formatPrice": [{"file": "u.py", "line": 1, "snippet": long_snippet}]}
+    _decision, matches = mod.decide(["formatPrice"], groups)
+    assert len(matches[0]["snippet"]) == mod._SNIPPET_AUDIT_CAP
+
+
+# --- Stopwords: generic names defined in many files are not duplicates ---
+
+
+def test_stopword_filters_generic_names() -> None:
+    mod = _import_hook_module()
+    kept = mod.filter_stopwords(["create", "setUp", "Result", "extractRecurrenceId"], "a.py")
+    assert kept == ["extractRecurrenceId"]
+
+
+# --- pytest test_*.py prefix convention is recognized as a test file ---
+
+
+def test_is_test_file_pytest_prefix() -> None:
+    mod = _import_hook_module()
+    assert mod.is_test_file_path("/p/test_consolidate.py") is True
+    assert mod.is_test_file_path("/p/widget_test.py") is True
+    assert mod.is_test_file_path("/p/consolidate.py") is False
+    # Prefix rule is Python-only; a non-.py "test_" file is not matched here.
+    assert mod.is_test_file_path("/p/test_thing.rs") is False
 
 
 # --- End-to-end: extracted symbols flow through to audit on supported files ---
