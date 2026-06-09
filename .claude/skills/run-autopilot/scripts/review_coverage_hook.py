@@ -122,6 +122,7 @@ def main() -> int:
 
     wip_path = repo / "dev" / "local" / "prds" / "wip" / prd
     done_path = repo / "dev" / "local" / "prds" / "done" / prd
+    # Neither location exists -> pass wip_path; the gate fires a clean MISSING_PRD.
     prd_path = wip_path if wip_path.exists() else (done_path if done_path.exists() else wip_path)
 
     diff_range = f"{work_start_sha}..HEAD"
