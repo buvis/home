@@ -9,7 +9,8 @@ CLI:
         --reviewer-block <path> [--reviewer-block <path>...] \
         [--rubric <path>] \
         [--repo <path>] \
-        [--write-aggregate <path>]
+        [--write-aggregate <path>] \
+        [--run-tests]
 
 Exit 0 = coverage complete. Non-zero = gap found; stderr starts with gap kind.
 """
@@ -241,6 +242,11 @@ def _run_changed_tests(diff_files: list[str], work_tree: Path) -> str | None:
     passed = count(r"(\d+) passed")
     failed = count(r"(\d+) failed") + count(r"(\d+) error(?:s)?")
     skipped = count(r"(\d+) skipped")
+    if passed == 0 and failed == 0 and skipped == 0:
+        # pytest collected/ran nothing (exit 5, "no tests ran"). A changed test
+        # file that executes zero tests is not coverage — leave the dimension
+        # unfilled so _check_empty_tests fails loud rather than green-gating.
+        return None
     return f"pass={passed} fail={failed} skip={skipped}"
 
 
