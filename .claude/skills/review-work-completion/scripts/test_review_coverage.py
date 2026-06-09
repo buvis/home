@@ -811,6 +811,39 @@ class ReviewCoverageTests(unittest.TestCase):
         self.assertNotIn("fail=0", content)
         self.assertIn("fail=1", content)
 
+    def test_run_tests_changed_test_file_with_no_tests_fails(self) -> None:
+        """--run-tests on a changed test_*.py that collects NO runnable tests
+        (pytest 'no tests ran') must NOT be treated as real coverage: it yields
+        EMPTY_TESTS, not a green gate with zero tests executed."""
+        repo, base_sha = _setup_repo_with_test_file(
+            self.tmp, rel="src/test_thing.py", body="def helper():\n    return 1\n"
+        )
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/test_thing.py": "reviewed"},
+            tests="pending: filled by consolidation",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {result.stderr[:80]!r}",
+        )
+
 
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
 
