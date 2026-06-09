@@ -259,6 +259,11 @@ def _merge_abort_to_state(
     aborts.append(abort_entry)
     fresh["task_aborts"] = aborts
     fresh["stall_reason"] = stall_reason
+    # The task_aborted relaunch replans (Phase 0 -> Phase 2), so the next
+    # session is a planning session. Without this, next_phase stays "work"
+    # from the Phase 2->3 handoff and autoclaude would launch the replan on
+    # the work-tier model (Sonnet) with a stale launch_model.
+    fresh["next_phase"] = "planning"
     return _atomic_write_state(autopilot_dir, fresh)
 
 

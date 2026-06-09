@@ -200,6 +200,11 @@ class ContextCapHookTests(unittest.TestCase):
             },
         )
 
+        # The task_aborted relaunch is a replan (planning) session; autoclaude
+        # picks the launch model from next_phase, so leaving it at "work"
+        # would launch the replan on the work-tier model (Sonnet).
+        self.assertEqual(state["next_phase"], "planning")
+
         out = json.loads(result.stdout)
         self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
         self.assertIn("abort", out["hookSpecificOutput"]["additionalContext"].lower())

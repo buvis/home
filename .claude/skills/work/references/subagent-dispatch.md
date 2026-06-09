@@ -66,6 +66,10 @@ PostToolUse hooks do not fire inside subagents (see `SKILL.md` "CRITICAL: One Ta
         ```json
         {"stalled": "subagent_prompt_overrun", "task": "<id>", "prompt_bytes": <prompt-bytes>}
         ```
+        In the same state write, set `state.next_phase` to `"planning"` —
+        the relaunch is a replan (planning) session and `autoclaude` picks
+        the launch model from `next_phase`; leaving it at `"work"` would
+        launch the replan on the work-tier model.
      3. **Only if `$_AUTOPILOT_LOOP` is set** (per `/run-autopilot` "Loop
         Detection" — manual sessions have no shell wrapper to restart on
         SIGINT), write `task_aborted` to the autopilot signal file. Use
