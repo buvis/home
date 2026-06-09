@@ -1,46 +1,50 @@
 ---
 name: use-gemini
-description: Use when running Google Gemini via the copilot CLI for code analysis, refactoring, or editing. Triggers on "run gemini", "gemini analyze", "ask gemini", "copilot with gemini".
+description: Use when running Google Gemini via the native Gemini CLI for code analysis, refactoring, or editing. Triggers on "run gemini", "gemini analyze", "ask gemini".
 ---
 
 # Gemini Skill Guide
 
-Gemini is accessed via the `copilot` CLI. The helper script defaults to `gemini-3-pro-preview` and exposes `-m/--model` for explicit overrides.
+Gemini runs through the native `gemini` CLI (Google). The helper script,
+`scripts/gemini-run.sh`, resolves the mise-managed binary and maps a stable
+flag interface onto the CLI.
 
-> **Heads up:** GitHub removed Gemini models from the Copilot CLI around 2026-03-26. Calls will fail until/unless GitHub re-adds them. Confirm availability before invoking.
+> **Availability:** The `gemini` CLI is mise-managed and may not be on PATH.
+> The helper resolves it via `mise which gemini`. If it is missing, the helper
+> exits with an install hint — confirm availability before invoking.
 
-## Multiplier Policy
+## Model Selection
 
-GitHub Copilot bills models with a per-request multiplier. The CLI does not expose multipliers locally, so the helper hardcodes a curated default rather than auto-picking the latest version. Before passing `-m` to override, confirm with the user via `AskUserQuestion` if the target model carries a higher Copilot multiplier. Verify current multipliers in the GitHub Copilot dashboard.
+The native CLI bills against your Google/Gemini API account, not GitHub
+Copilot — there is no per-request multiplier. With no `-m`, the CLI picks its
+own default model. Pass `-m MODEL` only when the user asks for a specific one.
 
 ## Running a Task
 
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
-   - `-m, --model MODEL` to override the default (`gemini-3-pro-preview`); ask the user first if the override is a higher-multiplier model
-   - `-p, --prompt <text>` for non-interactive mode
-   - `-i, --interactive <prompt>` for interactive mode with initial prompt
-   - `--allow-all-tools` to auto-approve tool use
-   - `--allow-all-paths` to allow file access beyond current dir
-   - `--allow-all` or `--yolo` for full permissions
-   - `--add-dir <DIR>` to allow access to specific directories
-   - `-s, --silent` for scripting (only agent response, no stats)
-3. When continuing a previous session, use `copilot --continue` or `copilot --resume [sessionId]`.
+   - `-m, --model MODEL` to override the CLI default model
+   - `-f, --file FILE` to read the prompt from a file (preferred — avoids shell escaping)
+   - `-i, --interactive` for interactive mode with an initial prompt
+   - `-a, --allow-tools` to auto-approve edit tools (`--approval-mode auto_edit`)
+   - `-y, --yolo` to auto-approve all tools (`--approval-mode yolo`)
+   - `-d, --dir DIR` to include an extra directory in the workspace (repeatable)
+   - `-s, --silent` accepted for compatibility (headless `-p` output is already clean)
+3. When continuing a previous session, use `-c` (most recent) or `-r [ID]` (`latest` or an index).
 4. Run the command, capture output, and summarize the outcome for the user.
-5. **After Gemini completes**, inform the user: "You can resume this session with 'gemini resume' or 'copilot --continue'."
+5. **After Gemini completes**, inform the user: "You can resume this session with `gemini-run.sh -c`."
 
 ### Quick Reference
 
 | Use case | Key flags |
 | --- | --- |
-| Read-only analysis | `-p "prompt"` |
+| Read-only analysis | `-f prompt.txt` |
 | Interactive with initial prompt | `-i "prompt"` |
-| Auto-approve tools | `--allow-all-tools -p "prompt"` |
-| Full auto (edits + tools) | `--allow-all -p "prompt"` or `--yolo -p "prompt"` |
-| Allow specific directory | `--add-dir <DIR> -p "prompt"` |
-| Resume recent session | `--continue` |
-| Resume specific session | `--resume [sessionId]` |
-| Scripting (clean output) | `-s -p "prompt"` |
+| Auto-approve edit tools | `-a -f prompt.txt` |
+| Full auto (all tools) | `-y -f prompt.txt` |
+| Include extra directory | `-d <DIR> -f prompt.txt` |
+| Resume recent session | `-c` |
+| Resume specific session | `-r <ID>` |
 
 ## Background Dispatch and Waiting
 
@@ -54,14 +58,15 @@ A `gemini-run.sh` call can run for many minutes. When you need to do other work 
 
 ## Following Up
 
-- After every `copilot` command, use `AskUserQuestion` to confirm next steps or decide whether to resume.
+- After every `gemini-run.sh` command, use `AskUserQuestion` to confirm next steps or decide whether to resume.
 - When resuming, the session uses the same model and context from the original session.
 - Restate the permission mode when proposing follow-up actions.
 
 ## Error Handling
 
-- Stop and report failures whenever a `copilot` command exits non-zero; request direction before retrying.
-- Before using high-impact flags (`--allow-all`, `--yolo`, `--allow-all-paths`) ask user permission via AskUserQuestion unless already given.
+- Stop and report failures whenever the helper exits non-zero; request direction before retrying.
+- If the helper reports the `gemini` CLI is not found, report that and stop — do not fall back to another tool without asking.
+- Before using high-impact flags (`-y`/`--yolo`) ask user permission via AskUserQuestion unless already given.
 - When output includes warnings or partial results, summarize them and ask how to adjust.
 
 ## Helper Script
@@ -73,17 +78,14 @@ A `gemini-run.sh` call can run for many minutes. When you need to do other work 
 echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/gemini-prompt.txt
 ~/.claude/skills/use-gemini/scripts/gemini-run.sh -f /tmp/gemini-prompt.txt
 
-# With auto-approve tools
+# With auto-approve edit tools
 ~/.claude/skills/use-gemini/scripts/gemini-run.sh -a -f /tmp/gemini-prompt.txt
 
-# Full permissions
+# Full permissions (all tools)
 ~/.claude/skills/use-gemini/scripts/gemini-run.sh -y -f /tmp/gemini-prompt.txt
 
-# Resume session
-~/.claude/skills/use-gemini/scripts/gemini-run.sh -r
-
-# Silent mode for scripting
-~/.claude/skills/use-gemini/scripts/gemini-run.sh -s -f /tmp/gemini-prompt.txt
+# Resume most recent session
+~/.claude/skills/use-gemini/scripts/gemini-run.sh -c
 ```
 
 Run `~/.claude/skills/use-gemini/scripts/gemini-run.sh --help` for all options.
