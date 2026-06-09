@@ -482,6 +482,22 @@ Branch on its exit code:
 
 **Coverage block (both paths).** The output MUST include a `---review-coverage---` block with `files`, `features`, and `rubric` filled and `tests` left as `pending: filled by consolidation`. The exact format is defined in `skills/review-work-completion/references/review-coverage-format.md`. PRD 00038's `review_coverage.py` parses this block downstream; a missing or malformed block fails the Phase 8 verdict.
 
+**Run the coverage gate.** After the doubt-review output is obtained (from either the codex path or the Claude fallback), run the gate before processing any findings:
+
+1. Identify the doubt-review output file: `<autopilot_dir>/codex-review-output.md` on the codex path. On the Claude fallback path, if the output is not already on disk, write it to `dev/local/reviews/.doubt-reviewer-block.md` first.
+2. Resolve `<prd-base>` = `state.prd` without its `.md` extension.
+3. Invoke the gate (do NOT pass `--rubric` — `SURFACE_RUBRIC_DEFAULTS` resolves `doubt` automatically):
+   ```bash
+   python3 ~/.claude/skills/review-work-completion/scripts/review_coverage.py \
+     --surface doubt \
+     --prd dev/local/prds/wip/<state.prd> \
+     --diff-range <state.work_start_sha>..HEAD \
+     --reviewer-block <doubt-output-file> \
+     --write-aggregate dev/local/reviews/.doubt-aggregate.md
+   ```
+4. If the gate exits non-zero: the doubt review FAILS — surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, or `MISSING_RUBRIC_RULE`) and its detail; do NOT continue to findings classification.
+5. On exit 0: write `dev/local/reviews/<prd>-doubt-review.md` (where `<prd>` = `<prd-base>`) containing the doubt findings (FIX / VERIFY / KNOWN) followed by the aggregate coverage block from `dev/local/reviews/.doubt-aggregate.md`. (This filename is intentionally distinct from the `-review-NN.md` pattern — no collision with the Phase 4 cycle-skip glob. The autopilot Phase 2 Stop hook re-checks this file's aggregate block when `state.phase == "done"`.)
+
 The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope).
 
 **Before processing any FIX/VERIFY items, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management). This guarantees subsequent `[DOUBT]` `TaskCreate` calls get ids appended after the hydrated original-plan tasks (rather than overwriting id 1 in an empty tracker).
