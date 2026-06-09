@@ -15,6 +15,7 @@ COVERAGE_SURFACE=""
 COVERAGE_RUBRIC=""
 COVERAGE_REPO=""
 COVERAGE_WRITE_AGGREGATE=""
+COVERAGE_RUN_TESTS=""
 
 while [[ "${1:-}" == --* ]]; do
     case "$1" in
@@ -24,6 +25,7 @@ while [[ "${1:-}" == --* ]]; do
         --rubric)          COVERAGE_RUBRIC="$2";          shift 2 ;;
         --repo)            COVERAGE_REPO="$2";            shift 2 ;;
         --write-aggregate) COVERAGE_WRITE_AGGREGATE="$2"; shift 2 ;;
+        --run-tests)       COVERAGE_RUN_TESTS="1";        shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -154,6 +156,7 @@ if [[ -n "$COVERAGE_PRD" && -n "$COVERAGE_DIFF_RANGE" && -n "$COVERAGE_SURFACE" 
     [[ -n "$COVERAGE_RUBRIC" ]]          && GATE_ARGS+=(--rubric "$COVERAGE_RUBRIC")
     [[ -n "$COVERAGE_REPO" ]]            && GATE_ARGS+=(--repo "$COVERAGE_REPO")
     [[ -n "$COVERAGE_WRITE_AGGREGATE" ]] && GATE_ARGS+=(--write-aggregate "$COVERAGE_WRITE_AGGREGATE")
+    [[ -n "$COVERAGE_RUN_TESTS" ]]       && GATE_ARGS+=(--run-tests)
     "${GATE_ARGS[@]}"
 fi
 

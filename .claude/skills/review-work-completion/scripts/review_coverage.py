@@ -182,7 +182,8 @@ def _merge_blocks(blocks: list[dict[str, dict[str, str]]]) -> dict[str, dict[str
 # External data gathering
 # ---------------------------------------------------------------------------
 
-def _diff_files(diff_range: str, repo: Path) -> list[str]:
+def _diff_files(diff_range: str, repo: Path) -> tuple[list[str], Path]:
+    """Return (changed files, work-tree root the paths are relative to)."""
     result = subprocess.run(
         ["git", "diff", "--name-only", diff_range],
         cwd=str(repo),
@@ -190,7 +191,7 @@ def _diff_files(diff_range: str, repo: Path) -> list[str]:
         text=True,
     )
     if result.returncode == 0:
-        return [f for f in result.stdout.splitlines() if f.strip()]
+        return [f for f in result.stdout.splitlines() if f.strip()], repo
 
     # Fallback for bare-repo work-trees (e.g. ~/.buvis-backed $HOME), where the
     # project root has no .git and a plain `git diff` from it fails.
@@ -205,10 +206,42 @@ def _diff_files(diff_range: str, repo: Path) -> list[str]:
             text=True,
         )
         if fallback.returncode == 0:
-            return [f for f in fallback.stdout.splitlines() if f.strip()]
+            return [f for f in fallback.stdout.splitlines() if f.strip()], Path(work_tree)
 
     _fail("MISSING_FILES", f"git diff failed: {result.stderr.strip()}")
-    return []  # unreachable; satisfies type checker without suppression
+    return [], repo  # unreachable; satisfies type checker without suppression
+
+
+def _run_changed_tests(diff_files: list[str], work_tree: Path) -> str | None:
+    """Run changed test files under pytest and return a 'pass=P fail=F skip=S'
+    summary, or None when no changed file is a test file."""
+    test_paths = []
+    for f in diff_files:
+        base = Path(f).name
+        if re.match(r"^test_.*\.py$", base) or re.match(r"^.*_test\.py$", base):
+            abs_path = (work_tree / f).resolve()
+            if abs_path.exists():
+                test_paths.append(str(abs_path))
+
+    if not test_paths:
+        return None
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", *test_paths, "-q"],
+        cwd=str(work_tree),
+        capture_output=True,
+        text=True,
+    )
+    out = result.stdout + result.stderr
+
+    def count(pattern: str) -> int:
+        m = re.search(pattern, out)
+        return int(m.group(1)) if m else 0
+
+    passed = count(r"(\d+) passed")
+    failed = count(r"(\d+) failed") + count(r"(\d+) error(?:s)?")
+    skipped = count(r"(\d+) skipped")
+    return f"pass={passed} fail={failed} skip={skipped}"
 
 
 def _prd_features(prd: Path) -> list[str]:
@@ -242,12 +275,14 @@ def _check_missing_files(merged: dict[str, dict[str, str]], diff_files: list[str
 def _check_empty_tests(merged: dict[str, dict[str, str]]) -> None:
     tests = merged["tests"]
     has_reviewed = any(v == "reviewed" for v in merged["files"].values())
+    if not has_reviewed:
+        return
 
-    if "none" in tests and has_reviewed:
-        _fail("EMPTY_TESTS", "none sentinel used but diff files are marked reviewed")
-
-    if not tests and has_reviewed:
-        _fail("EMPTY_TESTS", "tests section is empty but diff contains reviewed code files")
+    has_real = any(
+        re.match(r"^pass=\d+ fail=\d+ skip=\d+$", v) for v in tests.values()
+    )
+    if not has_real:
+        _fail("EMPTY_TESTS", "diff contains reviewed code files but no real test counts were recorded")
 
 
 def _check_unmapped_features(merged: dict[str, dict[str, str]], features: list[str]) -> None:
@@ -300,13 +335,20 @@ def main() -> None:
     parser.add_argument("--rubric", type=Path)
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--write-aggregate", type=Path)
+    parser.add_argument("--run-tests", action="store_true", default=False)
     args = parser.parse_args()
 
     blocks = [_load_block(p) for p in args.reviewer_blocks]
     merged = _merge_blocks(blocks)
 
-    diff = _diff_files(args.diff_range, args.repo)
+    diff, work_tree = _diff_files(args.diff_range, args.repo)
     features = _prd_features(args.prd)
+
+    if args.run_tests:
+        summary = _run_changed_tests(diff, work_tree)
+        if summary is not None:
+            merged["tests"].pop("pending", None)
+            merged["tests"]["pytest"] = summary
 
     rubric_path: Path = args.rubric if args.rubric else SURFACE_RUBRIC_DEFAULTS[args.surface].resolve()
     if not rubric_path.exists():
