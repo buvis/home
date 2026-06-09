@@ -1,32 +1,31 @@
 #!/usr/bin/env python3
-"""Run the autopilot de-sloppify codex pass with live progress.
+"""Run a codex review pass (`codex exec --json`) with live progress.
 
-Wraps `codex exec --json` so a long run — a legitimate `cargo test
---workspace` can take 40 minutes — is visibly alive rather than a silent
-black box, WITHOUT imposing a hard timeout (the operator rejected an
-auto-kill: long test runs are expected).
+Used by autopilot Phase 8 to have codex conduct the doubt review (skeptical
+review + de-slop) over the PRD's diff. Wraps `codex exec --json` so a long
+run is visibly alive rather than a silent black box, WITHOUT a hard timeout.
 
 What it adds over a bare `codex exec` call:
 
-- **Live progress** — one readable line per codex event (commands run,
-  files edited, agent messages, errors), parsed from the `--json` stream.
-- **Heartbeat** — during quiet stretches (codex blocked on a long child
-  process), prints elapsed time, idle time, the last action, and a
-  snapshot of codex's descendant processes. A running `cargo`/`rustc`
-  child is the signal that the pass is working, not hung.
-- **Idle banner** — when codex emits nothing AND has no descendant
-  process for a long stretch, prints a loud banner so the operator knows
-  to look. It still does not kill anything; Ctrl-C stays the only stop.
+- **Live progress** — one readable line per codex event, parsed from `--json`.
+- **Heartbeat** — during quiet stretches prints elapsed/idle time, the last
+  action, and codex's descendant processes (a running child = working, not hung).
+- **Idle banner** — a loud banner when codex emits nothing AND has no child
+  process for a long stretch. It does not kill anything; Ctrl-C is the only stop.
+- **Review capture** — codex's agent-message text is written to
+  `<autopilot_dir>/codex-review-output.md` on a clean run, for the caller to read.
 
-The raw `--json` stream is teed to `<autopilot_dir>/desloppify-last.jsonl`
-for post-mortem.
+The raw `--json` stream is teed to `<autopilot_dir>/codex-review-last.jsonl`.
 
-Invoked by the `autoclaude` shell loop in place of a bare codex-run.sh
-call. Exits with codex's exit code; exits 0 when codex is not installed —
-the de-sloppify pass is best-effort and must never break the loop.
+EXIT CONTRACT (the doubt phase falls back to a Claude review on non-zero):
+  0  codex ran clean.
+  2  bad arguments (missing/unreadable prompt file).
+  3  codex unavailable (not on PATH, or failed to launch).
+  4  codex ran but failed (non-zero exit, OR a usage-limit/quota/error event
+     in the stream — codex can emit those and still exit 0).
 
 Usage:
-    desloppify_run.py <prompt_file> [--model MODEL] [--sandbox MODE]
+    codex_review_run.py <prompt_file> [--model MODEL] [--sandbox MODE]
 
 Stdlib only.
 """
@@ -51,6 +50,63 @@ from _walk_up import find_autopilot_dir
 # silence with no child process is well past any normal think/tool gap.
 HEARTBEAT_SECS = 60
 IDLE_BANNER_SECS = 600
+
+# codex emits a usage-limit / quota message as a normal event and still
+# exits 0 — so a quota-blocked run looks like success unless we scan the
+# stream for these markers. The doubt phase treats any hit as a failure
+# (exit 4) and falls back to a Claude review rather than silently skipping
+# a mandated review.
+_FAILURE_TEXT_MARKERS = ("usage limit", "rate limit", "quota",
+                         "insufficient_quota")
+
+
+def _event_signals_failure(obj: object) -> bool:
+    """True when a codex --json event indicates the run failed in a way the
+    caller must surface: an explicit error/failed event, or a
+    usage-limit/quota message codex prints without a nonzero exit."""
+    blob = obj.lower() if isinstance(obj, str) else json.dumps(obj).lower()
+    if any(marker in blob for marker in _FAILURE_TEXT_MARKERS):
+        return True
+    if isinstance(obj, dict):
+        inner = obj
+        for key in ("msg", "item"):
+            nested = obj.get(key)
+            if isinstance(nested, dict):
+                inner = nested
+                break
+        for key in ("type", "event", "kind"):
+            val = inner.get(key) or obj.get(key)
+            if isinstance(val, str) and ("error" in val.lower()
+                                         or "failed" in val.lower()):
+                return True
+    return False
+
+
+def _agent_message_text(obj: object) -> str:
+    """Return the text of a codex agent/message event, else "".
+
+    Used to capture codex's review output (the doubt phase reads this back as
+    the reviewer's findings + verdicts + coverage block)."""
+    if not isinstance(obj, dict):
+        return ""
+    inner = obj
+    for key in ("msg", "item"):
+        nested = obj.get(key)
+        if isinstance(nested, dict):
+            inner = nested
+            break
+    etype = ""
+    for key in ("type", "event", "kind"):
+        val = inner.get(key) or obj.get(key)
+        if isinstance(val, str):
+            etype = val
+            break
+    if "message" in etype.lower() or "agent" in etype.lower():
+        for key in ("message", "text", "content"):
+            text = inner.get(key)
+            if isinstance(text, str) and text.strip():
+                return text
+    return ""
 
 
 def _collect_qwen_task_ids(autopilot_dir: Path | None) -> list[str]:
@@ -291,13 +347,15 @@ def main(argv: list[str]) -> int:
 
     codex = shutil.which("codex")
     if codex is None:
-        # Best-effort pass: a missing codex must not break the autopilot
-        # loop. Report and succeed.
-        print("desloppify_run: 'codex' not on PATH; skipping de-sloppify pass")
-        return 0
+        # codex is unavailable. Exit 3 so the doubt phase falls back to a
+        # Claude review instead of silently skipping a mandated review.
+        print("codex_review_run: 'codex' not on PATH; caller should fall back",
+              file=sys.stderr)
+        return 3
 
     log_dir = find_autopilot_dir(Path.cwd())
-    raw_log = (log_dir / "desloppify-last.jsonl") if log_dir else None
+    raw_log = (log_dir / "codex-review-last.jsonl") if log_dir else None
+    review_out = (log_dir / "codex-review-output.md") if log_dir else None
 
     cmd = [codex, "exec", "--json", "--skip-git-repo-check",
            "--sandbox", sandbox]
@@ -319,9 +377,9 @@ def main(argv: list[str]) -> int:
             env=env,
         )
     except OSError as exc:
-        print(f"desloppify_run: failed to launch codex: {exc}",
+        print(f"codex_review_run: failed to launch codex: {exc}",
               file=sys.stderr)
-        return 0
+        return 3
 
     progress = _Progress()
     started = time.monotonic()
@@ -333,6 +391,8 @@ def main(argv: list[str]) -> int:
     )
     hb.start()
 
+    saw_failure = False
+    review_chunks: list[str] = []
     raw_handle = None
     if raw_log is not None:
         try:
@@ -357,9 +417,16 @@ def main(argv: list[str]) -> int:
             except ValueError:
                 # Non-JSON line (a codex banner or stderr text). It is
                 # still output, so it counts as activity; echo it plain.
+                if any(m in line.lower() for m in _FAILURE_TEXT_MARKERS):
+                    saw_failure = True
                 progress.note_activity(None)
                 progress.write_line(f"  {line[:300]}")
                 continue
+            if _event_signals_failure(obj):
+                saw_failure = True
+            review_text = _agent_message_text(obj)
+            if review_text:
+                review_chunks.append(review_text)
             summary, show = summarize_event(obj)
             progress.note_activity(summary or None)
             if show and summary:
@@ -383,12 +450,22 @@ def main(argv: list[str]) -> int:
 
     rc = proc.wait()
     elapsed = time.monotonic() - started
-    verdict = "clean exit" if rc == 0 else f"exit code {rc}"
+    if rc != 0 or saw_failure:
+        reason = f"exit code {rc}" if rc != 0 else "usage-limit/error event"
+        progress.write_line(
+            f"⚠ codex_review: codex FAILED — {reason}, "
+            f"total {_fmt_secs(elapsed)} (caller should fall back)"
+        )
+        return 4
+    if review_out is not None and review_chunks:
+        try:
+            review_out.write_text("\n\n".join(review_chunks))
+        except OSError:
+            pass
     progress.write_line(
-        f"✓ de-sloppify: codex finished — {verdict}, "
-        f"total {_fmt_secs(elapsed)}"
+        f"✓ codex_review: codex finished clean — total {_fmt_secs(elapsed)}"
     )
-    return rc
+    return 0
 
 
 if __name__ == "__main__":

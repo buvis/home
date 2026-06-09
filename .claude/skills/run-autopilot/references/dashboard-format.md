@@ -18,7 +18,6 @@ Defaults to current directory. Watches `dev/local/autopilot/state.json` and upda
 - Task progress bar (during WORKING phase)
 - Decision log (autonomous + pending)
 - Review cycle history with severity counts
-- Dispatch health: hang rate and deadletter count (from `dev/local/autopilot/dispatch-log.jsonl`; absent if no dispatches recorded yet)
 
 ## Install
 
