@@ -32,11 +32,9 @@ Task tool:
     Return output verbatim. If command fails, report failure immediately.
 ```
 
-## Carl (Gemini) - DISABLED
+## Carl (Gemini)
 
-Carl is disabled until GitHub re-enables Gemini models in copilot CLI. The model `gemini-3-pro-preview` was removed from GitHub's server-side model routing. Do not invoke Carl until this is resolved.
-
-When re-enabling: restore prerequisite check for `~/.claude/skills/use-gemini/scripts/gemini-run.sh` in SKILL.md step 1, and add Carl back to the active agent list in step 5.
+Carl runs via the native Gemini CLI. He is the frontend & design specialist (see `agent-prompts.md`). Write prompt to temp file, then invoke. **Use absolute path for the prompt file** - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents.
 
 ```
 Task tool:
@@ -45,7 +43,7 @@ Task tool:
   prompt: |
     You are Carl. Run this command:
 
-    ~/.claude/skills/use-gemini/scripts/gemini-run.sh -f "{carl_prompt_file}"
+    ~/.claude/skills/use-gemini/scripts/gemini-run.sh -f "{carl_prompt_file_absolute_path}"
 
     Return output verbatim. If command fails, report failure immediately.
 ```

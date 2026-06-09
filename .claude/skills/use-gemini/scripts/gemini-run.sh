@@ -1,53 +1,55 @@
 #!/bin/bash
-# Run Gemini via copilot CLI
+# Run Gemini via the native Gemini CLI (Google).
 
 set -eo pipefail
 
-# Ensure mise-managed tools (like copilot) are on PATH
+# Ensure mise-managed tools (gemini itself, plus build/test tools Gemini may
+# invoke) are on PATH. Matches codex-run.sh / sonnet-run.sh.
 if command -v mise &>/dev/null; then
     PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
-# NOTE: GitHub removed Gemini models from Copilot CLI around 2026-03-26.
-# This script is kept in case GitHub re-adds them; today the CLI will
-# refuse the model. Default below is the last known base "pro" model, kept
-# as a curated 1x choice. Multipliers are not exposed via the CLI - require
-# -m/--model to opt into anything else and verify in the GitHub Copilot
-# dashboard before bumping the default.
-DEFAULT_MODEL="gemini-3-pro-preview"
-MODEL="$DEFAULT_MODEL"
-MODE="prompt"  # prompt, interactive, resume
-ALLOW_TOOLS=""
-ALLOW_ALL=""
-SILENT=""
+# Resolve the gemini binary. It is mise-managed and may not be on PATH.
+GEMINI_BIN="$(command -v gemini 2>/dev/null || true)"
+if [ -z "$GEMINI_BIN" ] && command -v mise &>/dev/null; then
+    GEMINI_BIN="$(mise which gemini 2>/dev/null || true)"
+fi
+if [ -z "$GEMINI_BIN" ]; then
+    echo "ERROR: gemini CLI not found." >&2
+    echo "Install it (e.g. 'mise use -g npm:@google/gemini-cli') and retry." >&2
+    exit 1
+fi
+
+MODEL=""          # empty = CLI default
+MODE="prompt"     # prompt, interactive, resume, continue
+APPROVAL=""       # --approval-mode value (auto_edit | yolo)
 ADD_DIRS=()
 PROMPT=""
 PROMPT_FILE=""
 OUTPUT_FILE=""
+RESUME_ID=""
 
 usage() {
     echo "Usage: $0 [options] [prompt]"
     echo ""
-    echo "Default model: $DEFAULT_MODEL (Gemini was removed from Copilot CLI ~2026-03-26;"
-    echo "expect failure until/unless GitHub re-adds it)."
-    echo "Use -m to override the model."
+    echo "Runs the native Gemini CLI. With no -m, the CLI picks its default model."
     echo ""
     echo "Options:"
-    echo "  -m, --model MODEL      Override model (default: $DEFAULT_MODEL)"
+    echo "  -m, --model MODEL      Override model (default: CLI default)"
     echo "  -i, --interactive      Interactive mode with initial prompt"
-    echo "  -a, --allow-tools      Auto-approve tool use"
-    echo "  -y, --yolo             Full permissions (allow-all)"
-    echo "  -s, --silent           Silent mode (clean output for scripting)"
-    echo "  -d, --dir DIR          Allow access to directory (can repeat)"
+    echo "  -a, --allow-tools      Auto-approve edit tools (--approval-mode auto_edit)"
+    echo "  -y, --yolo             Auto-approve all tools (--approval-mode yolo)"
+    echo "  -s, --silent           Accepted for compatibility; -p output is already clean"
+    echo "  -d, --dir DIR          Include extra directory in the workspace (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
     echo "  -o, --output FILE      Write output to file (via tee)"
-    echo "  -r, --resume [ID]      Resume session (optionally specify ID)"
+    echo "  -r, --resume [ID]      Resume session ('latest' or index; default: latest)"
     echo "  -c, --continue         Resume most recent session"
     echo "  -h, --help             Show this help"
     echo ""
     echo "Examples:"
     echo "  $0 'Analyze the codebase'"
-    echo "  $0 -a 'Fix the bug in auth.ts'"
+    echo "  $0 -a -f /tmp/prompt.txt"
     echo "  $0 -y 'Refactor the module'"
     echo "  $0 -r"
 }
@@ -64,19 +66,18 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -a|--allow-tools)
-            ALLOW_TOOLS="--allow-all-tools"
+            APPROVAL="auto_edit"
             shift
             ;;
         -y|--yolo)
-            ALLOW_ALL="--allow-all"
+            APPROVAL="yolo"
             shift
             ;;
         -s|--silent)
-            SILENT="-s"
             shift
             ;;
         -d|--dir)
-            ADD_DIRS+=("--add-dir" "$2")
+            ADD_DIRS+=("--include-directories" "$2")
             shift 2
             ;;
         -f|--file)
@@ -90,7 +91,7 @@ while [[ $# -gt 0 ]]; do
         -r|--resume)
             MODE="resume"
             if [[ -n "$2" && ! "$2" =~ ^- ]]; then
-                PROMPT="$2"
+                RESUME_ID="$2"
                 shift
             fi
             shift
@@ -113,11 +114,18 @@ done
 # Read prompt from file if specified
 if [ -n "$PROMPT_FILE" ]; then
     if [ ! -f "$PROMPT_FILE" ]; then
-        echo "ERROR: Prompt file not found: $PROMPT_FILE"
+        echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
         exit 1
     fi
     PROMPT=$(cat "$PROMPT_FILE")
 fi
+
+# Flags common to every invocation. --skip-trust avoids the workspace-trust
+# prompt blocking headless (-p) runs.
+COMMON=(--skip-trust)
+[ -n "$MODEL" ] && COMMON+=(-m "$MODEL")
+[ -n "$APPROVAL" ] && COMMON+=(--approval-mode "$APPROVAL")
+COMMON+=("${ADD_DIRS[@]}")
 
 # Build and run command
 run_cmd() {
@@ -130,29 +138,30 @@ run_cmd() {
 
 case $MODE in
     resume)
+        ID="${RESUME_ID:-latest}"
         if [ -n "$PROMPT" ]; then
-            run_cmd copilot --model "$MODEL" --resume "$PROMPT"
+            run_cmd "$GEMINI_BIN" "${COMMON[@]}" --resume "$ID" -p "$PROMPT"
         else
-            run_cmd copilot --model "$MODEL" --resume
+            run_cmd "$GEMINI_BIN" "${COMMON[@]}" --resume "$ID"
         fi
         ;;
     continue)
-        run_cmd copilot --model "$MODEL" --continue
+        run_cmd "$GEMINI_BIN" "${COMMON[@]}" --resume latest
         ;;
     interactive)
         if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required for interactive mode"
+            echo "ERROR: Prompt required for interactive mode" >&2
             usage
             exit 1
         fi
-        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -i "$PROMPT"
+        run_cmd "$GEMINI_BIN" "${COMMON[@]}" -i "$PROMPT"
         ;;
     prompt)
         if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required"
+            echo "ERROR: Prompt required" >&2
             usage
             exit 1
         fi
-        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
+        run_cmd "$GEMINI_BIN" "${COMMON[@]}" -p "$PROMPT"
         ;;
 esac
