@@ -758,6 +758,8 @@ Autopilot depends on superpowers for quality gates. All integrations are conditi
 
 Per-task review (step 5.7), PRD-level review (Phase 4), and blind review (Phase 7) are complementary, not redundant. Per-task catches issues early before they compound. Phase 4 catches cross-task coherence and integration issues. Phase 7 catches spec drift and gaps that implementation-aware reviewers miss by giving a fresh agent only the spec. All three are needed.
 
+Per-task review is **tier-gated** (PRD 00044): `/work` step 5.7 dispatches the per-task code reviewer only for `sonnet`- and `opus`-tier tasks; `haiku`-tier tasks skip it (as does the opus-only Devon adversarial dispatch at step 2.85). This does not leave haiku-tier work unreviewed — the three mandated PRD-level surfaces, Phase 4 (multi-model consensus), Phase 7 (blind), and Phase 8 (doubt), review every task's diff regardless of tier, so they cover haiku-tier tasks that skipped the per-task layer. The gate drops the fourth, per-task review layer on the cheapest tier while keeping the mandated three byte-untouched.
+
 ## Reference Files
 
 - `references/state-schema.md` — state file JSON schema and skip logic
