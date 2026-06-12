@@ -194,3 +194,70 @@ def test_stalled_moves_are_verified() -> None:
         "every wip->stalled `mv` in recovery.md must be followed by an "
         "existence check and a PAUSE on failure"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Retention contract — durable artifacts survive batch end; only transients go.
+# --------------------------------------------------------------------------- #
+
+# Affirmative deletion verbs vs. negations/contract language that must NOT count
+# as "an instruction to delete" (the Retention prose names durables to retain).
+_DEL_RE = re.compile(r"\b(delete|deletes|rm)\b", re.I)
+_NEG_RE = re.compile(
+    r"(do not|don'?t|does not|doesn'?t|never|must not|\bnot\b|preserve|retain|durable|intact)",
+    re.I,
+)
+# Durable-artifact references that must never be the target of an affirmative
+# delete. Disposables (signal, tmp/, state.json, replan-context.md) may be deleted.
+_DURABLE_ARTIFACTS = [
+    "deferred JSON",
+    "-deferred.json",
+    "prds/done",
+    "/reviews/",
+    "autopilot/reports",
+    "project-capsule.md",
+]
+
+
+def _retention_section() -> str:
+    """Return the body of the SKILL.md Retention section, or '' if absent."""
+    m = re.search(r"^#{2,3}\s+Retention\b", SKILL, re.M)
+    if not m:
+        return ""
+    rest = SKILL[m.end() :]
+    nxt = re.search(r"^#{1,3}\s", rest, re.M)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def test_skill_documents_a_retention_contract() -> None:
+    """SKILL.md must carry a Retention section naming every durable and every
+    disposable artifact, so cleanup never guesses what 'temp' means."""
+    section = _retention_section()
+    assert section, "SKILL.md must contain a Retention section"
+    durable = [
+        "prds/done",
+        "reviews/",
+        "autopilot/reports",
+        "autopilot/deferred",
+        "project-capsule.md",
+    ]
+    disposable = ["signal", "tmp/", "state.json", "replan-context.md"]
+    missing_d = [t for t in durable if t not in section]
+    missing_x = [t for t in disposable if t not in section]
+    assert not missing_d, f"Retention section must list durable artifacts; missing: {missing_d}"
+    assert not missing_x, (
+        f"Retention section must list disposable artifacts; missing: {missing_x}"
+    )
+
+
+def test_no_affirmative_delete_of_a_durable_artifact() -> None:
+    """No SKILL.md instruction may delete a durable artifact (reviews/, done/,
+    reports/, the deferred JSON, the capsule). This is the acceptance for the
+    Retention rewrite: enumerate disposables, never directory-level durable rm."""
+    offenders = []
+    for line in SKILL.splitlines():
+        if not _DEL_RE.search(line) or _NEG_RE.search(line):
+            continue  # not a delete, or a negation/contract statement
+        if any(tok in line for tok in _DURABLE_ARTIFACTS):
+            offenders.append(line.strip())
+    assert not offenders, f"SKILL.md affirmatively deletes durable artifacts: {offenders}"
