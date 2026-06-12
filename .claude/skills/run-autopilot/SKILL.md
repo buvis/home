@@ -40,6 +40,15 @@ Create `dev/local/autopilot/` and subdirectories if missing. Initialize state fi
 
 **Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. The five gates are `build` | `review` | `blind` | `doubt` | `done` (plus `paused`). `build` is ONE session: selection, catchup, planning, and work all run under `phase: "build"` with no mid-build handoff. The three review surfaces (`review`, `blind`, `doubt`) each run in their own fresh session. Per-task implementor tiering inside `/work` is unchanged. The authoritative resume signal is `phase` + `phases_completed`; build sub-step skipping is by ARTIFACT (capsule freshness, tasks-exist, all-done), not by `phases_completed` membership.
 
+### Retention
+
+Durable artifacts are the paper trail of a run; they outlive the batch and must survive every cleanup. Disposable artifacts are transient scaffolding. Cleanup — including the user CLAUDE.md "clean up temp files" mandate — defers to this contract: "temp" means the disposable list below and nothing else. Never delete a directory wholesale when it holds durable artifacts; delete disposables by name.
+
+- **Durable** (never delete): `dev/local/prds/done/` and its PRDs, `dev/local/reviews/` (per-cycle review files, blind/doubt reviews, and the `<prd-base>-audit.md` audit renders), `dev/local/autopilot/reports/` (batch reports), `dev/local/autopilot/deferred/` (the `{batch_id}-deferred.json` records), and `dev/local/project-capsule.md`.
+- **Disposable** (safe to delete by name): `dev/local/autopilot/signal`, `dev/local/tmp/`, `dev/local/autopilot/state.json` (at batch end only — see Phase 9), and `dev/local/autopilot/replan-context.md`.
+
+Batch end and any cleanup step enumerate the disposable list explicitly; they never `rm` a durable path or a directory that contains one. This is what keeps a completed PRD's review trail intact after the batch closes (the warden-00011 plugin repos lost `autopilot/` and `reviews/` to an over-broad cleanup).
+
 ### Resuming
 
 When `/run-autopilot` is invoked and `dev/local/autopilot/state.json` exists with `batch.completed_prds`, this is a continuation after a session restart. Preserve `batch.completed_prds` (including `batch.id`) and proceed to Phase 0 to pick the next PRD.
@@ -642,7 +651,7 @@ Summary:
 
      Wait for user decisions on each PRD chunk before showing the next. For "fix now" items, execute the fix before continuing. For "create issue", create a GitHub issue with the context shown.
 
-     After all PRD chunks are reviewed (or user says stop), delete the deferred JSON. Set `state.phase = "done"` and `state.next_phase = ""` (empty; nothing more to run), then STOP. The Stop hook reads `next_phase: ""` (with `phase` no longer `"paused"`), writes `done` to the signal file, deletes `state.json` so the next batch starts from a clean slate, and auto-exits; the shell loop sees `done` and stops. Outside the loop (`$_AUTOPILOT_LOOP` unset) the hook writes nothing — leave the session interactive.
+     After all PRD chunks are reviewed (or user says stop), **retain** the deferred JSON — `dev/local/autopilot/deferred/` is durable (the batch's deferred-items record per the Retention contract), so do NOT delete it. Set `state.phase = "done"` and `state.next_phase = ""` (empty; nothing more to run), then STOP. The Stop hook reads `next_phase: ""` (with `phase` no longer `"paused"`), writes `done` to the signal file, deletes `state.json` so the next batch starts from a clean slate, and auto-exits; the shell loop sees `done` and stops. Outside the loop (`$_AUTOPILOT_LOOP` unset) the hook writes nothing — leave the session interactive.
      If the deferred JSON doesn't exist or is empty, set `state.phase = "done"` and `state.next_phase = ""` and STOP immediately — the hook emits `done` and cleans up the same way.
 
 ## Session Loop
