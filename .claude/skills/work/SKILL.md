@@ -91,7 +91,7 @@ The **Subagent Dispatch Budget** (50K bytes, 100K subagent-internal cap) applies
 
 At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`.
 
-Each entry carries both the routing decision (`implementor`) and, for qwen-eligible attempts, the preflight outcome (`preflight_outcome`). Sourcing rules:
+Each entry carries the routing decision (`implementor`), the pipeline depth (`pipeline`), and, for qwen-eligible attempts, the preflight outcome (`preflight_outcome`). Sourcing rules:
 
 - **`implementor`** — `"claude"`, `"gemini"`, or `"qwen"`, reflecting what actually dispatched (NOT what the step-3 routing table initially picked):
   - Routing table picked Gemini → `"gemini"`.
@@ -101,6 +101,7 @@ Each entry carries both the routing decision (`implementor`) and, for qwen-eligi
 - **`preflight_outcome`** — sourced from the step-3 preflight probe. Always written explicitly — never omit the key. For non-qwen attempts write the literal JSON `null`; do not drop the field from the entry.
   - For attempts on qwen-eligible tasks (`task.metadata.qwen_eligible == true` at attempt start): one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`.
   - For attempts on non-qwen-eligible tasks (UI tasks, `opus`-tier tasks, backend tasks where `qwen_eligible` is `false` or absent): `null`.
+- **`pipeline`** — the pipeline depth this attempt ran (PRD 00044), keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy `metadata.model` is treated as `sonnet` → `"lean"`. Written at every task exit alongside `implementor`; a Phase-6 escalation to `opus` records `"full"`.
 
 See `references/attempt-logging.md` for the entry schema, field semantics, and the atomic write procedure.
 
@@ -496,7 +497,7 @@ Skip for documentation-only or configuration-only tasks.
 ### 6. Mark complete and sync
 
 1. Use `TaskUpdate` to set `status: completed`
-2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass.
+2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass.
 3. **Sync state file** (see Dashboard State Sync) — mandatory
 4. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
 
