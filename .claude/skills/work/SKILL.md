@@ -247,6 +247,17 @@ If any check fails, dispatch Tess again with specific feedback about what's weak
 
 ### 2.85. Adversarial validation (Devon - devil's advocate)
 
+**Tier gate (PRD 00044) — Devon is the opus-only dispatch.** Read `task.metadata.model` and apply this table exactly:
+
+| `task.metadata.model` | Devon (step 2.85) |
+|-----------------------|-------------------|
+| `opus` | dispatch Devon (below) |
+| `sonnet` | skip Devon |
+| `haiku` | skip Devon |
+| absent / legacy (treated as `sonnet`) | skip Devon |
+
+Only `opus`-tier tasks dispatch Devon; `haiku`, `sonnet`, and absent/legacy tiers skip it and proceed to step 2.9. The step-2.8 test quality gate (main session) is **unchanged** and runs for every tier — the cheap in-session check stays; only this step-2.85 Agent dispatch is conditional. When the Devon dispatch does run, it still obeys the **Per-task model dispatch** rule (the Agent call passes `model` from `task.metadata.model`, i.e. `opus`). Escalation interplay is automatic: when `/run-autopilot` Phase 6 escalates a review-flagged task to `opus`, the rework attempt regains Devon with no extra mechanism.
+
 Dispatch Devon to try to write a **wrong** implementation that passes all of Tess's tests. Devon's goal is to exploit weak tests.
 
 **Devon runs as:** Claude Code subagent (Agent tool). It needs file write access and the project's test runner to actually execute its wrong implementation against the tests.
