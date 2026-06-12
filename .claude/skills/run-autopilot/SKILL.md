@@ -77,6 +77,16 @@ Print a banner at each phase transition:
 
 ## Phase 0: PRD Selection
 
+### Ensure lifecycle directories exist
+
+Before anything else — before the abort handlers and before PRD selection — create every directory the run will move files into. Idempotent, so it is safe on every invocation (fresh repo, resume, or mid-batch). Run it as its own Bash call:
+
+```bash
+mkdir -p dev/local/prds/backlog dev/local/prds/wip dev/local/prds/done dev/local/prds/stalled dev/local/reviews dev/local/tmp dev/local/autopilot/reports dev/local/autopilot/deferred
+```
+
+This guarantees the very first `mv` (backlog -> wip below, and later wip -> done at Phase 9, wip -> stalled in recovery) always has a destination directory, so a move can never silently mis-place a PRD for want of a target folder. `mv` does not create destinations; without this step a move into a missing dir renames the PRD to a stray file and the run continues unaware (the warden-00011 failure mode).
+
 ### Handle Work-phase abort (from a prior session)
 
 Before anything else, read `dev/local/autopilot/state.json` and check `stall_reason`:
@@ -89,12 +99,12 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
 
 ### Normal PRD selection
 
-1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, `mv` to `wip/`.
+1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, `mv` to `wip/`; then **verify the move**: confirm the PRD file now exists in `dev/local/prds/wip/`. If it does not, the `mv` failed — PAUSE naming the source, the destination, and the `mv` error; do not continue.
 2. Otherwise, auto-select (never ask the user):
    a. Check `dev/local/prds/wip/`:
       - 1+ found → auto-pick lowest sequence number (by `00XXX-` prefix), announce
    b. If wip is empty, check `dev/local/prds/backlog/`:
-      - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`
+      - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`; then **verify the move**: confirm the PRD now exists in `dev/local/prds/wip/`, else PAUSE naming the source, the destination, and the `mv` error (do not continue)
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`
 4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
@@ -534,7 +544,7 @@ This phase runs once per PRD. It does not loop back to Phase 4.
 1. **Commit history is left as-is.** Autopilot does NOT rewrite the PRD's commit history. The former cherry-pick regroup engine never pushed — it only churned local history the user re-reviewed before pushing anyway — so it was pure risk (conflict aborts, backup branches) for no shipped benefit. The user squashes/groups commits manually before pushing.
 
 2. Update state: set `phase: "done"` and `next_phase: "done"`
-3. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix)
+3. Move PRD from `wip/` to `done/` (use `mv`, keep `00XXX-` prefix); then **verify the move**: confirm the PRD now exists in `dev/local/prds/done/`. If it does not, the `mv` failed — PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not append to `completed_prds` or advance to the next PRD with the PRD in the wrong folder)
 4. Append completed PRD to `batch.completed_prds` in state file
 5. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
 6. Append items to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (create if missing). Collect from the current state file:
