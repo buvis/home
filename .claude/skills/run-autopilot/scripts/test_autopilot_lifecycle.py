@@ -1,0 +1,196 @@
+"""Lifecycle guard tests for the autopilot PRD artifact lifecycle (PRD 00045).
+
+Two kinds of tests live here:
+
+1. Behavioral fixtures (stable green) — reproduce the warden-00011 failure mode:
+   a bare ``mv`` into a destination directory that does not exist silently
+   misplaces or loses the PRD. These encode *why* the Loud Moves guard is
+   needed and demonstrate the verified-move contract on real filesystem ops.
+
+2. Doc-contract tests (RED before this PRD's Phase 1 edits land, GREEN after) —
+   assert the SKILL.md / recovery.md prose actually encodes the guards: a
+   Phase 0 ``mkdir -p`` covering every lifecycle dir, and an existence-check +
+   loud PAUSE after each of the three lifecycle ``mv`` sites (backlog->wip,
+   wip->done, wip->stalled).
+
+The contract tests bind to intent (verify-destination-exists + PAUSE on
+failure), not to incidental wording, so they fail loud when a move site is left
+unguarded. Stdlib + pytest only.
+"""
+
+import re
+import shutil
+from pathlib import Path
+
+import pytest
+
+_ROOT = Path(__file__).resolve().parents[1]  # skills/run-autopilot/
+SKILL = (_ROOT / "SKILL.md").read_text()
+RECOVERY = (_ROOT / "references" / "recovery.md").read_text()
+
+# Every directory a run moves files into; Phase 0 must `mkdir -p` all of them.
+LIFECYCLE_DIRS = [
+    "prds/backlog",
+    "prds/wip",
+    "prds/done",
+    "prds/stalled",
+    "reviews",
+    "tmp",
+    "autopilot/reports",
+    "autopilot/deferred",
+]
+
+# A guarded move site verifies the destination exists and PAUSEs loudly when it
+# does not. "verify/confirm ... exist" within one clause expresses the check.
+_VERIFY_RE = re.compile(r"(verif|confirm)\w*[^.\n]{0,80}exist", re.I)
+
+
+def _phase_section(text: str, header_prefix: str) -> str:
+    """Return the lines from a ``## <header_prefix>...`` heading up to (but not
+    including) the next top-level ``## `` heading, or end of file."""
+    lines = text.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith(header_prefix)),
+        None,
+    )
+    if start is None:
+        return ""
+    end = next(
+        (j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def _guarded_windows(text: str, anchor: re.Pattern, window: int = 600) -> list[bool]:
+    """For each match of ``anchor``, report whether the following ``window``
+    characters contain both an existence-check and a loud PAUSE."""
+    return [
+        bool(_VERIFY_RE.search(region)) and "PAUSE" in region
+        for m in anchor.finditer(text)
+        for region in (text[m.start() : m.start() + window],)
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# Behavioral fixtures — the warden-00011 missing-dir failure, on real ops.
+# --------------------------------------------------------------------------- #
+
+
+def test_bare_move_into_missing_done_dir_misplaces_prd(tmp_path: Path) -> None:
+    """Unguarded `mv wip/x done` with `done/` absent renames the PRD to a stray
+    file `done` — it never lands in done/ and is gone from wip/ (warden 00011)."""
+    wip = tmp_path / "prds" / "wip"
+    wip.mkdir(parents=True)
+    prd = wip / "00011-harden.md"
+    prd.write_text("# PRD\n")
+    done = tmp_path / "prds" / "done"  # intentionally NOT created
+
+    shutil.move(str(prd), str(done))  # no mkdir, no verify — current behavior
+
+    assert not (done / "00011-harden.md").exists()  # never reached the folder
+    assert not prd.exists()  # silently gone from wip/
+    assert (tmp_path / "prds" / "done").is_file()  # became a stray file instead
+
+
+def test_move_with_trailing_target_into_missing_dir_errors(tmp_path: Path) -> None:
+    """Targeting a path inside a missing dir (shell `mv x done/`) raises rather
+    than silently losing the file — the other half of the missing-dir hazard."""
+    wip = tmp_path / "prds" / "wip"
+    wip.mkdir(parents=True)
+    prd = wip / "00011-harden.md"
+    prd.write_text("# PRD\n")
+    done = tmp_path / "prds" / "done"  # missing
+
+    with pytest.raises((FileNotFoundError, NotADirectoryError)):
+        shutil.move(str(prd), str(done / prd.name))
+
+    assert prd.exists()  # source untouched on the error path
+
+
+def test_verified_move_after_mkdir_lands_prd(tmp_path: Path) -> None:
+    """The fix contract: `mkdir -p` the destination, move, then the destination
+    file exists and the source is gone."""
+    wip = tmp_path / "prds" / "wip"
+    wip.mkdir(parents=True)
+    prd = wip / "00011-harden.md"
+    prd.write_text("# PRD\n")
+    done = tmp_path / "prds" / "done"
+    done.mkdir(parents=True, exist_ok=True)  # the Phase 0 mkdir -p guard
+    target = done / prd.name
+
+    shutil.move(str(prd), str(target))
+
+    assert target.exists()
+    assert not prd.exists()
+
+
+def test_verification_detects_failed_move(tmp_path: Path) -> None:
+    """The Loud Moves check: after a move, a missing destination file means the
+    move failed and the run must PAUSE — the guard catches the warden case."""
+    wip = tmp_path / "prds" / "wip"
+    wip.mkdir(parents=True)
+    prd = wip / "00011-harden.md"
+    prd.write_text("# PRD\n")
+    done = tmp_path / "prds" / "done"  # missing → move misplaces
+    target = done / prd.name
+
+    try:
+        shutil.move(str(prd), str(done))  # unguarded
+    except (FileNotFoundError, NotADirectoryError):
+        pass
+
+    move_succeeded = target.exists()
+    assert move_succeeded is False  # guard would PAUSE here, not continue
+
+
+# --------------------------------------------------------------------------- #
+# Doc-contract tests — RED until Phase 1 (task 3) adds the guards, then GREEN.
+# --------------------------------------------------------------------------- #
+
+
+def test_phase0_ensures_lifecycle_dirs_with_mkdir_p() -> None:
+    """Phase 0 must `mkdir -p` every lifecycle dir before any move runs."""
+    phase0 = _phase_section(SKILL, "## Phase 0")
+    assert phase0, "Phase 0 section not found in SKILL.md"
+    assert "mkdir -p" in phase0, (
+        "Phase 0 must create lifecycle dirs with `mkdir -p` before the first move"
+    )
+    missing = [d for d in LIFECYCLE_DIRS if d not in phase0]
+    assert not missing, f"Phase 0 mkdir must cover all lifecycle dirs; missing: {missing}"
+
+
+def test_backlog_to_wip_move_is_verified() -> None:
+    """The Phase 0 backlog->wip `mv` must be followed by a verify + PAUSE."""
+    phase0 = _phase_section(SKILL, "## Phase 0")
+    guards = _guarded_windows(phase0, re.compile(r"mv[^\n]*wip/"))
+    assert guards, "no backlog->wip `mv` instruction found in Phase 0"
+    assert any(guards), (
+        "the backlog->wip `mv` must be followed by an existence check and a "
+        "PAUSE on failure"
+    )
+
+
+def test_wip_to_done_move_is_verified() -> None:
+    """The Phase 9 wip->done `mv` must be followed by a verify + PAUSE."""
+    phase9 = _phase_section(SKILL, "## Phase 9")
+    # tolerate markdown backticks/spacing between the paths, e.g. `wip/` to `done/`
+    guards = _guarded_windows(phase9, re.compile(r"wip/[^\n]{0,10}done/"))
+    assert guards, "no wip->done `mv` instruction found in Phase 9"
+    assert all(guards), (
+        "the wip->done `mv` must be followed by an existence check and a PAUSE "
+        "on failure"
+    )
+
+
+def test_stalled_moves_are_verified() -> None:
+    """Every wip->stalled `mv` in recovery.md must verify + PAUSE on failure."""
+    anchor = re.compile(r"the PRD from[^\n]*wip/[^\n]*stalled/")
+    guards = _guarded_windows(RECOVERY, anchor)
+    assert len(guards) >= 2, (
+        f"expected >=2 wip->stalled move sites in recovery.md, found {len(guards)}"
+    )
+    assert all(guards), (
+        "every wip->stalled `mv` in recovery.md must be followed by an "
+        "existence check and a PAUSE on failure"
+    )
