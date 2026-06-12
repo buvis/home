@@ -2,9 +2,17 @@
 
 Rare-path handlers extracted from `SKILL.md` so the happy-path flow stays compact. Each section is reached via a one-line pointer at the originating phase. None of these run in normal operation.
 
+## Cap rotation
+
+Reached from **Phase 0** when `state.cap_rotations` gained an entry but no `stall_reason` is set. A Work turn during `build` exceeded the context cap; `autopilot_context_cap_hook.py` appended `{task_id, cycle}` to `state.cap_rotations`, reset the in-flight task's status to `pending`, and set `next_phase: "build"` — a ROTATION, not a replan. The hook records the rotation and instructs the model to write the `next` signal on STOP; the model writes it, not the hook. There is nothing to do here: the rotation is lossless and needs no handler.
+
+The fresh session resumes `build` by artifact: capsule fresh → skip catchup; `state.tasks` non-empty → skip planning; `/work` continues at the first non-completed task. Because the in-flight task was reset to `pending`, it is that first non-completed task: its uncommitted partial attempt is discarded and re-attempted. Only the in-flight task's status changes (`in_progress → pending`); other `state.tasks` and `phases_completed` are untouched; `replan_count` is unchanged; no `replan-context.md` is written.
+
+**Livelock guard (in the cap hook).** If the last `cap_rotations` entry already names the in-flight task, a second consecutive fire on the same task means the task is genuinely oversized. The hook does NOT append another rotation; instead it records `stall_reason.stalled == "oversized_task"` and instructs the oversized-task stall — handled by the "plan-tasks stall: oversized task" procedure below (move the PRD to `dev/local/prds/stalled/`, advance to the next PRD). One oversized task costs at most two rotations before a loud stall.
+
 ## Work-phase abort: replan procedure
 
-Reached from **Phase 0** when `state.stall_reason.stalled` is `"context_overrun"` (a Work turn exceeded the context cap — `autopilot_context_cap_hook.py` prepared the handoff) or `"subagent_prompt_overrun"` (`/work`'s Subagent Dispatch Budget aborted a task whose assembled prompt exceeded 50K after one trim pass). The previous session's Work phase aborted from a hook. **The PRD is not broken — one of its tasks was scoped too big for a single Work turn.** Instead of stalling the PRD, replan it with smaller tasks and resume.
+Reached from **Phase 0** when `state.stall_reason.stalled` is `"subagent_prompt_overrun"` (`/work`'s Subagent Dispatch Budget aborted a task whose assembled prompt exceeded 50K after one trim pass). This is the ONE surviving replan path — the context-cap response is rotation (see "Cap rotation" above), not replan. The previous session's work aborted from a hook. **The PRD is not broken — one of its tasks produced an oversized subagent prompt.** Instead of stalling the PRD, replan it with smaller tasks and resume.
 
 1. The aborted PRD filename is `state.prd`. Identify the aborted task from `state.task_aborts[-1]` (most recent abort): `task_id`, `cause`.
 2. Read `state.replan_count` (default 0 if absent). Increment in memory.
@@ -45,11 +53,11 @@ Reached from **Phase 0** when `state.stall_reason.stalled` is `"context_overrun"
       ```
    d. Update state:
       - Set `state.replan_count` to the incremented value.
-      - Remove `"planning"` and `"work"` from `phases_completed` (keep `"catchup"` — the capsule is still good for the same branch).
+      - Leave `phases_completed` as-is — build sub-steps are not tracked there (it should be empty during build); the capsule stays valid for the same branch.
       - `state.tasks: []`, `tasks_total: 0`, `tasks_completed: 0` (already cleared in step 4b).
       - Clear `stall_reason`.
       - `rework_task_ids: []` (defensive — a stale array would put the next Phase 3 incorrectly into rework mode against deleted task IDs).
-      - Set `phase: "planning"`, `next_phase: "planning"`.
+      - Set `phase: "build"`, `next_phase: "build"`.
 5. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── REPLAN #{replan_count} (≤{target_budget} tok/task) ──
@@ -57,13 +65,13 @@ Reached from **Phase 0** when `state.stall_reason.stalled` is `"context_overrun"
    ── cleared {n} tasks ({m} completed kept in replan-context.md) ─────
    ── handing off to fresh session for planning ───────────────────────
    ```
-6. Hand off: if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" under Loop Detection in `SKILL.md`) to write `next` to the signal file at the absolute path, then STOP. Otherwise STOP and wait for the user to re-invoke `/run-autopilot`. The next session lands at Phase 2 (planning is no longer in `phases_completed`); Phase 2 will detect `replan-context.md` and pass it to `/plan-tasks`.
+6. Hand off: if `$_AUTOPILOT_LOOP` is set, use the canonical walk-up signal-write procedure (see "Canonical signal-write procedure" under Loop Detection in `SKILL.md`) to write `next` to the signal file at the absolute path, then STOP. Otherwise STOP and wait for the user to re-invoke `/run-autopilot`. The next session re-enters `build`; with `state.tasks` cleared, Phase 2's tasks-exist skip does not fire, so it plans, detects `replan-context.md`, and passes it to `/plan-tasks`.
 
 If `stall_reason.stalled` is anything else (or absent), return to Phase 0's Normal PRD selection.
 
 ## Crash recovery: escalation_exhausted seen at Phase 0
 
-`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/stalled/` but state still points at it): log a warning, clear `stall_reason`, do NOT re-run the move (Phase 6 already moved the PRD), AND reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD — `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`rework_task_ids`/`work_start_sha`/`regroup_outcome`, preserve `batch`, set `next_phase: "catchup"` — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
+`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/stalled/` but state still points at it): log a warning, clear `stall_reason`, do NOT re-run the move (Phase 6 already moved the PRD), AND reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD — `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`, preserve `batch`, set `next_phase: "build"` — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
 
 ## plan-tasks stall: oversized task
 
@@ -72,8 +80,8 @@ Reached from **Phase 2** when `/plan-tasks` exits non-zero and writes `state.sta
 1. Read `dev/local/autopilot/state.json`. If `stall_reason.stalled == "oversized_task"`, do NOT proceed to Phase 3.
 2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 5 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
 3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
-4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
-5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`rework_task_ids`/`work_start_sha`/`regroup_outcome`. Preserve `batch`. Set `next_phase: "catchup"`. Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
+4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/stalled/`. If it does not, the move failed — PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
+5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`. Preserve `batch`. Set `next_phase: "build"`. Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
 6. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
@@ -96,8 +104,8 @@ Rewrite the attempt entry's `outcome` to `"rework_failed"`, then merge into stat
 Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3). This ordering matters because a crash between the two leaves the PRD in `stalled/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
 
 1. `mkdir -p dev/local/prds/stalled` if missing.
-2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix).
-3. Clear `stall_reason` from state. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`rework_task_ids`/`work_start_sha`/`regroup_outcome`. Preserve `batch`. Set `next_phase: "catchup"`. Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
+2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/stalled/`. If it does not, the move failed — PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
+3. Clear `stall_reason` from state. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`. Preserve `batch`. Set `next_phase: "build"`. Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
 4. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──
