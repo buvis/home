@@ -232,6 +232,14 @@ class BatchEndDoneTests(unittest.TestCase):
         pids = _run_hook(self.fx)
         self.assertGreater(len(pids), 0)
 
+    def test_done_deletes_state_for_clean_next_batch(self) -> None:
+        self.fx.write_state(phase="build", next_phase="")
+        _run_hook(self.fx)
+        self.assertFalse(
+            (self.fx.autopilot_dir / "state.json").exists(),
+            "state.json must be removed after 'done' so the next batch starts clean",
+        )
+
 
 class SubagentPromptOverrunTests(unittest.TestCase):
     """stall_reason.stalled == "subagent_prompt_overrun" -> "task_aborted"."""
