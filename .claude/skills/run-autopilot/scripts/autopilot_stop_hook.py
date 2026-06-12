@@ -136,6 +136,16 @@ def main() -> None:
     except OSError:
         signal_path.write_text(computed)
 
+    # Batch end: delete state.json after emitting "done" so the next batch
+    # starts from a clean slate (no stale phases_completed -> no skipped
+    # reviews). This is the durable-marker cleanup the model used to do by
+    # deleting state itself; the hook owns it now.
+    if computed == "done":
+        try:
+            state_path.unlink()
+        except OSError:
+            pass
+
     find_and_signal_claude(os.getppid())
 
 
