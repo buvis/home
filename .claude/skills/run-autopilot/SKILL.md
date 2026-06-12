@@ -48,11 +48,7 @@ Clean up stale signal file at start: locate the autopilot dir with the walk-up h
 
 ### Task Counts
 
-At every state update, query `TaskList` and write current counts to the state file:
-- `tasks_total` — number of tasks (pending + in_progress + completed)
-- `tasks_completed` — number of tasks with status completed
-
-This keeps the dashboard progress bar accurate.
+`tasks_total` and `tasks_completed` are maintained **solely** by the `update-pidash-tasks.py` PostToolUse sync hook (registered on `TaskUpdate` in `settings.json`), which recomputes both from the `state.tasks` snapshot on every `TaskUpdate` — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")`. The model does NOT query `TaskList` to mirror counts at each state update; that ceremony is gone. Keep `state.tasks` accurate at phase transitions (the snapshot the hook reads) and the counts follow automatically, keeping the dashboard progress bar live.
 
 ### Hydrate TaskList from state.tasks (shared sub-step)
 
@@ -174,7 +170,7 @@ Invoke `/plan-tasks` with the selected PRD.
 - **Exits zero**: no stall. Continue normally to the post-completion state update below.
 - **Exits non-zero without `stall_reason`** (or with a `stall_reason.stalled` value other than `"oversized_task"`): treat as a sub-skill failure. PAUSE and report the error per the "Sub-skill invocation fails" entry in the Error Handling table. Do NOT proceed to Phase 3 or move the PRD.
 
-After completion, query `TaskList` and update state: stay on `phase: "build"` and `next_phase: "build"`, write `tasks`/`tasks_total`/`tasks_completed` snapshot (see Phase 3 for format). Do NOT add anything to `phases_completed`. Flow continues DIRECTLY into Phase 3 (work) in this same session — there is no planning→work handoff.
+After completion, query `TaskList` and update state: stay on `phase: "build"` and `next_phase: "build"`, write the `tasks` snapshot (see Phase 3 for format; the sync hook maintains `tasks_total`/`tasks_completed`). Do NOT add anything to `phases_completed`. Flow continues DIRECTLY into Phase 3 (work) in this same session — there is no planning→work handoff.
 
 ## Phase 3: Work
 
@@ -182,12 +178,12 @@ After completion, query `TaskList` and update state: stay on `phase: "build"` an
 
 **First, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management above). This is the critical entry point for the post-context-cap-rotation session path.
 
-Before invoking `/work`, query `TaskList` and write the full task snapshot to `dev/local/autopilot/state.json`:
-- `tasks_total`: total count
-- `tasks_completed`: completed count
+Before invoking `/work`, query `TaskList` and write the full `tasks` snapshot to `dev/local/autopilot/state.json`:
 - `tasks`: array of `{"id": "<task-id>", "name": "<title>", "status": "pending|in_progress|completed", ...metadata}` for EVERY task. The snapshot **must preserve every field plan-tasks or Phase 6 may have written** — at minimum: `model` (when set by plan-tasks tier classifier or Phase 6 escalation), `attempts` (the per-attempt log; see "Attempt logging" in `/work`), `estimated_tokens` and `est_context_peak` (when plan-tasks recorded a budget estimate). Stripping these on snapshot would break the hydration round-trip (subsequent sessions read them back into TaskList metadata) and lose Phase 6's tier-escalation history across the handoff. Treat the snapshot as merge-preserving over `state.tasks[i]`, not a three-field replacement.
 
-**Include the task `id` field** — a PostToolUse hook on TaskUpdate uses it to automatically sync status changes to the dashboard. This is mandatory.
+`tasks_total`/`tasks_completed` are NOT written here — the `update-pidash-tasks.py` sync hook recomputes both from this `tasks` snapshot on every `TaskUpdate` (see "Task Counts" above).
+
+**Include the task `id` field** — the `update-pidash-tasks.py` PostToolUse hook on TaskUpdate matches on it (via `taskId`) to sync status changes and recompute counts. This is mandatory.
 
 **Capture `work_start_sha` before dispatching `/work`.** Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches produce — read by Phase 8 to scope the codex doubt review's diff (`<work_start_sha>..HEAD`). Capture happens **once per PRD, before `/work` runs**. In a multi-PRD batch each PRD overwrites the prior PRD's value at this step, so ranges never overlap.
 
@@ -195,7 +191,7 @@ Before invoking `/work`, query `TaskList` and write the full task snapshot to `d
 
 Invoke `/work` skill. It runs until all tasks complete.
 
-After completion, query `TaskList` again and update state: set `phase: "review"` and `next_phase: "review"`, write updated `tasks`/`tasks_total`/`tasks_completed`. Do NOT add anything to `phases_completed` here — the `build` gate leaves no membership marker; review/blind/doubt completion are the only `phases_completed` entries.
+After completion, query `TaskList` again and update state: set `phase: "review"` and `next_phase: "review"`, write the updated `tasks` snapshot (the sync hook maintains `tasks_total`/`tasks_completed`). Do NOT add anything to `phases_completed` here — the `build` gate leaves no membership marker; review/blind/doubt completion are the only `phases_completed` entries.
 
 ### Hand off to a fresh session for reviews
 
@@ -404,7 +400,7 @@ Build the rework batch from two sources:
 
 Hydration already ran at the top of Phase 6 (see "Hydrate before any TaskUpdate" above) — the rework session inherits a populated TaskList by this point, so the `TaskUpdate` and `TaskCreate` calls operate on real tasks.
 
-After both sources are merged into `rework_task_ids`, update state with current task counts. Invoke `/work` — it reads `state.rework_task_ids` and enters **rework mode** (see `work/SKILL.md` "Rework-mode task filter"), processing only the listed IDs at the tier each task carries in `metadata.model`; non-listed completed tasks are skipped.
+After both sources are merged into `rework_task_ids`, update state (the sync hook maintains the task counts). Invoke `/work` — it reads `state.rework_task_ids` and enters **rework mode** (see `work/SKILL.md` "Rework-mode task filter"), processing only the listed IDs at the tier each task carries in `metadata.model`; non-listed completed tasks are skipped.
 
 The work skill may parallelize independent rework tasks when `superpowers:dispatching-parallel-agents` is available (see work skill's "Parallel dispatch for independent rework fixes").
 
@@ -412,7 +408,7 @@ The work skill may parallelize independent rework tasks when `superpowers:dispat
 
 1. Clear `state.rework_task_ids` (set to `[]`).
 2. Increment cycle counter.
-3. Update state: set `phase: "review"` and `next_phase: "review"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them).
+3. Update state: set `phase: "review"` and `next_phase: "review"`. Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current.
 4. Loop back to Phase 4.
 
 Cross-references: `references/state-schema.md` (`rework_task_ids`, `tasks[].model`, `tasks[].attempts`, `stall_reason` shapes); `work/SKILL.md` Per-task model dispatch, Attempt logging, Rework-mode task filter.
@@ -426,7 +422,7 @@ Spec-only verification by a reviewer with no implementation context. Invoke `/re
 After the review:
 
 1. **No Critical/Important findings** → update state: add `"blind"` to `phases_completed`, set `phase: "doubt"` and `next_phase: "doubt"`. Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below).
-2. **Critical or Important findings** → **first run the "Hydrate TaskList from state.tasks" sub-step** (the blind review session is fresh; TaskList is empty). Then create tasks tagged `[BLIND]` (each `TaskCreate` gets a new id appended to the hydrated list) and insert a merge-preserving snapshot for each new `[BLIND]` task into `state.tasks` (carrying `{id, name, status}`; the tier classifier does not run on [BLIND] tasks — they default to the running session's model unless you opt to set `metadata.model` explicitly). Invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind"` to `phases_completed`, set `phase: "doubt"` and `next_phase: "doubt"`. **Also update task counts (`tasks_total`/`tasks_completed`) only — do NOT rewrite `state.tasks` here; `/work` already wrote `attempts[]` entries directly to `state.tasks` for the `[BLIND]` tasks, and a bare TaskList snapshot would strip them** (same rationale as Phase 6 step 3 and Phase 8 step 5). Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below). Do not loop back to Phase 4.
+2. **Critical or Important findings** → **first run the "Hydrate TaskList from state.tasks" sub-step** (the blind review session is fresh; TaskList is empty). Then create tasks tagged `[BLIND]` (each `TaskCreate` gets a new id appended to the hydrated list) and insert a merge-preserving snapshot for each new `[BLIND]` task into `state.tasks` (carrying `{id, name, status}`; the tier classifier does not run on [BLIND] tasks — they default to the running session's model unless you opt to set `metadata.model` explicitly). Invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind"` to `phases_completed`, set `phase: "doubt"` and `next_phase: "doubt"`. **Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` for the `[BLIND]` tasks, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current** (same rationale as Phase 6 step 3 and Phase 8 step 5). Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below). Do not loop back to Phase 4.
 3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning, then update state the same way as outcome 1 (add `"blind"` to `phases_completed`, set `phase` and `next_phase` to `"doubt"`) and hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below).
 
 Minor findings: defer to batch end (append to `deferred_decisions` in state).
@@ -527,7 +523,7 @@ After classifying all items:
 3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
 4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
 5. Record per-rule verdicts. Read the `R{n}: pass|fail` block from the doubt review output and append it to `state.doubts_rubric_verdicts` as an array of `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` objects. Every rubric rule must have an entry. The downstream coverage parser (PRD 00038's `review_coverage.py`) reads these verdicts from the raw doubt review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
-6. Update state: add `"doubt"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`, update task counts (`tasks_total`/`tasks_completed` only — do NOT rewrite `state.tasks` here; same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks).
+6. Update state: add `"doubt"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`. Do NOT rewrite `state.tasks` here (same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks); the sync hook keeps `tasks_total`/`tasks_completed` current.
 
 KNOWN items keep `"status": "pending"` — Phase 9 step 6 collects these into the batch deferred log for batch-end review.
 

@@ -72,7 +72,8 @@ def main() -> None:
         return
 
     tool_input = hook_input.get("tool_input", {})
-    task_id = tool_input.get("id", "")
+    # TaskUpdate sends `taskId`; accept the legacy `id` field too.
+    task_id = tool_input.get("taskId") or tool_input.get("id", "")
     new_status = tool_input.get("status", "")
     if not task_id or not new_status:
         return
