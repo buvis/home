@@ -448,6 +448,17 @@ In every non-committed outcome, the implementor's original commit stands and ste
 
 ### 5.7. Per-task code review (if superpowers available)
 
+**Tier gate (PRD 00044) — per-task review runs for sonnet and opus only.** Read `task.metadata.model` and apply this table exactly:
+
+| `task.metadata.model` | Per-task review (step 5.7) |
+|-----------------------|----------------------------|
+| `opus` | review (below) |
+| `sonnet` | review (below) |
+| absent / legacy (treated as `sonnet`) | review (below) |
+| `haiku` | skip per-task review |
+
+A `haiku`-tier task commits after per-task test verification (step 5.5) with **no** review dispatch and proceeds straight to step 6 — it relies on per-task test verification plus the three mandated PRD-level review surfaces (Phase 4 multi-model consensus, Phase 7 blind, Phase 8 doubt). For `sonnet`, `opus`, and absent/legacy tiers, run the review below as today. When the review dispatch runs, it still obeys the **Per-task model dispatch** rule (the Agent call passes `model` from `task.metadata.model`).
+
 If `superpowers:requesting-code-review` is in the available skills list, dispatch a code review after commit and verification:
 
 1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
