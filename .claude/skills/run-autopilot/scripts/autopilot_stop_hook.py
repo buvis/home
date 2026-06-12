@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 """Stop hook for autopilot session loop.
 
-When dev/local/autopilot/signal exists in any ancestor of cwd, autopilot is
-done with the current PRD. Walks up the process tree to find the claude
-process and SIGINTs it so the shell wrapper loop can restart with a fresh
-session.
+Reads state.json and $_AUTOPILOT_LOOP, then COMPUTES and WRITES the loop
+signal. Auto-exits by SIGINTing the claude parent process so the shell wrapper
+loop can restart with a fresh session.
 
-Walking up from cwd is mandatory: the agent may `cd` into a subdirectory
-during the session, so a hard-coded relative `dev/local/autopilot/signal`
-silently misses the signal. (Observed 2026-05-11.) The walk-up itself lives
-in the shared `_walk_up.find_autopilot_dir` helper; this hook only appends
-`signal` to the discovered dir.
+Decision table (first match wins):
+1. $_AUTOPILOT_LOOP unset/empty -> no signal, no auto-exit.
+2. dev/local/autopilot dir not found -> no signal, no auto-exit.
+3. state.json absent or corrupt -> no signal, no auto-exit (fail open).
+4. state["phase"] == "paused" -> no signal, no auto-exit.
+5. stall_reason.stalled == "subagent_prompt_overrun" -> signal = "task_aborted".
+6. next_phase == "" (empty string) -> signal = "done".
+7. next_phase is a non-empty string -> signal = "next".
+8. Otherwise -> no signal, no auto-exit (fail open).
+
+After computing a signal (cases 5-7):
+- Write to <autopilot_dir>/signal, UNLESS already present with the same value.
+- Call find_and_signal_claude(os.getppid()) to auto-exit.
 
 Stdlib only. Self-contained — no _common import (this script lives outside
 ~/.claude/hooks/).
 """
 
+import json
 import os
 import signal
 import subprocess
@@ -25,23 +33,6 @@ from pathlib import Path
 from _walk_up import find_autopilot_dir
 
 PS_TIMEOUT_SEC = 2
-
-
-def find_signal_file(start: Path) -> Path | None:
-    """Walk up from `start` looking for dev/local/autopilot/signal.
-
-    Delegates the walk-up to the shared `_walk_up.find_autopilot_dir` helper,
-    then checks for the `signal` file in the discovered autopilot dir.
-    Returns the path if found, None otherwise.
-    """
-    autopilot_dir = find_autopilot_dir(start)
-    if autopilot_dir is None:
-        return None
-    candidate = autopilot_dir / "signal"
-    try:
-        return candidate if candidate.is_file() else None
-    except OSError:
-        return None
 
 
 def _drain_stdin() -> None:
@@ -95,10 +86,56 @@ def find_and_signal_claude(start_pid: int) -> bool:
     return False
 
 
+def _compute_signal(state: dict) -> str | None:
+    """Return the signal string, or None if no signal should be written."""
+    if state.get("phase") == "paused":
+        return None
+    stall = state.get("stall_reason")
+    if isinstance(stall, dict) and stall.get("stalled") == "subagent_prompt_overrun":
+        return "task_aborted"
+    next_phase = state.get("next_phase")
+    if next_phase == "":
+        return "done"
+    if next_phase:
+        return "next"
+    return None
+
+
 def main() -> None:
     _drain_stdin()
-    if find_signal_file(Path.cwd()) is None:
+
+    # Step 1: check _AUTOPILOT_LOOP.
+    loop_val = os.environ.get("_AUTOPILOT_LOOP", "")
+    if not loop_val:
         return
+
+    # Step 2: locate autopilot dir.
+    autopilot_dir = find_autopilot_dir(Path.cwd())
+    if autopilot_dir is None:
+        return
+
+    # Step 3: read and parse state.json (fail open on missing/corrupt).
+    state_path = autopilot_dir / "state.json"
+    try:
+        state: dict = json.loads(state_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+
+    # Steps 4-8: compute signal.
+    computed = _compute_signal(state)
+    if computed is None:
+        return
+
+    # Write signal (idempotent: skip rewrite if value matches).
+    signal_path = autopilot_dir / "signal"
+    try:
+        if signal_path.exists() and signal_path.read_text().strip() == computed:
+            pass  # already correct; leave file untouched
+        else:
+            signal_path.write_text(computed)
+    except OSError:
+        signal_path.write_text(computed)
+
     find_and_signal_claude(os.getppid())
 
 
