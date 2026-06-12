@@ -261,3 +261,66 @@ def test_no_affirmative_delete_of_a_durable_artifact() -> None:
         if any(tok in line for tok in _DURABLE_ARTIFACTS):
             offenders.append(line.strip())
     assert not offenders, f"SKILL.md affirmatively deletes durable artifacts: {offenders}"
+
+
+# --------------------------------------------------------------------------- #
+# Batch identity rollover — one report file per batch; fresh id per batch.
+# --------------------------------------------------------------------------- #
+
+_REPORT_SUFFIX = "-report.md"
+
+
+def _report_filename(batch_id: str) -> str:
+    """The report file is keyed by batch id — the checkable invariant."""
+    return f"{batch_id}{_REPORT_SUFFIX}"
+
+
+def _id_from_report_filename(name: str) -> str:
+    assert name.endswith(_REPORT_SUFFIX), f"not a report filename: {name}"
+    return name[: -len(_REPORT_SUFFIX)]
+
+
+def test_report_filename_id_equals_batch_id_invariant() -> None:
+    """The report filename's embedded id must round-trip to the batch id — the
+    invariant Phase 9 verifies at append time."""
+    for bid in ("202606092228", "202605181149"):
+        assert _id_from_report_filename(_report_filename(bid)) == bid
+
+
+def test_two_consecutive_batches_get_distinct_report_files(tmp_path: Path) -> None:
+    """A fresh batch id (minted after batch end deletes state) keys a distinct
+    report file — reports never append across batches."""
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    b1 = "202606120001"
+    b2 = "202606130002"  # next batch mints a fresh id
+    assert b1 != b2
+    (reports / _report_filename(b1)).write_text(f"# Autopilot Batch Report {b1}\n")
+    (reports / _report_filename(b2)).write_text(f"# Autopilot Batch Report {b2}\n")
+    files = sorted(p.name for p in reports.glob(f"*{_REPORT_SUFFIX}"))
+    assert files == [_report_filename(b1), _report_filename(b2)]
+    assert len({_id_from_report_filename(f) for f in files}) == 2
+
+
+def test_phase0_mints_fresh_id_for_a_closed_surviving_batch() -> None:
+    """Phase 0 must mint a fresh batch.id when a closed batch's state.json
+    survives (phase == done) — the stale-id reuse the forensics found."""
+    phase0 = _phase_section(SKILL, "## Phase 0")
+    assert re.search(r"fresh\s+`?batch\.id`?", phase0, re.I), (
+        "Phase 0 must mint a fresh batch.id for a surviving closed batch"
+    )
+    assert re.search(r'phase[^\n]{0,40}"done"', phase0), (
+        "Phase 0 fresh-id guard must key on a closed (phase == done) surviving batch"
+    )
+
+
+def test_report_append_pins_filename_to_batch_id() -> None:
+    """Phase 9 report append must build the filename from the current
+    state.batch.id and verify the match — never glob an old report file."""
+    phase9 = _phase_section(SKILL, "## Phase 9")
+    assert "state.batch.id" in phase9, (
+        "Phase 9 report append must reference state.batch.id explicitly"
+    )
+    assert re.search(r"(verif|confirm|match|equal)[^.\n]{0,70}batch\.id", phase9, re.I) or (
+        re.search(r"batch\.id[^.\n]{0,70}(verif|confirm|match|equal)", phase9, re.I)
+    ), "Phase 9 must verify the report filename's id equals state.batch.id"
