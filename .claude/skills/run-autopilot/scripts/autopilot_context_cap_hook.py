@@ -79,48 +79,32 @@ SOFT_CAP = 320_000
 TAIL_CHUNK_BYTES = 64 * 1024
 MAX_TAIL_BYTES = 4 * 1024 * 1024
 
-def _rotation_instructions(signal_path: Path, limit: int) -> str:
-    """Build the rotation handoff instructions with the absolute signal path.
+def _rotation_instructions(limit: int) -> str:
+    """Build the rotation handoff instructions.
 
-    Two robustness rules:
-
-    1. **Absolute path.** The agent may have cd'd into a subdirectory by
-       handoff time; a relative `dev/local/autopilot/signal` write would
-       land in the wrong place and the stop hook walk-up would miss it.
-       The hook has already resolved the autopilot dir via walk-up, so
-       we pass that resolved path through.
-    2. **`$_AUTOPILOT_LOOP` gate.** Per SKILL.md "Loop Detection", the
-       signal file must only be written when the shell loop wrapper is
-       active. Writing it from a manual `/run-autopilot` session SIGINTs
-       the user with no restart wrapper. The model checks the env var
-       before writing.
+    The Stop hook owns the loop handoff from next_phase; no directive
+    for that belongs here.
     """
     return (
         f"Context cap reached (~{limit // 1000}K tokens). This is a ROTATION: "
         "the rotation entry is already recorded in state.cap_rotations, the "
         "in-flight task was reset to pending so /work re-attempts it as the "
         "first pending task, and next_phase is set to build. Commit any safe "
-        "partial work, then — "
-        "only if $_AUTOPILOT_LOOP is set (autopilot shell loop wrapper) — "
-        f"write 'next' to {signal_path} (canonical walk-up signal-write "
-        "procedure) and STOP. If $_AUTOPILOT_LOOP is unset, skip the signal "
-        "write (the session is manual; the next /run-autopilot invocation "
-        "resumes via state.json). The fresh session re-hydrates the TaskList "
+        "partial work, then STOP. The autopilot Stop hook performs the loop "
+        "handoff from next_phase. The fresh session re-hydrates the TaskList "
         "from state.tasks, skips finished build sub-steps by artifact, and "
         "/work continues at the first non-completed task. Do NOT set "
         "stall_reason; the PRD is not being re-planned."
     )
 
 
-def _oversized_stall_instructions(signal_path: Path, task_id: str) -> str:
+def _oversized_stall_instructions(task_id: str) -> str:
     """Build the oversized-task stall instructions for the livelock path.
 
     Reached when a task rotated twice in a row without finishing — it is
     genuinely too big for a single build session. The hook has already set
-    state.stall_reason; the model performs the oversized-task stall recovery
-    (references/recovery.md "plan-tasks stall / oversized task"): move the PRD
-    to dev/local/prds/stalled/ and advance to the next PRD. The same
-    absolute-path and `$_AUTOPILOT_LOOP` rules as the rotation message apply.
+    state.stall_reason; the model performs the oversized-task stall recovery.
+    The Stop hook owns the loop handoff from next_phase.
     """
     return (
         f"Context cap reached again on the same task ({task_id}) after a prior "
@@ -128,12 +112,8 @@ def _oversized_stall_instructions(signal_path: Path, task_id: str) -> str:
         "has set state.stall_reason to {\"stalled\": \"oversized_task\"}. "
         "Perform the oversized-task stall recovery (references/recovery.md): "
         "move the PRD from dev/local/prds/wip/ to dev/local/prds/stalled/, "
-        "reset PRD-specific state fields, and advance to the next PRD. Then — "
-        "only if $_AUTOPILOT_LOOP is set (autopilot shell loop wrapper) — "
-        f"write 'next' to {signal_path} (canonical walk-up signal-write "
-        "procedure) and STOP. If $_AUTOPILOT_LOOP is unset, skip the signal "
-        "write (the session is manual; the next /run-autopilot invocation "
-        "resumes via state.json)."
+        "reset PRD-specific state fields, and advance to the next PRD. Then STOP. "
+        "The autopilot Stop hook performs the loop handoff from next_phase."
     )
 
 
@@ -438,7 +418,7 @@ def _handle_below_cap(autopilot_dir: Path, task_id: str, total: int) -> None:
 
 
 def _handle_livelock(
-    autopilot_dir: Path, marker_file: Path, signal_path: Path,
+    autopilot_dir: Path, marker_file: Path,
     task_id: str, total: int,
 ) -> None:
     # State write is the failure-critical step. If it fails, do NOT touch
@@ -452,12 +432,11 @@ def _handle_livelock(
         # State landed on disk but marker didn't; the hook may double-fire
         # this task. Better than the alternative (marker without state).
         pass
-    _emit_envelope(_oversized_stall_instructions(signal_path, task_id))
+    _emit_envelope(_oversized_stall_instructions(task_id))
 
 
 def _handle_rotation(
-    autopilot_dir: Path, marker_file: Path, signal_path: Path,
-    task_id: str, limit: int,
+    autopilot_dir: Path, marker_file: Path, task_id: str, limit: int,
 ) -> None:
     # Normal rotation. State write is the failure-critical step: if it fails,
     # do NOT touch the marker and do NOT emit the envelope — the model would
@@ -478,7 +457,7 @@ def _handle_rotation(
         # this task. Better than the alternative (marker without state).
         pass
 
-    _emit_envelope(_rotation_instructions(signal_path, limit))
+    _emit_envelope(_rotation_instructions(limit))
 
 
 def main() -> None:
@@ -510,19 +489,17 @@ def main() -> None:
         _handle_below_cap(autopilot_dir, task_id, total)
         return
 
-    signal_path = autopilot_dir / "signal"
-
     # Livelock guard FIRST: if the last cap_rotations entry already names the
     # in-flight task, this is the second consecutive rotation for the same
     # task — it is genuinely oversized. Record the oversized-task stall
     # instead of appending another rotation.
     if last_rotation_task == task_id:
         _handle_livelock(
-            autopilot_dir, marker_file, signal_path, task_id, total
+            autopilot_dir, marker_file, task_id, total
         )
         return
 
-    _handle_rotation(autopilot_dir, marker_file, signal_path, task_id, limit)
+    _handle_rotation(autopilot_dir, marker_file, task_id, limit)
 
 
 if __name__ == "__main__":
