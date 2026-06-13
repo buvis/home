@@ -299,6 +299,17 @@ def test_unrelated_negation_does_not_excuse_a_durable_delete() -> None:
         assert not _durable_delete_offenders(line), f"genuine non-offender wrongly flagged: {line!r}"
 
 
+def test_wholesale_reviews_delete_without_trailing_slash_is_flagged() -> None:
+    """The guard must catch the literal warden-00011 wholesale form
+    `rm -rf dev/local/reviews` (no trailing slash). The durable token must be
+    `/reviews`, not `/reviews/`, or the exact incident line slips through. Safe
+    because nothing under reviews/ is disposable, so there is no false positive."""
+    assert _durable_delete_offenders("At batch end, rm -rf dev/local/reviews."), (
+        "a wholesale `rm -rf dev/local/reviews` (no trailing slash) must be "
+        "flagged as deleting a durable artifact"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Batch identity rollover — one report file per batch; fresh id per batch.
 # --------------------------------------------------------------------------- #
