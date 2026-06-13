@@ -73,6 +73,8 @@ Build markdown of completed tasks with descriptions. **One row per task — neve
 
 Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to `dev/local/tmp/review-prd-{id}.md` using the **Write tool** (not bash).
 
+**Design doc context (when present).** Check `state.design_doc` in `dev/local/autopilot/state.json`; if it is unset, fall back to the glob `dev/local/designs/<prd-stem>-design.md` (`<prd-stem>` = the wip PRD filename minus `.md`). When a design doc exists, append its full content to the PRD summary file (`dev/local/tmp/review-prd-{id}.md`) under a `## Design Doc` heading. This lets reviewers distinguish "implemented as designed" from drift. The PRD remains the requirements authority — the design doc is the implementation design (the HOW), not the spec. Blind review and doubt review stay PRD-only by design (a blind reviewer must test requirements without design bias) — do **not** add the design doc to those surfaces.
+
 **Determine review scope (full vs incremental).** With `Glob`, list existing review files for this PRD: `dev/local/reviews/<prd-name>-review-*.md` (PRD filename without the `.md` extension).
 
 - **No prior review file** → cycle 1, a **full review**. Run `gather-context.sh` without `--since`.
