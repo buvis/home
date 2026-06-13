@@ -203,8 +203,16 @@ def test_stalled_moves_are_verified() -> None:
 # Affirmative deletion verbs vs. negations/contract language that must NOT count
 # as "an instruction to delete" (the Retention prose names durables to retain).
 _DEL_RE = re.compile(r"\b(delete|deletes|rm)\b", re.I)
+# A line is a negation/contract statement (NOT an instruction to delete) when it
+# uses a negated auxiliary, an adverb that actually governs a delete verb, or
+# retain/preserve language. The negation adverbs `not`/`never` must bind to a
+# delete verb within the same clause — a bare, unrelated "not"/"never" elsewhere
+# on the line does NOT excuse an affirmative durable-delete (else
+# "delete reports/ but not the signal" would slip through).
 _NEG_RE = re.compile(
-    r"(do not|don'?t|does not|doesn'?t|never|must not|\bnot\b|preserve|retain|durable|intact)",
+    r"(do not|don'?t|does not|doesn'?t|must not"
+    r"|\b(?:never|not)\b[^.\n]{0,40}?\b(?:delete|deletes|rm|remove)\b"
+    r"|preserve|retain|durable|intact)",
     re.I,
 )
 # Durable-artifact references that must never be the target of an affirmative
@@ -250,17 +258,45 @@ def test_skill_documents_a_retention_contract() -> None:
     )
 
 
-def test_no_affirmative_delete_of_a_durable_artifact() -> None:
-    """No SKILL.md instruction may delete a durable artifact (reviews/, done/,
-    reports/, the deferred JSON, the capsule). This is the acceptance for the
-    Retention rewrite: enumerate disposables, never directory-level durable rm."""
+def _durable_delete_offenders(text: str) -> list[str]:
+    """Lines that affirmatively delete a durable artifact — i.e. a delete verb
+    plus a durable token, NOT excused by a negation/contract statement."""
     offenders = []
-    for line in SKILL.splitlines():
+    for line in text.splitlines():
         if not _DEL_RE.search(line) or _NEG_RE.search(line):
             continue  # not a delete, or a negation/contract statement
         if any(tok in line for tok in _DURABLE_ARTIFACTS):
             offenders.append(line.strip())
+    return offenders
+
+
+def test_no_affirmative_delete_of_a_durable_artifact() -> None:
+    """No SKILL.md instruction may delete a durable artifact (reviews/, done/,
+    reports/, the deferred JSON, the capsule). This is the acceptance for the
+    Retention rewrite: enumerate disposables, never directory-level durable rm."""
+    offenders = _durable_delete_offenders(SKILL)
     assert not offenders, f"SKILL.md affirmatively deletes durable artifacts: {offenders}"
+
+
+def test_unrelated_negation_does_not_excuse_a_durable_delete() -> None:
+    """The guard must bind the negation to the delete verb: an affirmative
+    durable-delete line is flagged even when it carries an unrelated 'not'/'never'
+    elsewhere — otherwise a future "delete reports/ but not the signal" slips through.
+    Genuine negated-delete phrasings stay excused (no false positives)."""
+    flagged = [
+        "At batch end, delete the autopilot/reports dir but not the signal file.",
+        "Cleanup will rm /reviews/ — never the tmp scratch.",
+    ]
+    for line in flagged:
+        assert _durable_delete_offenders(line), f"unrelated-negation delete not flagged: {line!r}"
+
+    excused = [
+        "Batch end must never delete autopilot/reports — it is durable.",
+        "Do not delete the deferred JSON; retain it as a durable record.",
+        "Cleanup may delete state.json and the signal file at batch end.",  # disposable, no durable token
+    ]
+    for line in excused:
+        assert not _durable_delete_offenders(line), f"genuine non-offender wrongly flagged: {line!r}"
 
 
 # --------------------------------------------------------------------------- #
