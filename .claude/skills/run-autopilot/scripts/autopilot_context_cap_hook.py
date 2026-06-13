@@ -421,41 +421,48 @@ def _handle_livelock(
     autopilot_dir: Path, marker_file: Path,
     task_id: str, total: int,
 ) -> None:
-    # State write is the failure-critical step. If it fails, do NOT touch
-    # the marker and do NOT emit the envelope; let the hook fire again on
-    # the next PostToolUse and retry the write.
-    if not _set_oversized_stall(autopilot_dir, task_id, total):
-        return
+    # Marker first, gated (same invariant as _handle_rotation): the marker is
+    # present iff the stall is recorded, so a marker-write failure cannot leave
+    # an oversized-task stall the next fire would act on spuriously.
     try:
         marker_file.write_text(task_id)
     except OSError:
-        # State landed on disk but marker didn't; the hook may double-fire
-        # this task. Better than the alternative (marker without state).
-        pass
+        return
+    # State write is failure-critical. On failure, roll back the marker so the
+    # next fire is a clean retry.
+    if not _set_oversized_stall(autopilot_dir, task_id, total):
+        try:
+            marker_file.unlink()
+        except OSError:
+            pass
+        return
     _emit_envelope(_oversized_stall_instructions(task_id))
 
 
 def _handle_rotation(
     autopilot_dir: Path, marker_file: Path, task_id: str, limit: int,
 ) -> None:
-    # Normal rotation. State write is the failure-critical step: if it fails,
-    # do NOT touch the marker and do NOT emit the envelope — the model would
-    # hand off (writing the loop signal) while cap_rotations never landed, so
-    # the livelock guard would lose the rotation record. Better to fire again
-    # on the next PostToolUse and retry the write.
-    #
-    # _append_rotation_to_state re-reads state.json fresh before writing so
-    # concurrent model edits (tasks[].status, tasks_completed) are not
-    # silently overwritten by this hook's stale initial read.
-    if not _append_rotation_to_state(autopilot_dir, task_id):
-        return
-
+    # Marker first, gated: if it can't be written, return and retry on the next
+    # PostToolUse. The marker is present iff the rotation is recorded, so a
+    # marker-write failure leaves cap_rotations untouched and the next fire is a
+    # clean rotation, never a false livelock.
     try:
         marker_file.write_text(task_id)
     except OSError:
-        # State landed on disk but marker didn't; the hook may double-fire
-        # this task. Better than the alternative (marker without state).
-        pass
+        return
+
+    # State append is failure-critical. On failure, roll back the marker so the
+    # next fire is a clean retry — never a marker-without-rotation (blocks
+    # forever) nor a rotation-without-marker (re-fires as a false livelock).
+    # _append_rotation_to_state re-reads state.json fresh before writing so
+    # concurrent model edits (tasks[].status, tasks_completed) are not silently
+    # overwritten by this hook's stale initial read.
+    if not _append_rotation_to_state(autopilot_dir, task_id):
+        try:
+            marker_file.unlink()
+        except OSError:
+            pass
+        return
 
     _emit_envelope(_rotation_instructions(limit))
 
