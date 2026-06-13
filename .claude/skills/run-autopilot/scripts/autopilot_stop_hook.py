@@ -16,11 +16,19 @@ Decision table (first match wins):
 8. Otherwise -> no signal, no auto-exit (fail open).
 
 After computing a signal (cases 5-7):
-- Write to <autopilot_dir>/signal, UNLESS already present with the same value.
-- Call find_and_signal_claude(os.getppid()) to auto-exit.
+- Consult the review-coverage gate. If a review surface just completed but its
+  coverage is incomplete, the gate blocks: write NO signal and do NOT auto-exit,
+  so the session stays alive for review_coverage_hook.py (same Stop event) to
+  inject its blocking feedback and let the model finish the review. Without this
+  the SIGINT below killed the session before it could act on that feedback, the
+  coverage hook deleted the signal, and the loop reported "ended without a
+  signal" (observed 2026-06-11 and 2026-06-12).
+- Otherwise write to <autopilot_dir>/signal, UNLESS already present with the
+  same value, then call find_and_signal_claude(os.getppid()) to auto-exit.
 
-Stdlib only. Self-contained — no _common import (this script lives outside
-~/.claude/hooks/).
+Stdlib only, plus the sibling review_coverage_hook module for the shared gate
+decision (both live in this scripts/ dir). No _common import (this script
+lives outside ~/.claude/hooks/).
 """
 
 import json
@@ -31,6 +39,14 @@ import sys
 from pathlib import Path
 
 from _walk_up import find_autopilot_dir
+
+try:
+    # Sibling module in this scripts/ dir. Shared so the signal hook and the
+    # coverage hook never disagree about a review handoff. If it cannot be
+    # imported, fall open (gate_blocks=None -> hand-off proceeds as before).
+    from review_coverage_hook import gate_blocks
+except ImportError:
+    gate_blocks = None
 
 PS_TIMEOUT_SEC = 2
 
@@ -125,6 +141,29 @@ def main() -> None:
     computed = _compute_signal(state)
     if computed is None:
         return
+
+    # Defer to the review-coverage gate before signaling. When a review
+    # surface just completed but its coverage is incomplete, the session must
+    # stay alive so the model can finish the review — review_coverage_hook.py
+    # (same Stop event) emits the block + feedback. Writing the signal and
+    # SIGINTing here would kill the session before it could act on that
+    # feedback, and the coverage hook's signal deletion would leave the loop
+    # reporting "ended without a signal" (observed 2026-06-11 and 2026-06-12).
+    # gate_blocks is phase-aware: it returns (False, ...) for non-review phases,
+    # so build/PRD-to-PRD/task_aborted hand-offs are unaffected. Fail open on
+    # any gate error — the coverage hook runs the same gate and likewise won't
+    # block, so the hand-off proceeds without a race.
+    if gate_blocks is not None:
+        try:
+            blocked, _ = gate_blocks(autopilot_dir, state)
+        except Exception as exc:
+            sys.stderr.write(
+                f"autopilot stop hook: review gate check errored ({exc}); "
+                "proceeding with hand-off (fail open)\n"
+            )
+            blocked = False
+        if blocked:
+            return
 
     # Write signal (idempotent: skip rewrite if value matches).
     signal_path = autopilot_dir / "signal"

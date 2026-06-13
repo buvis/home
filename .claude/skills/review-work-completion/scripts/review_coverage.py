@@ -220,7 +220,7 @@ def _diff_files(diff_range: str, repo: Path) -> tuple[list[str], Path]:
     work_tree = os.environ.get("AUTOPILOT_GIT_WORK_TREE") or str(Path.home())
     # Both must be real directories before use: work_tree becomes the subprocess
     # cwd, so a path that is missing OR a non-directory would otherwise raise a
-    # raw OSError instead of the clean MISSING_FILES gap kind.
+    # raw OSError instead of the clean DIFF_ERROR kind.
     if Path(git_dir).is_dir() and Path(work_tree).is_dir():
         fallback = subprocess.run(
             ["git", f"--git-dir={git_dir}", f"--work-tree={work_tree}",
@@ -232,7 +232,10 @@ def _diff_files(diff_range: str, repo: Path) -> tuple[list[str], Path]:
         if fallback.returncode == 0:
             return [f for f in fallback.stdout.splitlines() if f.strip()], Path(work_tree)
 
-    _fail("MISSING_FILES", f"git diff failed: {result.stderr.strip()}")
+    # DIFF_ERROR, not MISSING_FILES: an uncomputable diff is an infra failure
+    # (wrong repo, bad SHA, no git), not evidence the reviewer skipped files.
+    # Callers gate differently on the two kinds.
+    _fail("DIFF_ERROR", f"git diff failed: {result.stderr.strip()}")
     return [], repo  # unreachable; satisfies type checker without suppression
 
 

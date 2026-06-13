@@ -18,10 +18,11 @@ from _walk_up import find_autopilot_dir
 
 _PHASE_TO_SURFACE: dict[str, str] = {
     # At session exit `phase` is the NEXT phase, so the surface that JUST
-    # finished is the previous one: blind-review→work-completion review just
-    # ran, doubt-review→blind review just ran, done→doubt review just ran.
-    "blind-review": "work-completion",
-    "doubt-review": "blindly",
+    # finished is the previous one: blind→work-completion review just ran,
+    # doubt→blind review just ran, done→doubt review just ran. (Phase names
+    # are the five-gate set: build|review|blind|doubt|done|paused.)
+    "blind": "work-completion",
+    "doubt": "blindly",
     "done": "doubt",
 }
 
@@ -63,14 +64,20 @@ def run_gate(
     prd_path: Path,
     diff_range: str,
     repo: Path,
+    project_root: Path | None = None,
 ) -> tuple[int, str]:
+    """`repo` is the git repo the diff range lives in; `project_root` is where
+    the dev/local artifacts live. They coincide except when a PRD targets a
+    nested repo (e.g. ~/.claude/skills/run-autopilot under non-git ~/.claude)."""
+    if project_root is None:
+        project_root = repo
     gate_path = (
         Path(__file__).resolve().parents[2]
         / "review-work-completion"
         / "scripts"
         / "review_coverage.py"
     )
-    aggregate_path = repo / "dev" / "local" / "reviews" / ".stop-hook-aggregate.md"
+    aggregate_path = project_root / "dev" / "local" / "reviews" / ".stop-hook-aggregate.md"
     argv = [
         "python3",
         str(gate_path),
@@ -83,6 +90,76 @@ def run_gate(
     ]
     result = subprocess.run(argv, capture_output=True, text=True)
     return (result.returncode, result.stderr.strip())
+
+
+def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
+    """Decide whether the review-coverage gate should block the handoff.
+
+    Returns ``(should_block, message)``. ``should_block`` is True only when a
+    review surface just completed (the phase is review-gated) AND its saved
+    review file is missing, or its coverage block is incomplete. Returns
+    ``(False, "")`` when the phase is not review-gated or the gate passes, and
+    ``(False, <warning>)`` on DIFF_ERROR — the gate could not compute the diff
+    at all, so coverage is unknown (not incomplete) and the handoff is allowed
+    with a warning.
+
+    This is a PURE decision: no signal deletion, no exit codes, no SIGINT.
+    Both Stop hooks consult it so they can never disagree — ``main()`` here
+    blocks (exit 2) on a True result, while ``autopilot_stop_hook.py``
+    suppresses its signal + SIGINT on a True result. Sharing the decision
+    eliminates the race where the signal hook SIGINT-killed a session that the
+    coverage gate meant to keep alive (observed 2026-06-11 and 2026-06-12:
+    sessions ended on the blocking feedback with no signal, so the loop
+    reported "ended without a signal").
+    """
+    phase = state.get("phase", "")
+    surface = surface_for_phase(phase)
+    if surface is None:
+        return (False, "")
+
+    prd = state.get("prd", "")
+    work_start_sha = state.get("work_start_sha", "HEAD")
+    prd_base = prd[:-3] if prd.endswith(".md") else prd
+    repo = autopilot_dir.parents[2]
+    # The git repo holding the work commits. Usually the project root, but a
+    # PRD can target a nested repo while dev/local stays at the project root;
+    # Phase 3 records the nested repo in state.repo_root.
+    repo_root = state.get("repo_root", "")
+    git_repo = Path(repo_root) if repo_root else repo
+    reviews_dir = repo / "dev" / "local" / "reviews"
+
+    review_file = review_file_for(surface, prd_base, reviews_dir)
+    if review_file is None or not review_file.exists():
+        return (
+            True,
+            f"review coverage: no {surface} review file found for {prd_base}; "
+            "blocking session exit",
+        )
+
+    wip_path = repo / "dev" / "local" / "prds" / "wip" / prd
+    done_path = repo / "dev" / "local" / "prds" / "done" / prd
+    # Neither location exists -> pass wip_path; the gate fires a clean MISSING_PRD.
+    prd_path = wip_path if wip_path.exists() else (done_path if done_path.exists() else wip_path)
+
+    diff_range = f"{work_start_sha}..HEAD"
+
+    code, msg = run_gate(review_file, surface, prd_path, diff_range, git_repo, repo)
+    if code != 0:
+        if msg.startswith("DIFF_ERROR"):
+            # The gate could not compute the diff at all (infra failure), so
+            # coverage is unknown, not incomplete. Blocking here deletes the
+            # signal and kills the loop with a false "Backlog drained." — the
+            # in-session gate already ran; allow the handoff and warn loudly.
+            return (
+                False,
+                f"review coverage: cannot compute diff [{surface}]: {msg}; "
+                "allowing handoff (coverage was gated in-session)",
+            )
+        return (
+            True,
+            f"review coverage gap [{surface}]: {msg}; blocking session exit",
+        )
+    return (False, "")
 
 
 def main() -> int:
@@ -109,42 +186,17 @@ def main() -> int:
     except (OSError, json.JSONDecodeError):
         return 0
 
-    phase = state.get("phase", "")
-    prd = state.get("prd", "")
-    work_start_sha = state.get("work_start_sha", "HEAD")
-
-    surface = surface_for_phase(phase)
-    if surface is None:
+    should_block, message = gate_blocks(autopilot_dir, state)
+    if not should_block:
+        # A non-empty message on a non-blocking result is the DIFF_ERROR
+        # warning: surface the infra failure but allow the handoff.
+        if message:
+            sys.stderr.write(message + "\n")
         return 0
 
-    prd_base = prd[:-3] if prd.endswith(".md") else prd
-    repo = autopilot_dir.parents[2]
-    reviews_dir = repo / "dev" / "local" / "reviews"
-
-    review_file = review_file_for(surface, prd_base, reviews_dir)
-    if review_file is None or not review_file.exists():
-        sys.stderr.write(
-            f"review coverage: no {surface} review file found for {prd_base}; "
-            "blocking session exit\n"
-        )
-        delete_signal(autopilot_dir)
-        return 2
-
-    wip_path = repo / "dev" / "local" / "prds" / "wip" / prd
-    done_path = repo / "dev" / "local" / "prds" / "done" / prd
-    # Neither location exists -> pass wip_path; the gate fires a clean MISSING_PRD.
-    prd_path = wip_path if wip_path.exists() else (done_path if done_path.exists() else wip_path)
-
-    diff_range = f"{work_start_sha}..HEAD"
-
-    code, msg = run_gate(review_file, surface, prd_path, diff_range, repo)
-    if code != 0:
-        sys.stderr.write(
-            f"review coverage gap [{surface}]: {msg}; blocking session exit\n"
-        )
-        delete_signal(autopilot_dir)
-        return 2
-    return 0
+    sys.stderr.write(message + "\n")
+    delete_signal(autopilot_dir)
+    return 2
 
 
 if __name__ == "__main__":

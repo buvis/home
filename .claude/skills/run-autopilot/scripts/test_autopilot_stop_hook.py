@@ -134,6 +134,37 @@ def _run_hook(fx: StopHookFixture) -> list[int]:
     return _run_hook_with_env(fx, "12345")
 
 
+def _run_hook_capturing(
+    fx: StopHookFixture, loop_value: str | None = "12345"
+) -> tuple[int | None, list[int], str]:
+    """Like _run_hook_with_env, but also returns main()'s exit code and stderr."""
+    signalled_pids: list[int] = []
+
+    def fake_signal_claude(pid: int) -> bool:
+        signalled_pids.append(pid)
+        return True
+
+    saved = os.environ.pop("_AUTOPILOT_LOOP", None)
+    stderr = io.StringIO()
+    try:
+        if loop_value is not None:
+            os.environ["_AUTOPILOT_LOOP"] = loop_value
+        stdin_payload = json.dumps({"session_id": "test-session"})
+        with (
+            mock.patch.object(hook.Path, "cwd", return_value=fx.cwd),
+            mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
+            mock.patch.object(hook.sys, "stdin", io.StringIO(stdin_payload)),
+            mock.patch.object(hook.sys, "stderr", stderr),
+        ):
+            rc = hook.main()
+    finally:
+        os.environ.pop("_AUTOPILOT_LOOP", None)
+        if saved is not None:
+            os.environ["_AUTOPILOT_LOOP"] = saved
+
+    return rc, signalled_pids, stderr.getvalue()
+
+
 # ===========================================================================
 # Decision table tests.
 # ===========================================================================
@@ -374,6 +405,81 @@ class NonAutopilotSessionTests(unittest.TestCase):
         signal_candidates = list(self.plain_cwd.rglob("signal"))
         self.assertEqual(signal_candidates, [])
         self.assertEqual(signalled_pids, [])
+
+
+class ReviewGateSuppressionTests(unittest.TestCase):
+    """At a review-gated handoff the signal + SIGINT must defer to the shared
+    review-coverage gate (gate_blocks). If the gate blocks, the hook writes NO
+    signal and does NOT SIGINT, so the session stays alive for the coverage
+    hook to inject its feedback. Regression for the 2026-06-11/12 deaths where
+    the SIGINT killed a session the coverage gate meant to keep alive, leaving
+    the loop reporting "ended without a signal"."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def test_gate_block_suppresses_signal(self) -> None:
+        self.fx.write_state(phase="blind", next_phase="blind")
+        with mock.patch.object(
+            hook, "gate_blocks", return_value=(True, "review coverage gap [...]")
+        ):
+            _run_hook(self.fx)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "no signal may be written when the review-coverage gate blocks",
+        )
+
+    def test_gate_block_suppresses_sigint(self) -> None:
+        self.fx.write_state(phase="blind", next_phase="blind")
+        with mock.patch.object(hook, "gate_blocks", return_value=(True, "gap")):
+            pids = _run_hook(self.fx)
+        self.assertEqual(
+            pids, [], "must NOT SIGINT the session when the review gate blocks"
+        )
+
+    def test_gate_block_preserves_state_on_done(self) -> None:
+        """A blocking doubt-review gate at batch end must suppress BOTH the
+        'done' signal and the state.json deletion — otherwise an incomplete
+        final review would be sealed and the batch state lost."""
+        self.fx.write_state(phase="done", next_phase="")
+        with mock.patch.object(hook, "gate_blocks", return_value=(True, "gap")):
+            _run_hook(self.fx)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertTrue(
+            (self.fx.autopilot_dir / "state.json").exists(),
+            "state.json must survive when the gate blocks the 'done' handoff",
+        )
+
+    def test_gate_pass_writes_signal_and_sigints(self) -> None:
+        self.fx.write_state(phase="blind", next_phase="blind")
+        with mock.patch.object(hook, "gate_blocks", return_value=(False, "")):
+            pids = _run_hook(self.fx)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_gate_consulted_with_autopilot_dir_and_state(self) -> None:
+        self.fx.write_state(phase="blind", next_phase="blind")
+        gate = mock.MagicMock(return_value=(False, ""))
+        with mock.patch.object(hook, "gate_blocks", gate):
+            _run_hook(self.fx)
+        gate.assert_called_once()
+        args = gate.call_args[0]
+        self.assertEqual(Path(args[0]).name, "autopilot")
+        self.assertEqual(args[1].get("phase"), "blind")
+
+    def test_gate_error_fails_open_writes_signal(self) -> None:
+        """If gate_blocks raises, the hook falls open (proceeds with the
+        hand-off) and logs to stderr — the coverage hook runs the same gate
+        and likewise won't block, so there is no SIGINT race."""
+        self.fx.write_state(phase="blind", next_phase="blind")
+        with mock.patch.object(
+            hook, "gate_blocks", side_effect=RuntimeError("boom")
+        ):
+            rc, pids, stderr = _run_hook_capturing(self.fx)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+        self.assertIn("fail open", stderr)
 
 
 if __name__ == "__main__":

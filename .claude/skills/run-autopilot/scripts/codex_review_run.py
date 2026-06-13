@@ -8,10 +8,15 @@ run is visibly alive rather than a silent black box, WITHOUT a hard timeout.
 What it adds over a bare `codex exec` call:
 
 - **Live progress** — one readable line per codex event, parsed from `--json`.
-- **Heartbeat** — during quiet stretches prints elapsed/idle time, the last
-  action, and codex's descendant processes (a running child = working, not hung).
-- **Idle banner** — a loud banner when codex emits nothing AND has no child
-  process for a long stretch. It does not kill anything; Ctrl-C is the only stop.
+- **Heartbeat** — during quiet stretches prints elapsed/quiet time, the last
+  action, whether the codex process ITSELF is alive, whether it is making
+  progress (CPU climbing) or idle, and any tool subprocess it spawned. A long
+  model turn in `--json` mode is silent with no child process, so codex-alive
+  + CPU-climbing is normal work, not a hang.
+- **Idle banner** — past a quiet stretch, a soft note when codex is alive AND
+  still consuming CPU (working a slow turn), or a loud warning when it is alive
+  but has used no CPU and produced nothing (most likely blocked on a stuck
+  connection). It never kills anything; Ctrl-C is the only stop.
 - **Review capture** — codex's agent-message text is written to
   `<autopilot_dir>/codex-review-output.md` on a clean run, for the caller to read.
 
@@ -44,12 +49,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _walk_up import find_autopilot_dir
 
-# Heartbeat cadence and the idle threshold past which the quiet stretch is
-# loud-bannered. Neither bound kills codex — they only change what the
-# operator sees. 60s keeps the terminal feeling live; 10 minutes of total
-# silence with no child process is well past any normal think/tool gap.
+# Heartbeat cadence and the quiet threshold past which a note prints. Neither
+# bound kills codex — they only change what the operator sees. 60s keeps the
+# terminal feeling live; past 10 minutes of silence the note distinguishes a
+# codex still burning CPU (working a slow turn) from one idle at 0 CPU (most
+# likely blocked).
 HEARTBEAT_SECS = 60
 IDLE_BANNER_SECS = 600
+
+# Minimum CPU-seconds a live codex must accrue between two heartbeats to count
+# as "making progress". A reasoning/streaming codex easily clears this in 60s;
+# one blocked on a dead socket accrues exactly 0 (the 1h44m-at-0-CPU hang).
+# The epsilon only filters ps's hundredths-of-a-second rounding noise.
+CPU_PROGRESS_EPSILON = 0.05
 
 # codex emits a usage-limit / quota message as a normal event and still
 # exits 0 — so a quota-blocked run looks like success unless we scan the
@@ -225,9 +237,10 @@ def summarize_event(obj: object) -> tuple[str, bool]:
 def _descendants(root_pid: int) -> list[str]:
     """Return `comm` names of the live descendant processes of `root_pid`.
 
-    Used by the heartbeat to tell a working pass (a `cargo`/`rustc` child
-    churning) from a hung one (codex alive, no children). Best-effort: any
-    `ps` failure yields an empty list, which the caller renders as "none".
+    Used by the heartbeat to show what tool work codex is doing (a
+    `cargo`/`rustc`/`git` child churning). Absence of children does NOT mean
+    hung — during a pure model turn codex spawns nothing. Best-effort: any
+    `ps` failure yields an empty list, rendered as "no tool subprocs".
     """
     try:
         out = subprocess.run(
@@ -260,13 +273,69 @@ def _descendants(root_pid: int) -> list[str]:
     return found
 
 
+def _proc_alive(pid: int) -> bool:
+    """True if `pid` is a live process (read-only probe; never reaps).
+
+    The heartbeat uses this to confirm codex ITSELF is still running — the one
+    signal `_descendants` cannot give, because a codex on a long model turn
+    has no children yet is very much alive. `kill(pid, 0)` sends no signal, it
+    only checks existence, so it is safe to call from the heartbeat thread
+    while the main thread owns `proc.wait()`. PermissionError means the pid
+    exists but is not ours to signal (still alive).
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _cpu_seconds(pid: int) -> float | None:
+    """Cumulative CPU seconds consumed by `pid`, or None if unknown.
+
+    Lets the heartbeat tell a working-but-quiet codex (CPU climbing as it
+    reasons/streams) from a BLOCKED one (CPU flat — stuck on a dead socket,
+    the 1h44m-at-0-CPU hang this guards against). Best-effort: any ps/parse
+    failure yields None, which the caller treats as 'unknown', never a hang
+    claim. Parses ps TIME format `[[dd-]hh:]mm:ss[.ss]`.
+    """
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "time=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not out:
+        return None
+    days = 0
+    if "-" in out:
+        day_str, out = out.split("-", 1)
+        try:
+            days = int(day_str)
+        except ValueError:
+            return None
+    try:
+        nums = [float(p) for p in out.split(":")]
+    except ValueError:
+        return None
+    secs = 0.0
+    for n in nums:
+        secs = secs * 60 + n
+    return days * 86400 + secs
+
+
 class _Progress:
     """Shared activity state plus a serialized writer for terminal lines."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.last_activity = time.monotonic()
-        self.last_summary = "(starting codex)"
+        self.last_summary = "(no events yet)"
 
     def note_activity(self, summary: str | None) -> None:
         with self._lock:
@@ -288,30 +357,81 @@ def _fmt_secs(s: float) -> str:
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
 
+def _liveness_phrase(alive: bool, kids: list[str], advancing: bool,
+                     codex_pid: int) -> str:
+    """The process-state half of a heartbeat line.
+
+    Always leads with codex's OWN state so the operator never has to infer
+    'is codex running?' from the absence of children — and distinguishes a
+    working-but-quiet codex (CPU climbing) from one idle at 0 CPU, the misread
+    that first hid a real hang and then nearly killed a working review.
+    """
+    if not alive:
+        return f"codex pid {codex_pid} EXITED"
+    if kids:
+        uniq = sorted(set(kids))
+        return (f"codex pid {codex_pid} alive — tool subprocs: "
+                f"{', '.join(uniq)} ({len(kids)})")
+    if advancing:
+        return (f"codex pid {codex_pid} alive — working (cpu active), "
+                "no tool subproc")
+    return (f"codex pid {codex_pid} alive but IDLE — no cpu use, no output "
+            "(awaiting model or blocked)")
+
+
+def _idle_banner(alive: bool, kids: list[str], idle: float, advancing: bool,
+                 codex_pid: int) -> str | None:
+    """A note when codex has been quiet past IDLE_BANNER_SECS, else None.
+
+    The decision turns on PROGRESS, not on the presence of a child process: a
+    codex still burning CPU is working a slow model turn (silent in --json
+    mode) and must not be flagged; a codex idle at 0 CPU with no output is most
+    likely blocked on a stuck connection (the 1h44m-at-0-CPU hang) and IS worth
+    flagging. The old wording keyed on 'no child process' and so could neither
+    spot a real hang nor clear a working turn.
+    """
+    if idle < IDLE_BANNER_SECS or kids:
+        return None
+    if not alive:
+        return (f"⚠⚠ de-sloppify: codex (pid {codex_pid}) is GONE with no "
+                "output — it likely died at launch; the caller falls back to "
+                "a Claude review.")
+    if advancing:
+        return (f"⏳ de-sloppify: codex (pid {codex_pid}) is alive and still "
+                f"using CPU after {_fmt_secs(idle)} of quiet — a long model "
+                "turn is silent in --json mode, so this is working, not a "
+                "hang. Let it run.")
+    return (f"⚠⚠ de-sloppify: codex (pid {codex_pid}) has used no CPU and "
+            f"produced no output for {_fmt_secs(idle)} — most likely BLOCKED "
+            "on a stuck connection, not working. Ctrl-C to abort; the doubt "
+            "phase falls back to a Claude review.")
+
+
 def _heartbeat_loop(
     progress: _Progress, codex_pid: int, started: float, stop: threading.Event
 ) -> None:
     """Print a heartbeat every HEARTBEAT_SECS until `stop` is set."""
+    prev_cpu = _cpu_seconds(codex_pid)
     while not stop.wait(HEARTBEAT_SECS):
         idle, last = progress.snapshot()
         elapsed = time.monotonic() - started
+        alive = _proc_alive(codex_pid)
         kids = _descendants(codex_pid)
-        if kids:
-            uniq = sorted(set(kids))
-            kid_str = f"children active: {', '.join(uniq)} ({len(kids)})"
-        else:
-            kid_str = "no child processes"
+        cpu = _cpu_seconds(codex_pid)
+        # Unknown CPU (ps failed) gets the benefit of the doubt — never claim a
+        # hang we cannot measure.
+        advancing = (cpu is None or prev_cpu is None
+                     or (cpu - prev_cpu) > CPU_PROGRESS_EPSILON)
+        if cpu is not None:
+            prev_cpu = cpu
         progress.write_line(
-            f"⏱ de-sloppify alive — elapsed {_fmt_secs(elapsed)}, "
-            f"idle {_fmt_secs(idle)} — last: {last} — {kid_str}"
+            f"⏱ {_liveness_phrase(alive, kids, advancing, codex_pid)} — "
+            f"elapsed {_fmt_secs(elapsed)}, quiet {_fmt_secs(idle)} "
+            f"— last: {last}"
         )
-        if idle >= IDLE_BANNER_SECS and not kids:
-            progress.write_line(
-                "⚠⚠ de-sloppify: codex has produced no output and "
-                f"has no child process for {_fmt_secs(idle)}. It may be "
-                "stuck — check the terminal. (Not killing it; Ctrl-C to "
-                "abort the autopilot loop.)"
-            )
+        banner = _idle_banner(alive, kids, idle, advancing, codex_pid)
+        if banner:
+            progress.write_line(banner)
 
 
 def main(argv: list[str]) -> int:

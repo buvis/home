@@ -18,6 +18,13 @@ HOOK_PATH = (
     Path.home() / ".claude" / "skills" / "run-autopilot" / "scripts" / "autopilot_stop_hook.py"
 )
 
+# The hook imports sibling modules from its scripts/ dir (_walk_up, and the
+# review_coverage_hook gate). Put that dir on sys.path so importlib can resolve
+# them when this test runs from ~/.claude/hooks/tests/.
+_SCRIPTS_DIR = str(HOOK_PATH.parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
 
 def _load_hook():
     spec = importlib.util.spec_from_file_location("autopilot_stop_hook", HOOK_PATH)
