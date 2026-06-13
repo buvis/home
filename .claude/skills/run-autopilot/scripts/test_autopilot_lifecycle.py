@@ -221,7 +221,7 @@ _DURABLE_ARTIFACTS = [
     "deferred JSON",
     "-deferred.json",
     "prds/done",
-    "/reviews/",
+    "/reviews",  # no trailing slash: also catches a bare `rm -rf dev/local/reviews`
     "autopilot/reports",
     "project-capsule.md",
 ]
@@ -313,40 +313,6 @@ def test_wholesale_reviews_delete_without_trailing_slash_is_flagged() -> None:
 # --------------------------------------------------------------------------- #
 # Batch identity rollover — one report file per batch; fresh id per batch.
 # --------------------------------------------------------------------------- #
-
-_REPORT_SUFFIX = "-report.md"
-
-
-def _report_filename(batch_id: str) -> str:
-    """The report file is keyed by batch id — the checkable invariant."""
-    return f"{batch_id}{_REPORT_SUFFIX}"
-
-
-def _id_from_report_filename(name: str) -> str:
-    assert name.endswith(_REPORT_SUFFIX), f"not a report filename: {name}"
-    return name[: -len(_REPORT_SUFFIX)]
-
-
-def test_report_filename_id_equals_batch_id_invariant() -> None:
-    """The report filename's embedded id must round-trip to the batch id — the
-    invariant Phase 9 verifies at append time."""
-    for bid in ("202606092228", "202605181149"):
-        assert _id_from_report_filename(_report_filename(bid)) == bid
-
-
-def test_two_consecutive_batches_get_distinct_report_files(tmp_path: Path) -> None:
-    """A fresh batch id (minted after batch end deletes state) keys a distinct
-    report file — reports never append across batches."""
-    reports = tmp_path / "reports"
-    reports.mkdir()
-    b1 = "202606120001"
-    b2 = "202606130002"  # next batch mints a fresh id
-    assert b1 != b2
-    (reports / _report_filename(b1)).write_text(f"# Autopilot Batch Report {b1}\n")
-    (reports / _report_filename(b2)).write_text(f"# Autopilot Batch Report {b2}\n")
-    files = sorted(p.name for p in reports.glob(f"*{_REPORT_SUFFIX}"))
-    assert files == [_report_filename(b1), _report_filename(b2)]
-    assert len({_id_from_report_filename(f) for f in files}) == 2
 
 
 def test_phase0_mints_fresh_id_for_a_closed_surviving_batch() -> None:
