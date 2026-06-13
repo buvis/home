@@ -65,6 +65,63 @@ def _name_matches(task_name: str, candidate: str) -> bool:
     return tn_base == cn_base
 
 
+def _match_task(
+    tasks: list[dict], task_id: str, hook_input: dict, tool_input: dict
+) -> bool:
+    """Run the four matching strategies (ID, response-title, response-substring,
+    input-title) in order. On a match, set status/id on the task and return
+    True; else log the NO MATCH diagnostics and return False."""
+    new_status = tool_input.get("status", "")
+
+    # Strategy 1: match by ID
+    for task in tasks:
+        if task.get("id") == task_id:
+            task["status"] = new_status
+            return True
+
+    # Strategy 2: match by title from tool_response
+    title = find_task_title(hook_input)
+    if title:
+        for task in tasks:
+            if task.get("name") and _name_matches(task["name"], title):
+                task["status"] = new_status
+                task["id"] = task_id
+                return True
+
+    # Strategy 3: match by title substring in tool_response text
+    resp_text = str(hook_input.get("tool_response", ""))
+    for task in tasks:
+        name = task.get("name", "")
+        if not name:
+            continue
+        if name in resp_text or _strip_task_prefix(name) in resp_text:
+            task["status"] = new_status
+            task["id"] = task_id
+            return True
+
+    # Strategy 4: match by title from tool_input
+    input_title = tool_input.get("title", "") or tool_input.get("name", "")
+    if input_title:
+        for task in tasks:
+            if task.get("name") and _name_matches(task["name"], input_title):
+                task["status"] = new_status
+                task["id"] = task_id
+                return True
+
+    log(f"NO MATCH id={task_id} status={new_status}")
+    log(f"  tool_input={json.dumps(tool_input)[:300]}")
+    log(f"  tool_response={str(hook_input.get('tool_response', ''))[:300]}")
+    log(f"  tasks={json.dumps([t.get('name','') for t in tasks])[:300]}")
+    return False
+
+
+def _recompute_counts(state: dict, tasks: list[dict]) -> None:
+    """Set state['tasks_completed'] = count(status=='completed') and
+    state['tasks_total'] = len(tasks)."""
+    state["tasks_completed"] = sum(1 for t in tasks if t.get("status") == "completed")
+    state["tasks_total"] = len(tasks)
+
+
 def main() -> None:
     try:
         hook_input = json.load(sys.stdin)
@@ -95,59 +152,10 @@ def main() -> None:
     tasks = _normalize_tasks(tasks)
     state["tasks"] = tasks
 
-    # Strategy 1: match by ID
-    updated = False
-    for task in tasks:
-        if task.get("id") == task_id:
-            task["status"] = new_status
-            updated = True
-            break
-
-    # Strategy 2: match by title from tool_response
-    if not updated:
-        title = find_task_title(hook_input)
-        if title:
-            for task in tasks:
-                if task.get("name") and _name_matches(task["name"], title):
-                    task["status"] = new_status
-                    task["id"] = task_id
-                    updated = True
-                    break
-
-    # Strategy 3: match by title substring in tool_response text
-    if not updated:
-        resp_text = str(hook_input.get("tool_response", ""))
-        for task in tasks:
-            name = task.get("name", "")
-            if not name:
-                continue
-            if name in resp_text or _strip_task_prefix(name) in resp_text:
-                task["status"] = new_status
-                task["id"] = task_id
-                updated = True
-                break
-
-    # Strategy 4: match by title from tool_input
-    if not updated:
-        input_title = tool_input.get("title", "") or tool_input.get("name", "")
-        if input_title:
-            for task in tasks:
-                if task.get("name") and _name_matches(task["name"], input_title):
-                    task["status"] = new_status
-                    task["id"] = task_id
-                    updated = True
-                    break
-
-    if not updated:
-        log(f"NO MATCH id={task_id} status={new_status}")
-        log(f"  tool_input={json.dumps(tool_input)[:300]}")
-        log(f"  tool_response={str(hook_input.get('tool_response', ''))[:300]}")
-        log(f"  tasks={json.dumps([t.get('name','') for t in tasks])[:300]}")
+    if not _match_task(tasks, task_id, hook_input, tool_input):
         return
 
-    completed = sum(1 for t in tasks if t.get("status") == "completed")
-    state["tasks_completed"] = completed
-    state["tasks_total"] = len(tasks)
+    _recompute_counts(state, tasks)
 
     try:
         state_file.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
