@@ -165,8 +165,8 @@ def test_backlog_to_wip_move_is_verified() -> None:
     phase0 = _phase_section(SKILL, "## Phase 0")
     guards = _guarded_windows(phase0, re.compile(r"mv[^\n]*wip/"))
     assert guards, "no backlog->wip `mv` instruction found in Phase 0"
-    assert any(guards), (
-        "the backlog->wip `mv` must be followed by an existence check and a "
+    assert all(guards), (
+        "every backlog->wip `mv` must be followed by an existence check and a "
         "PAUSE on failure"
     )
 
