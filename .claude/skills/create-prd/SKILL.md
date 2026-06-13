@@ -86,7 +86,7 @@ design_gate: user
 ---
 ```
 
-Both fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
+All four fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
 
 ### 4. Split if needed
 
