@@ -1,9 +1,8 @@
-"""Tests for the FUTURE autopilot Stop hook contract.
+"""Tests for the autopilot Stop hook contract.
 
-The FUTURE hook reads state.json and $_AUTOPILOT_LOOP, then WRITES the signal
-file itself. It no longer reacts to a pre-existing signal. These tests are
-intentionally RED against the current hook, which only SIGINTs claude when it
-finds a pre-existing signal and never reads state or env.
+The hook reads state.json and $_AUTOPILOT_LOOP, then WRITES the signal file
+itself (PRD 00043). It does not react to a pre-existing signal. These tests are
+green against the shipped hook; they pin the decision table below.
 
 Decision table (verbatim from the task spec):
 - _AUTOPILOT_LOOP unset -> no signal, no auto-exit (interactive).
