@@ -334,6 +334,32 @@ class ContextCapRotationTests(unittest.TestCase):
         self.assertEqual(state["tasks_completed"], 7)
         self.assertEqual(len(state["cap_rotations"]), 1)
 
+    def test_rotation_preserves_work_start_sha(self) -> None:
+        """C7/C12: a cap rotation must not shrink the Phase 8 doubt diff.
+
+        The rotation merge-write touches cap_rotations, next_phase, and the
+        in-flight task's status — never work_start_sha. This binds the C7
+        contract (a rotation must leave work_start_sha..HEAD spanning the full
+        PRD) to executable behavior: if a rotation ever clobbered or dropped
+        work_start_sha, the doubt diff would collapse to post-rotation commits
+        only, and this test would go red. Complements the SKILL.md Phase 3
+        prose guard (which stops the orchestrator re-capturing on resume).
+        """
+        sha = "15a0637f0d3e60c06ffe16ad9015353d46487cbc"
+        self.fx.write_state(
+            phase="build",
+            work_start_sha=sha,
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        # Sanity: the rotation actually fired.
+        self.assertEqual(len(state["cap_rotations"]), 1)
+        # The contract: work_start_sha is byte-identical after the rotation.
+        self.assertEqual(state["work_start_sha"], sha)
+
     # Rotation-envelope robustness ------------------------------------------
 
     def test_rotation_message_has_no_model_signal_directive(self) -> None:
