@@ -353,3 +353,26 @@ def test_report_append_pins_filename_to_batch_id() -> None:
     assert re.search(r"(verif|confirm|match|equal)[^.\n]{0,70}batch\.id", phase9, re.I) or (
         re.search(r"batch\.id[^.\n]{0,70}(verif|confirm|match|equal)", phase9, re.I)
     ), "Phase 9 must verify the report filename's id equals state.batch.id"
+
+
+# --------------------------------------------------------------------------- #
+# C7 (PRD 00047) — work_start_sha resume guard (doc-contract proxy).
+# --------------------------------------------------------------------------- #
+
+
+def test_phase3_guards_work_start_sha_against_recapture_on_resume() -> None:
+    """C7: Phase 3 must capture work_start_sha ONLY IF it is unset, so a
+    cap-rotation (or any build re-entry on resume) does not re-capture and
+    shrink the Phase 8 doubt diff (work_start_sha..HEAD) to post-rotation
+    commits only. Regex doc-contract proxy for the prose guard; the
+    behavioral counterpart is the cap-hook rotation test (C12)."""
+    phase3 = _phase_section(SKILL, "## Phase 3")
+    assert phase3, "Phase 3 section not found in SKILL.md"
+    assert re.search(r"only if .{0,40}unset", phase3, re.I), (
+        "Phase 3 must guard the work_start_sha capture with an "
+        "'only if ... unset' condition"
+    )
+    assert re.search(r"do NOT re-capture", phase3), (
+        "Phase 3 must instruct the model NOT to re-capture work_start_sha "
+        "when it is already set for the current PRD"
+    )
