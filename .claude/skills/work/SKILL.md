@@ -522,7 +522,7 @@ The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.hand
       ── {completed} tasks done, {pending} pending — context near soft cap
       ── fresh session resumes the remaining tasks ───────────────────
       ```
-   d. Check `$_AUTOPILOT_LOOP` (`echo "${_AUTOPILOT_LOOP-}"`). If set, write `next` to the autopilot `signal` file at its absolute path, then STOP. If unset, STOP without the signal write — the user re-invokes `/run-autopilot`, which resumes via `state.json`.
+   d. Ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP. The autopilot Stop hook reads `next_phase` and writes the `next` loop signal (gated on `$_AUTOPILOT_LOOP`); the model writes no signal. This mirrors the run-autopilot Phase 3 build→review handoff contract.
 
    **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3, hydrates TaskList from `state.tasks`, and re-invokes `/work` for the pending tasks.
 
