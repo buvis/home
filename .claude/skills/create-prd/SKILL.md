@@ -7,6 +7,8 @@ description: Use when converting a plan, design doc, brainstorming output, or di
 
 Transform a plan or design document into an RPG-compliant PRD and save to the backlog.
 
+**RPG means Repository Planning Graph**: Microsoft Research's method for dependency-aware repository planning (see <https://docs.task-master.dev/capabilities/rpg-method> and `assets/example_prd_rpg.md`). It separates WHAT (functional decomposition) from WHERE (structural decomposition) and connects them with an explicit dependency graph. It does NOT mean role-playing game: a PRD is a plain engineering document. Never add narrative framing, quest logs, or fantasy flavor; downstream tooling (`/plan-tasks`, the review coverage gate) parses the literal section headings, including `#### Feature:`.
+
 ## Workflow
 
 ### 0. Check for discovery doc
@@ -66,17 +68,21 @@ Apply the full RPG structure. All four sections are mandatory; none may be omitt
 
 ### Optional frontmatter fields
 
-PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Two optional fields are recognized by `/run-autopilot` Phase 0:
+PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Four optional fields are recognized by `/run-autopilot` Phase 0:
 
 - `catchup: run | skip | force` — controls Phase 1 (Catchup) behavior. `run` (default) honors the batch cache; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup. Use `skip` for PRDs that need no fresh project context (e.g. small docs-only changes). Use `force` after a major structural change you want catchup to pick up.
 - `rework_cap: <int>` — caps how many review-rework cycles Phase 5 will run before pausing. Default `3`. `rework_cap: 5` allows five review cycles before pause; `rework_cap: 3` (the default) allows three. Raise this for genuinely hard PRDs that need more cycles; the default suits most work.
+- `design: run | skip` — controls the Phase 1.5 design sub-step (between catchup and planning). `run` (default) generates a reviewed design doc via `/design-solution` before planning; `skip` bypasses design entirely. Use `skip` for trivial PRDs that need no implementation design.
+- `design_gate: user` — when set, Phase 1.5 PAUSEs for your review of the design doc (summary + unresolved non-blockers) before planning. Absent by default (design runs autonomously, no pause). Set it on PRDs where you want to vet the design before tasks are planned.
 
-Example combining both:
+Example combining several:
 
 ```yaml
 ---
-catchup: skip
+catchup: force
 rework_cap: 5
+design: run
+design_gate: user
 ---
 ```
 
