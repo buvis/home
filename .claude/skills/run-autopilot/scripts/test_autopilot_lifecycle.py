@@ -222,6 +222,7 @@ _DURABLE_ARTIFACTS = [
     "-deferred.json",
     "prds/done",
     "/reviews",  # no trailing slash: also catches a bare `rm -rf dev/local/reviews`
+    "/designs",  # no trailing slash: also catches a bare `rm -rf dev/local/designs`
     "autopilot/reports",
     "project-capsule.md",
 ]
@@ -245,6 +246,7 @@ def test_skill_documents_a_retention_contract() -> None:
     durable = [
         "prds/done",
         "reviews/",
+        "designs/",
         "autopilot/reports",
         "autopilot/deferred",
         "project-capsule.md",
