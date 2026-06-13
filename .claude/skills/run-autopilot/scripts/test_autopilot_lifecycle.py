@@ -339,14 +339,28 @@ def test_two_consecutive_batches_get_distinct_report_files(tmp_path: Path) -> No
 
 
 def test_phase0_mints_fresh_id_for_a_closed_surviving_batch() -> None:
-    """Phase 0 must mint a fresh batch.id when a closed batch's state.json
-    survives (phase == done) — the stale-id reuse the forensics found."""
+    """Phase 0 must mint a fresh batch.id ONLY when a *genuinely* closed batch's
+    state.json survives — phase == "done" AND next_phase == "" (empty). The
+    next_phase=="" discriminator is mandatory: Phase 9 step 2 sets a transient
+    phase=="done" (with next_phase=="done") BEFORE the verified wip->done move,
+    so a failed move that PAUSEs leaves phase=="done" mid-PRD; keying the rollover
+    on phase=="done" alone would then wipe the in-progress batch's completed_prds
+    and mint a spurious id. The empty next_phase (set only by the batch-end "No
+    more PRDs" branch) is what tells a genuinely closed batch from that survivor."""
     phase0 = _phase_section(SKILL, "## Phase 0")
     assert re.search(r"fresh\s+`?batch\.id`?", phase0, re.I), (
         "Phase 0 must mint a fresh batch.id for a surviving closed batch"
     )
-    assert re.search(r'phase[^\n]{0,40}"done"', phase0), (
+    m = re.search(r"Batch-identity rollover", phase0)
+    assert m, "Phase 0 must contain the Batch-identity rollover guard"
+    guard = phase0[m.start() : m.start() + 700]
+    assert re.search(r'phase[^\n]{0,40}"done"', guard), (
         "Phase 0 fresh-id guard must key on a closed (phase == done) surviving batch"
+    )
+    assert re.search(r'next_phase[^\n]{0,40}""', guard), (
+        "Phase 0 fresh-id guard must ALSO require next_phase == '' (empty) so a "
+        "transient mid-PRD phase=='done' (failed Phase 9 move) does not trigger a "
+        "spurious batch rollover that wipes completed_prds"
     )
 
 
