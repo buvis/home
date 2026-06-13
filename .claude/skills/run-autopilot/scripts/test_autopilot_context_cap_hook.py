@@ -4,6 +4,7 @@ Stdlib-only unittest, subprocess.run pattern (matches ~/.claude/hooks/tests/).
 """
 
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -574,6 +575,69 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
         self.assertFalse((self.fx.autopilot_dir / ".handoff-requested").exists())
+
+
+class InstructionBuilderContractTests(unittest.TestCase):
+    """C1: instruction builders must not take signal_path and must not emit
+    any signal-write directive. The Stop hook now owns the signal write."""
+
+    def setUp(self) -> None:
+        self.module = _load_hook_module()
+
+    # AC1: _rotation_instructions signature -----------------------------------
+
+    def test_rotation_instructions_takes_only_limit_parameter(self) -> None:
+        """_rotation_instructions must accept exactly one parameter named
+        `limit` — no signal_path."""
+        sig = inspect.signature(self.module._rotation_instructions)
+        self.assertEqual(list(sig.parameters), ["limit"])
+
+    # AC2: _oversized_stall_instructions signature ----------------------------
+
+    def test_oversized_stall_instructions_takes_only_task_id_parameter(self) -> None:
+        """_oversized_stall_instructions must accept exactly one parameter
+        named `task_id` — no signal_path."""
+        sig = inspect.signature(self.module._oversized_stall_instructions)
+        self.assertEqual(list(sig.parameters), ["task_id"])
+
+    # AC3: rotation text has no signal-write directive ------------------------
+
+    def test_rotation_text_has_no_signal_write_directive(self) -> None:
+        """_rotation_instructions must not emit any signal-write directive."""
+        text = self.module._rotation_instructions(500_000)
+        self.assertNotIn("write 'next'", text)
+        self.assertNotIn("$_AUTOPILOT_LOOP", text)
+        self.assertNotIn("signal", text.lower())
+
+    # AC4: stall text has no signal-write directive ---------------------------
+
+    def test_stall_text_has_no_signal_write_directive(self) -> None:
+        """_oversized_stall_instructions must not emit any signal-write
+        directive."""
+        text = self.module._oversized_stall_instructions("task-abc")
+        self.assertNotIn("write 'next'", text)
+        self.assertNotIn("$_AUTOPILOT_LOOP", text)
+        self.assertNotIn("signal", text.lower())
+
+    # AC5: rotation text still describes a rotation and a stop ----------------
+
+    def test_rotation_text_still_describes_rotation_and_stop(self) -> None:
+        """_rotation_instructions must still say ROTATION, STOP, and
+        reference build as the next_phase — guards against the builder
+        being gutted entirely."""
+        text = self.module._rotation_instructions(500_000)
+        self.assertIn("rotation", text.lower())
+        self.assertIn("stop", text.lower())
+        self.assertIn("build", text.lower())
+
+    # AC6: stall text still names the oversized stall and stalled state -------
+
+    def test_stall_text_still_describes_oversized_stall(self) -> None:
+        """_oversized_stall_instructions must still reference 'oversized' and
+        moving the PRD to 'stalled'."""
+        text = self.module._oversized_stall_instructions("task-abc")
+        self.assertIn("oversized", text.lower())
+        self.assertIn("stalled", text.lower())
 
 
 if __name__ == "__main__":
