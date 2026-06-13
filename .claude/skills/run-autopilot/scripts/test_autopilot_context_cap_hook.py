@@ -43,7 +43,7 @@ class HookFixture:
     def write_state(self, **fields: object) -> None:
         default: dict[str, object] = {
             "prd": "00099-test.md",
-            "phase": "work",
+            "phase": "build",
             "phases_completed": [],
             "cycle": 1,
             "tasks_total": 0,
@@ -54,6 +54,8 @@ class HookFixture:
             "deferred_decisions": [],
             "doubts": [],
             "task_aborts": [],
+            "cap_rotations": [],
+            "replan_count": 0,
             "needs_attention": False,
         }
         default.update(fields)
@@ -113,9 +115,24 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
 
-    def test_phase_not_work_is_noop(self) -> None:
+    def test_phase_not_build_is_noop(self) -> None:
+        """The gate is the `build` phase. Over the cap on any other gate
+        (here `review`) is a no-op — only `build` runs /work tasks."""
         self.fx.write_state(phase="review")
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_noops_on_work_phase(self) -> None:
+        """`work` is the now-dead pre-collapse phase name (folded into
+        `build`). Over the cap with phase=="work" must NOT fire."""
+        self.fx.write_state(
+            phase="work",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
@@ -125,17 +142,17 @@ class ContextCapHookTests(unittest.TestCase):
         """Marker carries the task id. When the in-progress task matches the
         marker, the hook is a no-op (already fired for this task)."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
         (self.fx.autopilot_dir / ".cap-fired").write_text("task-x")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
 
     def test_usage_under_threshold_is_noop(self) -> None:
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         self.fx.write_transcript_lines([
             self.fx.usage_line(input_tokens=50_000, cache_read=40_000, cache_create=10_000),
         ])
@@ -145,117 +162,34 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
     def test_missing_transcript_path_field_is_noop(self) -> None:
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         result = self.fx.run_hook(stdin_payload={"session_id": "x"})
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
 
     def test_malformed_transcript_lines_is_noop(self) -> None:
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         self.fx.transcript.write_text("not json\n{also not\n")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
-    # Overrun cases ----------------------------------------------------------
+    # Single hard cap --------------------------------------------------------
 
-    def test_overrun_writes_marker_and_state_and_stdout(self) -> None:
-        self.fx.write_state(
-            phase="work",
-            tasks=[{"id": "task-x", "name": "Big task", "status": "in_progress"}],
-        )
-        self.fx.write_transcript_lines([
-            self.fx.usage_line(input_tokens=100_000, cache_read=80_000, cache_create=20_000),
-        ])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-
-        marker = self.fx.autopilot_dir / ".cap-fired"
-        self.assertTrue(marker.exists())
-        # Marker carries the in-progress task id so the hook can self-clear
-        # when the task changes between PostToolUse fires.
-        self.assertEqual(marker.read_text().strip(), "task-x")
-
-        abort_log = self.fx.autopilot_dir / "task-abort"
-        self.assertTrue(abort_log.exists())
-        abort_entry = json.loads(abort_log.read_text().strip().splitlines()[-1])
-        self.assertEqual(abort_entry["cause"], "context_overrun")
-        self.assertEqual(abort_entry["total_input_tokens"], 200_000)
-        self.assertEqual(abort_entry["task_id"], "task-x")
-
-        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
-        self.assertEqual(len(state["task_aborts"]), 1)
-        self.assertEqual(state["task_aborts"][0]["cause"], "context_overrun")
-        self.assertEqual(state["task_aborts"][0]["total_input_tokens"], 200_000)
-
-        # stall_reason must be set so /run-autopilot Phase 0 moves the PRD to
-        # dev/local/prds/stalled/ on the next session. Without this the next
-        # session re-enters Work on the same PRD and re-hits the cap.
-        self.assertEqual(
-            state["stall_reason"],
-            {
-                "stalled": "context_overrun",
-                "task": "task-x",
-                "total_input_tokens": 200_000,
-            },
-        )
-
-        # The task_aborted relaunch is a replan (planning) session; autoclaude
-        # picks the launch model from next_phase, so leaving it at "work"
-        # would launch the replan on the work-tier model (Sonnet).
-        self.assertEqual(state["next_phase"], "planning")
-
-        out = json.loads(result.stdout)
-        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
-        self.assertIn("abort", out["hookSpecificOutput"]["additionalContext"].lower())
-        # Abort instructions must reference stall_reason so the model knows
-        # the hook already prepared the stall handoff.
-        self.assertIn(
-            "stall_reason", out["hookSpecificOutput"]["additionalContext"]
-        )
-
-    def test_overrun_uses_most_recent_usage_line(self) -> None:
-        self.fx.write_state(phase="work")
-        self.fx.write_transcript_lines([
-            self.fx.usage_line(input_tokens=50_000),
-            {"type": "user", "message": {"content": "noise"}},
-            self.fx.usage_line(input_tokens=200_000),
-        ])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
-        out = json.loads(result.stdout)
-        self.assertIn("hookSpecificOutput", out)
-
-    def test_overrun_with_no_in_progress_task_uses_unknown(self) -> None:
-        self.fx.write_state(phase="work", tasks=[])
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        abort_entry = json.loads(
-            (self.fx.autopilot_dir / "task-abort").read_text().strip().splitlines()[-1]
-        )
-        self.assertEqual(abort_entry["task_id"], "unknown")
-
-    # Window-aware cap -------------------------------------------------------
-
-    def test_large_window_does_not_fire_below_500k(self) -> None:
-        """A 1M-window session (context_window written by autoclaude) uses the
-        500K cap, so a 200K Work turn — which fires on a 200K-window model —
-        is a no-op here."""
-        self.fx.write_state(phase="work", context_window=1_000_000)
+    def test_does_not_fire_below_cap(self) -> None:
+        """The single hard cap is 500K; usage below it does not fire (no
+        window classification — the same cap applies regardless of model)."""
+        self.fx.write_state(phase="build")
         self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
-    def test_large_window_fires_above_500k(self) -> None:
-        """A 1M-window session aborts once context exceeds the 500K cap, and
-        the abort message reports the 500K cap (not the 150K default)."""
+    def test_fires_above_cap(self) -> None:
+        """Usage above the single 500K hard cap fires the rotation."""
         self.fx.write_state(
-            phase="work",
-            context_window=1_000_000,
+            phase="build",
             tasks=[{"id": "task-big", "name": "y", "status": "in_progress"}],
         )
         self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
@@ -263,22 +197,7 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
         out = json.loads(result.stdout)
-        self.assertIn("500K", out["hookSpecificOutput"]["additionalContext"])
-
-    def test_standard_window_fires_above_150k(self) -> None:
-        """An explicit 200K context_window uses the 150K cap — same as the
-        absent-field default — and the abort message reports ~150K."""
-        self.fx.write_state(
-            phase="work",
-            context_window=200_000,
-            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
-        )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
-        out = json.loads(result.stdout)
-        self.assertIn("150K", out["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("hookSpecificOutput", out)
 
     # Walk-up cases ---------------------------------------------------------
 
@@ -290,10 +209,10 @@ class ContextCapHookTests(unittest.TestCase):
         resolution from cwd must walk parents until found.
         """
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-deep", "name": "x", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
         deep = self.fx.cwd / "src" / "modules" / "feature"
         deep.mkdir(parents=True)
         result = subprocess.run(
@@ -306,14 +225,15 @@ class ContextCapHookTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0)
         self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
-        self.assertTrue((self.fx.autopilot_dir / "task-abort").exists())
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["cap_rotations"][-1]["task_id"], "task-deep")
 
     def test_no_autopilot_ancestor_is_noop(self) -> None:
         """When cwd has no dev/local/autopilot ancestor, hook is a no-op."""
         with tempfile.TemporaryDirectory() as plain:
             plain_path = Path(plain)
             transcript = plain_path / "transcript.jsonl"
-            transcript.write_text(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
+            transcript.write_text(json.dumps(self.fx.usage_line(input_tokens=600_000)) + "\n")
             result = subprocess.run(
                 [sys.executable, str(HOOK)],
                 input=json.dumps({"transcript_path": str(transcript)}),
@@ -324,161 +244,6 @@ class ContextCapHookTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout.strip(), "")
-
-    def test_abort_entry_turn_is_sentinel_not_zero(self) -> None:
-        """task_aborts[].turn must use -1 sentinel ('unknown') not a misleading 0.
-
-        The transcript usage line carries no turn counter, so the hook cannot
-        derive the real turn. Hardcoding 0 made every abort look like a
-        first-turn failure. -1 matches the work-skill subagent_prompt_overrun
-        convention for 'turn unknown'.
-        """
-        self.fx.write_state(phase="work")
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        abort_entry = json.loads(
-            (self.fx.autopilot_dir / "task-abort").read_text().strip().splitlines()[-1]
-        )
-        self.assertEqual(abort_entry["turn"], -1)
-        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
-        self.assertEqual(state["task_aborts"][0]["turn"], -1)
-
-    # Persistence-safety: hook bails on state-write failure -----------------
-
-    def test_state_write_failure_skips_marker_log_and_envelope(self) -> None:
-        """If state.json cannot be written, the hook MUST NOT emit the abort
-        envelope and MUST NOT touch the .cap-fired marker.
-
-        Otherwise the model writes task_aborted into the loop signal file
-        without a corresponding state.stall_reason; the next session's
-        Phase 0 finds nothing to recover, the original PRD stays in wip/,
-        and the autopilot silently re-enters Work and re-hits the cap. The
-        hook should rather no-op this PostToolUse and retry on the next
-        one. Same hook contract as the cycle-4 stall_reason wiring: state
-        write is the single source of truth for "abort has been prepared".
-        """
-        self.fx.write_state(
-            phase="work",
-            tasks=[{"id": "task-x", "name": "Big task", "status": "in_progress"}],
-        )
-        self.fx.write_transcript_lines([
-            self.fx.usage_line(input_tokens=200_000),
-        ])
-
-        # Make state.json unwritable by removing write permission from its
-        # parent directory: os.replace and Path.write_text into a 555 dir
-        # both raise OSError. This is the simplest way to force
-        # _atomic_write_state to fail without monkey-patching the module
-        # under test. The existing state.json itself stays readable, so
-        # _load_state still succeeds and the hook reaches the write step.
-        original_mode = self.fx.autopilot_dir.stat().st_mode
-        self.fx.autopilot_dir.chmod(0o555)
-        self.addCleanup(self.fx.autopilot_dir.chmod, original_mode)
-
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-
-        # No abort envelope on stdout — the model never sees the abort
-        # instruction, so it never writes task_aborted into the loop.
-        self.assertEqual(result.stdout.strip(), "")
-
-        # No .cap-fired marker either, so the next PostToolUse fires the
-        # hook again and gets another chance to write state.
-        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
-
-        # task-abort log also untouched — abort log is only appended after
-        # the state write succeeds.
-        self.assertFalse((self.fx.autopilot_dir / "task-abort").exists())
-
-        # Stderr should carry a diagnostic explaining the skip.
-        self.assertIn("state.json write failed", result.stderr)
-
-    # Race safety: merge-write preserves concurrent model edits ---------------
-
-    def test_existing_task_aborts_preserved_on_merge_write(self) -> None:
-        """Merge-write must append to existing task_aborts, not overwrite.
-
-        If state.json already has aborts from a prior hook fire or a prior
-        replan, the new entry must be appended, not the list replaced.
-        """
-        prior_abort = {
-            "task_id": "task-prior",
-            "turn": -1,
-            "total_input_tokens": 100,
-            "cause": "context_overrun",
-        }
-        self.fx.write_state(
-            phase="work",
-            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
-            task_aborts=[prior_abort],
-        )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
-        self.assertEqual(len(state["task_aborts"]), 2)
-        self.assertEqual(state["task_aborts"][0]["task_id"], "task-prior")
-        self.assertEqual(state["task_aborts"][1]["task_id"], "task-x")
-
-    def test_merge_write_preserves_non_abort_fields(self) -> None:
-        """Merge-write must preserve fields the hook does not own.
-
-        The hook writes task_aborts and stall_reason. All other fields
-        (tasks_completed, tasks[].status, etc.) are owned by the model
-        or /work; the hook must not overwrite them with stale values from
-        its initial state read.
-
-        Note: this test cannot simulate a true concurrent write (subprocess
-        + no sync), but verifies that fields not touched by the hook survive
-        the merge-write — the property the re-read achieves.
-        """
-        self.fx.write_state(
-            phase="work",
-            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
-            tasks_completed=7,
-        )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
-        self.assertEqual(state["tasks_completed"], 7)
-        self.assertEqual(len(state["task_aborts"]), 1)
-
-    # Abort-instruction robustness ------------------------------------------
-
-    def test_abort_instructions_use_absolute_signal_path(self) -> None:
-        """ABORT_INSTRUCTIONS must embed the absolute path to signal.
-
-        The orchestrating agent may have cd'd into a subdirectory by abort
-        time. A relative `dev/local/autopilot/signal` write would land in
-        the wrong place and the stop-hook walk-up would miss it.
-        """
-        self.fx.write_state(phase="work")
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        out = json.loads(result.stdout)
-        context = out["hookSpecificOutput"]["additionalContext"]
-        expected = str(self.fx.autopilot_dir / "signal")
-        self.assertIn(expected, context)
-        # Negative: bare relative path must not appear (would still match
-        # the absolute path as a substring; check the leading slash form).
-        self.assertNotIn(" dev/local/autopilot/signal", context)
-
-    def test_abort_instructions_gate_signal_on_autopilot_loop(self) -> None:
-        """ABORT_INSTRUCTIONS must instruct the model to gate the signal
-        write on $_AUTOPILOT_LOOP. Per SKILL.md "Loop Detection", writing
-        the signal when the shell wrapper is absent SIGINTs the session
-        with no restart, which surprises a manual /run-autopilot user.
-        """
-        self.fx.write_state(phase="work")
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        out = json.loads(result.stdout)
-        context = out["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("$_AUTOPILOT_LOOP", context)
 
     # Symlink and unreadable-path edge cases ---------------------------------
 
@@ -511,7 +276,7 @@ class ContextCapHookTests(unittest.TestCase):
         _latest_usage_total must return None and the hook must be a no-op.
         Verifies the OSError path in _latest_usage_total.
         """
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         self.fx.transcript.write_text(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
         original_mode = self.fx.transcript.stat().st_mode
         self.fx.transcript.chmod(0o000)
@@ -526,7 +291,7 @@ class ContextCapHookTests(unittest.TestCase):
         must cause the hook to return None from _latest_usage_total and be a
         no-op — no abort emitted even at very large file sizes.
         """
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         lines = [
             {"type": "user", "message": {"content": "hello"}},
             {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
@@ -543,7 +308,7 @@ class ContextCapHookTests(unittest.TestCase):
         must not crash the hook. Partial lines are silently skipped by the
         JSON parser, and if no complete usage line is found, returns None.
         """
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         with self.fx.transcript.open("w") as f:
             f.write(json.dumps(self.fx.usage_line(input_tokens=50_000)) + "\n")
             # Write a partial line (truncated JSON object, no newline)
@@ -566,17 +331,17 @@ class ContextCapHookTests(unittest.TestCase):
 
         The transcript is ~4.8 MB of noise followed by one **over-threshold**
         usage line at the tail. Using an over-threshold value lets the test
-        assert that the hook actually parsed the tail and emitted the abort
-        envelope — a regression that bailed out before reading the
+        assert that the hook actually parsed the tail and emitted the
+        rotation envelope — a regression that bailed out before reading the
         transcript would produce empty stdout and fail the assertion,
         regardless of how fast it ran.
         """
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         line_blob = json.dumps({"type": "noise", "padding": "x" * 4_000}) + "\n"
         with self.fx.transcript.open("w") as f:
             for _ in range(1_200):
                 f.write(line_blob)
-            f.write(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
+            f.write(json.dumps(self.fx.usage_line(input_tokens=600_000)) + "\n")
 
         module = _load_hook_module()
         payload = json.dumps({"transcript_path": str(self.fx.transcript)})
@@ -600,7 +365,7 @@ class ContextCapHookTests(unittest.TestCase):
         # empty and fail here, not on the timing assertion above.
         emitted = captured_stdout.getvalue()
         self.assertIn("hookSpecificOutput", emitted)
-        self.assertIn("Context cap reached", emitted)
+        self.assertIn("context cap reached", emitted.lower())
 
 
     # Marker self-clearing -------------------------------------------------
@@ -612,10 +377,10 @@ class ContextCapHookTests(unittest.TestCase):
         for every task in the phase after the first abort.
         """
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-new", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
         (self.fx.autopilot_dir / ".cap-fired").write_text("task-old")
 
         result = self.fx.run_hook()
@@ -632,10 +397,10 @@ class ContextCapHookTests(unittest.TestCase):
         contents) must not block the hook. Cleared and re-fired on a real
         overrun."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
         (self.fx.autopilot_dir / ".cap-fired").touch()
 
         result = self.fx.run_hook()
@@ -651,7 +416,7 @@ class ContextCapHookTests(unittest.TestCase):
         window, causing the cap to silently disengage. The chunked reverse
         scan keeps reading until a usage line is found.
         """
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         # 200KB of noise (mixture of valid-shape lines and junk), then the
         # latest over-threshold usage line at EOF. Old TAIL_BYTES=64KB
         # would miss the usage line because the 200KB noise block precedes
@@ -659,7 +424,7 @@ class ContextCapHookTests(unittest.TestCase):
         lines = []
         big_payload = "x" * 200_000
         lines.append({"type": "noise", "padding": big_payload})
-        lines.append(self.fx.usage_line(input_tokens=200_000))
+        lines.append(self.fx.usage_line(input_tokens=600_000))
         self.fx.write_transcript_lines(lines)
 
         result = self.fx.run_hook()
@@ -674,11 +439,11 @@ class ContextCapHookTests(unittest.TestCase):
         should not crash, hang, or read the entire file. Verifies the cap
         is bounded.
         """
-        self.fx.write_state(phase="work")
+        self.fx.write_state(phase="build")
         with self.fx.transcript.open("w") as f:
             # The first line is the only usage line; everything after is
             # noise that pushes the usage line out of MAX_TAIL_BYTES.
-            f.write(json.dumps(self.fx.usage_line(input_tokens=200_000)) + "\n")
+            f.write(json.dumps(self.fx.usage_line(input_tokens=600_000)) + "\n")
             noise = json.dumps({"type": "noise", "padding": "x" * 100_000}) + "\n"
             # ~5MB of noise — more than MAX_TAIL_BYTES (4MB).
             for _ in range(50):
@@ -711,16 +476,16 @@ class ContextCapHookTests(unittest.TestCase):
 
     # Soft-threshold handoff ------------------------------------------------
 
-    def test_soft_threshold_writes_handoff_marker_standard(self) -> None:
-        """Standard window: usage between the soft (105K) and hard (150K)
-        caps writes `.handoff-requested` carrying the in-progress task id.
-        The path is non-destructive — no `.cap-fired`, no abort envelope,
-        no state mutation, no task-abort log."""
+    def test_soft_threshold_writes_handoff_marker(self) -> None:
+        """Usage between the single soft (320K) and hard (500K) caps writes
+        `.handoff-requested` carrying the in-progress task id. The path is
+        non-destructive — no `.cap-fired`, no rotation, no state mutation.
+        No `context_window` is set: the threshold is a single constant."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
@@ -731,34 +496,14 @@ class ContextCapHookTests(unittest.TestCase):
 
         # Non-destructive: hard-cap artifacts must NOT appear.
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
-        self.assertFalse((self.fx.autopilot_dir / "task-abort").exists())
         state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
-        self.assertEqual(state["task_aborts"], [])
+        self.assertEqual(state["cap_rotations"], [])
         self.assertNotIn("stall_reason", state)
-
-    def test_soft_threshold_writes_handoff_marker_large_window(self) -> None:
-        """1M window: usage between the soft (320K) and hard (500K) caps
-        writes `.handoff-requested`. A 200K turn (which would soft-fire on a
-        standard window) stays a no-op here — covered by the standard-window
-        no-op tests; this asserts the large-window soft band."""
-        self.fx.write_state(
-            phase="work",
-            context_window=1_000_000,
-            tasks=[{"id": "task-big", "name": "y", "status": "in_progress"}],
-        )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
-        result = self.fx.run_hook()
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-        handoff = self.fx.autopilot_dir / ".handoff-requested"
-        self.assertTrue(handoff.exists())
-        self.assertEqual(handoff.read_text().strip(), "task-big")
-        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
     def test_below_soft_threshold_writes_no_marker(self) -> None:
         """Usage under the soft cap writes neither marker."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
         self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=80_000)])
@@ -769,13 +514,13 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
     def test_hard_cap_overrun_writes_no_handoff_marker(self) -> None:
-        """A hard-cap overrun takes the abort path and must NOT also write
+        """A hard-cap overrun takes the rotation path and must NOT also write
         `.handoff-requested` — the two paths are mutually exclusive."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
@@ -785,10 +530,10 @@ class ContextCapHookTests(unittest.TestCase):
         """When `.handoff-requested` already names the in-progress task, a
         redundant PostToolUse fire is a no-op (one-shot per task)."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
         (self.fx.autopilot_dir / ".handoff-requested").write_text("task-x")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
@@ -803,10 +548,10 @@ class ContextCapHookTests(unittest.TestCase):
         with the current task id, so the handoff request stays current after
         the session advances."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-new", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
         (self.fx.autopilot_dir / ".handoff-requested").write_text("task-old")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
@@ -816,14 +561,14 @@ class ContextCapHookTests(unittest.TestCase):
         )
 
     def test_cap_fired_marker_for_same_task_blocks_soft_path(self) -> None:
-        """When `.cap-fired` already named the in-progress task (hard-cap
-        abort already prepared), the hook early-returns before the soft
-        check — no `.handoff-requested` is written for that task."""
+        """When `.cap-fired` already named the in-progress task (a rotation
+        already fired), the hook early-returns before the soft check — no
+        `.handoff-requested` is written for that task."""
         self.fx.write_state(
-            phase="work",
+            phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=120_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
         (self.fx.autopilot_dir / ".cap-fired").write_text("task-x")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)

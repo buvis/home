@@ -361,5 +361,117 @@ class ExitContractTests(unittest.TestCase):
             self.assertIn("R1: pass", out.read_text())
 
 
+class ProcAliveTests(unittest.TestCase):
+    """`_proc_alive` confirms codex ITSELF is running — the signal the
+    heartbeat was missing when it only inspected codex's children."""
+
+    def test_own_pid_is_alive(self) -> None:
+        self.assertTrue(dr._proc_alive(os.getpid()))
+
+    def test_reaped_child_pid_is_not_alive(self) -> None:
+        import subprocess
+        proc = subprocess.Popen(["true"])
+        proc.wait()  # reap, so the pid is gone
+        self.assertFalse(dr._proc_alive(proc.pid))
+
+
+class CpuSecondsTests(unittest.TestCase):
+    """`_cpu_seconds` is the working-vs-blocked discriminator: a real codex
+    accrues CPU as it reasons, a hung one stays flat (the 1h44m-at-0-CPU
+    hang). It must read a live process and degrade to None, never crash."""
+
+    def test_own_process_cpu_is_nonnegative_float(self) -> None:
+        cpu = dr._cpu_seconds(os.getpid())
+        self.assertIsNotNone(cpu)
+        self.assertGreaterEqual(cpu, 0.0)
+
+    def test_reaped_pid_returns_none(self) -> None:
+        import subprocess
+        proc = subprocess.Popen(["true"])
+        proc.wait()
+        self.assertIsNone(dr._cpu_seconds(proc.pid))
+
+
+class LivenessPhraseTests(unittest.TestCase):
+    """The heartbeat must always state codex's own liveness AND whether it is
+    progressing: a working turn (CPU climbing) reads as work, an idle-at-0-CPU
+    one reads as possibly blocked. Conflating them is what first hid a hang
+    and then nearly killed a working review."""
+
+    def test_working_alive_no_children_reads_as_work_not_hung(self) -> None:
+        phrase = dr._liveness_phrase(
+            alive=True, kids=[], advancing=True, codex_pid=17021)
+        self.assertIn("alive", phrase)
+        self.assertIn("17021", phrase)
+        self.assertIn("working", phrase.lower())
+        self.assertNotIn("stuck", phrase.lower())
+        self.assertNotIn("no child process", phrase.lower())
+
+    def test_idle_alive_no_progress_flags_possibly_blocked(self) -> None:
+        phrase = dr._liveness_phrase(
+            alive=True, kids=[], advancing=False, codex_pid=17021)
+        self.assertIn("alive", phrase)
+        self.assertIn("IDLE", phrase)
+        self.assertIn("blocked", phrase.lower())
+
+    def test_alive_with_children_lists_tool_subprocs(self) -> None:
+        phrase = dr._liveness_phrase(
+            alive=True, kids=["cargo", "rustc"], advancing=False, codex_pid=42)
+        self.assertIn("alive", phrase)
+        self.assertIn("cargo", phrase)
+        self.assertIn("rustc", phrase)
+
+    def test_exited_is_reported(self) -> None:
+        phrase = dr._liveness_phrase(
+            alive=False, kids=[], advancing=False, codex_pid=42)
+        self.assertIn("EXITED", phrase)
+
+
+class IdleBannerTests(unittest.TestCase):
+    """The idle note keys on PROGRESS: silent while tool work or CPU advances,
+    a soft 'working' note when alive-and-advancing, and a loud BLOCKED warning
+    only when alive but idle at 0 CPU with no output."""
+
+    def test_no_banner_below_threshold(self) -> None:
+        self.assertIsNone(
+            dr._idle_banner(alive=True, kids=[], idle=dr.IDLE_BANNER_SECS - 1,
+                            advancing=False, codex_pid=1))
+
+    def test_no_banner_while_tool_subproc_runs(self) -> None:
+        """Children churning means codex is plainly working — no note even
+        past the quiet threshold."""
+        self.assertIsNone(
+            dr._idle_banner(alive=True, kids=["cargo"],
+                            idle=dr.IDLE_BANNER_SECS * 5, advancing=False,
+                            codex_pid=1))
+
+    def test_alive_and_advancing_says_working_not_blocked(self) -> None:
+        banner = dr._idle_banner(
+            alive=True, kids=[], idle=dr.IDLE_BANNER_SECS, advancing=True,
+            codex_pid=17021)
+        self.assertIsNotNone(banner)
+        self.assertIn("working", banner.lower())
+        self.assertNotIn("blocked", banner.lower())
+        self.assertNotIn("stuck", banner.lower())
+
+    def test_alive_but_idle_flags_blocked(self) -> None:
+        """The hang case: alive, no children, no CPU, no output. The note must
+        name it as likely BLOCKED so the operator aborts and falls back —
+        instead of the old 'let it run' that would wait forever."""
+        banner = dr._idle_banner(
+            alive=True, kids=[], idle=dr.IDLE_BANNER_SECS, advancing=False,
+            codex_pid=17021)
+        self.assertIsNotNone(banner)
+        self.assertIn("BLOCKED", banner)
+        self.assertIn("fall", banner.lower())
+
+    def test_gone_and_quiet_reports_death(self) -> None:
+        banner = dr._idle_banner(
+            alive=False, kids=[], idle=dr.IDLE_BANNER_SECS, advancing=False,
+            codex_pid=17021)
+        self.assertIsNotNone(banner)
+        self.assertIn("GONE", banner)
+
+
 if __name__ == "__main__":
     unittest.main()

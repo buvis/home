@@ -966,12 +966,14 @@ class ReviewCoverageTests(unittest.TestCase):
             f"Expected EMPTY_TESTS prefix, got: {result.stderr[:80]!r}",
         )
 
-    def test_invalid_work_tree_override_fails_clean_missing_files(self) -> None:
+    def test_invalid_work_tree_override_fails_clean_diff_error(self) -> None:
         """A bad AUTOPILOT_GIT_WORK_TREE override must yield the clean
-        MISSING_FILES gap kind, not a raw OSError traceback. The plain git
-        diff fails (the --repo dir is not a git repo), the bare-repo fallback
-        is attempted, but the overridden work-tree does not exist -> the gate
-        fails loud with MISSING_FILES rather than crashing on cwd."""
+        DIFF_ERROR kind, not a raw OSError traceback. The plain git diff
+        fails (the --repo dir is not a git repo), the bare-repo fallback is
+        attempted, but the overridden work-tree does not exist -> the gate
+        fails loud with DIFF_ERROR rather than crashing on cwd. DIFF_ERROR,
+        not MISSING_FILES: an uncomputable diff is an infra failure, not
+        evidence the reviewer skipped files."""
         non_repo = self.tmp / "not-a-repo"
         non_repo.mkdir()
         bare = self.tmp / "bare.git"
@@ -1005,15 +1007,15 @@ class ReviewCoverageTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(
-            result.stderr.startswith("MISSING_FILES"),
-            f"Expected MISSING_FILES prefix, got: {result.stderr[:120]!r}",
+            result.stderr.startswith("DIFF_ERROR"),
+            f"Expected DIFF_ERROR prefix, got: {result.stderr[:120]!r}",
         )
         self.assertNotIn("Traceback", result.stderr)
 
-    def test_non_directory_work_tree_override_fails_clean_missing_files(self) -> None:
+    def test_non_directory_work_tree_override_fails_clean_diff_error(self) -> None:
         """An AUTOPILOT_GIT_WORK_TREE that EXISTS but is not a directory must
-        still yield the clean MISSING_FILES gap kind, not a raw
-        NotADirectoryError from using it as cwd. (exists() is not enough.)"""
+        still yield the clean DIFF_ERROR kind, not a raw NotADirectoryError
+        from using it as cwd. (exists() is not enough.)"""
         non_repo = self.tmp / "not-a-repo"
         non_repo.mkdir()
         bare = self.tmp / "bare.git"
@@ -1048,8 +1050,8 @@ class ReviewCoverageTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(
-            result.stderr.startswith("MISSING_FILES"),
-            f"Expected MISSING_FILES prefix, got: {result.stderr[:120]!r}",
+            result.stderr.startswith("DIFF_ERROR"),
+            f"Expected DIFF_ERROR prefix, got: {result.stderr[:120]!r}",
         )
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("NotADirectoryError", result.stderr)

@@ -157,6 +157,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
+  "model": "opus[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -382,13 +383,11 @@
   "enabledPlugins": {
     "pr-review-toolkit@claude-plugins-official": false,
     "lua-lsp@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "warden@buvis-plugins": true,
-    "harness@harness-marketplace": true,
     "git-ferry@buvis-plugins": true,
     "strunk@buvis-plugins": true,
     "aegis@buvis-plugins": true,
@@ -416,7 +415,7 @@
       }
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "skipDangerousModePermissionPrompt": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
@@ -437,6 +436,5 @@
         "mcp/youtube-transcript"
       ]
     }
-  },
-  "model": "claude-fable-5[1m]"
+  }
 }

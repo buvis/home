@@ -6,114 +6,6 @@ about-plugin 'functions for software development'
 #   SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
 # }
 
-# Pick the Claude model for the next /run-autopilot launch, phase-based:
-# judgment phases (catchup, planning, reviews) launch on Opus 4.8 1M; the
-# work phase launches on plain Sonnet 4.6 (200K window, subscription-billed
-# — the [1m] variant bills API credits, never use it here). Work-session
-# coordination is mechanical and per-task implementor dispatch inside /work
-# tiers the heavy lifting. The 200K window means the context cap hook sizes
-# a ~150K cap; that is intentional — replan-on-overrun (task_aborted →
-# Phase 0 replan with the tighter per-task budget) handles overruns, and a
-# replan escalates the relaunch to Opus via state.launch_model.
-# state.launch_model (haiku|sonnet|opus) overrides the work-phase pick —
-# the Phase 2→3 handoff writes it: "opus" for PRD default_model: opus or
-# post-replan escalation, "sonnet" otherwise. It is ignored for non-work
-# phases so a stale value can never demote a review session.
-# The stderr log prints the source label separately from the resolved
-# phase so debugging "why did this launch on opus" is unambiguous. The
-# source is the literal next_phase value, or one of "<missing>" (no
-# state.json found in cwd or any ancestor), "<empty>" (key absent, null,
-# or explicit empty string "" — /run-autopilot writes next_phase: "" at
-# batch end), or "<parse-error>" (jq failed on an existing file).
-#
-# state.json is located via the shared walk-up helper (_walk_up.py) so the
-# model dispatch survives autoclaude being invoked from a subdirectory. The
-# hook (autopilot_context_cap_hook.py) uses the same helper; without the
-# walk-up here the entire model-dispatch feature silently no-ops when
-# cwd != project root.
-#
-# It also records the picked model's context window in state.json
-# (context_window) so the cap hook can size its per-task cap to the
-# window (200K-window -> ~150K cap; 1M-window -> 500K cap).
-_autoclaude_pick_model() {
-  local raw next_phase source model window launch_override jq_rc autopilot_dir state_file
-  state_file=""
-  autopilot_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash)
-  if [ -n "$autopilot_dir" ] && [ -f "$autopilot_dir/state.json" ]; then
-    state_file="$autopilot_dir/state.json"
-  fi
-  if [ -z "$state_file" ]; then
-    raw=""
-    source="<missing>"
-  elif ! command -v jq >/dev/null 2>&1; then
-    printf 'autoclaude: jq not found in PATH; defaulting to Opus\n' >&2
-    source="<jq-missing>"
-    raw=""
-  else
-    raw=$(jq -r '.next_phase // ""' "$state_file" 2>/dev/null)
-    jq_rc=$?
-    if [ "$jq_rc" -ne 0 ]; then
-      source="<parse-error>"
-      raw=""
-    elif [ -z "$raw" ] || [ "$raw" = "null" ]; then
-      # jq -r prints the literal string "null" for JSON-null values when no
-      # // fallback is in the query; // "" already coerces null → empty, so
-      # this "null" check is defensive for future query simplifications.
-      source="<empty>"
-      raw=""
-    else
-      source="$raw"
-    fi
-  fi
-  next_phase="${raw:-catchup}"
-  model="claude-opus-4-8"
-  window=1000000
-  if [ "$next_phase" = "work" ]; then
-    launch_override=""
-    if [ -n "$state_file" ] && command -v jq >/dev/null 2>&1; then
-      launch_override=$(jq -r '.launch_model // ""' "$state_file" 2>/dev/null) || launch_override=""
-      [ "$launch_override" = "null" ] && launch_override=""
-    fi
-    case "$launch_override" in
-    opus)
-      model="claude-opus-4-8"
-      window=1000000
-      ;;
-    haiku)
-      model="claude-haiku-4-5-20251001"
-      window=200000
-      ;;
-    sonnet | "")
-      model="claude-sonnet-4-6"
-      window=200000
-      ;;
-    *)
-      printf 'autoclaude: invalid launch_model %s; using sonnet\n' "$launch_override" >&2
-      model="claude-sonnet-4-6"
-      window=200000
-      ;;
-    esac
-  fi
-  # Record the launched model's context window in state.json so the
-  # Work-phase context cap hook (autopilot_context_cap_hook.py) can size
-  # its cap: a 200K-window model is capped below native auto-compact
-  # (~165K), a 1M-window model gets a higher cost-bounded cap. The hook
-  # cannot read the window from the transcript (the plain model id is
-  # recorded, never the [1m] variant), so the launcher records it here.
-  if [ -n "$state_file" ] && command -v jq >/dev/null 2>&1; then
-    local cw_tmp
-    cw_tmp="${state_file}.cwtmp"
-    if jq --argjson cw "$window" '.context_window = $cw' "$state_file" >"$cw_tmp" 2>/dev/null; then
-      command mv -f -- "$cw_tmp" "$state_file"
-    else
-      rm -f "$cw_tmp"
-      printf 'autoclaude: failed to write context_window to state.json\n' >&2
-    fi
-  fi
-  printf 'autoclaude: source=%s phase=%s launch_model=%s model=%s window=%s\n' "$source" "$next_phase" "${launch_override:-<unset>}" "$model" "$window" >&2
-  printf '%s\n' "$model"
-}
-
 autoclaude() {
   export _AUTOPILOT_LOOP=$$
 
@@ -132,11 +24,15 @@ autoclaude() {
   trap '_autopilot_loop_cleanup; unset _AUTOPILOT_LOOP; trap - TERM; kill -TERM $$' TERM
 
   while true; do
-    local signal model_id
+    local signal
 
-    model_id=$(_autoclaude_pick_model)
-
-    claude --model "$model_id" --name "${PWD##*/}" --permission-mode bypassPermissions "/run-autopilot"
+    # Static launch: every autopilot session runs on Opus 1M. The phase-based
+    # model dispatch (_autoclaude_pick_model) is deleted — it never switched a
+    # model in practice and its context_window bookkeeping misfired the cap.
+    # next_phase remains in state.json as resume/log metadata (read by the
+    # SKILL resume logic, not here); per-task tiering inside /work still does
+    # the model split that works.
+    claude --model claude-opus-4-8 --name "${PWD##*/}" --permission-mode auto "/run-autopilot"
     _autopilot_loop_cleanup
 
     local _ap_dir
@@ -157,17 +53,38 @@ autoclaude() {
       printf '\nStarting next PRD…\n'
       ;;
     task_aborted)
-      # Work-phase context cap fired. The hook has already set
-      # stall_reason and appended to task_aborts; /run-autopilot Phase 0
-      # in the next session will replan the PRD in place (PRD stays in
-      # dev/local/prds/wip/) and resume. Treat as continue-loop.
-      printf '\nWork task hit context cap; PRD will be replanned. Continuing…\n'
+      # Work-phase subagent_prompt_overrun. /work set stall_reason and
+      # appended to task_aborts; /run-autopilot Phase 0 in the next session
+      # replans the PRD in place (PRD stays in dev/local/prds/wip/) and
+      # resumes. This is the one surviving replan path — the context cap no
+      # longer aborts here; it ROTATES, writing the `next` signal instead.
+      # Treat as continue-loop.
+      printf '\nWork task prompt overran budget; PRD will be replanned. Continuing…\n'
       ;;
-    *)
+    done)
+      # Written by batch-end review only — the one signal that means the
+      # backlog is actually empty.
       printf '\nBacklog drained.\n'
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return
+      ;;
+    '')
+      # No signal at all: the session died, paused for attention, or a
+      # Stop-hook gate blocked the handoff. NOT a drained backlog — fail
+      # loud and leave state.json in place for inspection. (A missing
+      # signal used to fall into the drained branch and masked a killed
+      # handoff as success on 2026-06-11.)
+      printf '\nautoclaude: session ended without a signal (died, paused, or gate-blocked). Backlog NOT drained. Check %s/state.json and the last transcript.\n' "$_ap_dir" >&2
+      trap - INT TERM
+      unset _AUTOPILOT_LOOP
+      return 1
+      ;;
+    *)
+      printf '\nautoclaude: unknown signal "%s", stopping loop. Check %s/state.json.\n' "$signal" "$_ap_dir" >&2
+      trap - INT TERM
+      unset _AUTOPILOT_LOOP
+      return 1
       ;;
     esac
   done
