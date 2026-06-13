@@ -46,6 +46,8 @@ When `replan-context.md` is absent → normal first-pass planning. Use the 150K 
 
 Read the full PRD. Also load existing codebase architecture context (AGENTS.md, agent_docs/, `dev/local/` architecture notes) to cross-reference. Identify reusable existing code before creating tasks.
 
+**Design doc (when present).** Check `state.design_doc` in `dev/local/autopilot/state.json`; if it is unset, fall back to the glob `dev/local/designs/<prd-stem>-design.md` (`<prd-stem>` = the selected PRD's filename minus `.md`). When a design doc exists, read it — it refines the PRD with the implementation design (the HOW): `## Interfaces & contracts` (exact signatures/types/enums), `## Module placement` (file targets), and `## Reuse inventory` (existing helpers). These seed the task `Contract`, `Location`, and `Reuse:` fields in step 4. When no design doc exists, plan from the PRD alone, as today. This detection works unchanged in replan mode.
+
 Extract:
 - Capabilities and features
 - Module structure
@@ -71,7 +73,7 @@ Location: {file paths or how to find them}
 
 Reuse: {existing patterns, utilities, or modules to build on — if any}
 
-Contract (verbatim from PRD — copy exact names, do NOT paraphrase):
+Contract (verbatim — from the design doc's `## Interfaces & contracts` when a design doc exists, else from the PRD; copy exact names, do NOT paraphrase):
 - {every exact field name, enum value, type shape, API signature, file/hook
    kind, and threshold the PRD specifies for this task}
 
@@ -98,6 +100,19 @@ When the PRD pins a name, an enum value, a type, a file kind ("Stop hook" vs
 task. This is what the "Unambiguous" and "Self-contained" task qualities above
 mean in practice. If the PRD itself is vague on a contract the task needs,
 surface it in step 6 as an ambiguity — do not let the implementer guess.
+
+**Contract source when a design doc exists.** When a design doc is present
+(detected in step 3), the task `Contract` is copied **verbatim from the design
+doc's `## Interfaces & contracts`** entries — byte-identical, not paraphrased —
+because the design doc is the architecturally-vetted refinement of the PRD's
+contract. `Acceptance criteria` is **ALWAYS** copied verbatim from the **PRD**;
+the design doc never owns acceptance criteria — those stay PRD-owned. Seed each
+task's file placement / `Location` from the design doc's `## Module placement`
+and its `Reuse:` lines from `## Reuse inventory`. When NO design doc exists, the
+`Contract` comes from the PRD as described above. **On a PRD-vs-design contract
+conflict, the design doc wins** (it refines the PRD): use the design doc's
+contract and log the conflict in the step-6 planning summary. This rule works
+unchanged in replan mode.
 
 ### 4.5. Estimate per-task context budget
 
@@ -285,6 +300,7 @@ Output:
 - Execution order (phases)
 - Any PRD ambiguities needing clarification
 - **Irreducible-coupling reports**: for every `>=3`-file backend task kept whole because step 4.6's eligibility trigger judged it not cleanly separable, report the task and the coupling. The task will route to Claude (not qwen) at its tier — surface why so the planner sees the routing consequence rather than the task being silently kept whole.
+- **PRD-vs-design contract conflicts**: when a design doc was consumed (step 3) and any task's `Contract` was taken from the design doc over a conflicting PRD statement, list each conflict (the PRD's version vs the design doc's, and which task). The design doc won; surface the divergence so the planner can confirm the design's refinement was intended.
 
 ## Granularity Guide
 
