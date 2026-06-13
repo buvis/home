@@ -6,7 +6,7 @@ argument-hint: "[<prd-filename> | status]"
 
 # Autopilot
 
-Orchestrate the full PRD lifecycle: catchup → plan-tasks → work → review → rework loop → blind review → doubt review → done.
+Orchestrate the full PRD lifecycle: catchup → design → plan-tasks → work → review → rework loop → blind review → doubt review → done.
 
 Makes autonomous decisions backed by research (dependencies, recurring issues, API/schema changes when PRD-driven) and pauses only for critical security, requirements ambiguity, or blocking decisions.
 
@@ -38,7 +38,7 @@ State file: `dev/local/autopilot/state.json` — see `references/state-schema.md
 
 Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, **rendered once at Phase 9 finalize from the `state.json` decision arrays** (`autonomous_decisions`, `deferred_decisions`, `doubts`). `state.json` is the single in-run source of truth — decisions are NOT mirrored to `audit.md` incrementally per decision. Each rendered entry carries a **source** label (`autonomous`, `deferred`, or `doubt`); cycle/phase context goes in the entry body so the Phase 9 `decisions.md` projection can filter autonomous entries by label. Entry format, the Phase 9 render procedure, and the projection live in `references/audit-log-format.md`.
 
-**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. The five gates are `build` | `review` | `blind` | `doubt` | `done` (plus `paused`). `build` is ONE session: selection, catchup, planning, and work all run under `phase: "build"` with no mid-build handoff. The three review surfaces (`review`, `blind`, `doubt`) each run in their own fresh session. Per-task implementor tiering inside `/work` is unchanged. The authoritative resume signal is `phase` + `phases_completed`; build sub-step skipping is by ARTIFACT (capsule freshness, tasks-exist, all-done), not by `phases_completed` membership.
+**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. The five gates are `build` | `review` | `blind` | `doubt` | `done` (plus `paused`). `build` is ONE session: selection, catchup, design, planning, and work all run under `phase: "build"` with no mid-build handoff. The three review surfaces (`review`, `blind`, `doubt`) each run in their own fresh session. Per-task implementor tiering inside `/work` is unchanged. The authoritative resume signal is `phase` + `phases_completed`; build sub-step skipping is by ARTIFACT (capsule freshness, design-doc-exists, tasks-exist, all-done), not by `phases_completed` membership.
 
 ### Retention
 
@@ -116,7 +116,7 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`; then **verify the move**: confirm the PRD now exists in `dev/local/prds/wip/`, else PAUSE naming the source, the destination, and the `mv` error (do not continue)
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`. **Batch-identity rollover:** if `state.batch` IS already present but the surviving state represents a *genuinely closed* batch — `state.phase == "done"` AND `state.next_phase == ""` (empty) (batch end ran but `state.json` was not deleted, e.g. an abnormal exit before the Stop hook fired) — do NOT inherit the dead batch's id: mint a FRESH `batch.id` (a new `<yyyymmddHHMM>` timestamp) and reset `completed_prds: []`. This is the fix for the stale-id reuse the forensics found, where a `batch.id` minted weeks earlier kept being inherited across genuinely separate batches. **Both conditions are required:** only the batch-end "No more PRDs" branch (Phase 9 step 10) sets `next_phase: ""`, so the empty `next_phase` is what distinguishes a genuinely closed batch from a transient mid-PRD `phase: "done"` — Phase 9 step 2 sets `phase: "done"` with `next_phase: "done"` BEFORE the verified `wip -> done` move, so a move that fails and PAUSEs (or a crash in steps 3-9) leaves `phase == "done"` with `next_phase == "done"` (non-empty), which must NOT roll over (doing so would wipe the in-progress batch's `completed_prds` and mint a spurious id). A normal in-progress resume (`phase` is `build`/`review`/`blind`/`doubt`, a `paused` handled by an abort handler above, or any `phase == "done"` whose `next_phase` is still non-empty) preserves `batch.id` unchanged.
-4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
+4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. Also look for `design:` in the same YAML block. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `design:` field) → default to `run`. Write the resulting value to `state.design_mode`. Also look for `design_gate:` in the same block: on an exact `user` match write `"user"` to `state.design_gate`; otherwise (absent field, any other value) leave `state.design_gate` absent. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3, design_mode=run") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
 5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 6. Initialize/update state with selected PRD, preserve `batch` field
 7. Print progress:
@@ -129,7 +129,7 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
 
 **Skip if:** the batch cache is fresh (the batch-cache freshness check below holds — the capsule is already current), OR `state.catchup_mode == "skip"`. The skip is by ARTIFACT (capsule freshness), not `phases_completed` membership.
 
-When skipped via `catchup_mode == "skip"`: do not invoke `/catchup`. Set `state.catchup_mode = "skipped"` (so subsequent re-entries also skip), keep `phase: "build"` and `next_phase: "build"`, and proceed to Phase 2.
+When skipped via `catchup_mode == "skip"`: do not invoke `/catchup`. Set `state.catchup_mode = "skipped"` (so subsequent re-entries also skip), keep `phase: "build"` and `next_phase: "build"`, and proceed to Phase 1.5 (Design).
 
 Otherwise, decide between **full catchup** and **delta refresh** using the batch cache.
 
@@ -151,7 +151,7 @@ If all conditions hold → **delta refresh** (no `/catchup` invocation):
 - Update the Active Work section of `dev/local/project-capsule.md` with the current PRD list (use the same format Phase 9 step 8 uses). Leave Key Invariants, Architecture Decisions, Component Boundaries, GitHub State, Project Health, and Project Memories untouched — those reflect batch-stable knowledge.
 - Print a one-line note: `── AUTOPILOT ── catchup: delta refresh (cache <Xm> old, HEAD <sha7>) ──`
 
-After either path completes, proceed to Phase 2. Stay on `phase: "build"` and `next_phase: "build"`; do NOT add anything to `phases_completed` (build sub-steps skip by artifact, not by membership).
+After either path completes, proceed to Phase 1.5 (Design). Stay on `phase: "build"` and `next_phase: "build"`; do NOT add anything to `phases_completed` (build sub-steps skip by artifact, not by membership).
 
 ### Frontmatter examples
 
@@ -163,6 +163,34 @@ After either path completes, proceed to Phase 2. Stay on `phase: "build"` and `n
 - `---\nrework_cap: 5\n---` → `state.rework_cap = 5`. Phase 5 cap check allows 5 review cycles before pausing.
 - `---\nrework_cap: abc\n---` → `state.rework_cap = 3`, warning logged. Invalid value falls back to the default.
 - PRD with no `rework_cap` field → `state.rework_cap = 3` (default). Phase 5 cap check allows 3 review cycles before pausing.
+
+## Phase 1.5: Design (build-gate sub-step)
+
+Between catchup (Phase 1) and planning (Phase 2), in the SAME build session. Design turns the PRD's requirements (the WHAT) into a reviewed implementation design doc (the HOW) before tasks are planned. This is a BUILD-GATE SUB-STEP: `state.phase` stays `"build"`, there is **no** new phase enum value, **no** `phases_completed` entry, and **no** session handoff. The skip is by ARTIFACT (the design doc), exactly like catchup's capsule-freshness skip.
+
+Let `<prd-stem>` = `state.prd` with its trailing `.md` removed. The design doc artifact path is `dev/local/designs/<prd-stem>-design.md`.
+
+**Skip if `state.design_mode == "skip"`:** do not invoke `/design-solution`. Set `state.design_mode = "skipped"`, leave `state.design_doc` unset, and proceed to Phase 2.
+
+**Skip if the artifact already exists:** when `dev/local/designs/<prd-stem>-design.md` is already on disk (a manual `/design-solution` run earlier, or a work-abort replan re-entering the build gate). Log a one-line reuse note (`── AUTOPILOT ── design: reusing existing <prd-stem>-design.md ──`), set `state.design_doc` to that path, and proceed to Phase 2 — do NOT re-invoke the skill. This artifact-based skip is what lets work-abort replans reuse the design with no extra logic.
+
+**Otherwise, run design:**
+
+1. Invoke `/design-solution` with the wip PRD path (`dev/local/prds/wip/<state.prd>`).
+2. **On success (exit 0):** set `state.design_doc` to the artifact path it printed (`dev/local/designs/<prd-stem>-design.md`). Log the design decision (chosen approach + any unresolved non-blockers from the doc's `## Review log`) to `state.autonomous_decisions` under the existing audit label `autonomous` — do NOT add a `design` audit label (the audit-log label set is closed).
+3. **On failure (non-zero exit — unresolved cardinal sins/blockers after 2 reviewer dispatches):** treat as a sub-skill failure. PAUSE per the Error Handling table's "Sub-skill invocation fails outright" row — set `state.phase = "paused"` and `state.next_phase = "paused"`, report the open findings, and do NOT proceed to planning.
+
+**Design gate (`state.design_gate == "user"`):** after a successful design (or an artifact reuse), and only when `state.design_gate == "user"`, PAUSE before planning — present the design doc summary plus any unresolved non-blockers from `## Review log` via `AskUserQuestion`, and proceed to Phase 2 only after the user answers. This is a mid-turn `AskUserQuestion` PAUSE; it does not end the turn, so no `phase` change is needed.
+
+After design completes (run, skipped, or reused), stay on `phase: "build"` and `next_phase: "build"`; do NOT add anything to `phases_completed` (build sub-steps skip by artifact, not by membership). Then proceed to Phase 2.
+
+### Design frontmatter examples
+
+- `---\ndesign: skip\n---` → `state.design_mode = "skip"`. Phase 1.5 records mode `skipped` and advances to planning (still `phase: "build"`).
+- PRD with no `design:` field → `state.design_mode = "run"`. Phase 1.5 invokes `/design-solution` unless the design doc already exists (then it reuses it).
+- `---\ndesign: invalid\n---` → `state.design_mode = "run"`, warning logged.
+- `---\ndesign_gate: user\n---` → `state.design_gate = "user"`. Phase 1.5 PAUSEs for user review after a successful design, before planning.
+- PRD with no `design_gate` field → `state.design_gate` absent; no gate pause.
 
 ## Phase 2: Planning
 
