@@ -167,12 +167,9 @@ def main() -> None:
 
     # Write signal (idempotent: skip rewrite if value matches).
     signal_path = autopilot_dir / "signal"
-    try:
-        if signal_path.exists() and signal_path.read_text().strip() == computed:
-            pass  # already correct; leave file untouched
-        else:
-            signal_path.write_text(computed)
-    except OSError:
+    if signal_path.exists() and signal_path.read_text().strip() == computed:
+        pass  # already correct; leave file untouched
+    else:
         signal_path.write_text(computed)
 
     # Batch end: delete state.json after emitting "done" so the next batch
