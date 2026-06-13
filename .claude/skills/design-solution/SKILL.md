@@ -142,7 +142,7 @@ design-solution: <prd-stem>
   doc: dev/local/designs/<prd-stem>-design.md
   reviewer dispatches: <n>/2
   findings: cardinal-sin <c>, blocker <b>, non-blocker <nb>, question <q>
-  open blockers: <0, or a list>
+  open cardinal sins/blockers: <none, or a list>
   result: ok | failed (open cardinal sins/blockers)
 ```
 
