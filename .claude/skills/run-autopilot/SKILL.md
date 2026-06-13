@@ -53,7 +53,7 @@ Batch end and any cleanup step enumerate the disposable list explicitly; they ne
 
 When `/run-autopilot` is invoked and `dev/local/autopilot/state.json` exists with `batch.completed_prds`, this is a continuation after a session restart. Preserve `batch.completed_prds` (including `batch.id`) and proceed to Phase 0 to pick the next PRD.
 
-Clean up stale signal file at start: locate the autopilot dir with the walk-up helper (`_walk_up.py --bash`) and delete `<autopilot_dir>/signal` if it exists. Do not use a bare relative path.
+Clean up stale signal file at start: locate the autopilot dir with the walk-up helper (`_walk_up.py --bash`) and delete `<autopilot_dir>/signal` if it exists. Do not use a bare relative path. **This is an intentional resume-safety delete, not a handoff signal write.** It clears a leftover signal from an abnormal exit (a non-loop crash) so the loop acts only on signals the Stop hook writes this session. It is therefore distinct from the signal-write migration (PRD 00043): the "zero model-issued signal writes" success metric counts model-issued handoff *writes*, which this session-start cleanup *delete* is not, so the metric explicitly excludes it.
 
 ### Task Counts
 
