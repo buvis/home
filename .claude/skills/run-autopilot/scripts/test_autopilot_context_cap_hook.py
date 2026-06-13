@@ -640,5 +640,59 @@ class InstructionBuilderContractTests(unittest.TestCase):
         self.assertIn("stalled", text.lower())
 
 
+class MarkerStateAtomicityTests(unittest.TestCase):
+    """C2: marker-first + rollback. The `.cap-fired` marker is present iff the
+    rotation/stall is recorded, so a marker-write OSError can never leave a
+    state record that the next PostToolUse misreads as a second consecutive
+    rotation (a false-livelock oversized-task stall)."""
+
+    def setUp(self) -> None:
+        self.module = _load_hook_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.ap = Path(self.tmp.name)
+
+    def _write_state(self) -> None:
+        state = {
+            "phase": "build",
+            "cycle": 1,
+            "cap_rotations": [],
+            "tasks": [{"id": "task-x", "name": "y", "status": "in_progress"}],
+        }
+        (self.ap / "state.json").write_text(json.dumps(state))
+
+    def test_marker_write_failure_during_rotation_leaves_cap_rotations_unchanged(
+        self,
+    ) -> None:
+        """If the marker write fails, _handle_rotation must not record a rotation
+        in state.cap_rotations — a rotation-without-marker re-fires as a false
+        livelock. (A directory at the marker path makes write_text raise
+        IsADirectoryError, an OSError.)"""
+        self._write_state()
+        marker = self.ap / ".cap-fired"
+        marker.mkdir()
+        self.module._handle_rotation(self.ap, marker, "task-x", 500_000)
+        after = json.loads((self.ap / "state.json").read_text())
+        self.assertEqual(
+            after.get("cap_rotations"),
+            [],
+            "a marker-write failure must leave cap_rotations unchanged",
+        )
+
+    def test_marker_write_failure_during_livelock_leaves_stall_unset(self) -> None:
+        """Same invariant on the livelock path: a marker-write failure must not
+        record an oversized-task stall."""
+        self._write_state()
+        marker = self.ap / ".cap-fired"
+        marker.mkdir()
+        self.module._handle_livelock(self.ap, marker, "task-x", 600_000)
+        after = json.loads((self.ap / "state.json").read_text())
+        self.assertNotIn(
+            "stall_reason",
+            after,
+            "a marker-write failure must not record an oversized-task stall",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
