@@ -85,13 +85,21 @@ def _parse_block(block_text: str) -> dict[str, dict[str, str]]:
             sections[current] = {}
             continue
 
-        # Entry line: "  key: value" (may contain colons in value)
+        # Entry line: "  key: value". The features section splits on the LAST
+        # colon: feature names may themselves contain colons (e.g.
+        # "update-pidash-tasks.py::main()") while feature values are a
+        # colon-free enum {verified, reviewed, failed}. Every other section's
+        # value may contain colons (files' "n/a:<reason>") while its key cannot,
+        # so they split on the FIRST colon.
         if ":" in line:
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip()
             if current is None:
                 raise ValueError(f"entry before any section header: {line!r}")
+            if current == "features":
+                key, _, value = line.rpartition(":")
+            else:
+                key, _, value = line.partition(":")
+            key = key.strip()
+            value = value.strip()
             sections[current][key] = value
             continue
 
