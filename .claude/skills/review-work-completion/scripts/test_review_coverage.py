@@ -404,6 +404,45 @@ class ReviewCoverageTests(unittest.TestCase):
         self.assertIn("Beta", result.stderr)
 
     # ------------------------------------------------------------------
+    # Edge case: feature name containing '::' must still map -> exit 0
+    # ------------------------------------------------------------------
+
+    def test_feature_name_with_colons_maps_and_passes(self) -> None:
+        """A PRD feature name containing '::' must map to its coverage entry.
+
+        Regression: _parse_block split entry lines on the FIRST colon, so a
+        feature key like 'Split update-pidash-tasks.py::main()' truncated to an
+        unmatchable key with a bogus verdict and tripped the gate. Feature
+        values are a colon-free enum, so the features section splits on the
+        LAST colon.
+        """
+        repo, base_sha = _setup_repo(self.tmp)
+        feature = "Split update-pidash-tasks.py::main()"
+        prd = _write_prd(self.tmp, features=[feature])
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/foo.py": "reviewed", "src/bar.py": "reviewed"},
+            tests="pytest: pass=5 fail=0 skip=0",
+            features={feature: "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            f"colon-containing feature should map; stderr: {result.stderr[:200]!r}",
+        )
+
+    # ------------------------------------------------------------------
     # Edge case: rubric rule absent from rubric dimension -> MISSING_RUBRIC_RULE
     # ------------------------------------------------------------------
 
