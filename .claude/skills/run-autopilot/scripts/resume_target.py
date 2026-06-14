@@ -22,6 +22,23 @@ def _first_non_completed_task(tasks: list[dict]) -> dict | None:
     return None
 
 
+def _review_resume_target(state: dict, phase: str) -> str:
+    """Resume target for the review/blind/doubt gates, driven by phases_completed."""
+    completed = state.get("phases_completed", [])
+    if phase == "review":
+        if "review" not in completed:
+            return "run review loop"
+        return "skip review -> blind"
+    if phase == "blind":
+        if "blind" in completed:
+            return "skip blind -> doubt"
+        return "run blind"
+    # phase == "doubt"
+    if "doubt" in completed:
+        return "skip doubt -> done"
+    return "run doubt"
+
+
 def resume_target(state: dict) -> str:
     """Return a string describing the next action for a parked state.
 
@@ -50,19 +67,7 @@ def resume_target(state: dict) -> str:
         return "paused: await user"
 
     if phase in ("review", "blind", "doubt"):
-        completed = state.get("phases_completed", [])
-        if phase == "review":
-            if "review" not in completed:
-                return "run review loop"
-            return "skip review -> blind"
-        if phase == "blind":
-            if "blind" in completed:
-                return "skip blind -> doubt"
-            return "run blind"
-        # phase == "doubt"
-        if "doubt" in completed:
-            return "skip doubt -> done"
-        return "run doubt"
+        return _review_resume_target(state, phase)
 
     if phase == "build":
         tasks = state.get("tasks", [])
