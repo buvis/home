@@ -3,6 +3,7 @@
 Stdlib-only unittest, subprocess.run pattern (matches ~/.claude/hooks/tests/).
 """
 
+import contextlib
 import importlib.util
 import inspect
 import io
@@ -691,6 +692,64 @@ class MarkerStateAtomicityTests(unittest.TestCase):
             "stall_reason",
             after,
             "a marker-write failure must not record an oversized-task stall",
+        )
+
+    def test_state_append_failure_during_rotation_rolls_back_marker(self) -> None:
+        """C2 rollback path (the other half of the invariant): when the marker
+        write SUCCEEDS but the cap_rotations state append FAILS, _handle_rotation
+        must unlink the marker and emit no envelope. Otherwise a
+        marker-without-rotation would block the cap forever (the next fire sees
+        the marker and no-ops). The existing marker-write-failure test covers
+        only the marker-FIRST failure; this covers the unlink rollback."""
+        self._write_state()
+        marker = self.ap / ".cap-fired"
+        # Marker write succeeds (writable temp dir); force the state append to
+        # fail so the rollback branch runs.
+        self.module._append_rotation_to_state = lambda *a, **k: False
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self.module._handle_rotation(self.ap, marker, "task-x", 500_000)
+        self.assertFalse(
+            marker.exists(),
+            "a state-append failure must roll back (unlink) the marker",
+        )
+        after = json.loads((self.ap / "state.json").read_text())
+        self.assertEqual(
+            after.get("cap_rotations"),
+            [],
+            "no rotation may be recorded when the state append fails",
+        )
+        self.assertEqual(
+            captured.getvalue().strip(),
+            "",
+            "no rotation envelope may be emitted when the state append fails",
+        )
+
+    def test_state_write_failure_during_livelock_rolls_back_marker(self) -> None:
+        """C2 rollback path on the livelock branch: marker write succeeds, the
+        oversized-stall state write fails -> _handle_livelock unlinks the marker
+        and emits no envelope, leaving no stall_reason for the next fire to act
+        on spuriously."""
+        self._write_state()
+        marker = self.ap / ".cap-fired"
+        self.module._set_oversized_stall = lambda *a, **k: False
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self.module._handle_livelock(self.ap, marker, "task-x", 600_000)
+        self.assertFalse(
+            marker.exists(),
+            "a state-write failure must roll back (unlink) the marker",
+        )
+        after = json.loads((self.ap / "state.json").read_text())
+        self.assertNotIn(
+            "stall_reason",
+            after,
+            "no oversized-task stall may be recorded when the state write fails",
+        )
+        self.assertEqual(
+            captured.getvalue().strip(),
+            "",
+            "no stall envelope may be emitted when the state write fails",
         )
 
 
