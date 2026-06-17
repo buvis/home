@@ -1729,6 +1729,113 @@ class CargoStackTests(unittest.TestCase):
         run_cmd.assert_not_called()
 
 
+class GoStackTests(unittest.TestCase):
+    """The go (Go) stack: registry entry, package-scoped argv run from the module
+    root, go test -json parser, detection, and the engine cwd=scope_dir contract."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.work_tree = (self.tmp / "repo")
+        self.work_tree.mkdir()
+        self.work_tree = self.work_tree.resolve()
+
+    def _touch(self, rel: str) -> None:
+        p = self.work_tree / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x\n")
+
+    def test_go_stack_is_registered_with_real_callables(self) -> None:
+        by_name = {s.name: s for s in review_coverage.STACKS}
+        self.assertIn("go", by_name)
+        go = by_name["go"]
+        self.assertEqual(go.markers, ("go.mod",))
+        self.assertTrue(go.file_re.search("pkg/handler.go"))
+        self.assertFalse(go.file_re.search("pkg/handler.py"))
+        self.assertEqual(
+            go.parse('{"Action":"pass","Test":"TestX"}\n', 0), "pass=1 fail=0 skip=0"
+        )
+
+    def test_go_cmd_scopes_to_changed_packages_relative_to_module(self) -> None:
+        """Each changed .go file's package dir becomes a './pkg/...' pattern
+        relative to the module root (scope_dir), deduped."""
+        scope = self.work_tree / "svc"
+        scope.mkdir()
+        argv = review_coverage._go_cmd(
+            self.work_tree, scope, ["svc/handler/h.go", "svc/store/s.go", "svc/handler/h2.go"]
+        )
+        self.assertEqual(argv[:3], ["go", "test", "-json"])
+        self.assertIn("./handler/...", argv)
+        self.assertIn("./store/...", argv)
+        # handler appears once despite two changed files in it.
+        self.assertEqual(argv.count("./handler/..."), 1)
+
+    def test_go_cmd_root_package_pattern(self) -> None:
+        """A .go file directly in the module root yields the './...' pattern."""
+        scope = self.work_tree / "svc"
+        scope.mkdir()
+        argv = review_coverage._go_cmd(self.work_tree, scope, ["svc/main.go"])
+        self.assertEqual(argv, ["go", "test", "-json", "./..."])
+
+    def test_parse_go_json_counts_test_level_actions_only(self) -> None:
+        """pass/fail/skip on objects WITH a 'Test' key are counted; package-level
+        actions (no 'Test') and run/output actions are ignored."""
+        out = (
+            '{"Action":"run","Test":"TestA"}\n'
+            '{"Action":"output","Test":"TestA","Output":"ok\\n"}\n'
+            '{"Action":"pass","Test":"TestA","Elapsed":0.01}\n'
+            '{"Action":"fail","Test":"TestB"}\n'
+            '{"Action":"skip","Test":"TestC"}\n'
+            '{"Action":"pass","Package":"x","Elapsed":0.1}\n'   # package-level: ignored
+        )
+        self.assertEqual(review_coverage._parse_go_json(out, 1), "pass=1 fail=1 skip=1")
+
+    def test_parse_go_json_tolerates_non_json_noise(self) -> None:
+        """Stray non-JSON lines (build output) are skipped, not fatal."""
+        out = (
+            "go: downloading example.com/x v1.2.3\n"
+            '{"Action":"pass","Test":"TestA"}\n'
+            "FAIL\tbad line\n"
+            '{"Action":"pass","Test":"TestB"}\n'
+        )
+        self.assertEqual(review_coverage._parse_go_json(out, 0), "pass=2 fail=0 skip=0")
+
+    def test_parse_go_json_zero_test_actions_returns_none(self) -> None:
+        """No test-level action at all (only package events / build failure) -> None."""
+        out = '{"Action":"fail","Package":"x"}\nbuild failed\n'
+        self.assertIsNone(review_coverage._parse_go_json(out, 2))
+
+    def test_go_file_with_go_mod_activates_and_runs_from_module_root(self) -> None:
+        """A changed .go under a nested go.mod activates the go stack; the engine
+        runs the command with cwd = the module root (scope_dir), not the repo root,
+        and scopes to the changed package."""
+        (self.work_tree / "svc").mkdir()
+        (self.work_tree / "svc" / "go.mod").write_text("module x\n")
+        self._touch("svc/handler/h.go")
+        captured: dict[str, object] = {}
+
+        def fake(argv, cwd, *a, **k):
+            captured["argv"] = argv
+            captured["cwd"] = cwd
+            return ('{"Action":"pass","Test":"TestH"}\n', 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            result = review_coverage._run_native_tests(["svc/handler/h.go"], self.work_tree)
+        self.assertEqual(result, {"go": "pass=1 fail=0 skip=0"})
+        self.assertEqual(Path(captured["cwd"]).resolve(), (self.work_tree / "svc").resolve())
+        self.assertEqual(captured["argv"], ["go", "test", "-json", "./handler/..."])
+
+    def test_go_file_without_go_mod_is_unsupported(self) -> None:
+        """A changed .go with no go.mod above it -> UNSUPPORTED_STACK, no run."""
+        self._touch("pkg/thing.go")
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            with self.assertRaises(SystemExit) as ctx:
+                review_coverage._run_native_tests(["pkg/thing.go"], self.work_tree)
+        self.assertNotEqual(ctx.exception.code, 0)
+        run_cmd.assert_not_called()
+
+
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
 
 
