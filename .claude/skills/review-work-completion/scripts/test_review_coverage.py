@@ -1455,20 +1455,33 @@ class RunNativeTestsDetectionTests(unittest.TestCase):
             str((self.work_tree / "src/test_thing.py").resolve()),
         )
 
-    def test_changed_test_file_collecting_nothing_omits_stack(self) -> None:
+    def test_changed_test_file_collecting_nothing_fails_loud(self) -> None:
         """A changed test file that pytest collects nothing from (parse -> None)
-        contributes no entry: result has no 'pytest' key (-> downstream
-        EMPTY_TESTS), it is NOT recorded as zero-count coverage."""
+        is an activated stack producing no counts: the gate fails loud with
+        EMPTY_TESTS naming the stack (design contract L175-176), NOT a silent
+        omit. The net exit kind stays EMPTY_TESTS, so the single-stack outcome
+        matches the prior behavior, while the message now names the stack and a
+        polyglot sibling can no longer mask it."""
         self._touch("src/test_thing.py")
+        import io
+        import contextlib
+        buf = io.StringIO()
         with mock.patch.object(
             review_coverage, "_run_cmd",
             side_effect=lambda *a, **k: ("no tests ran in 0.01s", 5),
         ):
-            result = review_coverage._run_native_tests(
-                ["src/test_thing.py"], self.work_tree
-            )
-        self.assertNotIn("pytest", result)
-        self.assertEqual(result, {})
+            with contextlib.redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    review_coverage._run_native_tests(
+                        ["src/test_thing.py"], self.work_tree
+                    )
+        self.assertNotEqual(ctx.exception.code, 0)
+        err = buf.getvalue()
+        self.assertTrue(
+            err.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {err[:120]!r}",
+        )
+        self.assertIn("pytest", err)
 
     # Genuinely-unknown languages the PRD never adds. We deliberately AVOID
     # .rs/.go/.ts/.js (those become recognized stacks in later tasks and would
@@ -1982,6 +1995,129 @@ class FullRegistryEnumerationTests(unittest.TestCase):
 
 
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
+
+
+class ReworkCycle2EngineTests(unittest.TestCase):
+    """Cycle-1 review rework: polyglot detection (C), per-stack fail-loud on a
+    None parse (D), pytest cwd=work_tree under a sub-dir marker (G), and the
+    symlinked-work_tree boundary (E)."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.work_tree = self.tmp / "repo"
+        self.work_tree.mkdir()
+
+    def _touch(self, rel: str) -> None:
+        p = self.work_tree / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x\n")
+
+    def test_polyglot_rust_python_activates_both_stacks(self) -> None:
+        """A mixed Rust+Python diff (a .rs under Cargo.toml plus a changed
+        test_*.py) activates BOTH stacks; the tests dimension is keyed per stack
+        (PRD acceptance; design L235)."""
+        (self.work_tree / "Cargo.toml").write_text("[package]\nname='x'\n")
+        self._touch("src/lib.rs")
+        self._touch("tests/test_thing.py")
+
+        def fake(argv, cwd, *a, **k):
+            if argv[0] == "cargo":
+                return ("test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured;", 0)
+            return ("3 passed in 0.1s", 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            result = review_coverage._run_native_tests(
+                ["src/lib.rs", "tests/test_thing.py"], self.work_tree
+            )
+        self.assertEqual(
+            result, {"cargo": "pass=2 fail=0 skip=0", "pytest": "pass=3 fail=0 skip=0"}
+        )
+
+    def test_polyglot_one_stack_none_fails_loud_naming_stack(self) -> None:
+        """In a polyglot diff, an activated stack whose parser returns None must
+        fail loud (EMPTY_TESTS naming that stack) rather than be silently dropped
+        while a sibling stack masks it green (design L175-176; the PRD's
+        'never a silent green' goal)."""
+        (self.work_tree / "Cargo.toml").write_text("[package]\nname='x'\n")
+        self._touch("src/lib.rs")
+        self._touch("tests/test_thing.py")
+
+        def fake(argv, cwd, *a, **k):
+            if argv[0] == "cargo":  # zero tests -> parser returns None
+                return ("test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured;", 0)
+            return ("3 passed in 0.1s", 0)
+
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            with contextlib.redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    review_coverage._run_native_tests(
+                        ["src/lib.rs", "tests/test_thing.py"], self.work_tree
+                    )
+        self.assertNotEqual(ctx.exception.code, 0)
+        err = buf.getvalue()
+        self.assertTrue(
+            err.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {err[:120]!r}",
+        )
+        self.assertIn("cargo", err)
+
+    def test_pytest_runs_from_work_tree_even_with_subdir_marker(self) -> None:
+        """pytest must run with cwd=work_tree even when a pyproject.toml sits in a
+        sub-dir between the changed test file and work_tree (design L82). Running
+        from the sub-dir would change pytest's rootdir/config discovery and break
+        byte-for-byte parity (the PRD's hard pytest requirement)."""
+        (self.work_tree / "pkg").mkdir()
+        (self.work_tree / "pkg" / "pyproject.toml").write_text("[tool]\n")
+        self._touch("pkg/test_thing.py")
+        captured: dict[str, object] = {}
+
+        def fake(argv, cwd, *a, **k):
+            captured["cwd"] = cwd
+            return ("1 passed in 0.01s", 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            result = review_coverage._run_native_tests(
+                ["pkg/test_thing.py"], self.work_tree
+            )
+        self.assertEqual(result, {"pytest": "pass=1 fail=0 skip=0"})
+        self.assertEqual(
+            Path(captured["cwd"]).resolve(), self.work_tree.resolve()
+        )
+
+    def test_symlinked_work_tree_does_not_escape_to_out_of_tree_marker(self) -> None:
+        """When work_tree is a symlink (resolved != unresolved, e.g. macOS
+        /tmp->/private or a relative --repo .), the scope walk must terminate at
+        the work_tree boundary, NOT climb above it and activate a marker-requiring
+        stack against an out-of-tree marker. A .rs with no in-tree Cargo.toml but
+        one ABOVE the tree must fail UNSUPPORTED_STACK, never silently run cargo
+        against the outer manifest (design L156; Alice's verified boundary bug)."""
+        real = self.tmp / "real_tree"
+        real.mkdir()
+        (real / "src").mkdir()
+        (real / "src" / "lib.rs").write_text("x\n")
+        # Marker ABOVE the work tree (in the shared parent), out of the tree.
+        (self.tmp / "Cargo.toml").write_text("[package]\nname='outer'\n")
+        link = self.tmp / "link_tree"
+        link.symlink_to(real)  # link.resolve() == real, so resolved != unresolved
+
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            with contextlib.redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    review_coverage._run_native_tests(["src/lib.rs"], link)
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertTrue(
+            buf.getvalue().startswith("UNSUPPORTED_STACK"),
+            f"Expected UNSUPPORTED_STACK prefix, got: {buf.getvalue()[:120]!r}",
+        )
+        run_cmd.assert_not_called()
 
 
 def _run_consolidate(

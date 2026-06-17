@@ -260,7 +260,12 @@ class Stack:
     file_re: re.Pattern[str]
     markers: tuple[str, ...]
     build_cmd: Callable[[Path, Path, list[str]], list[str]]   # (work_tree, scope_dir, rel_targets) -> argv
-    parse: Callable[[str, int], str | None]                   # (output, returncode) -> "pass=P fail=S skip=S" | None
+    parse: Callable[[str, int], str | None]                   # (output, returncode) -> "pass=P fail=F skip=S" | None
+    # True -> run the native command from scope_dir (the marker/module root):
+    # go/npm need their package root. False (default) -> run from work_tree:
+    # pytest needs a stable rootdir/config discovery (byte-for-byte parity) and
+    # cargo is cwd-independent (--manifest-path is absolute).
+    cwd_at_scope: bool = False
 
 
 def _pytest_cmd(work_tree: Path, scope_dir: Path, rel_targets: list[str]) -> list[str]:
@@ -415,9 +420,10 @@ STACKS: tuple[Stack, ...] = (
     Stack("pytest", re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$"),
           ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini"), _pytest_cmd, _parse_pytest),
     Stack("cargo", re.compile(r"\.rs$"), ("Cargo.toml",), _cargo_cmd, _parse_cargo),
-    Stack("go", re.compile(r"\.go$"), ("go.mod",), _go_cmd, _parse_go_json),
+    Stack("go", re.compile(r"\.go$"), ("go.mod",), _go_cmd, _parse_go_json,
+          cwd_at_scope=True),
     Stack("npm", re.compile(r"\.(?:[cm]?jsx?|[cm]?tsx?)$"), ("package.json",),
-          _npm_cmd, _parse_jest_vitest),
+          _npm_cmd, _parse_jest_vitest, cwd_at_scope=True),
 )
 
 _NON_CODE_SUFFIXES = {
@@ -457,12 +463,14 @@ def _scope_dir_for(file_dir: Path, work_tree: Path, markers: tuple[str, ...]) ->
         current = parent
 
 
-def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
-    """Detect active (stack, scope_dir) pairs from the diff, run each once, and
-    return {stack.name: 'pass=P fail=F skip=S'}. Fails loud (UNSUPPORTED_STACK)
-    on an unknown-language code file or a marker-requiring language missing its
-    marker. Returns {} for a code-free diff or one whose only code is recognized
-    but has no runnable changed-test target (e.g. a non-test .py)."""
+def _detect_active_stacks(
+    diff_files: list[str], work_tree: Path
+) -> tuple[list[tuple[Stack, Path, str]], list[str]]:
+    """Match each changed file to a stack and resolve its scope dir. Returns
+    (activated, unsupported): activated is [(stack, scope_dir, rel)]; unsupported
+    is the changed paths in an unknown language or a marker-requiring language
+    missing its marker. work_tree must already be resolved by the caller, so the
+    scope walk compares resolved-to-resolved and terminates at the tree boundary."""
     activated: list[tuple[Stack, Path, str]] = []  # (stack, scope_dir, rel_target)
     unsupported: list[str] = []
 
@@ -477,7 +485,7 @@ def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
             file_dir = (work_tree / path).resolve().parent
             scope_dir = _scope_dir_for(file_dir, work_tree, matched.markers)
             if scope_dir is None and matched.name == "pytest":
-                scope_dir = work_tree
+                scope_dir = work_tree  # pytest is markerless: fall back to root
             if scope_dir is None:
                 unsupported.append(path)
             else:
@@ -491,6 +499,19 @@ def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
         if suffix in _NON_CODE_SUFFIXES:
             continue  # code-free
         unsupported.append(path)
+
+    return activated, unsupported
+
+
+def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
+    """Detect active (stack, scope_dir) pairs from the diff, run each once, and
+    return {stack.name: 'pass=P fail=F skip=S'}. Fails loud (UNSUPPORTED_STACK)
+    on an unknown-language code file or a marker-requiring language missing its
+    marker; fails loud (EMPTY_TESTS, naming the stack) when an activated stack
+    runs but its parser yields no counts. Returns {} for a code-free diff or one
+    whose only code is recognized but has no runnable changed-test target."""
+    work_tree = work_tree.resolve()  # resolve once so the scope walk terminates
+    activated, unsupported = _detect_active_stacks(diff_files, work_tree)
 
     if unsupported:
         _fail(
@@ -512,16 +533,16 @@ def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
             if name != stack.name:
                 continue
             argv = stack.build_cmd(work_tree, scope_dir, rel_targets)
-            # cwd = scope_dir (the marker dir): go/npm must run from their module
-            # root; pytest (absolute paths) and cargo (--manifest-path) are
-            # cwd-independent, and pytest's scope_dir falls back to work_tree.
-            out, rc = _run_cmd(argv, scope_dir)
+            # go/npm run from their module root (scope_dir); pytest needs a stable
+            # rootdir (work_tree) and cargo is cwd-independent (--manifest-path).
+            cwd = scope_dir if stack.cwd_at_scope else work_tree
+            out, rc = _run_cmd(argv, cwd)
             summary = stack.parse(out, rc)
             if summary is None:
-                # The stack ran but produced no counts (e.g. pytest "no tests
-                # ran"). Omit it; downstream _check_empty_tests yields EMPTY_TESTS
-                # when the diff has reviewed code but no real counts.
-                continue
+                # Activated stack ran but produced no counts: fail loud naming it,
+                # so a polyglot sibling that filled counts cannot mask the gap.
+                _fail("EMPTY_TESTS", f"{stack.name} ran but produced no counts")
+                continue  # unreachable; _fail exits, but narrows summary for mypy
             m = re.match(r"pass=(\d+) fail=(\d+) skip=(\d+)", summary)
             p, f, sk = int(m.group(1)), int(m.group(2)), int(m.group(3))
             cur = counts.get(stack.name, (0, 0, 0))
