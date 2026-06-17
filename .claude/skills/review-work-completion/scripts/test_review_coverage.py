@@ -1131,11 +1131,9 @@ class StackRegistryTests(unittest.TestCase):
         by_name = {s.name: s for s in review_coverage.STACKS}
         self.assertIn("pytest", by_name)
         pytest_stack = by_name["pytest"]
-        # Task 1 ships exactly ONE entry.
-        self.assertEqual(
-            [s.name for s in review_coverage.STACKS], ["pytest"],
-            "task 1 registry must contain exactly the pytest stack",
-        )
+        # pytest is the first registered stack (task 1); later tasks append more.
+        # The exact registry membership is pinned by FullRegistryEnumerationTests.
+        self.assertEqual(review_coverage.STACKS[0].name, "pytest")
         # parse: real count folding, including the no-tests None case.
         self.assertEqual(
             pytest_stack.parse("7 passed in 0.30s", 0), "pass=7 fail=0 skip=0"
@@ -1638,6 +1636,97 @@ class NativeTestsCarveOutCliTests(unittest.TestCase):
             f"Expected EMPTY_TESTS prefix, got: {result.stderr[:120]!r}",
         )
         self.assertNotIn("UNSUPPORTED_STACK", result.stderr)
+
+
+class CargoStackTests(unittest.TestCase):
+    """The cargo (Rust) stack: registry entry, scoped argv, libtest parser, detection."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.work_tree = (self.tmp / "repo")
+        self.work_tree.mkdir()
+        self.work_tree = self.work_tree.resolve()
+
+    def _touch(self, rel: str) -> None:
+        p = self.work_tree / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x\n")
+
+    def test_cargo_stack_is_registered_with_real_callables(self) -> None:
+        """A 'cargo' entry exists; its file_re/markers/parse are the real impls."""
+        by_name = {s.name: s for s in review_coverage.STACKS}
+        self.assertIn("cargo", by_name)
+        cargo = by_name["cargo"]
+        self.assertEqual(cargo.markers, ("Cargo.toml",))
+        self.assertTrue(cargo.file_re.search("src/lib.rs"))
+        self.assertFalse(cargo.file_re.search("src/lib.py"))
+        # parse is the genuine summing impl, not a placeholder constant.
+        self.assertEqual(
+            cargo.parse("test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured;", 0),
+            "pass=3 fail=0 skip=0",
+        )
+
+    def test_cargo_cmd_is_manifest_scoped_and_no_fail_fast(self) -> None:
+        """argv pins the changed crate via --manifest-path and runs every test."""
+        scope = self.work_tree / "crates" / "core"
+        scope.mkdir(parents=True)
+        argv = review_coverage._cargo_cmd(self.work_tree, scope, ["crates/core/src/lib.rs"])
+        self.assertEqual(argv[:2], ["cargo", "test"])
+        self.assertIn("--manifest-path", argv)
+        manifest = argv[argv.index("--manifest-path") + 1]
+        self.assertEqual(str(Path(manifest).resolve()), str((scope / "Cargo.toml").resolve()))
+        self.assertIn("--no-fail-fast", argv)
+
+    def test_parse_cargo_single_binary(self) -> None:
+        """A single libtest summary folds ignored into skip."""
+        out = "test result: ok. 12 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.05s\n"
+        self.assertEqual(review_coverage._parse_cargo(out, 0), "pass=12 fail=0 skip=3")
+
+    def test_parse_cargo_sums_across_binaries(self) -> None:
+        """Multiple test binaries each print a summary line; counts sum."""
+        out = (
+            "test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out;\n"
+            "running 6 tests\n"
+            "test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out;\n"
+        )
+        self.assertEqual(review_coverage._parse_cargo(out, 101), "pass=9 fail=2 skip=1")
+
+    def test_parse_cargo_no_summary_line_returns_none(self) -> None:
+        """No libtest summary anywhere (build error, nothing ran) -> None."""
+        self.assertIsNone(review_coverage._parse_cargo("error[E0432]: unresolved import\n", 101))
+
+    def test_parse_cargo_all_zero_returns_none(self) -> None:
+        """A summary with zero tests across all binaries is no-coverage -> None
+        (fail-loud parity with the pytest 'no tests ran' contract)."""
+        out = "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;\n"
+        self.assertIsNone(review_coverage._parse_cargo(out, 0))
+
+    def test_rust_file_with_cargo_toml_activates_cargo(self) -> None:
+        """A changed .rs with Cargo.toml above it activates only the cargo stack."""
+        (self.work_tree / "Cargo.toml").write_text("[package]\nname='x'\n")
+        self._touch("src/lib.rs")
+        captured: dict[str, object] = {}
+
+        def fake(argv, cwd, *a, **k):
+            captured["argv"] = argv
+            return ("test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured;", 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            result = review_coverage._run_native_tests(["src/lib.rs"], self.work_tree)
+        self.assertEqual(result, {"cargo": "pass=2 fail=0 skip=0"})
+        self.assertEqual(captured["argv"][:2], ["cargo", "test"])
+
+    def test_rust_file_without_cargo_toml_is_unsupported(self) -> None:
+        """A changed .rs with NO Cargo.toml above it is a marker-requiring stack
+        missing its marker -> UNSUPPORTED_STACK, no command run."""
+        self._touch("src/lib.rs")
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            with self.assertRaises(SystemExit) as ctx:
+                review_coverage._run_native_tests(["src/lib.rs"], self.work_tree)
+        self.assertNotEqual(ctx.exception.code, 0)
+        run_cmd.assert_not_called()
 
 
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
