@@ -357,11 +357,67 @@ def _parse_go_json(output: str, returncode: int) -> str | None:
     return f"pass={passed} fail={failed} skip={skipped}"
 
 
+def _int_or_zero(pattern: str, text: str) -> int:
+    """First capture group of pattern as int, or 0 when pattern does not match."""
+    m = re.search(pattern, text)
+    return int(m.group(1)) if m else 0
+
+
+def _npm_cmd(work_tree: Path, scope_dir: Path, rel_targets: list[str]) -> list[str]:
+    """JS/TS test argv, run from the package root (scope_dir, the engine's cwd).
+    Detect the runner from scope_dir/package.json deps: vitest -> JSON reporter,
+    jest -> --json, otherwise best-effort `npm test --prefix`."""
+    deps: dict = {}
+    try:
+        data = json.loads((scope_dir / "package.json").read_text())
+        deps = {**data.get("devDependencies", {}), **data.get("dependencies", {})}
+    except (OSError, ValueError):
+        deps = {}
+    if "vitest" in deps:
+        return ["npx", "vitest", "run", "--reporter=json"]
+    if "jest" in deps:
+        return ["npx", "jest", "--json"]
+    return ["npm", "test", "--prefix", str(scope_dir)]
+
+
+def _parse_jest_vitest(output: str, returncode: int) -> str | None:
+    """Parse jest/vitest output. Prefer the machine JSON report (jest --json and
+    vitest --reporter=json share numPassedTests/numFailedTests/numPendingTests),
+    extracted even amid stderr noise; fall back to the human `Tests:` summary line.
+    None when no counts are found or every count is zero (fail-loud parity)."""
+    decoder = json.JSONDecoder()
+    idx = output.find("{")
+    while idx != -1:
+        try:
+            obj, _end = decoder.raw_decode(output[idx:])
+        except ValueError:
+            idx = output.find("{", idx + 1)
+            continue
+        if isinstance(obj, dict) and "numPassedTests" in obj:
+            passed = int(obj.get("numPassedTests", 0))
+            failed = int(obj.get("numFailedTests", 0))
+            skipped = int(obj.get("numPendingTests", 0))
+            if passed == 0 and failed == 0 and skipped == 0:
+                return None
+            return f"pass={passed} fail={failed} skip={skipped}"
+        idx = output.find("{", idx + 1)
+    m = re.search(r"Tests:.*", output)
+    if m:
+        passed = _int_or_zero(r"(\d+) passed", m.group(0))
+        failed = _int_or_zero(r"(\d+) failed", m.group(0))
+        skipped = _int_or_zero(r"(\d+) (?:skipped|todo|pending)", m.group(0))
+        if passed or failed or skipped:
+            return f"pass={passed} fail={failed} skip={skipped}"
+    return None
+
+
 STACKS: tuple[Stack, ...] = (
     Stack("pytest", re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$"),
           ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini"), _pytest_cmd, _parse_pytest),
     Stack("cargo", re.compile(r"\.rs$"), ("Cargo.toml",), _cargo_cmd, _parse_cargo),
     Stack("go", re.compile(r"\.go$"), ("go.mod",), _go_cmd, _parse_go_json),
+    Stack("npm", re.compile(r"\.(?:[cm]?jsx?|[cm]?tsx?)$"), ("package.json",),
+          _npm_cmd, _parse_jest_vitest),
 )
 
 _NON_CODE_SUFFIXES = {
