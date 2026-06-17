@@ -426,6 +426,11 @@ STACKS: tuple[Stack, ...] = (
           _npm_cmd, _parse_jest_vitest, cwd_at_scope=True),
 )
 
+# The markerless stack that owns .py. A changed .py NOT matching its file_re is a
+# Python source change with no pytest run target; used below to fail loud rather
+# than let a polyglot sibling stack mask an untested .py change green.
+_PYTEST: Stack = next(s for s in STACKS if s.name == "pytest")
+
 _NON_CODE_SUFFIXES = {
     ".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml", ".lock", ".cfg",
     ".ini", ".sh", ".bash", ".png", ".jpg", ".svg", ".gif", ".ico", ".csv",
@@ -548,10 +553,29 @@ def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
             cur = counts.get(stack.name, (0, 0, 0))
             counts[stack.name] = (cur[0] + p, cur[1] + f, cur[2] + sk)
 
-    return {
+    final = {
         name: f"pass={p} fail={f} skip={sk}"
         for name, (p, f, sk) in counts.items()
     }
+
+    # Polyglot masking guard: a non-test .py SOURCE change activates no pytest run
+    # target, so if a sibling stack filled counts it would otherwise green-gate the
+    # untested Python change. Fail loud naming pytest. A pure non-test-.py diff
+    # leaves `final` empty and is handled downstream by _check_empty_tests, so the
+    # markerless pytest contract (returns {} -> generic EMPTY_TESTS) is preserved.
+    py_source_no_target = any(
+        Path(p).suffix == ".py" and not _PYTEST.file_re.search(p)
+        for p in diff_files
+    )
+    if py_source_no_target and "pytest" not in counts and final:
+        _fail(
+            "EMPTY_TESTS",
+            "pytest: a .py source file changed but no changed test file ran; "
+            "a sibling stack filled counts (would otherwise mask the gap) — "
+            "add or change a test_*.py covering the Python change",
+        )
+
+    return final
 
 
 def _prd_features(prd: Path) -> list[str]:
