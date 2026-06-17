@@ -1096,6 +1096,550 @@ class ReviewCoverageTests(unittest.TestCase):
         self.assertNotIn("NotADirectoryError", result.stderr)
 
 
+# ---------------------------------------------------------------------------
+# White-box layer
+#
+# The black-box tests above drive the CLI via subprocess and never import the
+# module. The tests below import review_coverage directly to pin the internal
+# Stack registry, the native-test engine's detection behavior, the pytest
+# command builder's argv, and the pytest count parser (PRD: Stack registry +
+# native-test engine + pytest stack). Subprocess is the only mocked boundary;
+# all logic under test runs for real.
+# ---------------------------------------------------------------------------
+
+sys.path.insert(0, str(Path(__file__).parent))
+import review_coverage
+from unittest import mock
+
+
+class StackRegistryTests(unittest.TestCase):
+    """The registry is a DATA STRUCTURE listing stacks, not a chain of ifs."""
+
+    def test_stacks_is_a_sequence_of_stack_instances(self) -> None:
+        """STACKS is an enumerable tuple/sequence whose members are Stack."""
+        stacks = review_coverage.STACKS
+        # A data structure you can enumerate, not a function/dispatch table.
+        self.assertIsInstance(stacks, (tuple, list))
+        self.assertGreaterEqual(len(stacks), 1)
+        for s in stacks:
+            self.assertIsInstance(s, review_coverage.Stack)
+
+    def test_pytest_stack_is_registered_with_callables(self) -> None:
+        """Exactly the pytest entry ships in task 1, and its build_cmd/parse are
+        the REAL implementations -- we invoke them and assert genuine output, so
+        lambda placeholders (e.g. `lambda *a: "WRONG"`) cannot satisfy this."""
+        by_name = {s.name: s for s in review_coverage.STACKS}
+        self.assertIn("pytest", by_name)
+        pytest_stack = by_name["pytest"]
+        # Task 1 ships exactly ONE entry.
+        self.assertEqual(
+            [s.name for s in review_coverage.STACKS], ["pytest"],
+            "task 1 registry must contain exactly the pytest stack",
+        )
+        # parse: real count folding, including the no-tests None case.
+        self.assertEqual(
+            pytest_stack.parse("7 passed in 0.30s", 0), "pass=7 fail=0 skip=0"
+        )
+        self.assertEqual(
+            pytest_stack.parse("3 failed, 4 passed, 1 skipped in 1s", 1),
+            "pass=4 fail=3 skip=1",
+        )
+        self.assertIsNone(pytest_stack.parse("no tests ran in 0.01s", 5))
+        # build_cmd: real scoped, quiet argv with the changed file as abs target.
+        with tempfile.TemporaryDirectory() as td:
+            work_tree = Path(td)
+            argv = pytest_stack.build_cmd(work_tree, work_tree, ["src/test_x.py"])
+            self.assertEqual(argv[0], sys.executable)
+            self.assertEqual(argv[1:3], ["-m", "pytest"])
+            self.assertEqual(argv[-1], "-q")
+            expected_abs = str((work_tree / "src/test_x.py").resolve())
+            abs_targets = argv[3:-1]
+            self.assertEqual(len(abs_targets), 1)
+            self.assertTrue(Path(abs_targets[0]).is_absolute())
+            self.assertEqual(str(Path(abs_targets[0]).resolve()), expected_abs)
+
+    def test_pytest_stack_markers_and_file_re(self) -> None:
+        """pytest entry: markerless project files + test-file basename regex."""
+        pytest_stack = {s.name: s for s in review_coverage.STACKS}["pytest"]
+        self.assertEqual(
+            pytest_stack.markers,
+            ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini"),
+        )
+        # file_re matches test-file basenames test_*.py and *_test.py ...
+        self.assertTrue(pytest_stack.file_re.search("test_thing.py"))
+        self.assertTrue(pytest_stack.file_re.search("thing_test.py"))
+        # ... and not an ordinary module.
+        self.assertFalse(pytest_stack.file_re.search("thing.py"))
+
+
+class PytestCommandBuilderTests(unittest.TestCase):
+    """_pytest_cmd builds the scoped, current argv from changed test files."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+
+    def test_pytest_cmd_argv_is_scoped_quiet_form(self) -> None:
+        """argv == [sys.executable, '-m', 'pytest', <abs test file>, '-q']."""
+        work_tree = self.tmp / "repo"
+        work_tree.mkdir()
+        rel = "src/test_thing.py"
+        argv = review_coverage._pytest_cmd(work_tree, work_tree, [rel])
+        expected_abs = str((work_tree / rel).resolve())
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(argv[1:3], ["-m", "pytest"])
+        self.assertEqual(argv[-1], "-q")
+        # The changed test file is passed as an absolute path target.
+        abs_targets = argv[3:-1]
+        self.assertEqual(len(abs_targets), 1)
+        self.assertTrue(Path(abs_targets[0]).is_absolute())
+        self.assertEqual(str(Path(abs_targets[0]).resolve()), expected_abs)
+
+    def test_pytest_cmd_preserves_multiple_changed_targets(self) -> None:
+        """Each changed rel target becomes its own absolute argv entry, in order."""
+        work_tree = self.tmp / "repo"
+        work_tree.mkdir()
+        rels = ["a/test_one.py", "b/test_two.py"]
+        argv = review_coverage._pytest_cmd(work_tree, work_tree, rels)
+        abs_targets = argv[3:-1]
+        self.assertEqual(len(abs_targets), 2)
+        resolved = [str(Path(p).resolve()) for p in abs_targets]
+        self.assertEqual(
+            resolved,
+            [str((work_tree / r).resolve()) for r in rels],
+        )
+
+
+class RunCmdTimeoutTests(unittest.TestCase):
+    """_run_cmd runs foreground with a FINITE timeout (no unbounded waits)."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+
+    def test_run_cmd_default_timeout_is_finite_600(self) -> None:
+        """Default timeout passed to subprocess.run is the finite int 600."""
+        captured: dict[str, object] = {}
+
+        def fake_run(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return subprocess.CompletedProcess(
+                args=args[0] if args else kwargs.get("args"),
+                returncode=0,
+                stdout="1 passed in 0.01s",
+                stderr="",
+            )
+
+        with mock.patch.object(review_coverage.subprocess, "run", side_effect=fake_run):
+            review_coverage._run_cmd(["echo", "hi"], self.tmp)
+
+        timeout = captured["kwargs"].get("timeout")
+        self.assertIsInstance(timeout, int)
+        self.assertEqual(timeout, 600)
+
+    def test_run_cmd_passes_explicit_finite_timeout(self) -> None:
+        """An explicit timeout is forwarded verbatim and stays finite."""
+        captured: dict[str, object] = {}
+
+        def fake_run(*args, **kwargs):
+            captured["kwargs"] = kwargs
+            return subprocess.CompletedProcess(
+                args=args[0] if args else kwargs.get("args"),
+                returncode=0, stdout="", stderr="",
+            )
+
+        with mock.patch.object(review_coverage.subprocess, "run", side_effect=fake_run):
+            review_coverage._run_cmd(["echo", "hi"], self.tmp, timeout=42)
+
+        self.assertEqual(captured["kwargs"].get("timeout"), 42)
+
+    def test_run_cmd_returns_captured_stdout_and_returncode(self) -> None:
+        """_run_cmd must RETURN the subprocess stdout (not discard it) paired
+        with the returncode, and must capture text output -- so a stub that
+        throws stdout away cannot pass."""
+        captured: dict[str, object] = {}
+
+        def fake_run(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return subprocess.CompletedProcess(
+                args=args[0] if args else kwargs.get("args"),
+                returncode=7,
+                stdout="MARKER 3 passed",
+                stderr="",
+            )
+
+        with mock.patch.object(review_coverage.subprocess, "run", side_effect=fake_run):
+            out, rc = review_coverage._run_cmd(["echo", "hi"], self.tmp)
+
+        # The distinctive stdout must survive to the caller.
+        self.assertIn("MARKER 3 passed", out)
+        self.assertEqual(rc, 7)
+
+    def test_run_cmd_captures_text_in_passed_cwd(self) -> None:
+        """subprocess.run is invoked capturing text output in the given cwd."""
+        captured: dict[str, object] = {}
+
+        def fake_run(*args, **kwargs):
+            captured["kwargs"] = kwargs
+            return subprocess.CompletedProcess(
+                args=args[0] if args else kwargs.get("args"),
+                returncode=0, stdout="ok", stderr="",
+            )
+
+        with mock.patch.object(review_coverage.subprocess, "run", side_effect=fake_run):
+            review_coverage._run_cmd(["echo", "hi"], self.tmp)
+
+        kwargs = captured["kwargs"]
+        # Output is captured (either capture_output=True or stdout=PIPE).
+        captures = kwargs.get("capture_output") is True or (
+            kwargs.get("stdout") is subprocess.PIPE
+        )
+        self.assertTrue(captures, f"stdout not captured; kwargs={kwargs!r}")
+        self.assertEqual(kwargs.get("text"), True)
+        self.assertEqual(kwargs.get("cwd"), self.tmp)
+
+
+class ParsePytestTests(unittest.TestCase):
+    """_parse_pytest must PARSE arbitrary pytest -q summaries, not look up a
+    fixed set of golden strings. We build many (P, F, S, E) summaries
+    programmatically with varied clause order and whitespace, so a dict-literal
+    lookup table is infeasible -- the parser has to actually count."""
+
+    @staticmethod
+    def _summary(clauses: "list[str]", tail: str) -> str:
+        """Join count clauses with ', ' then append the timing tail."""
+        return ", ".join(clauses) + tail
+
+    def test_parse_counts_over_many_combinations(self) -> None:
+        """For many (P, F, S, E) tuples in VARIED clause order/whitespace,
+        _parse_pytest folds errors into fail and reports pass/fail/skip.
+
+        Each tuple yields a programmatically-built summary string; a lookup
+        table keyed on literal strings cannot satisfy this."""
+        # (passed, failed, skipped, errors) -- includes combinations NOT in the
+        # original 7 golden strings (e.g. P=9/S=4, P=10/F=2/S=3/E=1).
+        cases = [
+            (5, 0, 1, 0),
+            (5, 3, 2, 0),
+            (7, 0, 0, 0),
+            (2, 0, 0, 1),
+            (0, 0, 0, 3),
+            (9, 0, 4, 0),
+            (10, 2, 3, 1),
+            (1, 1, 1, 1),
+            (0, 4, 0, 0),
+            (12, 0, 0, 2),
+            (8, 5, 0, 0),
+            (0, 0, 6, 0),
+            (3, 0, 0, 0),
+            (15, 7, 11, 0),
+            (4, 0, 2, 5),
+        ]
+        for passed, failed, skipped, errors in cases:
+            # Build the clause list in a non-canonical order to defeat any
+            # order-sensitive shortcut: failed, passed, errors, skipped.
+            clauses: list[str] = []
+            if failed:
+                clauses.append(f"{failed} failed")
+            if passed:
+                clauses.append(f"{passed} passed")
+            if errors:
+                noun = "error" if errors == 1 else "errors"
+                clauses.append(f"{errors} {noun}")
+            if skipped:
+                clauses.append(f"{skipped} skipped")
+            if not clauses:
+                continue  # the all-zero summary is covered by the None cases
+            # Vary the timing tail whitespace/precision across cases.
+            tail = " in 0.12s" if (passed + failed) % 2 == 0 else " in 1s"
+            summary = self._summary(clauses, tail)
+            rc = 0 if (failed + errors) == 0 else 1
+            expected = f"pass={passed} fail={failed + errors} skip={skipped}"
+            with self.subTest(summary=summary, rc=rc):
+                self.assertEqual(
+                    review_coverage._parse_pytest(summary, rc), expected
+                )
+
+    def test_parse_tolerates_extra_internal_whitespace(self) -> None:
+        """Irregular spacing between clauses must not change the parsed counts."""
+        cases = [
+            ("4 failed,  6 passed,   2 skipped in 0.5s", 1, "pass=6 fail=4 skip=2"),
+            ("7 passed,1 skipped in 0.12s", 0, "pass=7 fail=0 skip=1"),
+            ("11 passed,  3 errors in 0.2s", 1, "pass=11 fail=3 skip=0"),
+        ]
+        for summary, rc, expected in cases:
+            with self.subTest(summary=summary):
+                self.assertEqual(
+                    review_coverage._parse_pytest(summary, rc), expected
+                )
+
+    def test_parse_zero_tests_returns_none(self) -> None:
+        """pytest exit-5 'no tests ran' summary -> None (loud-fail parity)."""
+        out = "no tests ran in 0.01s"
+        self.assertIsNone(review_coverage._parse_pytest(out, 5))
+
+    def test_parse_empty_output_returns_none(self) -> None:
+        """No countable tokens at all -> None, not a fabricated all-zero pass."""
+        self.assertIsNone(review_coverage._parse_pytest("", 5))
+
+
+class RunNativeTestsDetectionTests(unittest.TestCase):
+    """_run_native_tests detection: which diffs activate which stacks."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.work_tree = self.tmp / "repo"
+        self.work_tree.mkdir()
+
+    def _touch(self, rel: str) -> None:
+        p = self.work_tree / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x\n")
+
+    def test_non_test_py_only_diff_yields_empty(self) -> None:
+        """A changed non-test .py is recognized but not a run target: returns {}
+        (downstream _check_empty_tests then yields EMPTY_TESTS, not
+        UNSUPPORTED_STACK -- pytest is markerless and owns .py)."""
+        self._touch("src/foo.py")
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            result = review_coverage._run_native_tests(["src/foo.py"], self.work_tree)
+        self.assertEqual(result, {})
+        run_cmd.assert_not_called()
+
+    def test_docs_only_diff_yields_empty(self) -> None:
+        """A docs/config-only diff is code-free: no stack activates, returns {}."""
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            result = review_coverage._run_native_tests(
+                ["docs/guide.md", "config/app.yaml", "data.json"], self.work_tree
+            )
+        self.assertEqual(result, {})
+        run_cmd.assert_not_called()
+
+    def test_empty_diff_yields_empty(self) -> None:
+        """An empty diff activates nothing and returns {}."""
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            result = review_coverage._run_native_tests([], self.work_tree)
+        self.assertEqual(result, {})
+        run_cmd.assert_not_called()
+
+    def test_changed_test_file_runs_pytest_and_fills_counts(self) -> None:
+        """A changed, existing test_*.py activates the pytest stack: _run_cmd is
+        called once with the scoped argv and the parsed counts are returned under
+        the stack name."""
+        self._touch("src/test_thing.py")
+        captured: dict[str, object] = {}
+
+        def fake_run_cmd(argv, cwd, *a, **k):
+            captured["argv"] = argv
+            captured["cwd"] = cwd
+            return ("1 passed in 0.02s", 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake_run_cmd):
+            result = review_coverage._run_native_tests(
+                ["src/test_thing.py"], self.work_tree
+            )
+
+        self.assertEqual(result, {"pytest": "pass=1 fail=0 skip=0"})
+        argv = captured["argv"]
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(argv[1:3], ["-m", "pytest"])
+        self.assertEqual(argv[-1], "-q")
+        abs_target = argv[3]
+        self.assertEqual(
+            str(Path(abs_target).resolve()),
+            str((self.work_tree / "src/test_thing.py").resolve()),
+        )
+
+    def test_changed_test_file_collecting_nothing_omits_stack(self) -> None:
+        """A changed test file that pytest collects nothing from (parse -> None)
+        contributes no entry: result has no 'pytest' key (-> downstream
+        EMPTY_TESTS), it is NOT recorded as zero-count coverage."""
+        self._touch("src/test_thing.py")
+        with mock.patch.object(
+            review_coverage, "_run_cmd",
+            side_effect=lambda *a, **k: ("no tests ran in 0.01s", 5),
+        ):
+            result = review_coverage._run_native_tests(
+                ["src/test_thing.py"], self.work_tree
+            )
+        self.assertNotIn("pytest", result)
+        self.assertEqual(result, {})
+
+    # Genuinely-unknown languages the PRD never adds. We deliberately AVOID
+    # .rs/.go/.ts/.js (those become recognized stacks in later tasks and would
+    # make this test fragile). A per-extension if/else cannot cover all of them.
+    _UNSUPPORTED_EXTS = (".rb", ".java", ".cpp", ".swift")
+
+    def test_unknown_language_files_fail_unsupported_stack(self) -> None:
+        """A changed code file in any genuinely-unknown language fails loud via
+        _fail('UNSUPPORTED_STACK', ...): non-zero exit, no native command run.
+        Parametrized over several extensions so a single `.rb` check cannot
+        satisfy it."""
+        for ext in self._UNSUPPORTED_EXTS:
+            rel = f"src/thing{ext}"
+            with self.subTest(ext=ext):
+                # Fresh markerless work tree per extension.
+                self.work_tree = self.tmp / f"repo{ext.replace('.', '_')}"
+                self.work_tree.mkdir()
+                self._touch(rel)
+                with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+                    with self.assertRaises(SystemExit) as ctx:
+                        review_coverage._run_native_tests([rel], self.work_tree)
+                self.assertNotEqual(ctx.exception.code, 0)
+                run_cmd.assert_not_called()
+
+    def test_unsupported_stack_stderr_names_file_and_registry(self) -> None:
+        """The UNSUPPORTED_STACK gap message starts with the kind, names the
+        offending file, and mentions the STACKS registry -- for each unknown
+        language, not just .rb."""
+        import io
+        import contextlib
+        for ext in self._UNSUPPORTED_EXTS:
+            rel = f"src/thing{ext}"
+            with self.subTest(ext=ext):
+                self.work_tree = self.tmp / f"errrepo{ext.replace('.', '_')}"
+                self.work_tree.mkdir()
+                self._touch(rel)
+                buf = io.StringIO()
+                with contextlib.redirect_stderr(buf):
+                    with mock.patch.object(review_coverage, "_run_cmd"):
+                        with self.assertRaises(SystemExit):
+                            review_coverage._run_native_tests([rel], self.work_tree)
+                err = buf.getvalue()
+                self.assertTrue(
+                    err.startswith("UNSUPPORTED_STACK"),
+                    f"Expected UNSUPPORTED_STACK prefix, got: {err[:120]!r}",
+                )
+                self.assertIn(f"thing{ext}", err)
+                self.assertIn("STACKS", err)
+
+    def test_mixed_test_py_plus_unknown_file_fails_before_running(self) -> None:
+        """A diff mixing a runnable test_*.py with one unknown-language file
+        must still fail UNSUPPORTED_STACK -- the unsupported file is detected
+        BEFORE any test runs, so _run_cmd is never called."""
+        self._touch("src/test_thing.py")
+        self._touch("src/thing.rb")
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            with contextlib.redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    review_coverage._run_native_tests(
+                        ["src/test_thing.py", "src/thing.rb"], self.work_tree
+                    )
+        self.assertNotEqual(ctx.exception.code, 0)
+        err = buf.getvalue()
+        self.assertTrue(
+            err.startswith("UNSUPPORTED_STACK"),
+            f"Expected UNSUPPORTED_STACK prefix, got: {err[:120]!r}",
+        )
+        self.assertIn("thing.rb", err)
+        run_cmd.assert_not_called()
+
+    def test_suffix_form_test_py_activates_pytest(self) -> None:
+        """A changed *_test.py (suffix form) activates pytest -- detection must
+        match the test-file regex, not merely substring-match 'test'."""
+        self._touch("src/thing_test.py")
+        captured: dict[str, object] = {}
+
+        def fake_run_cmd(argv, cwd, *a, **k):
+            captured["argv"] = argv
+            return ("1 passed in 0.01s", 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake_run_cmd):
+            result = review_coverage._run_native_tests(
+                ["src/thing_test.py"], self.work_tree
+            )
+        self.assertEqual(result, {"pytest": "pass=1 fail=0 skip=0"})
+        argv = captured["argv"]
+        self.assertEqual(
+            str(Path(argv[3]).resolve()),
+            str((self.work_tree / "src/thing_test.py").resolve()),
+        )
+
+    def test_run_native_tests_consults_the_registry(self) -> None:
+        """The engine DETECTS and RESULT-KEYS off STACKS, not a hardcoded
+        'pytest'. We inject a stack named 'injected' (NOT 'pytest') that matches
+        test-file basenames and activates via a real marker, then assert the
+        result is keyed on the injected name with the injected parse's output.
+        An engine that ignores STACKS would return {'pytest': ...} or {} here."""
+        import re
+
+        injected_stack = review_coverage.Stack(
+            name="injected",
+            file_re=re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$"),
+            markers=("pyproject.toml",),
+            build_cmd=lambda wt, sd, rels: ["true"],
+            parse=lambda *a, **k: "pass=1 fail=0 skip=0",
+        )
+        # A resolvable marker at the work_tree root activates the injected stack
+        # purely by its presence in STACKS (no pytest-name special-case needed).
+        (self.work_tree / "pyproject.toml").write_text("[tool]\n")
+        self._touch("src/test_thing.py")
+
+        with mock.patch.object(review_coverage, "STACKS", (injected_stack,)), \
+                mock.patch.object(
+                    review_coverage, "_run_cmd",
+                    return_value=("ignored output", 0),
+                ):
+            result = review_coverage._run_native_tests(
+                ["src/test_thing.py"], self.work_tree
+            )
+
+        self.assertEqual(result, {"injected": "pass=1 fail=0 skip=0"})
+
+
+class NativeTestsCarveOutCliTests(unittest.TestCase):
+    """End-to-end guard for the non-test-.py carve-out via the real CLI."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+
+    def test_non_test_py_code_diff_under_run_tests_yields_empty_tests(self) -> None:
+        """A code-only diff of NON-test .py files under --run-tests must exit
+        non-zero with EMPTY_TESTS (the carve-out: pytest recognizes .py but the
+        changed files are not run targets, so no real counts -> EMPTY_TESTS, NOT
+        UNSUPPORTED_STACK). Drives the actual CLI like the black-box suite."""
+        repo, base_sha = _setup_repo(
+            self.tmp, code_files=["src/alpha.py", "src/beta.py"]
+        )
+        prd = _write_prd(self.tmp)
+        rubric = _write_rubric(self.tmp)
+
+        block = self.tmp / "reviewer-1.txt"
+        _write_block(
+            block,
+            files={"src/alpha.py": "reviewed", "src/beta.py": "reviewed"},
+            tests="pending: filled by consolidation",
+            features={"Alpha": "verified", "Beta": "verified"},
+            rubric={"R1": "pass", "R2": "pass", "R3": "pass"},
+        )
+
+        result = _run(
+            prd=prd,
+            diff_range=base_sha,
+            rubric=rubric,
+            repo=repo,
+            reviewer_blocks=[block],
+            extra_args=["--run-tests"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            result.stderr.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {result.stderr[:120]!r}",
+        )
+        self.assertNotIn("UNSUPPORTED_STACK", result.stderr)
+
+
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
 
 
