@@ -283,9 +283,35 @@ def _parse_pytest(output: str, returncode: int) -> str | None:
     return f"pass={passed} fail={failed} skip={skipped}"
 
 
-STACKS: tuple[Stack, ...] = (   # task 1: EXACTLY ONE entry
+def _cargo_cmd(work_tree: Path, scope_dir: Path, rel_targets: list[str]) -> list[str]:
+    """Scoped cargo argv: --manifest-path pins the changed crate, --no-fail-fast
+    runs every test so the summary reflects all failures (cwd-independent)."""
+    return ["cargo", "test", "--manifest-path", str(scope_dir / "Cargo.toml"), "--no-fail-fast"]
+
+
+def _parse_cargo(output: str, returncode: int) -> str | None:
+    """Sum every libtest summary line across binaries into 'pass=P fail=F skip=S'
+    (skip folds Rust's 'ignored'). None when no summary line is present OR the total
+    is zero tests (fail-loud parity with the pytest 'no tests ran' contract)."""
+    passed = failed = ignored = 0
+    found = False
+    for m in re.finditer(
+        r"test result:\s+\w+\.\s+(\d+) passed;\s+(\d+) failed;\s+(\d+) ignored;",
+        output,
+    ):
+        found = True
+        passed += int(m.group(1))
+        failed += int(m.group(2))
+        ignored += int(m.group(3))
+    if not found or (passed == 0 and failed == 0 and ignored == 0):
+        return None
+    return f"pass={passed} fail={failed} skip={ignored}"
+
+
+STACKS: tuple[Stack, ...] = (
     Stack("pytest", re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$"),
           ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini"), _pytest_cmd, _parse_pytest),
+    Stack("cargo", re.compile(r"\.rs$"), ("Cargo.toml",), _cargo_cmd, _parse_cargo),
 )
 
 _NON_CODE_SUFFIXES = {
