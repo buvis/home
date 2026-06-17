@@ -17,6 +17,7 @@ Exit 0 = coverage complete. Non-zero = gap found; stderr starts with gap kind.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -308,10 +309,59 @@ def _parse_cargo(output: str, returncode: int) -> str | None:
     return f"pass={passed} fail={failed} skip={ignored}"
 
 
+def _go_cmd(work_tree: Path, scope_dir: Path, rel_targets: list[str]) -> list[str]:
+    """`go test -json` scoped to the changed packages. Each changed file's package
+    dir becomes a './pkg/...' pattern RELATIVE to the module root (scope_dir), which
+    is the cwd the engine runs this from. Deduped, order-stable."""
+    patterns: list[str] = []
+    seen: set[str] = set()
+    for rel in rel_targets:
+        pkg_dir = (work_tree / rel).resolve().parent
+        rel_pkg = str(pkg_dir.relative_to(scope_dir))
+        pattern = "./..." if rel_pkg == "." else f"./{rel_pkg}/..."
+        if pattern not in seen:
+            seen.add(pattern)
+            patterns.append(pattern)
+    return ["go", "test", "-json", *patterns]
+
+
+def _parse_go_json(output: str, returncode: int) -> str | None:
+    """Parse `go test -json` newline-delimited JSON. Count terminal test-level
+    actions (objects carrying a 'Test' key with Action in {pass,fail,skip});
+    package-level events (no 'Test') and run/output actions are ignored. Non-JSON
+    noise lines are skipped. None when no test-level action is present."""
+    passed = failed = skipped = 0
+    found = False
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or "Test" not in obj:
+            continue
+        action = obj.get("Action")
+        if action == "pass":
+            passed += 1
+            found = True
+        elif action == "fail":
+            failed += 1
+            found = True
+        elif action == "skip":
+            skipped += 1
+            found = True
+    if not found:
+        return None
+    return f"pass={passed} fail={failed} skip={skipped}"
+
+
 STACKS: tuple[Stack, ...] = (
     Stack("pytest", re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$"),
           ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini"), _pytest_cmd, _parse_pytest),
     Stack("cargo", re.compile(r"\.rs$"), ("Cargo.toml",), _cargo_cmd, _parse_cargo),
+    Stack("go", re.compile(r"\.go$"), ("go.mod",), _go_cmd, _parse_go_json),
 )
 
 _NON_CODE_SUFFIXES = {
@@ -406,7 +456,10 @@ def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
             if name != stack.name:
                 continue
             argv = stack.build_cmd(work_tree, scope_dir, rel_targets)
-            out, rc = _run_cmd(argv, work_tree)
+            # cwd = scope_dir (the marker dir): go/npm must run from their module
+            # root; pytest (absolute paths) and cargo (--manifest-path) are
+            # cwd-independent, and pytest's scope_dir falls back to work_tree.
+            out, rc = _run_cmd(argv, scope_dir)
             summary = stack.parse(out, rc)
             if summary is None:
                 # The stack ran but produced no counts (e.g. pytest "no tests
