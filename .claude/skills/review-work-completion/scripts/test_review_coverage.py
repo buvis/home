@@ -2119,6 +2119,40 @@ class ReworkCycle2EngineTests(unittest.TestCase):
         )
         run_cmd.assert_not_called()
 
+    def test_polyglot_non_test_py_source_with_filling_sibling_fails_loud(self) -> None:
+        """Doubt review (codex): a non-test .py SOURCE change activates no pytest
+        run target, so in a polyglot diff a sibling stack that fills counts would
+        otherwise mask the un-tested Python change green. The gate must fail loud
+        (EMPTY_TESTS naming pytest) when a .py source changed but no changed test
+        file ran AND another stack filled — never silently account for only the
+        sibling. (Pure non-test-.py stays {} and is handled downstream; see
+        test_non_test_py_only_diff_yields_empty.)"""
+        (self.work_tree / "Cargo.toml").write_text("[package]\nname='x'\n")
+        self._touch("src/lib.rs")
+        self._touch("src/foo.py")  # non-test .py source, no test file in diff
+
+        def fake(argv, cwd, *a, **k):
+            if argv[0] == "cargo":
+                return ("test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured;", 0)
+            return ("", 0)
+
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            with contextlib.redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    review_coverage._run_native_tests(
+                        ["src/lib.rs", "src/foo.py"], self.work_tree
+                    )
+        self.assertNotEqual(ctx.exception.code, 0)
+        err = buf.getvalue()
+        self.assertTrue(
+            err.startswith("EMPTY_TESTS"),
+            f"Expected EMPTY_TESTS prefix, got: {err[:120]!r}",
+        )
+        self.assertIn("pytest", err)
+
 
 def _run_consolidate(
     reviewer_pairs: list[str],
