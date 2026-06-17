@@ -1108,6 +1108,7 @@ class ReviewCoverageTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 sys.path.insert(0, str(Path(__file__).parent))
+import re
 import review_coverage
 from unittest import mock
 
@@ -1834,6 +1835,150 @@ class GoStackTests(unittest.TestCase):
                 review_coverage._run_native_tests(["pkg/thing.go"], self.work_tree)
         self.assertNotEqual(ctx.exception.code, 0)
         run_cmd.assert_not_called()
+
+
+class NpmStackTests(unittest.TestCase):
+    """The npm (JS/TS) stack: runner detection, jest/vitest JSON + text parser,
+    file-extension family, and detection."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.work_tree = (self.tmp / "repo")
+        self.work_tree.mkdir()
+        self.work_tree = self.work_tree.resolve()
+
+    def _touch(self, rel: str) -> None:
+        p = self.work_tree / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x\n")
+
+    def _scope_with_pkg(self, body: str) -> Path:
+        sd = self.tmp / "app"
+        sd.mkdir()
+        (sd / "package.json").write_text(body)
+        return sd
+
+    def test_npm_stack_is_registered_with_real_callables(self) -> None:
+        by_name = {s.name: s for s in review_coverage.STACKS}
+        self.assertIn("npm", by_name)
+        npm = by_name["npm"]
+        self.assertEqual(npm.markers, ("package.json",))
+
+    def test_npm_file_re_matches_js_ts_family_not_json(self) -> None:
+        """The npm file_re matches the JS/TS extension family but NOT package.json
+        (a config file that must stay code-free, not activate the stack)."""
+        npm = {s.name: s for s in review_coverage.STACKS}["npm"]
+        for good in ("src/a.js", "a.jsx", "a.ts", "a.tsx", "a.mjs", "a.cjs", "a.mts", "a.cts"):
+            self.assertTrue(npm.file_re.search(good), good)
+        for bad in ("package.json", "tsconfig.json", "a.py", "a.go", "a.rs", "a.md"):
+            self.assertFalse(npm.file_re.search(bad), bad)
+
+    def test_npm_cmd_detects_vitest_json_reporter(self) -> None:
+        sd = self._scope_with_pkg('{"devDependencies": {"vitest": "^1.0.0"}}')
+        argv = review_coverage._npm_cmd(self.work_tree, sd, ["app/src/a.test.ts"])
+        self.assertEqual(argv, ["npx", "vitest", "run", "--reporter=json"])
+
+    def test_npm_cmd_detects_jest_json(self) -> None:
+        sd = self._scope_with_pkg('{"devDependencies": {"jest": "^29.0.0"}}')
+        argv = review_coverage._npm_cmd(self.work_tree, sd, ["app/a.test.js"])
+        self.assertEqual(argv, ["npx", "jest", "--json"])
+
+    def test_npm_cmd_falls_back_to_npm_test(self) -> None:
+        """No vitest/jest dep -> best-effort `npm test --prefix <scope>`."""
+        sd = self._scope_with_pkg('{"scripts": {"test": "mocha"}}')
+        argv = review_coverage._npm_cmd(self.work_tree, sd, ["app/a.test.js"])
+        self.assertEqual(argv, ["npm", "test", "--prefix", str(sd)])
+
+    def test_parse_jest_vitest_json_report(self) -> None:
+        out = '{"numTotalTests":8,"numPassedTests":5,"numFailedTests":1,"numPendingTests":2}'
+        self.assertEqual(review_coverage._parse_jest_vitest(out, 1), "pass=5 fail=1 skip=2")
+
+    def test_parse_jest_vitest_json_amid_noise(self) -> None:
+        """The JSON report is extracted even with surrounding stderr/progress noise."""
+        out = (
+            "stderr: some progress\n"
+            '{"numPassedTests":3,"numFailedTests":0,"numPendingTests":0}\n'
+            "Done in 1.2s\n"
+        )
+        self.assertEqual(review_coverage._parse_jest_vitest(out, 0), "pass=3 fail=0 skip=0")
+
+    def test_parse_jest_vitest_text_fallback(self) -> None:
+        """When no JSON report is present, fall back to the `Tests:` summary line."""
+        out = "Tests:       1 failed, 2 skipped, 5 passed, 8 total\n"
+        self.assertEqual(review_coverage._parse_jest_vitest(out, 1), "pass=5 fail=1 skip=2")
+
+    def test_parse_jest_vitest_zero_counts_returns_none(self) -> None:
+        out = '{"numPassedTests":0,"numFailedTests":0,"numPendingTests":0}'
+        self.assertIsNone(review_coverage._parse_jest_vitest(out, 0))
+
+    def test_parse_jest_vitest_no_counts_returns_none(self) -> None:
+        self.assertIsNone(review_coverage._parse_jest_vitest("no json, no summary line", 1))
+
+    def test_ts_file_with_package_json_activates_npm(self) -> None:
+        (self.work_tree / "package.json").write_text('{"devDependencies": {"vitest": "^1"}}')
+        self._touch("src/a.test.ts")
+        captured: dict[str, object] = {}
+
+        def fake(argv, cwd, *a, **k):
+            captured["argv"] = argv
+            return ('{"numPassedTests":4,"numFailedTests":0,"numPendingTests":1}', 0)
+
+        with mock.patch.object(review_coverage, "_run_cmd", side_effect=fake):
+            result = review_coverage._run_native_tests(["src/a.test.ts"], self.work_tree)
+        self.assertEqual(result, {"npm": "pass=4 fail=0 skip=1"})
+        self.assertEqual(captured["argv"], ["npx", "vitest", "run", "--reporter=json"])
+
+    def test_js_file_without_package_json_is_unsupported(self) -> None:
+        """A changed .js with no package.json above it -> UNSUPPORTED_STACK, no run."""
+        self._touch("src/app.js")
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            with self.assertRaises(SystemExit) as ctx:
+                review_coverage._run_native_tests(["src/app.js"], self.work_tree)
+        self.assertNotEqual(ctx.exception.code, 0)
+        run_cmd.assert_not_called()
+
+
+class FullRegistryEnumerationTests(unittest.TestCase):
+    """The registry is the single extension point: it enumerates exactly the four
+    PRD stacks, and adding a stack is a pure registry append (no control-flow edit)."""
+
+    def test_registry_enumerates_exactly_the_four_named_stacks(self) -> None:
+        names = [s.name for s in review_coverage.STACKS]
+        self.assertEqual(set(names), {"pytest", "cargo", "npm", "go"})
+        self.assertEqual(len(names), 4)  # no duplicates
+        for s in review_coverage.STACKS:
+            self.assertTrue(callable(s.build_cmd))
+            self.assertTrue(callable(s.parse))
+            self.assertIsInstance(s.file_re, re.Pattern)
+            self.assertIsInstance(s.markers, tuple)
+            self.assertGreaterEqual(len(s.markers), 1)
+
+    def test_adding_a_stack_via_registry_alone_is_detected(self) -> None:
+        """PRD: prove the engine is data-driven by adding a stack purely via the
+        registry. Append a synthetic Elixir stack to STACKS (NO edit to
+        _run_native_tests) and assert a matching diff activates it and keys the
+        result on the new stack's name -- an `if/elif` engine could not do this."""
+        with tempfile.TemporaryDirectory() as td:
+            work_tree = Path(td).resolve()
+            (work_tree / "mix.exs").write_text("defmodule X do\nend\n")
+            (work_tree / "lib").mkdir()
+            (work_tree / "lib" / "thing.ex").write_text("x\n")
+            elixir = review_coverage.Stack(
+                name="mix",
+                file_re=re.compile(r"\.ex$"),
+                markers=("mix.exs",),
+                build_cmd=lambda wt, sd, rels: ["mix", "test"],
+                parse=lambda out, rc: "pass=2 fail=0 skip=0",
+            )
+            with mock.patch.object(
+                review_coverage, "STACKS", review_coverage.STACKS + (elixir,)
+            ), mock.patch.object(
+                review_coverage, "_run_cmd", return_value=("ignored", 0)
+            ):
+                result = review_coverage._run_native_tests(["lib/thing.ex"], work_tree)
+            self.assertEqual(result, {"mix": "pass=2 fail=0 skip=0"})
 
 
 CONSOLIDATE_SCRIPT = Path(__file__).parent / "consolidate-findings.sh"
