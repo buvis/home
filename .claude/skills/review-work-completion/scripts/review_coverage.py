@@ -21,7 +21,9 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 OPEN_DELIM = "---review-coverage---"
 CLOSE_DELIM = "---end-review-coverage---"
@@ -247,41 +249,153 @@ def _diff_files(diff_range: str, repo: Path) -> tuple[list[str], Path]:
     return [], repo  # unreachable; satisfies type checker without suppression
 
 
-def _run_changed_tests(diff_files: list[str], work_tree: Path) -> str | None:
-    """Run changed test files under pytest and return a 'pass=P fail=F skip=S'
-    summary, or None when no changed file is a test file."""
-    test_paths = []
-    for f in diff_files:
-        base = Path(f).name
-        if re.match(r"^test_.*\.py$", base) or re.match(r"^.*_test\.py$", base):
-            abs_path = (work_tree / f).resolve()
-            if abs_path.exists():
-                test_paths.append(str(abs_path))
+# ---------------------------------------------------------------------------
+# Native-test engine: declarative stack registry + per-stack command/parse
+# ---------------------------------------------------------------------------
 
-    if not test_paths:
-        return None
+@dataclass(frozen=True)
+class Stack:
+    name: str
+    file_re: re.Pattern[str]
+    markers: tuple[str, ...]
+    build_cmd: Callable[[Path, Path, list[str]], list[str]]   # (work_tree, scope_dir, rel_targets) -> argv
+    parse: Callable[[str, int], str | None]                   # (output, returncode) -> "pass=P fail=S skip=S" | None
 
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", *test_paths, "-q"],
-        cwd=str(work_tree),
-        capture_output=True,
-        text=True,
-    )
-    out = result.stdout + result.stderr
 
+def _pytest_cmd(work_tree: Path, scope_dir: Path, rel_targets: list[str]) -> list[str]:
+    """Quiet, scoped pytest argv targeting the changed test files (cwd = work_tree)."""
+    abs_test_files = [str((work_tree / rel).resolve()) for rel in rel_targets]
+    return [sys.executable, "-m", "pytest", *abs_test_files, "-q"]
+
+
+def _parse_pytest(output: str, returncode: int) -> str | None:
+    """Fold a pytest -q summary into 'pass=P fail=F skip=S' (errors count as fail).
+    None when no test ran (all three counts zero)."""
     def count(pattern: str) -> int:
-        m = re.search(pattern, out)
+        m = re.search(pattern, output)
         return int(m.group(1)) if m else 0
 
     passed = count(r"(\d+) passed")
     failed = count(r"(\d+) failed") + count(r"(\d+) error(?:s)?")
     skipped = count(r"(\d+) skipped")
     if passed == 0 and failed == 0 and skipped == 0:
-        # pytest collected/ran nothing (exit 5, "no tests ran"). A changed test
-        # file that executes zero tests is not coverage — leave the dimension
-        # unfilled so _check_empty_tests fails loud rather than green-gating.
         return None
     return f"pass={passed} fail={failed} skip={skipped}"
+
+
+STACKS: tuple[Stack, ...] = (   # task 1: EXACTLY ONE entry
+    Stack("pytest", re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$"),
+          ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini"), _pytest_cmd, _parse_pytest),
+)
+
+_NON_CODE_SUFFIXES = {
+    ".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml", ".lock", ".cfg",
+    ".ini", ".sh", ".bash", ".png", ".jpg", ".svg", ".gif", ".ico", ".csv",
+    ".html", ".css",
+}
+
+
+def _run_cmd(argv: list[str], cwd: Path, timeout: int = 600) -> tuple[str, int]:
+    """Run a native test command foreground with a finite timeout. Returns
+    (combined stdout+stderr, returncode). Fails loud on timeout / missing binary."""
+    try:
+        result = subprocess.run(
+            argv, cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        _fail("TEST_RUN_ERROR", f"command timed out after {timeout}s: {' '.join(argv)}")
+        return "", 1  # unreachable
+    except FileNotFoundError as exc:
+        _fail("TEST_RUN_ERROR", str(exc))
+        return "", 1  # unreachable
+    return result.stdout + result.stderr, result.returncode
+
+
+def _scope_dir_for(file_dir: Path, work_tree: Path, markers: tuple[str, ...]) -> Path | None:
+    """Walk up from file_dir to work_tree for the nearest dir holding any marker."""
+    current = file_dir
+    while True:
+        if any((current / m).exists() for m in markers):
+            return current
+        if current == work_tree:
+            return None
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def _run_native_tests(diff_files: list[str], work_tree: Path) -> dict[str, str]:
+    """Detect active (stack, scope_dir) pairs from the diff, run each once, and
+    return {stack.name: 'pass=P fail=F skip=S'}. Fails loud (UNSUPPORTED_STACK)
+    on an unknown-language code file or a marker-requiring language missing its
+    marker. Returns {} for a code-free diff or one whose only code is recognized
+    but has no runnable changed-test target (e.g. a non-test .py)."""
+    activated: list[tuple[Stack, Path, str]] = []  # (stack, scope_dir, rel_target)
+    unsupported: list[str] = []
+
+    for path in diff_files:
+        matched: Stack | None = None
+        for stack in STACKS:
+            if stack.file_re.search(path):
+                matched = stack
+                break
+
+        if matched is not None:
+            file_dir = (work_tree / path).resolve().parent
+            scope_dir = _scope_dir_for(file_dir, work_tree, matched.markers)
+            if scope_dir is None and matched.name == "pytest":
+                scope_dir = work_tree
+            if scope_dir is None:
+                unsupported.append(path)
+            else:
+                activated.append((matched, scope_dir, path))
+            continue
+
+        # No stack matched the filename.
+        suffix = Path(path).suffix
+        if suffix == ".py":
+            continue  # recognized by pytest (markerless), but not a run target
+        if suffix in _NON_CODE_SUFFIXES:
+            continue  # code-free
+        unsupported.append(path)
+
+    if unsupported:
+        _fail(
+            "UNSUPPORTED_STACK",
+            f"{' '.join(unsupported)} — add a Stack entry to STACKS in review_coverage.py",
+        )
+
+    # Dedup activated pairs by (stack.name, scope_dir), collecting rel_targets.
+    pairs: dict[tuple[str, Path], tuple[Stack, Path, list[str]]] = {}
+    for stack, scope_dir, rel in activated:
+        key = (stack.name, scope_dir)
+        if key not in pairs:
+            pairs[key] = (stack, scope_dir, [])
+        pairs[key][2].append(rel)
+
+    counts: dict[str, tuple[int, int, int]] = {}
+    for stack in STACKS:
+        for (name, _scope), (s, scope_dir, rel_targets) in pairs.items():
+            if name != stack.name:
+                continue
+            argv = stack.build_cmd(work_tree, scope_dir, rel_targets)
+            out, rc = _run_cmd(argv, work_tree)
+            summary = stack.parse(out, rc)
+            if summary is None:
+                # The stack ran but produced no counts (e.g. pytest "no tests
+                # ran"). Omit it; downstream _check_empty_tests yields EMPTY_TESTS
+                # when the diff has reviewed code but no real counts.
+                continue
+            m = re.match(r"pass=(\d+) fail=(\d+) skip=(\d+)", summary)
+            p, f, sk = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            cur = counts.get(stack.name, (0, 0, 0))
+            counts[stack.name] = (cur[0] + p, cur[1] + f, cur[2] + sk)
+
+    return {
+        name: f"pass={p} fail={f} skip={sk}"
+        for name, (p, f, sk) in counts.items()
+    }
 
 
 def _prd_features(prd: Path) -> list[str]:
@@ -391,10 +505,11 @@ def main() -> None:
         # Reviewers never assert test results: real counts come only from the
         # consolidation test run, so drop any non-sentinel reviewer entry first.
         merged["tests"] = _strip_reviewer_test_counts(merged["tests"])
-        summary = _run_changed_tests(diff, work_tree)
-        if summary is not None:
+        counts_by_stack = _run_native_tests(diff, work_tree)   # may _fail loud internally
+        if counts_by_stack:
             merged["tests"].pop("pending", None)
-            merged["tests"]["pytest"] = summary
+            for stack_name, summary in counts_by_stack.items():
+                merged["tests"][stack_name] = summary
 
     rubric_path: Path = args.rubric if args.rubric else SURFACE_RUBRIC_DEFAULTS[args.surface].resolve()
     if not rubric_path.exists():
