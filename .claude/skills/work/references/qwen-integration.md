@@ -1,22 +1,23 @@
 # Qwen Integration
 
-How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `qwen3-coder-30b-a3b-q4`; override with `-m`. Inference is local and free — no API cost, no token billing.
+How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M`; override with `-m`. Inference is local and free — no API cost, no token billing.
 
 Qwen routing is gated by `task.metadata.qwen_eligible` (written upstream by `/plan-tasks`) and by the **Preflight** below. `work`'s step 3 routing table picks qwen only when the flag is `true` AND preflight is healthy; otherwise it falls back to Claude at the task's original tier.
 
 ## Preflight
 
-A fast three-check probe MUST run before any qwen dispatch. The probe takes one of two terminal verdicts: **healthy** (proceed to dispatch) or **failed** with the specific failing check named.
+A four-check probe MUST run before any qwen dispatch. The probe takes one of two terminal verdicts: **healthy** (proceed to dispatch) or **failed** with the specific failing check named. Checks short-circuit in order — the first failure is the verdict.
 
-The three checks, in order:
+The four checks, in order:
 
 1. **`pi` resolvable on PATH.** `command -v pi` exits 0. On failure: `preflight_outcome = "pi_missing"`.
 2. **llama.cpp `/v1/models` endpoint reachable.** An HTTP GET against the configured base URL's `/v1/models` returns a 2xx response within **3 seconds** (a healthy local llamacpp responds in tens of ms; 3s is conservative slack for a busy laptop). Read the base URL from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.baseUrl`. On any failure (connection refused, timeout ≥ 3s, non-2xx, missing config): `preflight_outcome = "endpoint_unreachable"`.
-3. **Configured qwen model id present in the endpoint's model list.** Parse the `/v1/models` JSON response (`data[].id`). The configured model id (read from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.models[].id`, defaulting to `qwen3-coder-30b-a3b-q4`) must appear in that list. On absence: `preflight_outcome = "model_id_missing"`.
+3. **Configured qwen model id present in the endpoint's model list.** Parse the `/v1/models` JSON response (`data[].id`). The configured model id (read from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.models[].id`, defaulting to `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M`) must appear in that list. On absence: `preflight_outcome = "model_id_missing"`.
+4. **Real 1-token completion succeeds.** Checks 2-3 only enumerate configured models — LlamaBarn (and any on-demand server) lists the model straight from config and spawns the inference worker *lazily, on the first completion*. They pass even when the worker cannot start, so this is the only check that exercises the spawn. POST to `${baseUrl}/chat/completions` with body `{"model": <configured id>, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1, "stream": false}`, timeout **120 seconds**. A 2xx response → the check passes (verdict `healthy`). Any non-2xx (e.g. `500 "failed to spawn server instance"`), connection error, or timeout → `preflight_outcome = "completion_failed"`. The 120s ceiling covers a cold model load (the ~18.5 GB GGUF takes tens of seconds the first time); the probe doubles as a warm-up, so the model is resident when the real dispatch follows — the load is not wasted. A backend that cannot emit one token in 120s would blow the task watchdog anyway: treat it as failed and fall back.
 
-**Inputs**: PATH, the llama.cpp server endpoint (from `~/.pi/agent/models.json`'s `baseUrl`), the configured qwen model id (from the same file's `models[].id` — reused from the `use-qwen` skill's prerequisites).
+**Inputs**: PATH, the llama.cpp server endpoint and its `/chat/completions` route (from `~/.pi/agent/models.json`'s `baseUrl`), the configured qwen model id (from the same file's `models[].id` — reused from the `use-qwen` skill's prerequisites).
 
-**Outputs**: Health verdict — `"healthy"`, or one of `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"`.
+**Outputs**: Health verdict — `"healthy"`, or one of `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`.
 
 **Fallback rule**: ANY preflight failure → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see `references/attempt-logging.md`).
 
@@ -28,7 +29,7 @@ A qwen-routed task gets exactly one qwen attempt. If qwen's output fails the ste
 
 The fixed-Sonnet target is intentional and asymmetric vs. the **preflight-failure** fallback (which keeps the original tier: `haiku` → Haiku, `sonnet` → Sonnet). Two different failure shapes, two different recoveries:
 
-- **Preflight failure** is an *infrastructure* signal — qwen was unreachable, missing a model, or had no resolvable `pi`. The task itself was never attempted; nothing observable suggests the task is harder than its plan-time tier said. Preserve the tier the planner picked.
+- **Preflight failure** is an *infrastructure* signal — qwen was unreachable, couldn't spawn its inference worker, was missing a model, or had no resolvable `pi`. The task itself was never attempted; nothing observable suggests the task is harder than its plan-time tier said. Preserve the tier the planner picked.
 - **Step-5.5 gate failure after a qwen attempt** is a *correctness* signal — qwen produced code that did not pass the tests Tess wrote. The empirical evidence from this attempt says the task is harder than its qwen-eligible classification implied (qwen-eligible = `≤2`-file + `haiku`/`sonnet`). A retry at the same tier on the same model family would be cheap but risk under-powering the retry; Sonnet is the conservative floor that any qwen-eligible task can re-run at. Escalating from `haiku` to `sonnet` here is the price of having tried qwen in the first place.
 
 The normal max-2 step-5.5 retry budget then applies to the Sonnet re-dispatches (not qwen). The qwen attempt does NOT consume a slot in that budget — it consumed the (single) qwen attempt instead.
@@ -132,6 +133,12 @@ Local inference is slow; a `qwen-run.sh` call can run for many minutes. The `use
 The llama.cpp server is running but serves a different model than `~/.pi/agent/models.json` declares.
 
 **Fix**: The preflight's third check (`model_id_missing`) catches this. The task falls back to Claude at its original tier.
+
+### Backend lists the model but can't serve it
+
+`/v1/models` returns 200 with the model id, but a real completion returns `500 "failed to spawn server instance"` (or similar). LlamaBarn spawns the llama.cpp worker lazily on first completion; that spawn can fail (missing/broken runtime after an app auto-update, OOM, bad launch args) while enumeration keeps working straight from config. **2026-06-19 (playground PRD 00001):** checks 1-3 all passed → verdict `healthy` → task 1 routed to qwen → `qwen-run.sh` exited 1 on the 500, with no fallback gate to catch it.
+
+**Fix**: the preflight's fourth check (`completion_failed`) catches this — a real 1-token completion is the only probe that exercises the worker spawn. The task falls back to Claude at its original tier. To restore qwen, fix the backend (LlamaBarn: re-download the model runtime or reinstall, then verify with a manual `curl ${baseUrl}/chat/completions`).
 
 ### Helper exits non-zero
 

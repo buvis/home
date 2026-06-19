@@ -18,7 +18,15 @@ Hard-enforced by the **aegis** plugin's `prefer-tools.py` hook. See `aegis/rules
 
 `rg` for ad-hoc shell recon is allowed (faster than grep, respects `.gitignore`). `ast-grep` for structural search and codemods.
 
-## General
+## Search Strategy (Grep/Glob tools unavailable)
+
+The native `Grep`/`Glob` tools are unregistered in this build (upstream bug, native 2.1.117+). Don't call them, and ignore any hook message that says "use the Grep tool" - it points at a tool that does not exist. Pick by search shape:
+
+- **Known file, known rough location** -> `Read` with `offset`/`limit`.
+- **Targeted pattern in a scope you can name, and you need the matching lines yourself** -> `rg` via Bash (allowed for recon; precise line numbers land in context).
+- **Broad fan-out: sweeping many files or directories, or guessing naming conventions to reach a conclusion** -> `Explore` agent. It returns the answer, not the file dumps, so main context stays clean. Set breadth ("medium" or "very thorough"); launch several in one message for independent questions.
+
+Don't spawn `Explore` for a one-line lookup (slow, token-heavy), and don't pull whole files into context when `Explore` can return the conclusion. `Explore` is read-only and locates code via excerpts, so `Read` the exact bytes yourself before any `Edit`.
 
 - ALWAYS read and understand relevant files before proposing edits. Do not speculate about code you have not inspected.
 
