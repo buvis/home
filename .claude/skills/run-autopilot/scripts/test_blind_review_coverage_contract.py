@@ -7,6 +7,7 @@ exercise the parser with a well-formed block.  Stdlib-only.
 """
 
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
@@ -17,6 +18,10 @@ _RUBRIC_PATH = _SKILLS / "review-blindly" / "references" / "rubric.md"
 
 _spec = importlib.util.spec_from_file_location("review_coverage", _RC_PATH)
 rc = importlib.util.module_from_spec(_spec)
+# Register before exec: Python 3.14's @dataclass resolves cls.__module__ via
+# sys.modules, which raises AttributeError on a spec-loaded module that was
+# never registered.
+sys.modules["review_coverage"] = rc
 _spec.loader.exec_module(rc)
 
 # Canonical per-reviewer block for the blindly surface.
@@ -102,6 +107,31 @@ class BlindReviewCoverageContractTests(unittest.TestCase):
         sections = rc._parse_block(inner)
         with self.assertRaises(ValueError):
             rc._validate_verdicts(sections)
+
+    def test_skill_does_not_model_override_the_reviewer(self) -> None:
+        """Root-cause guard for the 2026-06-19 playground blind thrash: a `model:
+        "sonnet"` override on the Task tool makes the harness run the reviewer as a
+        BACKGROUND task whose async notification lands after the autopilot Stop hook
+        has killed the session, so "blind" never completes and the loop thrashes.
+        The reviewer must instead run inline (no model override) and reach Sonnet via
+        the CLI. Pin both halves so the fix cannot silently regress."""
+        text = _SKILL_PATH.read_text()
+        # A real override is a standalone YAML directive line (e.g. `  model:
+        # "sonnet"`), not a backtick-quoted mention inside the warning prose.
+        # Match on the stripped line so the explanatory sentence does not trip it.
+        for raw in text.splitlines():
+            line = raw.strip()
+            self.assertFalse(
+                line.startswith("model:") and "sonnet" in line,
+                f"SKILL.md has a model-override dispatch line ({line!r}) — a "
+                "model override backgrounds the reviewer and strands the blind "
+                "phase; dispatch Sonnet inline via the CLI instead",
+            )
+        self.assertIn(
+            "sonnet-run.sh", text,
+            "SKILL.md must dispatch the reviewer inline via the Sonnet CLI "
+            "(sonnet-run.sh), not a model-override subagent",
+        )
 
 
 if __name__ == "__main__":
