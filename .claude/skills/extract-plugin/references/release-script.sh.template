@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# Release a new version of <PLUGIN_NAME>.
+#
+# Usage: dev/bin/release [patch|minor|major]   (default: patch)
+#
+# Bumps the version in three places (plugin.json, self-ref marketplace.json,
+# central buvis-plugins marketplace.json), stamps CHANGELOG.md with the new
+# version + today's date, commits, tags v$VERSION, and pushes both repos.
+#
+# Preflight: clean working trees, [Unreleased] section has entries,
+# every skill directory has a SKILL.md, tests pass (if any).
+
+set -euo pipefail
+
+# ─── EDIT THIS ────────────────────────────────────────────────────
+PLUGIN_NAME="CHANGE_ME"
+# ───────────────────────────────────────────────────────────────────
+
+BUMP="${1:-patch}"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MARKETPLACE_ROOT="$(cd "$REPO_ROOT/../claude-plugins" 2>/dev/null && pwd || true)"
+MARKETPLACE="$MARKETPLACE_ROOT/.claude-plugin/marketplace.json"
+
+PLUGIN_JSON="$REPO_ROOT/.claude-plugin/plugin.json"
+SELF_MARKETPLACE="$REPO_ROOT/.claude-plugin/marketplace.json"
+CHANGELOG="$REPO_ROOT/CHANGELOG.md"
+
+CURRENT_STEP=""
+on_error() {
+  local exit_code=$?
+  local line=$1
+  echo "" >&2
+  [ -n "$CURRENT_STEP" ] && echo "[release] FAILED during: $CURRENT_STEP" >&2
+  echo "[release] exit $exit_code at line $line" >&2
+  exit "$exit_code"
+}
+trap 'on_error $LINENO' ERR
+
+step() {
+  CURRENT_STEP="$1"
+  echo "[release] $CURRENT_STEP"
+}
+
+case "$BUMP" in
+  patch|minor|major) ;;
+  *) echo "Usage: $0 [patch|minor|major]" >&2; exit 1 ;;
+esac
+
+if [ "$PLUGIN_NAME" = "CHANGE_ME" ]; then
+  echo "Error: edit dev/bin/release and set PLUGIN_NAME at the top" >&2
+  exit 1
+fi
+
+# --- Preflight ---
+
+step "checking required tools (jq, git)"
+for cmd in jq git; do
+  command -v "$cmd" >/dev/null || { echo "Error: $cmd not in PATH" >&2; exit 1; }
+done
+
+step "checking marketplace repo at $REPO_ROOT/../claude-plugins"
+[ -d "$MARKETPLACE_ROOT" ] || { echo "Error: marketplace repo missing, clone buvis/claude-plugins alongside this repo" >&2; exit 1; }
+[ -f "$MARKETPLACE" ] || { echo "Error: $MARKETPLACE not found" >&2; exit 1; }
+[ -z "$(git -C "$MARKETPLACE_ROOT" status --porcelain)" ] || { echo "Error: marketplace repo has uncommitted changes" >&2; exit 1; }
+
+step "checking working tree is clean"
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
+  echo "Error: working tree has uncommitted changes" >&2
+  git -C "$REPO_ROOT" status --short >&2
+  exit 1
+fi
+
+step "checking CHANGELOG.md has [Unreleased] entries"
+grep -q '^## \[Unreleased\]' "$CHANGELOG" || { echo "Error: no [Unreleased] section in CHANGELOG.md" >&2; exit 1; }
+UNRELEASED=$(awk '/^## \[Unreleased\]/{found=1; next} /^## \[/{exit} found{print}' "$CHANGELOG")
+echo "$UNRELEASED" | grep -q '^### ' || { echo "Error: [Unreleased] section empty - add entries before releasing" >&2; exit 1; }
+
+step "verifying every skill has a SKILL.md"
+for skill_dir in "$REPO_ROOT"/skills/*/; do
+  [ -f "$skill_dir/SKILL.md" ] || { echo "Error: $skill_dir missing SKILL.md" >&2; exit 1; }
+done
+
+# Optional: run tests if any exist
+if find "$REPO_ROOT/skills" -name 'test_*.py' -print -quit 2>/dev/null | grep -q .; then
+  step "running tests"
+  test_dirs=$(find "$REPO_ROOT/skills" -name 'test_*.py' -exec dirname {} \; | sort -u)
+  for d in $test_dirs; do
+    (cd "$d" && uv run --with pytest python -m pytest -q)
+  done
+fi
+
+# --- Compute new version ---
+
+step "computing new version ($BUMP)"
+CURRENT=$(jq -r .version "$PLUGIN_JSON")
+IFS=. read -r MAJ MIN PAT <<< "$CURRENT"
+case "$BUMP" in
+  patch) PAT=$((PAT + 1)) ;;
+  minor) MIN=$((MIN + 1)); PAT=0 ;;
+  major) MAJ=$((MAJ + 1)); MIN=0; PAT=0 ;;
+esac
+VERSION="$MAJ.$MIN.$PAT"
+DATE=$(date +%Y-%m-%d)
+echo "[release]   $CURRENT -> $VERSION"
+
+# --- Release ---
+
+step "stamping CHANGELOG.md with v$VERSION ($DATE)"
+awk -v ver="$VERSION" -v date="$DATE" '
+  /^## \[Unreleased\]/ { print; print ""; print "## [" ver "] - " date; next }
+  { print }
+' "$CHANGELOG" > "$CHANGELOG.tmp"
+mv "$CHANGELOG.tmp" "$CHANGELOG"
+
+step "bumping plugin.json to v$VERSION"
+jq --arg v "$VERSION" '.version = $v' "$PLUGIN_JSON" > "$PLUGIN_JSON.tmp"
+mv "$PLUGIN_JSON.tmp" "$PLUGIN_JSON"
+
+step "bumping self-ref marketplace.json to v$VERSION"
+jq --arg v "$VERSION" '.plugins[0].version = $v' "$SELF_MARKETPLACE" > "$SELF_MARKETPLACE.tmp"
+mv "$SELF_MARKETPLACE.tmp" "$SELF_MARKETPLACE"
+
+step "committing release v$VERSION"
+git -C "$REPO_ROOT" add CHANGELOG.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git -C "$REPO_ROOT" commit -m "chore: release v$VERSION"
+
+step "tagging v$VERSION"
+git -C "$REPO_ROOT" tag -a "v$VERSION" -m "v$VERSION"
+
+step "pushing master + tag"
+git -C "$REPO_ROOT" push origin master
+git -C "$REPO_ROOT" push origin "v$VERSION"
+
+step "bumping central marketplace to v$VERSION"
+jq --arg name "$PLUGIN_NAME" --arg v "$VERSION" '
+  .plugins = (.plugins | map(if .name == $name then .version = $v else . end))
+' "$MARKETPLACE" > "$MARKETPLACE.tmp"
+mv "$MARKETPLACE.tmp" "$MARKETPLACE"
+git -C "$MARKETPLACE_ROOT" add .claude-plugin/marketplace.json
+git -C "$MARKETPLACE_ROOT" commit -m "chore: bump $PLUGIN_NAME to v$VERSION"
+
+step "pushing marketplace"
+git -C "$MARKETPLACE_ROOT" push origin master
+
+CURRENT_STEP=""
+echo ""
+echo "[release] ✓ released v$VERSION"
+echo "[release] ✓ marketplace bumped to v$VERSION"
+echo "[release] users can now run: /plugin update $PLUGIN_NAME@buvis-plugins"
