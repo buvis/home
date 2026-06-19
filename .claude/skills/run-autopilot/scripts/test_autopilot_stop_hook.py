@@ -481,5 +481,116 @@ class ReviewGateSuppressionTests(unittest.TestCase):
         self.assertIn("fail open", stderr)
 
 
+class PhaseThrashCircuitBreakerTests(unittest.TestCase):
+    """A review/build phase that hands off "next" with no forward progress,
+    repeated PHASE_THRASH_LIMIT times, is a thrash. The hook must withhold the
+    signal (so the wrapper loop exits cleanly, same halt as a PAUSE), flag
+    needs_attention, and record a thrash_halt marker. Regression for the
+    2026-06-17 blind-review thrash (PRD 00157): the blind phase dispatched an
+    async reviewer and yielded before the result landed, so the phase never
+    recorded completion and the loop re-entered it 18 times with zero progress.
+    gate_blocks is mocked to (False, "") so these tests isolate the breaker from
+    the review-coverage gate."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def _state_path(self) -> Path:
+        return self.fx.autopilot_dir / "state.json"
+
+    def _read_state(self) -> dict:
+        return json.loads(self._state_path().read_text())
+
+    def _seed(self, guard_count: int | None = None, **fields) -> dict:
+        st = _make_state(**fields)
+        if guard_count is not None:
+            st["phase_guard"] = {"key": hook._progress_key(st), "count": guard_count}
+        self._state_path().write_text(json.dumps(st))
+        return st
+
+    def _run_no_gate(self) -> list[int]:
+        with mock.patch.object(hook, "gate_blocks", return_value=(False, "")):
+            return _run_hook(self.fx)
+
+    def test_first_handoff_writes_next_and_seeds_guard(self) -> None:
+        self._seed(phase="blind", next_phase="blind", phases_completed=["review"])
+        self._run_no_gate()
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertEqual(self._read_state()["phase_guard"]["count"], 1)
+
+    def test_repeat_below_limit_still_writes_next(self) -> None:
+        self._seed(
+            guard_count=hook.PHASE_THRASH_LIMIT - 2,
+            phase="blind",
+            next_phase="blind",
+            phases_completed=["review"],
+        )
+        self._run_no_gate()
+        self.assertEqual(self.fx.signal_content(), "next")
+
+    def test_limit_reached_withholds_signal(self) -> None:
+        self._seed(
+            guard_count=hook.PHASE_THRASH_LIMIT - 1,
+            phase="blind",
+            next_phase="blind",
+            phases_completed=["review"],
+        )
+        self._run_no_gate()
+        self.assertIsNone(
+            self.fx.signal_content(), "a thrash trip must withhold the loop signal"
+        )
+
+    def test_limit_reached_sigints_to_exit_loop(self) -> None:
+        """On trip the hook SIGINTs (exits the session) but writes no signal, so
+        the wrapper reads an empty signal, hits its `*)` case and breaks the
+        loop — a deterministic halt rather than an idle live session."""
+        self._seed(
+            guard_count=hook.PHASE_THRASH_LIMIT - 1,
+            phase="blind",
+            next_phase="blind",
+            phases_completed=["review"],
+        )
+        pids = self._run_no_gate()
+        self.assertGreater(len(pids), 0, "trip must SIGINT to exit the session")
+        self.assertIsNone(self.fx.signal_content(), "trip must write no signal")
+
+    def test_limit_reached_sets_attention_and_halt_marker(self) -> None:
+        self._seed(
+            guard_count=hook.PHASE_THRASH_LIMIT - 1,
+            phase="blind",
+            next_phase="blind",
+            phases_completed=["review"],
+        )
+        self._run_no_gate()
+        state = self._read_state()
+        self.assertTrue(state.get("needs_attention"))
+        self.assertEqual(state["thrash_halt"]["phase"], "blind")
+        self.assertGreaterEqual(
+            state["thrash_halt"]["repeats"], hook.PHASE_THRASH_LIMIT
+        )
+
+    def test_progress_resets_counter(self) -> None:
+        """Stored count is high, but the state advanced (different key): the
+        counter resets and the hand-off proceeds normally."""
+        st = _make_state(
+            phase="blind", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        st["phase_guard"] = {"key": "stale-key", "count": hook.PHASE_THRASH_LIMIT + 5}
+        self._state_path().write_text(json.dumps(st))
+        self._run_no_gate()
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertEqual(self._read_state()["phase_guard"]["count"], 1)
+
+    def test_breaker_scoped_to_next_not_done(self) -> None:
+        """The breaker only governs the "next" hand-off; batch end ("done")
+        is bounded separately and must never be withheld."""
+        st = _make_state(phase="done", next_phase="")
+        st["phase_guard"] = {"key": "whatever", "count": hook.PHASE_THRASH_LIMIT + 9}
+        self._state_path().write_text(json.dumps(st))
+        self._run_no_gate()
+        self.assertEqual(self.fx.signal_content(), "done")
+
+
 if __name__ == "__main__":
     unittest.main()

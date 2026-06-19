@@ -99,7 +99,7 @@ Each entry carries the routing decision (`implementor`), the pipeline depth (`pi
   - Routing table picked qwen, preflight was `"healthy"`, qwen dispatch ran → `"qwen"`.
   - Routing table picked qwen but preflight failed and step 3 fell back to Claude at the task's original tier → `"claude"` (the Claude dispatch is what actually ran).
 - **`preflight_outcome`** — sourced from the step-3 preflight probe. Always written explicitly — never omit the key. For non-qwen attempts write the literal JSON `null`; do not drop the field from the entry.
-  - For attempts on qwen-eligible tasks (`task.metadata.qwen_eligible == true` at attempt start): one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`.
+  - For attempts on qwen-eligible tasks (`task.metadata.qwen_eligible == true` at attempt start): one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`, `"completion_failed"`.
   - For attempts on non-qwen-eligible tasks (UI tasks, `opus`-tier tasks, backend tasks where `qwen_eligible` is `false` or absent): `null`.
 - **`pipeline`** — the pipeline depth this attempt ran (PRD 00044), keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy `metadata.model` is treated as `sonnet` → `"lean"`. Written at every task exit alongside `implementor`; a Phase-6 escalation to `opus` records `"full"`.
 
@@ -343,10 +343,10 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 
 `use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** (≤ 50 000 bytes, abort-instruction line prepended) and the **Subagent Watchdog** — see `references/subagent-dispatch.md`.
 
-**Qwen infra preflight.** When (and only when) the routing table picks qwen, run the three-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper. The probe is fast and exists to keep an unhealthy qwen backend from silently hanging or returning garbage. Verdicts:
+**Qwen infra preflight.** When (and only when) the routing table picks qwen, run the four-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper. It is cheap on the common path (warm backend answers in <1s, a broken backend fails fast) and exists to keep an unhealthy qwen backend from silently hanging, returning garbage, or accepting the dispatch only to fail the worker spawn. Verdicts:
 
 - `"healthy"` → proceed with the qwen dispatch.
-- `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see Attempt logging section above).
+- `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"` → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see Attempt logging section above).
 
 Record the preflight outcome for the attempt-log entry (see "Attempt logging" section above). The dispatch decision (qwen vs Claude fallback) determines `implementor`.
 
@@ -593,7 +593,7 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern.
 - `references/adversarial-test-prompt.md` - Adversarial validator (Devon) prompt template
 - `references/codex-integration.md` - Codex review-only usage
 - `references/gemini-integration.md` - Gemini prompt templates and patterns
-- `references/qwen-integration.md` - qwen dispatch + three-check preflight protocol
+- `references/qwen-integration.md` - qwen dispatch + four-check preflight protocol
 - `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Ivan prompts
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
 - `references/subagent-dispatch.md` - Dispatch Budget + Watchdog: how to safely make an Agent call

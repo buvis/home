@@ -2,6 +2,20 @@
 
 Rules for classifying review findings as auto-fixable, research-then-decide, or requiring user escalation.
 
+## Autonomy in loop mode (hard rule)
+
+When `$_AUTOPILOT_LOOP` is set (the unattended `autoclaude` loop), NEVER block the session on `AskUserQuestion`. Nobody is watching; a mid-session question strands the whole loop until a human returns (observed 2026-06-15: a task-abort question stalled the loop 31 min, a git-push-failure question stalled it 145 min). Every decision must resolve one of two ways:
+
+1. **Resolve autonomously** per the tables below (auto-fix, research-then-decide, or defer-to-batch-end).
+2. **PAUSE** — set `state.phase = "paused"` (plus the relevant `cap_pause_reason`/`stall_reason`), print the PAUSE banner, and STOP. The Stop hook then writes no signal, the wrapper loop exits cleanly, and the user resolves it on the next manual `/run-autopilot`. PAUSE is a state mutation + STOP, never a mid-session prompt.
+
+`AskUserQuestion` is allowed ONLY in handlers the user reaches by re-running `/run-autopilot` after a halt (e.g. the Cap-Pause Resume Handler, an opt-in `design_gate: user`) — i.e. when a human is demonstrably present. It is never allowed on the unattended path.
+
+**Two cases that previously asked and must not:**
+
+- **A task that exhausts its recovery** (repeated abort, or the escalation chain failed): follow the existing recovery path (replan for `subagent_prompt_overrun`, tier escalation for `review_flagged`). If still stuck after the recovery's own cap, PAUSE — never ask "how should I proceed?".
+- **A git push that fails** (auth, locked signing agent, network): commits are already local and the user pushes manually (see Phase 9). Log the failure to `deferred_decisions[]` and CONTINUE — never block. A locked signing agent on an unattended host is expected, not a decision point.
+
 ## Auto-fix (proceed without asking)
 
 Proceed autonomously when ALL conditions hold:

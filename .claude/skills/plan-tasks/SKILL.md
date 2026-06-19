@@ -165,7 +165,7 @@ When **both** triggers apply to the same task, a **single split pass** satisfies
 
 **Qwen infra preflight (gates the eligibility trigger only):**
 
-Before applying the eligibility split trigger, `plan-tasks` runs the qwen infra preflight — the three-check probe (`pi` on PATH, llama.cpp `/v1/models` reachable, configured qwen model id present) defined in `~/.claude/skills/work/references/qwen-integration.md` (PRD 00031). The probe is fast; it exists so the eligibility split is only paid for when qwen can actually consume the result.
+Before applying the eligibility split trigger, `plan-tasks` runs the qwen infra preflight defined in `~/.claude/skills/work/references/qwen-integration.md` (PRD 00031) — `pi` on PATH, the llama.cpp endpoint reachable, the configured model id present, and a real 1-token completion succeeding (the only check that proves the inference worker actually spawns). It is cheap on the common path; it exists so the eligibility split is only paid for when qwen can actually consume the result — a backend that lists the model but can't serve a token (`completion_failed`) skips the split rather than marking tasks qwen-eligible that would only fall back at dispatch.
 
 - **Healthy** → the eligibility trigger is active for this PRD's tasks.
 - **Unhealthy, or the probe is unavailable** (any failure mode reported by the probe — see `~/.claude/skills/work/references/qwen-integration.md` for the current check list; absence of that file itself, e.g. before PRD 00031 has landed, also counts as unavailable) → the eligibility trigger is **skipped entirely**; tasks keep their original shape and route to Claude.

@@ -48,7 +48,43 @@ try:
 except ImportError:
     gate_blocks = None
 
+try:
+    # Reuse the cap hook's atomic state writer (temp + os.replace) so both hooks
+    # persist state.json the same way and never drift. If it cannot be imported,
+    # the phase-thrash guard simply does not persist (fail open, no worse than
+    # before the guard existed).
+    from autopilot_context_cap_hook import _atomic_write_state
+except ImportError:
+    _atomic_write_state = None
+
 PS_TIMEOUT_SEC = 2
+
+# A review/build phase that hands off "next" with no forward progress this many
+# consecutive times is a thrash, not progress (blind-review async-dispatch loop,
+# observed 2026-06-17 on PRD 00157: 18 dead restarts, ~885k output tokens, zero
+# progress). At the limit the hook withholds the signal so the wrapper loop
+# exits cleanly — the same halt a PAUSE uses.
+PHASE_THRASH_LIMIT = 3
+
+
+def _progress_key(state: dict) -> str:
+    """Fingerprint of forward progress across a hand-off. Two consecutive "next"
+    hand-offs with the same key means the phase advanced nothing — a thrash. Any
+    real step (phase/cycle change, a phase or task completing, a replan or cap
+    rotation, a new review cycle) changes the key and resets the counter."""
+    return "|".join(
+        str(x)
+        for x in (
+            state.get("phase", ""),
+            state.get("next_phase", ""),
+            len(state.get("phases_completed") or []),
+            state.get("tasks_completed", 0),
+            state.get("cycle", 0),
+            state.get("replan_count") or 0,
+            len(state.get("cap_rotations") or []),
+            len(state.get("review_cycles") or []),
+        )
+    )
 
 
 def _drain_stdin() -> None:
@@ -163,6 +199,46 @@ def main() -> None:
             )
             blocked = False
         if blocked:
+            return
+
+    # Phase-thrash circuit-breaker (the "next" hand-off only). A phase that
+    # re-enters with no forward progress PHASE_THRASH_LIMIT times is stuck: the
+    # 2026-06-17 blind-review loop dispatched an async reviewer and yielded
+    # before the result landed, so "blind" never reached phases_completed and
+    # the loop re-ran it 18 times (~885k output tokens, zero progress). On trip,
+    # withhold the signal — the wrapper sees no signal and exits its loop
+    # cleanly (same halt as a PAUSE) — and record the stall for the user.
+    # "done"/"task_aborted" are out of scope: batch end and the replan_count cap
+    # bound those on their own.
+    if computed == "next":
+        guard = state.get("phase_guard") or {}
+        key = _progress_key(state)
+        count = guard.get("count", 0) + 1 if guard.get("key") == key else 1
+        state["phase_guard"] = {"key": key, "count": count}
+        tripped = count >= PHASE_THRASH_LIMIT
+        if tripped:
+            state["needs_attention"] = True
+            state["thrash_halt"] = {
+                "phase": state.get("phase", ""),
+                "next_phase": state.get("next_phase", ""),
+                "repeats": count,
+            }
+        if _atomic_write_state is not None:
+            _atomic_write_state(autopilot_dir, state)
+        if tripped:
+            sys.stderr.write(
+                "autopilot stop hook: PHASE THRASH — phase "
+                f"\"{state.get('phase', '')}\" handed off \"next\" {count}x with "
+                "no progress. Withholding the loop signal and halting "
+                "(needs_attention set, thrash_halt recorded in state.json). The "
+                "phase is not advancing; inspect before re-running.\n"
+            )
+            # Exit the session WITHOUT writing a signal: claude exits, the
+            # wrapper reads an empty signal, hits its `*)` case ("NOT drained")
+            # and breaks the loop. SIGINT (not a passive return) makes the
+            # unattended loop halt deterministically instead of idling on a live
+            # session.
+            find_and_signal_claude(os.getppid())
             return
 
     # Write signal (idempotent: skip rewrite if value matches).

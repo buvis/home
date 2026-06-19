@@ -392,7 +392,8 @@
     "strunk@buvis-plugins": true,
     "aegis@buvis-plugins": true,
     "claude-checkup@buvis-plugins": true,
-    "context-mode@context-mode": true
+    "context-mode@context-mode": true,
+    "ponytail@ponytail": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {
@@ -412,6 +413,12 @@
       "source": {
         "source": "github",
         "repo": "mksglu/context-mode"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
       }
     }
   },
