@@ -21,6 +21,11 @@
 .claude/cartographer/projects/
 !.claude/CLAUDE.md
 !.claude/warden.yaml
+# Re-exclude tool dirs, backups, coverage, and logs the allowlist above would otherwise let through
+.claude/**/.serena/
+.claude/**/*.bak
+.claude/**/.coverage
+.claude/hooks/*.log
 .codex/*
 !.codex/AGENTS.md
 !.codex/config.toml
