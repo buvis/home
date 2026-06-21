@@ -385,6 +385,25 @@ def _npm_cmd(work_tree: Path, scope_dir: Path, rel_targets: list[str]) -> list[s
     return ["npm", "test", "--prefix", str(scope_dir)]
 
 
+def _npm_has_runner(scope_dir: Path) -> bool:
+    """True when the npm package at scope_dir actually has a JS/TS test runner:
+    a vitest/jest dependency, or a real `test` script. A package with neither —
+    the npm default `test` placeholder, or no `test` key — CANNOT produce test
+    counts; it is a deliberate no-test-infra frontend (verified via build /
+    typecheck instead). Treating such a stack as EMPTY_TESTS hard-blocks every
+    frontend-only PRD forever (jink 00024), so its files are review-only — see
+    _detect_active_stacks (skip activation) and _check_empty_tests (skip gap)."""
+    try:
+        data = json.loads((scope_dir / "package.json").read_text())
+    except (OSError, ValueError):
+        return False
+    deps = {**data.get("devDependencies", {}), **data.get("dependencies", {})}
+    if "vitest" in deps or "jest" in deps:
+        return True
+    test_script = str(data.get("scripts", {}).get("test", "")).strip()
+    return bool(test_script) and "no test specified" not in test_script
+
+
 def _parse_jest_vitest(output: str, returncode: int) -> str | None:
     """Parse jest/vitest output. Prefer the machine JSON report (jest --json and
     vitest --reporter=json share numPassedTests/numFailedTests/numPendingTests),
@@ -433,8 +452,8 @@ _PYTEST: Stack = next(s for s in STACKS if s.name == "pytest")
 
 _NON_CODE_SUFFIXES = {
     ".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml", ".lock", ".cfg",
-    ".ini", ".sh", ".bash", ".png", ".jpg", ".svg", ".gif", ".ico", ".csv",
-    ".html", ".css",
+    ".ini", ".sh", ".bash", ".ps1", ".png", ".jpg", ".svg", ".gif", ".ico",
+    ".csv", ".html", ".css",
 }
 
 
@@ -493,6 +512,14 @@ def _detect_active_stacks(
                 scope_dir = work_tree  # pytest is markerless: fall back to root
             if scope_dir is None:
                 unsupported.append(path)
+            elif matched.name == "npm" and not _npm_has_runner(scope_dir):
+                # Deliberate no-test-runner frontend: review-only, never a test
+                # target. Skip activation so it neither runs `npm test` (which
+                # fails EMPTY_TESTS) nor reports UNSUPPORTED_STACK.
+                sys.stderr.write(
+                    f"review coverage: {path} — npm package at {scope_dir} has "
+                    "no test runner; treating as review-only (tests N/A)\n"
+                )
             else:
                 activated.append((matched, scope_dir, path))
             continue
@@ -606,7 +633,32 @@ def _check_missing_files(merged: dict[str, dict[str, str]], diff_files: list[str
         _fail("MISSING_FILES", " ".join(missing))
 
 
-def _check_empty_tests(merged: dict[str, dict[str, str]]) -> None:
+def _is_runnerless_npm(path: str, work_tree: Path) -> bool:
+    """True when `path` is a JS/TS file whose npm package has no test runner."""
+    npm = next(s for s in STACKS if s.name == "npm")
+    if not npm.file_re.search(path):
+        return False
+    scope_dir = _scope_dir_for(
+        (work_tree / path).resolve().parent, work_tree, npm.markers
+    )
+    if scope_dir is None:
+        return False
+    return not _npm_has_runner(scope_dir)
+
+
+def _all_code_is_runnerless(diff_files: list[str], work_tree: Path) -> bool:
+    """True when the diff has code files and EVERY one is a runnerless-npm file —
+    no stack could produce counts. A single non-JS/TS code file (a .py source, a
+    .rs/.go file) or a JS/TS file in a package WITH a runner flips this False so
+    the gate still fires for them."""
+    work_tree = work_tree.resolve()
+    code = [p for p in diff_files if Path(p).suffix not in _NON_CODE_SUFFIXES]
+    return bool(code) and all(_is_runnerless_npm(p, work_tree) for p in code)
+
+
+def _check_empty_tests(
+    merged: dict[str, dict[str, str]], diff_files: list[str], work_tree: Path
+) -> None:
     tests = merged["tests"]
     has_reviewed = any(v == "reviewed" for v in merged["files"].values())
     if not has_reviewed:
@@ -615,8 +667,19 @@ def _check_empty_tests(merged: dict[str, dict[str, str]]) -> None:
     has_real = any(
         re.match(r"^pass=\d+ fail=\d+ skip=\d+$", v) for v in tests.values()
     )
-    if not has_real:
-        _fail("EMPTY_TESTS", "diff contains reviewed code files but no real test counts were recorded")
+    if has_real:
+        return
+    # No real counts. Only a stack that COULD produce them is a gap. A diff whose
+    # only code lives in a runnerless npm package (a deliberate no-test-infra
+    # frontend, verified via build/typecheck) can never produce counts, so it
+    # passes on review + build alone rather than blocking forever (jink 00024).
+    if _all_code_is_runnerless(diff_files, work_tree):
+        sys.stderr.write(
+            "review coverage: changed code has no configured test runner; "
+            "tests dimension N/A (review + build verification only)\n"
+        )
+        return
+    _fail("EMPTY_TESTS", "diff contains reviewed code files but no real test counts were recorded")
 
 
 def _check_unmapped_features(merged: dict[str, dict[str, str]], features: list[str]) -> None:
@@ -697,7 +760,7 @@ def main() -> None:
     rules = _rubric_rules(rubric_path)
 
     _check_missing_files(merged, diff)
-    _check_empty_tests(merged)
+    _check_empty_tests(merged, diff, work_tree)
     _check_unmapped_features(merged, features)
     _check_missing_rubric_rules(merged, rules)
 

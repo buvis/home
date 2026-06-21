@@ -1943,6 +1943,89 @@ class NpmStackTests(unittest.TestCase):
         self.assertEqual(result, {"npm": "pass=4 fail=0 skip=1"})
         self.assertEqual(captured["argv"], ["npx", "vitest", "run", "--reporter=json"])
 
+    # --- Runnerless npm (jink 00024): a deliberate no-test-runner frontend ----
+
+    def test_npm_has_runner_true_for_vitest_jest_or_real_script(self) -> None:
+        self.assertTrue(
+            review_coverage._npm_has_runner(
+                self._scope_with_pkg('{"devDependencies": {"vitest": "^1"}}')
+            )
+        )
+        sd = self.tmp / "app2"
+        sd.mkdir()
+        (sd / "package.json").write_text('{"scripts": {"test": "mocha"}}')
+        self.assertTrue(review_coverage._npm_has_runner(sd))
+
+    def test_npm_has_runner_false_without_runner_or_placeholder(self) -> None:
+        """No vitest/jest dep and no real `test` script (or the npm default
+        placeholder) -> no runner."""
+        self.assertFalse(
+            review_coverage._npm_has_runner(
+                self._scope_with_pkg('{"scripts": {"build": "vite build"}}')
+            )
+        )
+        sd = self.tmp / "app2"
+        sd.mkdir()
+        (sd / "package.json").write_text(
+            '{"scripts": {"test": "echo \\"Error: no test specified\\" && exit 1"}}'
+        )
+        self.assertFalse(review_coverage._npm_has_runner(sd))
+
+    def test_runnerless_npm_file_does_not_activate(self) -> None:
+        """A .ts in a package with no test runner is review-only: not activated
+        (no `npm test`, so no EMPTY_TESTS) and not UNSUPPORTED_STACK."""
+        (self.work_tree / "package.json").write_text('{"scripts": {"build": "vite build"}}')
+        self._touch("src/links.ts")
+        with mock.patch.object(review_coverage, "_run_cmd") as run_cmd:
+            result = review_coverage._run_native_tests(["src/links.ts"], self.work_tree)
+        self.assertEqual(result, {})
+        run_cmd.assert_not_called()
+
+    def test_check_empty_tests_passes_for_runnerless_frontend(self) -> None:
+        """jink regression: a reviewed .ts in a no-test-runner package must NOT
+        trip EMPTY_TESTS — it passes on review + build alone."""
+        (self.work_tree / "package.json").write_text('{"scripts": {"build": "vite build"}}')
+        self._touch("src/links.ts")
+        merged = {
+            "files": {"src/links.ts": "reviewed"},
+            "tests": {"pending": "filled by consolidation"},
+            "features": {},
+            "rubric": {},
+        }
+        # Must not raise SystemExit.
+        review_coverage._check_empty_tests(merged, ["src/links.ts"], self.work_tree)
+
+    def test_check_empty_tests_still_fails_when_runner_present(self) -> None:
+        """A package WITH a runner but no recorded counts still fails EMPTY_TESTS
+        — the relaxation is scoped strictly to no-runner stacks."""
+        (self.work_tree / "package.json").write_text('{"devDependencies": {"vitest": "^1"}}')
+        self._touch("src/links.ts")
+        merged = {
+            "files": {"src/links.ts": "reviewed"},
+            "tests": {"pending": "x"},
+            "features": {},
+            "rubric": {},
+        }
+        with self.assertRaises(SystemExit):
+            review_coverage._check_empty_tests(merged, ["src/links.ts"], self.work_tree)
+
+    def test_check_empty_tests_fails_for_mixed_runnerless_and_source(self) -> None:
+        """The runnerless .ts is excused, but a .py source in the same diff still
+        demands a test — the gate must fire."""
+        (self.work_tree / "package.json").write_text('{"scripts": {"build": "vite build"}}')
+        self._touch("src/links.ts")
+        self._touch("src/util.py")
+        merged = {
+            "files": {"src/links.ts": "reviewed", "src/util.py": "reviewed"},
+            "tests": {"pending": "x"},
+            "features": {},
+            "rubric": {},
+        }
+        with self.assertRaises(SystemExit):
+            review_coverage._check_empty_tests(
+                merged, ["src/links.ts", "src/util.py"], self.work_tree
+            )
+
     def test_js_file_without_package_json_is_unsupported(self) -> None:
         """A changed .js with no package.json above it -> UNSUPPORTED_STACK, no run."""
         self._touch("src/app.js")
