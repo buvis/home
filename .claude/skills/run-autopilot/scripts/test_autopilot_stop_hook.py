@@ -93,6 +93,15 @@ class StopHookFixture:
             return self.signal_path.read_text().strip()
         return None
 
+    def write_transcript(self, events: list[dict]) -> Path:
+        """Write a JSONL transcript (one event per line) and return its path."""
+        p = self.cwd / "transcript.jsonl"
+        p.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+        return p
+
+    def read_state(self) -> dict:
+        return json.loads((self.autopilot_dir / "state.json").read_text())
+
     def cleanup(self) -> None:
         self.tmp.cleanup()
 
@@ -162,6 +171,161 @@ def _run_hook_capturing(
             os.environ["_AUTOPILOT_LOOP"] = saved
 
     return rc, signalled_pids, stderr.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Transcript event builders (synthetic; mirror the harness's JSONL shape).
+# ---------------------------------------------------------------------------
+
+LAUNCH_ACK = "Async agent launched successfully. agentId: abc123 (internal ID)"
+
+
+def _ev_agent_dispatch() -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "name": "Agent", "input": {}}],
+        },
+    }
+
+
+def _ev_assistant_text(text: str) -> dict:
+    return {
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+    }
+
+
+def _ev_tool_result(text: str) -> dict:
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "content": [{"type": "text", "text": text}]}
+            ],
+        },
+    }
+
+
+def _ev_bash_background() -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "Bash",
+                    "input": {"command": "cargo test", "run_in_background": True},
+                }
+            ],
+        },
+    }
+
+
+def _ev_bg_launch_ack(task_id: str = "b6qi55ate") -> dict:
+    """A harness AUTO-BACKGROUND ack: a tool_result that starts with the launch
+    phrase and carries the task id. This is what a long FOREGROUND Bash (codex,
+    `cargo test`) becomes — the recorded tool_use still says foreground."""
+    return _ev_tool_result(
+        f"Command running in background with ID: {task_id}. Output is being "
+        f"written to: /private/tmp/claude-501/proj/{task_id}.log"
+    )
+
+
+def _ev_schedule_wakeup() -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "name": "ScheduleWakeup", "input": {"delaySeconds": 90}}
+            ],
+        },
+    }
+
+
+def _ev_edit() -> dict:
+    """A state-advancing Edit — the unambiguous hand-off marker."""
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "Edit",
+                    "input": {"file_path": "dev/local/autopilot/state.json"},
+                }
+            ],
+        },
+    }
+
+
+def _ev_read(path: str = "/private/tmp/claude-501/proj/b6qi55ate.log") -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "name": "Read", "input": {"file_path": path}}],
+        },
+    }
+
+
+def _ev_task_notification(task_id: str = "abc123") -> dict:
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": f"<task-notification>\n<task-id>{task_id}</task-id>\n",
+        },
+    }
+
+
+def _ev_user_text(text: str) -> dict:
+    """A user-role turn carrying arbitrary text (e.g. injected SKILL.md prose)."""
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
+def _ev_agent_ack(agent_id: str) -> dict:
+    """A real launch ack: a tool_result that starts with the launch phrase."""
+    return _ev_tool_result(
+        f"Async agent launched successfully. agentId: {agent_id} (internal ID)"
+    )
+
+
+def _run_hook_with_transcript(
+    fx: StopHookFixture, transcript_path: Path, loop_value: str = "12345"
+) -> list[int]:
+    """Run the hook with a transcript_path in the stdin payload (the real Stop
+    hook receives this). gate_blocks is forced to (False, "") so these tests
+    isolate the background-task abstain from the review-coverage gate."""
+    signalled_pids: list[int] = []
+
+    def fake_signal_claude(pid: int) -> bool:
+        signalled_pids.append(pid)
+        return True
+
+    saved = os.environ.pop("_AUTOPILOT_LOOP", None)
+    try:
+        os.environ["_AUTOPILOT_LOOP"] = loop_value
+        stdin_payload = json.dumps(
+            {"session_id": "test", "transcript_path": str(transcript_path)}
+        )
+        with (
+            mock.patch.object(hook.Path, "cwd", return_value=fx.cwd),
+            mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
+            mock.patch.object(hook.sys, "stdin", io.StringIO(stdin_payload)),
+            mock.patch.object(hook, "gate_blocks", return_value=(False, "")),
+        ):
+            hook.main()
+    finally:
+        os.environ.pop("_AUTOPILOT_LOOP", None)
+        if saved is not None:
+            os.environ["_AUTOPILOT_LOOP"] = saved
+    return signalled_pids
 
 
 # ===========================================================================
@@ -590,6 +754,350 @@ class PhaseThrashCircuitBreakerTests(unittest.TestCase):
         self._state_path().write_text(json.dumps(st))
         self._run_no_gate()
         self.assertEqual(self.fx.signal_content(), "done")
+
+
+class BackgroundTaskInFlightTests(unittest.TestCase):
+    """When the session ends its turn with a background task still pending (an
+    async Agent dispatch, or a backgrounded Bash), the hook must abstain — write
+    NO signal, NOT SIGINT, and NOT touch the thrash counter — so the harness can
+    re-invoke the model on completion and the phase progresses. Regression for
+    the 2026-06-19 strands: this harness backgrounds Agent dispatches and the old
+    Stop hook SIGINTed on the yield turn, killing the session before the
+    <task-notification> re-invoke landed (design reviewer + /work Tess/Ivan each
+    stranded 3x, then the breaker halted the loop)."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def test_launched_agent_no_notification_abstains(self) -> None:
+        """Agent dispatched, ack present, no completion yet -> still running."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [_ev_agent_dispatch(), _ev_tool_result(LAUNCH_ACK)]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content(), "must not signal while pending")
+        self.assertEqual(pids, [], "must not SIGINT while a bg agent is pending")
+
+    def test_unconsumed_task_notification_abstains(self) -> None:
+        """Agent completed (notification arrived) but the model has not yet
+        produced a turn consuming it -> the strand case; abstain so the harness
+        re-invoke can be processed instead of killing the session."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_tool_result(LAUNCH_ACK),
+                _ev_assistant_text("running in the background; I'll continue when..."),
+                _ev_task_notification("abc123"),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(pids, [])
+
+    def test_consumed_task_notification_hands_off(self) -> None:
+        """Notification arrived AND the model produced a turn after it (consumed
+        the result) -> nothing pending; the normal hand-off proceeds."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_tool_result(LAUNCH_ACK),
+                _ev_task_notification("abc123"),
+                _ev_assistant_text("Reviewer returned; applying fixes and advancing."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_inline_agent_with_no_ack_hands_off(self) -> None:
+        """If the Agent ran inline (its tool_result is the real output, no launch
+        ack), detection is a no-op and the hand-off proceeds — version-robust."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [_ev_agent_dispatch(), _ev_tool_result("Here is my review: looks good.")]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_backgrounded_bash_abstains(self) -> None:
+        """A Bash tool_use flagged run_in_background with no completion yet is an
+        unambiguous in-flight task -> abstain."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript([_ev_bash_background()])
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(pids, [])
+
+    def test_missing_transcript_path_hands_off(self) -> None:
+        """No transcript_path in the payload -> fail open, behave as before."""
+        self.fx.write_state(phase="build", next_phase="review")
+        # _run_hook (no transcript_path) with the gate forced open.
+        with mock.patch.object(hook, "gate_blocks", return_value=(False, "")):
+            pids = _run_hook(self.fx)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_abstain_does_not_increment_phase_guard(self) -> None:
+        """A pending bg task is real work, not a thrash: the abstain must leave
+        the thrash counter untouched (it must come before the breaker)."""
+        st = _make_state(phase="build", next_phase="build")
+        st["phase_guard"] = {"key": hook._progress_key(st), "count": 2}
+        (self.fx.autopilot_dir / "state.json").write_text(json.dumps(st))
+        tp = self.fx.write_transcript(
+            [_ev_agent_dispatch(), _ev_tool_result(LAUNCH_ACK)]
+        )
+        _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(
+            self.fx.read_state()["phase_guard"]["count"],
+            2,
+            "abstain must not advance the thrash counter toward a halt",
+        )
+
+    def test_phantom_notification_in_prose_does_not_mask_pending(self) -> None:
+        """Round-2 regression (warden blind / playground Tess): SKILL.md text is
+        injected as a user turn and MENTIONS `<task-notification>` mid-string.
+        The old count-based detector counted that phantom as a real completion,
+        cancelled the real launch, and SIGINTed the dispatched reviewer. Per-id,
+        start-anchored matching must ignore the prose and still see the agent as
+        pending. Phase is "build" (not review-gated): the pending check only runs
+        outside review-gated phases now (review phases defer to the coverage
+        gate), so this exercises the per-id anchoring where it actually fires."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_user_text(
+                    "Autopilot skill: the Stop hook keeps the session alive and "
+                    "the harness re-invokes you with a `<task-notification>` when "
+                    "the agent finishes."
+                ),
+                _ev_agent_dispatch(),
+                _ev_agent_ack("a8a4f8da57ae914bb"),
+                _ev_assistant_text(
+                    "Blind reviewer dispatched; I'll be re-invoked with the report."
+                ),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(), "a prose phantom must not mask a real launch"
+        )
+        self.assertEqual(pids, [])
+
+    def test_earlier_consumed_task_does_not_mask_new_dispatch(self) -> None:
+        """A completed-and-consumed earlier task must not cancel a freshly
+        dispatched one: the work phase dispatches Tess, consumes her result, then
+        dispatches Ivan — Ivan is still pending. (Per-id, not global counts.)"""
+        self.fx.write_state(phase="build", next_phase="build")
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),  # Tess
+                _ev_agent_ack("1111aaaa"),
+                _ev_task_notification("1111aaaa"),  # Tess completes
+                _ev_assistant_text("Tess done; committing tests, dispatching Ivan."),
+                _ev_agent_dispatch(),  # Ivan
+                _ev_agent_ack("2222bbbb"),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(), "a new dispatch must be seen as pending"
+        )
+        self.assertEqual(pids, [])
+
+    def test_orphan_launch_does_not_block_handoff(self) -> None:
+        """Round-2 false positive (warden 22:21): a review session dispatches
+        several reviewers; one never reports back (orphan). The model proceeds
+        with the rest, consumes the LAST dispatch, and hands off. An older
+        orphaned launch must NOT keep the session alive — only the most-recent
+        launch decides."""
+        self.fx.write_state(phase="review", next_phase="blind", phases_completed=[])
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),  # reviewer A (orphan: never reports)
+                _ev_agent_ack("aaaa0001"),
+                _ev_agent_dispatch(),  # reviewer B
+                _ev_agent_ack("bbbb0002"),
+                _ev_task_notification("bbbb0002"),  # B completes; A never does
+                _ev_assistant_text("Reviews in; gate passes; handing off to blind."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(
+            self.fx.signal_content(),
+            "next",
+            "an orphaned earlier launch must not stall the hand-off",
+        )
+        self.assertGreater(len(pids), 0)
+
+    def test_orphan_latest_reviewer_in_review_phase_hands_off(self) -> None:
+        """Warden PRD 00013 regression (2026-06-20): in a review-gated phase a
+        parallel reviewer batch's LAST-launched reviewer never reports back, so
+        it is the most-recent unconsumed launch. The model finished the whole
+        phase (gate passes) and ended its turn, but the per-id detector saw that
+        orphan as in-flight and the hook abstained on every Stop — no signal, no
+        SIGINT — leaving the session idle at its prompt forever while the wrapper
+        waited for an exit. In a review-gated phase the coverage gate (forced
+        open here, mirroring a passed gate) is the keep-alive, so the pending
+        check must NOT run; the hand-off proceeds."""
+        self.fx.write_state(
+            phase="blind", next_phase="blind", phases_completed=["review"]
+        )
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),  # reviewer A
+                _ev_agent_ack("aaaa0001"),
+                _ev_agent_dispatch(),  # reviewer B
+                _ev_agent_ack("bbbb0002"),
+                _ev_agent_dispatch(),  # reviewer C (orphan: latest, never reports)
+                _ev_agent_ack("cccc0003"),
+                _ev_task_notification("aaaa0001"),  # A completes
+                _ev_task_notification("bbbb0002"),  # B completes; C never does
+                _ev_assistant_text("Added regression test; coverage gate passes."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(
+            self.fx.signal_content(),
+            "next",
+            "a review-gated phase must defer to the gate, not stall on an "
+            "orphaned latest reviewer",
+        )
+        self.assertGreater(len(pids), 0)
+
+
+class AutoBackgroundedBashWaitTests(unittest.TestCase):
+    """A long FOREGROUND Bash (codex review, `cargo test`) is silently
+    AUTO-BACKGROUNDED by the harness into a tracked task; its recorded tool_use
+    still says foreground, so neither the agent-launch ack nor the
+    run_in_background flag fires. The doubt phase hits this every cycle and the
+    review-coverage gate does NOT cover it (it gates the previous surface). The
+    hook must abstain — even in a review-gated phase — while the model waits for
+    the auto-backgrounded run or a scheduled wakeup. Regression for the
+    2026-06-21 ddb doubt thrash-halt (`cargo test-ci` auto-backgrounded, the
+    session waited via ScheduleWakeup, the hook halted on the 3rd yield).
+    gate_blocks is forced open by _run_hook_with_transcript, mirroring a passed
+    coverage gate for the previous surface."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def test_doubt_waiting_on_autobg_bash_abstains(self) -> None:
+        """The ddb regression: review-gated `doubt`, an auto-backgrounded
+        `cargo test` still running, model polling its output — abstain."""
+        self.fx.write_state(
+            phase="doubt", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        tp = self.fx.write_transcript(
+            [
+                _ev_assistant_text("Running the fast test tier for the coverage gate."),
+                _ev_bg_launch_ack("b6qi55ate"),
+                _ev_assistant_text("Auto-backgrounded; polling its output."),
+                _ev_read(),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "must abstain while an auto-backgrounded test run is still in flight",
+        )
+        self.assertEqual(pids, [], "must NOT SIGINT while the bg run is pending")
+
+    def test_doubt_schedule_wakeup_abstains(self) -> None:
+        """Waiting via ScheduleWakeup (the 96e6dcdc posture) — abstain."""
+        self.fx.write_state(
+            phase="doubt", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        tp = self.fx.write_transcript(
+            [
+                _ev_bg_launch_ack("b6qi55ate"),
+                _ev_assistant_text("I'll resume when the test tier completes."),
+                _ev_schedule_wakeup(),
+                _ev_assistant_text("Waiting on the scheduled wakeup."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(pids, [])
+
+    def test_handoff_edits_state_after_bg_run_hands_off(self) -> None:
+        """The bg run finished and the model advanced state (Edit) — that is a
+        real hand-off, not a wait. The most-recent Edit is AFTER the launch, so
+        the hook must NOT abstain; it writes "next" and SIGINTs."""
+        self.fx.write_state(
+            phase="doubt", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        tp = self.fx.write_transcript(
+            [
+                _ev_bg_launch_ack("b6qi55ate"),
+                _ev_task_notification("b6qi55ate"),
+                _ev_assistant_text("Tests pass; recording the gate result and advancing."),
+                _ev_edit(),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(
+            self.fx.signal_content(),
+            "next",
+            "an Edit after the bg launch is a hand-off, not a wait",
+        )
+        self.assertGreater(len(pids), 0)
+
+    def test_consumed_bg_run_without_pending_hands_off(self) -> None:
+        """The bg run completed (notification) and was consumed, nothing else
+        pending and no later wait marker — hand off normally."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_bg_launch_ack("b6qi55ate"),
+                _ev_task_notification("b6qi55ate"),
+                _ev_assistant_text("Build done; proceeding."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_wait_does_not_increment_thrash_counter(self) -> None:
+        """A genuine wait is real work, not a no-progress thrash: the abstain
+        must leave the thrash counter untouched even in a review-gated phase."""
+        st = _make_state(
+            phase="doubt", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        st["phase_guard"] = {"key": hook._progress_key(st), "count": 2}
+        (self.fx.autopilot_dir / "state.json").write_text(json.dumps(st))
+        tp = self.fx.write_transcript([_ev_bg_launch_ack("b6qi55ate"), _ev_read()])
+        _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(
+            self.fx.read_state()["phase_guard"]["count"],
+            2,
+            "a wait must not advance the thrash counter toward a halt",
+        )
+
+    def test_orphan_reviewer_without_bg_marker_still_hands_off(self) -> None:
+        """Guard against over-reach: a review-gated phase with only an orphaned
+        AGENT (no bg-bash, no wakeup) must still hand off — _waiting_on_async
+        must not fire, leaving the 2026-06-20 orphan path intact."""
+        self.fx.write_state(
+            phase="blind", next_phase="blind", phases_completed=["review"]
+        )
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_agent_ack("cccc0003"),
+                _ev_assistant_text("Added regression test; coverage gate passes."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
 
 
 if __name__ == "__main__":
