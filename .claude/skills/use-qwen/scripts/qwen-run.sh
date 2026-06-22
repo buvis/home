@@ -11,11 +11,16 @@ fi
 # Local model served by llama.cpp - free to run, no API cost.
 # qwen3-coder-30b-a3b cleared a 6-task agentic Rust eval on llama.cpp; the same
 # model over Ollama failed (Ollama's qwen3coder tool-call XML parser mangles
-# large edits). Serve via llama.cpp/LlamaBarn with `--jinja`. The model must be
-# listed in ~/.pi/agent/models.json under the `llamacpp` provider.
-DEFAULT_MODEL="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M"
-MODEL="$DEFAULT_MODEL"
-PROVIDER="llamacpp"
+# large edits). Serve via llama.cpp/LlamaBarn with `--jinja`.
+#
+# Provider/model are auto-detected from pi's config (~/.pi/agent/models.json):
+# every provider is probed in ascending port order and the first one with a
+# live server wins; the model id comes from that server's /v1/models. Override
+# with --provider and/or -m. A config entry is NOT proof a server is up, so we
+# probe rather than trust the lowest port blindly.
+MODELS_JSON="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json"
+MODEL=""             # empty = take whatever the live server reports
+PROVIDER=""          # empty = auto-detect lowest live port
 MODE="prompt"        # prompt, interactive, resume, continue
 OUTPUT_MODE="text"   # text or json (pi --mode)
 READ_ONLY=""
@@ -26,11 +31,14 @@ OUTPUT_FILE=""
 usage() {
     echo "Usage: $0 [options] [prompt]"
     echo ""
-    echo "Runs a local model (default: $DEFAULT_MODEL) via the pi agent + llama.cpp."
+    echo "Runs a local model via the pi agent + llama.cpp. Provider and model are"
+    echo "auto-detected from $MODELS_JSON: providers are probed in ascending"
+    echo "port order and the first with a live server wins."
     echo "Local inference - no API cost. Requires a llama.cpp server running with the model loaded."
     echo ""
     echo "Options:"
-    echo "  -m, --model MODEL    Override model (default: $DEFAULT_MODEL)"
+    echo "  -P, --provider NAME  Force a pi provider (default: lowest live port)"
+    echo "  -m, --model MODEL    Force model id (default: whatever the live server reports)"
     echo "  -i, --interactive    Interactive mode with initial prompt"
     echo "  -R, --read-only      Restrict to read-only tools (no file edits)"
     echo "  -j, --json           Emit a structured JSON event stream (pi --mode json)"
@@ -50,6 +58,10 @@ usage() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -P|--provider)
+            PROVIDER="$2"
+            shift 2
+            ;;
         -m|--model)
             MODEL="$2"
             shift 2
@@ -110,6 +122,52 @@ if ! command -v pi &>/dev/null; then
     echo "ERROR: 'pi' not found on PATH. Install via mise, then run 'mise reshim'."
     exit 1
 fi
+
+for tool in jq curl; do
+    command -v "$tool" &>/dev/null || { echo "ERROR: '$tool' required for provider auto-detect."; exit 1; }
+done
+if [ ! -f "$MODELS_JSON" ]; then
+    echo "ERROR: pi model config not found: $MODELS_JSON"
+    exit 1
+fi
+
+# Ask a provider's llama-server for the id it's actually serving (empty if down).
+probe_model() { curl -sf --max-time 2 "$1/models" 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null; }
+
+# Look up a provider's baseUrl from the config (empty if the provider is absent).
+provider_base_url() { jq -r --arg p "$1" '.providers[$p].baseUrl // empty' "$MODELS_JSON"; }
+
+if [ -n "$PROVIDER" ]; then
+    BASE_URL="$(provider_base_url "$PROVIDER")"
+    if [ -z "$BASE_URL" ]; then
+        echo "ERROR: provider '$PROVIDER' not found in $MODELS_JSON"
+        exit 1
+    fi
+    if [ -z "$MODEL" ]; then
+        MODEL="$(probe_model "$BASE_URL")"
+        [ -z "$MODEL" ] && { echo "ERROR: no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m."; exit 1; }
+    fi
+else
+    # Probe every provider in ascending port order; first live one wins.
+    while IFS=$'\t' read -r _port name base_url; do
+        [ -z "$base_url" ] && continue
+        served="$(probe_model "$base_url")"
+        if [ -n "$served" ]; then
+            PROVIDER="$name"
+            [ -z "$MODEL" ] && MODEL="$served"
+            break
+        fi
+    done < <(jq -r '
+        .providers | to_entries[]
+        | [ ((.value.baseUrl // "") | capture(":(?<p>[0-9]+)").p // "0" | tonumber),
+            .key, (.value.baseUrl // "") ] | @tsv
+    ' "$MODELS_JSON" | sort -n)
+    if [ -z "$PROVIDER" ]; then
+        echo "ERROR: no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)."
+        exit 1
+    fi
+fi
+echo "Using provider '$PROVIDER' model '$MODEL'" >&2
 
 # Common pi arguments
 ARGS=(--provider "$PROVIDER" --model "$MODEL" --mode "$OUTPUT_MODE")
