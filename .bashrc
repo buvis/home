@@ -62,9 +62,6 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
 
-# Enable system rg for Claude Grep tool
-export USE_BUILTIN_RIPGREP=0
-
 # Initialize mise shims and autocompletion
 command -v mise >/dev/null && eval "$(mise activate bash)"
 
