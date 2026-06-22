@@ -72,6 +72,12 @@ trust_level = "trusted"
 [projects."/Users/bob/git/src/github.com/buvis/claude-warden"]
 trust_level = "trusted"
 
+[projects."/Users/bob/git/src/github.com/tbouska/playground"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/doogat/jink"]
+trust_level = "trusted"
+
 [features]
 multi_agent = true
 
@@ -86,7 +92,7 @@ source_type = "local"
 source = "/Users/bob/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
 [tui.model_availability_nux]
-"gpt-5.5" = 2
+"gpt-5.5" = 3
 
 [plugins."documents@openai-primary-runtime"]
 enabled = true
