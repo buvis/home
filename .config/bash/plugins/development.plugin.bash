@@ -65,6 +65,7 @@ autoclaude() {
       # Written by batch-end review only — the one signal that means the
       # backlog is actually empty.
       printf '\nBacklog drained.\n'
+      python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained."
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return
@@ -76,12 +77,14 @@ autoclaude() {
       # signal used to fall into the drained branch and masked a killed
       # handoff as success on 2026-06-11.)
       printf '\nautoclaude: session ended without a signal (died, paused, or gate-blocked). Backlog NOT drained. Check %s/state.json and the last transcript.\n' "$_ap_dir" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped, no signal (died, paused, or gate-blocked). Needs attention."
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return 1
       ;;
     *)
       printf '\nautoclaude: unknown signal "%s", stopping loop. Check %s/state.json.\n' "$signal" "$_ap_dir" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped, unknown signal '$signal'. Needs attention."
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return 1
