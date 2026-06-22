@@ -32,9 +32,6 @@ IDLE_THRESHOLD_SEC = 300
 LID_CLOSED_BELOW = 70
 NTFY_TIMEOUT_SEC = 8
 PRESENCE_TIMEOUT_SEC = 5
-AUTOPILOT_CONTINUATION_VALUES = frozenset({"next", "task_aborted"})
-
-
 def project_name(cwd: str) -> str:
     """Last path segment of cwd, or empty string if cwd is empty."""
     if not cwd:
@@ -55,47 +52,31 @@ def build_event_strings(payload: dict[str, Any]) -> tuple[str, str, str]:
     return event, f"Claude [{project}]: {event}", msg
 
 
-def find_autopilot_signal(start: str) -> Path | None:
-    """Walk up from `start` looking for dev/local/autopilot/signal.
+def autopilot_loop_active() -> bool:
+    """True when this process runs under a live autoclaude loop wrapper.
 
-    Mirrors the walk-up in skills/run-autopilot/scripts/_walk_up.py, kept
-    inline here to keep this hook self-contained (no cross-skill imports).
+    `_AUTOPILOT_LOOP` is the wrapper's PID (exported as $$). An in-loop Stop is
+    just a phase/PRD hand-off — the wrapper restarts Claude — so the user must
+    not be paged for it. The wrapper owns the single terminal notification when
+    the loop actually exits (drained / needs-attention), via `--send`.
+
+    Checking the PID is alive, rather than reading the signal file, avoids two
+    failure modes: the race where this hook read the signal before autopilot's
+    own Stop hook wrote "next" (every hand-off then mis-fired a notification),
+    and a stale env var leaking into a later session (a dead PID reads false).
     """
-    if not start:
-        return None
-    try:
-        current = Path(start).resolve()
-    except OSError:
-        return None
-    for directory in (current, *current.parents):
-        candidate = directory / "dev" / "local" / "autopilot" / "signal"
-        try:
-            if candidate.is_file():
-                return candidate
-        except OSError:
-            continue
-    return None
-
-
-def autopilot_continuation_pending(cwd: str) -> bool:
-    """Return True when an autoclaude loop iteration will restart Claude.
-
-    Only suppresses notifications when BOTH conditions hold: the wrapper has
-    exported `_AUTOPILOT_LOOP` for this process tree, AND autopilot has
-    written a continuation value into the signal file. Either signal alone is
-    unreliable — env alone misfires on the "Backlog drained" path; a stray
-    signal file alone could survive a previous run.
-    """
-    if not os.environ.get("_AUTOPILOT_LOOP"):
-        return False
-    signal_file = find_autopilot_signal(cwd)
-    if signal_file is None:
+    val = os.environ.get("_AUTOPILOT_LOOP", "")
+    if not val.isdigit():
         return False
     try:
-        content = signal_file.read_text(encoding="utf-8").strip()
+        os.kill(int(val), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
     except OSError:
         return False
-    return content in AUTOPILOT_CONTINUATION_VALUES
+    return True
 
 
 ROTATE_THRESHOLD_BYTES = 5 * 1024 * 1024
@@ -261,18 +242,8 @@ def show_desktop_notification(title: str, msg: str) -> None:
     log_line(f"[{now_local()}] System notification shown (user present)")
 
 
-def main() -> None:
-    payload = read_input()
-    event, title, msg = build_event_strings(payload)
-
-    log_line(f"[{now_local()}] Hook triggered: {event}")
-    log_line(json.dumps(payload, ensure_ascii=False))
-
-    if event == "Stop" and autopilot_continuation_pending(str(payload.get("cwd") or "")):
-        log_line(f"[{now_local()}] Suppressed: autopilot continuation pending")
-        log_line("---")
-        return
-
+def dispatch(title: str, msg: str) -> None:
+    """Push to ntfy when the user is away, else show a desktop notification."""
     idle_sec = read_idle_seconds()
     screensaver = screensaver_active()
     lid = lid_closed()
@@ -281,6 +252,32 @@ def main() -> None:
         send_ntfy(title, msg)
     else:
         show_desktop_notification(title, msg)
+
+
+def main() -> None:
+    # CLI mode: `notify.py --send "Title" "Message"`. Used by the autoclaude
+    # wrapper to fire the single terminal notification when its loop exits, so
+    # in-loop Stop events can stay silent (see autopilot_loop_active).
+    if len(sys.argv) >= 2 and sys.argv[1] == "--send":
+        title = sys.argv[2] if len(sys.argv) >= 3 else "autopilot"
+        msg = sys.argv[3] if len(sys.argv) >= 4 else ""
+        log_line(f"[{now_local()}] CLI --send: {title} / {msg}")
+        dispatch(title, msg)
+        log_line("---")
+        return
+
+    payload = read_input()
+    event, title, msg = build_event_strings(payload)
+
+    log_line(f"[{now_local()}] Hook triggered: {event}")
+    log_line(json.dumps(payload, ensure_ascii=False))
+
+    if event == "Stop" and autopilot_loop_active():
+        log_line(f"[{now_local()}] Suppressed: autopilot loop active")
+        log_line("---")
+        return
+
+    dispatch(title, msg)
 
     log_line("---")
 
