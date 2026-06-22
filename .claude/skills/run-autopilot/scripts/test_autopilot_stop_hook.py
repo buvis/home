@@ -284,6 +284,31 @@ def _ev_task_notification(task_id: str = "abc123") -> dict:
     }
 
 
+def _ev_attachment_notification(task_id: str = "abc123") -> dict:
+    """A completion delivered while the session was ACTIVE: the harness records it
+    as a `type: "attachment"` entry whose text lives under attachment.prompt —
+    NOT a user message turn, so message.content is absent. Regression fixture for
+    the 2026-06-22 loop stall (the hook only read message.content and never paired
+    the completion with its launch)."""
+    return {
+        "type": "attachment",
+        "attachment": {
+            "prompt": f"<task-notification>\n<task-id>{task_id}</task-id>\n",
+            "commandMode": "task-notification",
+        },
+    }
+
+
+def _ev_queueop_notification(task_id: str = "abc123") -> dict:
+    """The queue-operation mirror of an active-session completion: the
+    <task-notification> text is under the top-level `content`, message absent."""
+    return {
+        "type": "queue-operation",
+        "operation": "task-notification",
+        "content": f"<task-notification>\n<task-id>{task_id}</task-id>\n",
+    }
+
+
 def _ev_user_text(text: str) -> dict:
     """A user-role turn carrying arbitrary text (e.g. injected SKILL.md prose)."""
     return {"type": "user", "message": {"role": "user", "content": text}}
@@ -812,6 +837,59 @@ class BackgroundTaskInFlightTests(unittest.TestCase):
         pids = _run_hook_with_transcript(self.fx, tp)
         self.assertEqual(self.fx.signal_content(), "next")
         self.assertGreater(len(pids), 0)
+
+    def test_consumed_attachment_notification_hands_off(self) -> None:
+        """2026-06-22 stall regression. A task that completes while the session is
+        ACTIVE (the common case: the model overlaps work after dispatching) arrives
+        as a `type: "attachment"` entry, NOT a user <task-notification> turn. The
+        hook must still pair it with its launch and hand off. Before the
+        _notif_text fix the completion was invisible (only message.content was
+        read), the launch looked forever pending, and the loop never advanced."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_tool_result(LAUNCH_ACK),
+                _ev_attachment_notification("abc123"),
+                _ev_assistant_text("Reviewer returned; advancing."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_consumed_queueop_notification_hands_off(self) -> None:
+        """The queue-operation mirror of an active-session completion must also
+        pair with its launch and hand off."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_tool_result(LAUNCH_ACK),
+                _ev_queueop_notification("abc123"),
+                _ev_assistant_text("Reviewer returned; advancing."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+    def test_unconsumed_attachment_notification_abstains(self) -> None:
+        """An attachment-shaped completion that arrived but has not yet been
+        consumed (no assistant turn after it) must still abstain, exactly like the
+        user-turn shape — the keep-alive for a real in-flight result."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_tool_result(LAUNCH_ACK),
+                _ev_assistant_text("dispatched; overlapping other work..."),
+                _ev_attachment_notification("abc123"),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(pids, [])
 
     def test_inline_agent_with_no_ack_hands_off(self) -> None:
         """If the Agent ran inline (its tool_result is the real output, no launch

@@ -172,6 +172,33 @@ def _text_blocks_join(content) -> str:
     return ""
 
 
+def _notif_text(entry: dict, message_content) -> str:
+    """The <task-notification> text for THIS transcript entry, across every shape
+    the harness uses to record a background-task completion.
+
+    A task that finishes while the session is IDLE/yielded arrives as a user
+    message turn whose text starts with <task-notification> (-> message_content).
+    A task that finishes while the session is ACTIVE — the common case, since the
+    model is told to overlap independent work after dispatching — arrives instead
+    as a `type: "attachment"` entry (text under attachment.prompt) or a mirrored
+    `type: "queue-operation"` entry (text under the top-level `content`), with NO
+    message.content. Reading only the message text misses every active-session
+    completion, so the launch never pairs with its completion and the hook
+    abstains on every hand-off: the loop stall diagnosed 2026-06-22. Fail-open: an
+    unrecognised shape returns "" (degrades to the prior behaviour, never worse).
+    """
+    etype = entry.get("type")
+    if etype == "attachment":
+        att = entry.get("attachment")
+        if isinstance(att, dict) and isinstance(att.get("prompt"), str):
+            return att["prompt"]
+        return ""
+    if etype == "queue-operation":
+        c = entry.get("content")
+        return c if isinstance(c, str) else ""
+    return _text_blocks_join(message_content)
+
+
 def _pending_background_task(transcript_path: "Path | None") -> bool:
     """True when the session is ending its turn with a background task (an async
     Agent dispatch, or a backgrounded Bash) still in flight, or whose result the
@@ -244,7 +271,7 @@ def _pending_background_task(transcript_path: "Path | None") -> bool:
 
         # Non-assistant (harness/user) turn. A real completion is a turn whose
         # text STARTS with the notification marker and carries a task-id.
-        joined = _text_blocks_join(content)
+        joined = _notif_text(entry, content)
         if joined.lstrip().startswith(_TASK_NOTIF_PREFIX):
             m = _TASK_ID.search(joined)
             if m:
@@ -357,7 +384,7 @@ def _waiting_on_async(transcript_path: "Path | None") -> bool:
 
         # Non-assistant turn. A bg-bash completion is a <task-notification>
         # carrying the same id the launch ack reported.
-        joined = _text_blocks_join(content)
+        joined = _notif_text(entry, content)
         if joined.lstrip().startswith(_TASK_NOTIF_PREFIX):
             m = _BG_TASK_ID.search(joined)
             if m:
