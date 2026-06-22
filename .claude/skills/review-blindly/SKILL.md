@@ -21,9 +21,9 @@ Also load the numbered blind-review rubric from `references/rubric.md`. Its cont
 
 **Template substitution.** Step 2's prompt block uses the placeholder `{contents of references/rubric.md}`. When assembling the dispatch, read `references/rubric.md` and substitute its full file contents at that placeholder. The rubric file is the single source of truth — never copy the rules into this SKILL.md.
 
-### Step 2: Dispatch the Blind Reviewer (Sonnet, inline)
+### Step 2: Run the Blind Reviewer (Sonnet, direct foreground CLI)
 
-**Block on the reviewer — never dispatch-and-yield, and never via a `model`-override subagent.** Route the review to Sonnet by shelling out to the Sonnet CLI from a plain `general-purpose` subagent (the Diana pattern in `review-work-completion`). Do **NOT** set `model: "sonnet"` on the Task tool: a `model` override makes the harness run the subagent as a *background* task that returns an async-launch acknowledgment (an `agentId` / "you will be notified automatically") instead of the report. Under autopilot that strands the review — the Stop hook ends the session before the background result lands, `"blind"` never reaches `phases_completed`, and the loop re-enters blind review until the phase-thrash circuit-breaker halts the run (observed 2026-06-17 PRD 00157: 18 dead restarts; recurred 2026-06-19 on playground PRD 00001, where the Sonnet reviewer actually completed but its notification arrived in a session the Stop hook had already killed). Omitting `model` keeps the subagent inline and blocking, so it returns the reviewer's full report this same turn; continue straight to Step 2.5. The blind phase is done only when the reviewer's findings + `---review-coverage---` block are in hand AND `dev/local/reviews/<prd>-blind-review.md` is written.
+**Run the Sonnet CLI as a DIRECT Bash command in THIS session — do NOT wrap it in a subagent.** This harness backgrounds EVERY `Agent`/`Task` dispatch, even a plain `general-purpose` subagent with no `model` override (the old "omitting model keeps it inline" assumption is dead — verified 2026-06-19). A backgrounded reviewer returns an async-launch acknowledgment (an `agentId` / "you will be notified automatically") instead of the report, and under autopilot the Stop hook ends the session before that result lands — so `"blind"` never reaches `phases_completed` and the loop re-enters blind review until the phase-thrash circuit-breaker halts the run (observed 2026-06-17 PRD 00157: 18 dead restarts; recurred 2026-06-19 on playground and claude-warden, where the Sonnet reviewer completed but its notification arrived in a session the Stop hook had already killed). A **foreground Bash call blocks the turn** until the CLI exits, so there is nothing to strand on. The blind phase is done only when the reviewer's findings + `---review-coverage---` block are in hand AND `dev/local/reviews/<prd>-blind-review.md` is written.
 
 Pin the reviewer to **Sonnet** for model diversity — a different family from the typical Opus implementer breaks shared priors and gives actual independence, not narrative-only blindness. Sonnet runs agentically via the CLI (`-a` auto-approves tools), so it finds and reads the implementation itself.
 
@@ -115,35 +115,19 @@ Pin the reviewer to **Sonnet** for model diversity — a different family from t
     Source of truth for the block format: `~/.claude/skills/review-work-completion/references/review-coverage-format.md`.
 ```
 
-**Step 2b — dispatch the reviewer inline.** Dispatch a `general-purpose` subagent with **NO `model` parameter** (omitting it is exactly what keeps the run inline and blocking) whose only job is to run Sonnet on that prompt file and hand the output back verbatim:
+**Step 2b — run the reviewer with a direct foreground Bash call.** Run this single command in THIS session via the **Bash tool** (NOT wrapped in a subagent). Give the Bash tool a generous timeout (up to 600000 ms) so it blocks for the whole run. Do NOT redirect into `dev/local/` — the aegis hook blocks shell `>` there; the Bash result comes back into this turn and the Write tool (Step 2.5) owns the file:
 
-```text
-Task tool:
-  subagent_type: general-purpose
-  description: "Blind spec review for [feature name]"
-  prompt: |
-    You are the blind-review dispatcher. Run this single command and return
-    its output verbatim — do not summarize, do not add commentary, do not act
-    on the findings yourself:
-
-    timeout 600 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -a -f <ABSOLUTE path to dev/local/reviews/.blind-reviewer-prompt.md>
-
-    `-a` auto-approves tools so Sonnet can read the codebase and find the
-    implementation itself. `timeout 600` bounds a hung CLI. If the command
-    exits non-zero (including a timeout), report the failure immediately and
-    verbatim — do not retry silently.
+```bash
+timeout 600 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -a -f <ABSOLUTE path to dev/local/reviews/.blind-reviewer-prompt.md>
 ```
 
-The subagent runs the CLI in the foreground and blocks until Sonnet's full report (ending in the `---review-coverage---` block) is in hand, then returns it as the tool result this same turn. There is no async acknowledgment to wait across turns for, so there is nothing to strand on. Proceed to Step 2.5.
+`-a` auto-approves tools so Sonnet reads the codebase and finds the implementation itself. `timeout 600` bounds a hung CLI. The Bash tool runs this in the FOREGROUND and blocks the turn until the CLI exits, then returns Sonnet's full report (ending in the `---review-coverage---` block) as the tool result this same turn — there is no async acknowledgment to strand on. If the command exits non-zero (including a timeout), or the result does not end with a `---review-coverage---` block, the review did NOT complete — re-run this command; do not proceed. Proceed to Step 2.5.
 
 ### Step 2.5: Gate Coverage and Write the Review File
 
-After the blind reviewer subagent returns its report verbatim, do the following in order. **If the subagent returned an error, a timeout, or an empty / async-launch acknowledgment instead of a full report ending in a `---review-coverage---` block, the review did NOT complete — re-dispatch (Step 2b) and wait for the real report. Do not proceed past this point, and do not end your turn, until the findings + coverage block are in hand.**
+After Step 2b's Bash call returns, do the following in order. **If the command errored, timed out, or the Bash result does not end with a full `---review-coverage---` block, the review did NOT complete — re-run Step 2b. Do not proceed past this point until the findings + coverage block are in hand.**
 
-1. Write the reviewer's FULL output (ending with its `---review-coverage---` block) to a temp block file:
-   ```
-   dev/local/reviews/.blind-reviewer-block.md
-   ```
+1. Write the reviewer's FULL output (the Bash result from Step 2b, ending with its `---review-coverage---` block) to `dev/local/reviews/.blind-reviewer-block.md` using the **Write tool** (not a shell redirect — the aegis hook blocks `>` into `dev/local/`).
 
 2. Resolve `<prd-base>` = the PRD filename without its `.md` extension. Read `work_start_sha` from `dev/local/autopilot/state.json` to form the diff range `<work_start_sha>..HEAD`. If no `state.json` exists (standalone, non-autopilot run), fall back to `master...HEAD`. Do not crash on a missing state file.
 
