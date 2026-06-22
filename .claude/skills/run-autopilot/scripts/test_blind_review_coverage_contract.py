@@ -108,29 +108,35 @@ class BlindReviewCoverageContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rc._validate_verdicts(sections)
 
-    def test_skill_does_not_model_override_the_reviewer(self) -> None:
-        """Root-cause guard for the 2026-06-19 playground blind thrash: a `model:
-        "sonnet"` override on the Task tool makes the harness run the reviewer as a
-        BACKGROUND task whose async notification lands after the autopilot Stop hook
-        has killed the session, so "blind" never completes and the loop thrashes.
-        The reviewer must instead run inline (no model override) and reach Sonnet via
-        the CLI. Pin both halves so the fix cannot silently regress."""
+    def test_skill_runs_reviewer_as_direct_foreground_cli(self) -> None:
+        """Root-cause guard (2026-06-19, three rounds): this harness backgrounds
+        EVERY Agent/Task dispatch — even a `general-purpose` subagent with no
+        `model` override — so a subagent-wrapped reviewer returns an async-launch
+        ack whose notification lands after the autopilot Stop hook has killed the
+        session, and "blind" never completes. The reviewer must run as a DIRECT
+        foreground Bash call to the Sonnet CLI (which blocks the turn), not
+        wrapped in a subagent. Pin all three halves so the fix cannot regress."""
         text = _SKILL_PATH.read_text()
-        # A real override is a standalone YAML directive line (e.g. `  model:
-        # "sonnet"`), not a backtick-quoted mention inside the warning prose.
-        # Match on the stripped line so the explanatory sentence does not trip it.
+        # (1) No model-override dispatch line (a real override is a standalone
+        # YAML directive, not a backtick mention in prose).
         for raw in text.splitlines():
             line = raw.strip()
             self.assertFalse(
                 line.startswith("model:") and "sonnet" in line,
-                f"SKILL.md has a model-override dispatch line ({line!r}) — a "
-                "model override backgrounds the reviewer and strands the blind "
-                "phase; dispatch Sonnet inline via the CLI instead",
+                f"SKILL.md has a model-override dispatch line ({line!r})",
             )
+        # (2) Reaches Sonnet via the CLI.
         self.assertIn(
             "sonnet-run.sh", text,
-            "SKILL.md must dispatch the reviewer inline via the Sonnet CLI "
-            "(sonnet-run.sh), not a model-override subagent",
+            "SKILL.md must run the reviewer via the Sonnet CLI (sonnet-run.sh)",
+        )
+        # (3) Runs it DIRECTLY in the main session, NOT wrapped in a subagent.
+        # Every Agent/Task dispatch backgrounds, so no subagent may carry the run;
+        # a direct foreground Bash call to the CLI blocks the turn instead.
+        self.assertNotIn(
+            "subagent_type", text,
+            "the reviewer must run as a direct foreground Bash call, NOT a "
+            "subagent — every Agent/Task dispatch backgrounds and strands blind",
         )
 
 
