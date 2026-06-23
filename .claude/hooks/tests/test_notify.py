@@ -1,8 +1,7 @@
 """Tests for hooks/notify.py."""
 
-import tempfile
+import os
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import notify
@@ -199,60 +198,24 @@ class TestShowDesktopNotification(unittest.TestCase):
         self.assertTrue(any("Skipped" in line for line in logs))
 
 
-class TestAutopilotContinuationPending(unittest.TestCase):
-    def _make_signal(self, root: Path, content: str) -> Path:
-        ap = root / "dev" / "local" / "autopilot"
-        ap.mkdir(parents=True)
-        sig = ap / "signal"
-        sig.write_text(content, encoding="utf-8")
-        return sig
-
+class TestAutopilotLoopActive(unittest.TestCase):
     def test_false_when_env_unset(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._make_signal(root, "next")
-            with patch.dict("os.environ", {}, clear=True):
-                self.assertFalse(notify.autopilot_continuation_pending(str(root)))
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(notify.autopilot_loop_active())
 
-    def test_false_when_signal_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "1234"}, clear=True):
-                self.assertFalse(notify.autopilot_continuation_pending(td))
+    def test_false_when_not_a_pid(self) -> None:
+        with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "nope"}, clear=True):
+            self.assertFalse(notify.autopilot_loop_active())
 
-    def test_true_for_next(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._make_signal(root, "next\n")
-            with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "1234"}, clear=True):
-                self.assertTrue(notify.autopilot_continuation_pending(str(root)))
+    def test_true_when_pid_alive(self) -> None:
+        # Our own PID is guaranteed alive — os.kill(pid, 0) succeeds.
+        with patch.dict("os.environ", {"_AUTOPILOT_LOOP": str(os.getpid())}, clear=True):
+            self.assertTrue(notify.autopilot_loop_active())
 
-    def test_true_for_task_aborted(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._make_signal(root, "task_aborted")
-            with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "1234"}, clear=True):
-                self.assertTrue(notify.autopilot_continuation_pending(str(root)))
-
-    def test_false_for_unknown_signal_value(self) -> None:
-        # "done"/"" or anything else means the wrapper will exit — notify.
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._make_signal(root, "done")
-            with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "1234"}, clear=True):
-                self.assertFalse(notify.autopilot_continuation_pending(str(root)))
-
-    def test_walks_up_from_subdir(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._make_signal(root, "next")
-            sub = root / "pkg" / "src"
-            sub.mkdir(parents=True)
-            with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "1234"}, clear=True):
-                self.assertTrue(notify.autopilot_continuation_pending(str(sub)))
-
-    def test_empty_cwd_returns_false(self) -> None:
-        with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "1234"}, clear=True):
-            self.assertFalse(notify.autopilot_continuation_pending(""))
+    def test_false_when_pid_dead(self) -> None:
+        with patch.dict("os.environ", {"_AUTOPILOT_LOOP": "424242"}, clear=True):
+            with patch("notify.os.kill", side_effect=ProcessLookupError):
+                self.assertFalse(notify.autopilot_loop_active())
 
 
 class TestMainSuppression(unittest.TestCase):
@@ -271,43 +234,65 @@ class TestMainSuppression(unittest.TestCase):
                             self._show = show
         return logs
 
-    def test_stop_suppressed_when_continuation_pending(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            ap = root / "dev" / "local" / "autopilot"
-            ap.mkdir(parents=True)
-            (ap / "signal").write_text("next", encoding="utf-8")
-            logs = self._run_main(
-                {"hook_event_name": "Stop", "cwd": str(root)},
-                {"_AUTOPILOT_LOOP": "1234"},
-            )
-            self.assertTrue(any("Suppressed" in line for line in logs))
-            self._send.assert_not_called()
-            self._show.assert_not_called()
+    def test_stop_suppressed_when_loop_active(self) -> None:
+        logs = self._run_main(
+            {"hook_event_name": "Stop", "cwd": "/x/proj"},
+            {"_AUTOPILOT_LOOP": str(os.getpid())},
+        )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._send.assert_not_called()
+        self._show.assert_not_called()
 
-    def test_stop_notifies_when_no_signal(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            logs = self._run_main(
-                {"hook_event_name": "Stop", "cwd": td},
-                {"_AUTOPILOT_LOOP": "1234"},
-            )
-            self.assertFalse(any("Suppressed" in line for line in logs))
-            # User present (idle=0, no screensaver, lid open) → desktop path.
-            self._show.assert_called_once()
-            self._send.assert_not_called()
+    def test_stop_notifies_when_loop_inactive(self) -> None:
+        logs = self._run_main(
+            {"hook_event_name": "Stop", "cwd": "/x/proj"},
+            {},  # no _AUTOPILOT_LOOP → not in a loop
+        )
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        # User present (idle=0, no screensaver, lid open) → desktop path.
+        self._show.assert_called_once()
+        self._send.assert_not_called()
 
-    def test_notification_event_never_suppressed(self) -> None:
-        # permission_prompt / idle_prompt should always fire even mid-autopilot.
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            ap = root / "dev" / "local" / "autopilot"
-            ap.mkdir(parents=True)
-            (ap / "signal").write_text("next", encoding="utf-8")
-            self._run_main(
-                {"hook_event_name": "Notification", "cwd": str(root), "message": "go"},
-                {"_AUTOPILOT_LOOP": "1234"},
-            )
-            self._show.assert_called_once()
+    def test_idle_prompt_suppressed_when_loop_active(self) -> None:
+        # The bug this fixes: a parked-on-background-task idle ping mid-loop.
+        logs = self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/proj",
+                "message": "Claude is waiting for your input",
+                "notification_type": "idle_prompt",
+            },
+            {"_AUTOPILOT_LOOP": str(os.getpid())},
+        )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._show.assert_not_called()
+        self._send.assert_not_called()
+
+    def test_permission_prompt_fires_when_loop_active(self) -> None:
+        # A real "needs you" must still page even inside a live loop.
+        logs = self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/proj",
+                "message": "Claude needs your permission",
+                "notification_type": "permission_prompt",
+            },
+            {"_AUTOPILOT_LOOP": str(os.getpid())},
+        )
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+    def test_idle_prompt_fires_when_loop_inactive(self) -> None:
+        self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/proj",
+                "message": "Claude is waiting for your input",
+                "notification_type": "idle_prompt",
+            },
+            {},  # not in a loop → normal interactive session, page as usual
+        )
+        self._show.assert_called_once()
 
 
 if __name__ == "__main__":
