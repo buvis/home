@@ -272,8 +272,17 @@ def main() -> None:
     log_line(f"[{now_local()}] Hook triggered: {event}")
     log_line(json.dumps(payload, ensure_ascii=False))
 
-    if event == "Stop" and autopilot_loop_active():
-        log_line(f"[{now_local()}] Suppressed: autopilot loop active")
+    # Inside a live loop, a `Stop` is a phase/PRD hand-off and an `idle_prompt`
+    # Notification just means the session is parked while a background task runs
+    # (the wrapper re-invokes Claude when it finishes). Both are loop noise the
+    # wrapper summarizes at real exit. A `permission_prompt` is a genuine "needs
+    # you", so it must still page even mid-loop.
+    notif_type = str(payload.get("notification_type") or "")
+    loop_noise = event == "Stop" or (
+        event == "Notification" and notif_type == "idle_prompt"
+    )
+    if loop_noise and autopilot_loop_active():
+        log_line(f"[{now_local()}] Suppressed: autopilot loop active ({notif_type or event})")
         log_line("---")
         return
 
