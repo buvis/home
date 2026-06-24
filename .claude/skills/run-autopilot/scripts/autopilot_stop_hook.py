@@ -35,14 +35,24 @@ After computing a signal (cases 5-7):
   halted on the 3rd yield). See _waiting_on_async; a hand-off always advances
   state.json via an Edit, so this never mis-fires on a completed phase.
 - If an async Agent dispatch is still in flight (or its result unconsumed),
-  abstain — but OUTSIDE review-gated phases only. This harness backgrounds
-  Agent dispatches and re-invokes the model with a <task-notification> when the
-  agent finishes; SIGINTing on the yield turn killed the session before that
-  re-invoke could land and stranded the phase (observed 2026-06-19: design
-  reviewer + /work Tess/Ivan each stranded 3x, then the breaker halted the
-  loop). In a review-gated phase a completed-review hand-off can leave an
-  orphaned reviewer agent that would otherwise stall forever, so there the
-  coverage gate is the keep-alive instead. See _pending_background_task.
+  abstain so the harness re-invoke can land. This harness backgrounds Agent
+  dispatches and re-invokes the model with a <task-notification> when the agent
+  finishes; SIGINTing on the yield turn killed the session before that re-invoke
+  could land and stranded the phase (observed 2026-06-19: design reviewer +
+  /work Tess/Ivan each stranded 3x, then the breaker halted the loop). OUTSIDE a
+  review-gated phase the FULL check runs. INSIDE a review-gated phase
+  (blind/doubt/done) only the LIVENESS branch runs: the coverage gate is the
+  keep-alive for the PREVIOUS surface, but nothing else covers the CURRENT
+  phase's own in-flight work — the blind phase's [BLIND] /work dispatch, the
+  doubt phase's [DOUBT] /work or Claude-fallback reviewer — so a provably-alive
+  launch (fresh output_file) abstains while a frozen orphan hands off. The
+  blanket review-gated SKIP this replaces (added 2026-06-20 before the liveness
+  probe existed) left that in-flight work with NO keep-alive, so it was
+  SIGINT-stranded and the breaker thrash-halted the loop (warden 00018 blind:
+  task 7 in_progress, zero attempts; playground 00005 doubt: never reached
+  phases_completed — both 2026-06-23). Liveness-only keeps the 2026-06-20 orphan
+  hand-off intact because a dead orphan's output_file goes stale.
+  See _pending_background_task.
 - Otherwise write to <autopilot_dir>/signal, UNLESS already present with the
   same value, then call find_and_signal_claude(os.getppid()) to auto-exit.
 
@@ -57,6 +67,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from _walk_up import find_autopilot_dir
@@ -92,6 +103,25 @@ except ImportError:
             pass
         return {}
 
+
+def _persist_state(autopilot_dir: Path, state: dict) -> None:
+    """Persist state.json. Prefer the cap hook's shared atomic writer so the two
+    hooks never drift; if that import failed, fall back to a LOCAL temp+replace
+    write rather than DROPPING the write. Dropping it (the prior behaviour) means
+    the phase-thrash guard count never persists, resets every session, and the
+    runaway breaker silently never trips — the 885k-token zero-progress loop it
+    exists to stop could then recur undetected (audit 2026-06-23 #7)."""
+    if _atomic_write_state is not None:
+        _atomic_write_state(autopilot_dir, state)
+        return
+    target = autopilot_dir / "state.json"
+    tmp = target.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps(state, indent=2))
+        os.replace(tmp, target)
+    except OSError:
+        pass
+
 PS_TIMEOUT_SEC = 2
 
 # A review/build phase that hands off "next" with no forward progress this many
@@ -119,6 +149,15 @@ _LAUNCH_PREFIX = "async agent launched successfully"
 _TASK_NOTIF_PREFIX = "<task-notification>"
 _AGENT_ID = re.compile(r"agentid:\s*([0-9a-f]+)", re.IGNORECASE)
 _TASK_ID = re.compile(r"<task-id>\s*([0-9a-f]+)\s*</task-id>", re.IGNORECASE)
+# The launch ack also carries `output_file: <path>` on its own line — a symlink to
+# the subagent JSONL (for a backgrounded Bash, the growing log). Its mtime is the
+# only on-disk LIVENESS signal, and it is what lets the hook tell a slow-but-alive
+# parallel reviewer (still writing -> keep waiting) from a dead/orphaned one
+# (frozen -> hand off). The transcript ALONE cannot make that call: an
+# earlier-launched reviewer that is merely slow and one that has orphaned look
+# identical (both unconsumed while a later sibling finished) — the ambiguity that
+# stranded the jink 2026-06-22 review batch and thrash-halted the loop.
+_OUTPUT_FILE = re.compile(r"output_file:\s*(\S+)")
 # Skip pending-detection on an absurdly large transcript (fail open — no SIGINT
 # change). A once-per-turn full parse of a sub-25MB JSONL is cheap.
 _MAX_TRANSCRIPT_BYTES = 25 * 1024 * 1024
@@ -138,12 +177,45 @@ _BG_BASH_ID = re.compile(r"id:\s*([0-9a-z]+)", re.IGNORECASE)
 _BG_TASK_ID = re.compile(r"<task-id>\s*([0-9a-z]+)\s*</task-id>", re.IGNORECASE)
 _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
+# An in-flight launch whose output_file changed within this window is still ALIVE
+# -> keep waiting (abstain). Deliberately generous: a false "dead" SIGINT-strands
+# a live reviewer and thrash-halts the loop (the expensive jink 2026-06-22
+# failure being fixed), whereas a false "alive" only DELAYS handing off a truly
+# frozen orphan — rare, since a failed agent emits its own <task-notification>
+# (consumed, not in-flight), so this window only ever governs a genuinely HUNG
+# task, and the delay is far cheaper than a strand.
+_LAUNCH_FRESH_SECS = 600
+
+
+def _launch_is_alive(output_file: "str | None") -> bool:
+    """True if the task's output_file exists and was written within
+    _LAUNCH_FRESH_SECS. os.stat follows the symlink to the subagent JSONL, so a
+    still-working agent (its transcript still growing) reads as alive. Any stat
+    miss — path gone, unparsed, permission, an inline/ackless agent with no
+    output_file — returns False, so detection degrades to the launch-order
+    heuristic rather than abstaining on nothing (version-robust, fail-open)."""
+    if not output_file:
+        return False
+    try:
+        mtime = os.stat(output_file).st_mtime
+    except OSError:
+        return False
+    return (time.time() - mtime) <= _LAUNCH_FRESH_SECS
+
 
 def _progress_key(state: dict) -> str:
     """Fingerprint of forward progress across a hand-off. Two consecutive "next"
     hand-offs with the same key means the phase advanced nothing — a thrash. Any
     real step (phase/cycle change, a phase or task completing, a replan or cap
-    rotation, a new review cycle) changes the key and resets the counter."""
+    rotation, a new review cycle, a task queued for rework, a doubt recorded)
+    changes the key and resets the counter.
+
+    The last three fields (rework_task_ids, doubts, doubts_rubric_verdicts) widen
+    the fingerprint so a phase making REAL progress that the coarse counters miss
+    does not read as a no-progress thrash (audit 2026-06-23). They are all
+    APPEND-ONLY / set-once per pass, so they move on genuine progress yet stay
+    STABLE when the phase is truly stuck — they can never DEFEAT the breaker the
+    way a per-loop-churning field (e.g. a live HEAD sha) would."""
     return "|".join(
         str(x)
         for x in (
@@ -155,6 +227,9 @@ def _progress_key(state: dict) -> str:
             state.get("replan_count") or 0,
             len(state.get("cap_rotations") or []),
             len(state.get("review_cycles") or []),
+            len(state.get("rework_task_ids") or []),
+            len(state.get("doubts") or []),
+            len(state.get("doubts_rubric_verdicts") or []),
         )
     )
 
@@ -199,7 +274,9 @@ def _notif_text(entry: dict, message_content) -> str:
     return _text_blocks_join(message_content)
 
 
-def _pending_background_task(transcript_path: "Path | None") -> bool:
+def _pending_background_task(
+    transcript_path: "Path | None", liveness_only: bool = False
+) -> bool:
     """True when the session is ending its turn with a background task (an async
     Agent dispatch, or a backgrounded Bash) still in flight, or whose result the
     model has not yet consumed.
@@ -218,12 +295,28 @@ def _pending_background_task(transcript_path: "Path | None") -> bool:
     with `<task-notification>` and carries `<task-id> <hex>` (same value).
     Anchoring to the turn START ignores prose that merely mentions these strings
     (SKILL.md text injected as a user turn — the phantom that masked the blind
-    reviewer in round 2). Only the MOST-RECENT launch decides: if it has no
+    reviewer in round 2). Decision order: (1) if ANY still-in-flight launch has a
+    FRESH output_file it is provably still working -> abstain. This is the jink
+    2026-06-22 fix: a parallel reviewer batch can finish OUT OF launch order (a
+    slow codex reviewer launched first finishing last), and the launch-order rule
+    in (2) mis-read the consumed latest launch as "all done" and SIGINT-stranded
+    the live earlier one. (2) else the MOST-RECENT launch decides: if it has no
     completion, or a completion the model has not produced a turn after, work is
-    in flight -> abstain. An older unconsumed launch the model dispatched newer
-    agents past is an orphan, not a wait, and must NOT stall the hand-off. A
-    run_in_background Bash as the final action counts too. Fail-open: any parse
-    miss degrades to the prior SIGINT, never worse.
+    in flight -> abstain. An older unconsumed launch with a FROZEN or unstattable
+    output_file the model dispatched newer agents past is an orphan, not a wait,
+    and must NOT stall the hand-off. A run_in_background Bash as the final action
+    counts too.
+
+    liveness_only=True restricts the decision to step (1): abstain only on a
+    provably-alive in-flight launch, never on the launch-order heuristic (2) or a
+    bg-bash final action. main() passes this in a review-gated phase, where the
+    launch-order branch would wrongly abstain on an orphaned latest reviewer (the
+    2026-06-20 deadlock) yet the CURRENT phase's own in-flight reviewer / [BLIND]
+    or [DOUBT] /work dispatch has no other keep-alive (the coverage gate only
+    covers the PREVIOUS surface) — the strand that thrash-halted warden 00018
+    blind and playground 00005 doubt on 2026-06-23.
+
+    Fail-open: any parse miss degrades to the prior SIGINT, never worse.
     """
     if transcript_path is None:
         return False
@@ -235,6 +328,7 @@ def _pending_background_task(transcript_path: "Path | None") -> bool:
         return False
 
     launched: dict[str, int] = {}  # agentId -> launch line index
+    output_files: dict[str, str] = {}  # agentId -> task output_file path (liveness)
     notified: dict[str, int] = {}  # task-id  -> completion line index
     last_assistant_idx = -1
     last_turn_backgrounded_bash = False
@@ -291,9 +385,37 @@ def _pending_background_task(transcript_path: "Path | None") -> bool:
                     if cc.lower().startswith(_LAUNCH_PREFIX):
                         m = _AGENT_ID.search(cc)
                         if m:
-                            launched[m.group(1).lower()] = idx
+                            aid = m.group(1).lower()
+                            launched[aid] = idx
+                            of = _OUTPUT_FILE.search(cc)
+                            if of:
+                                output_files[aid] = of.group(1)
 
-    # Only the MOST-RECENT launch decides. If the model just dispatched a task
+    # (1) Liveness-aware keep-alive (the jink 2026-06-22 fix). A parallel reviewer
+    # batch can finish OUT OF launch order: an earlier-launched reviewer (a slow
+    # codex run) may still be working while a later one already completed and was
+    # consumed. The latest-launch rule below would read that as "all done" and
+    # SIGINT-strand the live reviewer, which never reports, so the phase never
+    # consolidates and the loop thrash-halts. So first: if ANY still-in-flight
+    # launch has a fresh output_file, the model is genuinely waiting -> abstain,
+    # regardless of launch order. Launches whose output_file we cannot stat (a
+    # frozen orphan, an inline/ackless agent) fall through to (2), preserving the
+    # orphan hand-off and version-robustness.
+    for aid in launched:
+        notif_idx = notified.get(aid)
+        in_flight = notif_idx is None or last_assistant_idx <= notif_idx
+        if in_flight and _launch_is_alive(output_files.get(aid)):
+            return True
+
+    # In a review-gated phase, stop here: only a provably-alive in-flight launch
+    # (above) keeps the session alive. The launch-order branch (2) below would
+    # abstain on an orphaned latest reviewer and idle the loop forever (the
+    # 2026-06-20 deadlock), so it must NOT run there — the gate covers the
+    # previous surface, liveness covers the current phase's own in-flight work.
+    if liveness_only:
+        return False
+
+    # (2) Only the MOST-RECENT launch decides. If the model just dispatched a task
     # and is waiting on it, that task is the latest launch and is unconsumed ->
     # abstain. An EARLIER launch left unconsumed while the model dispatched newer
     # agents and moved on is an ORPHAN (a reviewer that never reported, a
@@ -544,35 +666,36 @@ def main() -> None:
     if _waiting_on_async(transcript_path):
         return
 
-    # In-flight Agent dispatch: abstain — but OUTSIDE review-gated phases only.
-    # This harness backgrounds Agent dispatches and re-invokes the model with a
+    # In-flight Agent dispatch: abstain so the harness re-invoke can land. This
+    # harness backgrounds Agent dispatches and re-invokes the model with a
     # <task-notification> on completion; SIGINTing now would kill the session
     # before that re-invoke lands and strand the phase (the 2026-06-19
     # design-reviewer / Tess / Ivan deaths). Do NOT touch the thrash counter —
     # real in-flight work, not a no-progress thrash.
     #
-    # SCOPE: only OUTSIDE review-gated phases. In a review-gated phase
-    # (blind/doubt/done) the gate_blocks check above is already the keep-alive —
-    # it blocks while the review is incomplete and passes only when it is done,
-    # so reaching this point means the review COMPLETED and any reviewer still
-    # in flight is an orphan whose result is not needed. Abstaining on such an
-    # orphan strands the loop forever: no <task-notification> ever arrives, so
-    # the harness never re-invokes, and the session idles at its prompt while the
-    # wrapper waits for an exit that never comes (2026-06-20 warden PRD 00013: a
-    # 3-reviewer batch whose last-launched reviewer never reported; the phase
-    # finished and the gate passed, yet the per-id detector saw that orphan as
-    # the most-recent unconsumed launch and abstained on every Stop). The
-    # build/review hand-off is NOT review-gated and has no completeness gate, so
-    # its dispatched implementors (Tess/Ivan) still need this abstain — the
-    # 2026-06-19 strand fix — and keep it. If surface_for_phase is unimportable,
-    # there is no gate at all, so fall back to always running the check (safe).
+    # SCOPE by phase. OUTSIDE a review-gated phase, run the FULL check. INSIDE a
+    # review-gated phase (blind/doubt/done) run it in LIVENESS-ONLY mode. The
+    # gate_blocks check above is the keep-alive for the PREVIOUS surface only
+    # (blind→work-completion, doubt→blind); it does NOT cover the CURRENT phase's
+    # own in-flight work — the blind phase's [BLIND] /work dispatch, the doubt
+    # phase's [DOUBT] /work or Claude-fallback reviewer. The earlier blanket SKIP
+    # here left that work with no keep-alive, so it was SIGINT-stranded on the
+    # yield, the phase never recorded completion, and the breaker thrash-halted
+    # the loop (warden 00018 blind: task 7 in_progress, zero attempts; playground
+    # 00005 doubt: never reached phases_completed — both 2026-06-23). Liveness-
+    # only fixes that while preserving the 2026-06-20 orphan hand-off: a provably-
+    # alive in-flight launch (fresh output_file) abstains, a frozen/unstattable
+    # orphan falls through and hands off (and goes stale within the freshness
+    # window, so the idle deadlock cannot return). If surface_for_phase is
+    # unimportable there is no gate, so liveness_only stays False and the full
+    # check runs (safe). _waiting_on_async above already covers the bg-bash /
+    # ScheduleWakeup wait in every phase.
     phase_is_review_gated = (
         surface_for_phase is not None
         and surface_for_phase(state.get("phase", "")) is not None
     )
-    if not phase_is_review_gated:
-        if _pending_background_task(transcript_path):
-            return
+    if _pending_background_task(transcript_path, liveness_only=phase_is_review_gated):
+        return
 
     # Phase-thrash circuit-breaker (the "next" hand-off only). A phase that
     # re-enters with no forward progress PHASE_THRASH_LIMIT times is stuck: the
@@ -596,8 +719,7 @@ def main() -> None:
                 "next_phase": state.get("next_phase", ""),
                 "repeats": count,
             }
-        if _atomic_write_state is not None:
-            _atomic_write_state(autopilot_dir, state)
+        _persist_state(autopilot_dir, state)
         if tripped:
             sys.stderr.write(
                 "autopilot stop hook: PHASE THRASH — phase "

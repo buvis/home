@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -318,6 +319,20 @@ def _ev_agent_ack(agent_id: str) -> dict:
     """A real launch ack: a tool_result that starts with the launch phrase."""
     return _ev_tool_result(
         f"Async agent launched successfully. agentId: {agent_id} (internal ID)"
+    )
+
+
+def _ev_agent_ack_with_output(agent_id: str, output_file: str) -> dict:
+    """A real launch ack that also carries the `output_file:` line (a symlink to
+    the subagent JSONL), exactly as the harness emits it. Its mtime is the
+    liveness signal the hook stats to tell a slow-but-alive reviewer from a dead
+    orphan."""
+    return _ev_tool_result(
+        "Async agent launched successfully.\n"
+        f"agentId: {agent_id} (internal ID - do not mention to user.)\n"
+        "The agent is working in the background.\n"
+        f"output_file: {output_file}\n"
+        "Do NOT Read or tail this file via the shell tool."
     )
 
 
@@ -759,6 +774,26 @@ class PhaseThrashCircuitBreakerTests(unittest.TestCase):
             state["thrash_halt"]["repeats"], hook.PHASE_THRASH_LIMIT
         )
 
+    def test_guard_persists_when_cap_hook_import_unavailable(self) -> None:
+        """Audit #7: if the cap-hook import failed (_atomic_write_state is None),
+        the guard must STILL be persisted via _persist_state's local fallback —
+        otherwise the count resets every session and the runaway breaker silently
+        never trips."""
+        self._seed(
+            guard_count=hook.PHASE_THRASH_LIMIT - 1,
+            phase="blind",
+            next_phase="blind",
+            phases_completed=["review"],
+        )
+        with mock.patch.object(hook, "_atomic_write_state", None):
+            self._run_no_gate()
+        state = self._read_state()
+        self.assertEqual(
+            state["thrash_halt"]["repeats"],
+            hook.PHASE_THRASH_LIMIT,
+            "the thrash halt must persist even without the shared atomic writer",
+        )
+
     def test_progress_resets_counter(self) -> None:
         """Stored count is high, but the state advanced (different key): the
         counter resets and the hand-off proceeds normally."""
@@ -770,6 +805,37 @@ class PhaseThrashCircuitBreakerTests(unittest.TestCase):
         self._run_no_gate()
         self.assertEqual(self.fx.signal_content(), "next")
         self.assertEqual(self._read_state()["phase_guard"]["count"], 1)
+
+    def test_rework_and_doubt_signals_count_as_progress(self) -> None:
+        """Audit 2026-06-23: the fingerprint must move when a task is queued for
+        rework or a doubt is recorded — real progress the coarse counters miss —
+        so a genuinely-advancing phase is not mistaken for a no-progress thrash.
+        Each field is append-only, so it cannot DEFEAT the breaker when stuck."""
+        base = _make_state(phase="review", next_phase="review")
+        k0 = hook._progress_key(base)
+        self.assertNotEqual(
+            k0, hook._progress_key({**base, "rework_task_ids": ["t1"]})
+        )
+        self.assertNotEqual(k0, hook._progress_key({**base, "doubts": [{"q": "x"}]}))
+        self.assertNotEqual(
+            k0, hook._progress_key({**base, "doubts_rubric_verdicts": [{"r": 1}]})
+        )
+
+    def test_breaker_still_trips_when_rework_and_doubts_stable(self) -> None:
+        """The widened key must NOT defeat the breaker: a phase re-entering with
+        rework_task_ids/doubts UNCHANGED still trips at the limit."""
+        self._seed(
+            guard_count=hook.PHASE_THRASH_LIMIT - 1,
+            phase="review",
+            next_phase="review",
+            rework_task_ids=["t1"],
+            doubts=[{"q": "x"}],
+        )
+        self._run_no_gate()
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "unchanged rework/doubt signals must not reset the breaker",
+        )
 
     def test_breaker_scoped_to_next_not_done(self) -> None:
         """The breaker only governs the "next" hand-off; batch end ("done")
@@ -1020,9 +1086,11 @@ class BackgroundTaskInFlightTests(unittest.TestCase):
         phase (gate passes) and ended its turn, but the per-id detector saw that
         orphan as in-flight and the hook abstained on every Stop — no signal, no
         SIGINT — leaving the session idle at its prompt forever while the wrapper
-        waited for an exit. In a review-gated phase the coverage gate (forced
-        open here, mirroring a passed gate) is the keep-alive, so the pending
-        check must NOT run; the hand-off proceeds."""
+        waited for an exit. In a review-gated phase the pending check now runs in
+        LIVENESS-ONLY mode (the coverage gate, forced open here, covers the
+        previous surface): these acks carry NO output_file, so the orphan is not
+        provably alive and the hand-off proceeds — the 2026-06-20 fix preserved
+        through the liveness refactor."""
         self.fx.write_state(
             phase="blind", next_phase="blind", phases_completed=["review"]
         )
@@ -1176,6 +1244,224 @@ class AutoBackgroundedBashWaitTests(unittest.TestCase):
         pids = _run_hook_with_transcript(self.fx, tp)
         self.assertEqual(self.fx.signal_content(), "next")
         self.assertGreater(len(pids), 0)
+
+
+class LivenessAwareReviewBatchTests(unittest.TestCase):
+    """A parallel reviewer batch can complete OUT OF launch order: a slow reviewer
+    launched FIRST (e.g. a codex run) may still be working when a later-launched
+    sibling has already finished and been consumed. The launch-order heuristic
+    read that as "all done" and SIGINT-stranded the live reviewer — it never
+    reported, the review never consolidated, and the loop thrash-halted (the jink
+    2026-06-22 death). The hook must instead consult each in-flight launch's
+    output_file: a still-growing one means the model is genuinely waiting
+    (abstain); a frozen or unstattable one is a dead orphan (hand off). Phase is
+    "review" — non-review-gated, so _pending_background_task actually runs."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def _output_file(self, agent_id: str, age_secs: float) -> str:
+        """Create a real file standing in for the subagent JSONL, with an mtime
+        age_secs in the past, and return its path."""
+        p = self.fx.cwd / f"{agent_id}.output"
+        p.write_text("subagent transcript ...\n")
+        ts = time.time() - age_secs
+        os.utime(p, (ts, ts))
+        return str(p)
+
+    def test_alive_earlier_launch_abstains_when_later_consumed(self) -> None:
+        """jink regression: A (launched first) is still running with a FRESH
+        output_file; B and C finished and C (the latest launch) was consumed. The
+        launch-order rule would hand off and strand A — the hook must abstain on
+        A's liveness instead."""
+        self.fx.write_state(phase="review", next_phase="review", phases_completed=[])
+        a_out = self._output_file("aaaa0001", age_secs=3)  # fresh -> alive
+        b_out = self._output_file("bbbb0002", age_secs=3)
+        c_out = self._output_file("cccc0003", age_secs=3)
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("aaaa0001", a_out),  # A: stays running
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("bbbb0002", b_out),
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("cccc0003", c_out),  # C: latest launch
+                _ev_task_notification("bbbb0002"),
+                _ev_task_notification("cccc0003"),  # C completes, consumed below
+                _ev_assistant_text("Saved C's review; still waiting on A."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "a still-alive earlier reviewer must keep the session alive",
+        )
+        self.assertEqual(
+            pids, [], "must NOT SIGINT while an earlier reviewer is still alive"
+        )
+
+    def test_frozen_earlier_launch_hands_off(self) -> None:
+        """A truly dead/orphaned earlier launch (FROZEN output_file) must not keep
+        the session alive: with the latest launch consumed, the hand-off proceeds
+        — the 2026-06-20 orphan path stays intact."""
+        self.fx.write_state(phase="review", next_phase="blind", phases_completed=[])
+        a_out = self._output_file("aaaa0001", age_secs=24 * 3600)  # frozen -> dead
+        c_out = self._output_file("cccc0003", age_secs=24 * 3600)
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("aaaa0001", a_out),  # A: orphan, frozen
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("cccc0003", c_out),  # C: latest
+                _ev_task_notification("cccc0003"),
+                _ev_assistant_text("Reviews in; gate passes; handing off to blind."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(
+            self.fx.signal_content(),
+            "next",
+            "a frozen orphan must not stall the hand-off",
+        )
+        self.assertGreater(len(pids), 0)
+
+    def test_unstattable_output_file_falls_back_to_launch_order(self) -> None:
+        """An output_file path that does not exist (task dir already reaped) is
+        not alive; detection degrades to the launch-order rule, which hands off on
+        a consumed latest launch rather than abstaining on nothing."""
+        self.fx.write_state(phase="review", next_phase="blind", phases_completed=[])
+        missing = str(self.fx.cwd / "gone" / "aaaa0001.output")
+        c_out = self._output_file("cccc0003", age_secs=3)  # fresh but consumed
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("aaaa0001", missing),  # A: file gone
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("cccc0003", c_out),
+                _ev_task_notification("cccc0003"),
+                _ev_assistant_text("Reviews in; handing off."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0)
+
+
+class ReviewGatedInFlightWorkKeepAliveTests(unittest.TestCase):
+    """The 2026-06-23 thrash-halt fix (warden 00018 blind, playground 00005
+    doubt). A review-gated phase (blind/doubt) does its OWN in-flight work — the
+    blind phase dispatches [BLIND] /work, the doubt phase dispatches [DOUBT]
+    /work or the Claude-fallback reviewer — as a background Agent. The coverage
+    gate keeps the session alive only for the PREVIOUS surface, and the earlier
+    blanket SKIP of the pending check meant that current-phase Agent had NO
+    keep-alive: it was SIGINT-stranded on the yield, the phase never recorded
+    completion, and the breaker thrash-halted the loop. The pending check now
+    runs in LIVENESS-ONLY mode in review-gated phases: a provably-alive in-flight
+    launch (fresh output_file) abstains; a frozen/unstattable orphan hands off
+    (the 2026-06-20 fix). gate_blocks is forced open by _run_hook_with_transcript,
+    mirroring a passed gate for the previous surface."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def _output_file(self, agent_id: str, age_secs: float) -> str:
+        p = self.fx.cwd / f"{agent_id}.output"
+        p.write_text("subagent transcript ...\n")
+        ts = time.time() - age_secs
+        os.utime(p, (ts, ts))
+        return str(p)
+
+    def test_blind_inflight_work_with_fresh_output_abstains(self) -> None:
+        """Warden 00018 regression: blind phase, a [BLIND] /work Agent dispatched
+        with a FRESH output_file and not yet consumed, the model waiting. Before
+        the liveness refactor the review-gated SKIP let the hook SIGINT this
+        live worker (task 7 stayed in_progress with zero attempts) and thrash-
+        halt. It must now abstain."""
+        self.fx.write_state(
+            phase="blind", next_phase="blind", phases_completed=["review"]
+        )
+        out = self._output_file("d00d0001", age_secs=3)  # fresh -> alive
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),  # /work dispatches the [BLIND] task
+                _ev_agent_ack_with_output("d00d0001", out),
+                _ev_assistant_text("[BLIND] task dispatched; waiting for the worker."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "a live in-flight [BLIND] /work dispatch must keep the session alive",
+        )
+        self.assertEqual(
+            pids, [], "must NOT SIGINT while the blind-phase worker is still alive"
+        )
+
+    def test_doubt_inflight_reviewer_with_fresh_output_abstains(self) -> None:
+        """Playground 00005 regression: doubt phase, an in-flight reviewer /
+        [DOUBT] worker Agent with a FRESH output_file, unconsumed -> abstain so
+        the phase can reach phases_completed instead of thrash-halting."""
+        self.fx.write_state(
+            phase="doubt", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        out = self._output_file("d0bd0002", age_secs=5)  # fresh -> alive
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("d0bd0002", out),
+                _ev_assistant_text("Doubt reviewer dispatched; awaiting the report."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(pids, [])
+
+    def test_blind_frozen_orphan_hands_off(self) -> None:
+        """2026-06-20 orphan path preserved: a blind-phase Agent whose output_file
+        is FROZEN (dead/orphaned) is not provably alive, so liveness-only falls
+        through and the hand-off proceeds — no idle deadlock."""
+        self.fx.write_state(
+            phase="blind", next_phase="blind", phases_completed=["review"]
+        )
+        out = self._output_file("dead0003", age_secs=24 * 3600)  # frozen -> dead
+        tp = self.fx.write_transcript(
+            [
+                _ev_agent_dispatch(),
+                _ev_agent_ack_with_output("dead0003", out),
+                _ev_assistant_text("Reviewer orphaned; phase complete, handing off."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(
+            self.fx.signal_content(),
+            "next",
+            "a frozen orphan in a review-gated phase must hand off, not stall",
+        )
+        self.assertGreater(len(pids), 0)
+
+    def test_review_gated_liveness_abstain_preserves_thrash_counter(self) -> None:
+        """A live in-flight worker is real work, not a no-progress thrash: the
+        abstain must leave the phase_guard counter untouched even in a review-
+        gated phase, so a genuinely-progressing phase is never pushed toward a
+        false halt."""
+        st = _make_state(
+            phase="blind", next_phase="blind", phases_completed=["review"]
+        )
+        st["phase_guard"] = {"key": hook._progress_key(st), "count": 2}
+        (self.fx.autopilot_dir / "state.json").write_text(json.dumps(st))
+        out = self._output_file("d00d0004", age_secs=3)
+        tp = self.fx.write_transcript(
+            [_ev_agent_dispatch(), _ev_agent_ack_with_output("d00d0004", out)]
+        )
+        _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(self.fx.signal_content())
+        self.assertEqual(
+            self.fx.read_state()["phase_guard"]["count"],
+            2,
+            "a liveness abstain must not advance the thrash counter",
+        )
 
 
 if __name__ == "__main__":
