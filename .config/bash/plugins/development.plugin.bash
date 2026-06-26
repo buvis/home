@@ -26,6 +26,21 @@ autoclaude() {
   while true; do
     local signal
 
+    # Memory circuit-breaker (2026-06-25): refuse to launch a session when the
+    # machine is already under memory pressure. An overnight run fanned out
+    # concurrent cargo/rustc builds and exhausted RAM (jetsam -> logout ->
+    # ENOMEM lockout). Stopping loud beats piling another build-heavy session
+    # onto a stressed box. Level: 1 normal, 2 warning, 4 critical.
+    local _mem_pressure
+    _mem_pressure=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null)
+    if [ -n "$_mem_pressure" ] && [ "$_mem_pressure" -ge 2 ] 2>/dev/null; then
+      printf '\nautoclaude: memory pressure (level %s); stopping loop before launching next session. Free RAM, then re-run.\n' "$_mem_pressure" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: memory pressure (level $_mem_pressure). Free RAM, then re-run autoclaude." 2>/dev/null
+      trap - INT TERM
+      unset _AUTOPILOT_LOOP
+      return 1
+    fi
+
     # Static launch: every autopilot session runs on Opus 1M. The phase-based
     # model dispatch (_autoclaude_pick_model) is deleted — it never switched a
     # model in practice and its context_window bookkeeping misfired the cap.

@@ -583,7 +583,7 @@ If `superpowers:dispatching-parallel-agents` is in the available skills list and
 - Have no `blockedBy` dependencies on each other
 - Are all tagged `[C{n}]` or `[D{n}]` (rework tasks, not original plan tasks)
 
-Then dispatch them in parallel using the dispatching-parallel-agents pattern.
+Then dispatch them in parallel using the dispatching-parallel-agents pattern, **with at most 2 agents in flight at once**. Parallel agents share one working tree — one `cargo` target dir and one build lock — so their compiles serialize on that lock, but each `cargo` invocation still spawns a full `rustc` fleet. Bounding that fleet is what keeps RAM safe: rely on the global `~/.cargo/config.toml` `[build] jobs` cap and **never raise `CARGO_BUILD_JOBS`, pass `--jobs`, or run a full-workspace `cargo build` / `cargo test --workspace` / `clippy` inside a parallel agent** (per-task verify in step 5.5 is single-crate; the full suite runs once in step 7). On 2026-06-25 an uncapped 3-way fan-out (18 jobs each) exhausted 48 GB RAM and locked the machine.
 
 **Never parallelize original plan tasks** - the one-at-a-time rule remains for all non-rework tasks due to pidash sync requirements.
 
