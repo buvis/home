@@ -1,0 +1,13 @@
+# Cap parallel rustc jobs to bound peak build memory.
+#
+# 2026-06-25: an overnight autopilot run fanned out ~30 concurrent `cargo`
+# builds (default jobs = 18 cores each) on a Rust repo. The combined rustc
+# fleets exhausted 48 GB RAM, swap-killing the machine (jetsam -> logout ->
+# ENOMEM, posix_spawn failures). Capping jobs bounds the rustc fleet per build
+# so no build storm can melt RAM.
+#
+# 8 of 18 cores: ~16 GB worst case for a single heavy build, safe even if two
+# overlap. Raise toward 18 if builds feel slow and you're NOT running autopilot;
+# the multi-agent case relies on this cap. ponytail: one knob, no daemon.
+[build]
+jobs = 8
