@@ -203,19 +203,55 @@ def _launch_is_alive(output_file: "str | None") -> bool:
     return (time.time() - mtime) <= _LAUNCH_FRESH_SECS
 
 
-def _progress_key(state: dict) -> str:
-    """Fingerprint of forward progress across a hand-off. Two consecutive "next"
-    hand-offs with the same key means the phase advanced nothing — a thrash. Any
-    real step (phase/cycle change, a phase or task completing, a replan or cap
-    rotation, a new review cycle, a task queued for rework, a doubt recorded)
-    changes the key and resets the counter.
+def _review_cycle_count(autopilot_dir: "Path", state: dict) -> int:
+    """Count durable per-cycle review files for the current PRD on disk.
 
-    The last three fields (rework_task_ids, doubts, doubts_rubric_verdicts) widen
-    the fingerprint so a phase making REAL progress that the coarse counters miss
-    does not read as a no-progress thrash (audit 2026-06-23). They are all
-    APPEND-ONLY / set-once per pass, so they move on genuine progress yet stay
-    STABLE when the phase is truly stuck — they can never DEFEAT the breaker the
-    way a per-loop-churning field (e.g. a live HEAD sha) would."""
+    Phase 4 writes `<prd-base>-review-<N>.md` into `dev/local/reviews/` once per
+    completed review cycle (the same artifact the Phase 4 cycle-skip glob keys
+    on). That file is the DURABLE record of review-rework progress, unlike
+    state.cycle, which the model must remember to bump and did not on warden
+    00020: the loop ran review cycles 1-3 entirely on volatile in-session state,
+    persisted nothing (no review file, no cycle bump, no commit), and both the
+    Phase 5 cap-pause and the thrash guard went blind, producing a messy
+    thrash-halt instead of a clean cap-pause. Feeding the on-disk count into
+    _progress_key lets the guard see review progress the model failed to record.
+
+    Counts ONLY `-review-<int>.md` (cycle reviews), never `-blind-review.md`,
+    `-doubt-review.md`, or `-audit.md`. Append-only (one new file per cycle, never
+    deleted mid-run), so it moves on real progress yet stays stable when stuck:
+    it cannot DEFEAT the breaker. Fail-open: any error returns 0, degrading to the
+    prior state-only key."""
+    prd = state.get("prd", "")
+    if not isinstance(prd, str) or not prd:
+        return 0
+    base = prd[:-3] if prd.endswith(".md") else prd
+    pat = re.compile(rf"^{re.escape(base)}-review-\d+\.md$")
+    try:
+        return sum(
+            1 for p in (autopilot_dir.parent / "reviews").iterdir() if pat.match(p.name)
+        )
+    except OSError:
+        return 0
+
+
+def _progress_key(state: dict, review_file_count: int = 0) -> str:
+    """Fingerprint of forward progress across a hand-off. Two consecutive "next"
+    hand-offs with the same key means the phase advanced nothing, a thrash. Any
+    real step (phase/cycle change, a phase or task completing, a replan or cap
+    rotation, a new review cycle, a task queued for rework, a doubt recorded, a
+    new durable review file on disk) changes the key and resets the counter.
+
+    The widening fields (rework_task_ids, doubts, doubts_rubric_verdicts, and
+    review_file_count, added 2026-06-26) let a phase making REAL progress that the
+    coarse counters miss avoid reading as a no-progress thrash (audit 2026-06-23).
+    They are all APPEND-ONLY / set-once per pass, so they move on genuine progress
+    yet stay STABLE when the phase is truly stuck: they can never DEFEAT the
+    breaker the way a per-loop-churning field (e.g. a live HEAD sha) would.
+
+    review_file_count is the on-disk count of `<prd>-review-<N>.md` files (see
+    _review_cycle_count), the durable review-rework progress signal used because
+    model-written state.cycle is unreliable (warden 00020 ran cycles 1-3 but never
+    bumped it, blinding both this guard and the Phase 5 cap-pause)."""
     return "|".join(
         str(x)
         for x in (
@@ -230,6 +266,7 @@ def _progress_key(state: dict) -> str:
             len(state.get("rework_task_ids") or []),
             len(state.get("doubts") or []),
             len(state.get("doubts_rubric_verdicts") or []),
+            review_file_count,
         )
     )
 
@@ -708,7 +745,7 @@ def main() -> None:
     # bound those on their own.
     if computed == "next":
         guard = state.get("phase_guard") or {}
-        key = _progress_key(state)
+        key = _progress_key(state, _review_cycle_count(autopilot_dir, state))
         count = guard.get("count", 0) + 1 if guard.get("key") == key else 1
         state["phase_guard"] = {"key": key, "count": count}
         tripped = count >= PHASE_THRASH_LIMIT

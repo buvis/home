@@ -454,7 +454,7 @@ The work skill may parallelize independent rework tasks when `superpowers:dispat
 ### After /work returns
 
 1. Clear `state.rework_task_ids` (set to `[]`).
-2. Increment cycle counter.
+2. **Increment `state.cycle` and persist it to `state.json` in this step** (a durable write, not an in-memory bump). Both the Phase 5 cap-pause gate (`state.cycle >= state.rework_cap`) and the Stop hook's thrash guard (`_progress_key`) read `state.cycle`; skipping the persisted increment blinds BOTH at once. On warden 00020 the review loop ran cycles 1-3 but never persisted the bump, so `state.cycle` stayed 1: cap-pause never fired and the loop thrash-halted instead of pausing cleanly. The Stop hook also reads the on-disk `<prd>-review-<N>.md` count as an independent progress backstop (`_review_cycle_count`), but the cap itself is driven by the persisted `state.cycle` — so this write is not optional.
 3. Update state: set `phase: "review"` and `next_phase: "review"`. Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current.
 4. Loop back to Phase 4.
 
