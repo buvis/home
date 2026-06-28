@@ -846,6 +846,81 @@ class PhaseThrashCircuitBreakerTests(unittest.TestCase):
         self._run_no_gate()
         self.assertEqual(self.fx.signal_content(), "done")
 
+    # -- review-file count as a durable progress signal (thin-B, warden 00020) --
+
+    def _reviews_dir(self) -> Path:
+        d = self.fx.cwd / "dev" / "local" / "reviews"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_review_cycle_count_counts_only_numbered_cycle_files(self) -> None:
+        """_review_cycle_count counts `<prd>-review-<N>.md` for THIS prd only,
+        excluding blind/doubt/audit renders and other PRDs' review files."""
+        reviews = self._reviews_dir()
+        for name in (
+            "00099-test-review-1.md",
+            "00099-test-review-2.md",
+            "00099-test-blind-review.md",  # excluded: not numbered
+            "00099-test-doubt-review.md",  # excluded: not numbered
+            "00099-test-audit.md",  # excluded: not a review file
+            "00098-other-review-1.md",  # excluded: different prd
+        ):
+            (reviews / name).write_text("x")
+        st = _make_state(prd="00099-test.md")
+        self.assertEqual(hook._review_cycle_count(self.fx.autopilot_dir, st), 2)
+
+    def test_review_cycle_count_fails_open_when_dir_missing(self) -> None:
+        """No reviews/ dir yet (first cycle in flight) returns 0, not an error."""
+        st = _make_state(prd="00099-test.md")
+        self.assertEqual(hook._review_cycle_count(self.fx.autopilot_dir, st), 0)
+
+    def test_progress_key_moves_with_review_file_count(self) -> None:
+        """A new durable review file is real progress: the fingerprint must move
+        as the on-disk count rises (warden 00020: cycles ran but state.cycle
+        never moved, so the coarse key looked frozen)."""
+        base = _make_state(phase="review", next_phase="review")
+        self.assertNotEqual(hook._progress_key(base, 0), hook._progress_key(base, 1))
+        self.assertNotEqual(hook._progress_key(base, 1), hook._progress_key(base, 2))
+
+    def test_new_review_file_resets_thrash_counter(self) -> None:
+        """End-to-end: a review session at the limit that landed a NEW review
+        file since the last hand-off is progressing, not thrashing. main() must
+        reset the counter and write "next", not halt. This is the warden-00020
+        fix: the durable on-disk review count is the progress signal the guard
+        reads when the model forgot to bump state.cycle."""
+        st = _make_state(phase="review", next_phase="review", prd="00099-test.md")
+        # Guard already at the limit, keyed at the PREVIOUS count (0 files).
+        st["phase_guard"] = {
+            "key": hook._progress_key(st, 0),
+            "count": hook.PHASE_THRASH_LIMIT - 1,
+        }
+        self._state_path().write_text(json.dumps(st))
+        # A new review cycle landed its file on disk before this hand-off.
+        (self._reviews_dir() / "00099-test-review-1.md").write_text("findings")
+        self._run_no_gate()
+        self.assertEqual(self.fx.signal_content(), "next")
+        state = self._read_state()
+        self.assertEqual(state["phase_guard"]["count"], 1)
+        self.assertNotIn("thrash_halt", state)
+
+    def test_stable_review_file_count_still_trips(self) -> None:
+        """The on-disk count must NOT defeat the breaker: a review re-entering
+        with the SAME review-file count (no new cycle landed) still trips. This
+        is the 00020 case itself, where zero durable artifacts were produced
+        across re-entries: halting for inspection is correct."""
+        (self._reviews_dir() / "00099-test-review-1.md").write_text("findings")
+        st = _make_state(phase="review", next_phase="review", prd="00099-test.md")
+        st["phase_guard"] = {
+            "key": hook._progress_key(st, 1),  # keyed at the SAME count main sees
+            "count": hook.PHASE_THRASH_LIMIT - 1,
+        }
+        self._state_path().write_text(json.dumps(st))
+        self._run_no_gate()
+        self.assertIsNone(self.fx.signal_content())
+        self.assertGreaterEqual(
+            self._read_state()["thrash_halt"]["repeats"], hook.PHASE_THRASH_LIMIT
+        )
+
 
 class BackgroundTaskInFlightTests(unittest.TestCase):
     """When the session ends its turn with a background task still pending (an
