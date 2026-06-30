@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: clear the autopilot idle-watchdog yield marker on ANY tool use.
+"""PostToolUse hook: clear .yielded-waiting on any tool use.
 
-A tool use means the autopilot session is active (the harness re-invoked the model after a
-background task completed), not idle-waiting on an orphaned task. Removing
-<autopilot_dir>/.yielded-waiting resets the idle clock; the Stop hook re-stamps it on the
-next abstaining yield. Registered matcher-less so it fires on every tool — Edit/Write/
-TaskUpdate included — which the cap hook's restricted matcher does not. Fail-open and
-self-contained (stdlib only; lives in scripts/ so `_walk_up` is importable, like the cap
-hook)."""
-from __future__ import annotations
-
+Tool activity means the session is active, not idle-waiting on an orphaned task.
+Registered matcher-less so it fires on all tools. Fail-open."""
 from pathlib import Path
 
 from _walk_up import find_autopilot_dir
