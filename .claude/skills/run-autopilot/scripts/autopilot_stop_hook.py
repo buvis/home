@@ -187,6 +187,17 @@ _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 _LAUNCH_FRESH_SECS = 600
 
 
+def _touch_yield_marker(autopilot_dir: Path) -> None:
+    """Stamp `<autopilot_dir>/.yielded-waiting` mtime when the Stop hook abstains
+    because a background task is in flight, so the autoclaude sidecar can bound
+    the wait into a clean halt. Fail-open: a touch failure must never change the
+    hook's signal decision."""
+    try:
+        (autopilot_dir / ".yielded-waiting").touch()
+    except OSError:
+        pass
+
+
 def _launch_is_alive(output_file: "str | None") -> bool:
     """True if the task's output_file exists and was written within
     _LAUNCH_FRESH_SECS. os.stat follows the symlink to the subagent JSONL, so a
@@ -701,6 +712,7 @@ def main() -> None:
     # a completed-phase orphan never trips _waiting_on_async. No thrash-counter
     # touch — this is real in-flight work. Fail open if transcript_path is None.
     if _waiting_on_async(transcript_path):
+        _touch_yield_marker(autopilot_dir)
         return
 
     # In-flight Agent dispatch: abstain so the harness re-invoke can land. This
@@ -732,6 +744,7 @@ def main() -> None:
         and surface_for_phase(state.get("phase", "")) is not None
     )
     if _pending_background_task(transcript_path, liveness_only=phase_is_review_gated):
+        _touch_yield_marker(autopilot_dir)
         return
 
     # Phase-thrash circuit-breaker (the "next" hand-off only). A phase that
