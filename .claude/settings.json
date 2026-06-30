@@ -358,6 +358,16 @@
         ]
       },
       {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/skills/run-autopilot/scripts/autopilot_yield_clear_hook.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*",
         "hooks": [
           {
