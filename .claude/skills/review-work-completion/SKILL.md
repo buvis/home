@@ -20,7 +20,7 @@ Validates completed implementation work against PRD requirements using independe
 - **Alice** → Claude subagent (direct, not nested CLI)
 - **Bob** → Codex
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
-- **Diana** → Sonnet 4.6 via copilot CLI
+- **Diana** → Claude subagent at Sonnet tier (direct `model: sonnet`, like Alice; not a CLI)
 
 ## Workflow
 
@@ -29,10 +29,11 @@ Validates completed implementation work against PRD requirements using independe
 Check these exist:
 
 1. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
-2. `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh` - executable
-3. `dev/local/prds/wip/` contains at least one `.txt` or `.md` file
+2. `dev/local/prds/wip/` contains at least one `.txt` or `.md` file
 
-**Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND the Gemini CLI resolves (`mise which gemini` or `command -v gemini` succeeds). If both pass, Carl is active. If either fails, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran.
+(Alice and Diana are native Claude subagents - no CLI prerequisite. Diana runs at `model: sonnet`.)
+
+**Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND a backend CLI resolves - `copilot` (preferred; serves `gemini-3.1-pro-preview`) OR native `gemini` (`mise which`/`command -v` succeeds for either). If both pass, Carl is active. If neither CLI resolves, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran. (Carl on the copilot backend spends Copilot AI credits; a "monthly quota exceeded" error from the helper is a runtime skip, not a prerequisite failure.)
 
 Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 
@@ -118,9 +119,9 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
-**Launch ALL active agents in a SINGLE message with parallel Task tool calls.**
+**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice and Diana are parallel Task subagent calls (native Claude tools). Bob and Carl are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls and the background Bash calls in the one message.
 
-Active agents: Alice, Bob, Diana, and Carl. Include Carl only if the optional Gemini check in step 1 passed; otherwise run the three remaining reviewers.
+Active reviewers: Alice, Bob, Diana, and Carl. Include Carl only if the optional Gemini check in step 1 passed; otherwise run the three remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
 
@@ -129,7 +130,7 @@ Read these before proceeding:
 
 ### 6. Consolidate findings
 
-Save each active agent's output to `dev/local/tmp/{agent}-output-{id}.txt`, then run:
+Save **Alice's and Diana's** returned subagent text to `dev/local/tmp/{agent}-output-{id}.txt`. Bob's and Carl's outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` in step 5. Then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
