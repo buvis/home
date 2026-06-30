@@ -1539,5 +1539,145 @@ class ReviewGatedInFlightWorkKeepAliveTests(unittest.TestCase):
         )
 
 
+class YieldMarkerStampTests(unittest.TestCase):
+    """The Stop hook must stamp <autopilot_dir>/.yielded-waiting when it abstains
+    because a background task is in flight, and must NOT stamp it on any real
+    hand-off or on the paused-phase early-return. Regression guard for the
+    yield-marker feature (TDD red: the stamp does not exist yet)."""
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+
+    def _marker(self) -> Path:
+        return self.fx.autopilot_dir / ".yielded-waiting"
+
+    # ------------------------------------------------------------------
+    # 1. Marker IS created on in-flight-Agent abstain
+    # ------------------------------------------------------------------
+
+    def test_marker_created_on_inflight_agent_abstain(self) -> None:
+        """_pending_background_task abstain stamps .yielded-waiting and writes no signal."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [_ev_agent_dispatch(), _ev_tool_result(LAUNCH_ACK)]
+        )
+        _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "abstain must write no signal",
+        )
+        self.assertTrue(
+            self._marker().exists(),
+            ".yielded-waiting must be created on an in-flight-Agent abstain",
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Marker IS created on auto-backgrounded-Bash abstain
+    # ------------------------------------------------------------------
+
+    def test_marker_created_on_autobg_bash_abstain(self) -> None:
+        """_waiting_on_async abstain stamps .yielded-waiting and writes no signal."""
+        self.fx.write_state(
+            phase="doubt", next_phase="doubt", phases_completed=["review", "blind"]
+        )
+        tp = self.fx.write_transcript([_ev_bg_launch_ack("b6qi55ate"), _ev_read()])
+        _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "abstain must write no signal",
+        )
+        self.assertTrue(
+            self._marker().exists(),
+            ".yielded-waiting must be created on an auto-backgrounded-Bash abstain",
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Marker NOT created on a "next" hand-off
+    # ------------------------------------------------------------------
+
+    def test_marker_not_created_on_next_handoff(self) -> None:
+        """A normal "next" hand-off writes the signal but must not stamp the marker."""
+        self.fx.write_state(phase="build", next_phase="review")
+        with mock.patch.object(hook, "gate_blocks", return_value=(False, "")):
+            _run_hook(self.fx)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertFalse(
+            self._marker().exists(),
+            ".yielded-waiting must NOT be created on a next hand-off",
+        )
+
+    # ------------------------------------------------------------------
+    # 4. Marker NOT created on a "done" hand-off
+    # ------------------------------------------------------------------
+
+    def test_marker_not_created_on_done_handoff(self) -> None:
+        """Batch-end "done" hand-off must not stamp the marker."""
+        self.fx.write_state(phase="build", next_phase="")
+        _run_hook(self.fx)
+        self.assertEqual(self.fx.signal_content(), "done")
+        self.assertFalse(
+            self._marker().exists(),
+            ".yielded-waiting must NOT be created on a done hand-off",
+        )
+
+    # ------------------------------------------------------------------
+    # 5. Marker NOT created on a "task_aborted" hand-off
+    # ------------------------------------------------------------------
+
+    def test_marker_not_created_on_task_aborted_handoff(self) -> None:
+        """stall_reason.stalled == subagent_prompt_overrun hand-off must not stamp
+        the marker."""
+        self.fx.write_state(
+            phase="build",
+            next_phase="review",
+            stall_reason={"stalled": "subagent_prompt_overrun", "task": "t1"},
+        )
+        _run_hook(self.fx)
+        self.assertEqual(self.fx.signal_content(), "task_aborted")
+        self.assertFalse(
+            self._marker().exists(),
+            ".yielded-waiting must NOT be created on a task_aborted hand-off",
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Marker NOT created when phase == "paused"
+    # ------------------------------------------------------------------
+
+    def test_marker_not_created_on_paused_phase(self) -> None:
+        """phase == paused exits before the abstain sites; no signal, no marker."""
+        self.fx.write_state(
+            phase="paused", cap_pause_reason="budget exhausted", next_phase="review"
+        )
+        _run_hook(self.fx)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "paused phase must write no signal",
+        )
+        self.assertFalse(
+            self._marker().exists(),
+            ".yielded-waiting must NOT be created when phase == paused",
+        )
+
+    # ------------------------------------------------------------------
+    # 7. Fail-open: OSError from Path.touch must not propagate; abstain unchanged
+    # ------------------------------------------------------------------
+
+    def test_touch_oserror_does_not_propagate_and_abstain_unchanged(self) -> None:
+        """If Path.touch raises OSError the abstain still returns (no signal written)
+        and main() does not raise."""
+        self.fx.write_state(phase="build", next_phase="review")
+        tp = self.fx.write_transcript(
+            [_ev_agent_dispatch(), _ev_tool_result(LAUNCH_ACK)]
+        )
+        with mock.patch.object(hook.Path, "touch", side_effect=OSError("disk full")):
+            # Must not raise.
+            _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "abstain must still write no signal even when touch raises OSError",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
