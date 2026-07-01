@@ -51,7 +51,7 @@ config.font = wezterm.font("MesloLGS Nerd Font Propo")
 if wezterm.target_triple == "x86_64-pc-windows-msvc" then
 	config.font_size = 9.5
 else
-	config.font_size = 11
+	config.font_size = 12
 end
 
 config.launch_menu = {}
