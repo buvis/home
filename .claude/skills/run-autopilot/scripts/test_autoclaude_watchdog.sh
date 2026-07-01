@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# TDD harness for _autopilot_loop_yield_stale and _autopilot_loop_watchdog.
-# Both functions are NOT yet implemented; these tests drive their creation and
-# will FAIL (with a clear "not defined" message) until the implementation lands
-# in ~/.config/bash/plugins/development.plugin.bash.
+# Test harness for _autopilot_loop_yield_stale and _autopilot_loop_watchdog
+# (implemented in ~/.config/bash/plugins/development.plugin.bash). Sources the
+# plugin and drives the sidecar-watchdog logic against a stub `claude`.
 set -u
 
 # ── source the plugin (stubs silence the bash-it bootstrap calls) ─────────────
