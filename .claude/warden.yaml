@@ -125,6 +125,16 @@ rules:
           argsMatch: ["-rf ", "-rf$", "-r "]
         decision: ask
         description: Recursive delete
+  # chmod: allow the safe exec-bit toggle (chmod +x / u+x / a+x), ask for
+  # anything else (numeric modes, -R, world-writable). The +x form is what the
+  # autopilot loop needs for its scripts; the dangerous forms stay gated.
+  - command: chmod
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ['^[ugoa]*\+x$']
+        decision: allow
+        description: Allow chmod +x (exec bit only)
   # bash: ask by default (could run anything), allow syntax check
   - command: bash
     default: ask
@@ -200,3 +210,13 @@ rules:
           anyArgMatches: ["^pytest$"]
         decision: allow
         description: Allow uvx pytest
+  # render: the playground hardware layout renderer. Allow only when a target
+  # path is under the playground hardware tree (the autopilot loop's circuit
+  # PRDs); any other `render` invocation still asks.
+  - command: render
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ['tbouska/playground/hardware/']
+        decision: allow
+        description: Allow render on playground hardware layouts
