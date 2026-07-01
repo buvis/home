@@ -44,17 +44,15 @@ Bash tool (run_in_background: true):
 
 ## Diana (Sonnet)
 
-Diana runs as a direct subagent at Sonnet tier - same as Alice, but pinned to `model: sonnet`. No nested CLI: shelling a headless `claude` out of a subagent is needless double-nesting (and used to burn Copilot credits). The Sonnet subagent reviews directly with native Read, Grep, Glob, and Bash access.
+Diana runs Sonnet as a **direct background Bash command - do NOT wrap it in a Task subagent.** Like Bob and Carl, a subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "still running" and the reviewer never reports. Run `sonnet-run.sh` (headless `claude -p`, which works at the top level even though `claude -p` inside a subagent does not) directly and the harness tracks the background process, then re-invokes the session when it finishes.
+
+Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved). Pass `-a` (bypassPermissions, so the headless reviewer doesn't hang on tool prompts) and `-m sonnet` (pin the tier):
 
 ```
-Task tool:
-  subagent_type: general-purpose
-  model: sonnet
-  description: "Diana reviews work against PRD requirements"
-  prompt: |
-    You are Diana, a code reviewer.
-
-    {contents of diana_prompt_file}
+Bash tool (run_in_background: true):
+  ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -m sonnet -a -f "{diana_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/diana-output-{id}.txt"
 ```
 
-The prompt file contents are inlined directly into the Task prompt (like Alice) - the subagent has native tool access and needs no relative-path resolution.
+`-o` writes Diana's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. When the background command completes, read `diana-output-{id}.txt`. If `sonnet-run.sh` exits non-zero, skip Diana and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
+
+Diana's prompt is still built from Alice's shared template (`SKILL.md` step 4) - no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the headless `claude -p` reviewer.
