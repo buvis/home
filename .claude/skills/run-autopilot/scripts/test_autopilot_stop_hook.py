@@ -1543,7 +1543,7 @@ class YieldMarkerStampTests(unittest.TestCase):
     """The Stop hook must stamp <autopilot_dir>/.yielded-waiting when it abstains
     because a background task is in flight, and must NOT stamp it on any real
     hand-off or on the paused-phase early-return. Regression guard for the
-    yield-marker feature (TDD red: the stamp does not exist yet)."""
+    yield-marker feature."""
 
     def setUp(self) -> None:
         self.fx = StopHookFixture()

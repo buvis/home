@@ -22,10 +22,10 @@ _autopilot_loop_yield_stale() {
 # SIGKILL after <kill_after> further stale polls. Returns when `claude` dies. Never touches
 # the TTY for input. Converts a background-task-orphan idle into the loud no-signal halt.
 _autopilot_loop_watchdog() {
+  local _self="$BASHPID"          # FIRST statement — capture this sidecar subshell's own pid
+                                  # OUTSIDE any $(...): $BASHPID inside a command substitution
+                                  # is the substitution's subshell, NOT this function-subshell.
   local _wpid="$1" _m="$2" _mins="$3" _secs="$4" _kafter="$5"
-  local _self="$BASHPID"          # this sidecar subshell's own pid — capture OUTSIDE any
-                                  # $(...): $BASHPID inside a command substitution is the
-                                  # substitution's subshell, NOT this function-subshell.
   local _cpid="" _stale_streak=0 _p
   while true; do
     sleep "$_secs"
@@ -34,8 +34,12 @@ _autopilot_loop_watchdog() {
       _cpid=""
       for _p in $(pgrep -P "$_wpid" 2>/dev/null); do
         [ "$_p" = "$_self" ] && continue
+        # Exact comm match (design contract: comm == claude), not a `*claude`
+        # glob — a bystander like `myclaude` must never be selected. `comm=`
+        # is the basename on macOS but may be a full path elsewhere, so accept
+        # a trailing `/claude` too.
         case "$(ps -p "$_p" -o comm= 2>/dev/null)" in
-          *claude) _cpid="$_p"; break ;;
+          claude|*/claude) _cpid="$_p"; break ;;
         esac
       done
     fi
