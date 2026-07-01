@@ -47,7 +47,12 @@ autoclaude() {
     # next_phase remains in state.json as resume/log metadata (read by the
     # SKILL resume logic, not here); per-task tiering inside /work still does
     # the model split that works.
-    claude --model claude-opus-4-8 --name "${PWD##*/}" --permission-mode auto "/run-autopilot"
+    # WARDEN_UNATTENDED: command-scoped so warden (claude's hook child) turns an
+    # unanswerable `ask` into a fast `deny` instead of a forever-hang. NOT
+    # exported to the shell, so interactive `claude` outside the loop still
+    # prompts normally. (A subagent `chmod +x` ask deadlocked the loop 1h51m,
+    # 2026-06-30.)
+    WARDEN_UNATTENDED=1 claude --model claude-opus-4-8 --name "${PWD##*/}" --permission-mode auto "/run-autopilot"
     _autopilot_loop_cleanup
 
     local _ap_dir
