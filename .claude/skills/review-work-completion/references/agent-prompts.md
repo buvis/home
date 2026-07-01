@@ -57,10 +57,11 @@ Source of truth for the block format: `~/.claude/skills/review-work-completion/r
 
 > **Note:** The numbered rubric lives at `references/rubric.md` and is inlined into
 > every reviewer's prompt via `{contents of rubric.md}` (same template syntax as
-> `review-dimensions.md`). Three of the four reviewers — Bob (Codex), Carl (Gemini),
-> Diana (Sonnet via copilot) — are external CLIs that cannot resolve a relative
-> path, so the rubric MUST be embedded inline, not referenced. The rubric's rule IDs
-> are stable: add new rules with new IDs, never renumber.
+> `review-dimensions.md`). The rubric MUST be embedded inline, not referenced: Bob
+> (Codex), Carl (Gemini), and Diana (headless Sonnet CLI) run as external CLIs that
+> cannot resolve a relative path, and the Claude subagent Alice receives a
+> self-contained prompt too. The rubric's rule IDs are stable: add new rules with
+> new IDs, never renumber.
 
 > **Note:** The coverage block format is defined in `references/review-coverage-format.md`. The block's structure is embedded inline in the template above for the same reason as the rubric — external-CLI reviewers cannot resolve relative paths.
 

@@ -20,7 +20,7 @@ Validates completed implementation work against PRD requirements using independe
 - **Alice** → Claude subagent (direct, not nested CLI)
 - **Bob** → Codex
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
-- **Diana** → Claude subagent at Sonnet tier (direct `model: sonnet`, like Alice; not a CLI)
+- **Diana** → Sonnet via `sonnet-run.sh` (background Bash: headless `claude -p` pinned to `model: sonnet`; skipped when the script is unavailable)
 
 ## Workflow
 
@@ -31,9 +31,11 @@ Check these exist:
 1. `~/.claude/skills/use-codex/scripts/codex-run.sh` - executable
 2. `dev/local/prds/wip/` contains at least one `.txt` or `.md` file
 
-(Alice and Diana are native Claude subagents - no CLI prerequisite. Diana runs at `model: sonnet`.)
+(Alice is a native Claude subagent - no CLI prerequisite.)
 
 **Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND a backend CLI resolves - `copilot` (preferred; serves `gemini-3.1-pro-preview`) OR native `gemini` (`mise which`/`command -v` succeeds for either). If both pass, Carl is active. If neither CLI resolves, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran. (Carl on the copilot backend spends Copilot AI credits; a "monthly quota exceeded" error from the helper is a runtime skip, not a prerequisite failure.)
+
+**Optional - Diana (Sonnet):** check `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh` is executable. If it passes, Diana is active. If missing or non-executable, skip Diana and proceed with the remaining reviewers - graceful degradation, not a failure. Note in the final review file which reviewers ran. (`sonnet-run.sh` is a headless `claude -p` wrapper, so it needs only the harness's own `claude` binary; its absence is an install anomaly, not a reason to hard-abort the review.)
 
 Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 
@@ -119,9 +121,11 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
-**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice and Diana are parallel Task subagent calls (native Claude tools). Bob and Carl are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls and the background Bash calls in the one message.
+**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice is a Task subagent call (native Claude tools). Bob, Carl, and Diana are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/sonnet) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task call and the background Bash calls in the one message.
 
-Active reviewers: Alice, Bob, Diana, and Carl. Include Carl only if the optional Gemini check in step 1 passed; otherwise run the three remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
+**MUST NOT Write or Edit ANY reviewer output (Alice's included) between launching the reviewers and step 6 - wait until ALL background-Bash reviewers (Bob, Carl, Diana) have reported.** Any intervening Write/Edit advances the stop hook's `last_edit` marker past the background-Bash launches and defeats `_waiting_on_async`, SIGINT-stranding the still-running reviewers (PRD Risk 1). The CLIs self-write via `-o`; Alice's returned text is saved only in step 6, after every background reviewer has completed - even if Alice returns first.
+
+Active reviewers: Alice, Bob, Diana, and Carl. Include Carl only if the optional Gemini check in step 1 passed, and Diana only if the optional Sonnet check passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
 
@@ -130,7 +134,7 @@ Read these before proceeding:
 
 ### 6. Consolidate findings
 
-Save **Alice's and Diana's** returned subagent text to `dev/local/tmp/{agent}-output-{id}.txt`. Bob's and Carl's outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` in step 5. Then run:
+Save **Alice's** returned subagent text to `dev/local/tmp/alice-output-{id}.txt`. Bob's, Carl's, and Diana's outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `diana-output-{id}.txt` in step 5. Then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
@@ -147,7 +151,7 @@ Save **Alice's and Diana's** returned subagent text to `dev/local/tmp/{agent}-ou
   DIANA:$PWD/dev/local/tmp/diana-output-{id}.txt
 ```
 
-Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped). The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `DIANA:` pair when Diana was skipped). The script computes consensus dynamically from the number of agent pairs provided.
 
 **If the coverage gate fails** (non-zero exit), stop and report the gap named in stderr. Do not proceed to step 7.
 
