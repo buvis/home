@@ -1320,6 +1320,55 @@ class AutoBackgroundedBashWaitTests(unittest.TestCase):
         self.assertEqual(self.fx.signal_content(), "next")
         self.assertGreater(len(pids), 0)
 
+    def test_review_three_unconsumed_bg_reviewers_abstains(self) -> None:
+        """PRD 00034: Phase-4 work-completion launches Bob, Carl, and Diana as
+        three background-Bash reviewers in ONE turn and yields with NO
+        reviewer-output write. All three launches are unconsumed and there is no
+        later Edit, so _waiting_on_async must abstain — the same count-based path
+        as the single-launch cases, now exercised over three launches. This is
+        the jink-00025 orphan-strand class the PRD converts Diana to avoid."""
+        self.fx.write_state(phase="review", next_phase="review", phases_completed=[])
+        tp = self.fx.write_transcript(
+            [
+                _ev_assistant_text("Launching Bob, Carl, and Diana as background Bash."),
+                _ev_bg_launch_ack("bob4x9k2a"),
+                _ev_bg_launch_ack("carl7m3p1"),
+                _ev_bg_launch_ack("diana8q5z"),
+                _ev_assistant_text("All three reviewers running; awaiting their output files."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "must abstain while all three bg-Bash reviewers are still in flight",
+        )
+        self.assertEqual(pids, [], "must NOT SIGINT while any reviewer is pending")
+
+    def test_review_two_of_three_reviewers_reported_still_abstains(self) -> None:
+        """"Until ALL report": Bob and Carl have completed and been consumed, but
+        Diana's launch is still unconsumed with no later Edit. One unconsumed
+        launch is enough to keep the session alive — a hook that handed off as
+        soon as the first reviewer reported would SIGINT-strand the still-running
+        Diana. Abstain."""
+        self.fx.write_state(phase="review", next_phase="review", phases_completed=[])
+        tp = self.fx.write_transcript(
+            [
+                _ev_assistant_text("Launching Bob, Carl, and Diana as background Bash."),
+                _ev_bg_launch_ack("bob4x9k2a"),
+                _ev_bg_launch_ack("carl7m3p1"),
+                _ev_bg_launch_ack("diana8q5z"),
+                _ev_task_notification("bob4x9k2a"),
+                _ev_task_notification("carl7m3p1"),
+                _ev_assistant_text("Bob and Carl reported; Diana still running."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "one still-running reviewer (Diana) must keep the session alive",
+        )
+        self.assertEqual(pids, [], "must NOT SIGINT while Diana is still pending")
+
 
 class LivenessAwareReviewBatchTests(unittest.TestCase):
     """A parallel reviewer batch can complete OUT OF launch order: a slow reviewer
