@@ -128,6 +128,7 @@ def _run_hook_with_env(fx: StopHookFixture, loop_value: str | None) -> list[int]
             mock.patch.object(hook.Path, "cwd", return_value=fx.cwd),
             mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
             mock.patch.object(hook.sys, "stdin", io.StringIO(stdin_payload)),
+            mock.patch.object(hook, "_foreign_stop_event", return_value=False),
         ):
             hook.main()
     finally:
@@ -164,6 +165,7 @@ def _run_hook_capturing(
             mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
             mock.patch.object(hook.sys, "stdin", io.StringIO(stdin_payload)),
             mock.patch.object(hook.sys, "stderr", stderr),
+            mock.patch.object(hook, "_foreign_stop_event", return_value=False),
         ):
             rc = hook.main()
     finally:
@@ -359,6 +361,7 @@ def _run_hook_with_transcript(
             mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
             mock.patch.object(hook.sys, "stdin", io.StringIO(stdin_payload)),
             mock.patch.object(hook, "gate_blocks", return_value=(False, "")),
+            mock.patch.object(hook, "_foreign_stop_event", return_value=False),
         ):
             hook.main()
     finally:
@@ -598,6 +601,7 @@ class NonAutopilotSessionTests(unittest.TestCase):
                 mock.patch.object(hook.Path, "cwd", return_value=self.plain_cwd),
                 mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
                 mock.patch.object(hook.sys, "stdin", io.StringIO(stdin_payload)),
+                mock.patch.object(hook, "_foreign_stop_event", return_value=False),
             ):
                 hook.main()
         finally:
