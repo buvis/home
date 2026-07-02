@@ -11,6 +11,13 @@ Retry on: missing CLI tool, runtime error, or malformed output format.
 
 Consolidation uses partial results from available agents.
 
+## Retry Mechanism (CLI reviewers vs Alice)
+
+"Send one retry" below means different things by reviewer type:
+
+- **Alice** (the native Claude Task Agent): message the running agent again in the same conversation, as written.
+- **Bob (codex), Carl (gemini), Diana (sonnet)** (the bg-Bash CLI reviewers, PRD 00034): these are one-shot `run_in_background` Bash processes that have already exited by the time their output file is read, so there is no in-conversation target. A retry means re-dispatching a FRESH `run_in_background` Bash call of the same `*-run.sh` with an amended prompt file, writing the same `dev/local/tmp/{agent}-output-{id}.txt` path. The one-retry budget is unchanged.
+
 ## Format Compliance
 
 If an agent's output doesn't match the required format:
