@@ -630,6 +630,48 @@ def find_and_signal_claude(start_pid: int) -> bool:
     return False
 
 
+_FOREIGN_TRANSCRIPT_MARKERS = ("/.codex/", "/.gemini/")
+
+
+def _foreign_stop_event(stdin_data: dict) -> bool:
+    """True when this Stop event was fired by a NESTED agent, not the
+    autopilot session itself.
+
+    Nested agents inherit _AUTOPILOT_LOOP and the loop cwd from the Bash
+    dispatch, so without this check their Stop events drive the loop state
+    machine mid-flight: they ghost-increment phase_guard, write (or withhold)
+    the loop signal off-turn, and find_and_signal_claude SIGINTs a session
+    that is mid-review. Two observed vectors (2026-07-02, PRD 00034 review —
+    both review sessions killed seconds after dispatch, thrash breaker
+    tripped on ghost hand-offs, loop halted with the backlog unprocessed):
+
+    - A foreign CLI whose hook system mirrors claude's: codex fires the
+      ~/.codex/hooks.json Stop chain with its own rollout transcript_path
+      under ~/.codex/. Recognized by transcript path marker.
+    - A nested `claude -p` reviewer (Diana via sonnet-run.sh): its Stop event
+      has a SECOND claude ancestor (the main session) above the first.
+      Exactly one claude ancestor means the event is the main session's own.
+    """
+    transcript = stdin_data.get("transcript_path")
+    if isinstance(transcript, str) and any(
+        marker in transcript for marker in _FOREIGN_TRANSCRIPT_MARKERS
+    ):
+        return True
+    claude_ancestors = 0
+    pid = os.getppid()
+    while pid > 1:
+        comm = comm_for(pid)
+        if comm and os.path.basename(comm) == "claude":
+            claude_ancestors += 1
+            if claude_ancestors > 1:
+                return True
+        next_pid = parent_of(pid)
+        if next_pid <= 0 or next_pid == pid:
+            break
+        pid = next_pid
+    return False
+
+
 def _compute_signal(state: dict) -> str | None:
     """Return the signal string, or None if no signal should be written."""
     if state.get("phase") == "paused":
@@ -651,6 +693,13 @@ def main() -> None:
     # Step 1: check _AUTOPILOT_LOOP.
     loop_val = os.environ.get("_AUTOPILOT_LOOP", "")
     if not loop_val:
+        return
+
+    # Step 1.5: provenance. Only the autopilot session's OWN Stop event may
+    # drive the loop; nested agents (codex via ~/.codex/hooks.json, claude -p
+    # reviewers) inherit _AUTOPILOT_LOOP + cwd and would hand off / SIGINT
+    # mid-flight (2026-07-02 double review-session kill + thrash halt).
+    if _foreign_stop_event(stdin_data):
         return
 
     # Step 2: locate autopilot dir.
