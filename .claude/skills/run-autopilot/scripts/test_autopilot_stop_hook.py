@@ -1373,6 +1373,65 @@ class AutoBackgroundedBashWaitTests(unittest.TestCase):
         )
         self.assertEqual(pids, [], "must NOT SIGINT while Diana is still pending")
 
+    def test_review_mixed_agent_and_bash_turn_all_pending_abstains(self) -> None:
+        """PRD 00034 "Mixed turn": Phase-4 work-completion launches Alice as a
+        Task Agent (hex agentId) AND Bob/Carl/Diana as three background-Bash
+        reviewers (base-36 bash ids) in ONE turn, then yields. With all four
+        launches unconsumed and no later Edit, the hook must abstain. Guards the
+        id-namespace discrimination: the hex agent ack sharing the turn must not
+        break the base-36 bg-launch detection (_waiting_on_async) that keeps the
+        session alive — the mixed dispatch shape the PRD mandates but that the
+        bash-only and agent-only tests never exercise together."""
+        self.fx.write_state(phase="review", next_phase="review", phases_completed=[])
+        tp = self.fx.write_transcript(
+            [
+                _ev_assistant_text("Launching Alice (Agent) + Bob/Carl/Diana (bg-Bash) in one turn."),
+                _ev_agent_ack("a11ceface"),
+                _ev_bg_launch_ack("bob4x9k2a"),
+                _ev_bg_launch_ack("carl7m3p1"),
+                _ev_bg_launch_ack("diana8q5z"),
+                _ev_assistant_text("All four reviewers running; awaiting their output files."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertIsNone(
+            self.fx.signal_content(),
+            "a mixed 3-bash + 1-agent turn must abstain while any reviewer is in flight",
+        )
+        self.assertEqual(
+            pids, [], "must NOT SIGINT while any of the four reviewers is pending"
+        )
+
+    def test_review_mixed_agent_and_bash_turn_all_reported_hands_off(self) -> None:
+        """PRD 00034 "Mixed turn", the hand-off direction: each of the four
+        reviewers emits its own paired <task-notification> — base-36 ids for the
+        three bg-Bash reviewers, the hex agentId for Alice — and all are consumed.
+        With nothing left in flight and no wait marker, the hook hands off (writes
+        "next", SIGINTs). Confirms the two id namespaces are consumed
+        independently within a single turn (autopilot_stop_hook.py:137-138)."""
+        self.fx.write_state(phase="review", next_phase="review", phases_completed=[])
+        tp = self.fx.write_transcript(
+            [
+                _ev_assistant_text("Launching Alice (Agent) + Bob/Carl/Diana (bg-Bash) in one turn."),
+                _ev_agent_ack("a11ceface"),
+                _ev_bg_launch_ack("bob4x9k2a"),
+                _ev_bg_launch_ack("carl7m3p1"),
+                _ev_bg_launch_ack("diana8q5z"),
+                _ev_task_notification("bob4x9k2a"),
+                _ev_task_notification("carl7m3p1"),
+                _ev_task_notification("diana8q5z"),
+                _ev_task_notification("a11ceface"),
+                _ev_assistant_text("All four reviewers reported; consolidating findings."),
+            ]
+        )
+        pids = _run_hook_with_transcript(self.fx, tp)
+        self.assertEqual(
+            self.fx.signal_content(),
+            "next",
+            "once all four reviewers (3 bg-Bash + Alice) report, the hook hands off",
+        )
+        self.assertGreater(len(pids), 0)
+
 
 class LivenessAwareReviewBatchTests(unittest.TestCase):
     """A parallel reviewer batch can complete OUT OF launch order: a slow reviewer
