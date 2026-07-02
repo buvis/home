@@ -1728,5 +1728,126 @@ class YieldMarkerStampTests(unittest.TestCase):
         )
 
 
+class NestedAgentStopEventTests(unittest.TestCase):
+    """Stop events fired by NESTED agents must not drive the loop.
+
+    2026-07-02 (PRD 00034 review, twice): the codex reviewer's own Stop hook
+    chain (~/.codex/hooks.json mirrors claude's and included this hook) ran
+    with the loop's inherited _AUTOPILOT_LOOP and cwd. The hook computed
+    "next" off live state, ghost-incremented phase_guard, and
+    find_and_signal_claude walked up from codex to the MAIN session and
+    SIGINT-killed it mid-review. Two ghost hand-offs plus the work session's
+    real one tripped the thrash breaker; the wrapper halted with the backlog
+    unprocessed. The same applies to a nested `claude -p` reviewer (Diana):
+    its Stop event sees a SECOND claude ancestor (the main session) above
+    itself and must be ignored too.
+    """
+
+    def setUp(self) -> None:
+        self.fx = StopHookFixture()
+        self.addCleanup(self.fx.cleanup)
+        # Hand-off-ready state: without the provenance guard this writes
+        # "next", bumps phase_guard, and calls find_and_signal_claude.
+        self.fx.write_state(phase="build", next_phase="review")
+
+    def _run(
+        self,
+        transcript_path: str | None = None,
+        tree: dict[int, tuple[str, int]] | None = None,
+    ) -> list[int]:
+        """Run main() with an optional stdin transcript_path and an optional
+        fake process tree {pid: (comm, ppid)} rooted at the REAL os.getppid()."""
+        signalled: list[int] = []
+
+        def fake_signal_claude(pid: int) -> bool:
+            signalled.append(pid)
+            return True
+
+        payload: dict = {"session_id": "test"}
+        if transcript_path is not None:
+            payload["transcript_path"] = transcript_path
+
+        patches = [
+            mock.patch.object(hook.Path, "cwd", return_value=self.fx.cwd),
+            mock.patch.object(hook, "find_and_signal_claude", fake_signal_claude),
+            mock.patch.object(hook.sys, "stdin", io.StringIO(json.dumps(payload))),
+        ]
+        if tree is not None:
+            comms = {pid: comm for pid, (comm, _) in tree.items()}
+            parents = {pid: ppid for pid, (_, ppid) in tree.items()}
+            patches.append(
+                mock.patch.object(hook, "comm_for", lambda pid: comms.get(pid, ""))
+            )
+            patches.append(
+                mock.patch.object(hook, "parent_of", lambda pid: parents.get(pid, 0))
+            )
+
+        saved = os.environ.pop("_AUTOPILOT_LOOP", None)
+        try:
+            os.environ["_AUTOPILOT_LOOP"] = "12345"
+            with mock.patch.object(hook, "gate_blocks", return_value=(False, "")):
+                for p in patches:
+                    p.start()
+                    self.addCleanup(p.stop)
+                hook.main()
+        finally:
+            os.environ.pop("_AUTOPILOT_LOOP", None)
+            if saved is not None:
+                os.environ["_AUTOPILOT_LOOP"] = saved
+        return signalled
+
+    def _assert_ignored(self, pids: list[int]) -> None:
+        self.assertIsNone(
+            self.fx.signal_content(), "foreign Stop event must not write a signal"
+        )
+        self.assertEqual(
+            pids, [], "foreign Stop event must not SIGINT any claude process"
+        )
+        self.assertNotIn(
+            "phase_guard",
+            self.fx.read_state(),
+            "foreign Stop event must not touch the thrash guard",
+        )
+
+    def test_codex_stop_event_is_ignored(self) -> None:
+        """A codex rollout transcript_path marks a foreign CLI's Stop event."""
+        pids = self._run(
+            transcript_path=(
+                "/Users/bob/.codex/sessions/2026/07/02/rollout-2026-07-02.jsonl"
+            )
+        )
+        self._assert_ignored(pids)
+
+    def test_gemini_stop_event_is_ignored(self) -> None:
+        """Same guard for a gemini-style transcript path."""
+        pids = self._run(
+            transcript_path="/Users/bob/.gemini/tmp/session-transcript.jsonl"
+        )
+        self._assert_ignored(pids)
+
+    def test_nested_claude_reviewer_stop_event_is_ignored(self) -> None:
+        """Two claude ancestors == a claude -p reviewer inside the loop session."""
+        ppid = os.getppid()
+        tree = {
+            ppid: ("claude", 800),  # the -p reviewer that fired this Stop
+            800: ("bash", 801),  # sonnet-run.sh / Bash tool subprocess
+            801: ("claude", 802),  # the MAIN autopilot session
+            802: ("bash", 1),  # the wrapper shell
+        }
+        pids = self._run(tree=tree)
+        self._assert_ignored(pids)
+
+    def test_main_session_single_claude_ancestor_still_hands_off(self) -> None:
+        """Control: exactly one claude ancestor is the main session itself."""
+        ppid = os.getppid()
+        tree = {
+            ppid: ("claude", 900),  # the main session that fired this Stop
+            900: ("bash", 1),  # the wrapper shell
+        }
+        pids = self._run(tree=tree)
+        self.assertEqual(self.fx.signal_content(), "next")
+        self.assertGreater(len(pids), 0, "main session hand-off must auto-exit")
+
+
 if __name__ == "__main__":
     unittest.main()
