@@ -117,5 +117,177 @@ class Phase8DoubtReviewFileContractTests(unittest.TestCase):
             rc._validate_verdicts(sections)
 
 
+# ---------------------------------------------------------------------------
+# PRD 00038: dual-reviewer (codex + Eve/fable) sequencing & merge contract.
+# EXTENDS the file — all assertions above are unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _phase8_section() -> str:
+    """Return SKILL.md's Phase 8 section text (## Phase 8 .. ## Phase 9)."""
+    text = _SKILL_PATH.read_text()
+    start = text.index("## Phase 8:")
+    end = text.index("## Phase 9:", start)
+    return text[start:end]
+
+
+# Two Eve/codex-shaped coverage blocks whose rubric verdicts differ on R3, so
+# _merge_blocks's "pass wins" rule is exercised (codex pass + Eve fail -> pass).
+_CODEX_BLOCK = """\
+---review-coverage---
+files:
+  skills/run-autopilot/SKILL.md: reviewed
+tests:
+  pending: filled by consolidation
+features:
+  Doubt-Review Sequencing & Merge: reviewed
+rubric:
+  R1: pass
+  R2: pass
+  R3: pass
+  R4: pass
+  R5: pass
+---end-review-coverage---
+"""
+
+_EVE_BLOCK = """\
+---review-coverage---
+files:
+  skills/run-autopilot/SKILL.md: reviewed
+tests:
+  pending: filled by consolidation
+features:
+  Doubt-Review Sequencing & Merge: reviewed
+rubric:
+  R1: pass
+  R2: pass
+  R3: fail
+  R4: pass
+  R5: pass
+---end-review-coverage---
+"""
+
+# A synthesized dual-reviewer durable <prd>-doubt-review.md: two labeled
+# per-reviewer sections (bare R lines, NO raw coverage block) followed by the
+# single tests-filled aggregate block. Encodes the single-coverage-block
+# invariant (design §5).
+_DUAL_DURABLE_FILE = """\
+## codex
+
+FIX:
+- (none)
+VERIFY:
+- (none)
+KNOWN:
+- (none)
+R1: pass
+R2: pass
+R3: pass
+R4: pass
+R5: pass
+
+## fable (Eve)
+
+FIX:
+- SKILL.md Phase 8 omits the sequencing precondition
+VERIFY:
+- (none)
+KNOWN:
+- (none)
+R1: pass
+R2: pass
+R3: fail
+R4: pass
+R5: pass
+
+---review-coverage---
+files:
+  skills/run-autopilot/SKILL.md: reviewed
+tests:
+  pytest: pass=9 fail=0 skip=0
+features:
+  Doubt-Review Sequencing & Merge: reviewed
+rubric:
+  R1: pass
+  R2: pass
+  R3: pass
+  R4: pass
+  R5: pass
+---end-review-coverage---
+"""
+
+
+class Phase8EveDualReviewerContractTests(unittest.TestCase):
+    # --- SKILL.md Phase 8 wording (the model-executed procedure contract) ---
+
+    def test_phase8_documents_eve_sequential_gate(self) -> None:
+        """Phase 8 documents the doubt_reviewer==fable sequential Eve gate."""
+        s = _phase8_section()
+        self.assertIn('state.doubt_reviewer == "fable"', s)
+        self.assertIn("never runs in parallel with codex", s)
+        self.assertIn(".doubt-eve-block.md", s)
+        self.assertIn("source", s)
+
+    def test_phase8_sequencing_keys_on_first_reviewer_completed(self) -> None:
+        """Sequencing keys on 'first reviewer COMPLETED', not file-exists / 'codex ran'."""
+        s = _phase8_section()
+        self.assertIn("the first reviewer has COMPLETED", s)
+
+    def test_phase8_documents_eve_failure_degradation(self) -> None:
+        """A failed Eve degrades to the single-reviewer path with a warning, no PAUSE."""
+        s = _phase8_section()
+        self.assertIn(
+            "── AUTOPILOT ── Eve (fable) doubt reviewer failed; "
+            "proceeding with codex/fallback alone ──",
+            s,
+        )
+        self.assertIn("single-reviewer", s)
+
+    def test_phase8_documents_per_reviewer_rubric_verdicts(self) -> None:
+        """doubts_rubric_verdicts carries one entry per rule per reviewer (10 dual)."""
+        s = _phase8_section()
+        self.assertIn("one entry per rule per reviewer", s)
+        self.assertIn("10 entries", s)
+
+    def test_phase8_documents_single_coverage_block_invariant(self) -> None:
+        """The durable file must hold EXACTLY ONE aggregate coverage block."""
+        s = _phase8_section()
+        self.assertIn("EXACTLY ONE", s)
+        self.assertIn("---review-coverage---", s)
+
+    def test_phase8_no_flag_path_stays_byte_identical(self) -> None:
+        """The no-flag path still uses a single --reviewer-block and is byte-identical."""
+        s = _phase8_section()
+        self.assertIn("--reviewer-block", s)
+        self.assertIn("byte-identical", s)
+
+    # --- merge machinery (reuses review_coverage.py; NO new gate code) ---
+
+    def test_dual_reviewer_merge_yields_four_sections_pass_wins(self) -> None:
+        """Merging codex + Eve blocks yields the four sections; rubric pass wins."""
+        codex = rc._parse_block(rc._extract_block_text(_CODEX_BLOCK))
+        eve = rc._parse_block(rc._extract_block_text(_EVE_BLOCK))
+        merged = rc._merge_blocks([codex, eve])
+        self.assertEqual(set(merged), {"files", "tests", "features", "rubric"})
+        # codex R3 pass + Eve R3 fail -> pass wins
+        self.assertEqual(merged["rubric"]["R3"], "pass")
+        rc._validate_verdicts(merged)
+
+    def test_dual_durable_file_has_exactly_one_coverage_block(self) -> None:
+        """The dual durable file holds exactly one ---review-coverage--- pair."""
+        self.assertEqual(_DUAL_DURABLE_FILE.count(rc.OPEN_DELIM), 1)
+        self.assertEqual(_DUAL_DURABLE_FILE.count(rc.CLOSE_DELIM), 1)
+
+    def test_dual_durable_file_extracts_tests_filled_aggregate(self) -> None:
+        """_extract_block_text on the dual durable file returns the tests-filled aggregate."""
+        inner = rc._extract_block_text(_DUAL_DURABLE_FILE)
+        self.assertIsNotNone(inner)
+        sections = rc._parse_block(inner)
+        # The extracted block is the aggregate: real pytest counts, NOT the
+        # 'pending' sentinel a per-reviewer raw block would carry.
+        self.assertIn("pytest", sections["tests"])
+        self.assertNotIn("pending", sections["tests"])
+
+
 if __name__ == "__main__":
     unittest.main()
