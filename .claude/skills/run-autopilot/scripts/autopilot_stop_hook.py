@@ -20,7 +20,7 @@ _compute_signal (done-first, PRD 00035):
 8. next_phase is a non-empty string -> signal = "next".
 9. Otherwise -> no signal, no auto-exit (fail open).
 
-After computing a signal (cases 5-7):
+After computing a signal (cases 4, 6, 8):
 - Consult the review-coverage gate. If a review surface just completed but its
   coverage is incomplete, the gate blocks: write NO signal and do NOT auto-exit,
   so the session stays alive for review_coverage_hook.py (same Stop event) to
