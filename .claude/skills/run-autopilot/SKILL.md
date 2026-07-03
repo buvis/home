@@ -180,7 +180,7 @@ Let `<prd-stem>` = `state.prd` with its trailing `.md` removed. The design doc a
 
 1. Invoke `/design-solution` with the wip PRD path (`dev/local/prds/wip/<state.prd>`).
 2. **On success (exit 0):** set `state.design_doc` to the artifact path it printed (`dev/local/designs/<prd-stem>-design.md`). Log the design decision (chosen approach + any unresolved non-blockers from the doc's `## Review log`) to `state.autonomous_decisions` under the existing audit label `autonomous` — do NOT add a `design` audit label (the audit-log label set is closed).
-3. **On failure (non-zero exit — unresolved cardinal sins/blockers after 2 reviewer dispatches):** treat as a sub-skill failure. PAUSE per the Error Handling table's "Sub-skill invocation fails outright" row — set `state.phase = "paused"` and `state.next_phase = "paused"`, report the open findings, and do NOT proceed to planning.
+3. **On failure (non-zero exit — unresolved cardinal sins/blockers after 2 reviewer dispatches):** treat as a sub-skill failure. PAUSE per the Error Handling table's "Sub-skill invocation fails outright" row — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "sub_skill_fail", "detail": "design-solution failed with open findings"}`, report the open findings, and do NOT proceed to planning.
 
 **Design gate (`state.design_gate == "user"`):** after a successful design (or an artifact reuse), and only when `state.design_gate == "user"`, PAUSE before planning — present the design doc summary plus any unresolved non-blockers from `## Review log` via `AskUserQuestion`, and proceed to Phase 2 only after the user answers. This is a mid-turn `AskUserQuestion` PAUSE; it does not end the turn, so no `phase` change is needed.
 
