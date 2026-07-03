@@ -56,3 +56,37 @@ Bash tool (run_in_background: true):
 `-o` writes Diana's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. When the background command completes, read `diana-output-{id}.txt`. If `sonnet-run.sh` exits non-zero, skip Diana and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
 
 Diana's prompt is still built from Alice's shared template (`SKILL.md` step 4) - no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the headless `claude -p` reviewer.
+
+## Eve (Fable 5)
+
+Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl/Diana). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Grep/Glob/Bash access - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
+
+Assemble Eve's prompt from the **same base document codex uses** (`~/.claude/skills/run-autopilot/prompts/doubt-review.md`) plus the **same three appended inputs** codex receives - the PRD content, the diff range (`<base>..HEAD`), and the changed-file list - inlined directly into the Task prompt. (Alice inlines her prompt file the same way; the CLI reviewers write it to a temp file and pass `-f` instead. This is the only delivery difference.)
+
+```
+Task tool:
+  subagent_type: general-purpose
+  model: fable
+  description: "Eve doubt-reviews the work against the PRD"
+  prompt: |
+    {contents of ~/.claude/skills/run-autopilot/prompts/doubt-review.md}
+
+    ---
+    ## PRD
+    {PRD content}
+
+    ## Diff range
+    {base}..HEAD
+
+    ## Changed files
+    {changed-file list, one path per line}
+```
+
+Do NOT fork or modify `prompts/doubt-review.md` for Eve - the base prompt already prescribes the full output contract, and any future edit to it must apply to all reviewers uniformly (the codex/Claude-fallback paths and Eve share one base file).
+
+Eve's output must satisfy the existing doubt-review contract exactly, unchanged:
+- **FIX / VERIFY / KNOWN** sections, one finding per line; an empty bucket emits its header and `- (none)`.
+- The five rubric verdict lines `R1:`-`R5:`, each `pass` or `fail`, emitted verbatim (a rule that cannot be evaluated is `fail`; never omit a line).
+- The `---review-coverage---` block at the very end, delimiters unindented, two-space indent on entries, with all four sections present: `files` (each changed path -> `reviewed` or `n/a:<reason>`), `tests` (the single sentinel line `pending: filled by consolidation`), `features` (each PRD `#### Feature:` -> `verified`/`reviewed`/`failed`), and `rubric` (`R1`-`R5` -> `pass`/`fail`, matching the verdicts above). Terminated by `---end-review-coverage---`.
+
+If Eve's dispatch fails or times out, treat her as a failed reviewer (graceful degradation, per `retry-policy.md`) - a legible failure distinguishable from a valid empty-findings response; a single failed reviewer does not block the cycle.
