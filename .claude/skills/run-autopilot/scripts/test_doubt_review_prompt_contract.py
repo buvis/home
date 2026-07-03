@@ -7,6 +7,7 @@ downstream gate rejects — silently weakening a mandated review. Stdlib-only.
 """
 
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
@@ -17,6 +18,13 @@ _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "doubt-revie
 
 _spec = importlib.util.spec_from_file_location("review_coverage", _RC_PATH)
 rc = importlib.util.module_from_spec(_spec)
+# Register before exec: review_coverage.py uses `from __future__ import
+# annotations`, so its @dataclass fields are stringized. Python 3.14's
+# dataclasses._is_type resolves them via sys.modules[cls.__module__]; without
+# this registration that lookup returns None and class creation raises
+# AttributeError. (Running review_coverage.py as a script is unaffected —
+# __module__ is then "__main__", which is always registered.)
+sys.modules["review_coverage"] = rc
 _spec.loader.exec_module(rc)
 
 # The canonical coverage block exactly as prompts/doubt-review.md prescribes.
