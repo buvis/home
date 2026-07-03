@@ -2046,9 +2046,14 @@ class PauseReasonHaltTests(unittest.TestCase):
         state = _make_state(phase="build", next_phase="")
         self.assertEqual(hook._compute_signal(state), "done")
 
-    def test_post_resume_clear_state_signals_normally(self) -> None:
-        """After a resume clears pause_reason/cap_pause_reason/stall_reason,
-        the state signals normally again."""
+    def test_clean_state_not_over_halted(self) -> None:
+        """Over-broad-halt guard (PRD 00035 Risk: over-broad halt): a state
+        carrying no pause markers must NOT halt — the predicate signals
+        normally. Asserts the absence of a false halt on a clean state, not
+        the resume-clear mechanism itself (that lives in SKILL.md prose, not
+        `_compute_signal`; the marker-set -> halt direction is covered by
+        test_forgot_phase_pause_still_halts / test_pause_reason_alone_halts /
+        test_cap_pause_reason_alone_halts)."""
         state = _make_state(phase="blind", next_phase="blind")
         self.assertEqual(hook._compute_signal(state), "next")
 
