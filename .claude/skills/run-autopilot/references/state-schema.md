@@ -37,6 +37,7 @@ State file location: `dev/local/autopilot/state.json`
   "design_mode": "run",
   "design_gate": "user",
   "design_doc": "dev/local/designs/00004-feature-x-design.md",
+  "doubt_reviewer": "codex",
   "rework_task_ids": ["task-uuid-3"],
   "stall_reason": {
     "stalled": "oversized_task",
