@@ -16,6 +16,18 @@ _autopilot_loop_yield_stale() {
   [ -n "$(find "$_m" -mmin +"$_mins" 2>/dev/null)" ]
 }
 
+# _autopilot_loop_usage_limited
+# exit 0 == the newest session transcript for $PWD ends at the usage-limit
+# banner. On a limit hit the session does NOT exit: it idles at
+# "You've hit your session limit · resets 8:10pm (Europe/Prague)" waiting for
+# input (observed 2026-07-02/03, blocked overnight loops for hours). No Stop
+# hook fires and no yield marker is stamped, so the marker predicate above is
+# blind to it. Detection + reset-time parsing live in detect_usage_limit.py;
+# the sidecar needs only the boolean — the '' signal case reads the epoch.
+_autopilot_loop_usage_limited() {
+  python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py "$PWD" >/dev/null 2>&1
+}
+
 # _autopilot_loop_watchdog <wrapper_pid> <marker_path> <idle_mins> <poll_secs> <kill_after>
 # Sidecar around the foreground `claude`: resolves the wrapper's direct child whose comm is
 # claude, polls every <poll_secs>; when the yield marker is stale it SIGINTs, escalating to
@@ -26,7 +38,7 @@ _autopilot_loop_watchdog() {
                                   # OUTSIDE any $(...): $BASHPID inside a command substitution
                                   # is the substitution's subshell, NOT this function-subshell.
   local _wpid="$1" _m="$2" _mins="$3" _secs="$4" _kafter="$5"
-  local _cpid="" _stale_streak=0 _p
+  local _cpid="" _stale_streak=0 _p _why
   while true; do
     sleep "$_secs"
     # (Re)resolve claude: the wrapper's direct child, not the sidecar, whose comm is claude.
@@ -44,13 +56,19 @@ _autopilot_loop_watchdog() {
       done
     fi
     [ -n "$_cpid" ] && kill -0 "$_cpid" 2>/dev/null || break
+    _why=""
     if _autopilot_loop_yield_stale "$_m" "$_mins"; then
+      _why="idle-waiting >${_mins} min"
+    elif _autopilot_loop_usage_limited; then
+      _why="stuck at the usage-limit banner"
+    fi
+    if [ -n "$_why" ]; then
       _stale_streak=$((_stale_streak + 1))
       if [ "$_stale_streak" -gt "$_kafter" ]; then
-        printf '\nautoclaude: session idle-waiting >%s min and unresponsive to SIGINT; SIGKILL (idle watchdog).\n' "$_mins" >&2
+        printf '\nautoclaude: session %s and unresponsive to SIGINT; SIGKILL (idle watchdog).\n' "$_why" >&2
         kill -KILL "$_cpid" 2>/dev/null
       else
-        printf '\nautoclaude: session idle-waiting >%s min while alive; SIGINT (idle watchdog).\n' "$_mins" >&2
+        printf '\nautoclaude: session %s while alive; SIGINT (idle watchdog).\n' "$_why" >&2
         kill -INT "$_cpid" 2>/dev/null
       fi
     else
@@ -168,6 +186,27 @@ autoclaude() {
       return
       ;;
     '')
+      # Usage limit first: a limit-stuck session (reaped by the sidecar, or
+      # dead any other way) leaves the limit banner as the transcript's last
+      # entry. That is scheduling, not failure — sleep until the reset the
+      # banner names, then continue the loop; the fresh session resumes from
+      # state.json (proven by the manual "limit reset, continue" resumes on
+      # 2026-07-02/03, which idled the loop for hours until typed). The wait
+      # is capped so a mis-parse or a days-away reset still halts loud below.
+      local _reset _wait
+      _reset=$(python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py "$PWD" 2>/dev/null)
+      case "$_reset" in *[!0-9]*) _reset="" ;; esac
+      if [ -n "$_reset" ]; then
+        _wait=$(( _reset - $(date +%s) + 120 ))
+        [ "$_wait" -lt 60 ] && _wait=60
+        if [ "$_wait" -le "${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}" ]; then
+          printf '\nautoclaude: usage limit hit; waiting %s min, resuming ~%s.\n' "$(( _wait / 60 ))" "$(date -r "$_reset" '+%H:%M' 2>/dev/null)"
+          python3 ~/.claude/hooks/notify.py --send "autopilot ⏳ ${PWD##*/}" "Usage limit; resuming ~$(date -r "$_reset" '+%H:%M' 2>/dev/null)." 2>/dev/null
+          sleep "$_wait"
+          continue
+        fi
+        printf '\nautoclaude: usage limit reset is beyond _AUTOPILOT_LIMIT_WAIT_MAX (%ss); halting instead of waiting.\n' "${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}" >&2
+      fi
       # No signal at all: the session died, paused for attention, or a
       # Stop-hook gate blocked the handoff. NOT a drained backlog — fail
       # loud and leave state.json in place for inspection. (A missing

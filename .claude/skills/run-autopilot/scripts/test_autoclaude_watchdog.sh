@@ -28,11 +28,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── guard: both functions must be defined ─────────────────────────────────────
+# ── guard: all watchdog functions must be defined ─────────────────────────────
 type _autopilot_loop_yield_stale >/dev/null 2>&1 \
     || FAIL "function defined: _autopilot_loop_yield_stale" "not defined in development.plugin.bash — implement it first"
 type _autopilot_loop_watchdog >/dev/null 2>&1 \
     || FAIL "function defined: _autopilot_loop_watchdog" "not defined in development.plugin.bash — implement it first"
+type _autopilot_loop_usage_limited >/dev/null 2>&1 \
+    || FAIL "function defined: _autopilot_loop_usage_limited" "not defined in development.plugin.bash — implement it first"
+
+# Hermetic: the real predicate reads the host's session transcripts for $PWD;
+# force it inert so host state cannot leak into the marker-driven sections.
+# Section E overrides it back to true to exercise the limited path.
+# (detect_usage_limit.py itself is covered by test_detect_usage_limit.py.)
+_autopilot_loop_usage_limited() { return 1; }
 
 # ── workspace ─────────────────────────────────────────────────────────────────
 WORKDIR=$(mktemp -d)
@@ -202,6 +210,38 @@ SAFETY_D=$!
 wait $WATCHDOG_D 2>/dev/null || true
 kill $SAFETY_D 2>/dev/null; wait $SAFETY_D 2>/dev/null || true
 wait $STUB_D 2>/dev/null || true
+
+# =============================================================================
+# E. _autopilot_loop_watchdog: usage-limit-stuck session → child is killed
+# =============================================================================
+
+# Fresh marker (not stale) but the limit predicate reports stuck — the
+# watchdog must reap the session exactly like a stale marker.
+touch "$MARKER"
+_autopilot_loop_usage_limited() { return 0; }
+
+"$WORKDIR/bin/claude" 300 &
+STUB_E=$!
+_PIDS+=($STUB_E)
+
+_autopilot_loop_watchdog "$$" "$MARKER" 20 1 2 &
+WATCHDOG_E=$!
+
+( sleep 15; kill $WATCHDOG_E 2>/dev/null ) &
+SAFETY_E=$!
+wait $WATCHDOG_E 2>/dev/null || true
+kill $SAFETY_E 2>/dev/null; wait $SAFETY_E 2>/dev/null || true
+
+if ! kill -0 $STUB_E 2>/dev/null; then
+    PASS "usage-limit stuck: watchdog kills target despite fresh marker"
+else
+    FAIL "usage-limit stuck: watchdog kills target despite fresh marker" \
+         "stub-claude still alive after watchdog ran with the limit predicate forced true"
+fi
+
+wait $STUB_E 2>/dev/null || true
+rm -f "$MARKER"
+_autopilot_loop_usage_limited() { return 1; }
 
 # =============================================================================
 echo ""
