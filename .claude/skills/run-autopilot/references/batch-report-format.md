@@ -53,6 +53,15 @@ After each PRD, append a section:
 
 One row per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. Source: `state.doubts_rubric_verdicts`, written by Phase 8 step 5 from the doubt-review subagent output. This table is the autopilot-internal summary; PRD 00038's `review_coverage.py` parses the raw doubt-review output directly. Omit this section if `doubts_rubric_verdicts` is absent or empty for the PRD.
 
+**Source-tagged rendering (PRD 00038).** When `state.doubts_rubric_verdicts` entries carry a `source` field (a dual-reviewer `doubt_reviewer: fable` run — one entry per rule per reviewer), combine both reviewers into one row per rule, tagging each verdict with its source:
+
+| Rule | Verdict |
+|------|---------|
+| R1 | pass (codex) / pass (fable) |
+| R3 | pass (codex) / fail (fable) |
+
+A per-reviewer `fail` still surfaces (as shown for R3). When no entry carries `source` (single-reviewer or legacy state), render UNCHANGED — one verdict per rule, no source suffix (`| R1 | pass |`).
+
 ### Deferred to Batch End
 
 | Issue | Severity | Reason |
