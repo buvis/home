@@ -1912,5 +1912,133 @@ class NestedAgentStopEventTests(unittest.TestCase):
         self.assertGreater(len(pids), 0, "main session hand-off must auto-exit")
 
 
+class PauseReasonHaltTests(unittest.TestCase):
+    """Pins hook._compute_signal's pause_reason / done-first halt predicate
+    (PRD 00035): a durable pause_reason must halt the loop regardless of
+    phase or any coexisting stall_reason marker, cap_pause_reason keeps
+    halting unchanged, and the terminal "done" drain always wins over any
+    lingering marker. Auto-recover stall values (oversized_task,
+    escalation_exhausted) must still advance the loop when no pause_reason
+    is present, even alongside a stale cap_pause_reason."""
+
+    def test_forgot_phase_pause_still_halts(self) -> None:
+        """Model paused but forgot phase="paused"; next_phase is still set to
+        "review", but the durable pause_reason must still halt the loop."""
+        state = _make_state(
+            phase="review",
+            pause_reason={"site": "reviewer_fail", "detail": "x"},
+            next_phase="review",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
+    def test_pause_reason_alone_halts(self) -> None:
+        state = _make_state(
+            phase="build",
+            pause_reason={"site": "sub_skill_fail", "detail": "x"},
+            next_phase="review",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
+    def test_cap_pause_unchanged(self) -> None:
+        state = _make_state(
+            phase="paused",
+            cap_pause_reason={"cycle": 3, "cap": 3, "unresolved_findings": []},
+            next_phase="review",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
+    def test_replan_exhausted_halts_despite_overrun_stall(self) -> None:
+        """The latent-loop fix: a replan_exhausted pause must halt even when a
+        subagent_prompt_overrun stall_reason is also present — must NOT
+        resolve to "task_aborted"."""
+        state = _make_state(
+            phase="build",
+            pause_reason={"site": "replan_exhausted", "detail": "x"},
+            stall_reason={"stalled": "subagent_prompt_overrun", "task": "t1"},
+            next_phase="build",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
+    def test_stall_move_mv_verify_halts_despite_oversized_task(self) -> None:
+        """An mv_verify pause must halt even alongside an oversized_task
+        stall_reason — must NOT resolve to "next"."""
+        state = _make_state(
+            phase="build",
+            pause_reason={"site": "mv_verify", "detail": "x"},
+            stall_reason={"stalled": "oversized_task", "task": "t1"},
+            next_phase="build",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
+    def test_stall_move_mv_verify_halts_despite_escalation_exhausted(self) -> None:
+        """Same as above with an escalation_exhausted stall_reason."""
+        state = _make_state(
+            phase="build",
+            pause_reason={"site": "mv_verify", "detail": "x"},
+            stall_reason={"stalled": "escalation_exhausted", "task": "t1"},
+            next_phase="build",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
+    def test_normal_overrun_unaffected(self) -> None:
+        """Regression: a subagent_prompt_overrun stall with no pause_reason
+        still resolves to "task_aborted"."""
+        state = _make_state(
+            phase="build",
+            next_phase="review",
+            stall_reason={"stalled": "subagent_prompt_overrun", "task": "t1"},
+        )
+        self.assertEqual(hook._compute_signal(state), "task_aborted")
+
+    def test_auto_recover_oversized_task_advances(self) -> None:
+        """Regression: an oversized_task stall with no other markers advances
+        the loop."""
+        state = _make_state(
+            phase="build",
+            next_phase="build",
+            stall_reason={"stalled": "oversized_task", "task": "t1"},
+        )
+        self.assertEqual(hook._compute_signal(state), "next")
+
+    def test_auto_recover_escalation_exhausted_advances(self) -> None:
+        state = _make_state(
+            phase="build",
+            next_phase="build",
+            stall_reason={"stalled": "escalation_exhausted", "task": "t1"},
+        )
+        self.assertEqual(hook._compute_signal(state), "next")
+
+    def test_stale_cap_pause_with_live_autorecover_stall_advances(self) -> None:
+        """Stale-marker safety: a leftover cap_pause_reason must not mask a
+        live auto-recover stall — the loop still advances."""
+        state = _make_state(
+            phase="build",
+            next_phase="build",
+            cap_pause_reason={"cycle": 3, "cap": 3, "unresolved_findings": []},
+            stall_reason={"stalled": "oversized_task", "task": "t1"},
+        )
+        self.assertEqual(hook._compute_signal(state), "next")
+
+    def test_batch_end_drains_despite_lingering_marker(self) -> None:
+        """The terminal drain wins over any marker; no marker clear required."""
+        state = _make_state(
+            phase="done",
+            next_phase="",
+            pause_reason={"site": "batch_end", "detail": "x"},
+        )
+        self.assertEqual(hook._compute_signal(state), "done")
+
+    def test_batch_end_drains_without_marker(self) -> None:
+        """Regression: batch end with no markers still drains to "done"."""
+        state = _make_state(phase="build", next_phase="")
+        self.assertEqual(hook._compute_signal(state), "done")
+
+    def test_post_resume_clear_state_signals_normally(self) -> None:
+        """After a resume clears pause_reason/cap_pause_reason/stall_reason,
+        the state signals normally again."""
+        state = _make_state(phase="blind", next_phase="blind")
+        self.assertEqual(hook._compute_signal(state), "next")
+
+
 if __name__ == "__main__":
     unittest.main()
