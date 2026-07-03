@@ -5,15 +5,20 @@ Reads state.json and $_AUTOPILOT_LOOP, then COMPUTES and WRITES the loop
 signal. Auto-exits by SIGINTing the claude parent process so the shell wrapper
 loop can restart with a fresh session.
 
-Decision table (first match wins):
+Decision table (first match wins); the signal-compute order lives in
+_compute_signal (done-first, PRD 00035):
 1. $_AUTOPILOT_LOOP unset/empty -> no signal, no auto-exit.
 2. dev/local/autopilot dir not found -> no signal, no auto-exit.
 3. state.json absent or corrupt -> no signal, no auto-exit (fail open).
-4. state["phase"] == "paused" -> no signal, no auto-exit.
-5. stall_reason.stalled == "subagent_prompt_overrun" -> signal = "task_aborted".
-6. next_phase == "" (empty string) -> signal = "done".
-7. next_phase is a non-empty string -> signal = "next".
-8. Otherwise -> no signal, no auto-exit (fail open).
+4. next_phase == "" (empty string) -> signal = "done" (terminal drain, checked
+   first so a lingering batch_end pause_reason cannot block it).
+5. state["phase"] == "paused" OR state["pause_reason"] set -> no signal (a fresh
+   durable pause marker halts even while a stall is set).
+6. stall_reason.stalled == "subagent_prompt_overrun" -> signal = "task_aborted".
+7. state["cap_pause_reason"] set AND stall not an auto-recover stall -> no signal
+   (stale-marker safety).
+8. next_phase is a non-empty string -> signal = "next".
+9. Otherwise -> no signal, no auto-exit (fail open).
 
 After computing a signal (cases 5-7):
 - Consult the review-coverage gate. If a review surface just completed but its

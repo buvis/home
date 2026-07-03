@@ -1947,6 +1947,19 @@ class PauseReasonHaltTests(unittest.TestCase):
         )
         self.assertIsNone(hook._compute_signal(state))
 
+    def test_cap_pause_reason_alone_halts(self) -> None:
+        """Isolates the cap_pause_reason halt branch. With phase != "paused",
+        no auto-recover stall, and a non-empty next_phase, a lingering
+        cap_pause_reason must still halt (None). test_cap_pause_unchanged sets
+        phase="paused", which short-circuits earlier, so it would pass even if
+        the cap_pause_reason clause were deleted — this test binds that clause."""
+        state = _make_state(
+            phase="review",
+            cap_pause_reason={"cycle": 3, "cap": 3, "unresolved_findings": []},
+            next_phase="review",
+        )
+        self.assertIsNone(hook._compute_signal(state))
+
     def test_replan_exhausted_halts_despite_overrun_stall(self) -> None:
         """The latent-loop fix: a replan_exhausted pause must halt even when a
         subagent_prompt_overrun stall_reason is also present — must NOT
