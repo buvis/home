@@ -68,12 +68,13 @@ Apply the full RPG structure. All four sections are mandatory; none may be omitt
 
 ### Optional frontmatter fields
 
-PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Four optional fields are recognized by `/run-autopilot` Phase 0:
+PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Five optional fields are recognized by `/run-autopilot` Phase 0:
 
 - `catchup: run | skip | force` — controls Phase 1 (Catchup) behavior. `run` (default) honors the batch cache; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup. Use `skip` for PRDs that need no fresh project context (e.g. small docs-only changes). Use `force` after a major structural change you want catchup to pick up.
 - `rework_cap: <int>` — caps how many review-rework cycles Phase 5 will run before pausing. Default `3`. `rework_cap: 5` allows five review cycles before pause; `rework_cap: 3` (the default) allows three. Raise this for genuinely hard PRDs that need more cycles; the default suits most work.
 - `design: run | skip` — controls the Phase 1.5 design sub-step (between catchup and planning). `run` (default) generates a reviewed design doc via `/design-solution` before planning; `skip` bypasses design entirely. Use `skip` for trivial PRDs that need no implementation design.
 - `design_gate: user` — when set, Phase 1.5 PAUSEs for your review of the design doc (summary + unresolved non-blockers) before planning. Absent by default (design runs autonomously, no pause). Set it on PRDs where you want to vet the design before tasks are planned.
+- `doubt_reviewer: codex | fable` — selects the doubt-review (Phase 8) reviewer set for this PRD. `codex` (default) uses the standard codex doubt reviewer; `fable` opts into the Eve (Claude Fable 5) doubt-review leg. Absent by default. (Only adds/parses the flag today; the Phase 8 consumer lands in a follow-on PRD.)
 
 Example combining several:
 
@@ -83,10 +84,11 @@ catchup: force
 rework_cap: 5
 design: run
 design_gate: user
+doubt_reviewer: fable
 ---
 ```
 
-All four fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
+All five fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
 
 ### 4. Split if needed
 
