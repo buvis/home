@@ -632,6 +632,10 @@ def find_and_signal_claude(start_pid: int) -> bool:
 
 _FOREIGN_TRANSCRIPT_MARKERS = ("/.codex/", "/.gemini/")
 
+_AUTO_RECOVER_STALLS = frozenset(
+    {"escalation_exhausted", "oversized_task", "subagent_prompt_overrun"}
+)
+
 
 def _foreign_stop_event(stdin_data: dict) -> bool:
     """True when this Stop event was fired by a NESTED agent, not the
@@ -674,15 +678,37 @@ def _foreign_stop_event(stdin_data: dict) -> bool:
 
 def _compute_signal(state: dict) -> str | None:
     """Return the signal string, or None if no signal should be written."""
-    if state.get("phase") == "paused":
-        return None
     stall = state.get("stall_reason")
-    if isinstance(stall, dict) and stall.get("stalled") == "subagent_prompt_overrun":
-        return "task_aborted"
-    next_phase = state.get("next_phase")
-    if next_phase == "":
+    stalled = stall.get("stalled") if isinstance(stall, dict) else None
+
+    # Terminal drain first: only the batch-end / no-more-PRDs terminal writes
+    # next_phase="". Checked before the pause markers so a lingering batch_end
+    # pause_reason can never block the drain (no non-terminal PAUSE sets "").
+    if state.get("next_phase") == "":
         return "done"
-    if next_phase:
+
+    # A FRESH pause marker halts immediately, even while a stall is set.
+    # pause_reason is cleared on resume (Phase 0) and on PRD advance (every reset
+    # list), so if it is set here the pause is genuine and unresolved. Honoring
+    # it BEFORE the stall logic is what fixes the replan-exhausted / stall-move
+    # mv-verify PAUSE rows, which fire with an auto-recover stall still set — and
+    # catches a PAUSE turn where the model wrote pause_reason but forgot
+    # phase="paused" and left a non-empty next_phase (the thrash the PRD kills).
+    if state.get("phase") == "paused" or state.get("pause_reason"):
+        return None
+
+    # subagent_prompt_overrun advances via task_aborted (the one replan path).
+    # Reached only when NO fresh pause marker is set (normal overrun, not the
+    # replan-exhausted PAUSE which sets pause_reason and halts above).
+    if stalled == "subagent_prompt_overrun":
+        return "task_aborted"
+
+    # cap_pause_reason can linger after an abandon-without-clear; halt on it only
+    # when no auto-recover stall is advancing the loop (stale-marker safety).
+    if stalled not in _AUTO_RECOVER_STALLS and state.get("cap_pause_reason"):
+        return None
+
+    if state.get("next_phase"):
         return "next"
     return None
 
