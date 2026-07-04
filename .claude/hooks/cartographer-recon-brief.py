@@ -64,10 +64,11 @@ def _build_brief(atlas_path: Path) -> tuple[str, int, str, bool]:
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
-    except (OSError, ValueError):
-        # Read/decode/parse failure (bad bytes, closed stdin, non-JSON) is an
-        # expected boundary: exit silently, never crash the prompt. ValueError
-        # covers json.JSONDecodeError and UnicodeDecodeError.
+    except Exception:
+        # Read/decode/parse failure (bad bytes, closed stdin, non-JSON,
+        # deeply-nested JSON raising RecursionError, oversized input raising
+        # MemoryError, ...) is an expected boundary: exit silently, never
+        # crash the prompt.
         return
     if not isinstance(data, dict):
         return
