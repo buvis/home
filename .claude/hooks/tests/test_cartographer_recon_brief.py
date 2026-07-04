@@ -397,8 +397,39 @@ def test_malformed_stdin_exits_silently_with_no_side_effects(hook, monkeypatch, 
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     hook.main()  # must not raise
 
-    out = capsys.readouterr().out
-    assert out == ""
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    # Malformed stdin is an expected boundary condition, not a bug: it stays
+    # fully silent (no stderr breadcrumb), distinct from an internal failure.
+    assert captured.err == ""
+    assert not _store_path(fake_home).exists()
+    assert _read_audit_events(fake_home) == []
+
+
+# ---------------------------------------------------------------------------
+# Internal failure: stderr breadcrumb, no stdout, never crashes (R10)
+# ---------------------------------------------------------------------------
+
+def test_internal_error_writes_stderr_breadcrumb_and_no_stdout(hook, lib, monkeypatch, capsys, fake_home) -> None:
+    """A genuine failure inside the recon logic must not vanish silently.
+
+    Unlike malformed stdin (an expected boundary that stays silent), an
+    unexpected exception in the hook's own logic writes a one-line stderr
+    breadcrumb, emits no stdout, produces no side effects, and never raises
+    (a UserPromptSubmit hook must never crash the prompt). Binds the R10
+    'never silently swallow errors' intent, matching the sibling hooks
+    cartographer-echo / cartographer-stop.
+    """
+    def boom(cwd: str):
+        raise RuntimeError("project_hash blew up")
+
+    monkeypatch.setattr(lib, "project_hash", boom)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(_payload())))
+    hook.main()  # must not raise
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "[cartographer-recon]" in captured.err
     assert not _store_path(fake_home).exists()
     assert _read_audit_events(fake_home) == []
 
