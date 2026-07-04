@@ -586,18 +586,18 @@ KNOWN items cannot be fixed in this scope. They flow to batch-end review for the
 
 ### Execution
 
-After classifying all items:
+After classifying all items, run these steps in order. Step 1 (the FIX/VERIFY disposition) branches three ways, but **every branch then continues to steps 2-3** — verdict recording and the completion state-update are UNCONDITIONAL and run on all three paths. No branch may "proceed to Phase 9" ahead of them.
 
-1. If no FIX or VERIFY tasks → proceed to Phase 9. KNOWN items (if any) will be surfaced at batch end.
-2. If >5 FIX/VERIFY tasks → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Proceed to Phase 9.
-3. If ≤5 FIX/VERIFY tasks → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.)
-4. After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state.
-5. Record per-rule verdicts in `state.doubts_rubric_verdicts`.
+1. **Dispose of the FIX/VERIFY items** — take the one branch that applies, then continue to step 2 (do NOT jump to Phase 9):
+   - **No FIX or VERIFY tasks** → no rework needed. KNOWN items (if any) will be surfaced at batch end. Continue to step 2.
+   - **>5 FIX/VERIFY tasks** → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Continue to step 2.
+   - **≤5 FIX/VERIFY tasks** → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.) After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state. Continue to step 2.
+2. Record per-rule verdicts in `state.doubts_rubric_verdicts` (ALWAYS — on every step-1 branch, including the no-work and overflow paths):
    - **Single-reviewer:** read the `R{n}: pass|fail` block from the doubt review output and append **5 entries** `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` (no `source`) — byte-identical to pre-change.
    - **Dual-reviewer:** read each reviewer's RAW `R{n}:` block separately — codex's from its output, Eve's from `.doubt-eve-block.md` — NOT the gate's merged aggregate, and append **one entry per rule per reviewer** (`10 entries` when both ran), each `{"rule_id": "R{n}", "verdict": "pass"|"fail", "source": "codex"|"fable"}`.
 
    Every rubric rule must have an entry per reviewer that ran. The downstream coverage parser (`review_coverage.py`) reads these verdicts from the raw doubt review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
-6. Update state: add `"doubt"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`. Do NOT rewrite `state.tasks` here (same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks); the sync hook keeps `tasks_total`/`tasks_completed` current.
+3. Update state (ALWAYS): add `"doubt"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`. Do NOT rewrite `state.tasks` here (same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks); the sync hook keeps `tasks_total`/`tasks_completed` current. Then proceed to Phase 9.
 
 KNOWN items keep `"status": "pending"` — Phase 9 step 6 collects these into the batch deferred log for batch-end review.
 
