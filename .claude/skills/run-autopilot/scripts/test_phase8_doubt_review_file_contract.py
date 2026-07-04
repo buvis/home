@@ -14,6 +14,7 @@ Stdlib-only; run with: python3 .../test_phase8_doubt_review_file_contract.py
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,6 +22,8 @@ _SKILLS = Path(__file__).resolve().parents[2]
 _SKILL_PATH = _SKILLS / "run-autopilot" / "SKILL.md"
 _RC_PATH = _SKILLS / "review-work-completion" / "scripts" / "review_coverage.py"
 _RUBRIC_PATH = Path(__file__).resolve().parent.parent / "references" / "doubt-review-rubric.md"
+_STATE_SCHEMA_PATH = _SKILLS / "run-autopilot" / "references" / "state-schema.md"
+_BATCH_REPORT_PATH = _SKILLS / "run-autopilot" / "references" / "batch-report-format.md"
 
 _spec = importlib.util.spec_from_file_location("review_coverage", _RC_PATH)
 rc = importlib.util.module_from_spec(_spec)
@@ -217,6 +220,75 @@ rubric:
 """
 
 
+# NEGATIVE fixture: a MALFORMED durable file that VIOLATES the single-coverage-
+# block invariant — the codex per-reviewer section kept its OWN raw
+# ---review-coverage--- block (tests: pending sentinel) instead of being
+# stripped, so it precedes the tests-filled aggregate. This is the exact failure
+# the invariant guards against: _extract_block_text returns the FIRST block, so
+# the done-phase Stop-hook re-parse sees the pending sentinel and fires
+# EMPTY_TESTS, stalling the loop drain. (Contrast _DUAL_DURABLE_FILE, which
+# strips the per-reviewer blocks and holds exactly one aggregate.)
+_LEAKED_DURABLE_FILE = """\
+## codex
+
+FIX:
+- (none)
+VERIFY:
+- (none)
+KNOWN:
+- (none)
+R1: pass
+R2: pass
+R3: pass
+R4: pass
+R5: pass
+
+---review-coverage---
+files:
+  skills/run-autopilot/SKILL.md: reviewed
+tests:
+  pending: filled by consolidation
+features:
+  Doubt-Review Sequencing & Merge: reviewed
+rubric:
+  R1: pass
+  R2: pass
+  R3: pass
+  R4: pass
+  R5: pass
+---end-review-coverage---
+
+## fable (Eve)
+
+FIX:
+- (none)
+VERIFY:
+- (none)
+KNOWN:
+- (none)
+R1: pass
+R2: pass
+R3: fail
+R4: pass
+R5: pass
+
+---review-coverage---
+files:
+  skills/run-autopilot/SKILL.md: reviewed
+tests:
+  pytest: pass=9 fail=0 skip=0
+features:
+  Doubt-Review Sequencing & Merge: reviewed
+rubric:
+  R1: pass
+  R2: pass
+  R3: pass
+  R4: pass
+  R5: pass
+---end-review-coverage---
+"""
+
+
 class Phase8EveDualReviewerContractTests(unittest.TestCase):
     # --- SKILL.md Phase 8 wording (the model-executed procedure contract) ---
 
@@ -287,6 +359,53 @@ class Phase8EveDualReviewerContractTests(unittest.TestCase):
         # 'pending' sentinel a per-reviewer raw block would carry.
         self.assertIn("pytest", sections["tests"])
         self.assertNotIn("pending", sections["tests"])
+
+    def test_leaked_per_reviewer_block_fires_empty_tests_guard(self) -> None:
+        """NEGATIVE: a leaked per-reviewer raw block (tests: pending) placed
+        before the aggregate is what _extract_block_text returns first, and that
+        pending-first block makes _check_empty_tests fire EMPTY_TESTS — proving
+        the single-coverage-block invariant guards a real loop-drain failure."""
+        # Invariant violated: the durable file holds TWO coverage blocks, not one.
+        self.assertEqual(_LEAKED_DURABLE_FILE.count(rc.OPEN_DELIM), 2)
+        self.assertEqual(_LEAKED_DURABLE_FILE.count(rc.CLOSE_DELIM), 2)
+        # _extract_block_text returns the FIRST (leaked) block: unfilled
+        # 'pending' sentinel, no real pytest counts — unlike _DUAL_DURABLE_FILE.
+        sections = rc._parse_block(rc._extract_block_text(_LEAKED_DURABLE_FILE))
+        self.assertIn("pending", sections["tests"])
+        self.assertNotIn("pytest", sections["tests"])
+        # The done-phase re-parse over that pending-first block hard-fails
+        # EMPTY_TESTS (SystemExit via _fail), which is what stalls the drain.
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SystemExit):
+                rc._check_empty_tests(
+                    sections, ["skills/run-autopilot/SKILL.md"], Path(td)
+                )
+
+    # --- cross-file contract: the source tag is documented in the schema and
+    #     batch-report references, not only in SKILL.md prose ---
+
+    def test_state_schema_documents_source_tag_on_doubts_and_verdicts(self) -> None:
+        """state-schema.md documents the optional codex|fable source tag on both
+        doubts[] and doubts_rubric_verdicts[], with the dual per-rule-per-reviewer
+        cardinality — so enum drift there fails a test, not just SKILL.md drift."""
+        text = _STATE_SCHEMA_PATH.read_text()
+        self.assertIn("doubts_rubric_verdicts", text)
+        self.assertIn('"source?"', text)
+        # both enum members and the codex-slot semantics (codex OR fallback)
+        self.assertIn('"codex"', text)
+        self.assertIn('"fable"', text)
+        self.assertIn("codex slot", text)
+        # dual-run cardinality: one verdict entry per rule per reviewer
+        self.assertIn("one entry per rule per reviewer", text)
+
+    def test_batch_report_documents_source_tagged_verdict_rendering(self) -> None:
+        """batch-report-format.md documents the PRD 00038 source-tagged rubric
+        rendering (combined row per rule, per-reviewer fail surfaced) — binding
+        the render contract to that file, not only SKILL.md Phase 9 prose."""
+        text = _BATCH_REPORT_PATH.read_text()
+        self.assertIn("Source-tagged rendering", text)
+        # the combined-row format with a surfaced per-reviewer fail (R3)
+        self.assertIn("pass (codex) / fail (fable)", text)
 
 
 if __name__ == "__main__":
