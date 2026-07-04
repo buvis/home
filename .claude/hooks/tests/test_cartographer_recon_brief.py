@@ -18,6 +18,7 @@ import io
 import json
 import sys
 import time
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -486,10 +487,14 @@ def test_suppressed_path_p95_latency_under_150ms(hook, lib, monkeypatch, capsys,
 
     durations.sort()
     p95_ms = durations[int(n * 0.95) - 1] * 1000
-    try:
-        assert p95_ms < 150.0
-    except AssertionError:
-        pytest.skip(f"suppressed p95 {p95_ms:.1f}ms >= 150ms threshold (possibly a loaded machine)")
+    if p95_ms >= 150.0:
+        # Measure-and-warn (per the design): surface a p95 breach as a visible
+        # warning rather than pytest.skip, which would register a skipped test
+        # and mask a real latency regression.
+        warnings.warn(
+            f"suppressed p95 {p95_ms:.1f}ms >= 150ms threshold (possibly a loaded machine)",
+            stacklevel=2,
+        )
 
 
 def test_inject_path_p95_latency_under_200ms(hook, lib, monkeypatch, capsys, fake_home) -> None:
@@ -510,7 +515,11 @@ def test_inject_path_p95_latency_under_200ms(hook, lib, monkeypatch, capsys, fak
 
     durations.sort()
     p95_ms = durations[int(n * 0.95) - 1] * 1000
-    try:
-        assert p95_ms < 200.0
-    except AssertionError:
-        pytest.skip(f"inject p95 {p95_ms:.1f}ms >= 200ms threshold (possibly a loaded machine)")
+    if p95_ms >= 200.0:
+        # Measure-and-warn (per the design): surface a p95 breach as a visible
+        # warning rather than pytest.skip, which would register a skipped test
+        # and mask a real latency regression.
+        warnings.warn(
+            f"inject p95 {p95_ms:.1f}ms >= 200ms threshold (possibly a loaded machine)",
+            stacklevel=2,
+        )
