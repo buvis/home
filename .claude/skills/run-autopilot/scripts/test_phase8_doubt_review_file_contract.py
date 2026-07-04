@@ -385,18 +385,52 @@ class Phase8EveDualReviewerContractTests(unittest.TestCase):
     #     batch-report references, not only in SKILL.md prose ---
 
     def test_state_schema_documents_source_tag_on_doubts_and_verdicts(self) -> None:
-        """state-schema.md documents the optional codex|fable source tag on both
-        doubts[] and doubts_rubric_verdicts[], with the dual per-rule-per-reviewer
-        cardinality — so enum drift there fails a test, not just SKILL.md drift."""
-        text = _STATE_SCHEMA_PATH.read_text()
-        self.assertIn("doubts_rubric_verdicts", text)
-        self.assertIn('"source?"', text)
-        # both enum members and the codex-slot semantics (codex OR fallback)
-        self.assertIn('"codex"', text)
-        self.assertIn('"fable"', text)
-        self.assertIn("codex slot", text)
-        # dual-run cardinality: one verdict entry per rule per reviewer
-        self.assertIn("one entry per rule per reviewer", text)
+        """state-schema.md documents the optional codex|fable source tag on BOTH
+        doubts[] AND doubts_rubric_verdicts[], anchored to each field's OWN
+        description row — so removing source? from either row (while keeping it in
+        the other) fails this test, unlike a whole-file token check."""
+        lines = _STATE_SCHEMA_PATH.read_text().splitlines()
+
+        def _field_row(field: str) -> str:
+            prefix = f"| `{field}` |"
+            rows = [ln for ln in lines if ln.startswith(prefix)]
+            self.assertEqual(
+                len(rows), 1, f"expected exactly one `{field}` description row"
+            )
+            return rows[0]
+
+        # Each array shape documents source? + both enum members in ITS OWN row.
+        for field in ("doubts", "doubts_rubric_verdicts"):
+            row = _field_row(field)
+            self.assertIn("source?", row, f"`{field}` row must document source?")
+            self.assertIn("codex", row, f"`{field}` row must name the codex source")
+            self.assertIn("fable", row, f"`{field}` row must name the fable source")
+
+        # codex-slot semantics (codex OR fallback) live on the doubts row.
+        self.assertIn("codex slot", _field_row("doubts"))
+        # dual-run cardinality lives on the verdicts row.
+        self.assertIn(
+            "one entry per rule per reviewer", _field_row("doubts_rubric_verdicts")
+        )
+
+    def test_prose_fixes_have_regression_assertions(self) -> None:
+        """Directly guards the two cycle-1 prose fixes so they can't silently
+        regress: SKILL.md Phase 8 references retry-policy.md by its FULL
+        cross-skill path, and the state-schema doubt_reviewer row states it is
+        read by Phase 8 (no longer the stale 'Nothing reads it yet')."""
+        skill = _SKILL_PATH.read_text()
+        self.assertIn(
+            "skills/review-work-completion/references/retry-policy.md",
+            skill,
+            "SKILL.md Phase 8 must reference retry-policy.md by full path",
+        )
+        dr_row = next(
+            ln
+            for ln in _STATE_SCHEMA_PATH.read_text().splitlines()
+            if ln.startswith("| `doubt_reviewer` |")
+        )
+        self.assertIn("Read by Phase 8", dr_row)
+        self.assertNotIn("Nothing reads it yet", dr_row)
 
     def test_batch_report_documents_source_tagged_verdict_rendering(self) -> None:
         """batch-report-format.md documents the PRD 00038 source-tagged rubric
