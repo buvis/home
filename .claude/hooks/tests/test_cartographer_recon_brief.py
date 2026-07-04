@@ -407,6 +407,25 @@ def test_malformed_stdin_exits_silently_with_no_side_effects(hook, monkeypatch, 
     assert _read_audit_events(fake_home) == []
 
 
+def test_deeply_nested_json_stdin_exits_silently_without_crashing(hook, monkeypatch, capsys, fake_home) -> None:
+    """Binds the 'never crash on hostile/deeply-nested stdin' intent.
+
+    Deeply-nested JSON that overflows the parser's recursion limit is a bad-
+    input boundary condition, exactly like malformed stdin: it must stay
+    fully silent (no stdout, no stderr breadcrumb, no side effects), never
+    raise, and never crash the prompt.
+    """
+    monkeypatch.setattr("sys.stdin", io.StringIO("[" * 100000 + "]" * 100000))
+    hook.main()  # must not raise
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    # Bad input, not an internal failure: stays fully silent (no stderr breadcrumb).
+    assert captured.err == ""
+    assert not _store_path(fake_home).exists()
+    assert _read_audit_events(fake_home) == []
+
+
 # ---------------------------------------------------------------------------
 # Internal failure: stderr breadcrumb, no stdout, never crashes (R10)
 # ---------------------------------------------------------------------------
