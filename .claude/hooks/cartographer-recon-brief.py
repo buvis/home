@@ -41,12 +41,37 @@ def _save_store(path: Path, store: dict) -> None:
         print(f"[cartographer-recon] store write failed: {exc}", file=sys.stderr)
 
 
+def _build_brief(atlas_path: Path) -> tuple[str, int, str, bool]:
+    """Build the injected brief for one repo from its atlas.md.
+
+    Returns (additional_context, atlas_excerpt_bytes, decision, stale). A missing
+    atlas yields the /survey one-liner only (no header, no stale slot).
+    """
+    if not atlas_path.is_file():
+        return NO_ATLAS_LINE, 0, "atlas-missing", False
+    try:
+        atlas_text = atlas_path.read_text(encoding="utf-8")
+    except Exception:
+        atlas_text = ""
+    excerpt = atlas_text.encode("utf-8")[:1024].decode("utf-8", "ignore")
+    additional_context = GROUNDING_HEADER + "\n\n" + excerpt
+    stale = (atlas_path.parent / "staleness.flag").is_file()
+    if stale:
+        additional_context += "\n\n" + STALE_WARNING
+    return additional_context, len(excerpt.encode("utf-8")), "inject", stale
+
+
 def main() -> None:
     try:
-        raw = sys.stdin.read()
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            return
+        data = json.loads(sys.stdin.read())
+    except (OSError, ValueError):
+        # Read/decode/parse failure (bad bytes, closed stdin, non-JSON) is an
+        # expected boundary: exit silently, never crash the prompt. ValueError
+        # covers json.JSONDecodeError and UnicodeDecodeError.
+        return
+    if not isinstance(data, dict):
+        return
+    try:
         cwd = data.get("cwd", "")
         session_id = data.get("session_id", "")
         repo_hash, _name, _remote = _lib_cartographer.project_hash(cwd)
@@ -57,23 +82,7 @@ def main() -> None:
         if store.get(repo_hash) == today:
             return
         atlas_path = _lib_cartographer.atlas_dir(repo_hash) / "atlas.md"
-        stale = False
-        if atlas_path.is_file():
-            try:
-                atlas_text = atlas_path.read_text(encoding="utf-8")
-            except Exception:
-                atlas_text = ""
-            excerpt = atlas_text.encode("utf-8")[:1024].decode("utf-8", "ignore")
-            additional_context = GROUNDING_HEADER + "\n\n" + excerpt
-            atlas_excerpt_bytes = len(excerpt.encode("utf-8"))
-            decision = "inject"
-            if (atlas_path.parent / "staleness.flag").is_file():
-                additional_context += "\n\n" + STALE_WARNING
-                stale = True
-        else:
-            additional_context = NO_ATLAS_LINE
-            atlas_excerpt_bytes = 0
-            decision = "atlas-missing"
+        additional_context, atlas_excerpt_bytes, decision, stale = _build_brief(atlas_path)
         envelope = {
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
@@ -91,8 +100,8 @@ def main() -> None:
             "atlas_excerpt_bytes": atlas_excerpt_bytes,
             "stale": stale,
         })
-    except Exception:
-        return
+    except Exception as exc:
+        print(f"[cartographer-recon] failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
