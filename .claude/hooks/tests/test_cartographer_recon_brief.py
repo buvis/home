@@ -485,7 +485,7 @@ def test_mixed_run_produces_one_audit_line_per_inject_and_atlas_missing_zero_for
 
 
 # ---------------------------------------------------------------------------
-# Latency (best-effort; skip rather than hard-fail on a loaded machine)
+# Latency (best-effort; warn rather than hard-fail on a loaded machine)
 # ---------------------------------------------------------------------------
 
 def test_suppressed_path_p95_latency_under_150ms(hook, lib, monkeypatch, capsys, fake_home) -> None:
