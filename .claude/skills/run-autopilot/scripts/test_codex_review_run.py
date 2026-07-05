@@ -360,6 +360,44 @@ class ExitContractTests(unittest.TestCase):
             self.assertTrue(out.exists())
             self.assertIn("R1: pass", out.read_text())
 
+    def test_codex_stdin_is_devnull(self) -> None:
+        """codex reads stdin IN ADDITION to its prompt arg — an inherited
+        open non-TTY stdin with no EOF blocks it forever at 0% CPU (the
+        1h44m-at-0-CPU hang). The runner must launch codex with stdin bound
+        to /dev/null. The shim checks its OWN fd 0 via `exec python3 -c
+        '...'` (exec, not a heredoc — a heredoc would replace the shim's
+        fd 0 and make the check meaningless), exiting 0 iff fd 0 is the
+        /dev/null character device, else 7.
+        """
+        body = (
+            "printf '%s\\n' "
+            "'{\"msg\":{\"type\":\"agent_message\",\"message\":\"ok\"}}'\n"
+            "exec python3 -c '"
+            "import os, stat, sys\n"
+            "st = os.fstat(0)\n"
+            "dn = os.stat(\"/dev/null\")\n"
+            "sys.exit(0 if stat.S_ISCHR(st.st_mode) and "
+            "st.st_rdev == dn.st_rdev else 7)"
+            "'\n"
+        )
+        # Vacuity guard: dr.main runs in-process, so an unguarded Popen
+        # would inherit whatever fd 0 this TEST PROCESS happens to have. If
+        # that already were /dev/null (e.g. a backgrounded test runner),
+        # the test would pass even with no guard in the runner at all. Force
+        # fd 0 to a pipe read-end (definitely not /dev/null) around the
+        # call, and restore the original afterward.
+        read_fd, write_fd = os.pipe()
+        saved_stdin_fd = os.dup(0)
+        os.dup2(read_fd, 0)
+        os.close(read_fd)
+        try:
+            rc = self._run_with_fake_codex(body)
+        finally:
+            os.dup2(saved_stdin_fd, 0)
+            os.close(saved_stdin_fd)
+            os.close(write_fd)
+        self.assertEqual(rc, 0)
+
 
 class ProcAliveTests(unittest.TestCase):
     """`_proc_alive` confirms codex ITSELF is running — the signal the
