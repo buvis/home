@@ -32,6 +32,8 @@ Every run is non-interactive and one-shot - there is no interactive or resume mo
    - `-d, --dir DIR` to allow access to a specific directory (repeatable)
    - `-o, --output FILE` to capture output to a file
    - `-s, --silent` for clean scripting output (copilot backend only; ignored on codex)
+   - `--emit-thread-id FILE` to capture the codex thread id from the JSON path (codex backend only; requires `-o`)
+   - `--resume-thread VALUE` to resume a codex thread (VALUE is the thread id, or a file whose first line is the id; codex backend only; requires `-o`)
 3. Run the command, capture output, and summarize the outcome for the user.
 
 ### Quick Reference (helper flags)
