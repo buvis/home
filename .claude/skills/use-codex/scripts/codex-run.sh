@@ -257,16 +257,9 @@ run_codex() {
     fi
 
     if [ -n "$resume_id" ]; then
-        # Resume sandbox mapping: `codex exec resume` rejects -s/--sandbox,
-        # so the policy is forced via -c instead.
-        local resume_sandbox=()
-        if [ -n "$ALLOW_ALL" ]; then
-            resume_sandbox=(--dangerously-bypass-approvals-and-sandbox)
-        elif [ -n "$ALLOW_TOOLS" ]; then
-            resume_sandbox=(-c sandbox_mode=workspace-write)
-        else
-            resume_sandbox=(-c sandbox_mode=read-only)
-        fi
+        # Resume always forces read-only: `codex exec resume` rejects
+        # -s/--sandbox, so the policy is forced via -c instead.
+        local resume_sandbox=(-c sandbox_mode=read-only)
 
         local rc=0
         run_codex_json_path codex exec resume "$resume_id" --skip-git-repo-check "${model[@]}" "${resume_sandbox[@]}" || rc=$?
