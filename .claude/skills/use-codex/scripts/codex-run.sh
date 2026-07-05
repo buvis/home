@@ -144,7 +144,7 @@ run_codex() {
     local model=()
     [ -n "$MODEL_SET" ] && model=(-m "$MODEL")
 
-    run_cmd codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}" "$PROMPT"
+    run_cmd codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}" "$PROMPT" < /dev/null
 }
 
 run_copilot() {
