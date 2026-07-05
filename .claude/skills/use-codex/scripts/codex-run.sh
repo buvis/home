@@ -55,6 +55,7 @@ usage() {
     echo "  -d, --dir DIR          Allow access to directory (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
     echo "  -o, --output FILE      Write output to file (via tee)"
+    echo "  --emit-thread-id FILE  Capture codex thread id from the JSON path (codex only; requires -o)"
     echo "  -h, --help             Show this help"
     echo ""
     echo "Examples:"
@@ -95,6 +96,10 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_FILE="$2"
             shift 2
             ;;
+        --emit-thread-id)
+            EMIT_THREAD_FILE="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -121,6 +126,11 @@ if [ -z "$PROMPT" ]; then
     exit 1
 fi
 
+if [ -n "${EMIT_THREAD_FILE:-}" ] && [ -z "${OUTPUT_FILE:-}" ]; then
+    echo "ERROR: --emit-thread-id requires -o" >&2
+    exit 1
+fi
+
 # Build and run command
 run_cmd() {
     if [ -n "$OUTPUT_FILE" ]; then
@@ -144,10 +154,65 @@ run_codex() {
     local model=()
     [ -n "$MODEL_SET" ] && model=(-m "$MODEL")
 
-    run_cmd codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}" "$PROMPT" < /dev/null
+    if [ -z "${EMIT_THREAD_FILE:-}" ]; then
+        run_cmd codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}" "$PROMPT" < /dev/null
+        return
+    fi
+
+    # --emit-thread-id JSON path: codex streams JSONL events on stdout, the
+    # review text lands in --output-last-message (== -o's file), and the
+    # thread id comes from the thread.started event. Truncate any stale
+    # capture first so a run with no thread.started leaves no old id behind.
+    : > "$EMIT_THREAD_FILE"
+
+    local line type tid codex_exit
+    set +e
+    codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}" \
+        --json --output-last-message "$OUTPUT_FILE" "$PROMPT" < /dev/null | \
+    while IFS= read -r line; do
+        case "$line" in
+            *'"type":"'*)
+                type="${line#*\"type\":\"}"
+                type="${type%%\"*}"
+                ;;
+            *)
+                type="?"
+                ;;
+        esac
+        if [ "$type" = "thread.started" ]; then
+            case "$line" in
+                *'"thread_id":"'*)
+                    tid="${line#*\"thread_id\":\"}"
+                    tid="${tid%%\"*}"
+                    printf '%s' "$tid" > "$EMIT_THREAD_FILE"
+                    ;;
+            esac
+        fi
+        echo "codex-event: $type" >&2
+    done
+    codex_exit=$?
+    set -e
+
+    if [ ! -s "$EMIT_THREAD_FILE" ]; then
+        echo "WARNING: no thread.started event; thread id not captured" >&2
+    fi
+
+    if [ "$codex_exit" -eq 0 ]; then
+        if [ -s "$OUTPUT_FILE" ]; then
+            cat "$OUTPUT_FILE"
+        else
+            echo "WARNING: codex exited 0 but wrote no output" >&2
+        fi
+    fi
+
+    return "$codex_exit"
 }
 
 run_copilot() {
+    if [ -n "${EMIT_THREAD_FILE:-}" ]; then
+        echo "WARNING: --emit-thread-id requires the codex backend; running one-shot" >&2
+    fi
+
     local model="${MODEL:-$DEFAULT_COPILOT_MODEL}"
     local allow_tools=""
     local allow_all=""
