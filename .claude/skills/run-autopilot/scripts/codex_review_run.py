@@ -494,7 +494,7 @@ def main(argv: list[str]) -> int:
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            env=env,
+            env=env, stdin=subprocess.DEVNULL,
         )
     except OSError as exc:
         print(f"codex_review_run: failed to launch codex: {exc}",
