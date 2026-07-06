@@ -297,8 +297,7 @@ else
 fi
 
 # =============================================================================
-# --resume-thread <uuid>: resume argv contract (NEW behavior, not yet
-# implemented -> expected RED). Default permission flags (no -a/-y): resume
+# --resume-thread <uuid>: resume argv contract. Default permission flags (no -a/-y): resume
 # forces read-only via `-c sandbox_mode=read-only` because `codex exec
 # resume` rejects -s/--sandbox.
 # =============================================================================
@@ -358,8 +357,7 @@ else
 fi
 
 # =============================================================================
-# --resume-thread <FILE>: id is read from the file's first line (NEW ->
-# RED).
+# --resume-thread <FILE>: id is read from the file's first line.
 # =============================================================================
 RESUME_FILE_UUID="bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
 RESUME_ID_FILE="$STUBDIR/resume_id.txt"
@@ -383,8 +381,7 @@ else
 fi
 
 # =============================================================================
-# --resume-thread "": empty id -> fresh fallback with a stderr warning (NEW
-# -> RED).
+# --resume-thread "": empty id -> fresh fallback with a stderr warning.
 # =============================================================================
 EMPTYID_OUTFILE="$STUBDIR/emptyid.out"
 EMPTYID_STDERR_FILE="$STUBDIR/emptyid.stderr"
@@ -415,8 +412,7 @@ else
 fi
 
 # =============================================================================
-# --resume-thread <EMPTY_FILE>: unreadable/empty file -> same fresh fallback
-# (NEW -> RED).
+# --resume-thread <EMPTY_FILE>: unreadable/empty file -> same fresh fallback.
 # =============================================================================
 EMPTY_RESUME_FILE="$STUBDIR/empty_resume_id.txt"
 : > "$EMPTY_RESUME_FILE"
@@ -449,7 +445,7 @@ fi
 
 # =============================================================================
 # -d DIR + --resume-thread <uuid>: codex exec resume can't take --add-dir,
-# so this combo must run fresh, not resume (NEW -> RED).
+# so this combo must run fresh, not resume.
 # =============================================================================
 ADDDIR_OUTFILE="$STUBDIR/adddir.out"
 ADDDIR_STDERR_FILE="$STUBDIR/adddir.stderr"
@@ -481,8 +477,7 @@ fi
 
 # =============================================================================
 # --resume-thread <uuid> -o OUT where the resume invocation fails: bounded
-# fallback to exactly one fresh invocation, whose exit code wins (NEW ->
-# RED).
+# fallback to exactly one fresh invocation, whose exit code wins.
 # =============================================================================
 FALLBACK_OUTFILE="$STUBDIR/fallback.out"
 FALLBACK_STDERR_FILE="$STUBDIR/fallback.stderr"
@@ -558,8 +553,7 @@ else
 fi
 
 # =============================================================================
-# --resume-thread without -o must fail fast and never invoke codex (NEW ->
-# RED).
+# --resume-thread without -o must fail fast and never invoke codex.
 # =============================================================================
 NOOUT_RESUME_STDOUT_FILE="$STUBDIR/noout_resume.stdout"
 NOOUT_RESUME_STDERR_FILE="$STUBDIR/noout_resume.stderr"
@@ -602,7 +596,7 @@ fi
 # (codex exits 0) where the resumed session emits NO thread.started event.
 # Resume doesn't change a session's thread id, so THREADFILE must still end
 # up holding the id we resumed with -- otherwise the next cycle couldn't
-# resume (NEW -> RED).
+# resume.
 # =============================================================================
 RESUME_NOSTART_OUTFILE="$STUBDIR/resume_nostart.out"
 RESUME_NOSTART_THREAD_ID_FILE="$STUBDIR/resume_nostart_thread_id.out"

@@ -175,7 +175,19 @@ resolve_resume_id() {
 # JSONL onto stdout, and on a zero exit cats OUTPUT_FILE to stdout for
 # tee-parity. Returns codex's real exit code. Shared by the fresh and resume
 # argv paths, which both need this identical JSON-stream handling.
+#
+# Optional leading `--fallback-id VALUE` flag: a resume's own thread id,
+# unchanged by resume. If given and the run exits 0 with no thread.started
+# captured, VALUE is written to EMIT_THREAD_FILE instead, and the "not
+# captured" warning is suppressed (we did recover the id). Unused (and
+# byte-identical to before) on the fresh path, which never passes it.
 run_codex_json_path() {
+    local fallback_id=""
+    if [ "$1" = "--fallback-id" ]; then
+        fallback_id="$2"
+        shift 2
+    fi
+
     if [ -n "${EMIT_THREAD_FILE:-}" ]; then
         # Truncate any stale capture first so a run with no thread.started
         # leaves no old id behind.
@@ -210,7 +222,11 @@ run_codex_json_path() {
     set -e
 
     if [ -n "${EMIT_THREAD_FILE:-}" ] && [ ! -s "$EMIT_THREAD_FILE" ]; then
-        echo "WARNING: no thread.started event; thread id not captured" >&2
+        if [ "$codex_exit" -eq 0 ] && [ -n "$fallback_id" ]; then
+            printf '%s' "$fallback_id" > "$EMIT_THREAD_FILE"
+        else
+            echo "WARNING: no thread.started event; thread id not captured" >&2
+        fi
     fi
 
     if [ "$codex_exit" -eq 0 ]; then
@@ -258,22 +274,34 @@ run_codex() {
         return
     fi
 
-    if [ -n "$resume_id" ]; then
-        # Resume always forces read-only: `codex exec resume` rejects
-        # -s/--sandbox, so the policy is forced via -c instead.
-        local resume_sandbox=(-c sandbox_mode=read-only)
-
-        local rc=0
-        run_codex_json_path codex exec resume "$resume_id" --skip-git-repo-check "${model[@]}" "${resume_sandbox[@]}" || rc=$?
-        if [ "$rc" -eq 0 ]; then
-            return 0
-        fi
-        # Bounded fallback: exactly one retry on the fresh JSON path, whose
-        # exit code becomes codex-run.sh's own.
-        echo "WARNING: codex resume failed (exit $rc); retrying with a fresh session" >&2
+    if [ -n "$resume_id" ] && run_codex_resume "$resume_id" "${model[@]}"; then
+        return 0
     fi
 
     run_codex_json_path codex exec --skip-git-repo-check "${model[@]}" "${sandbox[@]}" "${ADD_DIRS[@]}"
+}
+
+# Runs the resume attempt for run_codex(): resume argv (forced read-only via
+# -c, since `codex exec resume` rejects -s/--sandbox), FIX-1 thread-id
+# backfill via run_codex_json_path's --fallback-id, and the single bounded
+# fallback warning on failure. Returns 0 on a successful resume; non-zero
+# otherwise, signaling run_codex() to retry on the fresh JSON path.
+run_codex_resume() {
+    local resume_id="$1"
+    shift
+    local model=("$@")
+    local resume_sandbox=(-c sandbox_mode=read-only)
+
+    local rc=0
+    run_codex_json_path --fallback-id "$resume_id" \
+        codex exec resume "$resume_id" --skip-git-repo-check "${model[@]}" "${resume_sandbox[@]}" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        return 0
+    fi
+    # Bounded fallback: exactly one retry on the fresh JSON path, whose exit
+    # code becomes codex-run.sh's own.
+    echo "WARNING: codex resume failed (exit $rc); retrying with a fresh session" >&2
+    return "$rc"
 }
 
 run_copilot() {
