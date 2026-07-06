@@ -59,7 +59,7 @@ A `codex-run.sh` call can run for many minutes. When you need to do other work w
 ## Following Up
 
 - After every `codex-run.sh` command, use `AskUserQuestion` to confirm next steps.
-- Each run is independent - a follow-up task is a new run with a new prompt. Restate the relevant context, since no session carries over.
+- By default each run is independent - a follow-up task is a new run with a new prompt, so restate the relevant context. The exception is `--resume-thread` (codex backend only), which continues a prior codex session so its context carries over.
 - Restate the permission mode when proposing follow-up actions.
 
 ## Error Handling
