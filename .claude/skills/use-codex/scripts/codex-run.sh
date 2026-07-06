@@ -168,6 +168,30 @@ resolve_resume_id() {
     fi
 }
 
+# Finalizes a completed codex JSON-path run: when the run captured no
+# thread.started, backfills EMIT_THREAD_FILE from FALLBACK_ID on a zero exit
+# (else warns), and on a zero exit cats OUTPUT_FILE to stdout for tee-parity.
+# Split out of run_codex_json_path to keep it under the 50-line limit.
+finalize_codex_json_run() {
+    local codex_exit="$1" fallback_id="$2"
+
+    if [ -n "${EMIT_THREAD_FILE:-}" ] && [ ! -s "$EMIT_THREAD_FILE" ]; then
+        if [ "$codex_exit" -eq 0 ] && [ -n "$fallback_id" ]; then
+            printf '%s' "$fallback_id" > "$EMIT_THREAD_FILE"
+        else
+            echo "WARNING: no thread.started event; thread id not captured" >&2
+        fi
+    fi
+
+    if [ "$codex_exit" -eq 0 ]; then
+        if [ -s "$OUTPUT_FILE" ]; then
+            cat "$OUTPUT_FILE"
+        else
+            echo "WARNING: codex exited 0 but wrote no output" >&2
+        fi
+    fi
+}
+
 # Runs `"$@" --json --output-last-message "$OUTPUT_FILE" "$PROMPT" < /dev/null`
 # and consumes codex's JSONL stream: captures the thread id (when
 # EMIT_THREAD_FILE is set) from the thread.started event, prints a
@@ -221,21 +245,7 @@ run_codex_json_path() {
     codex_exit=$?
     set -e
 
-    if [ -n "${EMIT_THREAD_FILE:-}" ] && [ ! -s "$EMIT_THREAD_FILE" ]; then
-        if [ "$codex_exit" -eq 0 ] && [ -n "$fallback_id" ]; then
-            printf '%s' "$fallback_id" > "$EMIT_THREAD_FILE"
-        else
-            echo "WARNING: no thread.started event; thread id not captured" >&2
-        fi
-    fi
-
-    if [ "$codex_exit" -eq 0 ]; then
-        if [ -s "$OUTPUT_FILE" ]; then
-            cat "$OUTPUT_FILE"
-        else
-            echo "WARNING: codex exited 0 but wrote no output" >&2
-        fi
-    fi
+    finalize_codex_json_run "$codex_exit" "$fallback_id"
 
     return "$codex_exit"
 }
