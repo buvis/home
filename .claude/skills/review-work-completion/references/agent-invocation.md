@@ -20,14 +20,23 @@ The prompt file contents are inlined directly into the Task prompt. The subagent
 
 Run codex as a **direct background Bash command - do NOT wrap it in a Task subagent.** A subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "codex still running" and the reviewer never reports. That is the recurring Phase 4 review thrash-halt (playground 00007, 2026-06-30). Run codex directly and the harness tracks the background process, then re-invokes the session when it finishes.
 
-Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved):
+Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved).
+
+**Full review (cycle 1)** - capture Bob's codex session thread id so later cycles can resume it:
 
 ```
 Bash tool (run_in_background: true):
-  ~/.claude/skills/use-codex/scripts/codex-run.sh -f "{bob_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/bob-output-{id}.txt"
+  ~/.claude/skills/use-codex/scripts/codex-run.sh -f "{bob_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/bob-output-{id}.txt" --emit-thread-id "{abs_repo_path}/dev/local/tmp/bob-thread-{id}.txt"
 ```
 
-`-o` writes codex's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. When the background command completes, read `bob-output-{id}.txt`. If `codex-run.sh` exits non-zero, treat Bob as a failed reviewer (graceful degradation per `retry-policy.md`); a single failed CLI reviewer does not block the cycle.
+**Incremental review (rework cycle) with a prior `codex_thread_id`** (step 3 read it from the previous review file) - same command plus `--resume-thread` so Bob verifies fixes against his own cycle-1 critique instead of re-reviewing from zero:
+
+```
+Bash tool (run_in_background: true):
+  ~/.claude/skills/use-codex/scripts/codex-run.sh -f "{bob_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/bob-output-{id}.txt" --emit-thread-id "{abs_repo_path}/dev/local/tmp/bob-thread-{id}.txt" --resume-thread "{prior_codex_thread_id}"
+```
+
+`--emit-thread-id` records the codex session id (from the `thread.started` event) to `bob-thread-{id}.txt`; step 8 stamps it into the review-file frontmatter as `codex_thread_id`, and the next cycle's step 3 reads it back. `--resume-thread` continues that session; an empty/expired thread degrades to a fresh run with a loud stderr note (never a blocked cycle), and it composes with `--emit-thread-id` (re-writing the same id keeps the sidecar fresh for the following cycle). **Never add `--ephemeral` to the cycle-1 dispatch - it disables resume.** `-o` writes codex's review text straight to the file step 6 consolidates - no manual save, no Agent round-trip. When the background command completes, read `bob-output-{id}.txt`. If `codex-run.sh` exits non-zero, treat Bob as a failed reviewer (graceful degradation per `retry-policy.md`); a single failed CLI reviewer does not block the cycle.
 
 ## Carl (Gemini)
 
