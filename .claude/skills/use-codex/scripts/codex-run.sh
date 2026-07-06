@@ -1,7 +1,8 @@
 #!/bin/bash
 # Run a Codex agent non-interactively. Prefers the native `codex` CLI;
-# falls back to `copilot`. Every call is a fresh, one-shot run - there is
-# no interactive or resume mode (this helper feeds automated dispatch).
+# falls back to `copilot`. Every call is non-interactive: a fresh one-shot
+# run by default, or a resumed codex session via --resume-thread (codex
+# backend only). This helper feeds automated dispatch.
 
 set -eo pipefail
 
@@ -45,7 +46,8 @@ usage() {
     echo "copilot default model: $DEFAULT_COPILOT_MODEL (1x multiplier)."
     echo "Use -m to override; on copilot a higher-multiplier model may apply."
     echo ""
-    echo "Runs are non-interactive and one-shot. There is no resume mode."
+    echo "Runs are non-interactive. Each is a fresh one-shot run by default;"
+    echo "--resume-thread continues a prior codex session (codex backend)."
     echo ""
     echo "Options:"
     echo "  -m, --model MODEL      Override model (copilot default: $DEFAULT_COPILOT_MODEL)"

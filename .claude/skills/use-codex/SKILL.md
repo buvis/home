@@ -21,7 +21,7 @@ This applies only when the helper falls back to `copilot`. GitHub Copilot bills 
 
 ## Running a Task
 
-Every run is non-interactive and one-shot - there is no interactive or resume mode. Each call is a fresh Codex session.
+Every run is non-interactive. By default each call is a fresh, one-shot Codex session; `--resume-thread` continues a prior codex session (codex backend only).
 
 1. Select the permission mode required for the task; default to no special flags (read-only) unless edits are necessary.
 2. Assemble the `codex-run.sh` command with appropriate helper flags:
