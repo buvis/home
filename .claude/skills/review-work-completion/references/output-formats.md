@@ -162,6 +162,7 @@ prd: dev/local/prds/wip/<prd-filename>
 review: 1
 date: YYYY-MM-DD
 head_sha: <git HEAD sha at review time>
+codex_thread_id: <codex session thread id, optional>
 agents:
   alice: available
   bob: available
@@ -172,6 +173,8 @@ agents:
 Agent states: `available` (ran successfully), `unavailable` (failed after retries), `disabled` (not invoked).
 
 `head_sha`: the `git rev-parse HEAD` value captured when this review ran. The next rework cycle reads it and passes `--since <head_sha>` to `gather-context.sh`, scoping that cycle's diff to the rework commits. Absent on review files created before this field existed — consumers fall back to a full-branch diff.
+
+`codex_thread_id`: the codex session thread id captured on cycle 1 via `codex-run.sh --emit-thread-id` (Bob/Codex reviewer). The next rework cycle reads it and passes `--resume-thread <codex_thread_id>` so Bob resumes his prior session instead of re-reviewing from zero. Omitted when Bob was skipped this cycle or thread-id capture failed — consumers then run Bob fresh.
 
 # Review: <prd-name>
 
