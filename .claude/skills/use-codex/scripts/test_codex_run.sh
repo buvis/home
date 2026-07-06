@@ -103,7 +103,12 @@ fi
 
 if [ -n "$LAST_MSG_FILE" ]; then
     printf '%s' "STUB REVIEW OUTPUT" > "$LAST_MSG_FILE"
-    echo '{"type":"thread.started","thread_id":"11111111-2222-3333-4444-555555555555"}'
+    # STUB_SUPPRESS_THREAD_STARTED (opt-in): omit the thread.started event,
+    # simulating a resumed session that doesn't re-announce its thread id.
+    # Default (unset) behavior is unchanged for every other test.
+    if [ -z "${STUB_SUPPRESS_THREAD_STARTED:-}" ]; then
+        echo '{"type":"thread.started","thread_id":"11111111-2222-3333-4444-555555555555"}'
+    fi
     echo '{"type":"item.completed"}'
     echo '{"type":"turn.completed"}'
 fi
@@ -590,6 +595,33 @@ if [ -s "$STUB_ARGV_FILE" ]; then
          "argv file non-empty: $(tr '\n' ' ' < "$STUB_ARGV_FILE")"
 else
     PASS "--resume-thread without -o: codex is never invoked"
+fi
+
+# =============================================================================
+# --resume-thread <uuid> --emit-thread-id THREADFILE: successful resume run
+# (codex exits 0) where the resumed session emits NO thread.started event.
+# Resume doesn't change a session's thread id, so THREADFILE must still end
+# up holding the id we resumed with -- otherwise the next cycle couldn't
+# resume (NEW -> RED).
+# =============================================================================
+RESUME_NOSTART_OUTFILE="$STUBDIR/resume_nostart.out"
+RESUME_NOSTART_THREAD_ID_FILE="$STUBDIR/resume_nostart_thread_id.out"
+: > "$STUB_ARGV_FILE"
+: > "$STUB_STDIN_FILE"
+rm -f "$RESUME_NOSTART_OUTFILE" "$RESUME_NOSTART_THREAD_ID_FILE"
+
+PATH="$RUN_PATH" STUB_ARGV_FILE="$STUB_ARGV_FILE" STUB_STDIN_FILE="$STUB_STDIN_FILE" \
+    STUB_SUPPRESS_THREAD_STARTED=1 \
+    bash "$CODEX_RUN_SH" --resume-thread "$RESUME_UUID" --emit-thread-id "$RESUME_NOSTART_THREAD_ID_FILE" \
+    -o "$RESUME_NOSTART_OUTFILE" "analyze the resume no-thread-started case" \
+    > /dev/null 2>/dev/null < /dev/null
+
+# 33. resume with no thread.started: THREADFILE holds the resume uuid
+if [ "$(cat "$RESUME_NOSTART_THREAD_ID_FILE" 2>/dev/null)" = "$RESUME_UUID" ]; then
+    PASS "resume with no thread.started: THREADFILE holds the resume uuid"
+else
+    FAIL "resume with no thread.started: THREADFILE holds the resume uuid" \
+         "got: $(cat "$RESUME_NOSTART_THREAD_ID_FILE" 2>/dev/null || echo '<missing>')"
 fi
 
 # =============================================================================
