@@ -169,7 +169,7 @@ resolve_resume_id() {
 }
 
 # Finalizes a completed codex JSON-path run: when the run captured no
-# thread.started, backfills EMIT_THREAD_FILE from FALLBACK_ID on a zero exit
+# thread.started, backfills EMIT_THREAD_FILE from fallback_id on a zero exit
 # (else warns), and on a zero exit cats OUTPUT_FILE to stdout for tee-parity.
 # Split out of run_codex_json_path to keep it under the 50-line limit.
 finalize_codex_json_run() {
