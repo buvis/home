@@ -177,13 +177,24 @@ Let `<prd-stem>` = `state.prd` with its trailing `.md` removed. The design doc a
 
 **Skip if `state.design_mode == "skip"`:** do not invoke `/design-solution`. Set `state.design_mode = "skipped"`, leave `state.design_doc` unset, and proceed to Phase 2.
 
-**Skip if the artifact already exists:** when `dev/local/designs/<prd-stem>-design.md` is already on disk (a manual `/design-solution` run earlier, or a work-abort replan re-entering the build gate). Log a one-line reuse note (`── AUTOPILOT ── design: reusing existing <prd-stem>-design.md ──`), set `state.design_doc` to that path, and proceed to Phase 2 — do NOT re-invoke the skill. This artifact-based skip is what lets work-abort replans reuse the design with no extra logic.
+**Skip if the artifact already exists:** when `dev/local/designs/<prd-stem>-design.md` is already on disk (a manual `/design-solution` run earlier, or a work-abort replan re-entering the build gate). Log a one-line reuse note (`── AUTOPILOT ── design: reusing existing <prd-stem>-design.md ──`), set `state.design_doc` to that path, then **run the empty-review-log gate (defined below) on this artifact-reuse path** — an existing doc from a manual or aborted run is exactly where a skipped review hides — and proceed to Phase 2 only if the gate passes; do NOT re-invoke the skill. This artifact-based skip is what lets work-abort replans reuse the design with no extra logic.
 
 **Otherwise, run design:**
 
 1. Invoke `/design-solution` with the wip PRD path (`dev/local/prds/wip/<state.prd>`).
-2. **On success (exit 0):** set `state.design_doc` to the artifact path it printed (`dev/local/designs/<prd-stem>-design.md`). Log the design decision (chosen approach + any unresolved non-blockers from the doc's `## Review log`) to `state.autonomous_decisions` under the existing audit label `autonomous` — do NOT add a `design` audit label (the audit-log label set is closed).
-3. **On failure (non-zero exit — unresolved cardinal sins/blockers after 2 reviewer dispatches):** treat as a sub-skill failure. PAUSE per the Error Handling table's "Sub-skill invocation fails outright" row — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "sub_skill_fail", "detail": "design-solution failed with open findings"}`, report the open findings, and do NOT proceed to planning.
+2. **On success (exit 0):** set `state.design_doc` to the artifact path it printed (`dev/local/designs/<prd-stem>-design.md`). Log the design decision (chosen approach + any unresolved non-blockers from the doc's `## Review log`) to `state.autonomous_decisions` under the existing audit label `autonomous` — do NOT add a `design` audit label (the audit-log label set is closed). Then **run the empty-review-log gate (defined below) on this success path** before proceeding to Phase 2.
+3. **On failure (non-zero exit — unresolved cardinal sins/blockers after 3 reviewer dispatches):** treat as a sub-skill failure. PAUSE per the Error Handling table's "Sub-skill invocation fails outright" row — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "sub_skill_fail", "detail": "design-solution failed with open findings"}`, report the open findings, and do NOT proceed to planning.
+
+**Empty-review-log gate (both continue paths — the success path above AND the artifact-reuse path).** Before advancing to Phase 2 from either continue path, verify the design doc's `## Review log` actually holds at least one reviewer dispatch summary line: a silently-skipped review leaves it empty, and nothing else checks that the review ran. `design_mode == "skip"` bypasses the empty-review-log gate entirely (no doc exists by design). Otherwise bind `DESIGN_DOC` to `state.design_doc` and run this exact section-scoped check (one `awk`, no pipe, exit-code based — it counts only pinned dispatch-summary lines that appear inside the `## Review log` section, so the design doc's own example lines in `## Interfaces & contracts` cannot false-pass it):
+
+```
+awk '/^## Review log/{f=1;next} /^## /{f=0} f && /dispatch [0-9]+ \((claude|codex|claude-fallback)\): cardinal-sin [0-9]+, blocker [0-9]+, non-blocker [0-9]+, question [0-9]+/{hit=1} END{exit !hit}' "$DESIGN_DOC"
+```
+
+- **exit 0** (≥1 in-section dispatch summary line) → proceed to Phase 2.
+- **exit non-zero** (empty `## Review log` — the review never ran) → treat as a sub-skill failure: set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "sub_skill_fail", "detail": "design doc has empty ## Review log (review never ran)"}`, and do NOT proceed to planning. Surface the remedy: delete the design doc and let Phase 1.5 regenerate it.
+
+The check is deterministic (the pinned `awk` above), NOT a model judgment.
 
 **Design gate (`state.design_gate == "user"`):** after a successful design (or an artifact reuse), and only when `state.design_gate == "user"`, PAUSE before planning — present the design doc summary plus any unresolved non-blockers from `## Review log` via `AskUserQuestion`, and proceed to Phase 2 only after the user answers. This is a mid-turn `AskUserQuestion` PAUSE; it does not end the turn, so no `phase` change is needed.
 
