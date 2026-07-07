@@ -82,10 +82,13 @@ sections, these headings, in this order**:
 Keep `## Interfaces & contracts` precise enough that a planner who never reads the
 PRD could copy a contract verbatim and be correct.
 
-### 4. Autonomous adversarial review (max 2 dispatches)
+### 4. Autonomous adversarial review (up to 3 dispatches)
 
-Critique the draft with a fresh reviewer subagent, then fix what it finds. Loop
-**at most twice**.
+Critique the draft with reviewers, then fix what they find. The review runs a
+**cross-model** loop: dispatch 1 is a fresh Claude subagent, dispatch 2 is a
+**mandatory codex** reviewer (a rival model catches the echo-chamber defects the
+authoring model cannot see in itself), and dispatch 3 is a conditional codex
+verification pass. Ceiling: **3 dispatches**.
 
 **Each dispatch** sends the reviewer ONE self-contained prompt containing:
 
@@ -113,15 +116,54 @@ the shape:
 {severity: cardinal-sin|blocker|non-blocker|question, title, evidence, suggested_fix}
 ```
 
+**Dispatch sequence:**
+
+1. **Dispatch 1 - Claude** (fresh subagent). Fix every cardinal sin and blocker
+   in the doc.
+2. **Dispatch 2 - codex** (mandatory, cross-model). It **always runs,
+   even when dispatch 1 found zero blockers** - that clean-dispatch-1 case is
+   exactly where a second, rival-model opinion matters most. Fix every cardinal
+   sin and blocker.
+   Run codex as a **direct background Bash command** (never a Task subagent - a
+   subagent that shells out to a CLI hangs), absolute paths:
+   ```
+   Bash tool (run_in_background: true):
+     ~/.claude/skills/use-codex/scripts/codex-run.sh -f "{codex_prompt_file_abs}" -o "{abs_repo_path}/dev/local/tmp/design-codex-output-{id}.txt"
+   ```
+   codex is **read-only** by default (no `-a`/`-y` -> `--sandbox read-only`) and
+   never edits files; the prompt is self-contained (the same package the Claude
+   reviewer gets), so no `-d`. When the background command completes, read the
+   `-o` output file for codex's findings.
+3. **Dispatch 3 - codex verification** (conditional). Runs **only if dispatch 2
+   found cardinal sins or blockers**; a fresh codex call is acceptable. Open
+   cardinal sins/blockers remaining after it terminate the review non-zero (step 5).
+
+**Claude fallback on codex outage.** If codex is unavailable - `codex-run.sh`
+missing/non-executable, it exits non-zero, the timed wait ceiling trips, or its
+output is unparseable as findings - degrade that dispatch to a fresh Claude
+reviewer subagent (identical prompt). Append, loudly, `dispatch <n>: codex
+unavailable, Claude fallback` before its summary line, and use the reviewer token
+`claude-fallback` in that line. **Never PAUSE on a codex outage** - the review
+completes unattended either way (mirrors Phase 8's codex-with-Claude fallback).
+The fallback rule applies to every codex dispatch (2 and 3).
+
 **After each dispatch:**
 
-- Fix **every** cardinal sin and blocker by editing the design doc, then
-  re-dispatch (up to the 2-dispatch ceiling).
+- Fix **every** cardinal sin and blocker by editing the design doc, then proceed
+  to the next dispatch (up to the 3-dispatch ceiling).
 - Append every non-blocker and question to `## Review log` (do **not** fix them).
-- Append a one-line summary of the dispatch to `## Review log`: dispatch number +
-  per-severity counts.
+- Append a one-line summary of the dispatch to `## Review log`, in this **exact
+  pinned format** (one line per dispatch, so the run-autopilot Phase 1.5 execution
+  gate can match it with a single fixed pattern):
+  ```
+  dispatch <n> (<claude|codex|claude-fallback>): cardinal-sin <c>, blocker <b>, non-blocker <nb>, question <q>
+  ```
+  `<n>` is the dispatch number; `<c>/<b>/<nb>/<q>` are per-severity integer
+  counts; the reviewer identity token is exactly one of `claude`, `codex`,
+  `claude-fallback` (dispatch 1 -> `claude`; dispatch 2 -> `codex` or
+  `claude-fallback`; dispatch 3 -> `codex` or `claude-fallback`).
 
-Dispatch the reviewer with the **Subagent Watchdog** discipline if you have it
+Dispatch each reviewer with the **Subagent Watchdog** discipline if you have it
 (background dispatch + timed wait); a hung reviewer must not block an unattended
 run.
 
@@ -129,7 +171,7 @@ run.
 
 - **All cardinal sins and blockers resolved** (or none found): print the design
   doc path and the exit report, exit 0.
-- **A cardinal sin or blocker is still open after dispatch 2**: print the design
+- **A cardinal sin or blocker is still open after dispatch 3**: print the design
   doc path, list every open cardinal-sin / blocker finding, print the exit
   report, and **exit non-zero**. The caller (autopilot) treats this as a
   sub-skill failure and PAUSEs; a manual run surfaces the open findings to the
@@ -140,7 +182,7 @@ run.
 ```
 design-solution: <prd-stem>
   doc: dev/local/designs/<prd-stem>-design.md
-  reviewer dispatches: <n>/2
+  reviewer dispatches: <n>/3
   findings: cardinal-sin <c>, blocker <b>, non-blocker <nb>, question <q>
   open cardinal sins/blockers: <none, or a list>
   result: ok | failed (open cardinal sins/blockers)
