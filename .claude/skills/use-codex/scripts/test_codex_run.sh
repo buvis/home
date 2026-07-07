@@ -619,6 +619,56 @@ else
 fi
 
 # =============================================================================
+# --resume-thread <uuid> --emit-thread-id THREADFILE -o OUT where the resume
+# invocation FAILS: the failed resume attempt must NOT emit the capture warning
+# "no thread.started event; thread id not captured". The fresh fallback
+# re-captures the id, and run_codex_resume owns the single "resume failed"
+# warning -- otherwise every failed-resume cycle logs a misleading double
+# warning that claims the id was lost when it was actually recovered.
+# =============================================================================
+RESUME_EMIT_FAIL_OUTFILE="$STUBDIR/resume_emit_fail.out"
+RESUME_EMIT_FAIL_THREAD_ID_FILE="$STUBDIR/resume_emit_fail_thread_id.out"
+RESUME_EMIT_FAIL_STDERR_FILE="$STUBDIR/resume_emit_fail.stderr"
+: > "$STUB_ARGV_FILE"
+: > "$STUB_STDIN_FILE"
+rm -f "$RESUME_EMIT_FAIL_OUTFILE" "$RESUME_EMIT_FAIL_THREAD_ID_FILE"
+
+PATH="$RUN_PATH" STUB_ARGV_FILE="$STUB_ARGV_FILE" STUB_STDIN_FILE="$STUB_STDIN_FILE" \
+    STUB_FAIL_RESUME=5 \
+    bash "$CODEX_RUN_SH" --resume-thread "$RESUME_UUID" --emit-thread-id "$RESUME_EMIT_FAIL_THREAD_ID_FILE" \
+    -o "$RESUME_EMIT_FAIL_OUTFILE" "analyze the failed-resume emit case" \
+    > /dev/null 2> "$RESUME_EMIT_FAIL_STDERR_FILE" < /dev/null
+
+# 34. Failed resume + --emit-thread-id: the spurious "thread id not captured"
+#     capture warning is NOT emitted (the fresh fallback re-captures the id).
+if grep -qi "thread id not captured" "$RESUME_EMIT_FAIL_STDERR_FILE" 2>/dev/null; then
+    FAIL "failed resume + emit: no spurious 'thread id not captured' warning" \
+         "stderr: $(cat "$RESUME_EMIT_FAIL_STDERR_FILE" 2>/dev/null)"
+else
+    PASS "failed resume + emit: no spurious 'thread id not captured' warning"
+fi
+
+# 35. Failed resume + --emit-thread-id: run_codex_resume still emits the single
+#     "resume failed" fallback warning naming the real resume exit code (5).
+if grep -qi "resume failed" "$RESUME_EMIT_FAIL_STDERR_FILE" 2>/dev/null && \
+   grep -qF "(exit 5)" "$RESUME_EMIT_FAIL_STDERR_FILE" 2>/dev/null; then
+    PASS "failed resume + emit: the single resume-failed fallback warning is present"
+else
+    FAIL "failed resume + emit: the single resume-failed fallback warning is present" \
+         "stderr: $(cat "$RESUME_EMIT_FAIL_STDERR_FILE" 2>/dev/null)"
+fi
+
+# 36. Failed resume + --emit-thread-id: the fresh fallback captured the id, so
+#     THREADFILE holds the fresh stub's thread.started id (proving the warning
+#     really was spurious -- the id was recovered).
+if [ "$(cat "$RESUME_EMIT_FAIL_THREAD_ID_FILE" 2>/dev/null)" = "11111111-2222-3333-4444-555555555555" ]; then
+    PASS "failed resume + emit: fresh fallback captured the thread id into THREADFILE"
+else
+    FAIL "failed resume + emit: fresh fallback captured the thread id into THREADFILE" \
+         "got: $(cat "$RESUME_EMIT_FAIL_THREAD_ID_FILE" 2>/dev/null || echo '<missing>')"
+fi
+
+# =============================================================================
 echo ""
 echo "SUMMARY: $PASS_COUNT passed, $FAIL_COUNT failed"
 
