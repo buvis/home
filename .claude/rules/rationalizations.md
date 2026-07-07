@@ -22,7 +22,7 @@ Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each
 ### "I'll add tests later"
 
 - **Why it's wrong**: later never arrives. The next session has different context, the bug surfaces in production, and the test that would have caught it never gets written.
-- **Counter-action**: write the failing test first (TDD per `rules/testing.md`). Watch it fail. Then implement. The test takes minutes; the regression it prevents takes hours.
+- **Counter-action**: ship the regression test with the change (`rules/testing.md`); for bug fixes, watch it fail once against the old code. The test takes minutes; the regression it prevents takes hours.
 
 ### "File is short, I'll just rewrite"
 

@@ -13,7 +13,7 @@
    - Identify dependencies and risks
    - Break down into phases
 
-2. **TDD approach** (see `rules/testing.md`)
+2. **Tests ship with the change** (see `rules/testing.md`)
 
 3. **Code review**
    - Review immediately after writing code

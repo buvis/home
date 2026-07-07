@@ -1,19 +1,20 @@
 # Testing Requirements
 
-## Coverage Target: 80%
+## Tests exist to prevent regressions
 
-Test types (all required where applicable):
-1. **Unit tests** - individual functions, utilities, components
-2. **Integration tests** - API endpoints, database operations
-3. **E2E tests** - critical user flows
+Every new behavior and every bug fix ships with a test that would catch its
+regression. That is the requirement. Ceremony beyond it is optional.
 
-## Test-Driven Development
-
-Mandatory workflow for new features and bug fixes:
-1. Write test first (RED) - it should FAIL
-2. Write minimal implementation (GREEN) - it should PASS
-3. Refactor (IMPROVE) - clean up while green
-4. Verify coverage (80%+)
+- Bug fix: write the regression test with the fix and watch it fail once
+  against the old code. This is the one place fail-first is mandatory.
+- New feature: cover the observable contract with the cheapest test that
+  binds it (unit or integration, whichever encodes intent tighter).
+- TDD is a technique, not a mandate. Reach for test-first when the contract
+  is crisp or the logic is easy to get wrong. Skip the red-green ritual for
+  glue code, config wiring, and one-liners.
+- No blanket coverage target. Coverage is a lens for spotting untested
+  logic, not a gate. Critical paths (money, auth, data loss) deserve
+  near-full coverage; scaffolding does not.
 
 ## Tests Verify Intent, Not Just Behavior
 
