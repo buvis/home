@@ -669,6 +669,32 @@ else
 fi
 
 # =============================================================================
+# --resume-thread <uuid> -o OUT: the RESUME argv path must also redirect codex's
+# stdin to /dev/null. The other resume tests feed the wrapper < /dev/null, so
+# they cannot catch a missing redirect on the resume path; feed SENTINEL stdin
+# here and assert the stub saw none (mirrors tests 1 and 10 for the fresh and
+# emit paths). Pins the PRD promise that the guard holds on EVERY codex argv
+# path -- exec AND resume.
+# =============================================================================
+RESUME_STDIN_OUTFILE="$STUBDIR/resume_stdin.out"
+: > "$STUB_ARGV_FILE"
+: > "$STUB_STDIN_FILE"
+rm -f "$RESUME_STDIN_OUTFILE"
+
+PATH="$RUN_PATH" STUB_ARGV_FILE="$STUB_ARGV_FILE" STUB_STDIN_FILE="$STUB_STDIN_FILE" \
+    bash "$CODEX_RUN_SH" --resume-thread "$RESUME_UUID" -o "$RESUME_STDIN_OUTFILE" "analyze the resume stdin case" \
+    > /dev/null 2>/dev/null <<< 'SENTINEL_STDIN_DATA'
+
+# 37. Resume path: codex child stdin is /dev/null (the wrapper's SENTINEL stdin
+#     must not reach the resumed codex invocation).
+if [ -s "$STUB_STDIN_FILE" ]; then
+    FAIL "--resume-thread: codex child stdin is /dev/null" \
+         "stub captured $(wc -c < "$STUB_STDIN_FILE" | tr -d ' ') byte(s) of stdin; expected 0 (resume argv path did not redirect stdin to /dev/null)"
+else
+    PASS "--resume-thread: codex child stdin is /dev/null"
+fi
+
+# =============================================================================
 echo ""
 echo "SUMMARY: $PASS_COUNT passed, $FAIL_COUNT failed"
 
