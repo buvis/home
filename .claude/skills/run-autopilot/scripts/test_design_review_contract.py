@@ -17,7 +17,7 @@ from pathlib import Path
 
 _SKILLS = Path(__file__).resolve().parents[2]
 _DESIGN_SKILL = _SKILLS / "design-solution" / "SKILL.md"
-_AUTOPILOT_SKILL = Path(__file__).resolve().parent.parent / "SKILL.md"
+_AUTOPILOT_SKILL = _SKILLS / "run-autopilot" / "SKILL.md"
 
 # The exact awk gate regex body pinned in run-autopilot Phase 1.5. This same
 # literal is both asserted-present in the SKILL.md (so a regex-body drift there
