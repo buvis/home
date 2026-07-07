@@ -58,6 +58,8 @@ config.launch_menu = {}
 config.leader = { key = "q", mods = "CTRL" }
 config.disable_default_key_bindings = true
 config.keys = {
+	{ key = "LeftArrow", mods = "LEADER", action = act.MoveTabRelative(-1) },
+	{ key = "RightArrow", mods = "LEADER", action = act.MoveTabRelative(1) },
 	{ key = "1", mods = "LEADER", action = act({ ActivateTab = 0 }) },
 	{ key = "2", mods = "LEADER", action = act({ ActivateTab = 1 }) },
 	{ key = "3", mods = "LEADER", action = act({ ActivateTab = 2 }) },
