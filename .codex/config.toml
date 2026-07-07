@@ -92,7 +92,7 @@ source_type = "local"
 source = "/Users/bob/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
 [tui.model_availability_nux]
-"gpt-5.5" = 3
+"gpt-5.5" = 4
 
 [plugins."documents@openai-primary-runtime"]
 enabled = true
@@ -105,3 +105,59 @@ enabled = true
 
 [plugins."browser@openai-bundled"]
 enabled = true
+
+[hooks.state]
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:c0eb743b6dec139eff3dab7a8978d4ac313092e5e00553239e6e69bef5db6c2c"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:0:1"]
+trusted_hash = "sha256:dc6107ded63064fc25901be7a8f90ed46db40ad67bcf15ce4c7ff843cee6d588"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:0:2"]
+trusted_hash = "sha256:5360c9912c042ec6ad9badb75e3feb68788bdb69bf69d55a14e1b5eabe05b93e"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:0:3"]
+trusted_hash = "sha256:c7bb55a75d61388abfe8df6eed752963736726616d7dedb24f341d24f013e31a"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:1:0"]
+trusted_hash = "sha256:4e687008a45509a88edf08c699cecce1b2e0a5d6c6d4cfc8abb16352c2326d16"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:1:1"]
+trusted_hash = "sha256:756a87c8fd3ee468c1c2456bc134a5911e56a20dfb384e63f1c11348c9e9406b"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:1:2"]
+trusted_hash = "sha256:ee645dfc91e1cc7f63cd9242ed550317218879e44f9f31fc34d4c76f39cdd39d"
+
+[hooks.state."/Users/bob/.codex/hooks.json:pre_tool_use:1:3"]
+trusted_hash = "sha256:30ec7af818cd8f04bddbf86be6275253e168c1c94d726a97c3c0d1c87b37a95e"
+
+[hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:0:0"]
+trusted_hash = "sha256:cf290e9ae8cf4036b113e874da2dedcc040888a9dfd2455100f022c439df3575"
+
+[hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:1:0"]
+trusted_hash = "sha256:673f6178bc922257646e40d2fc773c9b7e7d387badabaa68150bceebbaabdf8c"
+
+[hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:2:0"]
+trusted_hash = "sha256:1df0524834290e05fad3af385ddfcdfd5b65912e54c1da391752788aa08d2017"
+
+[hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:3:0"]
+trusted_hash = "sha256:87161c264753ad1be65d611ca9bb0b96daf87ac12fdb256edb5af9f1401ab164"
+
+[hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:4:0"]
+trusted_hash = "sha256:2902cf37cc16e808c9d646bc4a5abe1dba2afa48a855ed71fb9e62a599871e14"
+
+[hooks.state."/Users/bob/.codex/hooks.json:stop:0:0"]
+trusted_hash = "sha256:7742655e037b5286bc93728f0fbd3e27c012e42e8b5cea5cfb026ed05b003521"
+
+[hooks.state."/Users/bob/.codex/hooks.json:stop:1:0"]
+trusted_hash = "sha256:ebb36b15ea0626245ec31ffdaedb6a066736433c1dec3e1a1637e4fcee78d6ff"
+
+[hooks.state."/Users/bob/.codex/hooks.json:stop:2:0"]
+trusted_hash = "sha256:6f9ea9c3207a718b5331e2a60e43582dd7cc9f6cb907d2b236a2cc0b4d193b4f"
+
+[hooks.state."/Users/bob/.codex/hooks.json:stop:3:0"]
+trusted_hash = "sha256:cb56202426e0743b14e1ecf47ec018f25c98c0714c57474e2fcdfe90ae7c0bcc"
+
+[hooks.state."/Users/bob/.codex/hooks.json:stop:4:0"]
+trusted_hash = "sha256:dd9e7002d061d91af5beae47694a4e9947eaffc638d661d85b33837d35f1892d"
