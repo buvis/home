@@ -17,8 +17,7 @@ Mandatory triggers:
 - [ ] Errors handled explicitly
 - [ ] No hardcoded secrets or credentials
 - [ ] No debug statements left in
-- [ ] Tests exist for new functionality
-- [ ] Test coverage meets 80% minimum
+- [ ] Regression tests cover new behavior (see `rules/testing.md`)
 
 ## Security Review Triggers
 
