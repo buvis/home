@@ -1,6 +1,9 @@
 """Tests for hooks/notify.py."""
 
+import json
 import os
+import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -293,6 +296,118 @@ class TestMainSuppression(unittest.TestCase):
             {},  # not in a loop → normal interactive session, page as usual
         )
         self._show.assert_called_once()
+
+    # Regression 2026-07-07 (ddb): an INTERACTIVE session (no _AUTOPILOT_LOOP)
+    # parked on a live background agent fired "waiting" (idle_prompt) and
+    # "done" (Stop) even though the harness re-invokes when the agent finishes.
+
+    def test_stop_suppressed_when_bg_task_in_flight(self) -> None:
+        with patch("notify.background_task_in_flight", return_value=True):
+            logs = self._run_main({"hook_event_name": "Stop", "cwd": "/x/proj"}, {})
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._send.assert_not_called()
+        self._show.assert_not_called()
+
+    def test_idle_prompt_suppressed_when_bg_task_in_flight(self) -> None:
+        with patch("notify.background_task_in_flight", return_value=True):
+            logs = self._run_main(
+                {
+                    "hook_event_name": "Notification",
+                    "cwd": "/x/proj",
+                    "message": "Claude is waiting for your input",
+                    "notification_type": "idle_prompt",
+                },
+                {},
+            )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._send.assert_not_called()
+        self._show.assert_not_called()
+
+    def test_permission_prompt_fires_despite_bg_task(self) -> None:
+        # A permission ask blocks even a background-driven session: always page.
+        with patch("notify.background_task_in_flight", return_value=True):
+            logs = self._run_main(
+                {
+                    "hook_event_name": "Notification",
+                    "cwd": "/x/proj",
+                    "message": "Claude needs your permission",
+                    "notification_type": "permission_prompt",
+                },
+                {},
+            )
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+
+class TestBackgroundTaskInFlight(unittest.TestCase):
+    def _transcript(self, tmp: str, entries: list[dict]) -> str:
+        path = os.path.join(tmp, "transcript.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry) + "\n")
+        return path
+
+    @staticmethod
+    def _tool_result(text: str) -> dict:
+        return {
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "content": [{"type": "text", "text": text}]}
+                ],
+            }
+        }
+
+    def test_false_without_transcript_path(self) -> None:
+        self.assertFalse(notify.background_task_in_flight({}))
+
+    def test_false_when_transcript_missing(self) -> None:
+        self.assertFalse(
+            notify.background_task_in_flight({"transcript_path": "/nope/missing.jsonl"})
+        )
+
+    def test_true_for_live_unconsumed_agent_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "agent-out.jsonl")
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write("{}\n")  # fresh mtime → provably alive
+            tp = self._transcript(
+                tmp,
+                [
+                    self._tool_result(
+                        f"Async agent launched successfully. agentId: abc123 "
+                        f"output_file: {out}"
+                    )
+                ],
+            )
+            self.assertTrue(notify.background_task_in_flight({"transcript_path": tp}))
+
+    def test_false_for_frozen_agent_launch(self) -> None:
+        # A hung agent (stale output file) must NOT suppress: the user IS needed.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "agent-out.jsonl")
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write("{}\n")
+            stale = time.time() - 3600
+            os.utime(out, (stale, stale))
+            tp = self._transcript(
+                tmp,
+                [
+                    self._tool_result(
+                        f"Async agent launched successfully. agentId: abc123 "
+                        f"output_file: {out}"
+                    )
+                ],
+            )
+            self.assertFalse(notify.background_task_in_flight({"transcript_path": tp}))
+
+    def test_true_for_unconsumed_background_bash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tp = self._transcript(
+                tmp,
+                [self._tool_result("Command running in background with ID: ab12cd")],
+            )
+            self.assertTrue(notify.background_task_in_flight({"transcript_path": tp}))
 
 
 if __name__ == "__main__":
