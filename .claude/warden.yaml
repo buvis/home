@@ -96,6 +96,8 @@ alwaysAllow:
   - /private/var/folders/**
   # Project test scripts
   - smoke.sh
+  # Shell no-op builtin (guards, `while :` loops); native perms still prompt for it
+  - ":"
 
 rules:
   # Git: allow most ops, ask for dangerous ones
