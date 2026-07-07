@@ -1,6 +1,6 @@
 ---
 name: review-blindly
-description: Use when a major implementation is complete and all per-task reviews have passed, before finishing-a-development-branch. Mandatory after multi-file features and plan execution. Not for single-file fixes or refactors.
+description: Use when a major implementation is complete and all per-task reviews have passed, before merging or handing off the branch. Mandatory after multi-file features and plan execution. Not for single-file fixes or refactors.
 ---
 
 # Blind Review

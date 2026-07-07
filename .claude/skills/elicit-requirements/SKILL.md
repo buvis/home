@@ -8,7 +8,7 @@ argument-hint: "[<rough idea or path to brainstorming output>]"
 
 Turn a rough idea into a validated discovery document that `/create-prd` can consume. Asks structured questions at adaptive depth, analyzes existing code when relevant, and produces a traceable requirements artifact.
 
-**Pipeline position:** rough idea -> `/elicit-requirements` -> `/create-prd` -> `/plan-tasks` -> `/run-autopilot`
+**Pipeline position:** rough idea -> `/elicit-requirements` -> `/review-discovery-doc` -> `/create-prd` -> `/plan-tasks` -> `/run-autopilot`
 
 ## Workflow
 
@@ -96,9 +96,9 @@ Create `dev/local/discovery/` if it doesn't exist.
 After writing the document:
 
 > Discovery saved to `dev/local/discovery/{filename}`.
-> Review it, then run `/create-prd dev/local/discovery/{filename}` when ready.
+> Review it with `/review-discovery-doc dev/local/discovery/{filename}` (a critical five-lens pass), then run `/create-prd dev/local/discovery/{filename}` when ready.
 
-Do not auto-invoke `/create-prd`. The user reviews first.
+Do not auto-invoke `/review-discovery-doc` or `/create-prd`. The user reviews first.
 
 ## Principles
 
