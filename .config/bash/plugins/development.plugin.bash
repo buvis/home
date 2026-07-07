@@ -228,3 +228,15 @@ autoclaude() {
     esac
   done
 }
+
+start_qwen() {
+  llama-server \
+    -hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL \
+    --alias "unsloth/Qwen3.6-35B-A3B" \
+    --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.00 \
+    --ctx-size 131072 \
+    --flash-attn on \
+    --cache-type-k q8_0 --cache-type-v q8_0 \
+    --jinja \
+    --port 8001
+}
