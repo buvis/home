@@ -181,213 +181,370 @@ function keep_copyright_only() {
 #
 ##############################################################################
 function fix_date_from_name() {
-    local target_dir="${1:-.}"
-    local glob_pattern="${2:-./*}"
-    local files_to_process=()
-    local decision_all=""
-    local timestamp_regex='[0-9]{8}_[0-9]{6}'
+  local target_dir="${1:-.}"
+  local glob_pattern="${2:-./*}"
+  local files_to_process=()
+  local decision_all=""
+  local timestamp_regex='[0-9]{8}_[0-9]{6}'
 
-    if ! command -v exiftool &>/dev/null; then
-        echo "Error: exiftool is not installed." >&2
-        return 1
+  if ! command -v exiftool &>/dev/null; then
+    echo "Error: exiftool is not installed." >&2
+    return 1
+  fi
+
+  if [[ ! -d "$target_dir" ]]; then
+    echo "Error: Directory '$target_dir' does not exist." >&2
+    return 1
+  fi
+
+  if [[ "$2" == "" ]]; then
+    glob_pattern="${target_dir}/*"
+  else
+    glob_pattern="${target_dir}/${glob_pattern}"
+  fi
+
+  echo "📸 Photo Metadata Synchronizer"
+  echo "================================"
+  echo "Directory: $target_dir"
+  echo "Pattern: $glob_pattern"
+  echo ""
+
+  for file in $glob_pattern; do
+    [[ ! -f "$file" ]] && continue
+    local filename
+    filename=$(basename "$file")
+    if [[ $filename =~ $timestamp_regex ]]; then
+      files_to_process+=("$file")
     fi
+  done
 
-    if [[ ! -d "$target_dir" ]]; then
-        echo "Error: Directory '$target_dir' does not exist." >&2
-        return 1
-    fi
+  if [[ ${#files_to_process[@]} -eq 0 ]]; then
+    echo "No files found with YYYYMMDD_HHmmSS timestamp in filename."
+    return 0
+  fi
 
-    if [[ "$2" == "" ]]; then
-        glob_pattern="${target_dir}/*"
-    else
-        glob_pattern="${target_dir}/${glob_pattern}"
-    fi
+  echo "Found ${#files_to_process[@]} file(s) with timestamp in filename."
+  echo ""
 
-    echo "📸 Photo Metadata Synchronizer"
-    echo "================================"
-    echo "Directory: $target_dir"
-    echo "Pattern: $glob_pattern"
-    echo ""
+  local file_count=0
+  for file in "${files_to_process[@]}"; do
+    ((file_count++))
+    _fix_date_from_name_process_file "$file" "$file_count" "${#files_to_process[@]}"
+  done
 
-    for file in $glob_pattern; do
-        [[ ! -f "$file" ]] && continue
-        local filename
-        filename=$(basename "$file")
-        if [[ $filename =~ $timestamp_regex ]]; then
-            files_to_process+=("$file")
-        fi
-    done
-
-    if [[ ${#files_to_process[@]} -eq 0 ]]; then
-        echo "No files found with YYYYMMDD_HHmmSS timestamp in filename."
-        return 0
-    fi
-
-    echo "Found ${#files_to_process[@]} file(s) with timestamp in filename."
-    echo ""
-
-    local file_count=0
-    for file in "${files_to_process[@]}"; do
-        ((file_count++))
-        _fix_date_from_name_process_file "$file" "$file_count" "${#files_to_process[@]}"
-    done
-
-    echo ""
-    echo "✅ Processing complete!"
+  echo ""
+  echo "✅ Processing complete!"
 }
 
 function _fix_date_from_name_extract_datetime() {
-    local filename="$1"
-    local timestamp_regex='([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})'
+  local filename="$1"
+  local timestamp_regex='([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})'
 
-    if [[ $filename =~ $timestamp_regex ]]; then
-        local year="${BASH_REMATCH[1]}"
-        local month="${BASH_REMATCH[2]}"
-        local day="${BASH_REMATCH[3]}"
-        local hour="${BASH_REMATCH[4]}"
-        local minute="${BASH_REMATCH[5]}"
-        local second="${BASH_REMATCH[6]}"
-        echo "${year}:${month}:${day} ${hour}:${minute}:${second}"
-        return 0
-    fi
-    return 1
+  if [[ $filename =~ $timestamp_regex ]]; then
+    local year="${BASH_REMATCH[1]}"
+    local month="${BASH_REMATCH[2]}"
+    local day="${BASH_REMATCH[3]}"
+    local hour="${BASH_REMATCH[4]}"
+    local minute="${BASH_REMATCH[5]}"
+    local second="${BASH_REMATCH[6]}"
+    echo "${year}:${month}:${day} ${hour}:${minute}:${second}"
+    return 0
+  fi
+  return 1
 }
 
 function _fix_date_from_name_get_exif_datetime() {
-    local file="$1"
-    local exif_datetime
+  local file="$1"
+  local exif_datetime
 
-    exif_datetime=$(exiftool -s -s -s -DateTimeOriginal "$file" 2>/dev/null)
-    if [[ -z "$exif_datetime" || "$exif_datetime" == "-" ]]; then
-        exif_datetime=$(exiftool -s -s -s -CreateDate "$file" 2>/dev/null)
-    fi
-    if [[ -z "$exif_datetime" || "$exif_datetime" == "-" ]]; then
-        exif_datetime=$(exiftool -s -s -s -FileModifyDate "$file" 2>/dev/null)
-    fi
-    if [[ -z "$exif_datetime" || "$exif_datetime" == "-" ]]; then
-        echo "NOT SET"
-        return 1
-    fi
-    echo "$exif_datetime"
-    return 0
+  exif_datetime=$(exiftool -s -s -s -DateTimeOriginal "$file" 2>/dev/null)
+  if [[ -z "$exif_datetime" || "$exif_datetime" == "-" ]]; then
+    exif_datetime=$(exiftool -s -s -s -CreateDate "$file" 2>/dev/null)
+  fi
+  if [[ -z "$exif_datetime" || "$exif_datetime" == "-" ]]; then
+    exif_datetime=$(exiftool -s -s -s -FileModifyDate "$file" 2>/dev/null)
+  fi
+  if [[ -z "$exif_datetime" || "$exif_datetime" == "-" ]]; then
+    echo "NOT SET"
+    return 1
+  fi
+  echo "$exif_datetime"
+  return 0
 }
 
 function _fix_date_from_name_prompt_user() {
-    local filename="$1"
-    local filename_dt="$2"
-    local exif_dt="$3"
-    local file_num="$4"
-    local total_files="$5"
+  local filename="$1"
+  local filename_dt="$2"
+  local exif_dt="$3"
+  local file_num="$4"
+  local total_files="$5"
 
-    printf "\n"
-    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    printf "[%d/%d] %s\n" "$file_num" "$total_files" "$filename"
-    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    printf "Filename datetime:  %s\n" "$filename_dt"
-    printf "EXIF datetime:      %s\n" "$exif_dt"
-    printf "\nDo you want to update EXIF to match filename?\n\n"
-    printf "Options:\n"
-    printf "  [y] Yes     - Update this file\n"
-    printf "  [n] No      - Keep original EXIF\n"
-    printf "  [Y] Yes ALL - Update all remaining files\n"
-    printf "  [N] No ALL  - Keep original for all remaining files\n"
-    printf "  [s] Skip    - Skip this file\n"
+  printf "\n"
+  printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+  printf "[%d/%d] %s\n" "$file_num" "$total_files" "$filename"
+  printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+  printf "Filename datetime:  %s\n" "$filename_dt"
+  printf "EXIF datetime:      %s\n" "$exif_dt"
+  printf "\nDo you want to update EXIF to match filename?\n\n"
+  printf "Options:\n"
+  printf "  [y] Yes     - Update this file\n"
+  printf "  [n] No      - Keep original EXIF\n"
+  printf "  [Y] Yes ALL - Update all remaining files\n"
+  printf "  [N] No ALL  - Keep original for all remaining files\n"
+  printf "  [s] Skip    - Skip this file\n"
 
-    read -r -p "Choice: " -n 1 choice
-    echo ""
+  read -r -p "Choice: " -n 1 choice
+  echo ""
 
-    case "$choice" in
-        [yY])
-            [[ "$choice" == "Y" ]] && return 3 || return 1
-            ;;
-        [nN])
-            [[ "$choice" == "N" ]] && return 2 || return 0
-            ;;
-        [sS])
-            return 4
-            ;;
-        *)
-            echo "Invalid choice. Skipping file."
-            return 4
-            ;;
-    esac
+  case "$choice" in
+  [yY])
+    [[ "$choice" == "Y" ]] && return 3 || return 1
+    ;;
+  [nN])
+    [[ "$choice" == "N" ]] && return 2 || return 0
+    ;;
+  [sS])
+    return 4
+    ;;
+  *)
+    echo "Invalid choice. Skipping file."
+    return 4
+    ;;
+  esac
 }
 
 function _fix_date_from_name_update_exif() {
-    local file="$1"
-    local new_datetime="$2"
+  local file="$1"
+  local new_datetime="$2"
 
-    if exiftool -q -overwrite_original \
-        -DateTimeOriginal="$new_datetime" \
-        -CreateDate="$new_datetime" \
-        "$file" 2>/dev/null; then
-        return 0
-    else
-        return 1
-    fi
+  if exiftool -q -overwrite_original \
+    -DateTimeOriginal="$new_datetime" \
+    -CreateDate="$new_datetime" \
+    "$file" 2>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 function _fix_date_from_name_process_file() {
-    local file="$1"
-    local file_num="$2"
-    local total_files="$3"
-    local filename
-    filename=$(basename "$file")
+  local file="$1"
+  local file_num="$2"
+  local total_files="$3"
+  local filename
+  filename=$(basename "$file")
 
-    local filename_dt
-    filename_dt=$(_fix_date_from_name_extract_datetime "$filename") || {
-        echo "Error: Could not extract datetime from filename: $filename" >&2
-        return 1
-    }
+  local filename_dt
+  filename_dt=$(_fix_date_from_name_extract_datetime "$filename") || {
+    echo "Error: Could not extract datetime from filename: $filename" >&2
+    return 1
+  }
 
-    local exif_dt
-    exif_dt=$(_fix_date_from_name_get_exif_datetime "$file")
+  local exif_dt
+  exif_dt=$(_fix_date_from_name_get_exif_datetime "$file")
 
-    if [[ "$filename_dt" == "$exif_dt" ]]; then
-        return 0
+  if [[ "$filename_dt" == "$exif_dt" ]]; then
+    return 0
+  fi
+
+  if [[ -n "$decision_all" ]]; then
+    if [[ "$decision_all" == "change" ]]; then
+      echo "[$file_num/$total_files] Updating: $filename"
+      _fix_date_from_name_update_exif "$file" "$filename_dt" || {
+        echo "  ⚠️  Failed to update EXIF for: $filename" >&2
+      }
+    elif [[ "$decision_all" == "keep" ]]; then
+      echo "[$file_num/$total_files] Keeping original: $filename"
     fi
+  else
+    _fix_date_from_name_prompt_user "$filename" "$filename_dt" "$exif_dt" "$file_num" "$total_files"
+    local user_choice=$?
 
-    if [[ -n "$decision_all" ]]; then
-        if [[ "$decision_all" == "change" ]]; then
-            echo "[$file_num/$total_files] Updating: $filename"
-            _fix_date_from_name_update_exif "$file" "$filename_dt" || {
-                echo "  ⚠️  Failed to update EXIF for: $filename" >&2
-            }
-        elif [[ "$decision_all" == "keep" ]]; then
-            echo "[$file_num/$total_files] Keeping original: $filename"
-        fi
-    else
-        _fix_date_from_name_prompt_user "$filename" "$filename_dt" "$exif_dt" "$file_num" "$total_files"
-        local user_choice=$?
-
-        case $user_choice in
-            0)
-                echo "  ✓ Keeping original EXIF datetime"
-                ;;
-            1)
-                echo "  ✓ Updating EXIF datetime..."
-                _fix_date_from_name_update_exif "$file" "$filename_dt" && {
-                    echo "  ✅ Updated successfully"
-                } || {
-                    echo "  ❌ Failed to update EXIF" >&2
-                }
-                ;;
-            2)
-                decision_all="keep"
-                echo "  ✓ Will keep original for remaining files"
-                ;;
-            3)
-                decision_all="change"
-                echo "  ✓ Updating EXIF datetime..."
-                _fix_date_from_name_update_exif "$file" "$filename_dt" && {
-                    echo "  ✅ Updated successfully"
-                } || {
-                    echo "  ❌ Failed to update EXIF" >&2
-                }
-                ;;
-            4)
-                echo "  ⊘ Skipped"
-                ;;
-        esac
-    fi
+    case $user_choice in
+    0)
+      echo "  ✓ Keeping original EXIF datetime"
+      ;;
+    1)
+      echo "  ✓ Updating EXIF datetime..."
+      _fix_date_from_name_update_exif "$file" "$filename_dt" && {
+        echo "  ✅ Updated successfully"
+      } || {
+        echo "  ❌ Failed to update EXIF" >&2
+      }
+      ;;
+    2)
+      decision_all="keep"
+      echo "  ✓ Will keep original for remaining files"
+      ;;
+    3)
+      decision_all="change"
+      echo "  ✓ Updating EXIF datetime..."
+      _fix_date_from_name_update_exif "$file" "$filename_dt" && {
+        echo "  ✅ Updated successfully"
+      } || {
+        echo "  ❌ Failed to update EXIF" >&2
+      }
+      ;;
+    4)
+      echo "  ⊘ Skipped"
+      ;;
+    esac
+  fi
 }
+
+move_photography_dcim_backup_to_nas() (
+  set -Eeuo pipefail
+
+  local SRC_ROOT="/Volumes/photography/photography/backup/dcim"
+  local DST_ROOT="/Volumes/backup/photography-dcim"
+  local TODAY LOG_FILE CURRENT_DIR REL_PATH DST_DIR CONFIRM
+  local RSYNC_BIN="${RSYNC_BIN:-rsync}"
+  local HASH_BIN="${HASH_BIN:-md5}"
+  local VERIFY_JOBS="${VERIFY_JOBS:-4}"
+
+  local SRC_LIST VERIFY_PROGRESS_FILE VERIFY_MONITOR_PID
+  SRC_LIST="$(mktemp)"
+  VERIFY_PROGRESS_FILE="$(mktemp)"
+  : >"$VERIFY_PROGRESS_FILE"
+
+  TODAY="$(date +%Y%m%d)"
+  LOG_FILE="${DST_ROOT}/${TODAY}-photography-dcim-rsync.log"
+  CURRENT_DIR="$(pwd)"
+
+  cleanup() {
+    [[ -n "${VERIFY_MONITOR_PID:-}" ]] && kill "$VERIFY_MONITOR_PID" 2>/dev/null || true
+    rm -f "$SRC_LIST" "$VERIFY_PROGRESS_FILE"
+  }
+  trap cleanup EXIT
+
+  if [[ "$CURRENT_DIR" != "$SRC_ROOT"/* ]]; then
+    printf "Error: current directory must be inside '%s'\n" "$SRC_ROOT" | tee -a "$LOG_FILE"
+    return 1
+  fi
+
+  REL_PATH="${CURRENT_DIR#"$SRC_ROOT"/}"
+  DST_DIR="${DST_ROOT}/${REL_PATH}/"
+
+  mkdir -p "$DST_DIR"
+
+  _move_photography_dcim_backup_to_nas_log() {
+    printf '%s\n' "$*" | tee -a "$LOG_FILE"
+  }
+
+  _move_photography_dcim_backup_to_nas_print_verify_progress() {
+    local total="$1"
+    local done
+    while true; do
+      done="$(wc -l <"$VERIFY_PROGRESS_FILE" | awk '{print $1}')"
+      printf '\rHash verify progress: %s/%s' "$done" "$total"
+      [[ "$done" -ge "$total" ]] && break
+      sleep 1
+    done
+    printf '\n'
+  }
+
+  printf '\n'
+  printf 'Source:      %s/\n' "$CURRENT_DIR"
+  printf 'Destination: %s\n' "$DST_DIR"
+  printf 'Log file:    %s\n' "$LOG_FILE"
+  printf 'Hash:        %s\n' "$HASH_BIN"
+  printf 'Verify jobs: %s\n' "$VERIFY_JOBS"
+  printf '\n'
+  read -r -p "Proceed with copy, verify copied files only, and source-file deletion? [y/N] " CONFIRM
+
+  case "$CONFIRM" in
+  y | Y | yes | YES | Yes) ;;
+  *)
+    printf 'Aborted.\n'
+    return 0
+    ;;
+  esac
+
+  _move_photography_dcim_backup_to_nas_log
+  _move_photography_dcim_backup_to_nas_log "================================================================"
+  _move_photography_dcim_backup_to_nas_log "Started: $(date '+%Y-%m-%d %H:%M:%S')"
+  _move_photography_dcim_backup_to_nas_log "Source current dir: $CURRENT_DIR/"
+  _move_photography_dcim_backup_to_nas_log "Destination dir:    $DST_DIR"
+  _move_photography_dcim_backup_to_nas_log "Log file:           $LOG_FILE"
+  _move_photography_dcim_backup_to_nas_log "rsync binary:       $RSYNC_BIN"
+  _move_photography_dcim_backup_to_nas_log "hash command:       $HASH_BIN"
+  _move_photography_dcim_backup_to_nas_log "verify jobs:        $VERIFY_JOBS"
+  _move_photography_dcim_backup_to_nas_log "================================================================"
+
+  _move_photography_dcim_backup_to_nas_log
+  _move_photography_dcim_backup_to_nas_log "=== Pass 1: copy ==="
+
+  "$RSYNC_BIN" -aHAX --partial --append-verify --no-compress \
+    --info=progress2,stats2 \
+    "$CURRENT_DIR/" "$DST_DIR" \
+    2> >(tee -a "$LOG_FILE" >&2) | tee -a "$LOG_FILE"
+
+  _move_photography_dcim_backup_to_nas_log
+  _move_photography_dcim_backup_to_nas_log "=== Pass 2: verify every source file against the NAS, delete verified sources ==="
+
+  # Drive verification from the files actually present in source, not from a parse
+  # of rsync's run output. This is idempotent: a source file is removed only once a
+  # byte-identical copy is confirmed on the NAS, so an interrupted or skipped verify
+  # is recovered on the next run instead of stranding files. -print0 handles spaces.
+  find "$CURRENT_DIR" -type f -print0 >"$SRC_LIST"
+
+  local source_count
+  source_count="$(LC_ALL=C tr -dc '\0' <"$SRC_LIST" | wc -c | tr -d ' ')"
+  _move_photography_dcim_backup_to_nas_log "Source files to verify: $source_count"
+
+  if [[ "$source_count" -eq 0 ]]; then
+    _move_photography_dcim_backup_to_nas_log "No source files remain. Nothing to verify or delete."
+    _move_photography_dcim_backup_to_nas_log "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+    return 0
+  fi
+
+  export CURRENT_DIR DST_DIR LOG_FILE HASH_BIN VERIFY_PROGRESS_FILE
+
+  _move_photography_dcim_backup_to_nas_print_verify_progress "$source_count" &
+  VERIFY_MONITOR_PID="$!"
+
+  local verify_status=0
+  xargs -0 -P "$VERIFY_JOBS" -I {} bash -c '
+    src_file="$1"
+    rel_file="${src_file#"${CURRENT_DIR}/"}"
+    dst_file="${DST_DIR}${rel_file}"
+
+    if [[ ! -f "$dst_file" ]]; then
+      printf "MISSING-ON-NAS: %s\n" "$rel_file" >> "$LOG_FILE"
+      exit 3
+    fi
+
+    src_hash="$("$HASH_BIN" -q "$src_file")"
+    dst_hash="$("$HASH_BIN" -q "$dst_file")"
+
+    if [[ "$src_hash" == "$dst_hash" ]]; then
+      rm -f -- "$src_file"
+      printf "VERIFIED+REMOVED: %s\n" "$rel_file" >> "$LOG_FILE"
+      printf ".\n" >> "$VERIFY_PROGRESS_FILE"
+      exit 0
+    fi
+
+    printf "MISMATCH: %s (src %s / dst %s)\n" "$rel_file" "$src_hash" "$dst_hash" >> "$LOG_FILE"
+    exit 3
+  ' _ {} <"$SRC_LIST" || verify_status=$?
+
+  kill "$VERIFY_MONITOR_PID" 2>/dev/null || true
+  wait "$VERIFY_MONITOR_PID" 2>/dev/null || true
+  VERIFY_MONITOR_PID=""
+  printf '\n'
+
+  local verified_count
+  verified_count="$(wc -l <"$VERIFY_PROGRESS_FILE" | tr -d ' ')"
+  _move_photography_dcim_backup_to_nas_log "Files verified and removed: $verified_count / $source_count"
+
+  if [[ "$verify_status" -ne 0 ]]; then
+    _move_photography_dcim_backup_to_nas_log "Some files could not be verified (missing on NAS or hash mismatch)."
+    _move_photography_dcim_backup_to_nas_log "Those files were LEFT in source and will be retried on the next run."
+    _move_photography_dcim_backup_to_nas_log "Finished with warnings: $(date '+%Y-%m-%d %H:%M:%S')"
+    return 2
+  fi
+
+  _move_photography_dcim_backup_to_nas_log "All source files verified against the NAS and removed."
+  _move_photography_dcim_backup_to_nas_log "Source directories kept intact."
+  _move_photography_dcim_backup_to_nas_log "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+)
