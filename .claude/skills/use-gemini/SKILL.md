@@ -5,19 +5,27 @@ description: Use when running Google Gemini via the native Gemini CLI for code a
 
 # Gemini Skill Guide
 
-Gemini runs through the native `gemini` CLI (Google). The helper script,
-`scripts/gemini-run.sh`, resolves the mise-managed binary and maps a stable
-flag interface onto the CLI.
+Gemini runs through the helper script `scripts/gemini-run.sh`, which maps a
+stable flag interface onto two backends and resolves the mise-managed binary.
 
-> **Availability:** The `gemini` CLI is mise-managed and may not be on PATH.
-> The helper resolves it via `mise which gemini`. If it is missing, the helper
-> exits with an install hint — confirm availability before invoking.
+> **Backend:** The helper prefers the GitHub Copilot CLI (it is the only
+> backend that serves the `gemini-3.1-pro-preview` model) and falls back to the
+> native `gemini` CLI when copilot is absent. Force a backend with
+> `GEMINI_BACKEND=copilot` or `GEMINI_BACKEND=gemini`. Both CLIs are
+> mise-managed and may not be on PATH; the helper resolves them via `mise which`.
 
 ## Model Selection
 
-The native CLI bills against your Google/Gemini API account, not GitHub
-Copilot — there is no per-request multiplier. With no `-m`, the CLI picks its
-own default model. Pass `-m MODEL` only when the user asks for a specific one.
+- **Copilot backend (default):** spends Copilot AI credits per call (multiplier
+  set by the model; not exposed headlessly — check the interactive `/model`
+  picker). Default model is `gemini-3.1-pro-preview` ("Gemini 3.1 Pro
+  (Preview)"). Per policy, Gemini-via-Copilot is allowed because Claude does not
+  provide Gemini.
+- **Native gemini backend** (`GEMINI_BACKEND=gemini`): bills your Google/Gemini
+  API account, no Copilot multiplier; cannot serve the 3.1 Pro Preview model.
+  With no `-m`, the CLI picks its own default.
+
+Pass `-m MODEL` only when the user asks for a specific model.
 
 ## Running a Task
 
@@ -65,7 +73,7 @@ A `gemini-run.sh` call can run for many minutes. When you need to do other work 
 ## Error Handling
 
 - Stop and report failures whenever the helper exits non-zero; request direction before retrying.
-- If the helper reports the `gemini` CLI is not found, report that and stop — do not fall back to another tool without asking.
+- If the helper reports no backend CLI is found, or reports the Copilot monthly quota is exhausted, report that and stop — do not silently fall back to another tool. For a quota error you may offer `GEMINI_BACKEND=gemini` (native CLI) as an alternative.
 - Before using high-impact flags (`-y`/`--yolo`) ask user permission via AskUserQuestion unless already given.
 - When output includes warnings or partial results, summarize them and ask how to adjust.
 
