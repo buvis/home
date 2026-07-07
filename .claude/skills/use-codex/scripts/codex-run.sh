@@ -170,7 +170,9 @@ resolve_resume_id() {
 
 # Finalizes a completed codex JSON-path run: when the run captured no
 # thread.started, backfills EMIT_THREAD_FILE from fallback_id on a zero exit
-# (else warns), and on a zero exit cats OUTPUT_FILE to stdout for tee-parity.
+# (else warns on the fresh path only; a failed resume attempt stays silent for
+# run_codex_resume's single fallback warning), and on a zero exit cats
+# OUTPUT_FILE to stdout for tee-parity.
 # Split out of run_codex_json_path to keep it under the 50-line limit.
 finalize_codex_json_run() {
     local codex_exit="$1" fallback_id="$2"
@@ -178,9 +180,14 @@ finalize_codex_json_run() {
     if [ -n "${EMIT_THREAD_FILE:-}" ] && [ ! -s "$EMIT_THREAD_FILE" ]; then
         if [ "$codex_exit" -eq 0 ] && [ -n "$fallback_id" ]; then
             printf '%s' "$fallback_id" > "$EMIT_THREAD_FILE"
-        else
+        elif [ -z "$fallback_id" ]; then
+            # Fresh path (no resume): a missing thread.started genuinely means
+            # the id was not captured, and no fallback follows.
             echo "WARNING: no thread.started event; thread id not captured" >&2
         fi
+        # Failed resume attempt (fallback_id set, codex_exit != 0): stay silent.
+        # run_codex_resume emits the single "resume failed; retrying fresh"
+        # warning, and the fresh fallback re-attempts capture.
     fi
 
     if [ "$codex_exit" -eq 0 ]; then
