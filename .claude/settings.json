@@ -157,7 +157,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -453,16 +453,5 @@
       "Writes, edits, and deletes under any `dev/local/` directory (including `~/.claude/dev/local/`) are working documents — PRDs, autopilot state, scratch files, plans, signal files. They are NOT agent configuration or self-modification. Allow without prompting.",
       "Reads, writes, edits, and deletes under any temporary directory — absolute (`/tmp/`, `/private/tmp/`, `/var/folders/`, `/private/var/folders/`) or relative (`tmp/`, `**/tmp/`) — are scratch artifacts (dispatch prompts, test logs, intermediate files). They are NOT agent configuration or self-modification. Allow without prompting."
     ]
-  },
-  "mcpServers": {
-    "youtube_transcript": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "mcp/youtube-transcript"
-      ]
-    }
   }
 }
