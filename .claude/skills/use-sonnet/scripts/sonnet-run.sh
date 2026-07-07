@@ -1,26 +1,33 @@
 #!/bin/bash
-# Run Sonnet model via copilot CLI
+# Run Claude Sonnet via the native `claude` CLI (headless `-p`).
+# Previously routed through the `copilot` CLI, which billed Copilot credits for
+# a model Claude already provides. `claude -p` is foreground-blocking and free
+# of Copilot credits, so the autopilot review reviewers (Diana, blind review)
+# stop spending Copilot on Sonnet.
 
 set -eo pipefail
 
-# Ensure mise-managed tools (like copilot) are on PATH
+# Ensure mise-managed tools (claude itself, plus the build/test tools the
+# reviewer invokes agentically) are on PATH. Matches codex-run.sh / gemini-run.sh.
 if command -v mise &>/dev/null; then
     PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
-# Curated 1x-multiplier default. Auto-picking the "highest-versioned"
-# sonnet works today but will silently land on a premium tier the moment
-# Anthropic ships a higher-multiplier base model. Multipliers aren't
-# exposed via the CLI, so hardcode the safe default and require -m/--model
-# to opt in. Opus and -high/-xhigh/-1m suffixed variants carry higher
-# multipliers - verify in the GitHub Copilot dashboard before changing.
-DEFAULT_MODEL="claude-sonnet-4.6"
+# Don't leak autopilot loop state into the nested claude: the autopilot Stop
+# hook gates its signal-file write on _AUTOPILOT_LOOP, and a reviewer subprocess
+# must never write that signal. One unset covers both the Diana subagent and the
+# foreground blind-review call site.
+# ponytail: single env guard, not a wrapper.
+unset _AUTOPILOT_LOOP
+
+# `sonnet` alias always resolves to the latest base Sonnet. No Copilot
+# multiplier to dodge anymore - override with -m only when you need a specific
+# model id or a different tier.
+DEFAULT_MODEL="sonnet"
 MODEL="$DEFAULT_MODEL"
 
 MODE="prompt"  # prompt, interactive, resume, continue
-ALLOW_TOOLS=""
-ALLOW_ALL=""
-SILENT=""
+PERM=""        # set by -a/-y to bypass headless permission prompts
 ADD_DIRS=()
 PROMPT=""
 PROMPT_FILE=""
@@ -29,15 +36,14 @@ OUTPUT_FILE=""
 usage() {
     echo "Usage: $0 [options] [prompt]"
     echo ""
-    echo "Default model: $DEFAULT_MODEL (1x multiplier on Copilot)."
-    echo "Use -m to opt into a higher-multiplier model (Opus, -1m, -high, -xhigh)."
+    echo "Runs Claude Sonnet via the native claude CLI (default model: $DEFAULT_MODEL)."
     echo ""
     echo "Options:"
-    echo "  -m, --model MODEL      Override model (default: $DEFAULT_MODEL)"
+    echo "  -m, --model MODEL      Override model (default: $DEFAULT_MODEL; e.g. opus, claude-sonnet-5)"
     echo "  -i, --interactive      Interactive mode with initial prompt"
-    echo "  -a, --allow-tools      Auto-approve tool use"
-    echo "  -y, --yolo             Full permissions (allow-all)"
-    echo "  -s, --silent           Silent mode (clean output for scripting)"
+    echo "  -a, --allow-tools      Auto-approve tool use (--permission-mode bypassPermissions)"
+    echo "  -y, --yolo             Full permissions (alias for -a)"
+    echo "  -s, --silent           Accepted for compatibility (claude -p output is already clean)"
     echo "  -d, --dir DIR          Allow access to directory (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
     echo "  -o, --output FILE      Write output to file (via tee)"
@@ -48,8 +54,7 @@ usage() {
     echo "Examples:"
     echo "  $0 'Analyze the codebase'"
     echo "  $0 -a 'Fix the bug in auth.ts'"
-    echo "  $0 -y 'Refactor the module'"
-    echo "  $0 -m claude-opus-4.7 -p 'Hard reasoning task'   # premium tier"
+    echo "  $0 -m opus -p 'Hard reasoning task'"
     echo "  $0 -r"
 }
 
@@ -65,15 +70,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -a|--allow-tools)
-            ALLOW_TOOLS="--allow-all-tools"
+            PERM="--permission-mode bypassPermissions"
             shift
             ;;
         -y|--yolo)
-            ALLOW_ALL="--allow-all"
+            PERM="--permission-mode bypassPermissions"
             shift
             ;;
         -s|--silent)
-            SILENT="-s"
+            # claude -p prints only the final assistant message; nothing to strip.
             shift
             ;;
         -d|--dir)
@@ -132,13 +137,13 @@ run_cmd() {
 case $MODE in
     resume)
         if [ -n "$PROMPT" ]; then
-            run_cmd copilot --model "$MODEL" --resume "$PROMPT"
+            run_cmd claude --model "$MODEL" $PERM --resume "$PROMPT"
         else
-            run_cmd copilot --model "$MODEL" --resume
+            run_cmd claude --model "$MODEL" $PERM --resume
         fi
         ;;
     continue)
-        run_cmd copilot --model "$MODEL" --continue
+        run_cmd claude --model "$MODEL" $PERM --continue
         ;;
     interactive)
         if [ -z "$PROMPT" ]; then
@@ -146,7 +151,7 @@ case $MODE in
             usage
             exit 1
         fi
-        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -i "$PROMPT"
+        run_cmd claude --model "$MODEL" $PERM "${ADD_DIRS[@]}" "$PROMPT"
         ;;
     prompt)
         if [ -z "$PROMPT" ]; then
@@ -154,6 +159,6 @@ case $MODE in
             usage
             exit 1
         fi
-        run_cmd copilot --model "$MODEL" $ALLOW_TOOLS $ALLOW_ALL $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
+        run_cmd claude --print --model "$MODEL" $PERM "${ADD_DIRS[@]}" "$PROMPT"
         ;;
 esac
