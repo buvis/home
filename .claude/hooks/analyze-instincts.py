@@ -183,92 +183,6 @@ def detect_corrections(observations: list[dict]) -> list[dict]:
     return candidates
 
 
-def _normalize_tool_input(tool_input: dict | str) -> str:
-    """Normalize tool input by stripping file-specific details."""
-    if isinstance(tool_input, str):
-        try:
-            tool_input = json.loads(tool_input)
-        except (json.JSONDecodeError, ValueError):
-            return ""
-    if not isinstance(tool_input, dict):
-        return ""
-    # Keep tool structure but strip paths, line numbers, specific content
-    normalized = {}
-    for k, v in tool_input.items():
-        if k in ("file_path", "path", "command"):
-            # Keep key but generalize value
-            if k == "file_path" and isinstance(v, str):
-                normalized[k] = Path(v).suffix or "file"
-            elif k == "command" and isinstance(v, str):
-                # Keep just the binary name
-                normalized[k] = v.split()[0] if v.split() else ""
-            else:
-                normalized[k] = "path"
-        elif k in ("old_string", "new_string", "content", "pattern"):
-            normalized[k] = "content"
-        else:
-            normalized[k] = str(v)[:50]
-    return json.dumps(normalized, sort_keys=True)
-
-
-def detect_sequences(observations: list[dict]) -> list[dict]:
-    """Detect repeated tool call sequences (3+ tools appearing 3+ times).
-
-    Uses sliding window approach, normalizes by removing file-specific details.
-    """
-    if len(observations) < 3:
-        return []
-
-    # Build normalized tool signatures
-    signatures = []
-    for obs in observations:
-        tool = obs.get("tool", "")
-        norm_input = _normalize_tool_input(obs.get("in", {}))
-        signatures.append(f"{tool}:{norm_input}")
-
-    # Find repeated sequences of length 3-5
-    sequence_counts: dict[str, list[int]] = {}
-    for window_size in (3, 4, 5):
-        for i in range(len(signatures) - window_size + 1):
-            seq = tuple(signatures[i:i + window_size])
-            seq_key = " -> ".join(seq)
-            if seq_key not in sequence_counts:
-                sequence_counts[seq_key] = []
-            sequence_counts[seq_key].append(i)
-
-    # Filter: require 3+ occurrences, non-overlapping
-    candidates = []
-    for seq_key, positions in sequence_counts.items():
-        # Remove overlapping occurrences
-        non_overlapping = [positions[0]]
-        tools = seq_key.split(" -> ")
-        window = len(tools)
-        for pos in positions[1:]:
-            if pos >= non_overlapping[-1] + window:
-                non_overlapping.append(pos)
-        if len(non_overlapping) < 3:
-            continue
-
-        tool_names = [t.split(":")[0] for t in tools]
-        seq_id = f"sequence-{'-'.join(tool_names).lower()}"
-        evidence = []
-        for pos in non_overlapping[:5]:
-            if pos < len(observations):
-                evidence.append({
-                    "ts": observations[pos].get("ts", ""),
-                    "sid": observations[pos].get("sid", ""),
-                    "position": pos,
-                })
-        candidates.append({
-            "type": "sequence",
-            "id": seq_id,
-            "description": f"Repeated sequence: {' -> '.join(tool_names)}",
-            "observation_count": len(non_overlapping),
-            "evidence": evidence,
-        })
-    return candidates
-
-
 _ERROR_PATTERNS = re.compile(
     r"(error|Error|ERROR|failed|FAILED|exception|Exception|"
     r"command not found|No such file|Permission denied|"
@@ -408,8 +322,6 @@ def _build_trigger(candidate: dict) -> str:
     desc = candidate.get("description", "")
     if ctype == "correction":
         return f"when editing files ({desc})"
-    if ctype == "sequence":
-        return f"when performing workflow ({desc})"
     if ctype == "error_fix":
         return f"when encountering errors ({desc})"
     return f"when {desc}"
@@ -637,13 +549,9 @@ def main() -> None:
     if not recent_observations:
         return
 
-    # Load ALL observations for sequence detector (cross-session patterns)
-    all_observations = load_observations(project_hash, None)
-
     # Run detectors
     candidates = []
     candidates.extend(detect_corrections(recent_observations))
-    candidates.extend(detect_sequences(all_observations))
     candidates.extend(detect_error_fixes(recent_observations))
 
     # Create/update instincts from candidates
