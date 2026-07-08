@@ -44,7 +44,9 @@ run_iteration() {  # $1 = temp autopilot dir
 
 TMP1="$(mktemp -d)"
 TMP2="$(mktemp -d)"
-trap 'rm -rf "$TMP1" "$TMP2"' EXIT
+TMP3="$(mktemp -d)"
+TMP4="$(mktemp -d)"
+trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4"' EXIT
 
 # ── Scenario 1: state.json present (happy path) ──────────────────────
 AP1="$TMP1/dev/local/autopilot"
@@ -84,4 +86,44 @@ echo "$line2" | jq -e . >/dev/null || fail "scenario 2: not valid JSON"
 echo "$line2" | jq -e '.prd == "" and .batch == "" and .phase_launched == "" and .phase_end == ""' >/dev/null \
   || fail "scenario 2: state fields not empty strings"
 
-echo "PASS: one valid metrics line with all eight keys (state present and absent)"
+# ── Scenario 3: append target unwritable — silent by design (PRD 00013 Error case) ──
+# Regression test for the redirect-ordering fix: `2>/dev/null` must precede `>>`
+# so a failed append-target open is suppressed. Making the target a directory
+# forces `>>` to fail; with the old `>> file 2>/dev/null` order bash leaks
+# "…loop-metrics.jsonl: Is a directory" to stderr before 2>/dev/null applies.
+AP3="$TMP3/dev/local/autopilot"
+mkdir -p "$AP3"
+printf '%s\n' '{"prd":"00013-test.md","next_phase":"build","batch":{"id":"209901010000"}}' > "$AP3/state.json"
+mkdir "$AP3/loop-metrics.jsonl"   # append target is a directory → `>>` open fails
+AP_DIR="$AP3"
+err3="$TMP3/stderr.txt"
+autoclaude >/dev/null 2>"$err3"
+rc3=$?
+[ "$rc3" -eq 0 ] || fail "scenario 3: autoclaude did not return 0 — the append failure broke the loop"
+if grep -q 'loop-metrics' "$err3"; then
+  echo "scenario 3 leaked stderr:"; cat "$err3"
+  fail "scenario 3: metrics append leaked a diagnostic to stderr (not silent by design)"
+fi
+echo "scenario 3: append on unwritable target was silent; loop survived (rc=$rc3)"
+
+# ── Scenario 4: no signal written (died/paused exit path) ────────────
+# claude() writes nothing → signal is empty → the line records "signal":"none"
+# via ${signal:-none}, still written before the loop's no-signal exit path.
+claude() { :; }                                        # no signal file written
+AP4="$TMP4/dev/local/autopilot"
+mkdir -p "$AP4"
+printf '%s\n' '{"prd":"00013-test.md","next_phase":"build","batch":{"id":"209901010000"}}' > "$AP4/state.json"
+
+run_iteration "$AP4"
+
+M4="$AP4/loop-metrics.jsonl"
+[ -f "$M4" ] || fail "scenario 4: line not written on the no-signal exit path"
+n4=$(grep -c . "$M4")
+[ "$n4" -eq 1 ] || fail "scenario 4: expected 1 line, got $n4"
+line4=$(cat "$M4")
+echo "scenario 4 line: $line4"
+echo "$line4" | jq -e . >/dev/null || fail "scenario 4: not valid JSON"
+echo "$line4" | jq -e '.signal == "none"' >/dev/null \
+  || fail "scenario 4: signal not \"none\" on the no-signal path"
+
+echo "PASS: metrics line written on all four paths (state present/absent, unwritable-dir silent, no-signal)"
