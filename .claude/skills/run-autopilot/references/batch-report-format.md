@@ -62,6 +62,16 @@ One row per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. So
 
 A per-reviewer `fail` still surfaces (as shown for R3). When no entry carries `source` (single-reviewer or legacy state), render UNCHANGED — one verdict per rule, no source suffix (`| R1 | pass |`).
 
+### Loop Metrics
+
+| Launch phase | Sessions | Wall secs |
+|--------------|----------|-----------|
+| build | 1 | 412 |
+| review | 2 | 337 |
+| **Total** | 3 | 749 |
+
+Source: `dev/local/autopilot/loop-metrics.jsonl` lines where `prd` matches the PRD and `batch` matches `state.batch.id` (PRD 00013). One row per distinct `phase_launched` value, plus a **Total** row (session count and summed `wall_secs`). When the metrics file is missing or has no matching lines (a manual run outside the loop), render `no loop metrics (manual run)` instead of the table — never fail the report.
+
 ### Deferred to Batch End
 
 | Issue | Severity | Reason |
