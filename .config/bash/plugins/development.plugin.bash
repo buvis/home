@@ -154,6 +154,15 @@ autoclaude() {
     # exported to the shell, so interactive `claude` outside the loop still
     # prompts normally. (A subagent `chmod +x` ask deadlocked the loop 1h51m,
     # 2026-06-30.)
+    # Loop metrics (PRD 00013): capture start time + launch phase for the
+    # per-session JSONL line appended after the signal read below.
+    local _ts_start _phase_launched
+    _ts_start=$(date +%s)
+    if [ -f "$_ap_dir/state.json" ]; then
+      _phase_launched=$(jq -r '.next_phase // ""' "$_ap_dir/state.json" 2>/dev/null)
+    else
+      _phase_launched=""
+    fi
     WARDEN_UNATTENDED=1 claude --model claude-opus-4-8 --name "${PWD##*/}" --permission-mode auto "/run-autopilot"
 
     # Tear down the sidecar before reading the loop signal.
@@ -162,6 +171,33 @@ autoclaude() {
     _autopilot_loop_cleanup
     signal=$(cat "$_ap_dir/signal" 2>/dev/null)
     rm -f "$_ap_dir/signal"
+
+    # Loop metrics (PRD 00013): append exactly one JSONL line per session,
+    # after the signal read and before the case's exit paths, so every path
+    # (next/task_aborted/done/no-signal/unknown) records the line before it
+    # returns or continues. Observation only — the append can never block or
+    # fail the loop (the one sanctioned silent failure, scoped to itself).
+    local _ts_end _wall _prd _batch _phase_end
+    _ts_end=$(date +%s)
+    _wall=$(( _ts_end - _ts_start ))
+    if [ -f "$_ap_dir/state.json" ]; then
+      _prd=$(jq -r '.prd // ""' "$_ap_dir/state.json" 2>/dev/null)
+      _batch=$(jq -r '.batch.id // ""' "$_ap_dir/state.json" 2>/dev/null)
+      _phase_end=$(jq -r '.next_phase // ""' "$_ap_dir/state.json" 2>/dev/null)
+    else
+      _prd="" _batch="" _phase_end=""
+    fi
+    jq -nc \
+      --argjson ts_start "$_ts_start" \
+      --argjson ts_end "$_ts_end" \
+      --argjson wall_secs "$_wall" \
+      --arg prd "$_prd" \
+      --arg batch "$_batch" \
+      --arg phase_launched "$_phase_launched" \
+      --arg phase_end "$_phase_end" \
+      --arg signal "${signal:-none}" \
+      '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal}' \
+      >> "$_ap_dir/loop-metrics.jsonl" 2>/dev/null || true
 
     case "$signal" in
     next)
