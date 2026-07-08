@@ -216,5 +216,69 @@ class DetectUsageLimitTests(unittest.TestCase):
         self.assertIsNone(helper.detect("/nowhere/at/all", projects_root=self.root))
 
 
+class DetectFromLogTests(unittest.TestCase):
+    """--log mode (PRD 00014): the wrapper's teed last-session.log is the
+    primary detection source; only the tail counts as live."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _log(self, text: str, mtime: float | None = None) -> Path:
+        p = self.root / "last-session.log"
+        p.write_text(text)
+        if mtime is not None:
+            os.utime(p, (mtime, mtime))
+        return p
+
+    def test_banner_in_log_tail_returns_reset_epoch(self) -> None:
+        p = self._log(
+            '{"type":"result","is_error":true,"result":'
+            '"You\'ve hit your usage limit · resets 8:10pm (Europe/Prague)"}\n'
+        )
+        epoch = helper.detect_from_log(p)
+        self.assertIsNotNone(epoch)
+        tz = ZoneInfo("Europe/Prague")
+        anchor = datetime.fromtimestamp(p.stat().st_mtime, tz)
+        expected = anchor.replace(hour=20, minute=10, second=0, microsecond=0)
+        if expected <= anchor:
+            expected += timedelta(days=1)
+        self.assertEqual(epoch, int(expected.timestamp()))
+
+    def test_healthy_log_is_not_limited(self) -> None:
+        p = self._log("HANDOFF: build -> review\n")
+        self.assertIsNone(helper.detect_from_log(p))
+
+    def test_missing_log_is_not_limited(self) -> None:
+        self.assertIsNone(helper.detect_from_log(self.root / "absent.log"))
+
+    def test_unparseable_reset_in_fresh_log_falls_back_to_short_wait(self) -> None:
+        p = self._log("You've hit your usage limit · try again later\n")
+        epoch = helper.detect_from_log(p)
+        self.assertIsNotNone(epoch)
+        self.assertAlmostEqual(epoch, int(time.time()) + 900, delta=60)
+
+    def test_old_log_with_expired_reset_is_not_limited(self) -> None:
+        old = time.time() - 9 * 3600
+        reset_txt = datetime.fromtimestamp(old + 3 * 3600, ZoneInfo("Europe/Prague"))
+        hour12 = reset_txt.strftime("%I:%M%p").lower().lstrip("0")
+        p = self._log(
+            f"You've hit your usage limit · resets {hour12} (Europe/Prague)\n",
+            mtime=old,
+        )
+        self.assertIsNone(helper.detect_from_log(p))
+
+    def test_banner_outside_tail_window_is_ignored(self) -> None:
+        """A historical banner early in a long log is not a live limit."""
+        filler = "x" * (helper.TAIL_BYTES + 4096)
+        p = self._log(
+            "You've hit your usage limit · resets 8:10pm (Europe/Prague)\n"
+            + filler
+            + "\nHANDOFF: done\n"
+        )
+        self.assertIsNone(helper.detect_from_log(p))
+
+
 if __name__ == "__main__":
     unittest.main()

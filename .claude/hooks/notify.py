@@ -60,10 +60,9 @@ def autopilot_loop_active() -> bool:
     not be paged for it. The wrapper owns the single terminal notification when
     the loop actually exits (drained / needs-attention), via `--send`.
 
-    Checking the PID is alive, rather than reading the signal file, avoids two
-    failure modes: the race where this hook read the signal before autopilot's
-    own Stop hook wrote "next" (every hand-off then mis-fired a notification),
-    and a stale env var leaking into a later session (a dead PID reads false).
+    Checking the PID is alive (rather than trusting the env var alone) keeps a
+    stale `_AUTOPILOT_LOOP` from leaking into a later session — a dead PID
+    reads false.
     """
     val = os.environ.get("_AUTOPILOT_LOOP", "")
     if not val.isdigit():
@@ -77,40 +76,6 @@ def autopilot_loop_active() -> bool:
     except OSError:
         return False
     return True
-
-
-AUTOPILOT_SCRIPTS = Path.home() / ".claude" / "skills" / "run-autopilot" / "scripts"
-
-
-def background_task_in_flight(payload: dict[str, Any]) -> bool:
-    """True when the session parked on a LIVE background task (async Agent
-    dispatch or auto-backgrounded Bash) the harness will re-invoke for.
-
-    A Stop or idle_prompt fired in that state is mid-work noise: the turn ended
-    only because the harness backgrounds Agent dispatches, not because work is
-    done or input is needed (2026-07-07 ddb false "waiting" ping). Reuses the
-    autopilot Stop hook's transcript detectors. liveness_only, so a HUNG agent
-    (frozen output_file) still pages — a stuck session is exactly when the user
-    IS needed. Fail-open: import or parse trouble returns False and the
-    notification fires as before.
-    """
-    transcript = str(payload.get("transcript_path") or "")
-    if not transcript:
-        return False
-    scripts = str(AUTOPILOT_SCRIPTS)
-    if scripts not in sys.path:
-        sys.path.insert(0, scripts)
-    try:
-        from autopilot_stop_hook import _pending_background_task, _waiting_on_async
-    except Exception:
-        log_line(f"[{now_local()}] WARN: autopilot detectors unavailable ({scripts})")
-        return False
-    path = Path(transcript)
-    try:
-        return _pending_background_task(path, liveness_only=True) or _waiting_on_async(path)
-    except Exception as exc:
-        log_line(f"[{now_local()}] WARN: bg-task detection failed ({type(exc).__name__})")
-        return False
 
 
 ROTATE_THRESHOLD_BYTES = 5 * 1024 * 1024
@@ -317,15 +282,6 @@ def main() -> None:
     )
     if loop_noise and autopilot_loop_active():
         log_line(f"[{now_local()}] Suppressed: autopilot loop active ({notif_type or event})")
-        log_line("---")
-        return
-
-    # Same noise outside a loop: an interactive session parked on a live
-    # background task. The harness re-invokes when it finishes; the real final
-    # Stop (no task in flight) still pages "done", and permission_prompt always
-    # pages above this check.
-    if loop_noise and background_task_in_flight(payload):
-        log_line(f"[{now_local()}] Suppressed: background task in flight ({notif_type or event})")
         log_line("---")
         return
 

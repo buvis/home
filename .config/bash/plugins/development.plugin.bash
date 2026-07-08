@@ -6,39 +6,21 @@ about-plugin 'functions for software development'
 #   SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
 # }
 
-# _autopilot_loop_yield_stale <marker_path> <idle_mins>
-# exit 0 == stale (file exists AND mtime older than idle_mins); exit 1 == fresh or absent.
-# The Stop hook stamps the marker only on a background-task-orphan abstain; a PostToolUse
-# hook clears it on any tool use. So "stale" means "yielded waiting >N min with no re-invoke".
-_autopilot_loop_yield_stale() {
-  local _m="$1" _mins="$2"
-  [ -f "$_m" ] || return 1
-  [ -n "$(find "$_m" -mmin +"$_mins" 2>/dev/null)" ]
-}
-
-# _autopilot_loop_usage_limited
-# exit 0 == the newest session transcript for $PWD ends at the usage-limit
-# banner. On a limit hit the session does NOT exit: it idles at
-# "You've hit your session limit · resets 8:10pm (Europe/Prague)" waiting for
-# input (observed 2026-07-02/03, blocked overnight loops for hours). No Stop
-# hook fires and no yield marker is stamped, so the marker predicate above is
-# blind to it. Detection + reset-time parsing live in detect_usage_limit.py;
-# the sidecar needs only the boolean — the '' signal case reads the epoch.
-_autopilot_loop_usage_limited() {
-  python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py "$PWD" >/dev/null 2>&1
-}
-
-# _autopilot_loop_watchdog <wrapper_pid> <marker_path> <idle_mins> <poll_secs> <kill_after>
-# Sidecar around the foreground `claude`: resolves the wrapper's direct child whose comm is
-# claude, polls every <poll_secs>; when the yield marker is stale it SIGINTs, escalating to
-# SIGKILL after <kill_after> further stale polls. Returns when `claude` dies. Never touches
-# the TTY for input. Converts a background-task-orphan idle into the loud no-signal halt.
-_autopilot_loop_watchdog() {
+# _autopilot_session_cap <wrapper_pid> <max_secs> <poll_secs> <grace_secs>
+# The one remaining kill path (PRD 00014). Headless sessions exit on their own
+# at turn end; only a genuinely hung child (stuck tool, wedged child CLI)
+# needs reaping. If the wrapper's direct `claude` child is still alive
+# <max_secs> after this sidecar starts: SIGTERM, then SIGKILL <grace_secs>
+# later if TERM was ignored. No marker files, no transcript parsing, no
+# SIGINT etiquette — a capped session is a died session and takes the
+# wrapper's no-progress branch.
+_autopilot_session_cap() {
   local _self="$BASHPID"          # FIRST statement — capture this sidecar subshell's own pid
                                   # OUTSIDE any $(...): $BASHPID inside a command substitution
                                   # is the substitution's subshell, NOT this function-subshell.
-  local _wpid="$1" _m="$2" _mins="$3" _secs="$4" _kafter="$5"
-  local _cpid="" _stale_streak=0 _p _why
+  local _wpid="$1" _max="$2" _secs="$3" _grace="$4"
+  local _start _cpid="" _p
+  _start=$(date +%s)
   while true; do
     sleep "$_secs"
     # (Re)resolve claude: the wrapper's direct child, not the sidecar, whose comm is claude.
@@ -56,30 +38,22 @@ _autopilot_loop_watchdog() {
       done
     fi
     [ -n "$_cpid" ] && kill -0 "$_cpid" 2>/dev/null || break
-    _why=""
-    if _autopilot_loop_yield_stale "$_m" "$_mins"; then
-      _why="idle-waiting >${_mins} min"
-    elif _autopilot_loop_usage_limited; then
-      _why="stuck at the usage-limit banner"
-    fi
-    if [ -n "$_why" ]; then
-      _stale_streak=$((_stale_streak + 1))
-      if [ "$_stale_streak" -gt "$_kafter" ]; then
-        printf '\nautoclaude: session %s and unresponsive to SIGINT; SIGKILL (idle watchdog).\n' "$_why" >&2
+    if [ $(( $(date +%s) - _start )) -ge "$_max" ]; then
+      printf '\nautoclaude: session exceeded the %ss wall-clock cap; SIGTERM (session cap).\n' "$_max" >&2
+      kill -TERM "$_cpid" 2>/dev/null
+      sleep "$_grace"
+      if kill -0 "$_cpid" 2>/dev/null; then
+        printf '\nautoclaude: session ignored SIGTERM; SIGKILL (session cap).\n' >&2
         kill -KILL "$_cpid" 2>/dev/null
-      else
-        printf '\nautoclaude: session %s while alive; SIGINT (idle watchdog).\n' "$_why" >&2
-        kill -INT "$_cpid" 2>/dev/null
       fi
-    else
-      _stale_streak=0
+      break
     fi
   done
 }
 
 autoclaude() {
   export _AUTOPILOT_LOOP=$$
-  local _wd_pid=""   # idle-watchdog sidecar pid; referenced by the INT/TERM traps
+  local _cap_pid=""   # session-cap sidecar pid; referenced by the INT/TERM traps
 
   # Kill orphaned (PPID=1) processes tagged with our marker.
   # Uses SIGHUP so shells propagate the signal to their children.
@@ -92,12 +66,10 @@ autoclaude() {
     done < <(pgrep -u "$USER" -P 1 2>/dev/null)
   }
 
-  trap '_autopilot_loop_cleanup; kill "$_wd_pid" 2>/dev/null; unset _AUTOPILOT_LOOP; trap - INT; kill -INT $$' INT
-  trap '_autopilot_loop_cleanup; kill "$_wd_pid" 2>/dev/null; unset _AUTOPILOT_LOOP; trap - TERM; kill -TERM $$' TERM
+  trap '_autopilot_loop_cleanup; kill "$_cap_pid" 2>/dev/null; unset _AUTOPILOT_LOOP; trap - INT; kill -INT $$' INT
+  trap '_autopilot_loop_cleanup; kill "$_cap_pid" 2>/dev/null; unset _AUTOPILOT_LOOP; trap - TERM; kill -TERM $$' TERM
 
   while true; do
-    local signal
-
     # Memory circuit-breaker (2026-06-25): refuse to launch a session when the
     # machine is already under memory pressure. An overnight run fanned out
     # concurrent cargo/rustc builds and exhausted RAM (jetsam -> logout ->
@@ -113,49 +85,54 @@ autoclaude() {
       return 1
     fi
 
-    # Resolve the autopilot dir once, BEFORE launch: the idle watchdog needs the
-    # marker path, and the signal read below reuses it.
+    # Resolve the autopilot dir once, BEFORE launch: the pause check, the
+    # session-log tee, and the post-exit state read all need it.
     local _ap_dir
     _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
     if [ -z "$_ap_dir" ]; then
       # Walk-up failed (python3 missing or import error). Fall back to an
       # absolute path anchored at the current dir rather than a bare
-      # relative path, so the signal read/delete does not silently target
-      # the wrong directory if cwd has drifted.
+      # relative path, so the state read does not silently target the
+      # wrong directory if cwd has drifted.
       printf 'autoclaude: _walk_up.py failed; falling back to %s/dev/local/autopilot\n' "$PWD" >&2
       _ap_dir="$PWD/dev/local/autopilot"
     fi
+    mkdir -p "$_ap_dir" 2>/dev/null
 
-    # A stale yield marker from the prior session must not arm the watchdog
-    # against a fresh session.
-    rm -f "$_ap_dir/.yielded-waiting"
+    # Operator pause (PRD 00014): `touch <ap_dir>/pause-requested` is the
+    # sanctioned "let me in" signal, honored at the next session boundary.
+    # The marker is consumed so a later autoclaude run starts normally.
+    if [ -f "$_ap_dir/pause-requested" ]; then
+      rm -f "$_ap_dir/pause-requested"
+      printf '\nautoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.\n'
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⏸ ${PWD##*/}" "Paused by operator at a session boundary. State intact." 2>/dev/null
+      trap - INT TERM
+      unset _AUTOPILOT_LOOP
+      return 0
+    fi
 
-    # Idle watchdog (2026-06-30): a background task that orphans (never
-    # re-invokes) leaves the Stop hook abstaining forever, idling the session
-    # and blocking this loop (a subagent chmod +x prompt hung it 1h51m). The
-    # Stop hook stamps <ap_dir>/.yielded-waiting on each such abstain; the
-    # matcher-less PostToolUse clear hook removes it on any tool use. This
-    # sidecar SIGINT→SIGKILLs a session whose marker stays stale past N min,
-    # turning the idle into the loud no-signal halt below. Env-overridable.
-    local _idle_mins="${_AUTOPILOT_IDLE_MINS:-20}"
-    local _poll_secs="${_AUTOPILOT_POLL_SECS:-60}"
-    local _kill_after="${_AUTOPILOT_KILL_AFTER:-2}"
-    _autopilot_loop_watchdog "$$" "$_ap_dir/.yielded-waiting" "$_idle_mins" "$_poll_secs" "$_kill_after" &
-    _wd_pid=$!
+    # Session cap: the only kill path in the headless loop.
+    _autopilot_session_cap "$$" "${_AUTOPILOT_SESSION_MAX:-7200}" 30 60 &
+    _cap_pid=$!
 
-    # Static launch: every autopilot session runs on Opus 1M. The phase-based
-    # model dispatch (_autoclaude_pick_model) is deleted — it never switched a
-    # model in practice and its context_window bookkeeping misfired the cap.
-    # next_phase remains in state.json as resume/log metadata (read by the
-    # SKILL resume logic, not here); per-task tiering inside /work still does
-    # the model split that works.
+    # Headless launch (PRD 00014): one session = one -p turn = one process
+    # that exits at turn end. No signal file, no Stop-hook choreography — the
+    # decision table below reads state.json after exit. stream-json+verbose
+    # keeps a live, greppable event log: `tail -f` it to watch the running
+    # turn, the final result event carries usage/cost, and a usage-limit
+    # banner lands in the tail where detect_usage_limit.py --log finds it.
+    #
+    # Static launch model: every session runs on Opus. The old phase-based
+    # dispatch (_autoclaude_pick_model) was deleted — it guessed the phase
+    # from stale state BEFORE launch and never switched a model in practice.
+    # PRD 00018 reintroduces routing here, keyed on the same post-exit state
+    # read the decision table uses.
+    #
     # WARDEN_UNATTENDED: command-scoped so warden (claude's hook child) turns an
     # unanswerable `ask` into a fast `deny` instead of a forever-hang. NOT
     # exported to the shell, so interactive `claude` outside the loop still
     # prompts normally. (A subagent `chmod +x` ask deadlocked the loop 1h51m,
     # 2026-06-30.)
-    # Loop metrics (PRD 00013): capture start time + launch phase for the
-    # per-session JSONL line appended after the signal read below.
     local _ts_start _phase_launched
     _ts_start=$(date +%s)
     if [ -f "$_ap_dir/state.json" ]; then
@@ -163,30 +140,86 @@ autoclaude() {
     else
       _phase_launched=""
     fi
-    WARDEN_UNATTENDED=1 claude --model claude-opus-4-8 --name "${PWD##*/}" --permission-mode auto "/run-autopilot"
+    WARDEN_UNATTENDED=1 claude -p --permission-mode auto --model claude-opus-4-8 \
+      --output-format stream-json --verbose "/run-autopilot" \
+      < /dev/null 2>&1 | tee "$_ap_dir/last-session.log"
 
-    # Tear down the sidecar before reading the loop signal.
-    kill "$_wd_pid" 2>/dev/null
-    wait "$_wd_pid" 2>/dev/null
+    kill "$_cap_pid" 2>/dev/null
+    wait "$_cap_pid" 2>/dev/null
     _autopilot_loop_cleanup
-    signal=$(cat "$_ap_dir/signal" 2>/dev/null)
-    rm -f "$_ap_dir/signal"
+
+    # ── Decide (PRD 00014 decision table) — pure reads, no side effects ──
+    # signal ∈ continue|paused|done|died; the metrics line records the branch.
+    # state_touched guards branches (4)/(5): a healthy session ALWAYS writes
+    # state at its hand-off, so an untouched state.json means this session
+    # made no progress (limit-hit at start, crash, cap-kill) — without the
+    # mtime check a mid-batch limit hit would relaunch into the same banner
+    # in a tight loop, because the stale next_phase still reads as valid.
+    local _state="$_ap_dir/state.json"
+    local _signal="" _detail="" _next="" _phase_end="" _prd="" _batch="" _limit_wait=""
+    local _state_touched=0 _mtime
+    if [ -f "$_state" ]; then
+      # python3 for the mtime: `stat` flags differ between BSD and GNU (and
+      # homebrew coreutils shadows the BSD one on this machine).
+      _mtime=$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$_state" 2>/dev/null)
+      [ -n "$_mtime" ] && [ "$_mtime" -ge "$_ts_start" ] 2>/dev/null && _state_touched=1
+    fi
+    if [ -f "$_state" ] && jq -e . "$_state" >/dev/null 2>&1; then
+      _prd=$(jq -r '.prd // ""' "$_state" 2>/dev/null)
+      _batch=$(jq -r '.batch.id // ""' "$_state" 2>/dev/null)
+      _phase_end=$(jq -r '.next_phase // ""' "$_state" 2>/dev/null)
+      _next="$_phase_end"
+      _detail=$(jq -r 'if .phase == "paused" or ((.pause_reason // "") != "") then ((.pause_reason.detail? // .pause_reason? // .cap_pause_reason? // "paused") | tostring) else empty end' "$_state" 2>/dev/null)
+      local _stalled
+      _stalled=$(jq -r '.stall_reason.stalled? // empty' "$_state" 2>/dev/null)
+      if [ -n "$_detail" ]; then
+        _signal="paused"                               # (1) needs a human
+      elif [ "$_stalled" = "subagent_prompt_overrun" ]; then
+        _signal="continue"; _detail="replan"           # (2) replan in place
+      elif [ -z "$_next" ]; then
+        _signal="done"                                 # (3) backlog drained
+      elif [ "$_state_touched" -eq 1 ]; then
+        _signal="continue"                             # (4) next phase queued
+      fi                                               # untouched -> falls through to (5)
+    fi
+    if [ -z "$_signal" ]; then
+      # (5) No progress this session (state missing, unreadable, or
+      # untouched). A limit-hit -p session exits with the banner in the log
+      # tail — that is scheduling, not failure. Anything else died: halt
+      # loud and leave state.json in place for inspection.
+      local _reset
+      _reset=$(python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py --log "$_ap_dir/last-session.log" "$PWD" 2>/dev/null)
+      case "$_reset" in *[!0-9]*) _reset="" ;; esac
+      if [ -n "$_reset" ]; then
+        _limit_wait=$(( _reset - $(date +%s) + 120 ))
+        [ "$_limit_wait" -lt 60 ] && _limit_wait=60
+        if [ "$_limit_wait" -le "${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}" ]; then
+          _signal="continue"
+          _detail="usage-limit; resuming ~$(date -r "$_reset" '+%H:%M' 2>/dev/null)"
+        else
+          _signal="died"
+          _detail="usage-limit reset beyond _AUTOPILOT_LIMIT_WAIT_MAX (${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}s)"
+          _limit_wait=""
+        fi
+      else
+        _signal="died"
+        if [ ! -f "$_state" ]; then
+          _detail="no state.json"
+        elif jq -e . "$_state" >/dev/null 2>&1; then
+          _detail="session made no progress (state.json untouched)"
+        else
+          _detail="state.json unreadable"
+        fi
+      fi
+    fi
 
     # Loop metrics (PRD 00013): append exactly one JSONL line per session,
-    # after the signal read and before the case's exit paths, so every path
-    # (next/task_aborted/done/no-signal/unknown) records the line before it
-    # returns or continues. Observation only — the append can never block or
-    # fail the loop (the one sanctioned silent failure, scoped to itself).
-    local _ts_end _wall _prd _batch _phase_end
+    # after the decision and before any exit path, so every branch records
+    # the line. Observation only — the append can never block or fail the
+    # loop (the one sanctioned silent failure, scoped to itself).
+    local _ts_end _wall
     _ts_end=$(date +%s)
     _wall=$(( _ts_end - _ts_start ))
-    if [ -f "$_ap_dir/state.json" ]; then
-      _prd=$(jq -r '.prd // ""' "$_ap_dir/state.json" 2>/dev/null)
-      _batch=$(jq -r '.batch.id // ""' "$_ap_dir/state.json" 2>/dev/null)
-      _phase_end=$(jq -r '.next_phase // ""' "$_ap_dir/state.json" 2>/dev/null)
-    else
-      _prd="" _batch="" _phase_end=""
-    fi
     jq -nc \
       --argjson ts_start "$_ts_start" \
       --argjson ts_end "$_ts_end" \
@@ -195,68 +228,42 @@ autoclaude() {
       --arg batch "$_batch" \
       --arg phase_launched "$_phase_launched" \
       --arg phase_end "$_phase_end" \
-      --arg signal "${signal:-none}" \
+      --arg signal "$_signal" \
       '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal}' \
       2>/dev/null >> "$_ap_dir/loop-metrics.jsonl" || true
 
-    case "$signal" in
-    next)
-      printf '\nStarting next PRD…\n'
+    # ── Act on the branch ──
+    case "$_signal" in
+    continue)
+      if [ -n "$_limit_wait" ]; then
+        printf '\nautoclaude: usage limit hit; waiting %s min (%s).\n' "$(( _limit_wait / 60 ))" "$_detail"
+        python3 ~/.claude/hooks/notify.py --send "autopilot ⏳ ${PWD##*/}" "Usage limit; $_detail." 2>/dev/null
+        sleep "$_limit_wait"
+      elif [ "$_detail" = "replan" ]; then
+        printf '\nWork task prompt overran budget; PRD will be replanned. Continuing…\n'
+      else
+        printf '\nContinuing (next phase: %s)…\n' "$_next"
+      fi
       ;;
-    task_aborted)
-      # Work-phase subagent_prompt_overrun. /work set stall_reason and
-      # appended to task_aborts; /run-autopilot Phase 0 in the next session
-      # replans the PRD in place (PRD stays in dev/local/prds/wip/) and
-      # resumes. This is the one surviving replan path — the context cap no
-      # longer aborts here; it ROTATES, writing the `next` signal instead.
-      # Treat as continue-loop.
-      printf '\nWork task prompt overran budget; PRD will be replanned. Continuing…\n'
+    paused)
+      printf '\nautoclaude: session paused — %s. State left intact for an interactive /run-autopilot.\n' "$_detail" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Paused: $_detail"
+      trap - INT TERM
+      unset _AUTOPILOT_LOOP
+      return 1
       ;;
     done)
-      # Written by batch-end review only — the one signal that means the
-      # backlog is actually empty.
+      mkdir -p "$_ap_dir/reports" 2>/dev/null
+      mv "$_state" "$_ap_dir/reports/${_batch:-$(date +%Y%m%d%H%M)}-state-final.json" 2>/dev/null
       printf '\nBacklog drained.\n'
       python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained."
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return
       ;;
-    '')
-      # Usage limit first: a limit-stuck session (reaped by the sidecar, or
-      # dead any other way) leaves the limit banner as the transcript's last
-      # entry. That is scheduling, not failure — sleep until the reset the
-      # banner names, then continue the loop; the fresh session resumes from
-      # state.json (proven by the manual "limit reset, continue" resumes on
-      # 2026-07-02/03, which idled the loop for hours until typed). The wait
-      # is capped so a mis-parse or a days-away reset still halts loud below.
-      local _reset _wait
-      _reset=$(python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py "$PWD" 2>/dev/null)
-      case "$_reset" in *[!0-9]*) _reset="" ;; esac
-      if [ -n "$_reset" ]; then
-        _wait=$(( _reset - $(date +%s) + 120 ))
-        [ "$_wait" -lt 60 ] && _wait=60
-        if [ "$_wait" -le "${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}" ]; then
-          printf '\nautoclaude: usage limit hit; waiting %s min, resuming ~%s.\n' "$(( _wait / 60 ))" "$(date -r "$_reset" '+%H:%M' 2>/dev/null)"
-          python3 ~/.claude/hooks/notify.py --send "autopilot ⏳ ${PWD##*/}" "Usage limit; resuming ~$(date -r "$_reset" '+%H:%M' 2>/dev/null)." 2>/dev/null
-          sleep "$_wait"
-          continue
-        fi
-        printf '\nautoclaude: usage limit reset is beyond _AUTOPILOT_LIMIT_WAIT_MAX (%ss); halting instead of waiting.\n' "${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}" >&2
-      fi
-      # No signal at all: the session died, paused for attention, or a
-      # Stop-hook gate blocked the handoff. NOT a drained backlog — fail
-      # loud and leave state.json in place for inspection. (A missing
-      # signal used to fall into the drained branch and masked a killed
-      # handoff as success on 2026-06-11.)
-      printf '\nautoclaude: session ended without a signal (died, paused, or gate-blocked). Backlog NOT drained. Check %s/state.json and the last transcript.\n' "$_ap_dir" >&2
-      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped, no signal (died, paused, or gate-blocked). Needs attention."
-      trap - INT TERM
-      unset _AUTOPILOT_LOOP
-      return 1
-      ;;
-    *)
-      printf '\nautoclaude: unknown signal "%s", stopping loop. Check %s/state.json.\n' "$signal" "$_ap_dir" >&2
-      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped, unknown signal '$signal'. Needs attention."
+    died)
+      printf '\nautoclaude: session died (%s). Backlog NOT drained. Check %s/state.json and %s/last-session.log.\n' "$_detail" "$_ap_dir" "$_ap_dir" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: $_detail. Needs attention."
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return 1

@@ -3,8 +3,8 @@
 
 Reads dev/local/autopilot/state.json, determines whether the current phase is a
 review handoff, locates the saved review file, and shells out to review_coverage.py.
-Returns 0 to allow the session to exit, 2 to block it (and delete the signal so the
-loop does not immediately re-trigger).
+Returns 0 to allow the session to exit, 2 to block it so the model can finish the
+review before the turn ends (exit-2 Stop blocking works headless — 00014 spike (c)).
 """
 from __future__ import annotations
 
@@ -49,13 +49,6 @@ def review_file_for(surface: str, prd_base: str, reviews_dir: Path) -> Path | No
         if best is None or n > best[0]:
             best = (n, candidate)
     return best[1] if best is not None else None
-
-
-def delete_signal(autopilot_dir: Path) -> None:
-    try:
-        (autopilot_dir / "signal").unlink(missing_ok=True)
-    except OSError as exc:
-        sys.stderr.write(f"review coverage: warning: failed to delete signal: {exc}\n")
 
 
 def run_gate(
@@ -103,14 +96,10 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
     at all, so coverage is unknown (not incomplete) and the handoff is allowed
     with a warning.
 
-    This is a PURE decision: no signal deletion, no exit codes, no SIGINT.
-    Both Stop hooks consult it so they can never disagree — ``main()`` here
-    blocks (exit 2) on a True result, while ``autopilot_stop_hook.py``
-    suppresses its signal + SIGINT on a True result. Sharing the decision
-    eliminates the race where the signal hook SIGINT-killed a session that the
-    coverage gate meant to keep alive (observed 2026-06-11 and 2026-06-12:
-    sessions ended on the blocking feedback with no signal, so the loop
-    reported "ended without a signal").
+    This is a PURE decision: no side effects, no exit codes. ``main()`` blocks
+    (exit 2) on a True result. (Historically a second Stop hook — the retired
+    ``autopilot_stop_hook.py``, PRD 00014 — consulted the same decision to
+    avoid racing this one.)
     """
     phase = state.get("phase", "")
     surface = surface_for_phase(phase)
@@ -147,9 +136,9 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
     if code != 0:
         if msg.startswith("DIFF_ERROR"):
             # The gate could not compute the diff at all (infra failure), so
-            # coverage is unknown, not incomplete. Blocking here deletes the
-            # signal and kills the loop with a false "Backlog drained." — the
-            # in-session gate already ran; allow the handoff and warn loudly.
+            # coverage is unknown, not incomplete — the in-session gate
+            # already ran; allow the handoff and warn loudly. (A 2026-06-11
+            # false block here once masked a killed handoff as drained.)
             return (
                 False,
                 f"review coverage: cannot compute diff [{surface}]: {msg}; "
@@ -169,11 +158,10 @@ def main() -> int:
         pass
 
     # Only gate review coverage inside the autopilot shell loop. Interactive
-    # sessions and manual /run-autopilot runs never write the signal file, so
-    # there is no automated review handoff to gate; blocking their exit on a
-    # leftover review-phase state.json deadlocks unrelated work that merely
-    # shares the cwd tree. Per SKILL.md "Loop Detection", $_AUTOPILOT_LOOP
-    # marks a loop-wrapped session.
+    # sessions and manual /run-autopilot runs have no automated review handoff
+    # to gate; blocking their exit on a leftover review-phase state.json
+    # deadlocks unrelated work that merely shares the cwd tree. Per SKILL.md
+    # "Loop Detection", $_AUTOPILOT_LOOP marks a loop-wrapped session.
     if not os.environ.get("_AUTOPILOT_LOOP"):
         return 0
 
@@ -195,7 +183,6 @@ def main() -> int:
         return 0
 
     sys.stderr.write(message + "\n")
-    delete_signal(autopilot_dir)
     return 2
 
 

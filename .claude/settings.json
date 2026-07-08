@@ -268,15 +268,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/skills/run-autopilot/scripts/autopilot_stop_hook.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "python3 ~/.claude/skills/run-autopilot/scripts/review_coverage_hook.py",
             "timeout": 5
           }
@@ -364,16 +355,6 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/observe_tool.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/skills/run-autopilot/scripts/autopilot_yield_clear_hook.py",
             "timeout": 5
           }
         ]
