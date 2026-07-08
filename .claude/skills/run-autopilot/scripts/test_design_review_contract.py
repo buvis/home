@@ -46,6 +46,12 @@ class DesignReviewContractTests(unittest.TestCase):
     def test_design_solution_dispatches_codex(self) -> None:
         self.assertIn("codex-run.sh", self.design)
 
+    def test_design_solution_codex_never_agent_wrapped(self) -> None:
+        # The most-regressed failure mode in this codebase: a subagent that shells
+        # out to a CLI hangs. Pin that codex runs as a direct background Bash
+        # command, never Agent-wrapped — dropping the invariant must fail here.
+        self.assertIn("never a Task subagent", self.design)
+
     def test_design_solution_codex_always_runs_on_clean_dispatch_1(self) -> None:
         self.assertIn("even when dispatch 1 found zero blockers", self.design)
 
