@@ -75,7 +75,10 @@ sections, these headings, in this order**:
 4. `## Data flow` - how data moves through the changed components.
 5. `## Reuse inventory` - from step 2.
 6. `## Alternatives considered` - 2-3 design options, the chosen one, and why.
-7. `## Risks & edge cases`.
+   One option must be the smallest-diff version of the idea; if the chosen
+   design is larger, say what the extra size buys.
+7. `## Risks & edge cases` - include the 2-3 likely next changes after this
+   PRD and anything in this design that boxes them in.
 8. `## Test strategy outline`.
 9. `## Review log` - start empty; the review loop (step 4) fills it.
 
@@ -163,9 +166,14 @@ The fallback rule applies to every codex dispatch (2 and 3).
   `claude-fallback` (dispatch 1 -> `claude`; dispatch 2 -> `codex` or
   `claude-fallback`; dispatch 3 -> `codex` or `claude-fallback`).
 
-Dispatch each reviewer with the **Subagent Watchdog** discipline if you have it
-(background dispatch + timed wait); a hung reviewer must not block an unattended
-run.
+Bound each codex dispatch with a concrete **timed wait**, not an open-ended one.
+After the `run_in_background: true` launch, wait with `TaskOutput(task_id,
+block=true, timeout=600000)` (10 min, the max per call); on a still-running
+return, re-issue the wait once; a second still-running return is the **timed
+wait ceiling** tripping - treat it as a codex outage and take the Claude
+fallback above. This is the 10-min×2 `TaskOutput` deadline for helper-script
+Bash dispatches (`work/references/subagent-dispatch.md`). A hung reviewer must
+never block an unattended run.
 
 ### 5. Terminate
 
