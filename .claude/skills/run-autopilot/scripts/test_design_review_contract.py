@@ -49,6 +49,12 @@ class DesignReviewContractTests(unittest.TestCase):
     def test_design_solution_codex_always_runs_on_clean_dispatch_1(self) -> None:
         self.assertIn("even when dispatch 1 found zero blockers", self.design)
 
+    def test_design_solution_pins_three_dispatch_ceiling(self) -> None:
+        # PRD feature "Verification dispatch (ceiling raised to 3)": reverting the
+        # ceiling to 2 (deleting the conditional codex verification dispatch 3)
+        # must fail here, not slip through green.
+        self.assertIn("3-dispatch ceiling", self.design)
+
     def test_design_solution_has_claude_fallback(self) -> None:
         self.assertIn("claude-fallback", self.design)
 
