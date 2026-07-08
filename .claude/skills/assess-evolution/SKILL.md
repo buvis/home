@@ -9,7 +9,9 @@ A repeatable self-assessment that finds what blocks a project's healthy growth a
 
 Core stance: **route deterministic work to code, the model to judgment** (git-log parsing is code; "is this churn a design flaw" is judgment). **Breadth via parallel read-only auditors, one per lens.** **Verify every load-bearing claim against source before asserting it** — an unverified finding is marked UNVERIFIED, never stated as fact. Calibrate: a healthy codebase under adversarial audit still yields localized, evidence-backed findings — thoroughness of the audit is not evidence of doom.
 
-## 0. Load project config (if present)
+## 0. Catch up first, then load project config
+
+**Live state first**: run the `catchup` skill (git-ferry plugin) before any lens work. Its output — branch diff, open PRs, open issues, CI health — steers direction: open PRs/issues join the already-tracked pointer auditors get in §2, failing CI and recent reverts are pain-point evidence for lens 7, and the §6 roadmap must sequence around in-flight PRs, not collide with them. No catchup skill? `gh pr list`, `gh issue list`, `gh run list --limit 20` cover the essentials.
 
 Look for a project config the invoking skill or repo provides (a `.claude/evolution.md`, an `assess-*` project skill, or an AGENTS.md section). It supplies:
 - **Downstream consumers**: name, repo path, how they consume this project (library dep, spawned binary, network API/transport, FFI), how they pin/version it. Keep this list extensible — new downstreams get appended.
