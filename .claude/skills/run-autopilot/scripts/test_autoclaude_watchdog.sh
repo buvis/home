@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Test harness for _autopilot_loop_yield_stale and _autopilot_loop_watchdog
-# (implemented in ~/.config/bash/plugins/development.plugin.bash). Sources the
-# plugin and drives the sidecar-watchdog logic against a stub `claude`.
+# Test harness for _autopilot_session_cap (implemented in
+# ~/.config/bash/plugins/development.plugin.bash). PRD 00014: the cap is the
+# only kill path in the headless loop — a hung `claude -p` child dies at a
+# hard wall-clock cap (SIGTERM, then SIGKILL after a grace period). Sources
+# the plugin and drives the sidecar against stub `claude` binaries.
 set -u
 
 # ── source the plugin (stubs silence the bash-it bootstrap calls) ─────────────
@@ -20,7 +22,7 @@ _DIRS=()
 cleanup() {
     local p d
     for p in "${_PIDS[@]+"${_PIDS[@]}"}"; do
-        kill "$p" 2>/dev/null || true
+        kill -KILL "$p" 2>/dev/null || true
     done
     for d in "${_DIRS[@]+"${_DIRS[@]}"}"; do
         rm -rf "$d"
@@ -28,69 +30,86 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── guard: all watchdog functions must be defined ─────────────────────────────
+# ── guard: the cap function must be defined; the marker machinery must be gone ─
+type _autopilot_session_cap >/dev/null 2>&1 \
+    || FAIL "function defined: _autopilot_session_cap" "not defined in development.plugin.bash — implement it first"
 type _autopilot_loop_yield_stale >/dev/null 2>&1 \
-    || FAIL "function defined: _autopilot_loop_yield_stale" "not defined in development.plugin.bash — implement it first"
+    && FAIL "marker machinery retired" "_autopilot_loop_yield_stale still defined — PRD 00014 deletes it"
 type _autopilot_loop_watchdog >/dev/null 2>&1 \
-    || FAIL "function defined: _autopilot_loop_watchdog" "not defined in development.plugin.bash — implement it first"
-type _autopilot_loop_usage_limited >/dev/null 2>&1 \
-    || FAIL "function defined: _autopilot_loop_usage_limited" "not defined in development.plugin.bash — implement it first"
-
-# Hermetic: the real predicate reads the host's session transcripts for $PWD;
-# force it inert so host state cannot leak into the marker-driven sections.
-# Section E overrides it back to true to exercise the limited path.
-# (detect_usage_limit.py itself is covered by test_detect_usage_limit.py.)
-_autopilot_loop_usage_limited() { return 1; }
+    && FAIL "marker machinery retired" "_autopilot_loop_watchdog still defined — PRD 00014 deletes it"
+PASS "cap defined; marker machinery gone"
 
 # ── workspace ─────────────────────────────────────────────────────────────────
 WORKDIR=$(mktemp -d)
 _DIRS+=("$WORKDIR")
-MARKER="$WORKDIR/autopilot.marker"
-mkdir -p "$WORKDIR/bin"
-cp /bin/sleep "$WORKDIR/bin/claude"   # stub process whose comm ends in "claude"
+mkdir -p "$WORKDIR/bin" "$WORKDIR/bin2"
+cp /bin/sleep "$WORKDIR/bin/claude"   # stub process whose comm is "claude"
 # macOS SIGKILLs a copied platform binary (its signature no longer validates); ad-hoc
 # re-sign so the stub can exec. codesign is absent on Linux, where the copy runs as-is.
 codesign -f -s - "$WORKDIR/bin/claude" 2>/dev/null || true
+# bash copies for TERM-immune stubs: comm=claude_immune (must NOT be selected)
+# and comm=claude (must be KILL-escalated).
+cp /bin/bash "$WORKDIR/bin/claude_immune"
+codesign -f -s - "$WORKDIR/bin/claude_immune" 2>/dev/null || true
+cp /bin/bash "$WORKDIR/bin2/claude"
+codesign -f -s - "$WORKDIR/bin2/claude" 2>/dev/null || true
 
 # =============================================================================
-# A. _autopilot_loop_yield_stale
+# A. Under the cap: neither target nor bystander is touched
 # =============================================================================
 
-# A1: marker backdated 30 min — older than 20-min threshold → stale (exit 0)
-touch "$MARKER"
-touch -t "$(date -v-30M +%Y%m%d%H%M 2>/dev/null || date -d '30 minutes ago' +%Y%m%d%H%M)" "$MARKER"
-if _autopilot_loop_yield_stale "$MARKER" 20; then
-    PASS "30-min-old marker is stale (exit 0)"
+"$WORKDIR/bin/claude" 300 &
+STUB_A=$!
+_PIDS+=($STUB_A)
+
+sleep 300 &
+BYSTANDER_A=$!
+_PIDS+=($BYSTANDER_A)
+
+# cap 60s, poll 1s — well under the cap for the whole section
+_autopilot_session_cap "$$" 60 1 1 &
+CAP_A=$!
+_PIDS+=($CAP_A)
+
+sleep 3
+
+if kill -0 $STUB_A 2>/dev/null; then
+    PASS "under cap: target (claude) not signaled"
 else
-    FAIL "30-min-old marker is stale (exit 0)" \
-         "function returned non-zero for a file backdated 30 min with a 20-min threshold"
+    FAIL "under cap: target (claude) not signaled" \
+         "stub-claude was killed after 3 polls with a 60s cap"
 fi
-rm -f "$MARKER"
 
-# A2: just-touched marker — newer than threshold → not stale (exit 1)
-touch "$MARKER"
-if ! _autopilot_loop_yield_stale "$MARKER" 20; then
-    PASS "fresh marker is not stale (exit 1)"
+if kill -0 $BYSTANDER_A 2>/dev/null; then
+    PASS "under cap: bystander (sleep) not signaled"
 else
-    FAIL "fresh marker is not stale (exit 1)" \
-         "function returned 0 (stale) for a just-touched file"
+    FAIL "under cap: bystander (sleep) not signaled" \
+         "bystander (comm=sleep) was killed under the cap"
 fi
-rm -f "$MARKER"
 
-# A3: absent marker → not stale (exit 1)
-if ! _autopilot_loop_yield_stale "$MARKER" 20; then
-    PASS "absent marker is not stale (exit 1)"
+# Kill the target so the sidecar returns, then verify it does return
+kill $STUB_A 2>/dev/null || true
+
+( sleep 5; kill $CAP_A 2>/dev/null ) &
+SAFETY_A=$!
+wait $CAP_A 2>/dev/null || true
+kill $SAFETY_A 2>/dev/null; wait $SAFETY_A 2>/dev/null || true
+
+if kill -0 $BYSTANDER_A 2>/dev/null; then
+    PASS "sidecar returns when the child dies; bystander still alive"
 else
-    FAIL "absent marker is not stale (exit 1)" \
-         "function returned 0 (stale) for a non-existent file"
+    FAIL "sidecar returns when the child dies; bystander still alive" \
+         "bystander was killed when the sidecar returned"
 fi
+
+kill $BYSTANDER_A 2>/dev/null || true
+wait $BYSTANDER_A 2>/dev/null || true
+wait $STUB_A 2>/dev/null || true
 
 # =============================================================================
-# B. _autopilot_loop_watchdog: pid targeting — never itself, never bystander
+# B. Over the cap: SIGTERM kills a TERM-obeying child
 # =============================================================================
 
-# Spawn target (comm = "claude") and bystander (comm = "sleep") as direct
-# children of $$ so the watchdog sees them as children of <wrapper_pid>.
 "$WORKDIR/bin/claude" 300 &
 STUB_B=$!
 _PIDS+=($STUB_B)
@@ -99,149 +118,81 @@ sleep 300 &
 BYSTANDER_B=$!
 _PIDS+=($BYSTANDER_B)
 
-# Fresh marker — watchdog must not signal anything
-touch "$MARKER"
+# cap 1s, poll 1s, grace 1s → TERM at first poll past the cap
+_autopilot_session_cap "$$" 1 1 1 &
+CAP_B=$!
 
-# Run watchdog in background (it loops until stub-claude dies)
-_autopilot_loop_watchdog "$$" "$MARKER" 20 1 5 &
-WATCHDOG_B=$!
-_PIDS+=($WATCHDOG_B)
-
-# Allow 3 poll intervals with fresh marker; neither process should be touched
-sleep 3
-
-if kill -0 $STUB_B 2>/dev/null; then
-    PASS "fresh marker: watchdog does not signal target (claude)"
-else
-    FAIL "fresh marker: watchdog does not signal target (claude)" \
-         "stub-claude (comm=claude) was killed after 3 polls with a fresh marker"
-fi
-
-if kill -0 $BYSTANDER_B 2>/dev/null; then
-    PASS "fresh marker: watchdog does not signal bystander (sleep)"
-else
-    FAIL "fresh marker: watchdog does not signal bystander (sleep)" \
-         "bystander (comm=sleep) was killed after 3 polls with a fresh marker"
-fi
-
-# Kill stub-claude so the watchdog returns, then verify bystander still alive
-kill $STUB_B 2>/dev/null || true
-
-( sleep 5; kill $WATCHDOG_B 2>/dev/null ) &
+( sleep 15; kill $CAP_B 2>/dev/null ) &
 SAFETY_B=$!
-wait $WATCHDOG_B 2>/dev/null || true
+wait $CAP_B 2>/dev/null || true
 kill $SAFETY_B 2>/dev/null; wait $SAFETY_B 2>/dev/null || true
 
-if kill -0 $BYSTANDER_B 2>/dev/null; then
-    PASS "bystander alive after watchdog returns"
+if ! kill -0 $STUB_B 2>/dev/null; then
+    PASS "over cap: target killed by SIGTERM"
 else
-    FAIL "bystander alive after watchdog returns" \
-         "bystander was killed when the watchdog returned after stub-claude died"
+    FAIL "over cap: target killed by SIGTERM" \
+         "stub-claude still alive after the cap fired (cap=1s, poll=1s)"
 fi
 
-# Teardown B
+if kill -0 $BYSTANDER_B 2>/dev/null; then
+    PASS "over cap: bystander untouched"
+else
+    FAIL "over cap: bystander untouched" \
+         "bystander (comm=sleep) was killed by the cap"
+fi
+
 kill $BYSTANDER_B 2>/dev/null || true
 wait $BYSTANDER_B 2>/dev/null || true
 wait $STUB_B 2>/dev/null || true
-rm -f "$MARKER"
 
 # =============================================================================
-# C. _autopilot_loop_watchdog: stale marker → child is killed
+# C. comm exact-match contract, then KILL escalation for a TERM-immune target
 # =============================================================================
 
-# Pre-age marker (30 min old, threshold 20 min)
-touch "$MARKER"
-touch -t "$(date -v-30M +%Y%m%d%H%M 2>/dev/null || date -d '30 minutes ago' +%Y%m%d%H%M)" "$MARKER"
-
-# Spawn stub-claude as child of $$
-"$WORKDIR/bin/claude" 300 &
+# comm=claude_immune must be invisible to the resolver (exact-match contract):
+# with no comm=claude child present the sidecar finds nothing and returns.
+"$WORKDIR/bin/claude_immune" -c 'trap "" TERM; while :; do sleep 1; done' &
 STUB_C=$!
 _PIDS+=($STUB_C)
 
-# Watchdog: poll=1s, kill_after=2
-# Expected: stale detected -> SIGINT; 2 more stale polls -> SIGKILL; child dies; returns
-_autopilot_loop_watchdog "$$" "$MARKER" 20 1 2 &
-WATCHDOG_C=$!
+_autopilot_session_cap "$$" 1 1 1 &
+CAP_C0=$!
+( sleep 6; kill $CAP_C0 2>/dev/null ) &
+SAFETY_C0=$!
+wait $CAP_C0 2>/dev/null || true
+kill $SAFETY_C0 2>/dev/null; wait $SAFETY_C0 2>/dev/null || true
 
-# Safety: force-kill watchdog at 15s so a buggy implementation cannot hang the suite
-( sleep 15; kill $WATCHDOG_C 2>/dev/null ) &
+if kill -0 $STUB_C 2>/dev/null; then
+    PASS "comm=claude_immune is not selected (exact-match contract)"
+else
+    FAIL "comm=claude_immune is not selected (exact-match contract)" \
+         "a process whose comm merely contains 'claude' was signaled"
+fi
+kill -KILL $STUB_C 2>/dev/null || true
+wait $STUB_C 2>/dev/null || true
+
+# TERM-immune comm=claude target: TERM ignored → SIGKILL after grace.
+"$WORKDIR/bin2/claude" -c 'trap "" TERM; while :; do sleep 1; done' &
+STUB_C2=$!
+_PIDS+=($STUB_C2)
+
+# cap 1s, poll 1s, grace 2s → TERM ignored → KILL two seconds later
+_autopilot_session_cap "$$" 1 1 2 &
+CAP_C=$!
+
+( sleep 20; kill $CAP_C 2>/dev/null ) &
 SAFETY_C=$!
-wait $WATCHDOG_C 2>/dev/null || true
+wait $CAP_C 2>/dev/null || true
 kill $SAFETY_C 2>/dev/null; wait $SAFETY_C 2>/dev/null || true
 
-if ! kill -0 $STUB_C 2>/dev/null; then
-    PASS "stale marker: watchdog kills target"
+if ! kill -0 $STUB_C2 2>/dev/null; then
+    PASS "TERM-immune target: SIGKILL after grace"
 else
-    FAIL "stale marker: watchdog kills target" \
-         "stub-claude still alive after watchdog ran with a stale marker (poll=1s, kill_after=2)"
+    FAIL "TERM-immune target: SIGKILL after grace" \
+         "TERM-immune stub-claude survived the cap's KILL escalation"
 fi
 
-wait $STUB_C 2>/dev/null || true
-rm -f "$MARKER"
-
-# =============================================================================
-# D. _autopilot_loop_watchdog: no marker → child survives
-# =============================================================================
-
-# No marker present — absent is not-stale (proven by A3 above)
-"$WORKDIR/bin/claude" 300 &
-STUB_D=$!
-_PIDS+=($STUB_D)
-
-_autopilot_loop_watchdog "$$" "$MARKER" 20 1 5 &
-WATCHDOG_D=$!
-_PIDS+=($WATCHDOG_D)
-
-# Allow 3 poll intervals; stub-claude must not be touched
-sleep 3
-
-if kill -0 $STUB_D 2>/dev/null; then
-    PASS "absent marker: target survives multiple polls"
-else
-    FAIL "absent marker: target survives multiple polls" \
-         "stub-claude was killed despite no marker being present"
-fi
-
-# Teardown D — kill stub-claude so watchdog can exit, then wait for both
-kill $STUB_D 2>/dev/null || true
-
-( sleep 5; kill $WATCHDOG_D 2>/dev/null ) &
-SAFETY_D=$!
-wait $WATCHDOG_D 2>/dev/null || true
-kill $SAFETY_D 2>/dev/null; wait $SAFETY_D 2>/dev/null || true
-wait $STUB_D 2>/dev/null || true
-
-# =============================================================================
-# E. _autopilot_loop_watchdog: usage-limit-stuck session → child is killed
-# =============================================================================
-
-# Fresh marker (not stale) but the limit predicate reports stuck — the
-# watchdog must reap the session exactly like a stale marker.
-touch "$MARKER"
-_autopilot_loop_usage_limited() { return 0; }
-
-"$WORKDIR/bin/claude" 300 &
-STUB_E=$!
-_PIDS+=($STUB_E)
-
-_autopilot_loop_watchdog "$$" "$MARKER" 20 1 2 &
-WATCHDOG_E=$!
-
-( sleep 15; kill $WATCHDOG_E 2>/dev/null ) &
-SAFETY_E=$!
-wait $WATCHDOG_E 2>/dev/null || true
-kill $SAFETY_E 2>/dev/null; wait $SAFETY_E 2>/dev/null || true
-
-if ! kill -0 $STUB_E 2>/dev/null; then
-    PASS "usage-limit stuck: watchdog kills target despite fresh marker"
-else
-    FAIL "usage-limit stuck: watchdog kills target despite fresh marker" \
-         "stub-claude still alive after watchdog ran with the limit predicate forced true"
-fi
-
-wait $STUB_E 2>/dev/null || true
-rm -f "$MARKER"
-_autopilot_loop_usage_limited() { return 1; }
+wait $STUB_C2 2>/dev/null || true
 
 # =============================================================================
 echo ""

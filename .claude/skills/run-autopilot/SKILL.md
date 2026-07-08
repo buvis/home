@@ -19,8 +19,11 @@ Makes autonomous decisions backed by research (dependencies, recurring issues, A
 - `/run-autopilot` — auto-select PRD (wip first, then backlog), run full cycle
 - `/run-autopilot <prd-filename>` — full cycle with specific PRD
 - `/run-autopilot status` — print current dashboard, no action
+- `/run-autopilot review-batch` — interactively review a finished batch's deferred items
 
 If invoked with `status`, read `dev/local/autopilot/state.json`, print phase/cycle/task summary, and stop.
+
+If invoked with `review-batch`, load the newest `dev/local/autopilot/deferred/{batch_id}-deferred.json` and run the "Batch-End Review" presentation (Phase 9) against it — chunked by PRD, wait for user decisions, execute "fix now" items. No state changes; the batch is already closed. Stop when all chunks are reviewed (or the user says stop).
 
 ## State Management
 
@@ -29,7 +32,7 @@ All autopilot artifacts live under `dev/local/autopilot/`, organized by type:
 ```
 dev/local/autopilot/
   state.json                              # current cycle state
-  signal                                  # transient, used by stop hook
+  last-session.log                        # wrapper-teed output of the last headless session
   reports/{batch_id}-report.md            # batch audit report
   deferred/{batch_id}-deferred.json       # unresolved items across PRDs
 ```
@@ -45,7 +48,7 @@ Create `dev/local/autopilot/` and subdirectories if missing. Initialize state fi
 Durable artifacts are the paper trail of a run; they outlive the batch and must survive every cleanup. Disposable artifacts are transient scaffolding. Cleanup — including the user CLAUDE.md "clean up temp files" mandate — defers to this contract: "temp" means the disposable list below and nothing else. Never delete a directory wholesale when it holds durable artifacts; delete disposables by name.
 
 - **Durable** (never delete): `dev/local/prds/done/` and its PRDs, `dev/local/reviews/` (per-cycle review files, blind/doubt reviews, and the `<prd-base>-audit.md` audit renders), `dev/local/designs/` (per-PRD design docs), `dev/local/autopilot/reports/` (batch reports), `dev/local/autopilot/deferred/` (the `{batch_id}-deferred.json` records), `dev/local/autopilot/loop-metrics.jsonl` (the per-session loop metrics, accumulates across batches), and `dev/local/project-capsule.md`.
-- **Disposable** (safe to delete by name): `dev/local/autopilot/signal`, `dev/local/tmp/`, `dev/local/autopilot/state.json` (at batch end only — see Phase 9), and `dev/local/autopilot/replan-context.md`.
+- **Disposable** (safe to delete by name): `dev/local/tmp/`, `dev/local/autopilot/last-session.log`, `dev/local/autopilot/pause-requested`, `dev/local/autopilot/state.json` (at batch end only — in loop mode the wrapper archives it to `reports/{batch_id}-state-final.json`; see Phase 9), and `dev/local/autopilot/replan-context.md`.
 
 Batch end and any cleanup step enumerate the disposable list explicitly; they never `rm` a durable path or a directory that contains one. This is what keeps a completed PRD's review trail intact after the batch closes (the warden-00011 plugin repos lost `autopilot/` and `reviews/` to an over-broad cleanup).
 
@@ -53,9 +56,18 @@ Batch end and any cleanup step enumerate the disposable list explicitly; they ne
 
 When `/run-autopilot` is invoked and `dev/local/autopilot/state.json` exists with `batch.completed_prds`, this is a continuation after a session restart. Preserve `batch.completed_prds` (including `batch.id`) and proceed to Phase 0 to pick the next PRD.
 
-Clean up stale signal file at start: locate the autopilot dir with the walk-up helper (`_walk_up.py --bash`) and delete `<autopilot_dir>/signal` if it exists. Do not use a bare relative path. **This is an intentional resume-safety delete, not a handoff signal write.** It clears a leftover signal from an abnormal exit (a non-loop crash) so the loop acts only on signals the Stop hook writes this session. It is therefore distinct from the signal-write migration (PRD 00043): the "zero model-issued signal writes" success metric counts model-issued handoff *writes*, which this session-start cleanup *delete* is not, so the metric explicitly excludes it.
+Delete `state.pause_reason` from `state.json` if present — unconditional, on every invocation, NOT gated on `batch.completed_prds`. A new session means any pause is being resumed; `pause_reason` belongs only to an unresolved pause and is not overwritten by normal progression, so it must be cleared here or it halts the resumed PRD's next hand-off. Cap-pause detection is unaffected — it keys on `cap_pause_reason`, which this delete does not touch.
 
-Also delete `state.pause_reason` from `state.json` if present, in the same scope as the stale-signal delete above — unconditional, on every invocation, NOT gated on `batch.completed_prds`. A new session means any pause is being resumed; `pause_reason` belongs only to an unresolved pause and is not overwritten by normal progression, so it must be cleared here or it halts the resumed PRD's next hand-off. Cap-pause detection is unaffected — it keys on `cap_pause_reason`, which this delete does not touch.
+### Operator runbook (unattended batches)
+
+All interaction with a running `autoclaude` batch happens at session boundaries — the only safe point:
+
+- **Watch**: `tail -f dev/local/autopilot/last-session.log` — the wrapper tees the live event log of the running headless turn there.
+- **Pause**: `touch dev/local/autopilot/pause-requested` — the wrapper consumes the marker at the next session boundary, notifies "paused by operator", and stops the loop with state intact.
+- **Take over**: with the loop stopped (pause marker, or Ctrl-C on the wrapper), run `/run-autopilot` in a normal interactive session — resume-by-artifact reads the same `state.json`, and full interactive semantics (questions, PAUSEs) apply because `$_AUTOPILOT_LOOP` is unset. Restart `autoclaude` afterwards to go unattended again.
+- **Forensics**: `claude --resume <session-id>` (the id is in the init event at the top of `last-session.log`) reopens a finished headless conversation for questioning. Harmless by construction: sessions are disposable; `state.json` plus the artifacts are the only orchestration contract, so a resumed chat cannot fork the loop.
+
+A running headless turn is never interrupted except by the wrapper's wall-clock cap (`_AUTOPILOT_SESSION_MAX`, default 7200s).
 
 ### Task Counts
 
@@ -105,7 +117,7 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
 - `stall_reason.stalled` is `"subagent_prompt_overrun"` — the previous session's work aborted from a hook. The PRD is not broken; one task was scoped too big. **Follow `references/recovery.md` → "Work-phase abort: replan procedure"**, then STOP (the next session re-enters `build` at planning). This is the one surviving replan path.
 - `stall_reason.stalled` is `"escalation_exhausted"` — Phase 6 owns this inline; seeing it at Phase 0 means a crash landed mid-stall-move. **Follow `references/recovery.md` → "Crash recovery: escalation_exhausted seen at Phase 0"**, then fall through to Normal PRD selection.
 - `state.phase == "paused"` AND `state.cap_pause_reason` is set (the previous session's Phase 5 cap-pause behavior fired). The capped PRD is still in `dev/local/prds/wip/`; do NOT treat it as fresh PRD selection. **Follow `references/recovery.md` → "Cap-Pause Resume Handler"** — it presents the recorded unresolved findings and cycle count via the `AskUserQuestion` tool and branches on resume/abandon.
-- `state.cap_rotations` has a new entry but none of the above holds — the previous session hit the Work-turn context cap and the cap hook rotated to a fresh session. The cap hook recorded the rotation (appended `cap_rotations`, reset the in-flight task to `pending`, set `next_phase: "build"`); the Stop hook then wrote the `next` signal on STOP from that `next_phase`. NOT a replan. A `cap_rotations` entry is **informational only** and needs no special handling here: fall through to Normal PRD selection, which resumes `build` by artifact (capsule fresh → skip catchup; tasks exist → skip planning; `/work` continues at the first non-completed task — the rotated task, now reset to `pending`).
+- `state.cap_rotations` has a new entry but none of the above holds — the previous session hit the Work-turn context cap and the cap hook rotated to a fresh session. The cap hook recorded the rotation (appended `cap_rotations`, reset the in-flight task to `pending`, set `next_phase: "build"`); that session then ended its turn and the loop wrapper relaunched on the non-empty `next_phase`. NOT a replan. A `cap_rotations` entry is **informational only** and needs no special handling here: fall through to Normal PRD selection, which resumes `build` by artifact (capsule fresh → skip catchup; tasks exist → skip planning; `/work` continues at the first non-completed task — the rotated task, now reset to `pending`).
 - None of the above (neither a recognised `stall_reason` value nor the cap-pause condition `phase == "paused"` + `cap_pause_reason`) — continue with Normal PRD selection below.
 
 ### Normal PRD selection
@@ -258,7 +270,7 @@ After completion, query `TaskList` again and update state: set `phase: "review"`
 
 ### Hand off to a fresh session for reviews
 
-After the build completes (all tasks done), do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Use the same signal-file + Stop-hook mechanism as Phase 9's PRD-to-PRD transition:
+After the build completes (all tasks done), do NOT continue into Phase 4 in the same session. The review phases (4, 7, 8) each spawn multiple cloud reviewers and need a clean context window. Hand off by ending the turn (the Session Loop contract):
 
 1. Update `state.next_phase` to `"review"` (the phase the next session will run). The next session resumes at this phase.
 2. Print:
@@ -270,7 +282,7 @@ After the build completes (all tasks done), do NOT continue into Phase 4 in the 
 
 3. **STOP.** Do NOT invoke `/review-work-completion`, `/review-blindly`, or `/review-with-doubt` in this session, even if context budget appears sufficient.
 
-The Stop hook owns the signal: it reads `next_phase: "review"` from `state.json` and — when `$_AUTOPILOT_LOOP` is set — writes `next` to the signal file itself, then auto-exits. The shell loop wrapper (`while true; do claude "/run-autopilot"; ... done`) starts a fresh session and re-invokes `/run-autopilot`. The new session reads `dev/local/autopilot/state.json` (`phase: "review"`), resumes at Phase 4, and re-enters `build` only if an artifact is missing (capsule stale, no tasks, or tasks pending). Outside the loop (`$_AUTOPILOT_LOOP` unset) the hook writes nothing — the session stays interactive and the same resume logic applies on the next manual invocation.
+**End the turn.** In loop mode the session is headless (`claude -p`): the process exits at turn end, the wrapper reads `state.json` (non-empty `next_phase: "review"`) and launches a fresh session, which resumes at Phase 4 and re-enters `build` only if an artifact is missing (capsule stale, no tasks, or tasks pending). Outside the loop, ending the turn leaves the session interactive and the same resume logic applies on the next manual invocation.
 
 ## Phase 4: Review
 
@@ -303,7 +315,7 @@ Worked example, cap 3:
 
 Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5 → pause).
 
-When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND unresolved findings remain), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes, no signal write). When the cap is NOT hit (or the review converged with no findings), continue with the normal Outcomes flow below.
+When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND unresolved findings remain), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes). When the cap is NOT hit (or the review converged with no findings), continue with the normal Outcomes flow below.
 
 ### Cap-pause behavior
 
@@ -324,7 +336,7 @@ Executed only when the Cap check above fired (`state.cycle >= state.rework_cap` 
 
 4. **Best-effort dashboard hint (optional).** MAY set `state.needs_attention = true`. This is a hint only — `needs_attention` is dashboard-only state cleared by the `clear-pidash-attention.py` PostToolUse hook on the next tool call, so it does NOT survive and MUST NOT be relied on as the pause indicator. The authoritative cap-pause signal is `phase == "paused"` PLUS `cap_pause_reason` being set (NOT `needs_attention`).
 
-5. **No signal is written — by design.** Step 3 set `state.phase = "paused"`, and the Stop hook's decision table maps `phase == "paused"` → no signal (cap-pause and PAUSE sites stay interactive). So the hook suppresses the loop signal on its own; the shell wrapper sees no signal and exits its loop cleanly, and the user re-invokes `/run-autopilot` to handle the pause. The model writes nothing to the signal file.
+5. **The pause halts the loop by state alone.** Step 3 set `state.phase = "paused"`; the loop wrapper's decision table maps a paused state to "notify the user and stop the loop", leaving `state.json` intact. The user re-invokes `/run-autopilot` to handle the pause.
 
 6. **Print the cap-pause banner:**
    ```
@@ -384,7 +396,7 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 
 ### Hand off to a fresh session before blind review
 
-When the flow is about to enter Phase 7 — the review-rework loop has converged (the "No issues found" outcome above) or exhausted its cycles — do NOT continue into Phase 7 in this session. Phase 7 spawns a blind reviewer and must start with a clean context window, uncluttered by this session's review findings and rework. Use the same signal-file + Stop-hook mechanism as the Phase 3 hand-off:
+When the flow is about to enter Phase 7 — the review-rework loop has converged (the "No issues found" outcome above) or exhausted its cycles — do NOT continue into Phase 7 in this session. Phase 7 spawns a blind reviewer and must start with a clean context window, uncluttered by this session's review findings and rework. Same end-turn hand-off as Phase 3:
 
 1. Add `"review"` to `phases_completed` — the marker Phase 4 reads to skip the whole review-rework loop on resume.
 2. Set `phase` and `next_phase` to `"blind"`. The next session resumes here in a fresh session.
@@ -397,7 +409,7 @@ When the flow is about to enter Phase 7 — the review-rework loop has converged
 
 4. **STOP.** Do NOT invoke `/review-blindly` or `/review-with-doubt` in this session.
 
-The Stop hook reads `next_phase: "blind"` from `state.json` and — when `$_AUTOPILOT_LOOP` is set — writes `next` to the signal file itself, then auto-exits. The fresh session reads `dev/local/autopilot/state.json` (with `"review"` in `phases_completed`), skips Phases 4-6 via the loop-level skip in Phase 4, and resumes at Phase 7. Outside the loop the hook writes nothing and the same resume logic applies on the next manual invocation.
+**End the turn.** In loop mode the wrapper reads the non-empty `next_phase: "blind"` and launches a fresh session, which reads `dev/local/autopilot/state.json` (with `"review"` in `phases_completed`), skips Phases 4-6 via the loop-level skip in Phase 4, and resumes at Phase 7. Outside the loop the same resume logic applies on the next manual invocation.
 
 ## Phase 6: Rework
 
@@ -494,7 +506,7 @@ This phase runs once per PRD.
 
 ### Hand off to a fresh session for doubt review
 
-After Phase 7 completes (either outcome above — `"blind"` is now in `phases_completed` and `next_phase` is `"doubt"`), do NOT continue into Phase 8 in this session. The doubt review needs a clean context window. Same mechanism as the Phase 3 and Phase 5 hand-offs:
+After Phase 7 completes (either outcome above — `"blind"` is now in `phases_completed` and `next_phase` is `"doubt"`), do NOT continue into Phase 8 in this session. The doubt review needs a clean context window. Same end-turn hand-off as the Phase 3 and Phase 5 hand-offs:
 
 1. Confirm `"blind"` is in `phases_completed` and `phase`/`next_phase` are `"doubt"` (set by the outcome handlers above).
 2. Print:
@@ -506,7 +518,7 @@ After Phase 7 completes (either outcome above — `"blind"` is now in `phases_co
 
 3. **STOP.** Do NOT invoke `/review-with-doubt` in this session.
 
-The Stop hook reads `next_phase: "doubt"` from `state.json` and — when `$_AUTOPILOT_LOOP` is set — writes `next` to the signal file itself, then auto-exits. The fresh session reads `dev/local/autopilot/state.json` (`"blind"` in `phases_completed`), skips Phases 4-7 via their skip conditions, and resumes at Phase 8. Outside the loop the hook writes nothing and the same resume logic applies on the next manual invocation.
+**End the turn.** In loop mode the wrapper reads the non-empty `next_phase: "doubt"` and launches a fresh session, which reads `dev/local/autopilot/state.json` (`"blind"` in `phases_completed`), skips Phases 4-7 via their skip conditions, and resumes at Phase 8. Outside the loop the same resume logic applies on the next manual invocation.
 
 ## Phase 8: Doubt Review
 
@@ -658,12 +670,14 @@ Summary:
 ### Continuation
 
 10. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/`cap_rotations`/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`repo_root`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason` (the next PRD starts a fresh plan, not a rework dispatch; `cap_rotations`, `work_start_sha`, `repo_root`, and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha` and `repo_root`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases; the design fields are likewise per-PRD scratch — Phase 0 re-derives `design_mode`/`design_gate` from the next PRD's frontmatter and Phase 1.5 re-sets `design_doc`, cleared here so a skipped or aborted next PRD can't inherit them), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `phase: "build"` and `next_phase: "build"` (the next PRD starts the build gate at catchup). The Stop hook reads `next_phase: "build"` and — when `$_AUTOPILOT_LOOP` is set — writes `next` to the signal file itself, then auto-exits; outside the loop it writes nothing and the user re-invokes `/run-autopilot` manually for the next PRD. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/`cap_rotations`/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`repo_root`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason` (the next PRD starts a fresh plan, not a rework dispatch; `cap_rotations`, `work_start_sha`, `repo_root`, and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha` and `repo_root`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases; the design fields are likewise per-PRD scratch — Phase 0 re-derives `design_mode`/`design_gate` from the next PRD's frontmatter and Phase 1.5 re-sets `design_doc`, cleared here so a skipped or aborted next PRD can't inherit them), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `phase: "build"` and `next_phase: "build"` (the next PRD starts the build gate at catchup). Then end the turn — in loop mode the wrapper reads the non-empty `next_phase: "build"` and launches a fresh session for the next PRD; outside the loop the user re-invokes `/run-autopilot` manually. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
      Then **STOP**.
-   - **No** → print batch summary. Set `state.phase = "paused"` and write `state.pause_reason = {"site": "batch_end", "detail": "batch-end review pending user decisions"}`; do NOT delete `state.json` — batch-end review is an interactive pause, so the Stop hook suppresses the loop signal (`phase == "paused"` → no signal) while you collect user decisions, and it needs `state.json` present to emit the final `done`. The session stays interactive for batch-end review.
+   - **No** → print the batch summary below, then branch on loop mode:
+     - **Loop mode (`$_AUTOPILOT_LOOP` set) — non-interactive batch end.** The deferred JSON (step 6) and the batch report (step 7) are already written. Set `state.phase = "done"` and `state.next_phase = ""` (empty; nothing more to run), notify the user (`python3 ~/.claude/hooks/notify.py --send "autopilot 📋 {repo}" "Batch done: {n} PRDs, {k} deferred items. Run /run-autopilot review-batch."`), print the summary, and END THE TURN. The wrapper reads the empty `next_phase`, archives `state.json` to `reports/{batch_id}-state-final.json`, and stops the loop. Do NOT run the chunked Batch-End Review here — no human is present; it runs later via `/run-autopilot review-batch`.
+     - **Outside the loop — interactive batch end.** Run the Batch-End Review presentation below, then set `state.phase = "done"` and `state.next_phase = ""` and STOP. `state.json` stays on disk; the next invocation's batch-identity rollover (Phase 0 step 3) mints a fresh batch.
      ```
      ── AUTOPILOT ── COMPLETE ───────────────────────────────────────────
 
@@ -675,7 +689,7 @@ Summary:
 
      ### Batch-End Review
 
-     Before exiting, collect ALL pending items from across the batch and present them to the user. This is mandatory if any items exist - never auto-exit with unreviewed items.
+     Collect ALL pending items from across the batch and present them to the user. Interactively, this is mandatory if any items exist — never exit with items unpresented. In loop mode the batch ends non-interactively (see the branch above) and this presentation runs later via `/run-autopilot review-batch`.
 
      **Source:** `dev/local/autopilot/deferred/{batch_id}-deferred.json` (single source of truth - all items were written here at Phase 9 step 6 of each PRD). Contains four item types:
      - `deferred_decision` - issues that failed research or were deferred for other reasons
@@ -717,69 +731,48 @@ Summary:
 
      Wait for user decisions on each PRD chunk before showing the next. For "fix now" items, execute the fix before continuing. For "create issue", create a GitHub issue with the context shown.
 
-     After all PRD chunks are reviewed (or user says stop), **retain** the deferred JSON — `dev/local/autopilot/deferred/` is durable (the batch's deferred-items record per the Retention contract), so do NOT delete it. Set `state.phase = "done"` and `state.next_phase = ""` (empty; nothing more to run), then STOP. The Stop hook reads `next_phase: ""` (with `phase` no longer `"paused"`), writes `done` to the signal file, deletes `state.json` so the next batch starts from a clean slate, and auto-exits; the shell loop sees `done` and stops. Outside the loop (`$_AUTOPILOT_LOOP` unset) the hook writes nothing — leave the session interactive.
-     If the deferred JSON doesn't exist or is empty, set `state.phase = "done"` and `state.next_phase = ""` and STOP immediately — the hook emits `done` and cleans up the same way.
+     After all PRD chunks are reviewed (or user says stop), **retain** the deferred JSON — `dev/local/autopilot/deferred/` is durable (the batch's deferred-items record per the Retention contract), so do NOT delete it. Then STOP (the interactive batch-end branch above already set `phase: "done"` and `next_phase: ""`).
+     If the deferred JSON doesn't exist or is empty, there is nothing to present — skip the presentation and STOP.
 
 ## Session Loop
 
-Autopilot supports automatic session cycling via a signal file + Stop hook. This enables unattended PRD-to-PRD transitions while keeping sessions interactive.
+Unattended mode runs each session headless: the `autoclaude` wrapper (in `~/.config/bash/plugins/development.plugin.bash`) launches `claude -p "/run-autopilot"`, the session runs exactly one turn, and the process exits at turn end. There is no signal file and no Stop-hook choreography — **`state.json` is the entire hand-off contract**.
 
-**Signal file:** `dev/local/autopilot/signal` — written by the Stop hook (`scripts/autopilot_stop_hook.py`) from `state.json`, never by the model. Possible values:
+**Hand-off = write state, print banner, end the turn.** After the process exits, the wrapper reads `state.json` and branches:
 
-- `next` — emitted when `state.next_phase` is a non-empty gate (`review`/`blind`/`doubt`/`build`) and work remains: the build→review hand-off, the review→blind and blind→doubt hand-offs, Phase 9 step 10 when more PRDs remain, AND a Work-turn context-cap overrun, where `autopilot_context_cap_hook.py` records the rotation (appends to `state.cap_rotations`, resets the in-flight task to `pending`, sets `next_phase: "build"`); the Stop hook writes `next` on STOP. The fresh session resumes `build` by artifact — capsule fresh → skip catchup, tasks exist → skip planning, `/work` continues at the first non-completed task (the rotated task, now reset to `pending`); NO replan. Shell wrapper continues the loop.
-- `done` — emitted when batch-end review sets `state.next_phase: ""` (empty). The hook also deletes `state.json` so the next batch starts clean. Shell wrapper exits the loop.
-- `task_aborted` — emitted when `state.stall_reason.stalled == "subagent_prompt_overrun"` (set by `/work`'s Subagent Dispatch Budget when an assembled subagent prompt exceeded 50K after one trim pass; `/work` also appends to `state.task_aborts`). This is the one surviving replan path. Shell wrapper continues the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see Phase 0 step 1's replan procedure).
+1. `pause_reason` set or `phase == "paused"` → notify the user with the pause detail, stop the loop, state left intact.
+2. `stall_reason.stalled == "subagent_prompt_overrun"` (set by `/work`'s Subagent Dispatch Budget when an assembled subagent prompt exceeded 50K after one trim pass; `/work` also appends to `state.task_aborts`) → continue the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see Phase 0 step 1's replan procedure). This is the one surviving replan path.
+3. `next_phase == ""` (empty) → backlog drained: the wrapper archives `state.json` to `reports/{batch_id}-state-final.json`, notifies, and stops the loop.
+4. `next_phase` non-empty → relaunch a fresh session, which resumes from state by artifact — capsule fresh → skip catchup, tasks exist → skip planning, `/work` continues at the first non-completed task.
+5. `state.json` missing, unreadable, or untouched by the session → usage-limit check against the captured session log (`last-session.log`; a live limit means sleep-until-reset and continue), else notify "died" and stop loud.
 
-The model's only job at a hand-off is to write `state.next_phase` (and `phase`/`stall_reason`) accurately, print the banner, and STOP. The Stop hook reads those fields and writes the matching signal itself — gated on `$_AUTOPILOT_LOOP` (set by `autoclaude`); outside the loop it writes nothing.
+A Work-turn context-cap overrun is just branch 4: `autopilot_context_cap_hook.py` records the rotation (appends to `state.cap_rotations`, resets the in-flight task to `pending`, sets `next_phase: "build"`), the turn ends, and the fresh session resumes `build` by artifact — NO replan.
 
-**STOP at a real hand-off, or while a dispatched task is in flight — never STOP idle.** A phase is complete only when its artifacts are written and `state` is advanced (`phases_completed` updated, `next_phase` set). Two STOPs are legitimate: a real hand-off (state advanced), and a yield while a background task you dispatched is still running. This harness dispatches `Agent` calls in the **background** and re-invokes you with a `<task-notification>` when the agent finishes; the Stop hook (`scripts/autopilot_stop_hook.py`) detects the in-flight task and **abstains** — it writes no signal and keeps the session alive — so you WILL be re-invoked with the result and can continue the phase. You cannot avoid this yield anyway: the `Agent` tool has no foreground mode and `Monitor` is blocked in the loop env, which is exactly why "block in-session, never yield" stranded the phase three times before (design reviewer, Tess, Ivan, 2026-06-19). So dispatch the agent, overlap any independent in-session work, and end your turn when nothing is left to overlap — do not contort to block.
+The model's only job at a hand-off is to write `state.next_phase` (and `phase`/`stall_reason`) accurately, print the banner, and end the turn. The model never writes any signal and never inspects the wrapper's decision table — writing accurate state IS the hand-off. Interactive (non-loop) semantics are identical minus the wrapper: the same state writes happen, and the user re-invokes `/run-autopilot` manually.
 
-The STOP that thrashes is the **idle STOP**: ending your turn with NO task pending AND the phase not advanced (e.g. *"I'll continue when it completes"* with nothing actually dispatched). That strands the phase; the phase-thrash circuit-breaker (`scripts/autopilot_stop_hook.py`) halts the loop after 3 no-progress re-entries and flags `needs_attention`.
+**End the turn only at a real hand-off.** A phase is complete only when its artifacts are written and `state` is advanced (`phases_completed` updated, `next_phase` set). Dispatched work — `Agent` calls and background Bash — returns its results **within the same headless turn**: the harness re-invokes you with each `<task-notification>` before the turn can end, so dispatch, overlap independent work, wait for the results, and finish the phase. Do not end the turn to "wait for" something you dispatched.
 
-For long **Bash** (builds, tests), still prefer the FOREGROUND with an explicit `timeout` (up to 600000 ms) so the result is in hand before you STOP: an auto-background Bash that has not yet emitted its `<task-notification>` is not always detectable. If genuine work cannot finish even across a foreground call plus a re-invoke, that is a PAUSE (`phase: "paused"` + `state.pause_reason = {"site": "work_incomplete", "detail": "<what could not finish>"}` + STOP), not a silent idle yield.
+An idle end-of-turn (phase unfinished, nothing pending) no longer thrashes anything — the wrapper relaunches and the next session resumes the phase by artifact (self-healing) — but it burns a session start, so treat it as waste, not as a mechanism.
+
+For long **Bash** (builds, tests), still prefer the FOREGROUND with an explicit `timeout` (up to 600000 ms) so the result is in hand directly. If genuine work cannot finish in this session, that is a PAUSE (`phase: "paused"` + `state.pause_reason = {"site": "work_incomplete", "detail": "<what could not finish>"}` + end turn), not a silent idle stop.
 
 ### Loop Detection
 
-The shell wrapper (the `autoclaude` function in `~/.config/bash/plugins/development.plugin.bash`) exports `_AUTOPILOT_LOOP=$$` before invoking `claude`. The Stop hook reads this env var directly and only writes the signal (and only SIGINTs to auto-exit) when it is set — outside the loop the hook is inert, so an interactive `/run-autopilot` is never auto-exited or signaled.
+The `autoclaude` wrapper exports `_AUTOPILOT_LOOP=$$` before launching each headless session. Skills branch on it for loop-mode behavior only — the `AskUserQuestion` ban (Error Handling), git-push deferral, notify suppression in `~/.claude/hooks/notify.py`. Hand-off sites do NOT check it: the state writes are the same in and out of the loop.
 
-The model does NOT write the signal and does NOT check `_AUTOPILOT_LOOP` at hand-off sites. Each hand-off is three actions: update `state.json` (set `next_phase`, plus `phase`/`stall_reason` where relevant), print the banner, and STOP. The Stop hook (`scripts/autopilot_stop_hook.py`) walks up from cwd to the autopilot dir, reads `state.json`, computes the signal from its decision table, done-first (`next_phase == ""` → `done`; `phase == "paused"` OR a durable `pause_reason` → none; `stall_reason.stalled == "subagent_prompt_overrun"` → `task_aborted`; a lingering `cap_pause_reason` with no auto-recover stall → none; non-empty `next_phase` → `next`; absent/corrupt state → none, fail open), writes it to the absolute signal path, and auto-exits. Because the hook derives the path from the walk-up helper itself, a changed cwd during the work phase no longer matters.
+**Review-coverage gate (in-session quality gate).** `review_coverage_hook.py` stays registered on Stop: at a review-gated phase whose saved review file is missing or whose coverage block is incomplete, it exit-2-blocks the turn's end and feeds the gap back to the model so the review can be finished before the turn ends. Exit-2 Stop-hook blocking works in `-p` mode (proven by the 00014 spike, probe (c) — `dev/local/tmp/00014-headless-spike.md`). This is a completeness gate on review artifacts, not loop orchestration.
 
-**Review-coverage gate coordination.** Before writing the signal and SIGINTing, the Stop hook consults the shared `review_coverage_hook.gate_blocks(autopilot_dir, state)` decision. At a review-gated phase (`blind`/`doubt`/`done`, where a `work-completion`/`blindly`/`doubt` review just finished) whose saved review file is missing or whose coverage block is incomplete, the gate returns `True` and the Stop hook writes **no** signal and does **not** SIGINT — leaving the session alive so `review_coverage_hook.py` (same Stop event) can emit its `exit 2` blocking feedback and the model can finish the review. On the next STOP, once coverage is complete, the gate returns `False` and the normal `next`/`done` hand-off proceeds. Both hooks read the same `gate_blocks`, so they can never disagree. This closes the race (observed 2026-06-11 and 2026-06-12) where the signal hook's SIGINT killed the session before it could act on the coverage hook's blocking feedback, the coverage hook's signal deletion then left an empty signal, and the loop reported "session ended without a signal." `gate_blocks` is phase-aware (non-review phases and `task_aborted`/PRD-to-PRD hand-offs return `False`) and fails open: a `DIFF_ERROR` (diff uncomputable) or any gate exception allows the hand-off.
-
-**Shell wrapper:**
+**Wrapper sketch** (the real `autoclaude` adds the memory circuit-breaker, the session wall-clock cap, orphan cleanup, metrics, and notifications):
 
 ```bash
 while true; do
-  claude "/run-autopilot"
-  signal=$(cat dev/local/autopilot/signal 2>/dev/null)
-  rm -f dev/local/autopilot/signal
-  case "$signal" in
-    next)         echo "Starting next PRD..." ;;
-    task_aborted) echo "Work task hit subagent-prompt overrun; PRD will be replanned. Continuing..." ;;
-    done)         echo "Backlog drained."; break ;;
-    *)            echo "No/unknown signal: session died, paused, or a gate blocked the handoff. NOT drained." >&2; break ;;
-  esac
+  [ -f dev/local/autopilot/pause-requested ] && break   # operator pause
+  WARDEN_UNATTENDED=1 claude -p "/run-autopilot" 2>&1 | tee dev/local/autopilot/last-session.log
+  # read state.json and branch: paused → stop; stall → continue (replan);
+  # next_phase "" → archive state, stop (drained); next_phase set → continue;
+  # state missing/untouched → usage-limit check, else stop loud (died)
 done
 ```
-
-(The real `autoclaude` function is more involved — it exports `_AUTOPILOT_LOOP`, traps signals, and cleans up orphaned children — but the loop contract is the same.)
-
-**Required:** A Stop hook that auto-exits when the signal file exists. See `scripts/autopilot_stop_hook.py`. Configure in `settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "command": "~/.claude/skills/run-autopilot/scripts/autopilot_stop_hook.py"
-      }
-    ]
-  }
-}
-```
-
-Without the hook, sessions remain interactive but require manual exit (Ctrl+D) between PRDs. The shell loop still handles restart.
 
 ### De-slop is part of the doubt review (Phase 8)
 
@@ -805,7 +798,7 @@ not the `autoclaude` function.
 | Situation | Action |
 |-----------|--------|
 | Sub-skill invocation fails outright (no usable result; the phase cannot proceed) | PAUSE, report which skill failed and error. A transient reviewer/sub-skill error *during the Phase 4-6 review-rework cycle* is the Phase 5 Safety Checks row's domain instead (graceful degradation, not a PAUSE). |
-| No PRDs anywhere | STOP with message about /create-prd |
+| No PRDs anywhere | STOP with message about /create-prd. In loop mode, first write `state.phase = "done"` and `state.next_phase = ""` so the wrapper stops as drained, not died |
 | State file corrupted | Delete it, restart from Phase 0 |
 | Review produces no parseable output | PAUSE, report — don't retry |
 | All three reviewers fail | PAUSE, report — partial results usable if user confirms |
@@ -813,7 +806,7 @@ not the `autoclaude` function.
 | Task tools unavailable | STOP, report — can't operate without tasks |
 | Git push fails (auth, locked signing agent, network) | In loop mode (`$_AUTOPILOT_LOOP` set): log to `deferred_decisions[]`, leave the commits local (the user pushes manually per Phase 9), and CONTINUE — never block on the user. Outside the loop: report and let the user retry. A locked signing agent on an unattended host is expected, not a decision point (it stalled the loop 145 min on 2026-06-15). |
 
-**Turn-ending PAUSE rows must set `state.phase = "paused"` (and `state.next_phase = "paused"`) before stopping, and must also write `state.pause_reason = {"site": "<slug>", "detail": "<one-line human string>"}`.** `pause_reason` is a durable marker so the loop halts even if the model forgets `phase="paused"`; unlike `phase` it is not overwritten by normal progression, so it must be cleared on resume (see `### Resuming` cleanup). Otherwise the Stop hook — seeing `$_AUTOPILOT_LOOP` set and a non-empty `next_phase` with work pending — would write `next` and relaunch the failed phase instead of leaving the session interactive for you to intervene. `phase == "paused"` is the hook's suppression key (decision table: `phase == "paused"` → no signal). This applies to "Sub-skill invocation fails outright" (`pause_reason.site = "sub_skill_fail"`), "Review produces no parseable output" (`"reviewer_fail"`), and "All three reviewers fail" (`"reviewer_fail"`). Exceptions that need no `phase` change: "State file corrupted" (deleting state makes the hook fail open with no signal) and "No PRDs anywhere" (a clean terminal — the hook emits `done` if `next_phase` is `""`, otherwise nothing). PAUSE sites that ask via `AskUserQuestion` mid-turn (Phase 2 clarification, Phase 5 blocking escalation and scope alarm) do NOT end the turn, so the hook never fires there and they need no `phase` change — **but only outside the loop. When `$_AUTOPILOT_LOOP` is set there is no human to answer: these sites MUST NOT call `AskUserQuestion`. Instead set `state.phase = "paused"` (and `state.next_phase = "paused"`) and write `state.pause_reason` (Phase 2 clarification → `{"site": "clarification", "detail": "..."}`; Phase 5 blocking escalation → `{"site": "blocking_escalation", "detail": "..."}`; Phase 5 scope alarm → `{"site": "scope_alarm", "detail": "..."}`), print the PAUSE banner, and STOP, so the loop halts cleanly and the user resolves it on the next manual `/run-autopilot` (see `references/decision-framework.md` → "Autonomy in loop mode"). A mid-turn question on the unattended path stranded the loop 31 min and 145 min on 2026-06-15.**
+**Turn-ending PAUSE rows must set `state.phase = "paused"` (and `state.next_phase = "paused"`) before stopping, and must also write `state.pause_reason = {"site": "<slug>", "detail": "<one-line human string>"}`.** `pause_reason` is a durable marker so the loop halts even if the model forgets `phase="paused"`; unlike `phase` it is not overwritten by normal progression, so it must be cleared on resume (see `### Resuming` cleanup). Without it the wrapper — seeing a non-empty `next_phase` — would take its continue branch and relaunch the failed phase instead of stopping for you to intervene; a paused state is the wrapper's stop-and-notify branch (Session Loop branch 1), and the wrapper surfaces `pause_reason.detail` in its notification. This applies to "Sub-skill invocation fails outright" (`pause_reason.site = "sub_skill_fail"`), "Review produces no parseable output" (`"reviewer_fail"`), and "All three reviewers fail" (`"reviewer_fail"`). Exceptions that need no `phase` change: "State file corrupted" (delete it and restart from Phase 0 in the same session; the freshly-written state is what the wrapper reads at turn end) and "No PRDs anywhere" (see its row — the drained state write covers the loop). PAUSE sites that ask via `AskUserQuestion` mid-turn (Phase 2 clarification, Phase 5 blocking escalation and scope alarm) do NOT end the turn and need no `phase` change — **but only outside the loop. When `$_AUTOPILOT_LOOP` is set there is no human to answer: these sites MUST NOT call `AskUserQuestion`. Instead set `state.phase = "paused"` (and `state.next_phase = "paused"`) and write `state.pause_reason` (Phase 2 clarification → `{"site": "clarification", "detail": "..."}`; Phase 5 blocking escalation → `{"site": "blocking_escalation", "detail": "..."}`; Phase 5 scope alarm → `{"site": "scope_alarm", "detail": "..."}`), print the PAUSE banner, and end the turn, so the loop halts cleanly and the user resolves it on the next manual `/run-autopilot` (see `references/decision-framework.md` → "Autonomy in loop mode"). A mid-turn question on the unattended path stranded the loop 31 min and 145 min on 2026-06-15.**
 
 ## Superpowers Integration
 

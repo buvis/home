@@ -251,7 +251,7 @@ def test_skill_documents_a_retention_contract() -> None:
         "autopilot/deferred",
         "project-capsule.md",
     ]
-    disposable = ["signal", "tmp/", "state.json", "replan-context.md"]
+    disposable = ["tmp/", "last-session.log", "pause-requested", "state.json", "replan-context.md"]
     missing_d = [t for t in durable if t not in section]
     missing_x = [t for t in disposable if t not in section]
     assert not missing_d, f"Retention section must list durable artifacts; missing: {missing_d}"

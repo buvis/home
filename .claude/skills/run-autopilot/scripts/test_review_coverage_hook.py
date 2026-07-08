@@ -80,31 +80,11 @@ class ReviewFileForTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
-class DeleteSignalTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.autopilot_dir = Path(self.tmp.name)
-
-    def test_delete_signal_removes_file(self) -> None:
-        signal_file = self.autopilot_dir / "signal"
-        signal_file.write_text("next\n")
-
-        hook.delete_signal(self.autopilot_dir)
-
-        self.assertFalse(signal_file.exists())
-
-    def test_delete_signal_absent_does_not_raise(self) -> None:
-        # signal already absent — must be best-effort, no exception.
-        hook.delete_signal(self.autopilot_dir)
-
-
 def _make_autopilot_dir(
     root: Path,
     phase: str,
     prd: str = "X.md",
     work_start_sha: str = "abc",
-    write_signal: bool = True,
     repo_root: str | None = None,
 ) -> Path:
     """Build a minimal dev/local/autopilot dir tree under root."""
@@ -114,8 +94,6 @@ def _make_autopilot_dir(
     if repo_root is not None:
         state["repo_root"] = repo_root
     (autopilot_dir / "state.json").write_text(json.dumps(state))
-    if write_signal:
-        (autopilot_dir / "signal").write_text("next\n")
     return autopilot_dir
 
 
@@ -137,16 +115,13 @@ class MainTests(unittest.TestCase):
         reviews.mkdir(parents=True, exist_ok=True)
         return reviews
 
-    def test_main_blocks_and_deletes_signal_on_gate_failure(self) -> None:
+    def test_main_blocks_on_gate_failure(self) -> None:
         autopilot_dir = _make_autopilot_dir(
             self.repo, phase="blind", prd="X.md", work_start_sha="abc"
         )
         reviews_dir = self._make_reviews_dir()
         # Create the review file that main() will discover.
         (reviews_dir / "X-review-1.md").write_text("review content")
-
-        signal_file = autopilot_dir / "signal"
-        self.assertTrue(signal_file.exists())
 
         with mock.patch.object(
             hook, "find_autopilot_dir", return_value=autopilot_dir
@@ -156,7 +131,6 @@ class MainTests(unittest.TestCase):
             result = hook.main()
 
         self.assertEqual(result, 2)
-        self.assertFalse(signal_file.exists())
 
     def test_main_exit0_outside_loop_without_gating(self) -> None:
         # Footgun fix: outside the autopilot shell loop ($_AUTOPILOT_LOOP unset)
@@ -164,11 +138,9 @@ class MainTests(unittest.TestCase):
         # review phase. It must not resolve the autopilot dir or run the gate —
         # a leftover review-phase state must not deadlock unrelated sessions
         # that merely share the cwd tree.
-        autopilot_dir = _make_autopilot_dir(
+        _make_autopilot_dir(
             self.repo, phase="blind", prd="X.md", work_start_sha="abc"
         )
-        signal_file = autopilot_dir / "signal"
-        self.assertTrue(signal_file.exists())
 
         def _must_not_be_called(*args, **kwargs):
             raise AssertionError("hook must not act outside the autopilot loop")
@@ -179,12 +151,9 @@ class MainTests(unittest.TestCase):
             result = hook.main()
 
         self.assertEqual(result, 0)
-        # signal left intact — no handoff was gated
-        self.assertTrue(signal_file.exists())
 
     def test_main_exit0_on_non_review_phase(self) -> None:
         autopilot_dir = _make_autopilot_dir(self.repo, phase="planning")
-        signal_file = autopilot_dir / "signal"
 
         def _fail_if_called(*args, **kwargs):
             raise AssertionError("run_gate must NOT be called for non-review phases")
@@ -195,19 +164,13 @@ class MainTests(unittest.TestCase):
             result = hook.main()
 
         self.assertEqual(result, 0)
-        # signal must remain untouched
-        self.assertTrue(signal_file.exists())
 
     def test_main_exit0_when_gate_passes(self) -> None:
         # phase "doubt" means the blind review just finished -> blindly
         # surface -> <prd>-blind-review.md.
-        autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="doubt", prd="Y.md", write_signal=True
-        )
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
         (reviews_dir / "Y-blind-review.md").write_text("blind review content")
-
-        signal_file = autopilot_dir / "signal"
 
         with mock.patch.object(
             hook, "find_autopilot_dir", return_value=autopilot_dir
@@ -215,8 +178,6 @@ class MainTests(unittest.TestCase):
             result = hook.main()
 
         self.assertEqual(result, 0)
-        # signal must be untouched when gate passes
-        self.assertTrue(signal_file.exists())
 
 
 class RunGateTests(unittest.TestCase):
@@ -271,9 +232,7 @@ class MainPassesCorrectReviewFileTests(unittest.TestCase):
     def test_main_passes_resolved_review_file_to_gate(self) -> None:
         # phase "done" means the doubt review just finished -> doubt surface
         # -> <prd>-doubt-review.md.
-        autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="done", prd="Y.md", write_signal=True
-        )
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
         expected_review_file = reviews_dir / "Y-doubt-review.md"
         expected_review_file.write_text("doubt review content")
@@ -352,20 +311,17 @@ class MainRepoRootAndDiffErrorTests(unittest.TestCase):
         self.assertEqual(Path(args[4]), self.repo)
         self.assertEqual(Path(args[5]), self.repo)
 
-    def test_main_allows_exit_and_keeps_signal_on_diff_error(self) -> None:
+    def test_main_allows_exit_on_diff_error(self) -> None:
         """DIFF_ERROR means the gate could not compute the diff at all (infra
         failure), not that coverage is incomplete. The hook must allow the
-        handoff, keep the signal so the loop continues, and warn on stderr.
-        Blocking here is what produced the false "Backlog drained."."""
+        handoff and warn on stderr. Blocking here is what produced the false
+        "Backlog drained."."""
         import contextlib
         import io
 
-        autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="doubt", prd="Y.md", write_signal=True
-        )
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
         (reviews_dir / "Y-blind-review.md").write_text("blind review content")
-        signal_file = autopilot_dir / "signal"
 
         buf = io.StringIO()
         with mock.patch.object(
@@ -379,7 +335,6 @@ class MainRepoRootAndDiffErrorTests(unittest.TestCase):
                 result = hook.main()
 
         self.assertEqual(result, 0)
-        self.assertTrue(signal_file.exists(), "signal must survive a DIFF_ERROR")
         self.assertIn("DIFF_ERROR", buf.getvalue())
 
 
@@ -400,22 +355,19 @@ class MainBlocksCleanlyWhenPrdMissingTests(unittest.TestCase):
         return reviews
 
     def test_main_blocks_cleanly_when_prd_file_missing(self) -> None:
-        """main() returns 2, deletes the signal, and writes a clear stderr
-        message naming the missing PRD - no Python traceback - when the PRD
-        file exists in neither prds/wip/ nor prds/done/."""
+        """main() returns 2 and writes a clear stderr message naming the
+        missing PRD - no Python traceback - when the PRD file exists in
+        neither prds/wip/ nor prds/done/."""
         import contextlib
         import io
 
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="blind", prd="missing.md", write_signal=True
+            self.repo, phase="blind", prd="missing.md"
         )
         reviews_dir = self._make_reviews_dir()
         # Create the review file so the review-file check passes.
         (reviews_dir / "missing-review-1.md").write_text("review content")
         # Deliberately create NO PRD file in prds/wip/ or prds/done/.
-
-        signal_file = autopilot_dir / "signal"
-        self.assertTrue(signal_file.exists())
 
         buf = io.StringIO()
         with mock.patch.object(
@@ -426,35 +378,8 @@ class MainBlocksCleanlyWhenPrdMissingTests(unittest.TestCase):
 
         stderr_output = buf.getvalue()
         self.assertEqual(result, 2)
-        self.assertFalse(signal_file.exists(), "signal must be deleted even when PRD is missing")
         self.assertNotIn("Traceback", stderr_output, "must not expose a Python traceback")
         self.assertIn("missing.md", stderr_output, "stderr must name the missing PRD file")
-
-
-class DeleteSignalLogsLoudlyOnOsErrorTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.autopilot_dir = Path(self.tmp.name)
-
-    def test_delete_signal_logs_loudly_on_oserror(self) -> None:
-        """delete_signal must not raise when unlink fails, and must write a
-        warning to stderr so the failure is never silently swallowed."""
-        import contextlib
-        import io
-
-        # Create a non-empty directory named 'signal'; unlink on a directory
-        # raises OSError, giving us a deterministic failure path.
-        signal_dir = self.autopilot_dir / "signal"
-        signal_dir.mkdir()
-        (signal_dir / "dummy").write_text("non-empty")
-
-        buf = io.StringIO()
-        with contextlib.redirect_stderr(buf):
-            # Must not raise.
-            hook.delete_signal(self.autopilot_dir)
-
-        self.assertGreater(len(buf.getvalue()), 0, "stderr must contain a warning on OSError")
 
 
 class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
@@ -469,15 +394,10 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
         self.addCleanup(loop_env.stop)
 
     def test_main_blocks_when_review_file_missing(self) -> None:
-        autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="doubt", prd="Z.md", write_signal=True
-        )
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Z.md")
         # reviews dir exists but Z-doubt-review.md is NOT created.
         reviews_dir = self.repo / "dev" / "local" / "reviews"
         reviews_dir.mkdir(parents=True, exist_ok=True)
-
-        signal_file = autopilot_dir / "signal"
-        self.assertTrue(signal_file.exists())
 
         def _gate_must_not_be_called(*args, **kwargs):
             raise AssertionError("run_gate must NOT be called when review file is missing")
@@ -488,14 +408,12 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
             result = hook.main()
 
         self.assertEqual(result, 2)
-        self.assertFalse(signal_file.exists(), "signal file must be deleted when review file is missing")
 
 
 class GateBlocksDecisionTests(unittest.TestCase):
-    """Pin the pure gate decision shared by both Stop hooks. gate_blocks must
-    decide identically for review_coverage_hook (which blocks) and
-    autopilot_stop_hook (which suppresses its signal + SIGINT), so the two can
-    never race. No env, no signal side effects — pure (bool, message)."""
+    """Pin the pure gate decision. gate_blocks is side-effect-free — pure
+    (bool, message) — so main() can block deterministically. (It was once
+    shared with the retired autopilot_stop_hook, PRD 00014.)"""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
