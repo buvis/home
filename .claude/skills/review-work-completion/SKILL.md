@@ -17,10 +17,15 @@ Validates completed implementation work against PRD requirements using independe
 
 ## Reviewers
 
-- **Alice** → Claude subagent (direct, not nested CLI)
-- **Bob** → Codex
+Every review cycle runs all lenses (PRD 00015) — consensus, blind, and doubt
+are prompt disciplines carried by the roster, not separate phases:
+
+- **Alice** → Claude subagent (direct, not nested CLI); implementation-aware consensus lens
+- **Blake** → Claude subagent, **blind lens**: PRD-only prompt — no diff, no file list, no review history, no design doc (see `references/blind-lens-prompt.md`)
+- **Bob** → Codex, **doubt lens**: carries the doubt rubric (R1-R5) and the de-slop lens every cycle; when codex is unavailable, a Claude subagent runs the same prompt so the lens never silently drops
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
 - **Diana** → Sonnet via `sonnet-run.sh` (background Bash: headless `claude -p` pinned to `model: sonnet`; skipped when the script is unavailable)
+- **Eve** → Claude Fable 5 Task subagent, opt-in fifth lens: joins the batch only when the PRD frontmatter sets `doubt_reviewer: fable`, running the same doubt prompt as Bob (see `references/agent-invocation.md` "Eve (Fable 5)"); absent otherwise
 
 ## Workflow
 
@@ -88,7 +93,7 @@ Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to 
 
 Capture the current HEAD now — `git rev-parse HEAD` — and hold it; step 8 stamps it into this cycle's review file as `head_sha`.
 
-Also capture the diff range for the coverage gate (used in step 6). For an **incremental review** the diff range is `<prior-cycle-head-sha>` (the same SHA passed to `gather-context.sh --since`). For a **full review** compute it via `git merge-base HEAD origin/HEAD` (fallback: `git merge-base HEAD master`, then `git merge-base HEAD develop`). Store this as `COVERAGE_DIFF_RANGE`.
+Also capture the diff range for the coverage gate (used in step 6). For an **incremental review** the diff range is `<prior-cycle-head-sha>` (the same SHA passed to `gather-context.sh --since`). For a **full review**: when running under autopilot and `state.work_start_sha` is set in `dev/local/autopilot/state.json`, use `<work_start_sha>..HEAD` (the PRD's whole work range — this is the scope the doubt lens reviews); otherwise compute it via `git merge-base HEAD origin/HEAD` (fallback: `git merge-base HEAD master`, then `git merge-base HEAD develop`). Store this as `COVERAGE_DIFF_RANGE`.
 
 Run `gather-context.sh` (from project root). Full review:
 
@@ -110,7 +115,7 @@ Create prompt files in `dev/local/tmp/`:
 
 For each active agent, use the **Write tool** (not bash heredocs) to create `dev/local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). **Use absolute paths** (e.g. `/full/path/to/project/dev/local/tmp/...`) when writing and when referencing these files in agent prompts - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents. See `references/agent-prompts.md` for prompt template structure.
 
-**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking). Diana and Alice share the same template; Bob gets the sandbox constraints appendix. Build each from the template directly.
+**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking). Diana and Alice share the same template; Bob gets the sandbox constraints appendix PLUS the doubt-lens appendix (rubric R1-R5 + de-slop, per `references/agent-prompts.md` "Bob"); Blake's prompt is assembled from `references/blind-lens-prompt.md` + the PRD content ONLY (no context file, no diff file, no incremental-review addendum — blind every cycle); Eve (when active) reuses Bob's doubt-lens content per `references/agent-invocation.md`. Build each from its template directly.
 
 > **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character - expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
 
@@ -122,11 +127,13 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
-**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice is a Task subagent call (native Claude tools). Bob, Carl, and Diana are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/sonnet) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task call and the background Bash calls in the one message.
+**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Diana are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/sonnet) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls and the background Bash calls in the one message.
 
-**MUST NOT Write or Edit ANY reviewer output (Alice's included) between launching the reviewers and step 6 - wait until ALL background-Bash reviewers (Bob, Carl, Diana) have reported.** Any intervening Write/Edit advances the stop hook's `last_edit` marker past the background-Bash launches and defeats `_waiting_on_async`, SIGINT-stranding the still-running reviewers (PRD Risk 1). The CLIs self-write via `-o`; Alice's returned text is saved only in step 6, after every background reviewer has completed - even if Alice returns first.
+**Do not Write or Edit ANY reviewer output (Alice's and Blake's included) until ALL reviewers have reported.** The CLIs self-write via `-o`; subagent-returned text is saved only in step 6, after every reviewer has completed - even if a subagent returns first.
 
-Active reviewers: Alice, Bob, Diana, and Carl. Include Carl only if the optional Gemini check in step 1 passed, and Diana only if the optional Sonnet check passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
+**Bob fallback (the doubt lens never drops).** If `codex-run.sh` exits non-zero with exit 3 (codex unavailable) or 4 (codex ran but failed, e.g. quota), dispatch a Claude Task subagent with Bob's exact assembled prompt (doubt lens + rubric included) and use its output as Bob's. Only if the fallback also fails does Bob count as a failed reviewer per `references/retry-policy.md`.
+
+Active reviewers: Alice, Blake, Bob, Carl, Diana, plus Eve when `doubt_reviewer: fable`. Include Carl only if the optional Gemini check in step 1 passed, and Diana only if the optional Sonnet check passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
 
@@ -135,7 +142,7 @@ Read these before proceeding:
 
 ### 6. Consolidate findings
 
-Save **Alice's** returned subagent text to `dev/local/tmp/alice-output-{id}.txt`. Bob's, Carl's, and Diana's outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `diana-output-{id}.txt` in step 5. Then run:
+Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Diana's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `diana-output-{id}.txt` in step 5. Then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
@@ -147,12 +154,15 @@ Save **Alice's** returned subagent text to `dev/local/tmp/alice-output-{id}.txt`
   --run-tests \
   --write-aggregate $PWD/dev/local/tmp/coverage-{id}.md \
   ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
+  BLAKE:$PWD/dev/local/tmp/blake-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
   CARL:$PWD/dev/local/tmp/carl-output-{id}.txt \
   DIANA:$PWD/dev/local/tmp/diana-output-{id}.txt
 ```
 
-Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `DIANA:` pair when Diana was skipped). The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `DIANA:` pair when Diana was skipped; append an `EVE:` pair when Eve ran). The script computes consensus dynamically from the number of agent pairs provided.
+
+**Record the doubt-rubric verdicts (autopilot runs).** When `dev/local/autopilot/state.json` exists, parse the five `R{n}: pass|fail` lines from Bob's output (or his Claude fallback's) and REPLACE `state.doubts_rubric_verdicts` with the five entries `{"rule_id": "R{n}", "verdict": "pass"|"fail"}`; when Eve also ran, read her raw `R{n}:` lines too and write one entry per rule per reviewer with `source` tags (`"codex"` / `"fable"`). Verdicts are re-recorded every cycle; the final cycle's are the durable ones (the batch report renders them). Skip this entirely on standalone (non-autopilot) runs.
 
 **If the coverage gate fails** (non-zero exit), stop and report the gap named in stderr. Do not proceed to step 7.
 

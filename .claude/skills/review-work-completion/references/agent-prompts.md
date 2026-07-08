@@ -71,9 +71,25 @@ Alice runs with full tool access. She can execute tests, linters, and build comm
 
 No additional constraints beyond the shared instructions above.
 
+## Blake (Claude, blind lens) Instructions
+
+Blake does NOT use the shared template above. His prompt is assembled solely
+from `references/blind-lens-prompt.md` plus the PRD content — no context
+file, no diff file, no review history, no design doc, no incremental-review
+addendum. Blindness is the lens's contract; leaking implementation context
+into Blake's prompt defeats it.
+
 ## Bob (Codex) Instructions
 
 Bob runs in a restricted sandbox. He CANNOT execute code, tests, linters, or package managers.
+
+Bob also carries the **doubt lens** every cycle (PRD 00015): append to his
+prompt the "Two lenses" (doubt + de-slop) and "Rubric verdicts" sections from
+`~/.claude/skills/run-autopilot/prompts/doubt-review.md` — the doubt/de-slop
+finding guidance plus the mandatory five `R{n}: pass|fail` verdict lines.
+Consolidation parses those lines into `state.doubts_rubric_verdicts` (see
+SKILL.md step 6). When codex is unavailable, the same assembled prompt runs
+on a Claude Task subagent instead (SKILL.md step 5, "Bob fallback").
 
 Append to Bob's prompt:
 
