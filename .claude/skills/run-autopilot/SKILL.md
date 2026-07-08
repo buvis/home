@@ -1,12 +1,12 @@
 ---
 name: run-autopilot
-description: Use when running a PRD end-to-end autonomously through catchup, plan, work, review, rework, blind review, and doubt review. Triggers on "autopilot", "run autopilot", "autopilot status", "drain backlog", "execute PRD end to end".
+description: Use when running a PRD end-to-end autonomously through catchup, plan, work, and a review-rework loop whose every cycle runs consensus, blind, and doubt lenses. Triggers on "autopilot", "run autopilot", "autopilot status", "drain backlog", "execute PRD end to end".
 argument-hint: "[<prd-filename> | status]"
 ---
 
 # Autopilot
 
-Orchestrate the full PRD lifecycle: catchup → design → plan-tasks → work → review → rework loop → blind review → doubt review → done.
+Orchestrate the full PRD lifecycle: catchup → design → plan-tasks → work → review-rework loop (consensus + blind + doubt lenses, every cycle) → done.
 
 Makes autonomous decisions backed by research (dependencies, recurring issues, API/schema changes when PRD-driven) and pauses only for critical security, requirements ambiguity, or blocking decisions.
 
@@ -41,7 +41,7 @@ State file: `dev/local/autopilot/state.json` — see `references/state-schema.md
 
 Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, **rendered once at Phase 9 finalize from the `state.json` decision arrays** (`autonomous_decisions`, `deferred_decisions`, `doubts`). `state.json` is the single in-run source of truth — decisions are NOT mirrored to `audit.md` incrementally per decision. Each rendered entry carries a **source** label (`autonomous`, `deferred`, or `doubt`); cycle/phase context goes in the entry body so the Phase 9 `decisions.md` projection can filter autonomous entries by label. Entry format, the Phase 9 render procedure, and the projection live in `references/audit-log-format.md`.
 
-**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. The five gates are `build` | `review` | `blind` | `doubt` | `done` (plus `paused`). `build` is ONE session: selection, catchup, design, planning, and work all run under `phase: "build"` with no mid-build handoff. The three review surfaces (`review`, `blind`, `doubt`) each run in their own fresh session. Per-task implementor tiering inside `/work` is unchanged. The authoritative resume signal is `phase` + `phases_completed`; build sub-step skipping is by ARTIFACT (capsule freshness, design-doc-exists, tasks-exist, all-done), not by `phases_completed` membership. This resume decision (phase + phases_completed + artifact checks → next step) is encoded canonically in `scripts/resume_target.py`, which `scripts/test_autopilot_resume.py` imports — editing the resume logic there flips a test red rather than silently drifting from this prose.
+**Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. The three gates are `build` | `review` | `done` (plus `paused`). `build` is ONE session: selection, catchup, design, planning, and work all run under `phase: "build"` with no mid-build handoff. The review surface runs in its own fresh session; blind and doubt scrutiny are LENSES inside every review cycle (Blake and Bob in `review-work-completion`'s roster), not separate phases — reviewers get isolated contexts by construction (subagent prompts, external CLIs). Legacy `blind`/`doubt` phase values in pre-00015 state files map to `review` on resume. Per-task implementor tiering inside `/work` is unchanged. The authoritative resume signal is `phase` + `phases_completed`; build sub-step skipping is by ARTIFACT (capsule freshness, design-doc-exists, tasks-exist, all-done), not by `phases_completed` membership. This resume decision (phase + phases_completed + artifact checks → next step) is encoded canonically in `scripts/resume_target.py`, which `scripts/test_autopilot_resume.py` imports — editing the resume logic there flips a test red rather than silently drifting from this prose.
 
 ### Retention
 
@@ -77,7 +77,7 @@ A running headless turn is never interrupted except by the wrapper's wall-clock 
 
 `TaskList` is per-session storage (`~/.claude/tasks/<session-id>/`). Every fresh autopilot session — handoff to a review surface, restart after a context-cap rotation, or any manual re-invocation — starts with an **empty** TaskList even when `state.tasks` carries the full snapshot from the prior session. Phase skipping (planning, work) and per-task model dispatch both rely on TaskList, so without rehydration the new session operates with no task tracker at all.
 
-Run this hydration **before any phase invokes `/work` or queries TaskList for routing** — specifically: Phase 2 (before the skip-rule check), Phase 3 (before `/work`), Phase 6 (before rework `/work`), Phase 7 (after `/review-blindly`, before creating `[BLIND]` tasks), Phase 8 (before `[DOUBT]` `/work`).
+Run this hydration **before any phase invokes `/work` or queries TaskList for routing** — specifically: Phase 2 (before the skip-rule check), Phase 3 (before `/work`), Phase 6 (before rework `/work`).
 
 **Load if empty.** Query `TaskList`. If it returns **any** tasks, no-op (already populated this session). Otherwise read `state.tasks` from `dev/local/autopilot/state.json`; if absent or empty, no-op (nothing to hydrate). Otherwise, for each entry **in declared order** (do NOT reorder), `TaskCreate(subject: name)`, passing `model` / `estimated_tokens` / `est_context_peak` / `attempts` straight through as `metadata` when present — `/work` reads `metadata.model` (PRD 00025); the rest keep the round-trip lossless. `TaskCreate` assigns ids sequentially from 1, aligning with `state.tasks[].id` by construction. Then `TaskUpdate(status: ...)` each entry to its recorded status (`in_progress` / `completed`; `pending` is the `TaskCreate` default, skip it). The `attempts` array round-trips as-is — the hydration never inspects its rows, so any per-attempt field (`implementor`, `preflight_outcome`, `self_deslop`, future fields) survives the snapshot → hydration → `TaskGet` cycle intact.
 
@@ -129,8 +129,8 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
    b. If wip is empty, check `dev/local/prds/backlog/`:
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`; then **verify the move**: confirm the PRD now exists in `dev/local/prds/wip/`, else set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, and the mv error>"}`, and PAUSE naming the source, the destination, and the `mv` error (do not continue)
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
-3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`. **Batch-identity rollover:** if `state.batch` IS already present but the surviving state represents a *genuinely closed* batch — `state.phase == "done"` AND `state.next_phase == ""` (empty) (batch end ran but `state.json` was not deleted, e.g. an abnormal exit before the Stop hook fired) — do NOT inherit the dead batch's id: mint a FRESH `batch.id` (a new `<yyyymmddHHMM>` timestamp) and reset `completed_prds: []`. This is the fix for the stale-id reuse the forensics found, where a `batch.id` minted weeks earlier kept being inherited across genuinely separate batches. **Both conditions are required:** only the batch-end "No more PRDs" branch (Phase 9 step 10) sets `next_phase: ""`, so the empty `next_phase` is what distinguishes a genuinely closed batch from a transient mid-PRD `phase: "done"` — Phase 9 step 2 sets `phase: "done"` with `next_phase: "done"` BEFORE the verified `wip -> done` move, so a move that fails and PAUSEs (or a crash in steps 3-9) leaves `phase == "done"` with `next_phase == "done"` (non-empty), which must NOT roll over (doing so would wipe the in-progress batch's `completed_prds` and mint a spurious id). A normal in-progress resume (`phase` is `build`/`review`/`blind`/`doubt`, a `paused` handled by an abort handler above, or any `phase == "done"` whose `next_phase` is still non-empty) preserves `batch.id` unchanged.
-4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. Also look for `design:` in the same YAML block. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `design:` field) → default to `run`. Write the resulting value to `state.design_mode`. Also look for `design_gate:` in the same block: on an exact `user` match write `"user"` to `state.design_gate`; otherwise (absent field, any other value) leave `state.design_gate` absent. Also look for `doubt_reviewer:` in the same YAML block. Accepted values: `codex`, `fable`. Anything else (other value, malformed YAML, missing frontmatter, absent `doubt_reviewer:` field) → default to `codex`. Write the resulting value to `state.doubt_reviewer`. On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3, design_mode=run, doubt_reviewer=codex") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
+3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`. **Batch-identity rollover:** if `state.batch` IS already present but the surviving state represents a *genuinely closed* batch — `state.phase == "done"` AND `state.next_phase == ""` (empty) (batch end ran but `state.json` was not deleted, e.g. an abnormal exit before the Stop hook fired) — do NOT inherit the dead batch's id: mint a FRESH `batch.id` (a new `<yyyymmddHHMM>` timestamp) and reset `completed_prds: []`. This is the fix for the stale-id reuse the forensics found, where a `batch.id` minted weeks earlier kept being inherited across genuinely separate batches. **Both conditions are required:** only the batch-end "No more PRDs" branch (Phase 9 step 10) sets `next_phase: ""`, so the empty `next_phase` is what distinguishes a genuinely closed batch from a transient mid-PRD `phase: "done"` — Phase 9 step 2 sets `phase: "done"` with `next_phase: "done"` BEFORE the verified `wip -> done` move, so a move that fails and PAUSEs (or a crash in steps 3-9) leaves `phase == "done"` with `next_phase == "done"` (non-empty), which must NOT roll over (doing so would wipe the in-progress batch's `completed_prds` and mint a spurious id). A normal in-progress resume (`phase` is `build`/`review` — or a legacy `blind`/`doubt`, which maps to `review` — a `paused` handled by an abort handler above, or any `phase == "done"` whose `next_phase` is still non-empty) preserves `batch.id` unchanged.
+4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. Also look for `design:` in the same YAML block. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `design:` field) → default to `run`. Write the resulting value to `state.design_mode`. Also look for `design_gate:` in the same block: on an exact `user` match write `"user"` to `state.design_gate`; otherwise (absent field, any other value) leave `state.design_gate` absent. Also look for `doubt_reviewer:` in the same YAML block. Accepted values: `codex`, `fable`. Anything else (other value, malformed YAML, missing frontmatter, absent `doubt_reviewer:` field) → default to `codex`. Write the resulting value to `state.doubt_reviewer` (read by the review phase: `fable` adds Eve to the review batch as a fifth lens; `codex` runs the standard roster). On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3, design_mode=run, doubt_reviewer=codex") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
 5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 6. Initialize/update state with selected PRD, preserve `batch` field
 7. Print progress:
@@ -260,13 +260,13 @@ Before invoking `/work`, query `TaskList` and write the full `tasks` snapshot to
 
 **Include the task `id` field** — the `update-pidash-tasks.py` PostToolUse hook on TaskUpdate matches on it (via `taskId`) to sync status changes and recompute counts. This is mandatory.
 
-**Capture `work_start_sha` before dispatching `/work`, but only if it is unset for the current PRD** (`state.work_start_sha` absent or empty). Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. **If it is already set, do NOT re-capture** — a cap-rotation (or any other build re-entry on resume) re-enters the build gate with pending tasks, and the existing value marks the true PRD start; re-capturing the HEAD-at-rotation would shrink the Phase 8 doubt diff (`work_start_sha..HEAD`) to post-rotation commits only. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches produce — read by Phase 8 to scope the codex doubt review's diff (`<work_start_sha>..HEAD`). Capture happens **once per PRD** (the unset guard enforces this across cap-rotations and resumes), before `/work` runs. Phase 9 step 10 clears `work_start_sha` on the PRD-to-PRD reset, so the guard is per-PRD correct: each PRD in a multi-PRD batch captures fresh, so ranges never overlap.
+**Capture `work_start_sha` before dispatching `/work`, but only if it is unset for the current PRD** (`state.work_start_sha` absent or empty). Run `git rev-parse HEAD` and write the resulting SHA to `state.work_start_sha`. **If it is already set, do NOT re-capture** — a cap-rotation (or any other build re-entry on resume) re-enters the build gate with pending tasks, and the existing value marks the true PRD start; re-capturing the HEAD-at-rotation would shrink the review diff (`work_start_sha..HEAD`) to post-rotation commits only. This bounds the commit range `work_start_sha..HEAD` that this PRD's `/work` dispatches produce — `review-work-completion` uses it as the full-review diff range, so the doubt lens sees the PRD's whole work range. Capture happens **once per PRD** (the unset guard enforces this across cap-rotations and resumes), before `/work` runs. Phase 9 step 10 clears `work_start_sha` on the PRD-to-PRD reset, so the guard is per-PRD correct: each PRD in a multi-PRD batch captures fresh, so ranges never overlap.
 
-**Capture `repo_root` in the same step.** Run `git rev-parse --show-toplevel` in the work repo and write the absolute path to `state.repo_root`. Usually this equals the project root, but when the work repo is nested under a non-git project root (e.g. `~/.claude/skills/run-autopilot` under `~/.claude`), the review-coverage Stop hook and the Phase 8 gate need it to run `git diff` in the right repo — without it the diff runs at the project root and fails `DIFF_ERROR` (observed 2026-06-11: the failure deleted the handoff signal and the loop reported a false "Backlog drained."). **Bare-repo-backed project root** (the project root has no `.git` of its own because it is tracked by a bare repo with a separate work-tree, e.g. `~/.claude` under the `~/.buvis` bare repo with work-tree `$HOME`): a plain `git rev-parse --show-toplevel` from the project root FAILS, so do NOT default `repo_root` to the project dir (that silently mis-records it every PRD). Record the bare repo's work-tree root instead — `git --git-dir=<bare-git-dir> --work-tree=<work-tree> rev-parse --show-toplevel` (for `~/.buvis`-backed `$HOME` this resolves to `/Users/<you>`). The Phase 8 gate's `review_coverage.py` `_diff_files` already falls back to `AUTOPILOT_GIT_DIR`/`~/.buvis` + `$HOME` when a plain `git diff` in `--repo` fails, so an inaccurate `repo_root` degrades to that fallback rather than `DIFF_ERROR`; recording the true work-tree keeps `repo_root` honest instead of leaning on the fallback.
+**Capture `repo_root` in the same step.** Run `git rev-parse --show-toplevel` in the work repo and write the absolute path to `state.repo_root`. Usually this equals the project root, but when the work repo is nested under a non-git project root (e.g. `~/.claude/skills/run-autopilot` under `~/.claude`), the review-coverage Stop hook and the consolidation gate need it to run `git diff` in the right repo — without it the diff runs at the project root and fails `DIFF_ERROR` (observed 2026-06-11: the failure deleted the handoff signal and the loop reported a false "Backlog drained."). **Bare-repo-backed project root** (the project root has no `.git` of its own because it is tracked by a bare repo with a separate work-tree, e.g. `~/.claude` under the `~/.buvis` bare repo with work-tree `$HOME`): a plain `git rev-parse --show-toplevel` from the project root FAILS, so do NOT default `repo_root` to the project dir (that silently mis-records it every PRD). Record the bare repo's work-tree root instead — `git --git-dir=<bare-git-dir> --work-tree=<work-tree> rev-parse --show-toplevel` (for `~/.buvis`-backed `$HOME` this resolves to `/Users/<you>`). The Phase 8 gate's `review_coverage.py` `_diff_files` already falls back to `AUTOPILOT_GIT_DIR`/`~/.buvis` + `$HOME` when a plain `git diff` in `--repo` fails, so an inaccurate `repo_root` degrades to that fallback rather than `DIFF_ERROR`; recording the true work-tree keeps `repo_root` honest instead of leaning on the fallback.
 
 Invoke `/work` skill. It runs until all tasks complete.
 
-After completion, query `TaskList` again and update state: set `phase: "review"` and `next_phase: "review"`, write the updated `tasks` snapshot (the sync hook maintains `tasks_total`/`tasks_completed`). Do NOT add anything to `phases_completed` here — the `build` gate leaves no membership marker; review/blind/doubt completion are the only `phases_completed` entries.
+After completion, query `TaskList` again and update state: set `phase: "review"` and `next_phase: "review"`, write the updated `tasks` snapshot (the sync hook maintains `tasks_total`/`tasks_completed`). Do NOT add anything to `phases_completed` here — the `build` gate leaves no membership marker; review-loop convergence is the only `phases_completed` entry.
 
 ### Hand off to a fresh session for reviews
 
@@ -286,11 +286,11 @@ After the build completes (all tasks done), do NOT continue into Phase 4 in the 
 
 ## Phase 4: Review
 
-**Skip the entire review-rework loop if:** `"review"` is in `phases_completed` — the loop already converged in a prior session and handed off (see "Hand off to a fresh session before blind review" in Phase 5). Skip Phases 4, 5, and 6, and resume directly at Phase 7.
+**Skip the entire review-rework loop if:** `"review"` is in `phases_completed` — the loop already converged in a prior session and handed off (see "Hand off to the finalize session" in Phase 5). Skip Phases 4, 5, and 6, and resume directly at Phase 9.
 
 **Skip this cycle's review if:** A review file exists in `dev/local/reviews/` for the current cycle (filename pattern `{prd-name}-review-{cycle}.md`).
 
-Invoke `/review-work-completion` skill.
+Invoke `/review-work-completion` skill. Every cycle runs ALL lenses (its roster, PRD 00015): Alice (consensus), Blake (blind, PRD-only), Bob (doubt rubric R1-R5 + de-slop; Claude fallback when codex is down), Carl (UI, optional), Diana (optional), plus Eve as a fifth lens when `state.doubt_reviewer == "fable"`. The skill's consolidation records `state.doubts_rubric_verdicts` from Bob's rubric lines (replaced each cycle; the final cycle's verdicts are what Phase 9 renders).
 
 After completion, stay on `phase: "review"` and `next_phase: "review"` (the decision gate is part of the review surface).
 
@@ -298,7 +298,7 @@ After completion, stay on `phase: "review"` and `next_phase: "review"` (the deci
 
 ### Cap check — evaluate after reading review, before rework dispatch
 
-The cap is a gate on REWORK, not on Phase 5 itself. **First, read the review output** (see "Read the review output" further below). If it converged (no unresolved findings remain), the cap is irrelevant — proceed directly to Outcomes "No issues found" → Phase 7 hand-off. The PRD success metric "passes review within three cycles is completely unaffected" requires this: a clean cycle-3 convergence at cap=3 must reach Phase 7, not cap-pause.
+The cap is a gate on REWORK, not on Phase 5 itself. **First, read the review output** (see "Read the review output" further below). If it converged (no unresolved findings remain), the cap is irrelevant — proceed directly to Outcomes "No issues found" → finalize hand-off. The PRD success metric "passes review within three cycles is completely unaffected" requires this: a clean cycle-3 convergence at cap=3 must reach the finalize session, not cap-pause.
 
 Otherwise (unresolved findings remain), before evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
 
@@ -311,7 +311,7 @@ Worked example, cap 3:
 - cycle 1 review fails → `1 < 3` → rework → cycle 2.
 - cycle 2 fails → `2 < 3` → rework → cycle 3.
 - cycle 3 fails → `3 >= 3` → **pause, no 4th rework**.
-- cycle 3 converges (0 findings) → cap irrelevant → Phase 7 hand-off (no pause).
+- cycle 3 converges (0 findings) → cap irrelevant → finalize hand-off (no pause).
 
 Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5 → pause).
 
@@ -346,7 +346,7 @@ Executed only when the Cap check above fired (`state.cycle >= state.rework_cap` 
    ```
    Substitute `{prd-name}` from `state.prd` (strip the `.md` extension), `{n}` from `state.cycle`, `{cap}` from `state.rework_cap`, and `{k}` from `len(unresolved_findings)`.
 
-7. **STOP.** Do NOT proceed to Phase 6. Do NOT continue into Classification, Outcomes, or the hand-off-to-blind sub-section. The paused `state.json` is the durable signal that this PRD is awaiting user action; the Phase 0 Cap-Pause Resume Handler picks it up on the next `/run-autopilot` invocation.
+7. **STOP.** Do NOT proceed to Phase 6. Do NOT continue into Classification, Outcomes, or the finalize hand-off sub-section. The paused `state.json` is the durable signal that this PRD is awaiting user action; the Phase 0 Cap-Pause Resume Handler picks it up on the next `/run-autopilot` invocation.
 
 Read the review output. Categorize each finding using `references/decision-framework.md`.
 
@@ -392,24 +392,22 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 - **All auto-fixable, no deferrals, no blockers** → proceed to Phase 6
 - **Has deferrals but no blockers** → log deferred items to `dev/local/autopilot/deferred/{batch_id}-deferred.json`, proceed to Phase 6 with auto-fixable items only
 - **Has blocking escalation** → PAUSE. Present only the blocking issue(s) to user. Wait for decision. After user responds, proceed to Phase 6.
-- **No issues found** → the review-rework loop has converged. Hand off to a fresh session for Phase 7 (see "Hand off to a fresh session before blind review" below).
+- **No issues found** → the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Hand off to the finalize session (see below).
 
-### Hand off to a fresh session before blind review
+### Hand off to the finalize session
 
-When the flow is about to enter Phase 7 — the review-rework loop has converged (the "No issues found" outcome above) or exhausted its cycles — do NOT continue into Phase 7 in this session. Phase 7 spawns a blind reviewer and must start with a clean context window, uncluttered by this session's review findings and rework. Same end-turn hand-off as Phase 3:
+When the review-rework loop has converged (the "No issues found" outcome above), do NOT continue into Phase 9 in this session:
 
 1. Add `"review"` to `phases_completed` — the marker Phase 4 reads to skip the whole review-rework loop on resume.
-2. Set `phase` and `next_phase` to `"blind"`. The next session resumes here in a fresh session.
+2. Set `phase` and `next_phase` to `"done"`. The next session runs Phase 9.
 3. Print:
 
 ```
 ── AUTOPILOT ── PRD: {prd-name} ── review-rework loop complete ─────
-── AUTOPILOT ── handing off to fresh session for blind review ──────
+── AUTOPILOT ── handing off to finalize session ────────────────────
 ```
 
-4. **STOP.** Do NOT invoke `/review-blindly` or `/review-with-doubt` in this session.
-
-**End the turn.** In loop mode the wrapper reads the non-empty `next_phase: "blind"` and launches a fresh session, which reads `dev/local/autopilot/state.json` (with `"review"` in `phases_completed`), skips Phases 4-6 via the loop-level skip in Phase 4, and resumes at Phase 7. Outside the loop the same resume logic applies on the next manual invocation.
+4. **End the turn.** In loop mode the wrapper reads the non-empty `next_phase: "done"` and launches a fresh session, which skips Phases 4-6 via the loop-level skip in Phase 4 and runs Phase 9. Outside the loop the same resume logic applies on the next manual invocation.
 
 ## Phase 6: Rework
 
@@ -482,149 +480,14 @@ The work skill may parallelize independent rework tasks when `superpowers:dispat
 ### After /work returns
 
 1. Clear `state.rework_task_ids` (set to `[]`).
-2. **Increment `state.cycle` and persist it to `state.json` in this step** (a durable write, not an in-memory bump). Both the Phase 5 cap-pause gate (`state.cycle >= state.rework_cap`) and the Stop hook's thrash guard (`_progress_key`) read `state.cycle`; skipping the persisted increment blinds BOTH at once. On warden 00020 the review loop ran cycles 1-3 but never persisted the bump, so `state.cycle` stayed 1: cap-pause never fired and the loop thrash-halted instead of pausing cleanly. The Stop hook also reads the on-disk `<prd>-review-<N>.md` count as an independent progress backstop (`_review_cycle_count`), but the cap itself is driven by the persisted `state.cycle` — so this write is not optional.
+2. **Increment `state.cycle` and persist it to `state.json` in this step** (a durable write, not an in-memory bump). The Phase 5 cap-pause gate (`state.cycle >= state.rework_cap`) reads `state.cycle`; skipping the persisted increment blinds it. On warden 00020 the review loop ran cycles 1-3 but never persisted the bump, so `state.cycle` stayed 1 and cap-pause never fired. This write is not optional.
 3. Update state: set `phase: "review"` and `next_phase: "review"`. Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current.
 4. Loop back to Phase 4.
 
 Cross-references: `references/state-schema.md` (`rework_task_ids`, `tasks[].model`, `tasks[].attempts`, `stall_reason` shapes); `work/SKILL.md` Per-task model dispatch, Attempt logging, Rework-mode task filter.
 
-## Phase 7: Blind Review
 
-**Skip if:** `"blind"` in `phases_completed` in state file.
 
-Spec-only verification by a reviewer with no implementation context. Invoke `/review-blindly` with only the PRD content - no file lists, implementation notes, or review history.
-
-After the review:
-
-1. **No Critical/Important findings** → update state: add `"blind"` to `phases_completed`, set `phase: "doubt"` and `next_phase: "doubt"`. Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below).
-2. **Critical or Important findings** → **first run the "Hydrate TaskList from state.tasks" sub-step** (the blind review session is fresh; TaskList is empty). Then create tasks tagged `[BLIND]` (each `TaskCreate` gets a new id appended to the hydrated list) and insert a merge-preserving snapshot for each new `[BLIND]` task into `state.tasks` (carrying `{id, name, status}`; the tier classifier does not run on [BLIND] tasks — they default to the running session's model unless you opt to set `metadata.model` explicitly). Invoke `/work`. After fixes complete, update state the same way as outcome 1: add `"blind"` to `phases_completed`, set `phase: "doubt"` and `next_phase: "doubt"`. **Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` for the `[BLIND]` tasks, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current** (same rationale as Phase 6 step 3 and Phase 8 step 5). Then hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below). Do not loop back to Phase 4.
-3. **Zero issues with no file references** → suspicious result (reviewer may not have found the code). Log a warning, then update state the same way as outcome 1 (add `"blind"` to `phases_completed`, set `phase` and `next_phase` to `"doubt"`) and hand off to a fresh session for Phase 8 (see "Hand off to a fresh session for doubt review" below).
-
-Minor findings: defer to batch end (append to `deferred_decisions` in state).
-
-This phase runs once per PRD.
-
-### Hand off to a fresh session for doubt review
-
-After Phase 7 completes (either outcome above — `"blind"` is now in `phases_completed` and `next_phase` is `"doubt"`), do NOT continue into Phase 8 in this session. The doubt review needs a clean context window. Same end-turn hand-off as the Phase 3 and Phase 5 hand-offs:
-
-1. Confirm `"blind"` is in `phases_completed` and `phase`/`next_phase` are `"doubt"` (set by the outcome handlers above).
-2. Print:
-
-```
-── AUTOPILOT ── PRD: {prd-name} ── Phase 7 (Blind Review) complete ─
-── AUTOPILOT ── handing off to fresh session for doubt review ──────
-```
-
-3. **STOP.** Do NOT invoke `/review-with-doubt` in this session.
-
-**End the turn.** In loop mode the wrapper reads the non-empty `next_phase: "doubt"` and launches a fresh session, which reads `dev/local/autopilot/state.json` (`"blind"` in `phases_completed`), skips Phases 4-7 via their skip conditions, and resumes at Phase 8. Outside the loop the same resume logic applies on the next manual invocation.
-
-## Phase 8: Doubt Review
-
-**Skip if:** `"doubt"` in `phases_completed` in state file.
-
-**Apply the doubt review rubric.** This phase applies the numbered rubric at `references/doubt-review-rubric.md` (rules R1-R5). The doubt review output MUST record `R{n}: pass|fail` for every rule — one rule per line, no other text on the line, no rationale. A rule the reviewer cannot evaluate counts as `fail`; never omit the line. Rule IDs are stable; do not renumber.
-
-**Run codex as the primary doubt reviewer, with a Claude fallback.** codex is strong at skeptical review, so this phase runs it — but a codex outage must never skip a mandated review, so it falls back to Claude. Procedure (sequential Bash calls — never a bare relative path):
-
-1. Resolve the autopilot dir: `python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash`.
-2. Build a self-contained prompt: read `prompts/doubt-review.md`, append the PRD content, the diff range (`<state.work_start_sha>..HEAD`), and the changed-file list (so codex can fill the coverage block's `files`/`features` dimensions), and write the combined prompt to `dev/local/autopilot/doubt-prompt.md` (Write tool, absolute path).
-3. Run codex: `python3 ~/.claude/skills/run-autopilot/scripts/codex_review_run.py <autopilot_dir>/doubt-prompt.md`.
-
-Branch on its exit code:
-- **exit 0** → read the review from `<autopilot_dir>/codex-review-output.md`. This is the doubt review output: FIX/VERIFY/KNOWN findings, the `R{n}: pass|fail` block, and the `---review-coverage---` block.
-- **exit 3 (codex unavailable) or exit 4 (codex ran but failed, e.g. usage-limit/quota)** → print the loud banner, then run the Claude fallback:
-  ```
-  ── AUTOPILOT ── codex unavailable for doubt review; running on Claude ──
-  ```
-  Invoke `/review-with-doubt` with the `references/doubt-review-rubric.md` content inlined as additional context (it runs in a subagent that needs a self-contained prompt), and instruct it to apply the same **de-slop lens** the codex prompt uses (flag over-engineering, dead code, single-caller abstractions, and AI-slop in the diff). Require the identical output: FIX/VERIFY/KNOWN, the `R{n}: pass|fail` block, and the `---review-coverage---` block.
-
-**Coverage block (both paths).** The output MUST include a `---review-coverage---` block with `files`, `features`, and `rubric` filled and `tests` left as `pending: filled by consolidation`. The exact format is defined in `skills/review-work-completion/references/review-coverage-format.md`. PRD 00038's `review_coverage.py` parses this block downstream; a missing or malformed block fails the Phase 8 verdict.
-
-**Dispatch Eve (Fable 5) when `state.doubt_reviewer == "fable"`.** Insert this step AFTER the first reviewer (codex, or its Claude fallback) has COMPLETED and BEFORE the "Run the coverage gate" step below. When `state.doubt_reviewer` is absent or `"codex"`, **skip this entire step** — everything below is then **byte-identical** to the single-reviewer behavior (single `--reviewer-block`, no `source` field written anywhere, no `## codex`/`## fable` headers).
-
-- **Sequencing.** The sequencing key is "**the first reviewer has COMPLETED**," NOT "its output file exists on disk" — on the fallback path `.doubt-reviewer-block.md` is not written until step 1 of the coverage-gate section below, which is after this point, so keying on the file would be wrong there. Eve reuses the already-built `dev/local/autopilot/doubt-prompt.md`, not the first reviewer's output, so she needs neither file present. Eve dispatches ONLY after codex/fallback returns, regardless of which produced it, and **never runs in parallel with codex** (codex is fast; a Fable 5 turn can run 15+ minutes).
-- **Dispatch** a native Task subagent per `skills/review-work-completion/references/agent-invocation.md` "Eve (Fable 5)": `subagent_type: general-purpose`, `model: fable`, `description: "Eve doubt-reviews the work against the PRD"`, inlining the SAME assembled prompt already written to `dev/local/autopilot/doubt-prompt.md` for codex (native subagents inline the prompt — they do not take `-f`).
-- **Persist** Eve's returned text to `dev/local/reviews/.doubt-eve-block.md` (Write tool, absolute path). Her output already satisfies the doubt-review contract (FIX/VERIFY/KNOWN + `R1`-`R5` + `---review-coverage---` block).
-- **Eve failure / timeout (graceful degradation, mirrors Phase 4's failed-reviewer handling).** Retry once Alice-style (message the running agent again per `skills/review-work-completion/references/retry-policy.md` native-Task branch); if still failed, mark Eve unavailable, log the one-line warning `── AUTOPILOT ── Eve (fable) doubt reviewer failed; proceeding with codex/fallback alone ──`, and continue on the **single-reviewer** path (no `source` tags). Do NOT PAUSE — a single failed reviewer never blocks Phase 8.
-
-**Run the coverage gate.** After the doubt review output is obtained (from either the codex path or the Claude fallback), run the gate before processing any findings:
-
-1. Identify the doubt review output file: `<autopilot_dir>/codex-review-output.md` on the codex path. On the Claude fallback path, if the output is not already on disk, write it to `dev/local/reviews/.doubt-reviewer-block.md` first.
-2. Resolve `<prd-base>` = `state.prd` without its `.md` extension.
-3. Invoke the gate (do NOT pass `--rubric` — `SURFACE_RUBRIC_DEFAULTS` resolves `doubt` automatically):
-   ```bash
-   python3 ~/.claude/skills/review-work-completion/scripts/review_coverage.py \
-     --surface doubt \
-     --prd dev/local/prds/wip/<state.prd> \
-     --diff-range <state.work_start_sha>..HEAD \
-     --reviewer-block <doubt-output-file> \
-     --run-tests \
-     --write-aggregate dev/local/reviews/.doubt-aggregate.md \
-     --repo <state.repo_root>
-   ```
-   `--repo` must be `state.repo_root` when set (work repo nested under a non-git
-   project root); omit it only when the project root itself is the git repo.
-   `--run-tests` makes the gate run the changed test files (`test_*.py` / `*_test.py`
-   in the diff range) once and fill the aggregate's `tests` dimension with real
-   pass/fail/skip counts; the doubt reviewer leaves `tests` as the `pending`
-   sentinel. A code diff whose tests dimension stays unfilled fails `EMPTY_TESTS`.
-
-   **Run this test step in the foreground; skip CI-only suites.** `--run-tests` only runs Python `test_*.py`/`*_test.py`; for a non-Python project (ddb is Rust) it fills nothing, so run the project's native test command yourself for the counts. Run it ONCE in the FOREGROUND with an explicit long Bash `timeout` (up to 600000 ms) — do NOT let it auto-background and then yield the turn (see Session Loop → "STOP at a real hand-off"; that exact yield thrashed doubt on 2026-06-17). Run only the fast unit/integration subset the `tests` dimension needs; do NOT run CI-only / Tier-2 checks (e.g. a §55 10x e2e determinism sweep) in the gate — those are CI's job per the project's AGENTS.md and overflow the session budget.
-
-   **Dual-reviewer gate call (when Eve ran).** Append a second `--reviewer-block` for Eve to the SAME call — `--reviewer-block <codex-or-fallback-output-file> --reviewer-block dev/local/reviews/.doubt-eve-block.md`; everything else (`--surface doubt`, `--diff-range`, `--run-tests`, `--write-aggregate`, `--repo`) is unchanged. The gate already accepts `--reviewer-block` repeatedly (`action="append"`) and merges the blocks (`_merge_blocks`; `reviewed` wins for files, `verified` for features, `pass` for rubric), so no `review_coverage.py` change is needed. On the single-reviewer path (flag absent/`codex`, or Eve failed) the call is UNCHANGED — one `--reviewer-block`.
-4. If the gate exits non-zero: the doubt review FAILS — surface the gap kind printed on stderr (`MISSING_REVIEW_BLOCK`, `MALFORMED_BLOCK`, `MISSING_FILES`, `EMPTY_TESTS`, `UNMAPPED_FEATURE`, `MISSING_RUBRIC_RULE`, `MISSING_PRD`, or `DIFF_ERROR` — the last means the gate could not run `git diff` at all; fix `--repo`/`state.repo_root` instead of treating it as a coverage gap) and its detail; do NOT continue to findings classification.
-5. On exit 0: write `dev/local/reviews/<prd>-doubt-review.md` (where `<prd>` = `<prd-base>`).
-   - **Single-reviewer** (flag absent/`codex`, or Eve failed): the doubt findings (FIX / VERIFY / KNOWN) followed by the aggregate coverage block from `dev/local/reviews/.doubt-aggregate.md` — UNCHANGED, no `## codex`/`## fable` headers, no `source`.
-   - **Dual-reviewer** (Eve ran): two labeled findings sections — `## codex` (its FIX/VERIFY/KNOWN + bare `R1:`-`R5:` verdict lines) then `## fable (Eve)` (her FIX/VERIFY/KNOWN + bare `R1:`-`R5:` verdict lines) — followed by the single aggregate coverage block from `.doubt-aggregate.md`.
-   - **SINGLE-COVERAGE-BLOCK INVARIANT (load-bearing):** the durable file MUST contain **EXACTLY ONE** `---review-coverage---` … `---end-review-coverage---` delimiter pair (the aggregate). The per-reviewer `## codex`/`## fable` sections carry ONLY FIX/VERIFY/KNOWN plus bare `R1:`-`R5:` lines — strip each reviewer's own raw `---review-coverage---` block, appending only the aggregate. Rationale: the done-phase Stop-hook re-check (`review_coverage_hook.gate_blocks` → `review_coverage.py --reviewer-block <prd>-doubt-review.md`) extracts the FIRST `---review-coverage---` block via `_extract_block_text`; if a per-reviewer raw block (whose `tests:` is still the `pending` sentinel) is extracted instead of the tests-filled aggregate, `_check_empty_tests` fires `EMPTY_TESTS` and the loop cannot drain.
-
-   (This filename is intentionally distinct from the `-review-NN.md` pattern — no collision with the Phase 4 cycle-skip glob. The autopilot Phase 2 Stop hook re-checks this file's aggregate block when `state.phase == "done"`.)
-
-The doubt review produces findings in three categories: **FIX** (fixable now), **VERIFY** (needs checking), and **KNOWN** (real limitation, out of scope).
-
-**Source tagging (dual-reviewer only).** When Eve ran (`state.doubt_reviewer == "fable"` and she did not fail), classify BOTH reviewers' findings into the merged Phase 8 result and tag every `state.doubts` entry with `source`: `"codex"` for codex-slot findings (codex OR its Claude fallback — the fallback stands in for the codex slot) and `"fable"` for Eve's. Each `state.doubts` entry then carries an optional `"source": "codex"|"fable"` alongside its `description`/`category`/`status`. On the **single-reviewer** path (flag absent/`codex`, or Eve failed), write **no** `source` field anywhere — byte-identical to pre-change. The `>5 FIX/VERIFY` defer-to-batch-end rule (Execution step 2 below) applies to the COMBINED two-reviewer finding set; deferred entries may carry `source`.
-
-**Before processing any FIX/VERIFY items, run the "Hydrate TaskList from state.tasks" sub-step** (defined in State Management). This guarantees subsequent `[DOUBT]` `TaskCreate` calls get ids appended after the hydrated original-plan tasks (rather than overwriting id 1 in an empty tracker).
-
-Process each:
-
-### Handling FIX items
-
-1. Create a task tagged `[DOUBT]` for each FIX item.
-2. Add an entry to `doubts` in state: `{"description": "...", "category": "fix", "status": "pending"}`.
-
-### Handling VERIFY items
-
-VERIFY items are resolved during the review itself (the doubt skill runs checks and reclassifies as FIX or dismissed). If any survive unresolved:
-1. Treat as FIX — create a `[DOUBT]` task.
-2. Add to `doubts` in state with `"category": "verify"`.
-
-### Handling KNOWN items
-
-KNOWN items cannot be fixed in this scope. They flow to batch-end review for the user to decide.
-1. Add to `doubts` in state: `{"description": "...", "category": "known", "justification": "...", "status": "pending"}`.
-2. Do NOT create tasks for KNOWN items — they are deferred, not actionable here.
-
-### Execution
-
-After classifying all items, run these steps in order. Step 1 (the FIX/VERIFY disposition) branches three ways, but **every branch then continues to steps 2-3** — verdict recording and the completion state-update are UNCONDITIONAL and run on all three paths. No branch may "proceed to Phase 9" ahead of them.
-
-1. **Dispose of the FIX/VERIFY items** — take the one branch that applies, then continue to step 2 (do NOT jump to Phase 9):
-   - **No FIX or VERIFY tasks** → no rework needed. KNOWN items (if any) will be surfaced at batch end. Continue to step 2.
-   - **>5 FIX/VERIFY tasks** → defer all to batch end (append each to `deferred_decisions` in state as `{"type": "doubt-overflow", "description": "...", "category": "fix|verify", "status": "pending"}`). Log warning but do NOT PAUSE. Continue to step 2.
-   - **≤5 FIX/VERIFY tasks** → invoke `/work` on `[DOUBT]`-tagged tasks immediately — no decision gate, no rework loop. (Hydration already ran at the top of the phase.) After work completes, mark each resolved doubt entry's `status` as `"resolved"` in state. Continue to step 2.
-2. Record per-rule verdicts in `state.doubts_rubric_verdicts` (ALWAYS — on every step-1 branch, including the no-work and overflow paths):
-   - **Single-reviewer:** read the `R{n}: pass|fail` block from the doubt review output and append **5 entries** `{"rule_id": "R{n}", "verdict": "pass"|"fail"}` (no `source`) — byte-identical to pre-change.
-   - **Dual-reviewer:** read each reviewer's RAW `R{n}:` block separately — codex's from its output, Eve's from `.doubt-eve-block.md` — NOT the gate's merged aggregate, and append **one entry per rule per reviewer** (`10 entries` when both ran), each `{"rule_id": "R{n}", "verdict": "pass"|"fail", "source": "codex"|"fable"}`.
-
-   Every rubric rule must have an entry per reviewer that ran. The downstream coverage parser (`review_coverage.py`) reads these verdicts from the raw doubt review output; this state field is the autopilot-internal record so the batch report can summarize them in Phase 9.
-3. Update state (ALWAYS): add `"doubt"` to `phases_completed`, set `phase: "done"` and `next_phase: "done"`. Do NOT rewrite `state.tasks` here (same rationale as Phase 6 step 3, `/work` wrote `attempts[]` to `state.tasks` for `[DOUBT]` tasks); the sync hook keeps `tasks_total`/`tasks_completed` current. Then proceed to Phase 9.
-
-KNOWN items keep `"status": "pending"` — Phase 9 step 6 collects these into the batch deferred log for batch-end review.
-
-This phase runs once per PRD. It does not loop back to Phase 4.
 
 ## Phase 9: Completion
 
@@ -670,7 +533,7 @@ Summary:
 ### Continuation
 
 10. Check: any PRDs remaining in `dev/local/prds/wip/*.md` or `dev/local/prds/backlog/*.md`?
-   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/`cap_rotations`/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`repo_root`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason` (the next PRD starts a fresh plan, not a rework dispatch; `cap_rotations`, `work_start_sha`, `repo_root`, and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha` and `repo_root`, Phase 8 overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases; the design fields are likewise per-PRD scratch — Phase 0 re-derives `design_mode`/`design_gate` from the next PRD's frontmatter and Phase 1.5 re-sets `design_doc`, cleared here so a skipped or aborted next PRD can't inherit them), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `phase: "build"` and `next_phase: "build"` (the next PRD starts the build gate at catchup). Then end the turn — in loop mode the wrapper reads the non-empty `next_phase: "build"` and launches a fresh session for the next PRD; outside the loop the user re-invokes `/run-autopilot` manually. Print:
+   - **Yes** → reset state for next PRD: set `phases_completed` to `[]`, `cycle` to `1`, `tasks_total: 0`, `tasks_completed: 0`, clear tasks/task_aborts/`cap_rotations`/autonomous_decisions/deferred_decisions/review_cycles/doubts/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`repo_root`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason` (the next PRD starts a fresh plan, not a rework dispatch; `cap_rotations`, `work_start_sha`, `repo_root`, and `doubts_rubric_verdicts` are per-PRD scratch — Phase 3 of the next PRD overwrites `work_start_sha` and `repo_root`, the review phase's consolidation overwrites `doubts_rubric_verdicts`, but clearing here prevents stale values from surviving if the next PRD aborts before reaching those phases; the design fields are likewise per-PRD scratch — Phase 0 re-derives `design_mode`/`design_gate` from the next PRD's frontmatter and Phase 1.5 re-sets `design_doc`, cleared here so a skipped or aborted next PRD can't inherit them), set `replan_count: 0` (it tracked the current PRD's replans; the next PRD starts fresh). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — plan-tasks deletes it on success, but a malformed prior session may have left it). **Preserve `batch` field in full, including `batch.catchup_completed_at` and `batch.catchup_head_sha`** — Phase 1 of the next PRD reads these to decide between full catchup and delta refresh (see Phase 1 "Batch cache check"). Set `phase: "build"` and `next_phase: "build"` (the next PRD starts the build gate at catchup). Then end the turn — in loop mode the wrapper reads the non-empty `next_phase: "build"` and launches a fresh session for the next PRD; outside the loop the user re-invokes `/run-autopilot` manually. Print:
      ```
      ── AUTOPILOT ── {prd-name} done ── next PRD in new session ────────
      ```
@@ -774,17 +637,16 @@ while true; do
 done
 ```
 
-### De-slop is part of the doubt review (Phase 8)
+### De-slop is part of the doubt lens
 
 There is no separate between-session de-slop pass. The standalone codex pass that
 once ran from the `autoclaude` wrapper after every commit was removed: it was an
 unconditional external call that fell silently dead when codex hit its usage
-limit. De-slopping now happens **inside Phase 8** — codex conducts the doubt
-review with an added de-slop lens (see Phase 8). The codex runner is
-`scripts/codex_review_run.py` (it returns exit 3 when codex is unavailable and 4
-when codex ran but failed, so Phase 8 can fall back to a Claude review rather
-than silently skip). If you are checking how de-slop is wired, look at Phase 8,
-not the `autoclaude` function.
+limit. De-slopping now happens **inside every review cycle** — Bob (codex)
+carries the doubt + de-slop lens in the `review-work-completion` roster, with a
+Claude fallback when codex is unavailable, so the lens never silently drops. If
+you are checking how de-slop is wired, look at the review roster, not the
+`autoclaude` function.
 
 ## Shell Command Rules
 
@@ -812,7 +674,7 @@ not the `autoclaude` function.
 
 Autopilot depends on superpowers for quality gates. All integrations are conditional - autopilot works without them, but quality improves with them.
 
-### Used by the Work skill (Phases 3, 6, 7, 8)
+### Used by the Work skill (Phases 3 and 6)
 
 | Superpower | Step | Purpose |
 |-----------|------|---------|
@@ -843,9 +705,9 @@ Autopilot depends on superpowers for quality gates. All integrations are conditi
 
 ### Note on review layering
 
-Per-task review (step 5.7), PRD-level review (Phase 4), and blind review (Phase 7) are complementary, not redundant. Per-task catches issues early before they compound. Phase 4 catches cross-task coherence and integration issues. Phase 7 catches spec drift and gaps that implementation-aware reviewers miss by giving a fresh agent only the spec. All three are needed.
+Per-task review (step 5.7) and the Phase 4 lens battery (consensus, blind, doubt — every review cycle) are complementary, not redundant. Per-task catches issues early before they compound. The consensus lens catches cross-task coherence and integration issues. The blind lens catches spec drift and gaps that implementation-aware reviewers miss by giving a fresh agent only the spec. The doubt lens hunts residual findings and slop a confident reviewer waves past. All are needed.
 
-Per-task review is **tier-gated** (PRD 00044): `/work` step 5.7 dispatches the per-task code reviewer only for `sonnet`- and `opus`-tier tasks; `haiku`-tier tasks skip it (as does the opus-only Devon adversarial dispatch at step 2.85). This does not leave haiku-tier work unreviewed — the three mandated PRD-level surfaces, Phase 4 (multi-model consensus), Phase 7 (blind), and Phase 8 (doubt), review every task's diff regardless of tier, so they cover haiku-tier tasks that skipped the per-task layer. The gate drops the fourth, per-task review layer on the cheapest tier while keeping the mandated three byte-untouched.
+Per-task review is **tier-gated** (PRD 00044): `/work` step 5.7 dispatches the per-task code reviewer only for `sonnet`- and `opus`-tier tasks; `haiku`-tier tasks skip it (as does the opus-only Devon adversarial dispatch at step 2.85). This does not leave haiku-tier work unreviewed — the mandated PRD-level lens battery (consensus, blind, doubt) reviews every task's diff regardless of tier, so it covers haiku-tier tasks that skipped the per-task layer. The gate drops only the per-task layer on the cheapest tier while keeping the mandated lenses byte-untouched.
 
 ## Reference Files
 

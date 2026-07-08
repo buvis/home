@@ -368,24 +368,20 @@ class CapFireLivelockGuardTests(unittest.TestCase):
 
 
 class CoverageMapRekeyTests(unittest.TestCase):
-    """The review-coverage map must be re-keyed to the new gate names.
-
-    RED now: current keys are blind-review / doubt-review / done, so the new
-    'blind' and 'doubt' phases are unmapped (surface_for_phase returns None).
-    """
+    """The review-coverage map matches the three-gate machine (PRD 00015):
+    only the done hand-off is review-gated, and the surface that just
+    finished is the work-completion review cycle."""
 
     def setUp(self) -> None:
         self.hook = _load_coverage_hook()
 
-    def test_coverage_map_rekeyed_to_blind_doubt(self) -> None:
-        self.assertEqual(self.hook.surface_for_phase("blind"), "work-completion")
-        self.assertEqual(self.hook.surface_for_phase("doubt"), "blindly")
-        self.assertEqual(self.hook.surface_for_phase("done"), "doubt")
+    def test_coverage_map_done_maps_to_work_completion(self) -> None:
+        self.assertEqual(self.hook.surface_for_phase("done"), "work-completion")
 
-    def test_coverage_map_drops_old_keys(self) -> None:
+    def test_coverage_map_drops_legacy_phase_keys(self) -> None:
         keys = set(self.hook._PHASE_TO_SURFACE.keys())
-        self.assertNotIn("blind-review", keys, "old key must be removed")
-        self.assertNotIn("doubt-review", keys, "old key must be removed")
+        self.assertNotIn("blind", keys, "legacy blind leg was folded into the review lenses")
+        self.assertNotIn("doubt", keys, "legacy doubt leg was folded into the review lenses")
 
     def test_coverage_map_build_review_unmapped(self) -> None:
         # build and review gates are not review-coverage handoffs.
@@ -461,7 +457,7 @@ class ResumeBuildReentryTests(unittest.TestCase):
 
 
 class ResumeReviewCascadeTests(unittest.TestCase):
-    """Review/blind/doubt resume via phases_completed."""
+    """Review resume via phases_completed; legacy blind/doubt map to review."""
 
     def test_resume_review_not_completed_runs_review(self) -> None:
         self.assertEqual(
@@ -469,31 +465,34 @@ class ResumeReviewCascadeTests(unittest.TestCase):
             "run review loop",
         )
 
-    def test_resume_review_completed_skips_to_blind(self) -> None:
+    def test_resume_review_completed_skips_to_done(self) -> None:
         self.assertEqual(
             resume_target(
                 {"phase": "review", "phases_completed": ["review"]}
             ),
-            "skip review -> blind",
+            "skip review -> done",
         )
 
-    def test_resume_blind_completed_skips_to_doubt(self) -> None:
+    def test_resume_legacy_blind_phase_runs_review_loop(self) -> None:
+        # Pre-00015 state parked at the standalone blind leg: the leg is gone;
+        # its scrutiny now lives in the review cycle's lenses, so one full
+        # cycle runs instead of skipping ahead.
         self.assertEqual(
             resume_target(
-                {"phase": "blind", "phases_completed": ["review", "blind"]}
+                {"phase": "blind", "phases_completed": ["review"]}
             ),
-            "skip blind -> doubt",
+            "run review loop",
         )
 
-    def test_resume_doubt_completed_skips_to_done(self) -> None:
+    def test_resume_legacy_doubt_phase_runs_review_loop(self) -> None:
         self.assertEqual(
             resume_target(
                 {
                     "phase": "doubt",
-                    "phases_completed": ["review", "blind", "doubt"],
+                    "phases_completed": ["review", "blind"],
                 }
             ),
-            "skip doubt -> done",
+            "run review loop",
         )
 
 

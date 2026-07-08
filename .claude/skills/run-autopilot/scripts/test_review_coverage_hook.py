@@ -39,14 +39,17 @@ hook = _load_module()
 
 class SurfaceForPhaseTests(unittest.TestCase):
     def test_surface_mapping_each_phase(self) -> None:
-        self.assertEqual(hook.surface_for_phase("blind"), "work-completion")
-        self.assertEqual(hook.surface_for_phase("doubt"), "blindly")
-        self.assertEqual(hook.surface_for_phase("done"), "doubt")
+        # Three-gate machine (PRD 00015): only the done hand-off is gated,
+        # and the surface that just finished is the work-completion cycle.
+        self.assertEqual(hook.surface_for_phase("done"), "work-completion")
 
     def test_surface_mapping_non_review_phase_is_none(self) -> None:
         self.assertIsNone(hook.surface_for_phase("build"))
         self.assertIsNone(hook.surface_for_phase("review"))
         self.assertIsNone(hook.surface_for_phase("paused"))
+        # Legacy pre-00015 phase values are no longer review-gated hand-offs.
+        self.assertIsNone(hook.surface_for_phase("blind"))
+        self.assertIsNone(hook.surface_for_phase("doubt"))
 
 
 class ReviewFileForTests(unittest.TestCase):
@@ -117,7 +120,7 @@ class MainTests(unittest.TestCase):
 
     def test_main_blocks_on_gate_failure(self) -> None:
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="blind", prd="X.md", work_start_sha="abc"
+            self.repo, phase="done", prd="X.md", work_start_sha="abc"
         )
         reviews_dir = self._make_reviews_dir()
         # Create the review file that main() will discover.
@@ -166,11 +169,11 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_main_exit0_when_gate_passes(self) -> None:
-        # phase "doubt" means the blind review just finished -> blindly
-        # surface -> <prd>-blind-review.md.
-        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Y.md")
+        # phase "done" means the review loop converged -> work-completion
+        # surface -> highest <prd>-review-N.md.
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
-        (reviews_dir / "Y-blind-review.md").write_text("blind review content")
+        (reviews_dir / "Y-review-1.md").write_text("review content")
 
         with mock.patch.object(
             hook, "find_autopilot_dir", return_value=autopilot_dir
@@ -230,12 +233,13 @@ class MainPassesCorrectReviewFileTests(unittest.TestCase):
         return reviews
 
     def test_main_passes_resolved_review_file_to_gate(self) -> None:
-        # phase "done" means the doubt review just finished -> doubt surface
-        # -> <prd>-doubt-review.md.
+        # phase "done" means the review loop converged -> work-completion
+        # surface -> the HIGHEST-numbered <prd>-review-N.md.
         autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
-        expected_review_file = reviews_dir / "Y-doubt-review.md"
-        expected_review_file.write_text("doubt review content")
+        (reviews_dir / "Y-review-1.md").write_text("cycle 1")
+        expected_review_file = reviews_dir / "Y-review-3.md"
+        expected_review_file.write_text("cycle 3 review content")
 
         gate_mock = mock.MagicMock(return_value=(0, ""))
 
@@ -279,10 +283,10 @@ class MainRepoRootAndDiffErrorTests(unittest.TestCase):
         """When state.repo_root names the work repo, the gate must diff THAT
         repo while dev/local artifact paths stay under the project root."""
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="doubt", prd="Y.md", repo_root="/work/repo"
+            self.repo, phase="done", prd="Y.md", repo_root="/work/repo"
         )
         reviews_dir = self._make_reviews_dir()
-        (reviews_dir / "Y-blind-review.md").write_text("blind review content")
+        (reviews_dir / "Y-review-1.md").write_text("review content")
 
         gate_mock = mock.MagicMock(return_value=(0, ""))
         with mock.patch.object(
@@ -297,9 +301,9 @@ class MainRepoRootAndDiffErrorTests(unittest.TestCase):
         self.assertEqual(Path(args[5]), self.repo)  # project root for artifacts
 
     def test_main_defaults_git_repo_to_project_root_without_repo_root(self) -> None:
-        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Y.md")
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
-        (reviews_dir / "Y-blind-review.md").write_text("blind review content")
+        (reviews_dir / "Y-review-1.md").write_text("review content")
 
         gate_mock = mock.MagicMock(return_value=(0, ""))
         with mock.patch.object(
@@ -319,9 +323,9 @@ class MainRepoRootAndDiffErrorTests(unittest.TestCase):
         import contextlib
         import io
 
-        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Y.md")
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Y.md")
         reviews_dir = self._make_reviews_dir()
-        (reviews_dir / "Y-blind-review.md").write_text("blind review content")
+        (reviews_dir / "Y-review-1.md").write_text("review content")
 
         buf = io.StringIO()
         with mock.patch.object(
@@ -362,7 +366,7 @@ class MainBlocksCleanlyWhenPrdMissingTests(unittest.TestCase):
         import io
 
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="blind", prd="missing.md"
+            self.repo, phase="done", prd="missing.md"
         )
         reviews_dir = self._make_reviews_dir()
         # Create the review file so the review-file check passes.
@@ -394,8 +398,8 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
         self.addCleanup(loop_env.stop)
 
     def test_main_blocks_when_review_file_missing(self) -> None:
-        autopilot_dir = _make_autopilot_dir(self.repo, phase="doubt", prd="Z.md")
-        # reviews dir exists but Z-doubt-review.md is NOT created.
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Z.md")
+        # reviews dir exists but no Z-review-*.md is created.
         reviews_dir = self.repo / "dev" / "local" / "reviews"
         reviews_dir.mkdir(parents=True, exist_ok=True)
 
@@ -439,43 +443,43 @@ class GateBlocksDecisionTests(unittest.TestCase):
         self.assertEqual(msg, "")
 
     def test_missing_review_file_blocks_without_running_gate(self) -> None:
-        self._reviews_dir()  # empty: no Z-blind-review.md
+        self._reviews_dir()  # empty: no Z-review-*.md
 
         def _fail(*a, **k):
             raise AssertionError("run_gate must not run when the review file is missing")
 
         with mock.patch.object(hook, "run_gate", side_effect=_fail):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "doubt", "prd": "Z.md"}
+                self.autopilot_dir, {"phase": "done", "prd": "Z.md"}
             )
         self.assertTrue(blocks)
-        self.assertIn("no blindly review file", msg)
+        self.assertIn("no work-completion review file", msg)
 
     def test_coverage_gap_blocks(self) -> None:
         (self._reviews_dir() / "X-review-1.md").write_text("r")
         with mock.patch.object(hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "blind", "prd": "X.md"}
+                self.autopilot_dir, {"phase": "done", "prd": "X.md"}
             )
         self.assertTrue(blocks)
         self.assertIn("review coverage gap [work-completion]", msg)
 
     def test_diff_error_does_not_block(self) -> None:
-        (self._reviews_dir() / "Y-blind-review.md").write_text("r")
+        (self._reviews_dir() / "Y-review-1.md").write_text("r")
         with mock.patch.object(
             hook, "run_gate", return_value=(1, "DIFF_ERROR: not a git repository")
         ):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "doubt", "prd": "Y.md"}
+                self.autopilot_dir, {"phase": "done", "prd": "Y.md"}
             )
         self.assertFalse(blocks, "DIFF_ERROR is unknown-coverage, not a gap — must not block")
         self.assertIn("DIFF_ERROR", msg)
 
     def test_gate_pass_does_not_block(self) -> None:
-        (self._reviews_dir() / "Y-blind-review.md").write_text("r")
+        (self._reviews_dir() / "Y-review-1.md").write_text("r")
         with mock.patch.object(hook, "run_gate", return_value=(0, "")):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "doubt", "prd": "Y.md"}
+                self.autopilot_dir, {"phase": "done", "prd": "Y.md"}
             )
         self.assertFalse(blocks)
         self.assertEqual(msg, "")

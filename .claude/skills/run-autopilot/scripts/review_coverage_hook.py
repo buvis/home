@@ -18,12 +18,11 @@ from _walk_up import find_autopilot_dir
 
 _PHASE_TO_SURFACE: dict[str, str] = {
     # At session exit `phase` is the NEXT phase, so the surface that JUST
-    # finished is the previous one: blind→work-completion review just ran,
-    # doubt→blind review just ran, done→doubt review just ran. (Phase names
-    # are the five-gate set: build|review|blind|doubt|done|paused.)
-    "blind": "work-completion",
-    "doubt": "blindly",
-    "done": "doubt",
+    # finished is the previous one: done → the review-rework loop converged,
+    # i.e. a work-completion review cycle just ran. (Phase names are the
+    # three-gate set: build|review|done|paused; PRD 00015 folded the blind
+    # and doubt legs into the review cycle's lenses.)
+    "done": "work-completion",
 }
 
 
