@@ -197,7 +197,7 @@ autoclaude() {
       --arg phase_end "$_phase_end" \
       --arg signal "${signal:-none}" \
       '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal}' \
-      >> "$_ap_dir/loop-metrics.jsonl" 2>/dev/null || true
+      2>/dev/null >> "$_ap_dir/loop-metrics.jsonl" || true
 
     case "$signal" in
     next)
