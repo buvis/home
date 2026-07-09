@@ -59,9 +59,9 @@ counts as a `fail` — never omit the line.
 > drops everything else. So `R{n}: pass|fail` lines do NOT survive
 > consolidation into the findings table — they live only in the raw
 > per-agent output files at `dev/local/tmp/{agent}-output-{id}.txt` (the
-> location SKILL.md step 6 saves them to). The downstream coverage parser
-> (PRD 00038's `review_coverage.py`) reads verdicts from those raw outputs,
-> not from the consolidated table.
+> location SKILL.md step 6 saves them to). Step 6 reads the doubt lens's
+> verdict lines from those raw outputs (into `state.doubts_rubric_verdicts`
+> on autopilot runs), and Bob's section in the saved review file keeps them.
 
 ## Consolidation Rules
 

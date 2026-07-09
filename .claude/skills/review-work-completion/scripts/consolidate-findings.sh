@@ -1,37 +1,15 @@
 #!/usr/bin/env bash
 # Consolidates findings from multiple agent outputs
-# Usage: consolidate-findings.sh [--prd <path>] [--diff-range <ref>] [--surface <s>]
-#        [--rubric <path>] [--repo <path>] [--write-aggregate <path>]
-#        NAME:FILE [NAME:FILE ...]
+# Usage: consolidate-findings.sh NAME:FILE [NAME:FILE ...]
 # Example: consolidate-findings.sh ALICE:alice.txt BOB:bob.txt DIANA:diana.txt
 # Outputs: consolidated findings sorted by consensus then severity
+# (PRD 00016: the coverage-gate flags and review_coverage.py invocation are
+# gone — check_review_file.py validates the SAVED review file instead.)
 
 set -euo pipefail
 
-# Parse optional coverage gate flags
-COVERAGE_PRD=""
-COVERAGE_DIFF_RANGE=""
-COVERAGE_SURFACE=""
-COVERAGE_RUBRIC=""
-COVERAGE_REPO=""
-COVERAGE_WRITE_AGGREGATE=""
-COVERAGE_RUN_TESTS=""
-
-while [[ "${1:-}" == --* ]]; do
-    case "$1" in
-        --prd)             COVERAGE_PRD="$2";             shift 2 ;;
-        --diff-range)      COVERAGE_DIFF_RANGE="$2";      shift 2 ;;
-        --surface)         COVERAGE_SURFACE="$2";         shift 2 ;;
-        --rubric)          COVERAGE_RUBRIC="$2";          shift 2 ;;
-        --repo)            COVERAGE_REPO="$2";            shift 2 ;;
-        --write-aggregate) COVERAGE_WRITE_AGGREGATE="$2"; shift 2 ;;
-        --run-tests)       COVERAGE_RUN_TESTS="1";        shift ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
-    esac
-done
-
 if [[ $# -eq 0 ]]; then
-    echo "Usage: $0 [--prd <path>] ... NAME:FILE [NAME:FILE ...]" >&2
+    echo "Usage: $0 NAME:FILE [NAME:FILE ...]" >&2
     echo "Example: $0 ALICE:alice.txt BOB:bob.txt DIANA:diana.txt" >&2
     exit 1
 fi
@@ -139,26 +117,6 @@ for agent_pair in "$@"; do
     fi
   done < <(parse_agent_output "$file" "$agent")
 done
-
-# Coverage gate — runs before the no-issues early-exit so it fires in both paths
-if [[ -n "$COVERAGE_PRD" && -n "$COVERAGE_DIFF_RANGE" && -n "$COVERAGE_SURFACE" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    GATE_ARGS=(
-        python3 "$SCRIPT_DIR/review_coverage.py"
-        --surface "$COVERAGE_SURFACE"
-        --prd "$COVERAGE_PRD"
-        --diff-range "$COVERAGE_DIFF_RANGE"
-    )
-    for agent_pair in "$@"; do
-        file="${agent_pair#*:}"
-        [[ -f "$file" ]] && GATE_ARGS+=(--reviewer-block "$file")
-    done
-    [[ -n "$COVERAGE_RUBRIC" ]]          && GATE_ARGS+=(--rubric "$COVERAGE_RUBRIC")
-    [[ -n "$COVERAGE_REPO" ]]            && GATE_ARGS+=(--repo "$COVERAGE_REPO")
-    [[ -n "$COVERAGE_WRITE_AGGREGATE" ]] && GATE_ARGS+=(--write-aggregate "$COVERAGE_WRITE_AGGREGATE")
-    [[ -n "$COVERAGE_RUN_TESTS" ]]       && GATE_ARGS+=(--run-tests)
-    "${GATE_ARGS[@]}"
-fi
 
 # Check if any issues found
 if [[ $issue_count -eq 0 ]]; then

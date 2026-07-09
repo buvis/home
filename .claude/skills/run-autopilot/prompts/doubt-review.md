@@ -79,38 +79,5 @@ R4: pass|fail
 R5: pass|fail
 ```
 
-## Coverage block (REQUIRED — emit verbatim at the very end)
-
-A downstream parser (`review_coverage.py`) reads ONLY this block; prose is not
-parsed. Emit it exactly, with these delimiters, no leading spaces on the
-delimiter lines, two-space indent on entries. Sections must be `files`, `tests`,
-`features`, `rubric` and all four must be present.
-
-- `files`: one line per changed file → `reviewed` (you inspected it) or
-  `n/a:<reason>` (out of scope, e.g. `n/a:generated file`).
-- `tests`: emit the single sentinel line `pending: filled by consolidation`
-  (the caller fills real counts).
-- `features`: one line per PRD `#### Feature:` → `verified` / `reviewed` /
-  `failed`.
-- `rubric`: `R1`..`R5` → `pass` / `fail` (must match the verdicts above).
-
-```
----review-coverage---
-files:
-  <changed/path/one>: reviewed
-  <changed/path/two>: n/a:generated file
-tests:
-  pending: filled by consolidation
-features:
-  <feature name from PRD>: reviewed
-rubric:
-  R1: pass
-  R2: pass
-  R3: pass
-  R4: pass
-  R5: pass
----end-review-coverage---
-```
-
-Do not modify any files. This is a review only — produce findings, verdicts, and
-the coverage block. No commits.
+Do not modify any files. This is a review only — produce findings and the
+rubric verdict lines. No commits.

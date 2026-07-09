@@ -93,7 +93,7 @@ Write tasks markdown to `dev/local/tmp/review-tasks-{id}.md` and PRD summary to 
 
 Capture the current HEAD now — `git rev-parse HEAD` — and hold it; step 8 stamps it into this cycle's review file as `head_sha`.
 
-Also capture the diff range for the coverage gate (used in step 6). For an **incremental review** the diff range is `<prior-cycle-head-sha>` (the same SHA passed to `gather-context.sh --since`). For a **full review**: when running under autopilot and `state.work_start_sha` is set in `dev/local/autopilot/state.json`, use `<work_start_sha>..HEAD` (the PRD's whole work range — this is the scope the doubt lens reviews); otherwise compute it via `git merge-base HEAD origin/HEAD` (fallback: `git merge-base HEAD master`, then `git merge-base HEAD develop`). Store this as `COVERAGE_DIFF_RANGE`.
+Also capture the diff range for the review scope (recorded in the review file; the doubt lens reviews this range). For an **incremental review** the diff range is `<prior-cycle-head-sha>` (the same SHA passed to `gather-context.sh --since`). For a **full review**: when running under autopilot and `state.work_start_sha` is set in `dev/local/autopilot/state.json`, use `<work_start_sha>..HEAD` (the PRD's whole work range — this is the scope the doubt lens reviews); otherwise compute it via `git merge-base HEAD origin/HEAD` (fallback: `git merge-base HEAD master`, then `git merge-base HEAD develop`). Store this as `COVERAGE_DIFF_RANGE`.
 
 Run `gather-context.sh` (from project root). Full review:
 
@@ -146,13 +146,6 @@ Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
-  --surface work-completion \
-  --prd $PWD/dev/local/prds/wip/<prd-filename> \
-  --diff-range <COVERAGE_DIFF_RANGE captured in step 3> \
-  --rubric ~/.claude/skills/review-work-completion/references/rubric.md \
-  --repo $PWD \
-  --run-tests \
-  --write-aggregate $PWD/dev/local/tmp/coverage-{id}.md \
   ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
   BLAKE:$PWD/dev/local/tmp/blake-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
@@ -162,11 +155,11 @@ Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to
 
 Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `DIANA:` pair when Diana was skipped; append an `EVE:` pair when Eve ran). The script computes consensus dynamically from the number of agent pairs provided.
 
+**Compose the `Verdict:` line.** Zero consolidated findings → `Verdict: converged`; otherwise `Verdict: N findings` (the consolidated count). Step 8 writes it into the review file.
+
+**Compose the `Tests:` line.** Record the cycle's test counts — run the project's test suite once in the FOREGROUND (or reuse the counts from a suite run already performed this cycle; do not run it twice) and write `Tests: N passed, M failed, K skipped`. When the reviewed diff touches no code, write `Tests: none (docs-only)` — a first-class value, not a sentinel.
+
 **Record the doubt-rubric verdicts (autopilot runs).** When `dev/local/autopilot/state.json` exists, parse the five `R{n}: pass|fail` lines from Bob's output (or his Claude fallback's) and REPLACE `state.doubts_rubric_verdicts` with the five entries `{"rule_id": "R{n}", "verdict": "pass"|"fail"}`; when Eve also ran, read her raw `R{n}:` lines too and write one entry per rule per reviewer with `source` tags (`"codex"` / `"fable"`). Verdicts are re-recorded every cycle; the final cycle's are the durable ones (the batch report renders them). Skip this entirely on standalone (non-autopilot) runs.
-
-**If the coverage gate fails** (non-zero exit), stop and report the gap named in stderr. Do not proceed to step 7.
-
-If coverage passes, `dev/local/tmp/coverage-{id}.md` now contains the aggregate coverage block. Step 8 appends it to the review file.
 
 Outputs consolidated issues sorted by consensus then severity. See `references/output-formats.md` for output format details.
 
@@ -193,6 +186,12 @@ Stamp the `head_sha` frontmatter field with the HEAD sha captured in step 3 — 
 
 Stamp the `codex_thread_id` frontmatter field with the thread id from `dev/local/tmp/bob-thread-{id}.txt` when that file exists and is non-empty AND Bob produced output this cycle — the next rework cycle reads it (step 3) to resume Bob's codex session via `--resume-thread`; omit the field otherwise (Bob was skipped, or thread-id capture failed).
 
-Include all findings even if zero issues.
+Stamp the `reviewers:` frontmatter field with the comma-separated lowercase names of every reviewer that actually ran (e.g. `reviewers: alice,blake,bob,diana`) — `check_review_file.py` reads it to verify each section.
 
-**Append the aggregate coverage block** from `dev/local/tmp/coverage-{id}.md` (written by step 6's coverage gate) at the end of the review file, after all findings. Use the **Write tool** to build the complete file content including the block.
+Include all findings even if zero issues. Give each reviewer that ran a `## <Name>` section (their findings, or a one-line all-clear; Bob's keeps his `R{n}:` verdict lines), and end the file with the `Verdict:` and `Tests:` lines composed in step 6.
+
+**Gate the saved file (PRD 00016).** Run the shape check and fix the file if it fails — do not report a completed review over a failing gate:
+
+```bash
+python3 ~/.claude/skills/review-work-completion/scripts/check_review_file.py --review-file $PWD/dev/local/reviews/<review-file>
+```
