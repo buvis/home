@@ -1,6 +1,6 @@
 ---
 name: run-autopilot
-description: Use when running a PRD end-to-end autonomously through catchup, plan, work, and a review-rework loop whose every cycle runs consensus, blind, and doubt lenses. Triggers on "autopilot", "run autopilot", "autopilot status", "drain backlog", "execute PRD end to end".
+description: Use when running a PRD end-to-end autonomously - catchup, plan, work, and a review-rework loop running consensus, blind, and doubt lenses every cycle. Triggers on "autopilot", "run autopilot", "autopilot status", "drain backlog".
 argument-hint: "[<prd-filename> | status]"
 ---
 

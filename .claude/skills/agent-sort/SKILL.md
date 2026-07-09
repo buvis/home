@@ -177,7 +177,7 @@ If the next step is interactive settings/hook installation, hand off to:
 
 If the next step is overlap cleanup or catalog review, hand off to:
 
-- `audit-skills`
+- `claude-checkup:audit-authoring`
 
 If the next step is broader context trimming, hand off to:
 

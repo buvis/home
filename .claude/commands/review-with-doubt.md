@@ -1,3 +1,7 @@
+---
+description: Use before finalizing work for a skeptical self-review that assumes the solution is incomplete - find concrete doubts, verify or refute each, fix what fails scrutiny. Triggers on "doubt review", "review with doubt", "skeptical self-review".
+---
+
 Before finalizing your work, perform a skeptical self-review. Assume your current solution is incomplete, flawed, or based on weak assumptions.
 
 ## Phase 1: Find doubts
