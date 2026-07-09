@@ -760,6 +760,16 @@ def handle(data: dict) -> None:
     session = lib.resolve_session_key(data)
     file_path = target_file_path(tool_name, tool_input)
 
+    # PRD 00049: stamp "this session edited files in this repo" once, so the
+    # cartographer-stop nudge can scope itself to sessions that touched it.
+    if file_path and tool_name != "Bash":
+        try:
+            repo_hash, _, _ = lib.project_hash()
+            if not lib.is_checked(session, "survey-edits", repo_hash):
+                lib.mark_checked(session, "survey-edits", repo_hash)
+        except Exception:
+            pass
+
     skip = evaluate_skip(tool_name, tool_input)
     if skip is not None:
         decision, reason = skip

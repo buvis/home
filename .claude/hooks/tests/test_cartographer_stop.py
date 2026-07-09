@@ -372,3 +372,88 @@ def test_git_error_does_not_produce_skip_reason(tmp_path, monkeypatch):
     assert audit_events[-1]["reason"] != "skip", (
         "git rev-list failure must produce reason 'git-error', not the catch-all 'skip'"
     )
+
+
+# ---------------------------------------------------------------------------
+# PRD 00049: stale-atlas nudge (maybe_nudge)
+# ---------------------------------------------------------------------------
+
+class _FakeChecks:
+    """Dict-backed stand-in for is_checked/mark_checked state."""
+
+    def __init__(self) -> None:
+        self.marked: set[tuple[str, str, str]] = set()
+
+    def is_checked(self, session: str, namespace: str, key: str) -> bool:
+        return (session, namespace, key) in self.marked
+
+    def mark_checked(self, session: str, namespace: str, key: str) -> None:
+        self.marked.add((session, namespace, key))
+
+
+def _setup_nudge(tmp_path, monkeypatch, edited: bool, atlas_md_age_days):
+    """Wire the nudge fixtures. atlas_md_age_days None = no atlas.md."""
+    import os as _os
+    import time as _time
+
+    repo = _make_git_repo(tmp_path)
+    adir = tmp_path / "atlas"
+    adir.mkdir(parents=True, exist_ok=True)
+    mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, adir)
+    checks = _FakeChecks()
+    monkeypatch.setattr(mod, "is_checked", checks.is_checked)
+    monkeypatch.setattr(mod, "mark_checked", checks.mark_checked)
+    monkeypatch.setattr(mod, "resolve_session_key", lambda data: "sess1")
+    if edited:
+        checks.marked.add(("sess1", "survey-edits", "testhash"))
+    if atlas_md_age_days is not None:
+        p = adir / "atlas.md"
+        p.write_text("# atlas")
+        old = _time.time() - atlas_md_age_days * 86400
+        _os.utime(p, (old, old))
+    return mod, audit_events, checks
+
+
+def _nudge_events(audit_events: list) -> list:
+    return [e for e in audit_events if e.get("event") == "stale-nudge"]
+
+
+def test_nudge_silent_when_atlas_fresh(tmp_path, monkeypatch, capsys):
+    mod, audit_events, _ = _setup_nudge(tmp_path, monkeypatch, edited=True, atlas_md_age_days=3)
+    _run_hook(mod, monkeypatch)
+    assert _nudge_events(audit_events) == []
+    assert "run /survey" not in capsys.readouterr().err
+
+
+def test_nudge_fires_once_when_stale_and_edited(tmp_path, monkeypatch, capsys):
+    mod, audit_events, _ = _setup_nudge(tmp_path, monkeypatch, edited=True, atlas_md_age_days=20)
+    _run_hook(mod, monkeypatch)
+    events = _nudge_events(audit_events)
+    assert len(events) == 1
+    assert events[0]["phase"] == "survey"
+    assert events[0]["repo"] == "testhash"
+    assert events[0]["age_days"] and events[0]["age_days"] > 14
+    assert "run /survey" in capsys.readouterr().err
+
+
+def test_nudge_suppressed_on_second_stop_same_week(tmp_path, monkeypatch, capsys):
+    mod, audit_events, _ = _setup_nudge(tmp_path, monkeypatch, edited=True, atlas_md_age_days=20)
+    _run_hook(mod, monkeypatch)
+    _run_hook(mod, monkeypatch)
+    assert len(_nudge_events(audit_events)) == 1, "weekly throttle must suppress the second nudge"
+
+
+def test_nudge_silent_when_session_edited_nothing(tmp_path, monkeypatch, capsys):
+    mod, audit_events, _ = _setup_nudge(tmp_path, monkeypatch, edited=False, atlas_md_age_days=20)
+    _run_hook(mod, monkeypatch)
+    assert _nudge_events(audit_events) == []
+    assert "run /survey" not in capsys.readouterr().err
+
+
+def test_nudge_fires_when_atlas_missing(tmp_path, monkeypatch, capsys):
+    mod, audit_events, _ = _setup_nudge(tmp_path, monkeypatch, edited=True, atlas_md_age_days=None)
+    _run_hook(mod, monkeypatch)
+    events = _nudge_events(audit_events)
+    assert len(events) == 1
+    assert events[0]["age_days"] is None
+    assert "atlas missing" in capsys.readouterr().err
