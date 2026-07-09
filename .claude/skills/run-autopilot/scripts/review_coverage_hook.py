@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Stop hook: gate session exit on review coverage when autopilot is in a review phase.
+"""Stop hook: gate session exit on review-file completeness at the done hand-off.
 
 Reads dev/local/autopilot/state.json, determines whether the current phase is a
-review handoff, locates the saved review file, and shells out to review_coverage.py.
-Returns 0 to allow the session to exit, 2 to block it so the model can finish the
-review before the turn ends (exit-2 Stop blocking works headless — 00014 spike (c)).
+review handoff, locates the saved review file, and shells out to
+check_review_file.py (PRD 00016 — the minimal shape check: reviewer sections,
+verdict line, tests line). Returns 0 to allow the session to exit, 2 to block it
+so the model can finish the review before the turn ends (exit-2 Stop blocking
+works headless — 00014 spike (c)).
 """
 from __future__ import annotations
 
@@ -31,11 +33,7 @@ def surface_for_phase(phase: str) -> str | None:
 
 
 def review_file_for(surface: str, prd_base: str, reviews_dir: Path) -> Path | None:
-    if surface == "blindly":
-        return reviews_dir / f"{prd_base}-blind-review.md"
-    if surface == "doubt":
-        return reviews_dir / f"{prd_base}-doubt-review.md"
-    # work-completion: find highest integer suffix
+    # work-completion (the only live surface): find highest integer suffix
     pattern = f"{prd_base}-review-*.md"
     best: tuple[int, Path] | None = None
     for candidate in reviews_dir.glob(pattern):
@@ -50,36 +48,17 @@ def review_file_for(surface: str, prd_base: str, reviews_dir: Path) -> Path | No
     return best[1] if best is not None else None
 
 
-def run_gate(
-    review_file: Path,
-    surface: str,
-    prd_path: Path,
-    diff_range: str,
-    repo: Path,
-    project_root: Path | None = None,
-) -> tuple[int, str]:
-    """`repo` is the git repo the diff range lives in; `project_root` is where
-    the dev/local artifacts live. They coincide except when a PRD targets a
-    nested repo (e.g. ~/.claude/skills/run-autopilot under non-git ~/.claude)."""
-    if project_root is None:
-        project_root = repo
+def run_gate(review_file: Path) -> tuple[int, str]:
+    """Delegate to check_review_file.py — the same shape check the review
+    skill runs. Reviewer names come from the file's own `reviewers:`
+    frontmatter (written by consolidation); no git, no PRD parsing."""
     gate_path = (
         Path(__file__).resolve().parents[2]
         / "review-work-completion"
         / "scripts"
-        / "review_coverage.py"
+        / "check_review_file.py"
     )
-    aggregate_path = project_root / "dev" / "local" / "reviews" / ".stop-hook-aggregate.md"
-    argv = [
-        "python3",
-        str(gate_path),
-        "--surface", surface,
-        "--prd", str(prd_path),
-        "--diff-range", diff_range,
-        "--reviewer-block", str(review_file),
-        "--write-aggregate", str(aggregate_path),
-        "--repo", str(repo),
-    ]
+    argv = ["python3", str(gate_path), "--review-file", str(review_file)]
     result = subprocess.run(argv, capture_output=True, text=True)
     return (result.returncode, result.stderr.strip())
 
@@ -89,11 +68,10 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
 
     Returns ``(should_block, message)``. ``should_block`` is True only when a
     review surface just completed (the phase is review-gated) AND its saved
-    review file is missing, or its coverage block is incomplete. Returns
-    ``(False, "")`` when the phase is not review-gated or the gate passes, and
-    ``(False, <warning>)`` on DIFF_ERROR — the gate could not compute the diff
-    at all, so coverage is unknown (not incomplete) and the handoff is allowed
-    with a warning.
+    review file is missing or fails the shape check. Returns ``(False, "")``
+    when the phase is not review-gated or the gate passes. Infrastructure
+    failures fail open INSIDE check_review_file.py (unreadable file → exit 0
+    with a loud stderr note), so an infra error never blocks the hand-off.
 
     This is a PURE decision: no side effects, no exit codes. ``main()`` blocks
     (exit 2) on a True result. (Historically a second Stop hook — the retired
@@ -106,14 +84,8 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
         return (False, "")
 
     prd = state.get("prd", "")
-    work_start_sha = state.get("work_start_sha", "HEAD")
     prd_base = prd[:-3] if prd.endswith(".md") else prd
     repo = autopilot_dir.parents[2]
-    # The git repo holding the work commits. Usually the project root, but a
-    # PRD can target a nested repo while dev/local stays at the project root;
-    # Phase 3 records the nested repo in state.repo_root.
-    repo_root = state.get("repo_root", "")
-    git_repo = Path(repo_root) if repo_root else repo
     reviews_dir = repo / "dev" / "local" / "reviews"
 
     review_file = review_file_for(surface, prd_base, reviews_dir)
@@ -124,25 +96,8 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
             "blocking session exit",
         )
 
-    wip_path = repo / "dev" / "local" / "prds" / "wip" / prd
-    done_path = repo / "dev" / "local" / "prds" / "done" / prd
-    # Neither location exists -> pass wip_path; the gate fires a clean MISSING_PRD.
-    prd_path = wip_path if wip_path.exists() else (done_path if done_path.exists() else wip_path)
-
-    diff_range = f"{work_start_sha}..HEAD"
-
-    code, msg = run_gate(review_file, surface, prd_path, diff_range, git_repo, repo)
+    code, msg = run_gate(review_file)
     if code != 0:
-        if msg.startswith("DIFF_ERROR"):
-            # The gate could not compute the diff at all (infra failure), so
-            # coverage is unknown, not incomplete — the in-session gate
-            # already ran; allow the handoff and warn loudly. (A 2026-06-11
-            # false block here once masked a killed handoff as drained.)
-            return (
-                False,
-                f"review coverage: cannot compute diff [{surface}]: {msg}; "
-                "allowing handoff (coverage was gated in-session)",
-            )
         return (
             True,
             f"review coverage gap [{surface}]: {msg}; blocking session exit",
@@ -175,8 +130,6 @@ def main() -> int:
 
     should_block, message = gate_blocks(autopilot_dir, state)
     if not should_block:
-        # A non-empty message on a non-blocking result is the DIFF_ERROR
-        # warning: surface the infra failure but allow the handoff.
         if message:
             sys.stderr.write(message + "\n")
         return 0

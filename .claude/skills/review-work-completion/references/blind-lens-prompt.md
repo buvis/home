@@ -65,33 +65,6 @@ PER-RULE VERDICTS ARE MANDATORY. For every rule in The Rubric above, emit one li
 R{n}: pass   or   R{n}: fail
 (one rule per line, no other text on the line, no rationale; a rule you
 cannot evaluate counts as fail; never omit the line; never renumber).
-
-## Coverage Block (mandatory at end of output)
-
-Emit a `---review-coverage---` block as the LAST thing in your output. Fill
-three dimensions: `files`, `features`, `rubric`. Leave `tests` empty (the
-consolidation step fills it). The `files` dimension covers the files you
-inspected (you must find the code yourself).
-
-Format (delimiters are EXACT strings on their own lines):
-
----review-coverage---
-files:
-  <path>: reviewed
-  <path>: n/a:<reason>
-tests:
-  pending: filled by consolidation
-features:
-  <feature name>: verified
-  <feature name>: reviewed
-  <feature name>: failed
-rubric:
-  R{n}: pass
-  R{n}: fail
----end-review-coverage---
-
-A feature or rule you cannot evaluate counts as `failed` / `fail` — never
-omit the line.
 ```
 
 **Consolidation:** Blake's findings enter step 6 like any reviewer's

@@ -21,37 +21,12 @@ OUTPUT FORMAT IS MANDATORY. Follow exactly:
 PER-RULE VERDICTS ARE MANDATORY. For every rule in the numbered rubric, emit one line:
 R{n}: pass   or   R{n}: fail
 (one rule per line, no other text on the line, no rationale).
-
-## Coverage Block (mandatory at end of output)
-
-Emit a `---review-coverage---` block as the LAST thing in your output. Fill three dimensions: `files`, `features`, `rubric`. Leave `tests` empty (the consolidation step fills it).
-
-Format (delimiters are EXACT strings on their own lines):
-
----review-coverage---
-files:
-  <path>: reviewed
-  <path>: n/a:<reason>
-tests:
-  pending: filled by consolidation
-features:
-  <feature name>: verified
-  <feature name>: reviewed
-  <feature name>: failed
-rubric:
-  R{n}: pass
-  R{n}: fail
----end-review-coverage---
-
-Rules:
-- `files`: one entry per diff path. Value is `reviewed` or `n/a:<reason>` (free text after the colon).
-- `tests`: leave it as the single line `pending: filled by consolidation`. Do NOT report test counts; consolidation runs the suite and fills the aggregate.
-- `features`: one entry per PRD `#### Feature:` heading. Value is `verified` / `reviewed` / `failed`.
-- `rubric`: one entry per rule ID from the surface's rubric. Value is `pass` / `fail`. Lowercase only.
-- A feature or rule you cannot evaluate counts as `failed` / `fail` — never omit the line.
-
-Source of truth for the block format: `~/.claude/skills/review-work-completion/references/review-coverage-format.md`.
 ```
+
+(PRD 00016: reviewers no longer emit `---review-coverage---` blocks. Findings
+plus the per-rule verdict lines are the whole output contract; consolidation
+composes the review file's `Verdict:` and `Tests:` lines itself — see
+`references/review-coverage-format.md`.)
 
 > **Note:** The output format is defined in `output-formats.md` under "Agent Output Format". This is the single source of truth — do not duplicate format rules here.
 
@@ -63,7 +38,6 @@ Source of truth for the block format: `~/.claude/skills/review-work-completion/r
 > self-contained prompt too. The rubric's rule IDs are stable: add new rules with
 > new IDs, never renumber.
 
-> **Note:** The coverage block format is defined in `references/review-coverage-format.md`. The block's structure is embedded inline in the template above for the same reason as the rubric — external-CLI reviewers cannot resolve relative paths.
 
 ## Alice (Claude) Instructions
 

@@ -93,9 +93,8 @@ Task tool:
 
 Do NOT fork or modify `prompts/doubt-review.md` for Eve - the base prompt already prescribes the full output contract, and any future edit to it must apply to all reviewers uniformly (the codex/Claude-fallback paths and Eve share one base file).
 
-Eve's output must satisfy the existing doubt-review contract exactly, unchanged:
+Eve's output must satisfy the doubt-review contract exactly (PRD 00016 — no coverage block):
 - **FIX / VERIFY / KNOWN** sections, one finding per line; an empty bucket emits its header and `- (none)`.
 - The five rubric verdict lines `R1:`-`R5:`, each `pass` or `fail`, emitted verbatim (a rule that cannot be evaluated is `fail`; never omit a line).
-- The `---review-coverage---` block at the very end, delimiters unindented, two-space indent on entries, with all four sections present: `files` (each changed path -> `reviewed` or `n/a:<reason>`), `tests` (the single sentinel line `pending: filled by consolidation`), `features` (each PRD `#### Feature:` -> `verified`/`reviewed`/`failed`), and `rubric` (`R1`-`R5` -> `pass`/`fail`, matching the verdicts above). Terminated by `---end-review-coverage---`.
 
 If Eve's dispatch fails or times out, treat her as a failed reviewer - she retries Alice-style (the native-Task-reviewer branch of `retry-policy.md`, message the running agent again) and, after the one-retry budget is spent, is marked unavailable while the other reviewers proceed (graceful degradation, per `retry-policy.md`). The failure is legible and distinguishable from a valid empty-findings response; a single failed reviewer does not block the cycle.
