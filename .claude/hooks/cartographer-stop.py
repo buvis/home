@@ -3,21 +3,66 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 
-from _lib_cartographer import append_audit, atlas_dir, project_hash
+from _lib_cartographer import (
+    append_audit,
+    atlas_dir,
+    is_checked,
+    mark_checked,
+    project_hash,
+    resolve_session_key,
+)
+
+# ponytail: 14-day threshold is a guess (PRD 00049); tune from audit-atlas data
+NUDGE_MAX_AGE_DAYS = 14
+
+
+def maybe_nudge(data: dict, h: str, adir: Path) -> None:
+    """PRD 00049 Phase A: one stderr nudge per repo-week when this session
+    edited files in a repo whose atlas.md is missing or older than
+    NUDGE_MAX_AGE_DAYS. The edit marker is stamped by cartographer-echo
+    (namespace "survey-edits"); the throttle bucket is the ISO repo-week.
+    Cost when silent: one state-file read plus an mtime stat."""
+    session = resolve_session_key(data)
+    if not is_checked(session, "survey-edits", h):
+        return  # this session edited no files in this repo
+    atlas_md = adir / "atlas.md"
+    if atlas_md.exists():
+        age_days = (time.time() - atlas_md.stat().st_mtime) / 86400
+        if age_days <= NUDGE_MAX_AGE_DAYS:
+            return
+        detail = f"atlas stale ({int(age_days)} days)"
+    else:
+        age_days = None
+        detail = "atlas missing"
+    week_bucket = "week-" + datetime.now(timezone.utc).strftime("%G-W%V")
+    if is_checked(week_bucket, "survey-nudge", h):
+        return  # throttle: one nudge per repo per week
+    mark_checked(week_bucket, "survey-nudge", h)
+    print(f"[cartographer] {detail} - run /survey", file=sys.stderr)
+    append_audit({
+        "phase": "survey",
+        "event": "stale-nudge",
+        "repo": h,
+        "age_days": None if age_days is None else round(age_days, 1),
+    })
 
 
 def main() -> None:
     try:
-        json.loads(sys.stdin.read())
+        data = json.loads(sys.stdin.read())
 
         cwd = os.getcwd()
         h, _, _ = project_hash(cwd)
         adir = atlas_dir(h)
+
+        maybe_nudge(data, h, adir)
+
         atlas_json = adir / "atlas.json"
 
         if not atlas_json.exists():
