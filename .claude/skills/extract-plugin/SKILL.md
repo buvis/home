@@ -23,7 +23,7 @@ Output of this phase: `$CLUSTER` = space-separated list of skill names (e.g. `"p
 If the user named hooks or commands directly, list those too. The cluster can include any of:
 - Skills at `~/.claude/skills/<name>/`
 - Commands at `~/.claude/commands/<name>.md`
-- Agents at `~/.claude/agents/<name>.md`
+- Agents at `~/.claude/agents/<name>.md` (directory absent until a custom agent is defined — skip when missing)
 - Hooks at `~/.claude/hooks/<name>.py` (referenced from `~/.claude/settings.json`)
 
 ## Phase 2: Readiness check (CHECKPOINT 1)

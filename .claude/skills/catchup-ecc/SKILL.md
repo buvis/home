@@ -22,8 +22,11 @@ If no cursor file exists (first run), fetch the latest commit SHA from the repo,
 Use the GitHub API to list commits since the cursor SHA:
 
 ```bash
-gh api repos/affaan-m/everything-claude-code/commits --paginate -q '.[].sha' > /tmp/ecc-commits.txt
+gh api repos/affaan-m/everything-claude-code/commits --paginate -q '.[].sha'
 ```
+
+Save the command's output to `dev/local/tmp/ecc-commits.txt` with the **Write
+tool** (shell redirects into `dev/local/` are blocked by the aegis hook).
 
 Find commits newer than the cursor SHA. If the cursor SHA is not found in the list (history rewrite or too old), fetch the last 30 commits and note this in the report.
 

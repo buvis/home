@@ -1,6 +1,6 @@
 ---
 name: assess-evolution
-description: Assess a project's long-term evolution health, then emit a phased, session-sized PRD roadmap to get it back on track. Covers architecture, operational safety, security, downstream friction, simplification/librarization, and commit-history pain points, and names the top user-facing wins. Triggers on "evolution audit", "self-assessment", "assess this project", "get the project back on track", "what should we refactor", "health-check the codebase".
+description: Use when assessing a project's long-term evolution health and emitting a phased, session-sized PRD roadmap to get it back on track. Triggers on "evolution audit", "assess this project", "health-check the codebase", "what should we refactor".
 ---
 
 # Assess Evolution
