@@ -68,6 +68,8 @@ Apply the full RPG structure. All four sections are mandatory; none may be omitt
 
 While drafting, mark every contract detail you invented rather than sourced from the input (an input/output shape, an interface, a behavior under an edge case) with `(guess)`. Never resolve ambiguity silently - the step 5.5 gate counts these markers.
 
+**Premise rule (observed-state tasks):** Any task whose action deletes, moves, overwrites, or edits content justified by observed repo state MUST (a) state that premise in its Feature or task text (e.g. `Premise: path X is an unused scaffold, not a live skill`) and (b) include an execution-time re-check in its acceptance criteria — a failed premise means skip and report, never force. Rationale: during the 2026-07-07 skill audit a queued task nearly archived a skill the user was actively building (`brief-portfolio` went live between audit read and PRD write), and only a lucky mid-session refresh caught it. This is authoring guidance, not structure — the `assets/` templates are unaffected.
+
 ### Optional frontmatter fields
 
 PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Five optional fields are recognized by `/run-autopilot` Phase 0:

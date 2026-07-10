@@ -73,6 +73,8 @@ Location: {file paths or how to find them}
 
 Reuse: {existing patterns, utilities, or modules to build on — if any}
 
+Premise: {observed-state facts this task depends on; re-verify before acting}
+
 Contract (verbatim — from the design doc's `## Interfaces & contracts` when a design doc exists, else from the PRD; copy exact names, do NOT paraphrase):
 - {every exact field name, enum value, type shape, API signature, file/hook
    kind, and threshold the PRD specifies for this task}
@@ -100,6 +102,16 @@ When the PRD pins a name, an enum value, a type, a file kind ("Stop hook" vs
 task. This is what the "Unambiguous" and "Self-contained" task qualities above
 mean in practice. If the PRD itself is vague on a contract the task needs,
 surface it in step 6 as an ambiguity — do not let the implementer guess.
+
+**The `Premise:` line is optional and PRD-owned.** When the PRD states a
+premise for a task (observed-state facts its action rests on), copy it
+**verbatim** into the `Premise:` line — same discipline as `Contract`, never
+paraphrased. The implementor must re-verify the premise before acting and treat
+a false premise as a blocker: stop, report, do not proceed. In loop mode this
+feeds PRD 00017's stall path (`run-autopilot/references/recovery.md`
+"Loop-mode stall procedure") — a premise failure is never resolved by
+assumption. When the PRD states no premise, omit the line entirely: no new
+behavior, nothing inferred or invented.
 
 **Contract source when a design doc exists.** When a design doc is present
 (detected in step 3), the task `Contract` is copied **verbatim from the design
