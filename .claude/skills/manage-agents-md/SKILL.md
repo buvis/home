@@ -3,7 +3,7 @@ name: manage-agents-md
 description: Use when creating, auditing, or improving an AGENTS.md file for AI coding agents (progressive disclosure, context window budgeting). Triggers on "AGENTS.md", "create AGENTS.md", "audit AGENTS.md", "improve AGENTS.md".
 ---
 
-# AGENTS.md Manager
+# manage-agents-md
 
 Build and maintain high-quality AGENTS.md files that maximize AI coding agent efficiency.
 
@@ -29,84 +29,25 @@ Every AGENTS.md should answer three questions concisely:
 | Instructions | < 100 | Frontier models reliably follow ~150-200 instructions; system prompt uses ~50 |
 | Applicability | 100% universal | Non-universal instructions cause entire file to be ignored |
 
-## What NOT to Include
-
-- **Code style guidelines** - Use linters/formatters instead. LLMs learn from codebase patterns.
-- **One-off task instructions** - Put in slash commands or separate docs
-- **Code snippets** - Become stale; use `file:line` pointers instead
-- **Auto-generated content** - Auto-init output is generic; craft manually
-- **Conditional instructions** - Use progressive disclosure instead
+What NOT to include: the exclusion list lives in `references/checklist.md`
+("What NOT to Include" + "Common Anti-Patterns") — style guidelines belong in
+linters, task-specific instructions in commands, code in `file:line` pointers.
 
 ## Progressive Disclosure Pattern
 
-Keep AGENTS.md lean by pointing to detailed docs:
+Keep AGENTS.md lean by pointing to detailed docs in `agent_docs/` — layout,
+index format, and the pointers-over-copies rule are in
+`references/progressive-disclosure.md`.
 
-```
-project/
-├── AGENTS.md              # Core onboarding only (<100 lines)
-└── agent_docs/            # Detailed docs loaded on demand
-    ├── building.md
-    ├── testing.md
-    ├── database_schema.md
-    ├── architecture.md
-    └── deployment.md
-```
+## Template
 
-In AGENTS.md, include a brief index:
-
-```markdown
-## Documentation
-
-Read relevant docs from `agent_docs/` before starting work:
-- `building.md` - Build commands and dependencies
-- `testing.md` - Test execution and coverage
-- `database_schema.md` - Table schemas and relationships
-- `architecture.md` - Service structure and communication
-- `deployment.md` - Deployment procedures and environments
-```
-
-**Prefer pointers to copies** - Reference `file:line` instead of embedding code.
-
-## AGENTS.md Template Structure
-
-See `references/template.md` for a complete template.
-
-Minimal structure:
-
-```markdown
-# Project Name
-
-Brief one-line description.
-
-## Stack
-
-- Language/Framework: X
-- Database: Y
-- Key dependencies: Z
-
-## Project Structure
-
-app/          - Main application code
-lib/          - Shared utilities
-tests/        - Test suite
-
-## Commands
-
-Build:  `command here`
-Test:   `command here`
-Lint:   `command here`
-
-## Documentation
-
-Read from `agent_docs/` as needed:
-- `file.md` - Description
-```
+Full and minimal AGENTS.md structures live in `references/template.md`.
 
 ## Creating a New AGENTS.md
 
 1. **Analyze the project** - Identify stack, structure, key workflows
 2. **Start minimal** - Begin with <50 lines covering essentials
-3. **Create agent_docs/** - Move detailed documentation there
+3. **Create agent_docs/** - Move detailed documentation there (per `references/progressive-disclosure.md`)
 4. **Add pointers** - Reference agent_docs from AGENTS.md
 5. **Validate** - Run checklist from `references/checklist.md`
 
@@ -121,28 +62,13 @@ Read from `agent_docs/` as needed:
 
 ## Integrations
 
-### Pre-commit Hooks (for formatting/linting)
-
-Instead of style instructions, configure pre-commit hooks:
-
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: local
-    hooks:
-      - id: lint-fix
-        name: Auto-fix lint issues
-        entry: npm run lint:fix && npm run format
-        language: system
-        pass_filenames: false
-```
-
-### Custom Commands (for specific workflows)
-
-Create project-specific commands directory for task-specific instructions that shouldn't bloat AGENTS.md.
+- **Formatting/linting**: configure pre-commit hooks instead of writing style
+  instructions into AGENTS.md.
+- **Specific workflows**: put task-specific instructions in a project commands
+  directory, not AGENTS.md.
 
 ## Reference Files
 
 - `references/template.md` - Complete AGENTS.md template with examples
-- `references/checklist.md` - Validation checklist for auditing
+- `references/checklist.md` - Validation checklist, exclusion list, anti-patterns
 - `references/progressive-disclosure.md` - Guide for organizing agent_docs/

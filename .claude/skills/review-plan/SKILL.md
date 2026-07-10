@@ -20,11 +20,11 @@ Systematically analyze the plan across:
 3. **Implementation clarity**: Does each step have sufficient detail? Any ambiguity?
 4. **Dependencies & prerequisites**: External deps, tools, libraries, infrastructure requirements documented?
 5. **Testing strategy**: Testing approaches, validation criteria, quality checks defined?
-6. **Deployment & rollout**: Deployment steps, rollback procedures, monitoring covered?
-7. **Documentation**: Documentation requirements and knowledge transfer needs addressed?
-8. **Timeline realism**: Does timeline account for complexity and blockers?
-9. **Resource allocation**: Compute, storage, third-party services, budget identified?
-10. **Security & compliance**: Security considerations, compliance requirements noted?
+6. **Documentation**: Documentation requirements and knowledge transfer needs addressed?
+7. **Security & compliance**: Security considerations, compliance requirements noted?
+
+(Enterprise-only dimensions — deployment/rollout, timeline realism, resource
+allocation/budget — were dropped for the solo-dev profile.)
 
 ## Output Format
 

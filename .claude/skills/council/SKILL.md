@@ -5,28 +5,17 @@ description: Use when an ambiguous decision has multiple credible paths and need
 
 # Council
 
-Convene four advisors for ambiguous decisions:
-- the in-context Claude voice (Architect)
-- a Skeptic subagent
-- a Pragmatist subagent
-- a Critic subagent
-
-This is for **decision-making under ambiguity**, not code review, implementation planning, or architecture design.
+Convene four advisors for ambiguous decisions: the in-context Claude voice
+(Architect) plus Skeptic, Pragmatist, and Critic subagents (lenses in the
+Roles table). For **decision-making under ambiguity** only — see When NOT to
+Use.
 
 ## When to Use
 
-Use council when:
-- a decision has multiple credible paths and no obvious winner
-- you need explicit tradeoff surfacing
-- the user asks for second opinions, dissent, or multiple perspectives
-- conversational anchoring is a real risk
-- a go / no-go call would benefit from adversarial challenge
-
-Examples:
-- monorepo vs polyrepo
-- ship now vs hold for polish
-- feature flag vs full rollout
-- simplify scope vs keep strategic breadth
+Use council when a decision has multiple credible paths and no obvious winner,
+tradeoffs need explicit surfacing, the user asks for second opinions or
+dissent, or conversational anchoring is a real risk (e.g. monorepo vs
+polyrepo, ship now vs hold, feature flag vs full rollout).
 
 ## When NOT to Use
 
@@ -44,9 +33,9 @@ Examples:
 | Voice | Lens |
 | --- | --- |
 | Architect | correctness, maintainability, long-term implications |
-| Skeptic | premise challenge, simplification, assumption breaking |
-| Pragmatist | shipping speed, user impact, operational reality |
-| Critic | edge cases, downside risk, failure modes |
+| Skeptic | premise challenge, assumption breaking, the simplest credible alternative |
+| Pragmatist | shipping speed, simplicity, user impact, real-world execution |
+| Critic | edge cases, downside risk, failure modes, reasons the plan could fail |
 
 The three external voices should be launched as fresh subagents with **only the question and relevant context**, not the full ongoing conversation. That is the anti-anchoring mechanism.
 
@@ -63,13 +52,9 @@ If the question is vague, ask one clarifying question before convening the counc
 
 ### 2. Gather only the necessary context
 
-If the decision is codebase-specific:
-- collect the relevant files, snippets, issue text, or metrics
-- keep it compact
-- include only the context needed to make the decision
-
-If the decision is strategic/general:
-- skip repo snippets unless they materially change the answer
+Codebase-specific decision: collect the relevant files, snippets, issue text,
+or metrics — compact, only what the decision needs. Strategic/general
+decision: skip repo snippets unless they materially change the answer.
 
 ### 3. Form the Architect position first
 
@@ -82,13 +67,9 @@ Do this first so the synthesis does not simply mirror the external voices.
 
 ### 4. Launch three independent voices in parallel
 
-Each subagent gets:
-- the decision question
-- compact context if needed
-- a strict role
-- no unnecessary conversation history
-
-Launch them via the Agent tool (subagent_type: general-purpose) in a single message, in parallel.
+Launch them via the Agent tool (subagent_type: general-purpose) in a single
+message, in parallel — each gets only the prompt below (question, compact
+context, strict role; no conversation history, per the Roles-table rule).
 
 Prompt shape:
 
@@ -110,10 +91,7 @@ Respond with:
 Be direct. No hedging. Keep it under 300 words.
 ```
 
-Role emphasis:
-- Skeptic: challenge framing, question assumptions, propose the simplest credible alternative
-- Pragmatist: optimize for speed, simplicity, and real-world execution
-- Critic: surface downside risk, edge cases, and reasons the plan could fail
+Each role's emphasis is its Roles-table lens — restate nothing else.
 
 ### 5. Synthesize with bias guardrails
 
@@ -157,47 +135,22 @@ Keep it scannable on a phone screen.
 Do **not** write ad-hoc notes to shadow paths from this skill.
 
 If the council materially changes the recommendation:
-- use `save-session` if the outcome belongs in session memory
 - update the relevant GitHub / Linear issue directly if the decision changes active execution truth
-- save a memory record (see auto memory in CLAUDE.md) only if the outcome is durable guidance for future sessions
+- save a memory file under `~/.claude/projects/-Users-bob--claude/memory/` only if the outcome is durable guidance for future sessions
 
-Only persist a decision when it changes something real.
+Only persist a decision when it changes something real. Never persist every
+verdict regardless of importance.
 
 ## Multi-Round Follow-up
 
-Default is one round.
-
-If the user wants another round:
-- keep the new question focused
-- include the previous verdict only if it is necessary
-- keep the Skeptic as clean as possible to preserve anti-anchoring value
-
-## Anti-Patterns
-
-- using council for code review
-- using council when the task is just implementation work
-- feeding the subagents the entire conversation transcript
-- hiding disagreement in the final verdict
-- persisting every decision as a note regardless of importance
+Default is one round. On a requested second round: keep the new question
+focused, include the previous verdict only if necessary, and keep the Skeptic
+clean to preserve anti-anchoring value.
 
 ## Related Skills
 
 - `review-with-doubt` — adversarial self-review of a single output
-- `research` — gather external reference material before the council if needed
+- `deep-research` — gather external reference material before the council if needed
 - `agent-introspection-debugging` — when the issue is a stuck agent rather than an ambiguous decision
-
-## Example
-
-Question:
-
-```text
-Should we ship the new auth module as alpha now, or hold until the dashboard is more complete?
-```
-
-Likely council shape:
-- Architect pushes for structural integrity and avoiding a confused surface
-- Skeptic questions whether the dashboard is actually the gating factor
-- Pragmatist asks what can be shipped now without harming trust
-- Critic focuses on support burden, expectation debt, and rollout confusion
 
 The value is not unanimity. The value is making the disagreement legible before choosing.
