@@ -87,6 +87,14 @@ Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
 
 The **Subagent Dispatch Budget** (50K bytes, 100K subagent-internal cap) applies regardless of tier. Haiku doesn't earn a smaller cap; opus doesn't earn a larger one.
 
+## Assumptions footer
+
+Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism (Agent, `use-gemini`, `use-qwen`) - must end with this instruction verbatim:
+
+> End your report with `ASSUMPTIONS:` - one line per assumption you made where the task, tests, or listed files were silent (guessed interface, data shape, resolved ambiguity, unstated behavior). Write `ASSUMPTIONS: none` if you made none.
+
+Collect the returned lines: step 6 appends non-`none` entries to `dev/local/assumptions.md` under a `## <task-id>: <task subject>` heading (Write/Edit tool, never shell redirects). On the first completed task of a full-plan pass, replace the file instead of appending - the ledger is per-plan. Step 7's phase report includes the ledger so the user and the review phase can examine what the implementors guessed in a 30-second read.
+
 ## Attempt logging
 
 At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`.
@@ -224,6 +232,8 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 
 **Scope the agent explicitly.** Add to the prompt: "Read only the files listed above. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope." Open-ended discovery is where subagents burn turns and stall.
 
+Tess prompts also end with the **Assumptions footer** instruction (see section above) - tests are the spec in this pipeline, so a contract Tess guessed silently becomes the contract.
+
 **Tess does NOT receive:**
 - Implementation strategy or architecture docs (loaded in step 2.5 for the main session and Ivan only)
 - "How to build this" context
@@ -315,6 +325,7 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
 3. The abort-instruction line from the **Subagent Dispatch Budget** section. Measure the assembled prompt before dispatching; if > 50K bytes, trim or abort the task with cause `subagent_prompt_overrun`.
 4. The **exact file paths** Ivan may read and modify, plus: "Read only the files listed. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope."
+5. The assumptions-footer instruction from the **Assumptions footer** section above, verbatim.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
@@ -500,8 +511,9 @@ Skip for documentation-only or configuration-only tasks.
 
 1. Use `TaskUpdate` to set `status: completed`
 2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass.
-3. **Sync state file** (see Dashboard State Sync) — mandatory
-4. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
+3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
+4. **Sync state file** (see Dashboard State Sync) — mandatory
+5. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
 
 ### 6.5. Task-boundary handoff check
 
@@ -554,6 +566,8 @@ Run each as a separate Bash call. Do not chain with `&&`.
 Max 3 fix cycles at this step before escalating to the user — regressions clustering here usually indicate a design issue that needs human input.
 
 Only stop the work phase once step 7 is fully green.
+
+When reporting the phase result, include the contents of `dev/local/assumptions.md` (if present) - the assumption ledger is input to the review phase and the user's 30-second examine pass.
 
 ## Task Splitting
 
