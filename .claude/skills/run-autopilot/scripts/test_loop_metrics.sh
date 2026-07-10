@@ -51,20 +51,24 @@ TMP3="$(mktemp -d)"
 TMP4="$(mktemp -d)"
 trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4"' EXIT
 
-# ── Scenario 1: continue then done (happy path across two sessions) ──
-# Session 1 advances next_phase build->review (branch 4, signal=continue);
-# session 2 writes next_phase "" (branch 3, signal=done, state archived).
+# ── Scenario 1: build -> review -> done -> drained (happy path) ──────
+# Three sessions advance the phases (branch 4 twice, branch 3 last); the
+# per-phase model routing (PRD 00018) must pick opus for build/review and
+# sonnet for the done/finalize launch, and the fake result event's cost
+# fields must land on every line.
 AP1="$TMP1/dev/local/autopilot"
 mkdir -p "$AP1"
 printf '%s\n' '{"prd":"00013-test.md","next_phase":"build","batch":{"id":"209901010000"}}' > "$AP1/state.json"
 
 claude() {
-  if [ "$(jq -r '.next_phase // ""' "$AP_DIR/state.json" 2>/dev/null)" = "review" ]; then
-    printf '%s\n' '{"prd":"00013-test.md","next_phase":"","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json"
-  else
-    printf '%s\n' '{"prd":"00013-test.md","next_phase":"review","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json"
-  fi
-  echo "stub session output"
+  local next
+  next=$(jq -r '.next_phase // ""' "$AP_DIR/state.json" 2>/dev/null)
+  case "$next" in
+    build)  printf '%s\n' '{"prd":"00013-test.md","next_phase":"review","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json" ;;
+    review) printf '%s\n' '{"prd":"00013-test.md","next_phase":"done","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json" ;;
+    done)   printf '%s\n' '{"prd":"00013-test.md","next_phase":"","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json" ;;
+  esac
+  echo '{"type":"result","subtype":"success","total_cost_usd":1.23,"usage":{"output_tokens":456}}'
 }
 
 run_loop "$AP1"
@@ -74,21 +78,25 @@ rc1=$?
 M1="$AP1/loop-metrics.jsonl"
 [ -f "$M1" ] || fail "scenario 1: no loop-metrics.jsonl written"
 n1=$(grep -c . "$M1")
-[ "$n1" -eq 2 ] || fail "scenario 1: expected 2 lines (continue, done), got $n1"
+[ "$n1" -eq 3 ] || fail "scenario 1: expected 3 lines (continue, continue, done), got $n1"
 line1=$(sed -n 1p "$M1")
-line2=$(sed -n 2p "$M1")
+line3=$(sed -n 3p "$M1")
 echo "scenario 1 line 1: $line1"
-echo "scenario 1 line 2: $line2"
+echo "scenario 1 line 3: $line3"
 echo "$line1" | jq -e . >/dev/null || fail "scenario 1: line 1 not valid JSON"
-for key in ts_start ts_end wall_secs prd batch phase_launched phase_end signal; do
+for key in ts_start ts_end wall_secs prd batch phase_launched phase_end signal model; do
   echo "$line1" | jq -e "has(\"$key\")" >/dev/null || fail "scenario 1: missing key $key"
 done
 echo "$line1" | jq -e '.wall_secs | type == "number"' >/dev/null \
   || fail "scenario 1: wall_secs not a number"
 echo "$line1" | jq -e '.prd == "00013-test.md" and .batch == "209901010000" and .phase_launched == "build" and .phase_end == "review" and .signal == "continue"' >/dev/null \
   || fail "scenario 1: line 1 field values wrong"
-echo "$line2" | jq -e '.phase_launched == "review" and .phase_end == "" and .signal == "done"' >/dev/null \
-  || fail "scenario 1: line 2 field values wrong"
+echo "$line1" | jq -e '.model == "claude-opus-4-8" and .cost_usd == 1.23 and .tokens_out == 456' >/dev/null \
+  || fail "scenario 1: line 1 model/cost fields wrong (PRD 00018)"
+echo "$line3" | jq -e '.phase_launched == "done" and .phase_end == "" and .signal == "done"' >/dev/null \
+  || fail "scenario 1: line 3 field values wrong"
+echo "$line3" | jq -e '.model == "claude-sonnet-5"' >/dev/null \
+  || fail "scenario 1: done/finalize session did not route to sonnet (PRD 00018)"
 [ -f "$AP1/reports/209901010000-state-final.json" ] \
   || fail "scenario 1: drained state.json not archived to reports/"
 [ ! -f "$AP1/state.json" ] || fail "scenario 1: state.json still present after archive"
@@ -111,6 +119,8 @@ line2=$(cat "$M2")
 echo "scenario 2 line: $line2"
 echo "$line2" | jq -e '.prd == "" and .batch == "" and .phase_launched == "" and .phase_end == "" and .signal == "died"' >/dev/null \
   || fail "scenario 2: died-path fields wrong"
+echo "$line2" | jq -e '.model == "claude-opus-4-8" and (has("cost_usd") | not) and (has("tokens_out") | not)' >/dev/null \
+  || fail "scenario 2: absent-phase default model or spurious cost keys (PRD 00018: no result event -> omit keys, never fake zeros)"
 
 # ── Scenario 3: append target unwritable — silent by design ──────────
 # `2>/dev/null` must precede `>>` so a failed append-target open is
