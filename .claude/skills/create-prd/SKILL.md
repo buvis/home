@@ -15,7 +15,7 @@ Transform a plan or design document into an RPG-compliant PRD and save to the ba
 
 Before proceeding, check whether requirements were elicited:
 
-1. If the user passed a file from `dev/local/discovery/`, requirements were elicited. Proceed to step 1.
+1. If the user passed a file from `dev/local/discovery/`, or a converged spike spec from `dev/local/spikes/<slug>/SPEC.md`, requirements were elicited (the spike loop is elicitation by building). Proceed to step 1.
 2. Otherwise (different file, conversation context, or no argument), warn:
 
 > No discovery doc provided. Run `/elicit-requirements` first to validate requirements, or say "skip" to proceed without one.
@@ -66,6 +66,8 @@ Apply the full RPG structure. All four sections are mandatory; none may be omitt
 3. **Dependency graph**: Foundation Layer / Core Layer / Integration Layer with explicit per-module dependency lists. Even single-phase PRDs MUST include this section — a one-line "no dependencies; built first" entry is fine, but the heading must be present.
 4. **Implementation phases**: Topological order of tasks. Each task includes its dependency reference and an Acceptance criterion.
 
+While drafting, mark every contract detail you invented rather than sourced from the input (an input/output shape, an interface, a behavior under an edge case) with `(guess)`. Never resolve ambiguity silently - the step 5.5 gate counts these markers.
+
 ### Optional frontmatter fields
 
 PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Five optional fields are recognized by `/run-autopilot` Phase 0:
@@ -101,6 +103,10 @@ If PRD exceeds ~200 lines or has loosely coupled parts:
 ### 5. Verify structure before saving
 
 Walk the chosen template top-to-bottom and confirm every `##`/`###` heading the template defines is present in your draft, in the same order, with the same wording. If any are missing, renamed, or out of order, revise before saving. This is the gate that prevents drift toward whatever PRD style happened to dominate the repo's existing files.
+
+### 5.5. Guess-density gate
+
+Count unresolved contract markers in the draft: `(guess)`, `TBD`, `TODO`, plus Open Questions that bear on any Feature's Inputs/Outputs/Behavior. **3 or more:** do not save yet - offer via AskUserQuestion: **Spike the fuzzy part** (run the spike skill with the draft as its rough spec; on convergence rewrite the guessed fields from observed behavior, then re-run this gate), **Resolve now** (answer them in conversation), or **Save anyway** (explicit override - the markers stay in the PRD and plan-tasks will freeze them as written). **2 or fewer:** proceed to step 6.
 
 ### 6. Save to backlog
 

@@ -72,6 +72,8 @@ Read `references/question-bank.md`. Select questions appropriate to the depth le
 
 **Early exit:** If the user says "that's enough" or similar, stop asking and generate the document with what you have.
 
+**Spike fork:** A non-answer is "don't know", "whatever you think", "I'd need to see it", or any answer that defers the decision to seeing something run. When contract-level questions (interface, data shape, output form, success criteria) draw a second non-answer, stop eliciting and offer via AskUserQuestion: **Spike it** (run the spike skill's loop on the fuzzy part; when it converges, fold its ASSUMPTIONS and answers into the Discovery Log and resume here - skip the spike skill's graduate step, this flow already ends in create-prd), **Keep answering**, or **Park as open questions** (they land in Open Questions for create-prd). Non-answers are a routing signal, not a failure: a 20-minute build answers them cheaper than more questions.
+
 ### 5. Write Discovery Document
 
 Read `references/discovery-template.md`. Generate the discovery document at the classified depth.
