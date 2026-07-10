@@ -1,9 +1,9 @@
 ---
-name: deep-research
+name: research
 description: Use when researching a topic in depth via multi-source synthesis (literature review, competitive analysis, technology comparison). Triggers on "deep research", "research this", "investigate", "literature review", "survey the landscape".
 ---
 
-# Deep Research
+# Research
 
 Dispatch a subagent to do multi-source research. Keeps intermediate search noise out of the main context window.
 

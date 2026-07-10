@@ -1,9 +1,9 @@
 ---
-name: council
+name: convene-council
 description: Use when an ambiguous decision has multiple credible paths and needs structured disagreement before choosing. Triggers on "council", "second opinion", "convene council", "decision council", "multiple perspectives", "go or no go".
 ---
 
-# Council
+# Convene Council
 
 Convene four advisors for ambiguous decisions: the in-context Claude voice
 (Architect) plus Skeptic, Pragmatist, and Critic subagents (lenses in the
@@ -12,14 +12,14 @@ Use.
 
 ## When to Use
 
-Use council when a decision has multiple credible paths and no obvious winner,
+Use convene-council when a decision has multiple credible paths and no obvious winner,
 tradeoffs need explicit surfacing, the user asks for second opinions or
 dissent, or conversational anchoring is a real risk (e.g. monorepo vs
 polyrepo, ship now vs hold, feature flag vs full rollout).
 
 ## When NOT to Use
 
-| Instead of council | Use |
+| Instead of convene-council | Use |
 | --- | --- |
 | Verifying whether output is correct | `review-with-doubt` or `review-blindly` |
 | Breaking a feature into implementation steps | `plan-tasks` |
@@ -150,7 +150,7 @@ clean to preserve anti-anchoring value.
 ## Related Skills
 
 - `review-with-doubt` — adversarial self-review of a single output
-- `deep-research` — gather external reference material before the council if needed
-- `agent-introspection-debugging` — when the issue is a stuck agent rather than an ambiguous decision
+- `research` — gather external reference material before the council if needed
+- `debug-stuck-agent` — when the issue is a stuck agent rather than an ambiguous decision
 
 The value is not unanimity. The value is making the disagreement legible before choosing.
