@@ -32,7 +32,7 @@ Each agent outputs issues in this exact format:
 ```
 [ALICE] 🔴 SQL injection in query builder | File: src/db/query.ts | Task: 3
 [BOB] 🟠 Missing error handling strategy | File: N/A | Task: general
-[DIANA] 🟡 PRD section 2.3 not implemented | File: N/A | Task: 5
+[QUINN] 🟡 PRD section 2.3 not implemented | File: N/A | Task: 5
 ```
 
 ## Per-Rule Verdict Format
@@ -78,9 +78,17 @@ Parse agent outputs and merge:
 
 | Consensus | Severity | Issue | File | Found By |
 |-----------|----------|-------|------|----------|
-| [3/3] | 🔴 Critical | XSS in input handler | src/input.ts | Alice, Bob, Diana |
+| [3/3] | 🔴 Critical | XSS in input handler | src/input.ts | Alice, Bob, Quinn |
 | [2/3] | 🟠 High | Missing null check | src/api.ts | Alice, Bob |
-| [1/3] | 🟡 Medium | No test coverage | src/utils.ts | Diana |
+| [1/3] | 🟡 Medium | No test coverage | src/utils.ts | Blake |
+
+**Advisory bucket (Quinn).** A finding whose Found By is Quinn ALONE moves out of the consolidated table into an `### Advisory (local model, unconfirmed)` list in the review file — same line format, no consensus score — and creates no follow-up tasks (SKILL.md steps 6-7). Quinn appearing alongside any other reviewer stays in the table and counts toward consensus normally (as in the `[3/3]` row above):
+
+```markdown
+### Advisory (local model, unconfirmed)
+
+- 🟡 Possible off-by-one in pagination | File: src/list.ts | Task: 4 (Quinn only)
+```
 
 ## Issue Documentation Format
 
@@ -167,7 +175,7 @@ agents:
   alice: available
   bob: available
   carl: available
-  diana: available
+  quinn: available
 ---
 
 Agent states: `available` (ran successfully), `unavailable` (failed after retries), `disabled` (not invoked).

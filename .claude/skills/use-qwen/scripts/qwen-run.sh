@@ -5,7 +5,7 @@ set -eo pipefail
 
 # Ensure mise-managed tools (like pi) are on PATH.
 if command -v mise &>/dev/null; then
-    PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
+    PATH="$(mise env -s bash < /dev/null 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
 # Local model served by llama.cpp - free to run, no API cost.
@@ -17,7 +17,15 @@ fi
 # every provider is probed in ascending port order and the first one with a
 # live server wins; the model id comes from that server's /v1/models. Override
 # with --provider and/or -m. A config entry is NOT proof a server is up, so we
-# probe rather than trust the lowest port blindly.
+# probe rather than trust the lowest port blindly. And a /v1/models listing is
+# NOT proof the worker can serve — LlamaBarn-style servers enumerate models
+# straight from config and spawn the inference worker lazily on the first
+# completion (the 2026-06-19 "false healthy" incident: models 200, completion
+# 500). The deciding health signal is therefore a real 1-token completion
+# probe, run before ANY pi dispatch; the listing is only a fast pre-check.
+# Mirrors the preflight contract in
+# ~/.claude/skills/work/references/qwen-integration.md (outcomes: pi_missing /
+# endpoint_unreachable / completion_failed).
 MODELS_JSON="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json"
 MODEL=""             # empty = take whatever the live server reports
 PROVIDER=""          # empty = auto-detect lowest live port
@@ -42,6 +50,9 @@ usage() {
     echo "  -i, --interactive    Interactive mode with initial prompt"
     echo "  -R, --read-only      Restrict to read-only tools (no file edits)"
     echo "  -j, --json           Emit a structured JSON event stream (pi --mode json)"
+    echo "      --preflight      Probe only: resolve provider/model and require a real"
+    echo "                       1-token completion. Exit 0 = healthy; nonzero names the"
+    echo "                       failing check (pi_missing/endpoint_unreachable/completion_failed)."
     echo "  -f, --file FILE      Read prompt from file"
     echo "  -o, --output FILE    Write output to file (via tee)"
     echo "  -r, --resume [ID]    Resume session (optionally a specific session id)"
@@ -76,6 +87,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -j|--json)
             OUTPUT_MODE="json"
+            shift
+            ;;
+        --preflight)
+            MODE="preflight"
             shift
             ;;
         -f|--file)
@@ -119,7 +134,7 @@ if [ -n "$PROMPT_FILE" ]; then
 fi
 
 if ! command -v pi &>/dev/null; then
-    echo "ERROR: 'pi' not found on PATH. Install via mise, then run 'mise reshim'."
+    echo "ERROR: preflight failed (pi_missing): 'pi' not found on PATH. Install via mise, then run 'mise reshim'."
     exit 1
 fi
 
@@ -127,33 +142,50 @@ for tool in jq curl; do
     command -v "$tool" &>/dev/null || { echo "ERROR: '$tool' required for provider auto-detect."; exit 1; }
 done
 if [ ! -f "$MODELS_JSON" ]; then
-    echo "ERROR: pi model config not found: $MODELS_JSON"
+    echo "ERROR: preflight failed (endpoint_unreachable): pi model config not found: $MODELS_JSON"
     exit 1
 fi
 
 # Ask a provider's llama-server for the id it's actually serving (empty if down).
-probe_model() { curl -sf --max-time 2 "$1/models" 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null; }
+# Fast pre-check only — a listing is never the deciding health signal.
+# The trailing `|| true` keeps a dead server from tripping set -e/pipefail
+# inside the command substitution (which used to kill the script silently
+# before the endpoint_unreachable error could be printed).
+probe_model() { curl -sf --max-time 2 "$1/models" < /dev/null 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null || true; }
 
 # Look up a provider's baseUrl from the config (empty if the provider is absent).
-provider_base_url() { jq -r --arg p "$1" '.providers[$p].baseUrl // empty' "$MODELS_JSON"; }
+provider_base_url() { jq -r --arg p "$1" '.providers[$p].baseUrl // empty' "$MODELS_JSON" < /dev/null; }
+
+# The deciding health signal: a real 1-token completion against the served
+# model (max_tokens=1). Exercises the lazy worker spawn that /v1/models never
+# does. 120s ceiling covers a cold model load (~18.5 GB GGUF) and doubles as a
+# warm-up for the dispatch that follows — the load is not wasted.
+probe_completion() {
+    curl -sf --max-time 120 -X POST "$1/chat/completions" \
+        -H 'Content-Type: application/json' \
+        -d "{\"model\": \"$2\", \"messages\": [{\"role\": \"user\", \"content\": \"ping\"}], \"max_tokens\": 1, \"stream\": false}" \
+        < /dev/null > /dev/null 2>&1
+}
 
 if [ -n "$PROVIDER" ]; then
     BASE_URL="$(provider_base_url "$PROVIDER")"
     if [ -z "$BASE_URL" ]; then
-        echo "ERROR: provider '$PROVIDER' not found in $MODELS_JSON"
+        echo "ERROR: preflight failed (endpoint_unreachable): provider '$PROVIDER' not found in $MODELS_JSON"
         exit 1
     fi
     if [ -z "$MODEL" ]; then
         MODEL="$(probe_model "$BASE_URL")"
-        [ -z "$MODEL" ] && { echo "ERROR: no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m."; exit 1; }
+        [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m."; exit 1; }
     fi
 else
     # Probe every provider in ascending port order; first live one wins.
+    BASE_URL=""
     while IFS=$'\t' read -r _port name base_url; do
         [ -z "$base_url" ] && continue
         served="$(probe_model "$base_url")"
         if [ -n "$served" ]; then
             PROVIDER="$name"
+            BASE_URL="$base_url"
             [ -z "$MODEL" ] && MODEL="$served"
             break
         fi
@@ -161,13 +193,26 @@ else
         .providers | to_entries[]
         | [ ((.value.baseUrl // "") | capture(":(?<p>[0-9]+)").p // "0" | tonumber),
             .key, (.value.baseUrl // "") ] | @tsv
-    ' "$MODELS_JSON" | sort -n)
+    ' "$MODELS_JSON" < /dev/null | sort -n)
     if [ -z "$PROVIDER" ]; then
-        echo "ERROR: no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)."
+        echo "ERROR: preflight failed (endpoint_unreachable): no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)."
         exit 1
     fi
 fi
 echo "Using provider '$PROVIDER' model '$MODEL'" >&2
+
+# Honest preflight gate: the listing above only picked a candidate; a real
+# 1-token completion decides. Refuse BEFORE any pi dispatch so a broken worker
+# spawn surfaces as a preflight failure, not a mid-run pi error.
+if ! probe_completion "$BASE_URL" "$MODEL"; then
+    echo "ERROR: preflight failed (completion_failed): '$MODEL' at $BASE_URL lists but cannot serve a 1-token completion (worker spawn failure?). Fix the backend (LlamaBarn: re-download the model runtime or reinstall), then verify with: curl ${BASE_URL}/chat/completions" >&2
+    exit 1
+fi
+
+if [ "$MODE" = "preflight" ]; then
+    echo "preflight: healthy (provider '$PROVIDER', model '$MODEL')"
+    exit 0
+fi
 
 # Common pi arguments
 ARGS=(--provider "$PROVIDER" --model "$MODEL" --mode "$OUTPUT_MODE")
@@ -209,6 +254,9 @@ case $MODE in
             usage
             exit 1
         fi
-        run_cmd pi "${ARGS[@]}" -p "$PROMPT"
+        # Non-interactive dispatch: guard child stdin so an unattended batch
+        # can never hang on a child reading the inherited stdin (PRD 00040
+        # hang class). Interactive/resume modes keep stdin — they need the TTY.
+        run_cmd pi "${ARGS[@]}" -p "$PROMPT" < /dev/null
         ;;
 esac

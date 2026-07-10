@@ -10,7 +10,7 @@ were retired (their operational record was false blocks, not caught defects).
 
 1. **Frontmatter** with at least:
    - `head_sha: <sha>` — HEAD at review time (next cycle scopes its diff from it)
-   - `reviewers: alice,blake,bob[,carl][,diana][,eve]` — comma-separated
+   - `reviewers: alice,blake,bob[,carl][,quinn][,eve]` — comma-separated
      lowercase names of every reviewer that actually RAN this cycle
    - `codex_thread_id: <id>` — optional; present when Bob ran on codex
 2. **One `## <Name>` section per launched reviewer**, non-empty: the

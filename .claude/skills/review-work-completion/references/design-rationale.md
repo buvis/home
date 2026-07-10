@@ -10,7 +10,7 @@ Human names decouple workflow from tool names. Tools change; review process does
 
 Required for context isolation. Direct invocation would pollute context. The indirection is the feature, not overhead. This applies to **Alice**, the native Claude reviewer: she has no CLI form (`claude -p` fails inside a subagent), so she stays a Task Agent.
 
-**Exception (settled, PRD 00034): the CLI reviewers Bob (codex), Carl (gemini), and Diana (sonnet) do NOT use Task Agent wrapping.** They run as `run_in_background` Bash invocations of their `*-run.sh` scripts, each self-writing `dev/local/tmp/{agent}-output-{id}.txt` via `-o`. A backgrounded Bash is covered by the Stop hook's `_waiting_on_async`, which abstains until the last unconsumed launch reports, in every phase. A Task Agent is not: the hook must guess reviewer liveness from the transcript (`_pending_background_task`), and that guess stranded the review phase (jink 00025, playground 00007). Do not "fix" the CLI reviewers back to Task Agents.
+**Exception (settled, PRD 00034): the CLI reviewers Bob (codex), Carl (gemini), and Quinn (qwen) do NOT use Task Agent wrapping.** They run as `run_in_background` Bash invocations of their `*-run.sh` scripts, each self-writing `dev/local/tmp/{agent}-output-{id}.txt` via `-o`. A backgrounded Bash is covered by the Stop hook's `_waiting_on_async`, which abstains until the last unconsumed launch reports, in every phase. A Task Agent is not: the hook must guess reviewer liveness from the transcript (`_pending_background_task`), and that guess stranded the review phase (jink 00025, playground 00007). Do not "fix" the CLI reviewers back to Task Agents.
 
 ## Skill Dependencies (use-codex, use-gemini)
 
@@ -56,9 +56,9 @@ Paths like `~/.claude/skills/use-codex/scripts/codex-run.sh` are intentionally h
 
 Kept separate despite being always-loaded. The checklist will grow as new review blind spots are discovered. Separation makes iterating on dimensions independent of workflow changes.
 
-## Same-Family Reviewers (Alice + Diana)
+## Advisory Fourth Voice (Quinn, local qwen)
 
-Alice (Opus) and Diana (Sonnet) both use Claude models but reason differently. Sonnet is faster, less verbose, and sometimes catches patterns Opus overthinks. Consensus between same-family models may correlate more than cross-family, but practical value justifies inclusion. If same-family correlation inflates consensus scores, adjust weighting later - don't prematurely optimize.
+Quinn (local qwen via `qwen-run.sh`) replaced Diana (cloud Sonnet) as the fourth reviewer (PRD 00019): a free local model now does a job that burned paid quota every cycle, and the swap removed the same-family correlation concern (Alice + Diana were both Claude). Local-model reviews are noisier, so Quinn's weight is advisory — findings unique to Quinn are listed as `advisory (local model, unconfirmed)` and create no tasks; his concurrence counts toward consensus normally. If Quinn proves consistently concurring over a few batches (data: the batch report's Implementor Mix + review files), promote him to full weight then. The sonnet helper script remains for manual `/use-sonnet`; no autopilot review surface dispatches it.
 
 ## Dynamic Agent Count
 

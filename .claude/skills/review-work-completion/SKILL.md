@@ -24,7 +24,7 @@ are prompt disciplines carried by the roster, not separate phases:
 - **Blake** → Claude subagent, **blind lens**: PRD-only prompt — no diff, no file list, no review history, no design doc (see `references/blind-lens-prompt.md`)
 - **Bob** → Codex, **doubt lens**: carries the doubt rubric (R1-R5) and the de-slop lens every cycle; when codex is unavailable, a Claude subagent runs the same prompt so the lens never silently drops
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
-- **Diana** → Sonnet via `sonnet-run.sh` (background Bash: headless `claude -p` pinned to `model: sonnet`; skipped when the script is unavailable)
+- **Quinn** → local qwen via `qwen-run.sh` (background Bash: the `pi` agent against a llama.cpp-served model, read-only; **advisory weight** — findings unique to Quinn create no tasks; active only when the qwen preflight probe passes, skipped otherwise with a note)
 - **Eve** → Claude Fable 5 Task subagent, opt-in fifth lens: joins the batch only when the PRD frontmatter sets `doubt_reviewer: fable`, running the same doubt prompt as Bob (see `references/agent-invocation.md` "Eve (Fable 5)"); absent otherwise
 
 ## Workflow
@@ -40,7 +40,7 @@ Check these exist:
 
 **Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND a backend CLI resolves - `copilot` (preferred; serves `gemini-3.1-pro-preview`) OR native `gemini` (`mise which`/`command -v` succeeds for either). If both pass, Carl is active. If neither CLI resolves, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran. (Carl on the copilot backend spends Copilot AI credits; a "monthly quota exceeded" error from the helper is a runtime skip, not a prerequisite failure.)
 
-**Optional - Diana (Sonnet):** check `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh` is executable. If it passes, Diana is active. If missing or non-executable, skip Diana and proceed with the remaining reviewers - graceful degradation, not a failure. Note in the final review file which reviewers ran. (`sonnet-run.sh` is a headless `claude -p` wrapper, so it needs only the harness's own `claude` binary; its absence is an install anomaly, not a reason to hard-abort the review.)
+**Optional - Quinn (local qwen):** run `~/.claude/skills/use-qwen/scripts/qwen-run.sh --preflight` (foreground). It passes ONLY when a real 1-token completion succeeds against the served model — a `/v1/models` listing alone never passes (the false-healthy class). Exit 0 → Quinn is active. Any failure (`pi_missing`, `endpoint_unreachable`, `completion_failed`, or the script missing/non-executable) → skip Quinn and proceed with the remaining reviewers - graceful degradation, not a failure; llama-server down degrades to today's roster. Note in the final review file which reviewers ran and Quinn's skip reason when he was skipped. (The probe can take up to ~2 min on a cold backend — it doubles as the model warm-up for step 5.)
 
 Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 
@@ -115,7 +115,7 @@ Create prompt files in `dev/local/tmp/`:
 
 For each active agent, use the **Write tool** (not bash heredocs) to create `dev/local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). **Use absolute paths** (e.g. `/full/path/to/project/dev/local/tmp/...`) when writing and when referencing these files in agent prompts - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents. See `references/agent-prompts.md` for prompt template structure.
 
-**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking). Diana and Alice share the same template; Bob gets the sandbox constraints appendix PLUS the doubt-lens appendix (rubric R1-R5 + de-slop, per `references/agent-prompts.md` "Bob"); Blake's prompt is assembled from `references/blind-lens-prompt.md` + the PRD content ONLY (no context file, no diff file, no incremental-review addendum — blind every cycle); Eve (when active) reuses Bob's doubt-lens content per `references/agent-invocation.md`. Build each from its template directly.
+**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking). Quinn and Alice share the same template (Quinn runs the standard implementation-aware review prompt — never the blind or doubt lens); Bob gets the sandbox constraints appendix PLUS the doubt-lens appendix (rubric R1-R5 + de-slop, per `references/agent-prompts.md` "Bob"); Blake's prompt is assembled from `references/blind-lens-prompt.md` + the PRD content ONLY (no context file, no diff file, no incremental-review addendum — blind every cycle); Eve (when active) reuses Bob's doubt-lens content per `references/agent-invocation.md`. Build each from its template directly.
 
 > **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character - expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
 
@@ -127,13 +127,13 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
-**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Diana are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/sonnet) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls and the background Bash calls in the one message.
+**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Quinn are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/qwen) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls and the background Bash calls in the one message.
 
 **Do not Write or Edit ANY reviewer output (Alice's and Blake's included) until ALL reviewers have reported.** The CLIs self-write via `-o`; subagent-returned text is saved only in step 6, after every reviewer has completed - even if a subagent returns first.
 
 **Bob fallback (the doubt lens never drops).** If `codex-run.sh` exits non-zero with exit 3 (codex unavailable) or 4 (codex ran but failed, e.g. quota), dispatch a Claude Task subagent with Bob's exact assembled prompt (doubt lens + rubric included) and use its output as Bob's. Only if the fallback also fails does Bob count as a failed reviewer per `references/retry-policy.md`.
 
-Active reviewers: Alice, Blake, Bob, Carl, Diana, plus Eve when `doubt_reviewer: fable`. Include Carl only if the optional Gemini check in step 1 passed, and Diana only if the optional Sonnet check passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
+Active reviewers: Alice, Blake, Bob, Carl, Quinn, plus Eve when `doubt_reviewer: fable`. Include Carl only if the optional Gemini check in step 1 passed, and Quinn only if the optional qwen preflight in step 1 passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
 
@@ -142,7 +142,7 @@ Read these before proceeding:
 
 ### 6. Consolidate findings
 
-Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Diana's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `diana-output-{id}.txt` in step 5. Then run:
+Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Quinn's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `quinn-output-{id}.txt` in step 5. Then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
@@ -150,10 +150,12 @@ Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to
   BLAKE:$PWD/dev/local/tmp/blake-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
   CARL:$PWD/dev/local/tmp/carl-output-{id}.txt \
-  DIANA:$PWD/dev/local/tmp/diana-output-{id}.txt
+  QUINN:$PWD/dev/local/tmp/quinn-output-{id}.txt
 ```
 
-Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `DIANA:` pair when Diana was skipped; append an `EVE:` pair when Eve ran). The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `QUINN:` pair when Quinn was skipped; append an `EVE:` pair when Eve ran). The script computes consensus dynamically from the number of agent pairs provided.
+
+**Advisory weighting for Quinn (local model).** After consolidation, split the findings: any finding whose only finder is Quinn is ADVISORY — list it in the review file under an `### Advisory (local model, unconfirmed)` heading (same line format, no consensus score) and create NO follow-up tasks from it in step 7. Findings where Quinn concurs with at least one other reviewer stay in the consolidated table and count toward consensus normally — his concurrence raises the score like any other reviewer's. Local-model noise must never create rework tasks alone. See `references/output-formats.md` "Advisory bucket (Quinn)".
 
 **Compose the `Verdict:` line.** Zero consolidated findings → `Verdict: converged`; otherwise `Verdict: N findings` (the consolidated count). Step 8 writes it into the review file.
 
@@ -173,6 +175,7 @@ Outputs consolidated issues sorted by consensus then severity. See `references/o
 - Max 25 tasks (batch overflow into "Misc fixes")
 - Group by theme
 - Tag complexity: `(S)` small, `(M)` medium, `(L)` large
+- **Skip advisory-bucket findings** (Quinn-only, per step 6) — they are recorded in the review file but never become tasks
 
 See `references/output-formats.md` for task description format.
 
@@ -186,7 +189,7 @@ Stamp the `head_sha` frontmatter field with the HEAD sha captured in step 3 — 
 
 Stamp the `codex_thread_id` frontmatter field with the thread id from `dev/local/tmp/bob-thread-{id}.txt` when that file exists and is non-empty AND Bob produced output this cycle — the next rework cycle reads it (step 3) to resume Bob's codex session via `--resume-thread`; omit the field otherwise (Bob was skipped, or thread-id capture failed).
 
-Stamp the `reviewers:` frontmatter field with the comma-separated lowercase names of every reviewer that actually ran (e.g. `reviewers: alice,blake,bob,diana`) — `check_review_file.py` reads it to verify each section.
+Stamp the `reviewers:` frontmatter field with the comma-separated lowercase names of every reviewer that actually ran (e.g. `reviewers: alice,blake,bob,quinn`) — `check_review_file.py` reads it to verify each section.
 
 Include all findings even if zero issues. Give each reviewer that ran a `## <Name>` section (their findings, or a one-line all-clear; Bob's keeps his `R{n}:` verdict lines), and end the file with the `Verdict:` and `Tests:` lines composed in step 6.
 

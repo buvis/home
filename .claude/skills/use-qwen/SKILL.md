@@ -49,6 +49,7 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
    - `-f, --file FILE` to read the prompt from a file
    - `-o, --output FILE` to capture output
    - `-c, --continue` / `-r, --resume [ID]` to continue a session
+   - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes — the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`completion_failed`). Every dispatch runs the same probe internally before spawning `pi`.
 3. Run the helper, capture output.
 4. **Verify the actual result - never trust the model's textual claim.** A local model may narrate "all tests pass" without having run them. Run the tests yourself, check the files on disk, then report.
 
@@ -61,6 +62,7 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
 | Structured output | `-j -o /tmp/result.jsonl -f /tmp/qwen-prompt.txt` |
 | Override model | `-m other-model -f /tmp/qwen-prompt.txt` |
 | Resume recent session | `-c` |
+| Health probe only | `--preflight` |
 
 ## Background Dispatch and Waiting
 
