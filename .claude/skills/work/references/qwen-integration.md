@@ -19,9 +19,11 @@ The four checks, in order:
 
 **Outputs**: Health verdict — `"healthy"`, or one of `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`.
 
-**Fallback rule**: ANY preflight failure → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see `references/attempt-logging.md`).
+**Fallback rule**: ANY preflight failure → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see `references/attempt-logging.md`). A failed probe does NOT consume the one-shot qwen attempt budget — no qwen attempt happened.
 
 The preflight runs once per task attempt. It does NOT run on Claude or Gemini dispatches.
+
+**Script enforcement (PRD 00019)**: `qwen-run.sh` enforces the same deciding signal internally — every dispatch re-runs the 1-token completion probe after provider/model resolution and exits 1 with the failing outcome named on stderr (`completion_failed` / `endpoint_unreachable` / `pi_missing`) BEFORE any `pi` spawn; its `/v1/models` probe is only the provider auto-detect fast pre-check. `qwen-run.sh --preflight` runs the probe standalone (checks 1, 2, and 4; the model id it completes against is the one the endpoint reports, not a config cross-check) and exits 0 only on a successful completion — the one-command probe `review-work-completion` step 1 uses for Quinn's active-check. Regression-tested by `~/.claude/skills/use-qwen/scripts/test_qwen_run.sh` (models-200/completion-500 → refuse, no dispatch).
 
 ## One-shot attempt budget — and why it always escalates to Sonnet
 
@@ -30,7 +32,7 @@ A qwen-routed task gets exactly one qwen attempt. If qwen's output fails the ste
 The fixed-Sonnet target is intentional and asymmetric vs. the **preflight-failure** fallback (which keeps the original tier: `haiku` → Haiku, `sonnet` → Sonnet). Two different failure shapes, two different recoveries:
 
 - **Preflight failure** is an *infrastructure* signal — qwen was unreachable, couldn't spawn its inference worker, was missing a model, or had no resolvable `pi`. The task itself was never attempted; nothing observable suggests the task is harder than its plan-time tier said. Preserve the tier the planner picked.
-- **Step-5.5 gate failure after a qwen attempt** is a *correctness* signal — qwen produced code that did not pass the tests Tess wrote. The empirical evidence from this attempt says the task is harder than its qwen-eligible classification implied (qwen-eligible = `≤2`-file + `haiku`/`sonnet`). A retry at the same tier on the same model family would be cheap but risk under-powering the retry; Sonnet is the conservative floor that any qwen-eligible task can re-run at. Escalating from `haiku` to `sonnet` here is the price of having tried qwen in the first place.
+- **Step-5.5 gate failure after a qwen attempt** is a *correctness* signal — qwen produced code that did not pass the tests Tess wrote. The empirical evidence from this attempt says the task is harder than its qwen-eligible classification implied (qwen-eligible = non-UI + `≤3`-file + `haiku`/`sonnet` + no public-contract edit). A retry at the same tier on the same model family would be cheap but risk under-powering the retry; Sonnet is the conservative floor that any qwen-eligible task can re-run at. Escalating from `haiku` to `sonnet` here is the price of having tried qwen in the first place.
 
 The normal max-2 step-5.5 retry budget then applies to the Sonnet re-dispatches (not qwen). The qwen attempt does NOT consume a slot in that budget — it consumed the (single) qwen attempt instead.
 
@@ -116,7 +118,7 @@ The task's acceptance criteria prose is intentionally omitted. Tests ARE the spe
 
 Qwen finishes one file and silently drops the rest of a multi-file task.
 
-**Fix**: `task.metadata.qwen_eligible` already restricts qwen to `≤2`-file backend tasks at planning time (see PRD 00032). If a multi-file task slips through, the step-5.5 per-task test gate catches it — the one-shot qwen attempt budget then escalates the next attempt to Claude Sonnet.
+**Fix**: `task.metadata.qwen_eligible` already restricts qwen to `≤3`-file backend tasks at planning time (see PRD 00032, widened by PRD 00019). If a wider task slips through, the step-5.5 per-task test gate catches it — the one-shot qwen attempt budget then escalates the next attempt to Claude Sonnet.
 
 ### Over-claims completeness
 

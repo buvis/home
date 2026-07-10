@@ -120,7 +120,7 @@ Pick the implementor by task domain. The deterministic routing table in step 3 b
 | Domain | Implementor | Rationale |
 |--------|-------------|-----------|
 | Frontend, UI, visual design (per "Gemini-first tasks" below) | Gemini via `use-gemini` | Better aesthetic judgment, visual coherence |
-| Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` | Zero token cost on `≤2`-file backend tasks the test gate keeps honest |
+| Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` | Zero token cost on `≤3`-file backend tasks the test gate keeps honest |
 | Backend, `opus` tier OR `qwen_eligible == false` OR qwen unhealthy | Claude at the task's tier (Agent dispatch) | Default backend implementor; the safety net when qwen is excluded or unavailable |
 | Mixed (e.g., full-stack feature) | Split the task | UI piece → Gemini; backend piece → qwen-or-Claude per the routing table |
 
@@ -329,7 +329,7 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
-**Deterministic routing table.** Pick the implementor by reading the claimed task's tier (`task.metadata.model`) and qwen-eligibility flag (`task.metadata.qwen_eligible`), then cross-referencing against the "Gemini-first tasks" UI definition listed earlier in this file. No re-judging here — `qwen_eligible` is computed upstream by `/plan-tasks` (companion PRD 00032) and already encodes backend (not UI) + `haiku`/`sonnet` tier + `<=2`-files. If the field is absent (legacy plans produced before PRD 00032 landed), treat it as `false`.
+**Deterministic routing table.** Pick the implementor by reading the claimed task's tier (`task.metadata.model`) and qwen-eligibility flag (`task.metadata.qwen_eligible`), then cross-referencing against the "Gemini-first tasks" UI definition listed earlier in this file. No re-judging here — `qwen_eligible` is computed upstream by `/plan-tasks` (companion PRD 00032, widened by PRD 00019) and already encodes backend (not UI) + `haiku`/`sonnet` tier + `<=3`-files + no public-contract edit (exported API signature, schema, wire format, hook registration shape); ineligible tasks carry `metadata.qwen_excluded_reason` (`ui`/`tier`/`files`/`contract`) for the batch-report telemetry. If the field is absent (legacy plans produced before PRD 00032 landed), treat it as `false`.
 
 **Evaluation precedence (ordered).** Apply these checks in order; the first one that matches wins. The rows are written as overlapping conditions, but in practice `qwen_eligible == true` already excludes UI and `opus`, so the check order below resolves any apparent overlap deterministically:
 
@@ -344,7 +344,7 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 | Backend `opus` tier | Claude Opus (Agent dispatch) | — |
 | Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
 | Backend, `qwen_eligible == true`, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
-| Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=3`-file `sonnet` task → Claude Sonnet) | — |
+| Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
 
 qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
 

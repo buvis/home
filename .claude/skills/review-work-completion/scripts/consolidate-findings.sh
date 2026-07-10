@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Consolidates findings from multiple agent outputs
 # Usage: consolidate-findings.sh NAME:FILE [NAME:FILE ...]
-# Example: consolidate-findings.sh ALICE:alice.txt BOB:bob.txt DIANA:diana.txt
+# Example: consolidate-findings.sh ALICE:alice.txt BOB:bob.txt QUINN:quinn.txt
 # Outputs: consolidated findings sorted by consensus then severity
 # (PRD 00016: the coverage-gate flags and review_coverage.py invocation are
 # gone — check_review_file.py validates the SAVED review file instead.)
@@ -10,7 +10,7 @@ set -euo pipefail
 
 if [[ $# -eq 0 ]]; then
     echo "Usage: $0 NAME:FILE [NAME:FILE ...]" >&2
-    echo "Example: $0 ALICE:alice.txt BOB:bob.txt DIANA:diana.txt" >&2
+    echo "Example: $0 ALICE:alice.txt BOB:bob.txt QUINN:quinn.txt" >&2
     exit 1
 fi
 

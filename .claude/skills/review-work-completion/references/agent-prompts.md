@@ -33,7 +33,7 @@ composes the review file's `Verdict:` and `Tests:` lines itself — see
 > **Note:** The numbered rubric lives at `references/rubric.md` and is inlined into
 > every reviewer's prompt via `{contents of rubric.md}` (same template syntax as
 > `review-dimensions.md`). The rubric MUST be embedded inline, not referenced: Bob
-> (Codex), Carl (Gemini), and Diana (headless Sonnet CLI) run as external CLIs that
+> (Codex), Carl (Gemini), and Quinn (local qwen via the `pi` CLI) run as external CLIs that
 > cannot resolve a relative path, and the Claude subagent Alice receives a
 > self-contained prompt too. The rubric's rule IDs are stable: add new rules with
 > new IDs, never renumber.
@@ -111,8 +111,8 @@ If the change has no frontend surface, review it as a generalist against
 the shared checklist - do not invent frontend findings.
 ```
 
-## Diana (Sonnet) Instructions
+## Quinn (Qwen, local) Instructions
 
-Diana runs with full tool access. She can execute tests, linters, and build commands.
+Quinn runs read-only (`qwen-run.sh -R`): he can read code but cannot edit files or execute tests, linters, or build commands.
 
-No additional constraints beyond the shared instructions above.
+He receives the shared instructions unchanged — the standard implementation-aware consensus review, never the blind or doubt lens. His findings carry advisory weight in consolidation (SKILL.md step 6): unique findings create no tasks; concurrence counts normally.

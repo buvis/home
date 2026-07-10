@@ -51,24 +51,24 @@ Bash tool (run_in_background: true):
 
 `-o` writes Carl's output straight to the file step 6 consolidates. When the background command completes, read `carl-output-{id}.txt`. If `gemini-run.sh` exits non-zero (e.g. monthly quota exceeded), skip Carl and proceed with the other reviewers (graceful degradation).
 
-## Diana (Sonnet)
+## Quinn (Qwen, local)
 
-Diana runs Sonnet as a **direct background Bash command - do NOT wrap it in a Task subagent.** Like Bob and Carl, a subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "still running" and the reviewer never reports. Run `sonnet-run.sh` (headless `claude -p`, which works at the top level even though `claude -p` inside a subagent does not) directly and the harness tracks the background process, then re-invokes the session when it finishes.
+Quinn runs local qwen as a **direct background Bash command - do NOT wrap it in a Task subagent.** Like Bob and Carl, a subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "still running" and the reviewer never reports. Run `qwen-run.sh` (the `pi` agent against a llama.cpp-served model) directly and the harness tracks the background process, then re-invokes the session when it finishes.
 
-Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved). Pass `-a` (bypassPermissions, so the headless reviewer doesn't hang on tool prompts) and `-m sonnet` (pin the tier):
+Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved). Pass `-R` (read-only tools — a reviewer must never edit the repo; pi's default mode auto-approves edit tools):
 
 ```
 Bash tool (run_in_background: true):
-  ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -m sonnet -a -f "{diana_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/diana-output-{id}.txt"
+  ~/.claude/skills/use-qwen/scripts/qwen-run.sh -R -f "{quinn_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/quinn-output-{id}.txt"
 ```
 
-`-o` writes Diana's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. When the background command completes, read `diana-output-{id}.txt`. If `sonnet-run.sh` exits non-zero, skip Diana and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
+`-o` writes Quinn's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. The script re-runs its own 1-token completion preflight before dispatch, so a backend that died between step 1 and step 5 exits non-zero fast instead of hanging; local inference then takes minutes — the harness re-invokes the session when the background command finishes. When it completes, read `quinn-output-{id}.txt`. If `qwen-run.sh` exits non-zero, skip Quinn and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
 
-Diana's prompt is still built from Alice's shared template (`SKILL.md` step 4) - no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the headless `claude -p` reviewer.
+Quinn's prompt is still built from Alice's shared template (`SKILL.md` step 4) - the standard implementation-aware review prompt, never the blind or doubt lens, and no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the local reviewer. Quinn's weight is ADVISORY (`SKILL.md` step 6): findings unique to him land under `advisory (local model, unconfirmed)` and create no tasks; his concurrence counts toward consensus normally.
 
 ## Eve (Fable 5)
 
-Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl/Diana). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Grep/Glob/Bash access - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
+Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl/Quinn). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Grep/Glob/Bash access - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
 
 Assemble Eve's prompt from the **same base document codex uses** (`~/.claude/skills/run-autopilot/prompts/doubt-review.md`) plus the **same three appended inputs** codex receives - the PRD content, the diff range (`<base>..HEAD`), and the changed-file list - inlined directly into the Task prompt. (Alice inlines her prompt file the same way; the CLI reviewers write it to a temp file and pass `-f` instead. This is the only delivery difference.)
 

@@ -89,6 +89,20 @@ A per-reviewer `fail` still surfaces (as shown for R3). When no entry carries `s
 
 Source: `dev/local/autopilot/loop-metrics.jsonl` lines where `prd` matches the PRD and `batch` matches `state.batch.id` (PRD 00013). One row per distinct `phase_launched` value, plus a **Total** row (session count and summed `wall_secs`/`cost_usd`). The `Model` and `Cost USD` columns (PRD 00018) render from the lines' `model` and `cost_usd` fields; when a line lacks `cost_usd` leave that cell blank (the wrapper omits the key when the session output carried no usage payload — never fake zeros). Legacy lines without `model` render a blank Model cell. When the metrics file is missing or has no matching lines (a manual run outside the loop), render `no loop metrics (manual run)` instead of the table — never fail the report.
 
+### Implementor Mix
+
+| Implementor | Attempts |
+|-------------|----------|
+| claude | 4 |
+| qwen | 2 |
+| gemini | 1 |
+| unknown | 1 |
+
+Qwen preflight outcomes: healthy 2, completion_failed 1
+Excluded from qwen: files 2, contract 1, unknown 1
+
+Source: `state.tasks[]` (PRD 00019). **Attempts row(s):** count `attempts[].implementor` values across all tasks (`claude`/`qwen`/`gemini`); an attempt row without the field (pre-PRD-00031 legacy) counts as `unknown`; omit zero-count rows. **Preflight line:** count non-null `attempts[].preflight_outcome` values per value; omit the line when there are none. **Exclusion line:** for every task whose `qwen_eligible` is `false` or absent, bucket by `qwen_excluded_reason` (`ui`/`tier`/`files`/`contract`); a missing reason (legacy plan) counts as `unknown`; omit the line when no tasks were excluded. Absent fields never fail the render — when `state.tasks[]` itself is missing or empty, render `no implementor data` instead of the table.
+
 ### Deferred to Batch End
 
 | Issue | Severity | Reason |
