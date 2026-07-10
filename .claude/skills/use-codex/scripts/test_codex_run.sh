@@ -6,6 +6,7 @@
 set -u
 
 CODEX_RUN_SH=/Users/bob/.claude/skills/use-codex/scripts/codex-run.sh
+[ -n "${1:-}" ] && CODEX_RUN_SH="$1"
 
 # ── assert helpers ────────────────────────────────────────────────────────────
 PASS_COUNT=0
@@ -692,6 +693,30 @@ if [ -s "$STUB_STDIN_FILE" ]; then
          "stub captured $(wc -c < "$STUB_STDIN_FILE" | tr -d ' ') byte(s) of stdin; expected 0 (resume argv path did not redirect stdin to /dev/null)"
 else
     PASS "--resume-thread: codex child stdin is /dev/null"
+fi
+
+# =============================================================================
+# Usage errors must land on stderr (stdout is reserved for model output and
+# the tee'd run log), with a non-zero exit.
+# =============================================================================
+STDERR_ERR_STDOUT_FILE="$STUBDIR/stderr_err.stdout"
+STDERR_ERR_STDERR_FILE="$STUBDIR/stderr_err.stderr"
+: > "$STUB_ARGV_FILE"
+: > "$STUB_STDIN_FILE"
+
+PATH="$RUN_PATH" STUB_ARGV_FILE="$STUB_ARGV_FILE" STUB_STDIN_FILE="$STUB_STDIN_FILE" \
+    bash "$CODEX_RUN_SH" -f "$STUBDIR/does-not-exist.txt" \
+    > "$STDERR_ERR_STDOUT_FILE" 2> "$STDERR_ERR_STDERR_FILE" < /dev/null
+STDERR_ERR_EXIT=$?
+
+# 38. Missing prompt file: non-zero exit, error text on stderr and NOT stdout.
+if [ "$STDERR_ERR_EXIT" -ne 0 ] && \
+   grep -q "not found" "$STDERR_ERR_STDERR_FILE" 2>/dev/null && \
+   ! grep -q "not found" "$STDERR_ERR_STDOUT_FILE" 2>/dev/null; then
+    PASS "missing prompt file: non-zero exit with the error on stderr, not stdout"
+else
+    FAIL "missing prompt file: non-zero exit with the error on stderr, not stdout" \
+         "exit: $STDERR_ERR_EXIT -- stdout: $(cat "$STDERR_ERR_STDOUT_FILE") -- stderr: $(cat "$STDERR_ERR_STDERR_FILE")"
 fi
 
 # =============================================================================

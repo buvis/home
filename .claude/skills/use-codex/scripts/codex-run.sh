@@ -8,7 +8,7 @@ set -eo pipefail
 
 # Ensure mise-managed tools (like copilot) are on PATH
 if command -v mise &>/dev/null; then
-    PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
+    PATH="$(mise env -s bash < /dev/null 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
 # Backend selection: the native codex CLI is preferred (OpenAI ChatGPT
@@ -122,15 +122,15 @@ done
 # Read prompt from file if specified
 if [ -n "$PROMPT_FILE" ]; then
     if [ ! -f "$PROMPT_FILE" ]; then
-        echo "ERROR: Prompt file not found: $PROMPT_FILE"
+        echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
         exit 1
     fi
     PROMPT=$(cat "$PROMPT_FILE")
 fi
 
 if [ -z "$PROMPT" ]; then
-    echo "ERROR: Prompt required"
-    usage
+    echo "ERROR: Prompt required" >&2
+    usage >&2
     exit 1
 fi
 
@@ -336,7 +336,11 @@ run_copilot() {
     [ -n "$ALLOW_TOOLS" ] && allow_tools="--allow-all-tools"
     [ -n "$ALLOW_ALL" ] && allow_all="--allow-all"
 
-    run_cmd copilot --model "$model" $allow_tools $allow_all $SILENT "${ADD_DIRS[@]}" -p "$PROMPT"
+    # Headless (-p) dispatch: guard child stdin so an unattended background
+    # run can never hang on a child reading the inherited stdin (PRD 00040
+    # hang class). PRD 00040 guarded the codex paths; this fallback was the
+    # one invocation still unguarded (closed by PRD 00042).
+    run_cmd copilot --model "$model" $allow_tools $allow_all $SILENT "${ADD_DIRS[@]}" -p "$PROMPT" < /dev/null
 }
 
 if [ "$BACKEND" = "codex" ]; then

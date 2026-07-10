@@ -7,6 +7,10 @@ description: Use when running Anthropic Claude Sonnet via the native claude CLI 
 
 Sonnet is accessed via the native `claude` CLI (headless `-p`). The helper script defaults to the `sonnet` alias (latest base Sonnet) and exposes `-m/--model` for explicit overrides. This uses your Claude quota, not Copilot credits - never route Sonnet (or any model Claude already provides) through `copilot`.
 
+## Dispatch Contract (shared)
+
+Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill.
+
 ## Model Policy
 
 - **Default:** `sonnet` (latest base Sonnet). Use unless the user asks for a different model.
@@ -17,7 +21,7 @@ Sonnet is accessed via the native `claude` CLI (headless `-p`). The helper scrip
 1. Select the permission mode required for the task; default to no special flags (interactive approval) unless edits are necessary.
 2. Assemble the command with appropriate options:
    - `-m, --model MODEL` to override the default (`sonnet`); ask the user first if the override is a costlier tier (e.g. `opus`)
-   - `-p, --prompt <text>` for non-interactive mode
+   - `-f, --file FILE` to read the prompt from a file (preferred - avoids shell escaping)
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
    - `-a, --allow-tools` to auto-approve tool use (maps to `--permission-mode bypassPermissions`)
    - `-y, --yolo` for full permissions
@@ -31,44 +35,19 @@ Sonnet is accessed via the native `claude` CLI (headless `-p`). The helper scrip
 
 | Use case | Key flags |
 | --- | --- |
-| Read-only analysis | `-p "prompt"` |
+| Read-only analysis | `-f prompt.txt` |
 | Interactive with initial prompt | `-i "prompt"` |
-| Auto-approve tools | `-a -p "prompt"` |
-| Full auto (edits + tools) | `-y -p "prompt"` |
-| Allow specific directory | `-d <DIR> -p "prompt"` |
+| Auto-approve tools | `-a -f prompt.txt` |
+| Full auto (edits + tools) | `-y -f prompt.txt` |
+| Allow specific directory | `-d <DIR> -f prompt.txt` |
 | Resume recent session | `--continue` |
 | Resume specific session | `--resume [sessionId]` |
-| Scripting (clean output) | `-s -p "prompt"` |
-
-## Background Dispatch and Waiting
-
-A `sonnet-run.sh` call can run for many minutes. When you need to do other work while it runs, or you are inside an autopilot run:
-
-1. Dispatch the helper script with `run_in_background: true`. The dispatch tool result returns the task's output file path.
-2. Wait with the `TaskOutput` tool: `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min is the max per call). It returns when the task completes or at the deadline. It is the watchdog.
-3. On completion, `Read` the output file. On a timeout return, treat it as an infrastructure hang (see Error Handling); do not silently re-dispatch.
-
-**Never hand-roll a polling loop.** Do not pass a `while`/`if`/`wc -c` stability loop to `Monitor` or `Bash` to detect completion. Such commands contain shell control flow that Warden cannot statically analyze, so they prompt for approval, which stalls an unattended autopilot run. The harness already notifies you when a background task finishes; `TaskOutput` is the only wait primitive you need.
-
-## Following Up
-
-- After every Sonnet run, use `AskUserQuestion` to confirm next steps or decide whether to resume.
-- When resuming, the session uses the same model and context from the original session.
-- Restate the permission mode when proposing follow-up actions.
-
-## Error Handling
-
-- Stop and report failures whenever the `claude` command exits non-zero; request direction before retrying.
-- Before using high-impact flags (`-y`/`--yolo`) ask user permission via AskUserQuestion unless already given.
-- When output includes warnings or partial results, summarize them and ask how to adjust.
+| Scripting (clean output) | `-s -f prompt.txt` |
 
 ## Helper Script
 
-**IMPORTANT**: Always use `-f` with a temp file for prompts to avoid shell escaping issues.
-
 ```bash
-# Write prompt to temp file, then run
-echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/sonnet-prompt.txt
+# Write prompt to temp file (see the shared dispatch contract), then run
 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -f /tmp/sonnet-prompt.txt
 
 # With auto-approve tools
@@ -85,9 +64,6 @@ echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/sonnet-pro
 
 # Capture output to file
 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -a -o /tmp/result.txt -f /tmp/sonnet-prompt.txt
-
-# Silent mode for scripting
-~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -s -f /tmp/sonnet-prompt.txt
 ```
 
 Run `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh --help` for all options.
