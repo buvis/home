@@ -133,8 +133,42 @@ class TestWorkingDocExemption(GateguardCase):
         self.assertFalse(is_deny(r))
 
 
+class TestScratchDirExemption(GateguardCase):
+    """Temp/scratch paths are throwaway; gating them only causes retry storms
+    (regression: 14 consecutive Write denials on session-scratchpad files)."""
+
+    def test_session_scratchpad_write_exempt(self) -> None:
+        r = run_hook(
+            {"tool_name": "Write", "tool_input": {"file_path": "/private/tmp/claude-501/-Users-bob--claude/abc123/scratchpad/driver.py"}},
+            self.state_dir,
+        )
+        self.assertFalse(is_deny(r))
+
+    def test_tmp_dir_code_exempt(self) -> None:
+        r = run_hook({"tool_name": "Edit", "tool_input": {"file_path": "/tmp/probe/main.py"}}, self.state_dir)
+        self.assertFalse(is_deny(r))
+
+    def test_var_folders_exempt(self) -> None:
+        r = run_hook(
+            {"tool_name": "Write", "tool_input": {"file_path": "/private/var/folders/m6/x/T/tmp.abc/script.sh"}},
+            self.state_dir,
+        )
+        self.assertFalse(is_deny(r))
+
+    def test_relative_tmp_dir_exempt(self) -> None:
+        r = run_hook({"tool_name": "Write", "tool_input": {"file_path": "/repo/tmp/fixture_gen.py"}}, self.state_dir)
+        self.assertFalse(is_deny(r))
+
+
 class TestExemptionDoesNotLeak(GateguardCase):
     """Substring-only matches must not be exempt."""
+
+    def test_tmp_substring_not_exempt(self) -> None:
+        # "tmpfile.py" and "mytmp/" must not match the "/tmp/" segment.
+        r = run_hook({"tool_name": "Edit", "tool_input": {"file_path": "/repo/src/tmpfile.py"}}, self.state_dir)
+        self.assertTrue(is_deny(r))
+        r = run_hook({"tool_name": "Edit", "tool_input": {"file_path": "/repo/mytmp/helper.py"}}, self.state_dir)
+        self.assertTrue(is_deny(r))
 
     def test_devlocal_substring_not_exempt(self) -> None:
         # "dev_local" inside a filename is not a working-doc path.
