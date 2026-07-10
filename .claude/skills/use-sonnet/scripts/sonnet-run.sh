@@ -10,7 +10,7 @@ set -eo pipefail
 # Ensure mise-managed tools (claude itself, plus the build/test tools the
 # reviewer invokes agentically) are on PATH. Matches codex-run.sh / gemini-run.sh.
 if command -v mise &>/dev/null; then
-    PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
+    PATH="$(mise env -s bash < /dev/null 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
 # Don't leak autopilot loop state into the nested claude: the autopilot Stop
@@ -119,7 +119,7 @@ done
 # Read prompt from file if specified
 if [ -n "$PROMPT_FILE" ]; then
     if [ ! -f "$PROMPT_FILE" ]; then
-        echo "ERROR: Prompt file not found: $PROMPT_FILE"
+        echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
         exit 1
     fi
     PROMPT=$(cat "$PROMPT_FILE")
@@ -147,18 +147,22 @@ case $MODE in
         ;;
     interactive)
         if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required for interactive mode"
-            usage
+            echo "ERROR: Prompt required for interactive mode" >&2
+            usage >&2
             exit 1
         fi
         run_cmd claude --model "$MODEL" $PERM "${ADD_DIRS[@]}" "$PROMPT"
         ;;
     prompt)
         if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required"
-            usage
+            echo "ERROR: Prompt required" >&2
+            usage >&2
             exit 1
         fi
-        run_cmd claude --print --model "$MODEL" $PERM "${ADD_DIRS[@]}" "$PROMPT"
+        # Headless (--print) dispatch: guard child stdin so an unattended
+        # background run can never hang on a child reading the inherited
+        # stdin (PRD 00040 hang class). Interactive/resume/continue modes
+        # keep stdin - they need the TTY.
+        run_cmd claude --print --model "$MODEL" $PERM "${ADD_DIRS[@]}" "$PROMPT" < /dev/null
         ;;
 esac

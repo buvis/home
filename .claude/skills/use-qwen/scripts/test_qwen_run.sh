@@ -204,6 +204,15 @@ else
     FAIL "child pi stdin is guarded (< /dev/null; parent stdin not consumed)" "stdin capture: '$(cat "$WORK/t4.stdin" 2>/dev/null || echo MISSING)'"
 fi
 
+# ══ T4b: -s/--silent accepted as a no-op (flag parity with codex/gemini/sonnet)
+# Needs the live healthy server, so it runs before T5 kills it.
+run_qwen t4b -s -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t4b.argv" ] && grep -q "say hi" "$WORK/t4b.argv" && ! grep -qx -- "-s" "$WORK/t4b.argv"; then
+    PASS "-s is accepted as a no-op (dispatch succeeds, no -s token in pi argv)"
+else
+    FAIL "-s is accepted as a no-op (dispatch succeeds, no -s token in pi argv)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t4b.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
 # ══ T5: server down entirely -> endpoint_unreachable ══════════════════════════
 kill "$SERVER_PID" 2>/dev/null
 wait "$SERVER_PID" 2>/dev/null
@@ -217,6 +226,22 @@ fi
 case "$OUT" in
     *endpoint_unreachable*) PASS "--preflight names endpoint_unreachable when no server responds" ;;
     *) FAIL "--preflight names endpoint_unreachable when no server responds" "output: $OUT" ;;
+esac
+
+# ══ T6: usage errors land on stderr with non-zero exit ════════════════════════
+# No server needed: the prompt-file check runs before any preflight probing.
+export STUB_ARGV_FILE="$WORK/t6.argv"
+export STUB_STDIN_FILE="$WORK/t6.stdin"
+RC=0
+T6_STDOUT=$(PI_CODING_AGENT_DIR="$CFGDIR" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" -f "$WORK/does-not-exist.txt" < /dev/null 2> "$WORK/t6.stderr") || RC=$?
+if [ "$RC" -ne 0 ] && grep -q "not found" "$WORK/t6.stderr" 2>/dev/null; then
+    PASS "missing prompt file: non-zero exit with the error on stderr"
+else
+    FAIL "missing prompt file: non-zero exit with the error on stderr" "rc=$RC; stderr: $(cat "$WORK/t6.stderr" 2>/dev/null); stdout: $T6_STDOUT"
+fi
+case "$T6_STDOUT" in
+    *"not found"*) FAIL "missing prompt file: error text stays off stdout" "stdout: $T6_STDOUT" ;;
+    *) PASS "missing prompt file: error text stays off stdout" ;;
 esac
 
 # ── summary ───────────────────────────────────────────────────────────────────

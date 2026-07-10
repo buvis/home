@@ -50,6 +50,7 @@ usage() {
     echo "  -i, --interactive    Interactive mode with initial prompt"
     echo "  -R, --read-only      Restrict to read-only tools (no file edits)"
     echo "  -j, --json           Emit a structured JSON event stream (pi --mode json)"
+    echo "  -s, --silent         Accepted for compatibility (no-op; pi output is already clean)"
     echo "      --preflight      Probe only: resolve provider/model and require a real"
     echo "                       1-token completion. Exit 0 = healthy; nonzero names the"
     echo "                       failing check (pi_missing/endpoint_unreachable/completion_failed)."
@@ -87,6 +88,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         -j|--json)
             OUTPUT_MODE="json"
+            shift
+            ;;
+        -s|--silent)
+            # Accepted for flag parity with codex/gemini/sonnet; pi's -p
+            # output is already clean, so there is nothing to strip.
             shift
             ;;
         --preflight)
@@ -127,22 +133,22 @@ done
 # Read prompt from file if specified
 if [ -n "$PROMPT_FILE" ]; then
     if [ ! -f "$PROMPT_FILE" ]; then
-        echo "ERROR: Prompt file not found: $PROMPT_FILE"
+        echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
         exit 1
     fi
     PROMPT=$(cat "$PROMPT_FILE")
 fi
 
 if ! command -v pi &>/dev/null; then
-    echo "ERROR: preflight failed (pi_missing): 'pi' not found on PATH. Install via mise, then run 'mise reshim'."
+    echo "ERROR: preflight failed (pi_missing): 'pi' not found on PATH. Install via mise, then run 'mise reshim'." >&2
     exit 1
 fi
 
 for tool in jq curl; do
-    command -v "$tool" &>/dev/null || { echo "ERROR: '$tool' required for provider auto-detect."; exit 1; }
+    command -v "$tool" &>/dev/null || { echo "ERROR: '$tool' required for provider auto-detect." >&2; exit 1; }
 done
 if [ ! -f "$MODELS_JSON" ]; then
-    echo "ERROR: preflight failed (endpoint_unreachable): pi model config not found: $MODELS_JSON"
+    echo "ERROR: preflight failed (endpoint_unreachable): pi model config not found: $MODELS_JSON" >&2
     exit 1
 fi
 
@@ -170,12 +176,12 @@ probe_completion() {
 if [ -n "$PROVIDER" ]; then
     BASE_URL="$(provider_base_url "$PROVIDER")"
     if [ -z "$BASE_URL" ]; then
-        echo "ERROR: preflight failed (endpoint_unreachable): provider '$PROVIDER' not found in $MODELS_JSON"
+        echo "ERROR: preflight failed (endpoint_unreachable): provider '$PROVIDER' not found in $MODELS_JSON" >&2
         exit 1
     fi
     if [ -z "$MODEL" ]; then
         MODEL="$(probe_model "$BASE_URL")"
-        [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m."; exit 1; }
+        [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
     fi
 else
     # Probe every provider in ascending port order; first live one wins.
@@ -195,7 +201,7 @@ else
             .key, (.value.baseUrl // "") ] | @tsv
     ' "$MODELS_JSON" < /dev/null | sort -n)
     if [ -z "$PROVIDER" ]; then
-        echo "ERROR: preflight failed (endpoint_unreachable): no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)."
+        echo "ERROR: preflight failed (endpoint_unreachable): no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)." >&2
         exit 1
     fi
 fi
@@ -242,16 +248,16 @@ case $MODE in
         ;;
     interactive)
         if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required for interactive mode"
-            usage
+            echo "ERROR: Prompt required for interactive mode" >&2
+            usage >&2
             exit 1
         fi
         run_cmd pi "${ARGS[@]}" "$PROMPT"
         ;;
     prompt)
         if [ -z "$PROMPT" ]; then
-            echo "ERROR: Prompt required"
-            usage
+            echo "ERROR: Prompt required" >&2
+            usage >&2
             exit 1
         fi
         # Non-interactive dispatch: guard child stdin so an unattended batch

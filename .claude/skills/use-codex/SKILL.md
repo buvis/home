@@ -10,6 +10,12 @@ Always run Codex through the `codex-run.sh` helper. The helper auto-detects its 
 - **codex backend** (preferred): OpenAI ChatGPT subscription, no per-request billing multiplier. Uses codex's own configured default model unless `-m` is passed.
 - **copilot backend** (fallback): GitHub Copilot, billed with a per-request multiplier - see below.
 
+## Dispatch Contract (shared)
+
+Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill.
+
+Codex-specific delta: each run is independent by default; `--resume-thread` (codex backend only, requires `-o`) continues a prior codex session so its context carries over.
+
 ## Multiplier Policy (copilot backend only)
 
 This applies only when the helper falls back to `copilot`. GitHub Copilot bills models with a per-request multiplier. The CLI does not expose multipliers locally, so the helper hardcodes a curated 1x default rather than auto-picking the highest version (which silently lands on premium tiers - `gpt-5.5` once burned 25% of a monthly quota in one run).
@@ -46,35 +52,10 @@ Every run is non-interactive. By default each call is a fresh, one-shot Codex se
 | Allow specific directory | `-d <DIR> -f prompt.txt` |
 | Scripting (clean output) | `-s -f prompt.txt` |
 
-## Background Dispatch and Waiting
-
-A `codex-run.sh` call can run for many minutes. When you need to do other work while it runs, or you are inside an autopilot run:
-
-1. Dispatch the helper script with `run_in_background: true`. The dispatch tool result returns the task's output file path.
-2. Wait with the `TaskOutput` tool: `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min is the max per call). It returns when the task completes or at the deadline. It is the watchdog.
-3. On completion, `Read` the output file. On a timeout return, treat it as an infrastructure hang (see Error Handling); do not silently re-dispatch.
-
-**Never hand-roll a polling loop.** Do not pass a `while`/`if`/`wc -c` stability loop to `Monitor` or `Bash` to detect completion. Such commands contain shell control flow that Warden cannot statically analyze, so they prompt for approval, which stalls an unattended autopilot run. The harness already notifies you when a background task finishes; `TaskOutput` is the only wait primitive you need.
-
-## Following Up
-
-- After every `codex-run.sh` command, use `AskUserQuestion` to confirm next steps.
-- By default each run is independent - a follow-up task is a new run with a new prompt, so restate the relevant context. The exception is `--resume-thread` (codex backend only), which continues a prior codex session so its context carries over.
-- Restate the permission mode when proposing follow-up actions.
-
-## Error Handling
-
-- Stop and report failures whenever a `codex-run.sh` command exits non-zero; request direction before retrying.
-- Before using high-impact flags (`--allow-all`, `--yolo`, `--allow-all-paths`) ask user permission via AskUserQuestion unless already given.
-- When output includes warnings or partial results, summarize them and ask how to adjust.
-
 ## Helper Script
 
-**IMPORTANT**: Always use `-f` with a temp file for prompts to avoid shell escaping issues.
-
 ```bash
-# Write prompt to temp file, then run
-echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/codex-prompt.txt
+# Write prompt to temp file (see the shared dispatch contract), then run
 ~/.claude/skills/use-codex/scripts/codex-run.sh -f /tmp/codex-prompt.txt
 
 # With auto-approve tools
@@ -88,9 +69,6 @@ echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/codex-prom
 
 # Capture output to file
 ~/.claude/skills/use-codex/scripts/codex-run.sh -a -o /tmp/result.txt -f /tmp/codex-prompt.txt
-
-# Silent mode for scripting
-~/.claude/skills/use-codex/scripts/codex-run.sh -s -f /tmp/codex-prompt.txt
 ```
 
 Run `~/.claude/skills/use-codex/scripts/codex-run.sh --help` for all options.

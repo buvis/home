@@ -15,7 +15,7 @@ set -eo pipefail
 # Ensure mise-managed tools (copilot/gemini, plus build/test tools they invoke)
 # are on PATH. Matches codex-run.sh / sonnet-run.sh.
 if command -v mise &>/dev/null; then
-    PATH="$(mise env -s bash 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
+    PATH="$(mise env -s bash < /dev/null 2>/dev/null | sed -n "s/^export PATH='\\(.*\\)'/\\1/p"):$PATH"
 fi
 
 resolve_bin() {
@@ -201,14 +201,18 @@ run_copilot() {
             local rflag=(--resume)
             [ -n "$RESUME_ID" ] && [ "$RESUME_ID" != "latest" ] && rflag=(--resume="$RESUME_ID")
             if [ -n "$PROMPT" ]; then
-                run_cmd "$COPILOT_BIN" --model "$model" "${noninteractive_perms[@]}" "${dirs[@]}" "${rflag[@]}" -p "$PROMPT"
+                run_cmd "$COPILOT_BIN" --model "$model" "${noninteractive_perms[@]}" "${dirs[@]}" "${rflag[@]}" -p "$PROMPT" < /dev/null
             else
                 run_cmd "$COPILOT_BIN" --model "$model" "${noninteractive_perms[@]}" "${dirs[@]}" "${rflag[@]}"
             fi
             ;;
         prompt)
             [ -z "$PROMPT" ] && { echo "ERROR: Prompt required" >&2; exit 1; }
-            run_cmd "$COPILOT_BIN" --model "$model" "${noninteractive_perms[@]}" "${dirs[@]}" -p "$PROMPT"
+            # Headless (-p) dispatch: guard child stdin so an unattended
+            # background run can never hang on a child reading the inherited
+            # stdin (PRD 00040 hang class). Interactive and bare-resume modes
+            # keep stdin - they need the TTY.
+            run_cmd "$COPILOT_BIN" --model "$model" "${noninteractive_perms[@]}" "${dirs[@]}" -p "$PROMPT" < /dev/null
             ;;
     esac
 }
@@ -229,7 +233,7 @@ run_gemini() {
         resume)
             local id="${RESUME_ID:-latest}"
             if [ -n "$PROMPT" ]; then
-                run_cmd "$GEMINI_BIN" "${common[@]}" --resume "$id" -p "$PROMPT"
+                run_cmd "$GEMINI_BIN" "${common[@]}" --resume "$id" -p "$PROMPT" < /dev/null
             else
                 run_cmd "$GEMINI_BIN" "${common[@]}" --resume "$id"
             fi
@@ -243,7 +247,9 @@ run_gemini() {
             ;;
         prompt)
             [ -z "$PROMPT" ] && { echo "ERROR: Prompt required" >&2; exit 1; }
-            run_cmd "$GEMINI_BIN" "${common[@]}" -p "$PROMPT"
+            # Headless (-p) dispatch: guard child stdin (PRD 00040 hang
+            # class). Interactive and bare-resume modes keep the TTY.
+            run_cmd "$GEMINI_BIN" "${common[@]}" -p "$PROMPT" < /dev/null
             ;;
     esac
 }

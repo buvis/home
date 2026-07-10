@@ -9,6 +9,15 @@ Qwen runs locally through the `pi` coding agent against a llama.cpp-served model
 
 > **Do not use Ollama for this.** Ollama's `qwen3coder` tool-call XML parser mangles large edit payloads, so agentic edits abort with no result. Serve the model with llama.cpp (`--jinja`, grammar-based tool-call parsing). LlamaBarn is a convenient llama.cpp manager.
 
+## Dispatch Contract (shared)
+
+Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill (local inference is slow, so the background-dispatch guidance matters even more here).
+
+Qwen-specific deltas on error handling:
+
+- **Output that narrates actions instead of showing real tool calls** (a `thought`/`<channel|>` block, a fabricated `$ pytest` run) means the model did not actually do the work. Verify on disk; do not relay the claim.
+- If the model fails the task twice, escalate - do not loop. A weaker model that cannot converge is a capability limit, not a prompt bug.
+
 ## Prerequisites
 
 Before the helper will work:
@@ -46,10 +55,11 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
    - `-m, --model MODEL` to override the default
    - `-R, --read-only` for analysis tasks (no file edits)
    - `-j, --json` for a structured JSON event stream (scripting)
+   - `-s, --silent` accepted for compatibility (no-op; pi output is already clean)
    - `-f, --file FILE` to read the prompt from a file
    - `-o, --output FILE` to capture output
    - `-c, --continue` / `-r, --resume [ID]` to continue a session
-   - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes — the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`completion_failed`). Every dispatch runs the same probe internally before spawning `pi`.
+   - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes - the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`completion_failed`). Every dispatch runs the same probe internally before spawning `pi`.
 3. Run the helper, capture output.
 4. **Verify the actual result - never trust the model's textual claim.** A local model may narrate "all tests pass" without having run them. Run the tests yourself, check the files on disk, then report.
 
@@ -64,29 +74,10 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
 | Resume recent session | `-c` |
 | Health probe only | `--preflight` |
 
-## Background Dispatch and Waiting
-
-Local inference is slow; a `qwen-run.sh` call can run for many minutes.
-
-1. Dispatch the helper with `run_in_background: true`. The dispatch result returns the task's output file path.
-2. Wait with `TaskOutput(task_id, block=true, timeout=600000)` (600000 ms = 10 min, the max per call). It returns on completion or at the deadline.
-3. On completion, `Read` the output file. On a timeout return, treat it as an infrastructure hang - do not silently re-dispatch.
-
-**Never hand-roll a polling loop.** Shell `while`/`wc -c` stability loops contain control flow Warden cannot analyze statically, so they prompt for approval and stall unattended runs. The harness notifies you when a background task finishes.
-
-## Error Handling
-
-- Stop and report when `qwen-run.sh` exits non-zero; request direction before retrying.
-- **Output that narrates actions instead of showing real tool calls** (a `thought`/`<channel|>` block, a fabricated `$ pytest` run) means the model did not actually do the work. Verify on disk; do not relay the claim.
-- If the model fails the task twice, escalate - do not loop. A weaker model that cannot converge is a capability limit, not a prompt bug.
-
 ## Helper Script
 
-**IMPORTANT**: Use `-f` with a temp file for prompts to avoid shell-escaping issues.
-
 ```bash
-# Write prompt to a temp file, then run
-echo 'Your prompt here (can contain "quotes", parens(), etc.)' > /tmp/qwen-prompt.txt
+# Write prompt to a temp file (see the shared dispatch contract), then run
 ~/.claude/skills/use-qwen/scripts/qwen-run.sh -f /tmp/qwen-prompt.txt
 
 # Read-only analysis
