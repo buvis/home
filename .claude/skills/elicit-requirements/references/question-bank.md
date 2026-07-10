@@ -135,7 +135,6 @@ Domain-specific. Formulate based on the problem space. Examples:
 
 ## Question Principles
 
-- **One question per message.** Concise, with enough context to answer quickly.
 - **Multiple-choice with "Other".** Use AskUserQuestion tool when possible.
 - **Recommend when you can.** When one option is clearly best, make it the first option, append ` (Recommended)` to its label, and put the rationale in its description. If the choice is a genuine toss-up, present options neutrally and say so.
 - **Don't ask what codebase analysis can answer.** If scanning reveals the answer, state the finding instead of asking.

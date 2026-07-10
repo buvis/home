@@ -7,7 +7,7 @@ description: Use when assessing a project's long-term evolution health and emitt
 
 A repeatable self-assessment that finds what blocks a project's healthy growth and turns it into a **phased, session-sized PRD roadmap** the team can execute. Built from a real multi-audit session; encodes what worked.
 
-Core stance: **route deterministic work to code, the model to judgment** (git-log parsing is code; "is this churn a design flaw" is judgment). **Breadth via parallel read-only auditors, one per lens.** **Verify every load-bearing claim against source before asserting it** — an unverified finding is marked UNVERIFIED, never stated as fact. Calibrate: a healthy codebase under adversarial audit still yields localized, evidence-backed findings — thoroughness of the audit is not evidence of doom.
+Core stance: apply `rules/ai-app-design.md` (code answers deterministic questions — git-log parsing is code; "is this churn a design flaw" is judgment). **Breadth via parallel read-only auditors, one per lens.** **Verify every load-bearing claim against source before asserting it** — an unverified finding is marked UNVERIFIED, never stated as fact. Calibrate: a healthy codebase under adversarial audit still yields localized, evidence-backed findings — thoroughness of the audit is not evidence of doom.
 
 ## 0. Catch up first, then load project config
 

@@ -5,25 +5,16 @@ description: Use when an agent is failing repeatedly, looping on tools, drifting
 
 # Agent Introspection Debugging
 
-Use this skill when an agent run is failing repeatedly, consuming tokens without progress, looping on the same tools, or drifting away from the intended task.
-
-This is a workflow skill, not a hidden runtime. It teaches the agent to debug itself systematically before escalating to a human.
-
-## When to Activate
-
-- Maximum tool call / loop-limit failures
-- Repeated retries with no forward progress
-- Context growth or prompt drift that starts degrading output quality
-- File-system or environment state mismatch between expectation and reality
-- Tool failures that are likely recoverable with diagnosis and a smaller corrective action
+A workflow skill, not a hidden runtime: it teaches the agent to debug itself
+systematically before escalating to a human.
 
 ## Scope Boundaries
 
 Activate this skill for:
-- capturing failure state before retrying blindly
-- diagnosing common agent-specific failure patterns
-- applying contained recovery actions
-- producing a structured human-readable debug report
+- maximum tool call / loop-limit failures, or repeated retries with no forward progress
+- context growth or prompt drift that starts degrading output quality
+- file-system or environment state mismatch between expectation and reality
+- tool failures likely recoverable with diagnosis and a smaller corrective action
 
 Do not use this skill as the primary source for:
 - feature verification after code changes; use `review-work-completion` or `review-blindly`
@@ -34,27 +25,10 @@ Do not use this skill as the primary source for:
 
 ### Phase 1: Failure Capture
 
-Before trying to recover, record the failure precisely.
-
-Capture:
-- error type, message, and stack trace when available
-- last meaningful tool call sequence
-- what the agent was trying to do
-- current context pressure: repeated prompts, oversized pasted logs, duplicated plans, or runaway notes
-- current environment assumptions: cwd, branch, relevant service state, expected files
-
-Minimum capture template:
-
-```markdown
-## Failure Capture
-- Session / task:
-- Goal in progress:
-- Error:
-- Last successful step:
-- Last failed tool / command:
-- Repeated pattern seen:
-- Environment assumptions to verify:
-```
+Before trying to recover, record the failure precisely — fill every field of
+the "Failure Capture" template in `references/capture-templates.md` (error,
+last tool sequence, goal in progress, context pressure, environment
+assumptions).
 
 ### Phase 2: Root-Cause Diagnosis
 
@@ -77,7 +51,8 @@ Diagnosis questions:
 
 ### Phase 3: Contained Recovery
 
-Recover with the smallest action that changes the diagnosis surface.
+Recover with the smallest action that changes the diagnosis surface
+(checklist: "Recovery Action" in `references/capture-templates.md`).
 
 Safe recovery actions:
 - stop repeated retries and restate the hypothesis
@@ -89,31 +64,11 @@ Safe recovery actions:
 
 Do not claim unsupported auto-healing actions like "reset agent state" or "update harness config" unless you are actually doing them through real tools in the current environment.
 
-Contained recovery checklist:
-
-```markdown
-## Recovery Action
-- Diagnosis chosen:
-- Smallest action taken:
-- Why this is safe:
-- What evidence would prove the fix worked:
-```
-
 ### Phase 4: Introspection Report
 
-End with a report that makes the recovery legible to the next agent or human.
-
-```markdown
-## Agent Self-Debug Report
-- Session / task:
-- Failure:
-- Root cause:
-- Recovery action:
-- Result: success | partial | blocked
-- Token / time burn risk:
-- Follow-up needed:
-- Preventive change to encode later:
-```
+End with a report that makes the recovery legible to the next agent or human
+(template: "Agent Self-Debug Report" in `references/capture-templates.md`).
+Never end with "I fixed it" alone — the filled report is the deliverable.
 
 ## Recovery Heuristics
 
@@ -125,14 +80,9 @@ Prefer these interventions in order:
 4. Run one discriminating check.
 5. Only then retry.
 
-Bad pattern:
-- retrying the same action three times with slightly different wording
-
-Good pattern:
-- capture failure
-- classify the pattern
-- run one direct check
-- change the plan only if the check supports it
+Bad pattern: retrying the same action three times with slightly different
+wording. Good pattern: capture → classify → one direct check → change the
+plan only if the check supports it.
 
 ## Related Skills
 
@@ -140,13 +90,3 @@ Good pattern:
 - `council` when the issue is decision ambiguity, not technical failure
 - `resolve-git-conflicts` when the failure came from conflicting local state
 - `catchup` if the failure came from missing project context
-
-## Output Standard
-
-When this skill is active, do not end with "I fixed it" alone.
-
-Always provide:
-- the failure pattern
-- the root-cause hypothesis
-- the recovery action
-- the evidence that the situation is now better or still blocked

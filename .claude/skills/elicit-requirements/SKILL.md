@@ -58,7 +58,7 @@ Store findings internally. Use them to:
 Read `references/question-bank.md`. Select questions appropriate to the depth level.
 
 **Rules:**
-- One question per message. Concise, with enough context to answer quickly.
+- One question per message (the global CLAUDE.md planning rule; not restated elsewhere in this skill).
 - Use `AskUserQuestion` tool with multiple-choice options when the question fits that format. Open-ended for scope boundaries and risk identification.
 - **Mark the recommended option.** When one option is clearly best, make it the first option, append ` (Recommended)` to its label, and state the one-line rationale in its description. If no option is clearly best, present them neutrally and say so.
 - Skip questions the input or brownfield analysis already answers. Note the inferred answer in the discovery log.
