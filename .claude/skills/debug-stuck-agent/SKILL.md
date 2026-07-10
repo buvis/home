@@ -1,9 +1,9 @@
 ---
-name: agent-introspection-debugging
+name: debug-stuck-agent
 description: Use when an agent is failing repeatedly, looping on tools, drifting from the task, or burning tokens without progress. Triggers on "agent introspection", "debug agent", "agent stuck", "agent loop", "diagnose failure", "why is this stuck".
 ---
 
-# Agent Introspection Debugging
+# Debug Stuck Agent
 
 A workflow skill, not a hidden runtime: it teaches the agent to debug itself
 systematically before escalating to a human.
@@ -87,6 +87,6 @@ plan only if the check supports it.
 ## Related Skills
 
 - `review-work-completion` after recovery if code was changed
-- `council` when the issue is decision ambiguity, not technical failure
+- `convene-council` when the issue is decision ambiguity, not technical failure
 - `resolve-git-conflicts` when the failure came from conflicting local state
 - `catchup` if the failure came from missing project context

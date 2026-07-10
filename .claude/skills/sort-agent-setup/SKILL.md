@@ -1,9 +1,9 @@
 ---
-name: agent-sort
+name: sort-agent-setup
 description: Use when a project needs a trimmed Claude install instead of the full global setup, sorting skills/rules/hooks into DAILY vs LIBRARY with repo evidence. Triggers on "agent sort", "trim skills for repo", "daily vs library", "project install plan".
 ---
 
-# Agent Sort
+# Sort Agent Setup
 
 Use this skill when a repo needs a project-specific surface instead of the default full global install.
 
