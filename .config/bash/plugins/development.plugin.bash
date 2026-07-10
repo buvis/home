@@ -122,12 +122,6 @@ autoclaude() {
     # turn, the final result event carries usage/cost, and a usage-limit
     # banner lands in the tail where detect_usage_limit.py --log finds it.
     #
-    # Static launch model: every session runs on Opus. The old phase-based
-    # dispatch (_autoclaude_pick_model) was deleted — it guessed the phase
-    # from stale state BEFORE launch and never switched a model in practice.
-    # PRD 00018 reintroduces routing here, keyed on the same post-exit state
-    # read the decision table uses.
-    #
     # WARDEN_UNATTENDED: command-scoped so warden (claude's hook child) turns an
     # unanswerable `ask` into a fast `deny` instead of a forever-hang. NOT
     # exported to the shell, so interactive `claude` outside the loop still
@@ -140,7 +134,23 @@ autoclaude() {
     else
       _phase_launched=""
     fi
-    WARDEN_UNATTENDED=1 claude -p --permission-mode auto --model claude-opus-4-8 \
+
+    # Per-phase launch model (PRD 00018). Safe where the old
+    # _autoclaude_pick_model died: the phase comes from the SAME state.json
+    # read the relaunch decision uses, not a pre-launch guess from stale
+    # state. build/review stay on Opus (the decision gate classifies
+    # findings); finalize (done) is mechanical rendering — Sonnet. Unknown
+    # or absent phase (including the first-ever launch) → Opus: fail
+    # expensive, never fail dumb.
+    local _model
+    case "$_phase_launched" in
+      build)  _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}" ;;
+      review) _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}" ;;
+      done)   _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}" ;;
+      *)      _model="claude-opus-4-8" ;;
+    esac
+
+    WARDEN_UNATTENDED=1 claude -p --permission-mode auto --model "$_model" \
       --output-format stream-json --verbose "/run-autopilot" \
       < /dev/null 2>&1 | tee "$_ap_dir/last-session.log"
 
@@ -217,9 +227,14 @@ autoclaude() {
     # after the decision and before any exit path, so every branch records
     # the line. Observation only — the append can never block or fail the
     # loop (the one sanctioned silent failure, scoped to itself).
-    local _ts_end _wall
+    # PRD 00018: the line always carries "model"; "cost_usd"/"tokens_out"
+    # are added only when the session log's final result event provides
+    # them (parse failure degrades to model-only, never blocks the loop).
+    local _ts_end _wall _cost _tokens_out
     _ts_end=$(date +%s)
     _wall=$(( _ts_end - _ts_start ))
+    _cost=$(jq -rR 'fromjson? | select(.type=="result") | .total_cost_usd // empty' "$_ap_dir/last-session.log" 2>/dev/null)
+    _tokens_out=$(jq -rR 'fromjson? | select(.type=="result") | .usage.output_tokens // empty' "$_ap_dir/last-session.log" 2>/dev/null)
     jq -nc \
       --argjson ts_start "$_ts_start" \
       --argjson ts_end "$_ts_end" \
@@ -229,7 +244,12 @@ autoclaude() {
       --arg phase_launched "$_phase_launched" \
       --arg phase_end "$_phase_end" \
       --arg signal "$_signal" \
-      '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal}' \
+      --arg model "$_model" \
+      --arg cost "$_cost" \
+      --arg tokens_out "$_tokens_out" \
+      '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal,model:$model}
+       + (if ($cost | test("^[0-9.]+$")) then {cost_usd: ($cost | tonumber)} else {} end)
+       + (if ($tokens_out | test("^[0-9]+$")) then {tokens_out: ($tokens_out | tonumber)} else {} end)' \
       2>/dev/null >> "$_ap_dir/loop-metrics.jsonl" || true
 
     # ── Act on the branch ──
