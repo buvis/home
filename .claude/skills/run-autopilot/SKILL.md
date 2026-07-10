@@ -130,7 +130,7 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
       - PRDs available → auto-pick lowest sequence number, `mv` to `wip/`; then **verify the move**: confirm the PRD now exists in `dev/local/prds/wip/`, else set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, and the mv error>"}`, and PAUSE naming the source, the destination, and the `mv` error (do not continue)
       - Empty → STOP: "No PRDs found. Create one with /create-prd."
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`. **Batch-identity rollover:** if `state.batch` IS already present but the surviving state represents a *genuinely closed* batch — `state.phase == "done"` AND `state.next_phase == ""` (empty) (batch end ran but `state.json` was not deleted, e.g. an abnormal exit before the Stop hook fired) — do NOT inherit the dead batch's id: mint a FRESH `batch.id` (a new `<yyyymmddHHMM>` timestamp) and reset `completed_prds: []`. This is the fix for the stale-id reuse the forensics found, where a `batch.id` minted weeks earlier kept being inherited across genuinely separate batches. **Both conditions are required:** only the batch-end "No more PRDs" branch (Phase 9 step 10) sets `next_phase: ""`, so the empty `next_phase` is what distinguishes a genuinely closed batch from a transient mid-PRD `phase: "done"` — Phase 9 step 2 sets `phase: "done"` with `next_phase: "done"` BEFORE the verified `wip -> done` move, so a move that fails and PAUSEs (or a crash in steps 3-9) leaves `phase == "done"` with `next_phase == "done"` (non-empty), which must NOT roll over (doing so would wipe the in-progress batch's `completed_prds` and mint a spurious id). A normal in-progress resume (`phase` is `build`/`review` — or a legacy `blind`/`doubt`, which maps to `review` — a `paused` handled by an abort handler above, or any `phase == "done"` whose `next_phase` is still non-empty) preserves `batch.id` unchanged.
-4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. Also look for `design:` in the same YAML block. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `design:` field) → default to `run`. Write the resulting value to `state.design_mode`. Also look for `design_gate:` in the same block: on an exact `user` match write `"user"` to `state.design_gate`; otherwise (absent field, any other value) leave `state.design_gate` absent. Also look for `doubt_reviewer:` in the same YAML block. Accepted values: `codex`, `fable`. Anything else (other value, malformed YAML, missing frontmatter, absent `doubt_reviewer:` field) → default to `codex`. Write the resulting value to `state.doubt_reviewer` (read by the review phase: `fable` adds Eve to the review batch as a fifth lens; `codex` runs the standard roster). On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3, design_mode=run, doubt_reviewer=codex") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
+4. Read the first 20 lines of the selected PRD. If it begins with a `---` line, parse the YAML block between the opening `---` and the next `---`. Look for `catchup:`. Accepted values: `run`, `skip`, `force`. Anything else (other value, malformed YAML, missing frontmatter, absent `catchup:` field) → default to `run`. Write the resulting value to `state.catchup_mode`. Also look for `rework_cap:` in the same YAML block. Accepted values: positive integer (or a string that parses cleanly as a positive integer). Anything else (non-integer string, negative/zero, absent field, malformed YAML, missing frontmatter) → default to **3**. Write the resulting integer to `state.rework_cap`. Also look for `design:` in the same YAML block. Accepted values: `run`, `skip`. Anything else (other value, malformed YAML, missing frontmatter, absent `design:` field) → default to `run`. Write the resulting value to `state.design_mode`. Also look for `design_gate:` in the same block: on an exact `user` match write `"user"` to `state.design_gate`; otherwise (absent field, any other value) leave `state.design_gate` absent. Also look for `doubt_reviewer:` in the same YAML block. Accepted values: `codex`, `fable`. Anything else (other value, malformed YAML, missing frontmatter, absent `doubt_reviewer:` field) → default to `codex`. Write the resulting value to `state.doubt_reviewer` (read by the review phase: `fable` adds Eve to the review batch as a fifth lens; `codex` runs the standard roster). Also look for `pause_on_ambiguity:` in the same YAML block (PRD 00017): an exact `true` → write `state.pause_on_ambiguity = true`; anything else (absent, other value, malformed) → treat as `false` (leave the field absent). In loop mode a `true` makes a requirements ambiguity STALL the PRD instead of being resolved by assumption — it never pauses the batch (see Phase 2). On a malformed-frontmatter fallback, log a one-line warning ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run, rework_cap=3, design_mode=run, doubt_reviewer=codex") and continue — never crash Phase 0 on a frontmatter problem. PRD frontmatter is the source of truth for catchup behavior; once Phase 0 has set `catchup_mode`, do not re-parse the PRD. Mode semantics: `run` honors the batch-cache check in Phase 1; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup regardless of recency. The `rework_cap` value is consumed by the Phase 5 decision gate's cap check (out of scope here; that's a separate task).
 5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 6. Initialize/update state with selected PRD, preserve `batch` field
 7. Print progress:
@@ -234,7 +234,10 @@ If `replan-context.md` is absent, run /plan-tasks normally — first-pass planni
 
 Invoke `/plan-tasks` with the selected PRD.
 
-**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question, present it to the user and wait for the answer. Once answered, record the clarification and its resolution in `state.autonomous_decisions` (label `autonomous`) so the Phase 9 audit render captures it. Do not write `audit.md` here.
+**PAUSE site - requirements clarification.** When `/plan-tasks` pauses autopilot with a requirements-ambiguity or clarification question:
+
+- **Interactive:** present it to the user and wait for the answer. Once answered, record the clarification and its resolution in `state.autonomous_decisions` (label `autonomous`) so the Phase 9 audit render captures it. Do not write `audit.md` here.
+- **Loop mode (`$_AUTOPILOT_LOOP` set, PRD 00017):** never end the batch on an ambiguity. Resolve it by the **simplest safe assumption** (the user's own global rule), record it in `state.autonomous_decisions` as `{"type": "assumed-ambiguity", "question": ..., "assumption": ...}`, AND mirror the same record into the batch deferred JSON so batch-end review shows it under "assumptions made". Exception: when the PRD frontmatter set `pause_on_ambiguity: true` (parsed at Phase 0 step 4), do not guess — stall the PRD instead (`references/recovery.md` → "Loop-mode stall procedure", `site: "clarification"`) and continue the batch. A premise failure is never resolved by assumption either — it always stalls (see `/work`'s premise gate when present).
 
 ### Handle plan-tasks stall (oversized task)
 
@@ -315,11 +318,16 @@ Worked example, cap 3:
 
 Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5 → pause).
 
-When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND unresolved findings remain), perform the **Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes). When the cap is NOT hit (or the review converged with no findings), continue with the normal Outcomes flow below.
+When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND unresolved findings remain), branch on loop mode (PRD 00017):
+
+- **Loop mode (`$_AUTOPILOT_LOOP` set) — cap-out defers, never pauses.** Any unresolved CRITICAL finding → stall the PRD (follow `references/recovery.md` → "Loop-mode stall procedure", `site: "cap_critical"`) and continue the batch. Otherwise (all unresolved findings ≤ high): append each to `deferred_decisions` as `{"type": "cap-overflow", "issue": ..., "severity": ..., "consensus": ...}`, proceed to the finalize hand-off as converged-with-deferrals, and make the banner name the deferral count (`── cap reached: {k} findings deferred to batch end ──`). Stop polishing, not the batch.
+- **Interactive — perform the Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes).
+
+When the cap is NOT hit (or the review converged with no findings), continue with the normal Outcomes flow below.
 
 ### Cap-pause behavior
 
-Executed only when the Cap check above fired (`state.cycle >= state.rework_cap` AND the review did not converge). This sub-section is the ONLY writer of the `cap_pause_reason` state field; it is a separate top-level field from `stall_reason` (which has different shapes — `oversized_task`, `subagent_prompt_overrun`, `escalation_exhausted` — and a different lifecycle).
+Executed only when the Cap check above fired on the INTERACTIVE branch (`state.cycle >= state.rework_cap` AND the review did not converge AND `$_AUTOPILOT_LOOP` is unset — loop mode defers/stalls instead, per the Cap check). This sub-section is the ONLY writer of the `cap_pause_reason` state field; it is a separate top-level field from `stall_reason` (which has different shapes — `oversized_task`, `subagent_prompt_overrun`, `escalation_exhausted` — and a different lifecycle).
 
 1. **Collect unresolved findings.** Read the current review-cycle output (the same review file Phase 4 produced) and gather every finding that has not yet been resolved by an earlier cycle. Format each finding minimally — at least `{"issue": <description>, "severity": <"critical"|"high"|"medium"|"low">, "consensus": <"N/M">}` — additional fields are allowed.
 
@@ -354,7 +362,7 @@ Read the review output. Categorize each finding using `references/decision-frame
 
 | Condition | Action |
 |-----------|--------|
-| >10 follow-up tasks from review | PAUSE: scope alarm — ask user before proceeding |
+| >10 follow-up tasks from review | Interactive: PAUSE (scope alarm — ask user before proceeding). Loop mode (PRD 00017): keep the top 10 by severity, defer the rest to the batch deferred JSON as `{"type": "scope-overflow", ...}`, log one line, and continue — mirroring the doubt >5 overflow rule |
 | Issue count not decreasing vs previous cycle | LOG and continue — a steady cycle is not a failure; the Phase 5 rework cap is the backstop |
 | Same issue reappearing after previous fix | Route to research-then-decide Protocol B |
 | A reviewer or sub-skill errored transiently during this review cycle | LOG and continue using the reviewers/sub-skills that succeeded (graceful degradation - e.g. a quota-exhausted reviewer is skipped, per the review skill). PAUSE only if the cycle cannot complete at all (no reviewer produced parseable output). A single transient error must not break an unattended run. |
@@ -539,7 +547,7 @@ Summary:
      ```
      Then **STOP**.
    - **No** → print the batch summary below, then branch on loop mode:
-     - **Loop mode (`$_AUTOPILOT_LOOP` set) — non-interactive batch end.** The deferred JSON (step 6) and the batch report (step 7) are already written. Set `state.phase = "done"` and `state.next_phase = ""` (empty; nothing more to run), notify the user (`python3 ~/.claude/hooks/notify.py --send "autopilot 📋 {repo}" "Batch done: {n} PRDs, {k} deferred items. Run /run-autopilot review-batch."`), print the summary, and END THE TURN. The wrapper reads the empty `next_phase`, archives `state.json` to `reports/{batch_id}-state-final.json`, and stops the loop. Do NOT run the chunked Batch-End Review here — no human is present; it runs later via `/run-autopilot review-batch`.
+     - **Loop mode (`$_AUTOPILOT_LOOP` set) — non-interactive batch end.** The deferred JSON (step 6) and the batch report (step 7) are already written. Set `state.phase = "done"` and `state.next_phase = ""` (empty; nothing more to run), notify the user with the batch counts (PRD 00017: `python3 ~/.claude/hooks/notify.py --send "autopilot 📋 {repo}" "Batch done: {n} done, {m} stalled, {k} deferred. Run /run-autopilot review-batch."` — count stalls from the deferred JSON's `type: "stall"` entries; when both m and k are zero, shorten to "Batch done: {n} PRDs."), print the summary, and END THE TURN. The wrapper reads the empty `next_phase`, archives `state.json` to `reports/{batch_id}-state-final.json`, and stops the loop. Do NOT run the chunked Batch-End Review here — no human is present; it runs later via `/run-autopilot review-batch`.
      - **Outside the loop — interactive batch end.** Run the Batch-End Review presentation below, then set `state.phase = "done"` and `state.next_phase = ""` and STOP. `state.json` stays on disk; the next invocation's batch-identity rollover (Phase 0 step 3) mints a fresh batch.
      ```
      ── AUTOPILOT ── COMPLETE ───────────────────────────────────────────
@@ -562,7 +570,21 @@ Summary:
 
      **Auto-fix trivial items first.** Before presenting items to the user, scan for trivial fixes that are clearly additive-only: docstring/comment improvements, test helper fixes (missing kwargs, style), formatting. Fix these silently, commit, and remove from the deferred list. Only present items that genuinely need a user decision.
 
-     **Presentation format - chunked by PRD:**
+     **Presentation format - stalls first, then chunked by PRD (PRD 00017):**
+
+     Before any PRD chunk, present the `STALLED PRDS` block when the deferred
+     JSON has `type: "stall"` entries (omit the block entirely when none):
+
+     ```
+     ── BATCH REVIEW ── STALLED PRDS ({count}) ────────────────────────
+     1. {prd} — {site}: {detail}
+        resume: move back to dev/local/prds/wip/ and re-run
+     ```
+
+     Also render `type: "assumed-ambiguity"` records under a visible
+     `ASSUMPTIONS MADE ({count})` heading inside their PRD's chunk (each:
+     the question and the assumption taken) — the human reviews everything
+     the loop decided alone. Omit the heading when there are none.
 
      Present items grouped by PRD, one PRD at a time. For each PRD chunk:
 
@@ -657,16 +679,21 @@ you are checking how de-slop is wired, look at the review roster, not the
 
 ## Error Handling
 
-| Situation | Action |
-|-----------|--------|
-| Sub-skill invocation fails outright (no usable result; the phase cannot proceed) | PAUSE, report which skill failed and error. A transient reviewer/sub-skill error *during the Phase 4-6 review-rework cycle* is the Phase 5 Safety Checks row's domain instead (graceful degradation, not a PAUSE). |
-| No PRDs anywhere | STOP with message about /create-prd. In loop mode, first write `state.phase = "done"` and `state.next_phase = ""` so the wrapper stops as drained, not died |
-| State file corrupted | Delete it, restart from Phase 0 |
-| Review produces no parseable output | PAUSE, report — don't retry |
-| All three reviewers fail | PAUSE, report — partial results usable if user confirms |
-| `dev/local/` doesn't exist | Create it |
-| Task tools unavailable | STOP, report — can't operate without tasks |
-| Git push fails (auth, locked signing agent, network) | In loop mode (`$_AUTOPILOT_LOOP` set): log to `deferred_decisions[]`, leave the commits local (the user pushes manually per Phase 9), and CONTINUE — never block on the user. Outside the loop: report and let the user retry. A locked signing agent on an unattended host is expected, not a decision point (it stalled the loop 145 min on 2026-06-15). |
+| Situation | Interactive | Loop mode (`$_AUTOPILOT_LOOP` set, PRD 00017) |
+|-----------|-------------|------------------------------------------------|
+| Sub-skill invocation fails outright (no usable result; the phase cannot proceed) | PAUSE, report which skill failed and error. A transient reviewer/sub-skill error *during the review-rework cycle* is the Phase 5 Safety Checks row's domain instead (graceful degradation, not a PAUSE). | Re-invoke the sub-skill ONCE; if it fails again, stall the PRD (`recovery.md` → "Loop-mode stall procedure", `site: "sub_skill_fail"`) and continue the batch |
+| No PRDs anywhere | STOP with message about /create-prd | Write `state.phase = "done"` and `state.next_phase = ""` first so the wrapper stops as drained, not died |
+| State file corrupted | Delete it, restart from Phase 0 | Same (in-session recovery, no pause) |
+| Review produces no parseable output | PAUSE, report — don't retry | Re-run the review ONCE; still unparseable → stall the PRD (`site: "reviewer_fail"`), continue the batch |
+| All reviewers fail | PAUSE, report — partial results usable if user confirms | Re-invoke ONCE; still nothing → stall the PRD (`site: "reviewer_fail"`), continue the batch |
+| `dev/local/` doesn't exist | Create it | Same |
+| Task tools unavailable | STOP, report — can't operate without tasks | Same (a broken harness is not a per-PRD failure) |
+| Git push fails (auth, locked signing agent, network) | Report and let the user retry | Log to `deferred_decisions[]`, leave the commits local (the user pushes manually per Phase 9), CONTINUE — a locked signing agent on an unattended host is expected (it stalled the loop 145 min on 2026-06-15) |
+| `mv` verify fails (backlog→wip, wip→done, wip→stalled) | PAUSE per the mv-verify sites | Retry the `mv` ONCE after re-running `mkdir -p`; persistent failure is one of the two sanctioned loop stops below |
+| **Security-critical finding** (exposed secret, vulnerability being shipped) | PAUSE | **PAUSE — sanctioned loop stop #1** (set `phase: "paused"` + `pause_reason`; the wrapper notifies and halts) |
+| **Detected data-loss risk** | PAUSE | **PAUSE — sanctioned loop stop #2** (same mechanics) |
+
+**Loop mode has exactly two turn-ending PAUSEs — the two sanctioned rows above (plus the mv-retry exhaustion, which resolves into the same loud stop). Everything else stalls the PRD or defers and continues.** Future edits to this table must not re-grow the loop-mode PAUSE list.
 
 **Turn-ending PAUSE rows must set `state.phase = "paused"` (and `state.next_phase = "paused"`) before stopping, and must also write `state.pause_reason = {"site": "<slug>", "detail": "<one-line human string>"}`.** `pause_reason` is a durable marker so the loop halts even if the model forgets `phase="paused"`; unlike `phase` it is not overwritten by normal progression, so it must be cleared on resume (see `### Resuming` cleanup). Without it the wrapper — seeing a non-empty `next_phase` — would take its continue branch and relaunch the failed phase instead of stopping for you to intervene; a paused state is the wrapper's stop-and-notify branch (Session Loop branch 1), and the wrapper surfaces `pause_reason.detail` in its notification. This applies to "Sub-skill invocation fails outright" (`pause_reason.site = "sub_skill_fail"`), "Review produces no parseable output" (`"reviewer_fail"`), and "All three reviewers fail" (`"reviewer_fail"`). Exceptions that need no `phase` change: "State file corrupted" (delete it and restart from Phase 0 in the same session; the freshly-written state is what the wrapper reads at turn end) and "No PRDs anywhere" (see its row — the drained state write covers the loop). PAUSE sites that ask via `AskUserQuestion` mid-turn (Phase 2 clarification, Phase 5 blocking escalation and scope alarm) do NOT end the turn and need no `phase` change — **but only outside the loop. When `$_AUTOPILOT_LOOP` is set there is no human to answer: these sites MUST NOT call `AskUserQuestion`. Instead set `state.phase = "paused"` (and `state.next_phase = "paused"`) and write `state.pause_reason` (Phase 2 clarification → `{"site": "clarification", "detail": "..."}`; Phase 5 blocking escalation → `{"site": "blocking_escalation", "detail": "..."}`; Phase 5 scope alarm → `{"site": "scope_alarm", "detail": "..."}`), print the PAUSE banner, and end the turn, so the loop halts cleanly and the user resolves it on the next manual `/run-autopilot` (see `references/decision-framework.md` → "Autonomy in loop mode"). A mid-turn question on the unattended path stranded the loop 31 min and 145 min on 2026-06-15.**
 

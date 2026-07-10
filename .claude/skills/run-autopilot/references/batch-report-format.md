@@ -16,7 +16,23 @@ On first creation, write the header:
 Started: {ISO 8601 timestamp}
 ```
 
-After each PRD, append a section:
+After each PRD, append a section. A STALLED PRD (PRD 00017 loop-mode stall
+procedure) appends this short form instead of the full section:
+
+```markdown
+## {prd_filename} — STALLED ({site})
+
+- Stalled: {ISO 8601 timestamp}
+- Detail: {stall detail}
+- Resume: move back to dev/local/prds/wip/ and re-run
+```
+
+Loop-mode `assumed-ambiguity` records render inside their PRD's section under
+an `### Assumptions Made` heading (one row per assumption: question →
+assumption taken); omit the heading when there are none. The batch-end ntfy
+message carries the counts: `{n} done, {m} stalled, {k} deferred`.
+
+Completed-PRD section:
 
 ```markdown
 ## {prd_filename}
