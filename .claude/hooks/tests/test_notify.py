@@ -139,6 +139,24 @@ class TestBuildNtfyRequest(unittest.TestCase):
         )
         self.assertNotIn("Authorization", req.headers)
 
+    def test_emoji_title_is_header_safe(self) -> None:
+        # Regression (2026-07-09 drain): the wrapper sends titles like
+        # "autopilot ✅ repo"; urllib encodes headers as latin-1, so a raw
+        # emoji title crashes urlopen with UnicodeEncodeError. The header
+        # must be latin-1-encodable (RFC 2047 encoded-word for non-latin-1).
+        req = notify.build_ntfy_request(
+            "https://ntfy.example.com", "topic", "autopilot ✅ repo", "M", ""
+        )
+        title = req.headers["Title"]
+        title.encode("latin-1")  # must not raise
+        self.assertTrue(title.startswith("=?UTF-8?B?"))
+
+    def test_plain_ascii_title_unchanged(self) -> None:
+        req = notify.build_ntfy_request(
+            "https://ntfy.example.com", "topic", "plain title", "M", ""
+        )
+        self.assertEqual(req.headers["Title"], "plain title")
+
 
 class TestSendNtfy(unittest.TestCase):
     def test_skips_when_url_unset(self) -> None:

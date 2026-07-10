@@ -179,11 +179,22 @@ def read_credentials() -> str:
         return ""
 
 
+def _header_safe(value: str) -> str:
+    """urllib encodes headers as latin-1; emoji titles ("autopilot ✅ …")
+    crash urlopen. ntfy accepts RFC 2047 encoded-words for non-latin-1."""
+    try:
+        value.encode("latin-1")
+        return value
+    except UnicodeEncodeError:
+        token = base64.b64encode(value.encode("utf-8")).decode("ascii")
+        return f"=?UTF-8?B?{token}?="
+
+
 def build_ntfy_request(url: str, topic: str, title: str, msg: str, creds: str) -> urllib.request.Request:
     full_url = f"{url.rstrip('/')}/{topic}"
     # Override urllib's default `Python-urllib/*` UA — Cloudflare blocks it
     # (error code 1010, returned as HTTP 403) when ntfy is fronted by CF.
-    headers = {"Title": title, "Tags": "computer", "User-Agent": "claude-notify-hook/1.0"}
+    headers = {"Title": _header_safe(title), "Tags": "computer", "User-Agent": "claude-notify-hook/1.0"}
     if creds:
         token = base64.b64encode(creds.encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
