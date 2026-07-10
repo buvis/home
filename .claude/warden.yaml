@@ -49,6 +49,7 @@ alwaysAllow:
   - mise
   - curl
   - mempalace
+  - htpasswd
   # Safe shell utilities (read-only or harmless)
   - ls
   - pwd
