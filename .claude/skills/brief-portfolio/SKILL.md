@@ -1,0 +1,92 @@
+---
+name: brief-portfolio
+description: Use when the user wants a portfolio-wide status brief of all gita-registered repos as a single-file HTML dashboard with actionable follow-ups. Triggers on "brief portfolio", "state of my repos", "repo dashboard", "cross-repo todos".
+---
+
+# Brief Portfolio
+
+Produce `~/.claude/portfolio-brief/portfolio-brief.html`: a self-contained Svelte
+SPA showing recent releases/commits (grouped into epics), open issues/PRs,
+failing CI, PRD pipeline, local WIP, and a pickable cross-repo todo list for
+every repo in the gita registry (`~/.config/gita/repos.csv`).
+
+## Workflow
+
+### 1. Collect (deterministic)
+
+```bash
+python3 ~/.claude/skills/brief-portfolio/scripts/collect.py
+```
+
+Options: `--days N` (window, default 60), `--no-fetch` (skip `git fetch`, much
+faster), `--out DIR` (default `~/.claude/portfolio-brief`). Writes `data.json` and
+`commits-digest.md` into the out dir. Report any `WARN` lines from stderr to the
+user verbatim — transient GitHub API failures land there and in each repo's
+`errors` field.
+
+### 2. Epics + judgment todos (model step)
+
+Read `~/.claude/portfolio-brief/commits-digest.md` (and skim `data.json` signals
+if needed) and write `~/.claude/portfolio-brief/epics.json`:
+
+```json
+{
+  "summary": "2-4 short paragraphs. Manager voice. What actually moved across the portfolio, which themes dominate, what looks stuck or risky. Plain text, paragraphs separated by blank lines.",
+  "repos": {
+    "owner/name": {
+      "epics": [
+        {"title": "Short epic name", "summary": "one line", "shas": ["abc1234", "def5678"]}
+      ]
+    }
+  },
+  "todos": [
+    {
+      "id": "owner/name:judgment:short-slug",
+      "repo": "owner/name",
+      "kind": "judgment",
+      "urgency": "now",
+      "action": "Imperative follow-up the user can execute",
+      "why": "one line of grounding in the data"
+    }
+  ]
+}
+```
+
+Epic rules:
+- Group by feature/theme (what shipped), never by commit type (feat/fix/test).
+- 2-6 epics per repo; only repos with >=5 meaningful commits need epics.
+- Skip pure-automation repos (all `chore(deps)`/`chore: sync`) — mention them in
+  `summary`; their commits fall into the UI's "Other changes" bucket.
+- Every sha must be copied exactly from the digest. Unknown shas are silently
+  dropped by the UI, so don't invent any.
+
+Todo rules:
+- The app already auto-generates mechanical todos (failing CI, unmerged PRs,
+  unpushed/dirty local state, overdue releases, stale issues, PRD pipeline).
+  Do NOT duplicate those.
+- Add only judgment items: composed follow-ups ("this repo has been dirty for
+  11 days — resume or park the PRD work"), cross-repo observations, process
+  suggestions grounded in the data. A handful, not dozens.
+- `urgency`: `now` | `soon` | `later`. Ids must be stable across runs (checked
+  state persists in the browser by id).
+
+### 3. Build and open
+
+```bash
+python3 ~/.claude/skills/brief-portfolio/scripts/build.py
+open ~/.claude/portfolio-brief/portfolio-brief.html
+```
+
+`build.py` injects `{data, epics}` into `assets/template.html` (pre-built
+Svelte 5 single-file app) and writes `~/.claude/portfolio-brief/portfolio-brief.html`.
+It works without epics.json but say so if you skipped step 2.
+
+## Rebuilding the SPA template (maintenance only)
+
+Only needed after changing `app/` sources:
+
+```bash
+npm --prefix ~/.claude/skills/brief-portfolio/app install
+npm --prefix ~/.claude/skills/brief-portfolio/app run build
+cp ~/.claude/skills/brief-portfolio/app/dist/index.html ~/.claude/skills/brief-portfolio/assets/template.html
+```
