@@ -215,6 +215,8 @@ Before dispatching the implementor, load relevant context into the prompt:
 
 **Ambiguity check (Think Before Coding):** Re-read the task description. If scope, data shape, target surface, or success criteria are unclear, stop and ask the user rather than picking silently. See `references/code-quality-principles.md` §1 and `references/code-quality-examples.md` §1 for what counts as a hidden assumption worth surfacing.
 
+**Premise check:** If the task description carries a `Premise:` line, verify each stated fact against the current tree (`ls`, `rg`, `git ls-files` as fits) BEFORE dispatching any implementor — cheap read-only probes only, never a mutation. If any fact no longer holds, do not dispatch. Interactively: stop and report which fact failed; the task stays in_progress for the user or the decision gate. In loop mode (post-00017): a failed premise is never assumed through — it takes the loop-mode stall path (`run-autopilot/references/recovery.md` "Loop-mode stall procedure"), unlike ambiguities, which 00017 resolves by simplest safe assumption. If a probe command itself errors, treat the premise as unverified and surface it as a blocker — never proceed on an unknown. Tasks without a `Premise:` line skip this check entirely (zero behavior change for legacy plans).
+
 ### 2.7. Write tests first (Tess - test author)
 
 Dispatch a separate agent to write tests from requirements only. This agent must NOT receive implementation hints or architecture deep-dives - only what a user of the API would know.
