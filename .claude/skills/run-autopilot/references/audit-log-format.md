@@ -81,11 +81,11 @@ Completed: <ISO 8601 timestamp>
 Autonomous: <N>  |  Deferred: <N>  |  Doubts: <N>
 ```
 
-This is the identical end state SKILL.md Phase 9 step 6a describes. Keep the counts consistent with the batch report's completion summary (see `references/batch-report-format.md` Phase 9 per-PRD section).
+This is the identical end state `references/phase-done.md` Phase 9 step 6a describes. Keep the counts consistent with the batch report's completion summary (see `references/batch-report-format.md` Phase 9 per-PRD section).
 
 ## Phase 9 Header Refresh Procedure
 
-Invoked by SKILL.md Phase 9 step 6a. The counts come from state (`Autonomous = len(state.autonomous_decisions)`, `Deferred = len(state.deferred_decisions)`, `Doubts = len(state.doubts)`).
+Invoked by `references/phase-done.md` Phase 9 step 6a. The counts come from state (`Autonomous = len(state.autonomous_decisions)`, `Deferred = len(state.deferred_decisions)`, `Doubts = len(state.doubts)`).
 
 Read-then-Write; never blind-overwrite entries; never a shell redirect:
 
@@ -102,7 +102,7 @@ Read-then-Write; never blind-overwrite entries; never a shell redirect:
 
 ## decisions.md Projection
 
-Invoked by SKILL.md Phase 9 step 7b, and only when `dev/local/decisions.md` exists (it is an opt-in global table; when absent, the projection is skipped and `audit.md` is still written). `audit.md` is the **single source of truth** for any decision narrative; `decisions.md` is a grep-friendly projection of it, so the two cannot diverge (one writer, one source).
+Invoked by `references/phase-done.md` Phase 9 step 7b, and only when `dev/local/decisions.md` exists (it is an opt-in global table; when absent, the projection is skipped and `audit.md` is still written). `audit.md` is the **single source of truth** for any decision narrative; `decisions.md` is a grep-friendly projection of it, so the two cannot diverge (one writer, one source).
 
 Procedure: read this PRD's `audit.md`, filter to non-trivial autonomous entries, and append one row per entry to `decisions.md` in this format:
 

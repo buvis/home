@@ -188,7 +188,7 @@ Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from
 
 **`/work` does NOT modify `rework_task_ids` itself.** Clearing is `/run-autopilot` Phase 6's responsibility, after this `/work` invocation returns. **If `/work` aborts mid-rework** (context overrun, Subagent Dispatch Budget overrun, unrecoverable error), `rework_task_ids` survives in state — this is correct recovery behavior: the next `/run-autopilot` session resumes with the same rework batch and re-attempts the listed tasks at their already-escalated tier. Phase 6's clear runs only on the successful `/work` return.
 
-Cross-reference: `run-autopilot/references/state-schema.md` `rework_task_ids` row; `run-autopilot/SKILL.md` Phase 6 (rework) tier-escalation rule.
+Cross-reference: `run-autopilot/references/state-schema.md` `rework_task_ids` row; `run-autopilot/references/phase-review.md` Phase 6 (rework) tier-escalation rule.
 
 ### 2. Claim and start task
 
