@@ -11,9 +11,7 @@ Mandatory triggers:
 ## Review Checklist
 
 - [ ] Code is readable and well-named
-- [ ] Functions are focused (<50 lines)
-- [ ] Files are cohesive (<800 lines)
-- [ ] No deep nesting (>4 levels)
+- [ ] Function/file size and nesting within limits (see `rules/coding-style.md`)
 - [ ] Errors handled explicitly
 - [ ] No hardcoded secrets or credentials
 - [ ] No debug statements left in

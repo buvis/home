@@ -14,7 +14,7 @@
 
 ## Tool vs. Bash (BLOCKING)
 
-Hard-enforced by the **aegis** plugin's `prefer-tools.py` hook. See `aegis/rules/tools.md` for the full policy.
+Hard-enforced by the **aegis** plugin's `prefer_tools.py` hook. See `aegis/rules/tools.md` for the full policy.
 
 `rg` for ad-hoc shell recon is allowed (faster than grep, respects `.gitignore`). `ast-grep` for structural search and codemods.
 
