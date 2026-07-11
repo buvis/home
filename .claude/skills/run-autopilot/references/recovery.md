@@ -1,6 +1,6 @@
 # Autopilot Recovery Procedures
 
-Rare-path handlers extracted from `SKILL.md` so the happy-path flow stays compact. Each section is reached via a one-line pointer at the originating phase. None of these run in normal operation.
+Rare-path handlers extracted from the autopilot skill (core `SKILL.md` + the `phase-*.md` gate files) so the happy-path flow stays compact. Each section is reached via a one-line pointer at the originating phase. None of these run in normal operation.
 
 ## Loop-mode stall procedure (PRD 00017)
 
@@ -189,6 +189,6 @@ Reached from **Phase 0** when `state.phase == "paused"` AND `state.cap_pause_rea
    d. STOP.
    e. **Re-entry behavior.** Because the abandon branch leaves `cap_pause_reason` set, a future manual `/run-autopilot` invocation will re-trigger this handler with the same findings — it does NOT loop autonomously (no signal is written, so the shell wrapper exited; only an explicit user re-invocation re-enters). To exit the cap-pause loop permanently the user must EITHER pick "resume" (clears `cap_pause_reason` per step 3) OR manually edit `state.json` / move the PRD out of `dev/local/prds/wip/`.
 
-5. The cap-paused PRD is NEVER re-selected as new work by Phase 0's Normal PRD selection — the handler check fires BEFORE Normal PRD selection (see SKILL.md Phase 0 "Handle Work-phase abort" sub-section) and short-circuits the flow.
+5. The cap-paused PRD is NEVER re-selected as new work by Phase 0's Normal PRD selection — the handler check fires BEFORE Normal PRD selection (see `references/phase-build.md` Phase 0 "Handle Work-phase abort" sub-section) and short-circuits the flow.
 
 6. The handler clears the cap-pause event only on "resume" (step 3 deletes `cap_pause_reason`). On "abandon" the event persists — see step 4.e for the re-entry contract.

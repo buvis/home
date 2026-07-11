@@ -4,7 +4,7 @@ File: `dev/local/autopilot/reports/{batch_id}-report.md`
 
 Created at first PRD completion, appended after each subsequent PRD. Never deleted by autopilot.
 
-**Filename invariant:** see SKILL.md Phase 9 step 7 — `{batch_id}` is always `state.batch.id` at append time; that step verifies the target filename's id matches `state.batch.id` and never globs `reports/*.md`.
+**Filename invariant:** see `references/phase-done.md` Phase 9 step 7 (pinned in core SKILL.md § "Phase 9 invariants") — `{batch_id}` is always `state.batch.id` at append time; that step verifies the target filename's id matches `state.batch.id` and never globs `reports/*.md`.
 
 ## Template
 
