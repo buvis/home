@@ -45,47 +45,33 @@ sequence, distinct from the numbered section headers (`### 1`…`### 7`)
 that the rest of this skill cross-references. "step 7" always means the
 section, never a loop step.
 
-**Per-task verification runs only the tests Tess wrote in step 2.7, not the full project suite.** The full suite (workspace tests, smoke, integration, lint) runs once at the end. This is deliberate: per-task full-suite runs compound to 40+ minutes of redundant test time across a 20-task phase.
+**Per-task verification runs only the tests Tess wrote in step 2.7, not the full project suite.** The full suite runs once at the end (why: `references/design-rationale.md` § narrow verification).
 
 If you find yourself writing an Agent prompt that mentions multiple tasks, STOP — you are about to violate this rule.
 
-See **Subagent Dispatch Budget** below — every Agent dispatch must satisfy it.
+See **Subagent Dispatch Budget and Watchdog** below — every Agent dispatch must satisfy both.
 
-## Subagent Dispatch Budget
+## Subagent Dispatch Budget and Watchdog
 
-Every prompt passed to the Agent tool (Tess, Ivan, Devon, or the code reviewer) must be **≤ 50 000 bytes**, with the abort-instruction line prepended. Measure before every dispatch; trim the lowest-priority context once, and if still oversized abort the task with cause `subagent_prompt_overrun`.
+**Budget:** every prompt passed to the Agent tool (Tess, Ivan, Devon, or the code reviewer) must be **≤ 50 000 bytes**, with the abort-instruction line prepended. Measure before every dispatch; trim the lowest-priority context once, and if still oversized abort the task with cause `subagent_prompt_overrun`.
 
-See `references/subagent-dispatch.md` for the measurement procedure, the verbatim abort-instruction line, the abort-handoff steps, and the rationale. Read it before your first Agent dispatch in a session.
+**Watchdog:** every Agent dispatch must be wrapped in a watchdog: dispatch with `run_in_background: true`, wait with `Monitor` (15-minute timeout), and on timeout `TaskStop` the agent and handle it as the **Result lost / hung** row of step 4's table (which routes to the infrastructure-failure circuit breaker, step 4.2). A foreground `Agent` call that hangs blocks this session indefinitely — never dispatch one unwatched.
 
-## Subagent Watchdog
-
-Every Agent dispatch must be wrapped in a watchdog: dispatch with `run_in_background: true`, wait with `Monitor` (15-minute timeout), and on timeout `TaskStop` the agent and handle it as the **Result lost / hung** row of step 4's table (which routes to the infrastructure-failure circuit breaker, step 4.2). A foreground `Agent` call that hangs blocks this session indefinitely — never dispatch one unwatched.
-
-See `references/subagent-dispatch.md` for the full dispatch protocol, helper-script (`use-codex`/`use-gemini`/`use-qwen`) handling, and the three distinct deadlines (15 min / 10 min × 2 / 20 min, by mechanism). Read it before your first Agent dispatch in a session.
+See `references/subagent-dispatch.md` for the measurement procedure, the verbatim abort-instruction line, the abort-handoff steps, helper-script (`use-codex`/`use-gemini`/`use-qwen`) handling, and the three distinct deadlines (15 min / 10 min × 2 / 20 min, by mechanism). Read it before your first Agent dispatch in a session. Elsewhere in this file, "must satisfy the **Subagent Dispatch Budget**" and "**Subagent Watchdog**" mean exactly this section — the numbers are not restated at call sites.
 
 ## Per-task model dispatch
 
 Before any Agent call for a task, read `task.metadata.model` (or equivalently `state.tasks[i].model` — `/run-autopilot` keeps the two in sync) and pass it as the Agent tool's `model` parameter.
 
-Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps. The list below is illustrative, not exhaustive — when the prose says "every Agent call", it means every one:
+Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps: Tess and her quality-gate/adversarial-round re-dispatches (steps 2.7-2.85), Devon (2.85), Ivan and every Ivan re-dispatch (3, 5.5, 5.7 fix, 7 regression fix), and the code reviewer (5.7). If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
 
-- Tess (test author, step 2.7), plus any quality-gate or Tess/Devon-round re-dispatches (step 2.8, 2.85)
-- Devon (adversarial validator, step 2.85)
-- Ivan (implementor, step 3)
-- Ivan re-dispatches on test failure (step 5.5) — see qwen carve-out below
-- Code reviewer (step 5.7)
-- Ivan fix-on-review re-dispatch (step 5.7)
-- Ivan re-dispatches on full-suite regression (step 7)
-
-If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
-
-**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again. This is the PRD 00031 one-shot qwen attempt budget: qwen failure escalates to Sonnet on the next attempt, with zero qwen retries, and the normal max-2 step-5.5 retry budget then runs entirely on Claude Sonnet. All non-step-5.5 Agent calls (Tess, Devon, code reviewer, step-5.7 fix, step-7 regression fix) continue to obey `task.metadata.model` with no exceptions.
+**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again. This is the one-shot qwen attempt budget (why: `references/design-rationale.md` § one shot): qwen failure escalates to Sonnet on the next attempt, with zero qwen retries, and the normal max-2 step-5.5 retry budget then runs entirely on Claude Sonnet. All non-step-5.5 Agent calls continue to obey `task.metadata.model` with no exceptions.
 
 Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
 
-**Legacy plans** (created before PRD 00025) have no `metadata.model`. Omit the `model` parameter — subagents inherit the session model. This preserves the pre-PRD-00025 behavior bit-for-bit.
+**Legacy plans** (created before `metadata.model` existed) have no model field. Omit the `model` parameter — subagents inherit the session model. This preserves the legacy behavior bit-for-bit.
 
-The **Subagent Dispatch Budget** (50K bytes, 100K subagent-internal cap) applies regardless of tier. Haiku doesn't earn a smaller cap; opus doesn't earn a larger one.
+The **Subagent Dispatch Budget** applies regardless of tier. Haiku doesn't earn a smaller cap; opus doesn't earn a larger one.
 
 ## Assumptions footer
 
@@ -97,66 +83,23 @@ Collect the returned lines: step 6 appends non-`none` entries to `dev/local/assu
 
 ## Attempt logging
 
-At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`.
+At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`. Each entry carries:
 
-Each entry carries the routing decision (`implementor`), the pipeline depth (`pipeline`), and, for qwen-eligible attempts, the preflight outcome (`preflight_outcome`). Sourcing rules:
+- **`implementor`** — `"claude"`, `"gemini"`, or `"qwen"`, reflecting what actually dispatched, NOT what the step-3 routing table initially picked (a qwen pick that fell back to Claude on preflight failure records `"claude"`).
+- **`preflight_outcome`** — from the step-3 preflight probe. Always written explicitly — never omit the key. Qwen-eligible attempts record one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`, `"completion_failed"`; non-qwen-eligible attempts record the literal JSON `null`.
+- **`pipeline`** — the tier-gated depth this attempt ran, keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy is treated as `sonnet` → `"lean"`. Written at every task exit; a Phase-6 escalation to `opus` records `"full"`.
 
-- **`implementor`** — `"claude"`, `"gemini"`, or `"qwen"`, reflecting what actually dispatched (NOT what the step-3 routing table initially picked):
-  - Routing table picked Gemini → `"gemini"`.
-  - Routing table picked Claude at any tier → `"claude"`.
-  - Routing table picked qwen, preflight was `"healthy"`, qwen dispatch ran → `"qwen"`.
-  - Routing table picked qwen but preflight failed and step 3 fell back to Claude at the task's original tier → `"claude"` (the Claude dispatch is what actually ran).
-- **`preflight_outcome`** — sourced from the step-3 preflight probe. Always written explicitly — never omit the key. For non-qwen attempts write the literal JSON `null`; do not drop the field from the entry.
-  - For attempts on qwen-eligible tasks (`task.metadata.qwen_eligible == true` at attempt start): one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`, `"completion_failed"`.
-  - For attempts on non-qwen-eligible tasks (UI tasks, `opus`-tier tasks, backend tasks where `qwen_eligible` is `false` or absent): `null`.
-- **`pipeline`** — the pipeline depth this attempt ran (PRD 00044), keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy `metadata.model` is treated as `sonnet` → `"lean"`. Written at every task exit alongside `implementor`; a Phase-6 escalation to `opus` records `"full"`.
+See `references/attempt-logging.md` for the full entry schema, field semantics, and the atomic write procedure.
 
-See `references/attempt-logging.md` for the entry schema, field semantics, and the atomic write procedure.
+## Implementor Selection
 
-## Tool Selection
+The **deterministic routing table in step 3** is the single source of truth for picking each task's implementor (Gemini / local qwen / Claude at tier). Do not route from memory or from this section.
 
-Pick the implementor by task domain. The deterministic routing table in step 3 below is the single source of truth — this section names the categories that table uses.
+**Gemini-first tasks** — the UI definition the routing table references. A task is UI/visual when it involves: color palettes/theming/contrast, layouts (page structure, spacing, visual hierarchy), UI components (buttons, forms, cards), typography, animations/transitions, responsive design, or any user-facing surface (web pages, GUI, dashboards).
 
-| Domain | Implementor | Rationale |
-|--------|-------------|-----------|
-| Frontend, UI, visual design (per "Gemini-first tasks" below) | Gemini via `use-gemini` | Better aesthetic judgment, visual coherence |
-| Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` | Zero token cost on `≤3`-file backend tasks the test gate keeps honest |
-| Backend, `opus` tier OR `qwen_eligible == false` OR qwen unhealthy | Claude at the task's tier (Agent dispatch) | Default backend implementor; the safety net when qwen is excluded or unavailable |
-| Mixed (e.g., full-stack feature) | Split the task | UI piece → Gemini; backend piece → qwen-or-Claude per the routing table |
-
-In the "Claude at the task's tier" row, the tier comes from `task.metadata.model` (`haiku` → Claude Haiku, `sonnet` → Claude Sonnet, `opus` → Claude Opus). The step-3 routing table below spells these out per row; this section is the by-domain summary, step 3 is the source-of-truth precedence ladder.
+For visual tasks, Gemini can also challenge the spec before implementation — see `references/gemini-integration.md` § Design Authority (trust its feedback on visual matters).
 
 Codex (`use-codex`) is **not** an implementor. It appears only in the review path — see `references/codex-integration.md`.
-
-### Gemini-first tasks
-
-Use `use-gemini` skill when the task involves:
-
-- **Color palettes** - selection, theming, contrast
-- **Layouts** - page structure, spacing, visual hierarchy
-- **Components** - buttons, forms, cards, any UI elements
-- **Typography** - font choices, sizing, readability
-- **Animations/transitions** - motion design, timing
-- **Responsive design** - breakpoints, mobile adaptation
-- **Any user-facing surface** - web pages, GUI, dashboards
-
-### Gemini as design authority
-
-For visual tasks, Gemini can challenge existing specs:
-
-1. Share the planned design/spec with Gemini
-2. Ask for critical review before implementation
-3. **Trust Gemini's feedback** on visual matters - it has better taste
-4. Adjust the plan based on its recommendations
-5. Then proceed with implementation
-
-Example prompt addition for visual tasks:
-
-```text
-Before implementing, critically review this design spec.
-Suggest improvements to colors, spacing, typography, or layout.
-Challenge anything that feels generic or could be more distinctive.
-```
 
 ## Dashboard State Sync
 
@@ -172,8 +115,7 @@ Use `TaskList` tool to see all tasks. Filter for:
 - No blockers (empty `blockedBy`)
 - No owner assigned
 
-
-### 1.5. Rework-mode task filter (PRD 00025)
+### 1.5. Rework-mode task filter
 
 Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from cwd to find the autopilot dir, same pattern as the cap-marker reset in step 2). Two modes:
 
@@ -196,7 +138,7 @@ For the first available task:
 
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
 2. **Sync state file** (see Dashboard State Sync)
-3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file (added cycle-5+1), but the explicit Bash clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Run the shared walk-up helper in `--clear-cap` mode — it resolves symlinks, walks up to the autopilot dir, and removes `<autopilot_dir>/.cap-fired` internally:
+3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file, but the explicit clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Run the shared walk-up helper in `--clear-cap` mode — it resolves symlinks, walks up to the autopilot dir, and removes `<autopilot_dir>/.cap-fired` internally:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --clear-cap
    ```
@@ -241,9 +183,9 @@ Tess prompts also end with the **Assumptions footer** instruction (see section a
 - "How to build this" context
 - Access to modify non-test files
 
-See `references/test-author-prompt.md` for the full prompt template — it now embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Tess from writing speculative tests or silently assuming input shape.
+See `references/test-author-prompt.md` for the full prompt template — it embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Tess from writing speculative tests or silently assuming input shape.
 
-Tess prompts must satisfy the **Subagent Dispatch Budget** (see section above the Workflow): ≤ 50K bytes, abort-instruction line prepended.
+Tess prompts must satisfy the **Subagent Dispatch Budget**.
 
 ### 2.8. Test quality gate (main session)
 
@@ -260,28 +202,18 @@ If any check fails, dispatch Tess again with specific feedback about what's weak
 
 ### 2.85. Adversarial validation (Devon - devil's advocate)
 
-**Tier gate (PRD 00044) — Devon is the opus-only dispatch.** Read `task.metadata.model` and apply this table exactly:
+**Tier gate — Devon is the opus-only dispatch.** Read `task.metadata.model`:
 
 | `task.metadata.model` | Devon (step 2.85) |
 |-----------------------|-------------------|
 | `opus` | dispatch Devon (below) |
-| `sonnet` | skip Devon |
-| `haiku` | skip Devon |
-| absent / legacy (treated as `sonnet`) | skip Devon |
-| any other / unknown value (treated as `sonnet`) | skip Devon |
+| anything else — `haiku`, `sonnet`, absent/legacy or unknown (both treated as `sonnet`) | skip Devon, proceed to step 2.9 |
 
-Only `opus`-tier tasks dispatch Devon; `haiku`, `sonnet`, and absent/legacy tiers skip it and proceed to step 2.9. The step-2.8 test quality gate (main session) is **unchanged** and runs for every tier — the cheap in-session check stays; only this step-2.85 Agent dispatch is conditional. When the Devon dispatch does run, it still obeys the **Per-task model dispatch** rule (the Agent call passes `model` from `task.metadata.model`, i.e. `opus`). Escalation interplay is automatic: when `/run-autopilot` Phase 6 escalates a review-flagged task to `opus`, the rework attempt regains Devon with no extra mechanism.
+The step-2.8 test quality gate is **unchanged** and runs for every tier — only this Agent dispatch is conditional. A Devon dispatch obeys the **Per-task model dispatch** rule (passes `model: opus`). Escalation interplay is automatic: when the review gate escalates a review-flagged task to `opus`, the rework attempt regains Devon with no extra mechanism. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
 
 Dispatch Devon to try to write a **wrong** implementation that passes all of Tess's tests. Devon's goal is to exploit weak tests.
 
-**Devon runs as:** Claude Code subagent (Agent tool). It needs file write access and the project's test runner to actually execute its wrong implementation against the tests.
-
-**Devon receives:**
-- The test files from Tess
-- Public interfaces/types (so its wrong implementation compiles)
-- Access to the project's test runner
-
-**Devon receives nothing else.** No task description, no acceptance criteria, no architecture docs.
+**Devon runs as:** Claude Code subagent (Agent tool) — it needs file write access and the project's test runner to execute its wrong implementation against the tests. **Devon receives only:** the test files from Tess, public interfaces/types (so its wrong implementation compiles), and test-runner access. No task description, no acceptance criteria, no architecture docs.
 
 **Devon's job:** Write an implementation that is clearly wrong (hardcoded values, ignored edge cases, shortcut if/else chains), run the tests against it, and report which tests it broke through.
 
@@ -293,9 +225,7 @@ Dispatch Devon to try to write a **wrong** implementation that passes all of Tes
 | Breaks tests with wrong impl that passes | Send Devon's exploit back to Tess: "These tests can be passed by: {wrong impl}. Strengthen them." Then re-run Devon against strengthened tests. Max 2 Tess/Devon rounds. |
 | 2 A/C rounds exhausted | Flag weakness in task output, proceed anyway. |
 
-See `references/adversarial-test-prompt.md` for the full prompt template.
-
-Devon prompts must satisfy the **Subagent Dispatch Budget**: ≤ 50K bytes, abort-instruction line prepended.
+See `references/adversarial-test-prompt.md` for the full prompt template. Devon prompts must satisfy the **Subagent Dispatch Budget**.
 
 ### 2.9. Commit tests
 
@@ -306,82 +236,65 @@ git add <test_files>
 git commit -m "test(<scope>): add tests for <feature>"
 ```
 
-Tests are committed separately before implementation. This makes the TDD boundary auditable in git history.
+Tests are committed separately before implementation, making the TDD boundary auditable in git history.
 
 ### 3. Implement against tests (Ivan - implementor)
 
 Ivan's job: make the failing tests pass. Tests ARE the spec.
 
-**Ivan receives:**
-- Failing test file paths and their content
-- Architecture context (AGENTS.md, interfaces, relevant modules)
-- Existing code patterns to follow
-
-**Ivan does NOT receive:**
-- The task's acceptance criteria prose (tests replace this)
-- Permission to modify test files
+**Ivan receives:** failing test file paths and their content, architecture context (AGENTS.md, interfaces, relevant modules), and existing code patterns to follow. **Ivan does NOT receive:** the task's acceptance criteria prose (tests replace this) or permission to modify test files.
 
 **Prompt must include:**
 
 1. "Make all failing tests pass. Do NOT modify test files."
 2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
-3. The abort-instruction line from the **Subagent Dispatch Budget** section. Measure the assembled prompt before dispatching; if > 50K bytes, trim or abort the task with cause `subagent_prompt_overrun`.
+3. The abort-instruction line, with the assembled prompt measured against the **Subagent Dispatch Budget** before dispatching.
 4. The **exact file paths** Ivan may read and modify, plus: "Read only the files listed. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope."
 5. The assumptions-footer instruction from the **Assumptions footer** section above, verbatim.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
-**Deterministic routing table.** Pick the implementor by reading the claimed task's tier (`task.metadata.model`) and qwen-eligibility flag (`task.metadata.qwen_eligible`), then cross-referencing against the "Gemini-first tasks" UI definition listed earlier in this file. No re-judging here — `qwen_eligible` is computed upstream by `/plan-tasks` (companion PRD 00032, widened by PRD 00019) and already encodes backend (not UI) + `haiku`/`sonnet` tier + `<=3`-files + no public-contract edit (exported API signature, schema, wire format, hook registration shape); ineligible tasks carry `metadata.qwen_excluded_reason` (`ui`/`tier`/`files`/`contract`) for the batch-report telemetry. If the field is absent (legacy plans produced before PRD 00032 landed), treat it as `false`.
+**Deterministic routing table.** Pick the implementor by reading the claimed task's tier (`task.metadata.model`) and qwen-eligibility flag (`task.metadata.qwen_eligible`), then cross-referencing against the "Gemini-first tasks" UI definition in **Implementor Selection** above. No re-judging here — `qwen_eligible` is computed upstream by `/plan-tasks` and already encodes backend (not UI) + `haiku`/`sonnet` tier + `<=3`-files + no public-contract edit (exported API signature, schema, wire format, hook registration shape); ineligible tasks carry `metadata.qwen_excluded_reason` (`ui`/`tier`/`files`/`contract`) for the batch-report telemetry. If the field is absent (legacy plans), treat it as `false`.
 
-**Evaluation precedence (ordered).** Apply these checks in order; the first one that matches wins. The rows are written as overlapping conditions, but in practice `qwen_eligible == true` already excludes UI and `opus`, so the check order below resolves any apparent overlap deterministically:
+Apply the rows in this order — the first match wins (in practice `qwen_eligible == true` already excludes UI and `opus`, so the order resolves any apparent overlap deterministically):
 
-1. **UI / visual task?** (per the "Gemini-first tasks" list above) — route to Gemini.
-2. **`task.metadata.model == "opus"`?** — route to Claude Opus.
-3. **`task.metadata.qwen_eligible == true` AND qwen infra healthy?** — route to local qwen.
-4. **Otherwise** (backend at `haiku`/`sonnet` with qwen_eligible false/absent OR qwen unhealthy) — route to Claude at `task.metadata.model`.
-
-| Task class | Implementor | Reference |
-|------------|-------------|-----------|
-| UI / visual task (per "Gemini-first tasks" list) | Gemini if available, else Claude at `task.metadata.model` | `references/gemini-integration.md` |
-| Backend `opus` tier | Claude Opus (Agent dispatch) | — |
-| Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
-| Backend, `qwen_eligible == true`, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
-| Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
+| # | Task class | Implementor | Reference |
+|---|------------|-------------|-----------|
+| 1 | UI / visual task (per "Gemini-first tasks") | Gemini if available, else Claude at `task.metadata.model` | `references/gemini-integration.md` |
+| 2 | Backend `opus` tier | Claude Opus (Agent dispatch) | — |
+| 3 | Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
+| 4 | Backend, `qwen_eligible == true`, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
+| 5 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
 
 qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
 
-**Re-evaluate the routing table for EVERY claimed task — no session-level memory.** The table is per-task, and so is the one-shot qwen budget: a qwen attempt on task A (success OR failure) never excludes qwen for task B. Do not generalize a fallback ("qwen was slow on the last task, route the rest to Claude") — that decision belongs to the table and the preflight, not to session memory. Observed failure mode (2026-06-09, ddb): 9/9 tasks were `qwen_eligible: true` with healthy infra, task 1 correctly routed to qwen, then tasks 2-9 silently went to Claude with no preflight recorded. Self-check before each Ivan dispatch: if `task.metadata.qwen_eligible == true` and you are about to dispatch Claude, the attempt log MUST carry a non-`"healthy"` `preflight_outcome` justifying the fallback — if it would read `null` or `"healthy"`, you skipped the table; run it now.
+**Re-evaluate the routing table for EVERY claimed task — no session-level memory.** The table is per-task, and so is the one-shot qwen budget: a qwen attempt on task A (success OR failure) never excludes qwen for task B. Do not generalize a fallback ("qwen was slow on the last task, route the rest to Claude") — that decision belongs to the table and the preflight, not to session memory (observed failure: `references/design-rationale.md` § no session memory). Self-check before each Ivan dispatch: if `task.metadata.qwen_eligible == true` and you are about to dispatch Claude, the attempt log MUST carry a non-`"healthy"` `preflight_outcome` justifying the fallback — if it would read `null` or `"healthy"`, you skipped the table; run it now.
 
 **Gemini availability check.** "Gemini if available" means the `use-gemini` helper resolves AND can run a no-op probe. Concretely: `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND `mise which gemini` (or `command -v gemini`) exits 0. If either fails, fall back to Claude at `task.metadata.model` for that UI task. Treat a runtime helper-script failure (non-zero exit, no output) the same way: record the failure and re-dispatch the task to Claude at the task's tier. Cross-reference: `references/gemini-integration.md`.
 
-`use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** (≤ 50 000 bytes, abort-instruction line prepended) and the **Subagent Watchdog** — see `references/subagent-dispatch.md`.
+`use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** and the **Subagent Watchdog**.
 
-**Qwen infra preflight.** When (and only when) the routing table picks qwen, run the four-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper. It is cheap on the common path (warm backend answers in <1s, a broken backend fails fast) and exists to keep an unhealthy qwen backend from silently hanging, returning garbage, or accepting the dispatch only to fail the worker spawn. Verdicts:
-
-- `"healthy"` → proceed with the qwen dispatch.
-- `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"` → fall back to Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet). Behavior in this fallback is byte-for-byte identical to today's Claude dispatch for the same task; the only addition is the recorded `preflight_outcome` in the attempt log (see Attempt logging section above).
-
-Record the preflight outcome for the attempt-log entry (see "Attempt logging" section above). The dispatch decision (qwen vs Claude fallback) determines `implementor`.
-
-Preflight does NOT run on Claude or Gemini dispatches.
+**Qwen infra preflight.** When (and only when) the routing table picks qwen, run the four-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper — it keeps an unhealthy backend from silently hanging, returning garbage, or accepting the dispatch only to fail the worker spawn. `"healthy"` → proceed with the qwen dispatch; any other verdict (`"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`) → fall back to Claude at the task's original tier, byte-for-byte identical to a normal Claude dispatch apart from the recorded `preflight_outcome`. Record the outcome for the attempt-log entry; the dispatch decision determines `implementor`. Preflight does NOT run on Claude or Gemini dispatches.
 
 ### 4. Handle result
 
 | Result | Action |
 |--------|--------|
-| Success | Continue to step 5. The `completed` dispatch-log append for this dispatch is performed by the Subagent Watchdog (step 3) per `references/subagent-dispatch.md` "Dispatch-log append" — no separate append is needed in this row. |
-| Timeout | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "timeout"`). Dispatch-log append (`outcome: "timeout"`) per `references/subagent-dispatch.md` "Dispatch-log append". Split task (see below), mark original as blocked. |
-| Context exceeded | Append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "context_overrun"`). Dispatch-log append (`outcome: "context_overrun"`) per `references/subagent-dispatch.md` "Dispatch-log append". Split task, mark original as blocked. |
-| Error | Invoke systematic-debugging if available (see below). On unrecoverable error, append attempt-log entry per the "Attempt logging" section (`outcome: "aborted"`, `cause: "error"`). Dispatch-log append (`outcome: "error"`) per `references/subagent-dispatch.md` "Dispatch-log append". Report to user. |
-| Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. Dispatch-log append (`outcome: "hung"`) per `references/subagent-dispatch.md` "Dispatch-log append". This is an infrastructure failure, not real work — the agent produced nothing usable. Apply the **infrastructure-failure circuit breaker** (step 4.2). |
+| Success | Continue to step 5. (The `completed` dispatch-log append is performed by the Subagent Watchdog — no separate append in this row.) |
+| Timeout | Append attempt-log entry (`outcome: "aborted"`, `cause: "timeout"`). Split task (see below), mark original as blocked. |
+| Context exceeded | Append attempt-log entry (`outcome: "aborted"`, `cause: "context_overrun"`). Split task, mark original as blocked. |
+| Error | Invoke systematic-debugging if available (step 4.5). On unrecoverable error, append attempt-log entry (`outcome: "aborted"`, `cause: "error"`). Report to user. |
+| Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — apply the **infrastructure-failure circuit breaker** (step 4.2). |
+
+Every non-success row ALSO appends a dispatch-log entry per `references/subagent-dispatch.md` § "Dispatch-log append", with the matching outcome (`timeout` / `context_overrun` / `error` / `hung`; step 4.2's second failure logs `infra_failure`).
 
 ### 4.2. Infrastructure-failure circuit breaker
 
-A lost/empty Agent result or a watchdog-killed hang is an infrastructure failure, not a content failure. Do **not** silently re-dispatch in a loop — two back-to-back infrastructure failures on the same task was the observed cause of a multi-hour stall.
+A lost/empty Agent result or a watchdog-killed hang is an infrastructure failure, not a content failure. Do **not** silently re-dispatch in a loop — two back-to-back infrastructure failures on the same task once caused a multi-hour stall (`references/design-rationale.md` § circuit breaker).
 
 1. Check the working tree (`git status --short`). A crashed agent may have left partial, uncommitted, **unverified** changes. Note them in the task output; do not commit them blind and do not assume they compile.
 2. Re-dispatch the **same** task at most **once**. Track infrastructure re-dispatches per task — this cap is separate from the test-failure retry cap (step 5.5) and the review-cycle cap (step 5.7).
-3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`. Dispatch-log append (`outcome: "infra_failure"`) per `references/subagent-dispatch.md` "Dispatch-log append". Escalate to the user. Do **not** advance to the next task.
+3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`, append the dispatch-log entry (`outcome: "infra_failure"`). Escalate to the user. Do **not** advance to the next task.
 
 ### 4.5. Debug on error (if superpowers available)
 
@@ -397,13 +310,7 @@ git add -A
 git commit -m "<type>(<scope>): <description>"
 ```
 
-Never chain these with `&&` in a single Bash call.
-
-Commit message rules:
-
-- Conventional commit format
-- One line, no period
-- Reference task ID if available
+Never chain these with `&&` in a single Bash call. Commit message rules: conventional commit format, one line, no period, reference the task ID if available.
 
 ### 5.5. Verify THIS task's tests pass
 
@@ -414,7 +321,7 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - If tests fail, dispatch Ivan again with the failure output. Never dispatch Tess to weaken tests.
-- **If the failing attempt's implementor was qwen** (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again. This is the carve-out from the "Per-task model dispatch" section above: the re-dispatch tier is Sonnet, not `task.metadata.model`. The max-2 retry budget below then applies to the Claude Sonnet re-dispatches. The qwen attempt does NOT consume a slot in that budget; it consumed the (single) qwen attempt.
+- **If the failing attempt's implementor was qwen** (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again (the carve-out in "Per-task model dispatch" above). The max-2 retry budget below then applies to the Claude Sonnet re-dispatches; the qwen attempt does NOT consume a slot — it consumed the (single) qwen attempt.
 - **Retry prompts must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
 - Max 2 implementation retries before escalating to the user.
 - If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
@@ -436,7 +343,7 @@ git diff-tree --no-commit-id --name-only -r HEAD
 
 Compute `net_lines = insertions - deletions` (from `--shortstat`) and `file_count` (lines from `diff-tree`). If `net_lines < 30` OR `file_count < 2`, skip the dispatch — the cleanup overhead exceeds the slop budget for trivially small changes. Record `self_deslop: "skipped:trivial"` on the latest attempt (see "Outcome logging" below) and proceed directly to step 5.7.
 
-**Dispatch contract.** Otherwise, dispatch a **fresh** Agent call (NOT the implementor's session — fresh context breaks the "I built this" attachment that biases same-session self-reviews) at `task.metadata.model`. Same tier as the implementor keeps cost proportional. The dispatch must satisfy the **Subagent Dispatch Budget** (≤ 50K bytes, abort-instruction line prepended) and the **Subagent Watchdog** (15-minute timeout via `Monitor`, `TaskStop` on timeout) — see `references/subagent-dispatch.md`.
+**Dispatch contract.** Otherwise, dispatch a **fresh** Agent call (NOT the implementor's session — fresh context breaks the "I built this" attachment; why: `references/design-rationale.md` § fresh dispatch) at `task.metadata.model`. Same tier as the implementor keeps cost proportional. The dispatch must satisfy the **Subagent Dispatch Budget** and the **Subagent Watchdog**.
 
 **Prompt construction.** Build the subagent prompt from `references/self-deslop-prompt.md` by substituting:
 
@@ -457,55 +364,25 @@ Compute `net_lines = insertions - deletions` (from `--shortstat`) and `file_coun
 
 In every non-committed outcome, the implementor's original commit stands and step 5.7 reviews it directly. **Do not retry self-deslop on failure** — best-effort means single attempt only.
 
-**Why a fresh dispatch, not extending Ivan's prompt.** Ivan's prompt already injects the code-quality rules block (`references/code-quality-principles.md`). Adding "after passing tests, prune your diff" to the same prompt is cheap but ineffective: same model + same session + "this is my work" attachment defeats slop detection. Empirically, models defend their own output. A separate dispatch with task-as-external framing breaks that loop while staying at the same tier budget.
-
-**Cross-references:** `references/self-deslop-prompt.md` (the template), `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` (the slop catalog), `~/.claude/skills/run-autopilot/references/state-schema.md` (`tasks[].attempts[].self_deslop` field).
-
 ### 5.7. Per-task code review (if superpowers available)
 
-**Tier gate (PRD 00044) — per-task review runs for sonnet and opus only.** Read `task.metadata.model` and apply this table exactly:
+**Tier gate — per-task review is skipped only on haiku.** Read `task.metadata.model`:
 
 | `task.metadata.model` | Per-task review (step 5.7) |
 |-----------------------|----------------------------|
-| `opus` | review (below) |
-| `sonnet` | review (below) |
-| absent / legacy (treated as `sonnet`) | review (below) |
-| any other / unknown value (treated as `sonnet`) | review (below) |
 | `haiku` | skip per-task review |
+| anything else — `opus`, `sonnet`, absent/legacy or unknown (both treated as `sonnet`) | review (below) |
 
-A `haiku`-tier task commits after per-task test verification (step 5.5) with **no** review dispatch and proceeds straight to step 6 — it relies on per-task test verification plus the three mandated PRD-level review surfaces (Phase 4 multi-model consensus, Phase 7 blind, Phase 8 doubt). For `sonnet`, `opus`, and absent/legacy tiers, run the review below as today. When the review dispatch runs, it still obeys the **Per-task model dispatch** rule (the Agent call passes `model` from `task.metadata.model`).
+A `haiku`-tier task commits after per-task test verification (step 5.5) with **no** review dispatch and proceeds straight to step 6 — it relies on per-task test verification plus the mandated PRD-level review lenses (consensus, blind, doubt — every review cycle reviews every task's diff regardless of tier). When the review dispatch runs, it obeys the **Per-task model dispatch** rule. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
 
 If `superpowers:requesting-code-review` is in the available skills list, dispatch a code review after commit and verification:
 
 1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
-2. Dispatch code-reviewer subagent with task subject, description, and SHA range. Append the **Simplification mandate** below to the reviewer's prompt verbatim.
+2. Dispatch code-reviewer subagent with task subject, description, and SHA range. Append the **Simplification mandate** to the reviewer's prompt verbatim — the block lives in `references/simplification-mandate.md`; copy it whole.
 3. Handle result:
    - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues (dispatch Ivan with the code-quality rules block from `references/code-quality-principles.md` plus: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."), re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
    - **Minor issues only or approved**: note minors, proceed to step 6.
-   - **Reviewer failed/timed out**: log warning, proceed - Phase 4's PRD-level review catches remaining issues.
-
-**Simplification mandate** — append verbatim to the code-reviewer prompt:
-
-> Beyond bugs, actively hunt for simplification in the diff under review. For
-> every added or changed file, ask "what would make this simpler to read
-> without changing what it does?" and flag concrete behavior-preserving
-> opportunities to: reduce complexity (needless indirection, dead branches,
-> single-caller abstractions, nesting deeper than 4 levels, functions over 50
-> lines); eliminate redundancy (logic duplicated within the diff or against
-> existing code, a helper that reimplements a stdlib or existing utility);
-> improve naming (names that state intent, no opaque abbreviations); and
-> remove dead code. Follow CLAUDE.md / AGENTS.md conventions and the
-> surrounding code's style.
->
-> Classify a concrete behavior-preserving simplification as **Important**, not
-> Minor — Minor findings are not fixed in this loop. Give file:line, the
-> current shape, and the simpler replacement.
->
-> Do not over-simplify: never propose a change that trades clarity for
-> brevity, drops error handling, collapses a deliberate boundary, or removes a
-> documented invariant. Simpler means easier to read and maintain, not shorter
-> at any cost. If a change would alter behavior, it is out of scope — do not
-> flag it.
+   - **Reviewer failed/timed out**: log warning, proceed - the PRD-level review lenses catch remaining issues.
 
 Skip for documentation-only or configuration-only tasks.
 
@@ -538,7 +415,7 @@ The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.hand
       ── {completed} tasks done, {pending} pending — context near soft cap
       ── fresh session resumes the remaining tasks ───────────────────
       ```
-   d. Ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP. The autopilot Stop hook reads `next_phase` and writes the `next` loop signal (gated on `$_AUTOPILOT_LOOP`); the model writes no signal. This mirrors the run-autopilot Phase 3 build→review handoff contract.
+   d. Ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP — end the turn. In loop mode the wrapper reads the non-empty `next_phase: "build"` and relaunches a fresh session (the headless hand-off contract in `run-autopilot/SKILL.md` § Session Loop); the model writes no signal.
 
    **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3, hydrates TaskList from `state.tasks`, and re-invokes `/work` for the pending tasks.
 
@@ -599,7 +476,7 @@ If `superpowers:dispatching-parallel-agents` is in the available skills list and
 - Have no `blockedBy` dependencies on each other
 - Are all tagged `[C{n}]` or `[D{n}]` (rework tasks, not original plan tasks)
 
-Then dispatch them in parallel using the dispatching-parallel-agents pattern, **with at most 2 agents in flight at once**. Parallel agents share one working tree — one `cargo` target dir and one build lock — so their compiles serialize on that lock, but each `cargo` invocation still spawns a full `rustc` fleet. Bounding that fleet is what keeps RAM safe: rely on the global `~/.cargo/config.toml` `[build] jobs` cap and **never raise `CARGO_BUILD_JOBS`, pass `--jobs`, or run a full-workspace `cargo build` / `cargo test --workspace` / `clippy` inside a parallel agent** (per-task verify in step 5.5 is single-crate; the full suite runs once in step 7). On 2026-06-25 an uncapped 3-way fan-out (18 jobs each) exhausted 48 GB RAM and locked the machine.
+Then dispatch them in parallel using the dispatching-parallel-agents pattern, **with at most 2 agents in flight at once**. Parallel agents share one working tree — one `cargo` target dir and one build lock — so their compiles serialize on that lock, but each `cargo` invocation still spawns a full `rustc` fleet. Bounding that fleet is what keeps RAM safe: rely on the global `~/.cargo/config.toml` `[build] jobs` cap and **never raise `CARGO_BUILD_JOBS`, pass `--jobs`, or run a full-workspace `cargo build` / `cargo test --workspace` / `clippy` inside a parallel agent** (per-task verify in step 5.5 is single-crate; the full suite runs once in step 7). An uncapped fan-out once locked the whole machine (`references/design-rationale.md` § parallel rework cap).
 
 **Never parallelize original plan tasks** - the one-at-a-time rule remains for all non-rework tasks due to pidash sync requirements.
 
@@ -608,10 +485,12 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern, **
 - `references/test-author-prompt.md` - Test author (Tess) prompt template
 - `references/adversarial-test-prompt.md` - Adversarial validator (Devon) prompt template
 - `references/codex-integration.md` - Codex review-only usage
-- `references/gemini-integration.md` - Gemini prompt templates and patterns
+- `references/gemini-integration.md` - Gemini prompt templates, patterns, and the Design Authority section
 - `references/qwen-integration.md` - qwen dispatch + four-check preflight protocol
 - `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Ivan prompts
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
 - `references/subagent-dispatch.md` - Dispatch Budget + Watchdog: how to safely make an Agent call
 - `references/attempt-logging.md` - `state.tasks[].attempts[]` entry schema and write procedure
 - `references/self-deslop-prompt.md` - Step 5.6 prompt template (placeholders + `{{slop_catalog}}` substitution)
+- `references/simplification-mandate.md` - Step 5.7 reviewer-prompt appendix (append verbatim)
+- `references/design-rationale.md` - incident history behind the rules (non-normative)

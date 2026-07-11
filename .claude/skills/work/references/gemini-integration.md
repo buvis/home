@@ -105,3 +105,22 @@ Gemini took an unexpected direction.
 Incomplete work needs continuation.
 
 **Fix**: Use `gemini-run.sh -c` to resume the most recent session, or `-r <ID>` to pick a session.
+
+## Design Authority (visual tasks)
+
+For visual tasks, Gemini can challenge existing specs (moved here from
+`SKILL.md` "Gemini as design authority"):
+
+1. Share the planned design/spec with Gemini
+2. Ask for critical review before implementation
+3. **Trust Gemini's feedback** on visual matters - it has better taste
+4. Adjust the plan based on its recommendations
+5. Then proceed with implementation
+
+Example prompt addition for visual tasks:
+
+```text
+Before implementing, critically review this design spec.
+Suggest improvements to colors, spacing, typography, or layout.
+Challenge anything that feels generic or could be more distinctive.
+```

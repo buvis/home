@@ -128,7 +128,7 @@ unchanged in replan mode.
 
 ### 4.5. Estimate per-task context budget
 
-For each task, compute an estimate so `/work` stays under Sonnet 4.6's 200K standard-tier ceiling.
+For each task, compute an estimate so `/work` stays under the work-tier model's standard context ceiling (200K on the current tiers).
 
 **Formula:**
 
@@ -136,13 +136,13 @@ For each task, compute an estimate so `/work` stays under Sonnet 4.6's 200K stan
 estimated_tokens = sum(file_bytes/4 for file in task.files_touched)
                  + prd_slice_bytes/4
                  + plan_text_bytes/4
-                 + 30000
+                 + 55000
 ```
 
 - `file_bytes/4`: ~4 chars per token, accurate within ±20% for code (less accurate for prose-heavy markdown; round up when in doubt).
 - `prd_slice_bytes`: bytes of the PRD section(s) this task references.
 - `plan_text_bytes`: bytes of the task's own description/details.
-- `30000`: overhead constant for system prompt + tool defs + skill texts at Sonnet 4.6.
+- `55000`: overhead constant for system prompt + tool defs + skill texts on the current work-tier model (see "Overhead re-derivation" under Estimator caveats for provenance).
 
 **Threshold:** 150 000 tokens normally; in replan mode, the value from `replan-context.md`'s `Budget:` line (step 2.5). `est_context_peak = estimated_tokens + 20000` (20K headroom for response generation).
 
@@ -158,10 +158,10 @@ estimated_tokens = sum(file_bytes/4 for file in task.files_touched)
 sum(file_bytes/4)   = (80000 + 40000 + 20000) / 4 = 35 000
 prd_slice_bytes/4   = 25000 / 4                   =  6 250
 plan_text_bytes/4   = 3000 / 4                    =    750
-overhead            =                              30 000
+overhead            =                              55 000
                                                   ───────
-estimated_tokens    =                              72 000
-est_context_peak    = 72 000 + 20 000           =  92 000
+estimated_tokens    =                              97 000
+est_context_peak    = 97 000 + 20 000           = 117 000
 ```
 
 Below the 150K threshold → task ships as-is.
@@ -192,7 +192,7 @@ This check is a **plain text scan** of the task title + description against Rule
 
 The existing context-budget split mechanics, the one-split-attempt rule, and the stall behavior below are **unchanged** by the eligibility trigger — both triggers share them:
 
-1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 30K overhead applies once per task. Re-estimate each subtask.
+1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 55K overhead applies once per task. Re-estimate each subtask.
 2. **Capability boundary second.** If a task touches only one file and still exceeds the threshold, split along capability boundaries inside the PRD's Functional Decomposition section.
 3. **One split attempt only.** If a task still exceeds the threshold after splitting, mark the PRD as stalled (use the threshold value in the stall_reason).
 
@@ -219,7 +219,7 @@ After both writes succeed, exit non-zero so `/run-autopilot` Phase 2 detects the
 
 The bytes/4 heuristic is accurate within ±20% for source code, less accurate for prose-heavy markdown. When the largest input is markdown (PRD prose, docs), round up. When estimates land within 10% of the threshold (150K standard / 75K replan), prefer splitting — the runtime context cap hook (Phase 2 of PRD 00024) will abort tasks that overrun anyway, and a planned split is cheaper than a runtime abort.
 
-**30K overhead re-derivation:** The constant was measured by reading `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` from the first `message.usage` line in a fresh Sonnet 4.6 Work-phase transcript (zero task context loaded — just the system prompt, tool defs, and active skills). Re-derive when upgrading the model or adding/removing skills: start an empty `/work` session, read the first usage line from `~/.claude/projects/<hash>/<session>.jsonl`, sum the three token fields. Update the constant and the worked example if the new value differs by more than 5K.
+**Overhead re-derivation:** The constant is measured by reading `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` from the first `message.usage` line in a fresh Work-phase transcript on the current work-tier model (zero task context loaded — just the system prompt, tool defs, and active skills). Re-derive when upgrading the model or adding/removing skills: start an empty `/work` session, read the first usage line from `~/.claude/projects/<hash>/<session>.jsonl`, sum the three token fields. Update the constant and the worked example if the new value differs by more than 5K. Provenance of the current 55K (2026-07-11): five fresh headless opus-4.8 work-phase transcripts measured 74,560-74,809 (~74.7K), minus PRD 00043's measured always-loaded reduction (run-autopilot SKILL.md 33.0K → 7.3K core, +5.4K gate file read back in ≈ −20K net) ≈ 55K, rounded. Those transcripts predate the 00043 restructure; re-measure directly at the next batch and correct if the fresh number moves more than 5K.
 
 ### 4.7. Assign per-task model tier
 
