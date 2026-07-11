@@ -9,6 +9,12 @@ The user disengages from long text and thinks in options. Keep talk short and st
 3. Each option states BOTH a benefit and a drawback — never a tradeoff-free option.
 4. Use the AskUserQuestion tool to render them; put the benefit/drawback in each option's description; put any recommendation first.
 
+## Decision points (asking the user to decide)
+
+- ONE question per message: a single AskUserQuestion call carrying a single question. Wait for the answer before raising the next decision.
+- Context: each question ships with AT LEAST one full paragraph of background — enough to decide without re-reading the conversation. For decision points this overrides the 3-sentence cap above.
+- Options keep the default shape: 3-5, recommendation first and marked "(Recommended)", every option's description states both a benefit and a drawback.
+
 ## Nuances (apply this well, not mechanically)
 
 - A simple factual answer or a confirmation is ONE line. Don't manufacture options for a yes/no or a "done."
