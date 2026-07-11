@@ -4,9 +4,9 @@
 
 Retry on: missing CLI tool, runtime error, or malformed output format.
 
-1. Retry up to 3 times
-2. Log: `[RETRY] {agent} attempt {n}/3`
-3. After 3 failures: mark agent unavailable, continue with others
+1. Retry ONCE — the total retry budget per agent is one retry, across all retry reasons (see "Format Compliance" and "Per-Rule Verdict Completeness" below: when both gates fail, the single retry asks for both fixes together)
+2. Log: `[RETRY] {agent} attempt 1/1`
+3. After the failed retry: mark agent unavailable, continue with others
 4. If ALL agents fail: report failure
 
 Consolidation uses partial results from available agents.
