@@ -127,12 +127,14 @@ autoclaude() {
     # exported to the shell, so interactive `claude` outside the loop still
     # prompts normally. (A subagent `chmod +x` ask deadlocked the loop 1h51m,
     # 2026-06-30.)
-    local _ts_start _phase_launched
+    local _ts_start _phase_launched _prd_launched
     _ts_start=$(date +%s)
     if [ -f "$_ap_dir/state.json" ]; then
       _phase_launched=$(jq -r '.next_phase // ""' "$_ap_dir/state.json" 2>/dev/null)
+      _prd_launched=$(jq -r '.prd // ""' "$_ap_dir/state.json" 2>/dev/null)
     else
       _phase_launched=""
+      _prd_launched=""
     fi
 
     # Per-phase launch model (PRD 00018). Safe where the old
@@ -150,9 +152,18 @@ autoclaude() {
       *)      _model="claude-opus-4-8" ;;
     esac
 
+    # Operator view: banner + render_stream.py turn the stream-json events
+    # into one-line summaries. The raw log tee'd upstream is untouched (it
+    # stays greppable for detect_usage_limit.py and the metrics parse), and
+    # `|| cat` degrades to the raw view if the renderer is missing or dies —
+    # a dead pipe stage would otherwise SIGPIPE-kill the session.
+    printf '\n━━ %s · phase %s · prd %s · %s ━━\n' \
+      "$(date '+%H:%M:%S')" "${_phase_launched:-bootstrap}" "${_prd_launched:-no-prd}" "$_model"
+
     WARDEN_UNATTENDED=1 claude -p --permission-mode auto --model "$_model" \
       --output-format stream-json --verbose "/run-autopilot" \
-      < /dev/null 2>&1 | tee "$_ap_dir/last-session.log"
+      < /dev/null 2>&1 | tee "$_ap_dir/last-session.log" \
+      | { python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat; }
 
     kill "$_cap_pid" 2>/dev/null
     wait "$_cap_pid" 2>/dev/null
