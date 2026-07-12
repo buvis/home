@@ -6,14 +6,7 @@ All self-created working documents go in `dev/local/` in repo root. Ensure `dev/
 
 ## Layout (GC contract)
 
-`dev/local/` is garbage-collected by the **purge-devlocal** skill (trash-first: moves land in `.trash/<date>/` with a manifest, emptied after 30d). Never hand-delete; run the skill. Place artifacts so the GC can reason about them:
-
-- **Root**: only the named keepers - `project-capsule.md`, `decisions.md`, `troubleshooting.md`, `assumptions.md`, `ecc-cursor`, `upstream-cursor`. No logs, no workspaces, no reports at root.
-- **PRD satellites** (`designs/`, `reviews/`, `plans/`): carry the PRD number (`00XXX`) in the filename. Trashed when their PRD reaches `done/` or vanishes; kept while it sits in `backlog/`/`wip/`.
-- **Ephemeral** (`tmp/`): scratch, logs, reviewer outputs, one-off workspaces. PRD-number the filename when known (dies with the PRD); unnumbered tmp is trashed after 7d.
-- **`autopilot/`**: loop state and batch reports; trashed after 14d.
-- **Curated** (`discovery/`, `specs/`, `notes/`, `walkthroughs/`, `audit-results/`, `spikes/`): never trashed, only flagged when their PRD is gone - the user decides.
-- New artifact types: pick an existing dir before inventing one; a new top-level dir is kept-but-unclassified forever (GC blind spot).
+Canonical policy: the **aegis** plugin's `rules/working-documents.md` (v0.3.0+). Short form: `dev/local/` is GC'd by the `purge-devlocal` skill (trash-first; never hand-delete). Root holds named keepers only; PRD satellites (`designs/`, `reviews/`, `plans/`) carry their `00XXX` number and die with the PRD; `tmp/` is ephemeral (7d when unnumbered); `autopilot/` lives 14d; curated dirs (`discovery/`, `specs/`, `notes/`, `walkthroughs/`, `audit-results/`, `spikes/`) are flagged, never trashed. Don't invent new top-level dirs.
 
 ## PRDs
 
