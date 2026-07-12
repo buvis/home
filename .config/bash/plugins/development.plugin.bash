@@ -288,6 +288,7 @@ autoclaude() {
       mv "$_state" "$_ap_dir/reports/${_batch:-$(date +%Y%m%d%H%M)}-state-final.json" 2>/dev/null
       printf '\nBacklog drained.\n'
       python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained."
+      python3 ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py --repo "$PWD" --apply || true
       trap - INT TERM
       unset _AUTOPILOT_LOOP
       return
