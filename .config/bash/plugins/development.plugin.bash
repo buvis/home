@@ -54,6 +54,7 @@ _autopilot_session_cap() {
 autoclaude() {
   export _AUTOPILOT_LOOP=$$
   local _cap_pid=""   # session-cap sidecar pid; referenced by the INT/TERM traps
+  local _net_retries=0   # consecutive network-death relaunches (decide branch 5)
 
   # Kill orphaned (PPID=1) processes tagged with our marker.
   # Uses SIGHUP so shells propagate the signal to their children.
@@ -169,7 +170,9 @@ autoclaude() {
     wait "$_cap_pid" 2>/dev/null
     _autopilot_loop_cleanup
 
-    # ── Decide (PRD 00014 decision table) — pure reads, no side effects ──
+    # ── Decide (PRD 00014 decision table) — pure reads, no side effects
+    # (the network-outage branch may block on a bounded connectivity poll,
+    # but mutates nothing) ──
     # signal ∈ continue|paused|done|died; the metrics line records the branch.
     # state_touched guards branches (4)/(5): a healthy session ALWAYS writes
     # state at its hand-off, so an untouched state.json means this session
@@ -185,6 +188,7 @@ autoclaude() {
       _mtime=$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$_state" 2>/dev/null)
       [ -n "$_mtime" ] && [ "$_mtime" -ge "$_ts_start" ] 2>/dev/null && _state_touched=1
     fi
+    [ "$_state_touched" -eq 1 ] && _net_retries=0   # any productive session resets the cap
     if [ -f "$_state" ] && jq -e . "$_state" >/dev/null 2>&1; then
       _prd=$(jq -r '.prd // ""' "$_state" 2>/dev/null)
       _batch=$(jq -r '.batch.id // ""' "$_state" 2>/dev/null)
@@ -223,13 +227,47 @@ autoclaude() {
           _limit_wait=""
         fi
       else
-        _signal="died"
-        if [ ! -f "$_state" ]; then
-          _detail="no state.json"
-        elif jq -e . "$_state" >/dev/null 2>&1; then
-          _detail="session made no progress (state.json untouched)"
+        # Network-outage tolerance (2026-07-12): a result event carrying a
+        # connection-level failure means the session never reached the API
+        # ($0, zero tokens, state untouched) — infrastructure down, not a
+        # stuck loop. Poll connectivity (bounded; wall_secs absorbs the wait)
+        # and relaunch. The consecutive-retry cap stops relaunch-thrash when
+        # TCP works but the API keeps refusing; any session that touches
+        # state resets it.
+        local _api_fail=""
+        _api_fail=$(jq -rR 'fromjson? | select(.type=="result" and .is_error==true) | .result // ""' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
+        if printf '%s' "$_api_fail" | grep -qiE 'unable to connect|connection ?(refused|reset|error)|econn|etimedout|enotfound|eai_again|network is unreachable|fetch failed'; then
+          if [ "$_net_retries" -lt "${_AUTOPILOT_NET_RETRIES_MAX:-3}" ]; then
+            _net_retries=$(( _net_retries + 1 ))
+            local _net_max="${_AUTOPILOT_NET_WAIT_MAX:-1800}" _net_deadline _net_ok=0
+            _net_deadline=$(( $(date +%s) + _net_max ))
+            printf '\nautoclaude: API unreachable (%s). Polling connectivity, max %ss (retry %s/%s)…\n' \
+              "$_api_fail" "$_net_max" "$_net_retries" "${_AUTOPILOT_NET_RETRIES_MAX:-3}" >&2
+            while :; do
+              if curl -m 5 -s -o /dev/null https://api.anthropic.com; then _net_ok=1; break; fi
+              [ "$(date +%s)" -ge "$_net_deadline" ] && break
+              sleep 30
+            done
+            if [ "$_net_ok" -eq 1 ]; then
+              _signal="continue"
+              _detail="network restored (retry $_net_retries)"
+            else
+              _signal="died"
+              _detail="API unreachable for ${_net_max}s"
+            fi
+          else
+            _signal="died"
+            _detail="repeated API connection failures (${_AUTOPILOT_NET_RETRIES_MAX:-3} relaunches)"
+          fi
         else
-          _detail="state.json unreadable"
+          _signal="died"
+          if [ ! -f "$_state" ]; then
+            _detail="no state.json"
+          elif jq -e . "$_state" >/dev/null 2>&1; then
+            _detail="session made no progress (state.json untouched)"
+          else
+            _detail="state.json unreadable"
+          fi
         fi
       fi
     fi
