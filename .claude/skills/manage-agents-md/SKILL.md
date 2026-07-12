@@ -1,6 +1,6 @@
 ---
 name: manage-agents-md
-description: Use when creating, auditing, or improving an AGENTS.md file for AI coding agents (progressive disclosure, context window budgeting). Triggers on "AGENTS.md", "create AGENTS.md", "audit AGENTS.md", "improve AGENTS.md".
+description: Use when creating, auditing, or improving an AGENTS.md file for AI coding agents (progressive disclosure, context window budgeting). Triggers on "agents.md", "AGENTS.md", "create AGENTS.md", "audit AGENTS.md", "improve AGENTS.md".
 ---
 
 # manage-agents-md

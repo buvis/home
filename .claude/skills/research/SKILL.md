@@ -1,6 +1,6 @@
 ---
 name: research
-description: Use when researching a topic in depth via multi-source synthesis (literature review, competitive analysis, technology comparison). Triggers on "deep research", "research this", "investigate", "literature review", "survey the landscape".
+description: Use when researching a topic via multi-source synthesis (literature review, competitive analysis, technology comparison). Triggers on "research this", "investigate", "literature review", "survey the landscape", "compare technologies".
 ---
 
 # Research
