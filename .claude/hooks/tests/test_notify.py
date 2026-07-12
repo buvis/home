@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import notify
@@ -159,19 +160,23 @@ class TestBuildNtfyRequest(unittest.TestCase):
 
 
 class TestSendNtfy(unittest.TestCase):
+    # SETTINGS_PATH is patched away so these stay hermetic: the machine's
+    # real settings.json carries an env block that would satisfy the fallback.
     def test_skips_when_url_unset(self) -> None:
         with patch.dict("os.environ", {"NTFY_URL": "", "NTFY_TOPIC": "t"}, clear=False):
-            with patch("notify.urllib.request.urlopen") as urlopen:
-                with patch("notify.log_line"):
-                    notify.send_ntfy("title", "msg")
-                urlopen.assert_not_called()
+            with patch("notify.SETTINGS_PATH", Path("/nonexistent/settings.json")):
+                with patch("notify.urllib.request.urlopen") as urlopen:
+                    with patch("notify.log_line"):
+                        notify.send_ntfy("title", "msg")
+                    urlopen.assert_not_called()
 
     def test_skips_when_topic_unset(self) -> None:
         with patch.dict("os.environ", {"NTFY_URL": "https://x", "NTFY_TOPIC": ""}, clear=False):
-            with patch("notify.urllib.request.urlopen") as urlopen:
-                with patch("notify.log_line"):
-                    notify.send_ntfy("title", "msg")
-                urlopen.assert_not_called()
+            with patch("notify.SETTINGS_PATH", Path("/nonexistent/settings.json")):
+                with patch("notify.urllib.request.urlopen") as urlopen:
+                    with patch("notify.log_line"):
+                        notify.send_ntfy("title", "msg")
+                    urlopen.assert_not_called()
 
     def test_posts_when_configured(self) -> None:
         env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
@@ -185,6 +190,78 @@ class TestSendNtfy(unittest.TestCase):
                     with patch("notify.log_line"):
                         notify.send_ntfy("T", "M")
                     urlopen.assert_called_once()
+
+
+class TestSettingsEnvFallback(unittest.TestCase):
+    """Regression (2026-07-12): autoclaude's loop-exit `--send` runs outside a
+    Claude session, where the settings.json env block is not injected, so the
+    death alert was skipped with "NTFY_URL or NTFY_TOPIC unset"."""
+
+    @staticmethod
+    def _response() -> MagicMock:
+        resp = MagicMock()
+        resp.status = 200
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = lambda *a: None
+        return resp
+
+    def test_settings_env_reads_env_block(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            settings = Path(td) / "settings.json"
+            settings.write_text(
+                json.dumps({"env": {"NTFY_URL": "https://ntfy.s", "NTFY_TOPIC": "tp"}}),
+                encoding="utf-8",
+            )
+            with patch("notify.SETTINGS_PATH", settings):
+                self.assertEqual(notify._settings_env("NTFY_URL"), "https://ntfy.s")
+                self.assertEqual(notify._settings_env("NTFY_TOPIC"), "tp")
+
+    def test_settings_env_missing_file(self) -> None:
+        with patch("notify.SETTINGS_PATH", Path("/nonexistent/settings.json")):
+            self.assertEqual(notify._settings_env("NTFY_URL"), "")
+
+    def test_settings_env_malformed_json(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            settings = Path(td) / "settings.json"
+            settings.write_text("{nope", encoding="utf-8")
+            with patch("notify.SETTINGS_PATH", settings):
+                self.assertEqual(notify._settings_env("NTFY_URL"), "")
+
+    def test_send_ntfy_falls_back_to_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            settings = Path(td) / "settings.json"
+            settings.write_text(
+                json.dumps({"env": {"NTFY_URL": "https://ntfy.s", "NTFY_TOPIC": "tp"}}),
+                encoding="utf-8",
+            )
+            resp = self._response()
+            with patch.dict("os.environ", {"NTFY_URL": "", "NTFY_TOPIC": ""}, clear=False):
+                with patch("notify.SETTINGS_PATH", settings):
+                    with patch("notify.read_credentials", return_value=""):
+                        with patch("notify.urllib.request.urlopen", return_value=resp) as urlopen:
+                            with patch("notify.log_line"):
+                                notify.send_ntfy("T", "M")
+                            urlopen.assert_called_once()
+                            req = urlopen.call_args[0][0]
+                            self.assertEqual(req.full_url, "https://ntfy.s/tp")
+
+    def test_env_wins_over_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            settings = Path(td) / "settings.json"
+            settings.write_text(
+                json.dumps({"env": {"NTFY_URL": "https://ntfy.settings", "NTFY_TOPIC": "st"}}),
+                encoding="utf-8",
+            )
+            resp = self._response()
+            env = {"NTFY_URL": "https://ntfy.env", "NTFY_TOPIC": "et"}
+            with patch.dict("os.environ", env, clear=False):
+                with patch("notify.SETTINGS_PATH", settings):
+                    with patch("notify.read_credentials", return_value=""):
+                        with patch("notify.urllib.request.urlopen", return_value=resp) as urlopen:
+                            with patch("notify.log_line"):
+                                notify.send_ntfy("T", "M")
+                            req = urlopen.call_args[0][0]
+                            self.assertEqual(req.full_url, "https://ntfy.env/et")
 
 
 class TestShowDesktopNotification(unittest.TestCase):

@@ -27,6 +27,7 @@ from _common import log_path, read_input  # noqa: E402
 
 ICON_PATH = Path.home() / ".claude" / "hooks" / "claude-icon.png"
 SECRET_PATH = Path.home() / ".claude" / "hooks" / ".ntfy-secret"
+SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 PYBOOKLID = Path.home() / ".local" / "share" / "uv" / "tools" / "pybooklid" / "bin" / "python"
 IDLE_THRESHOLD_SEC = 300
 LID_CLOSED_BELOW = 70
@@ -206,9 +207,25 @@ def build_ntfy_request(url: str, topic: str, title: str, msg: str, creds: str) -
     )
 
 
+def _settings_env(name: str) -> str:
+    """Env-block value from settings.json, or "".
+
+    The settings.json env block is injected only into Claude sessions, so a
+    wrapper-level `--send` (autoclaude firing its loop-exit alert) runs with
+    NTFY_URL/NTFY_TOPIC absent from os.environ — the 2026-07-12 loop death
+    went unannounced because of exactly that.
+    """
+    try:
+        env = json.loads(SETTINGS_PATH.read_text(encoding="utf-8")).get("env", {})
+    except (OSError, ValueError, AttributeError):
+        return ""
+    value = env.get(name, "")
+    return value if isinstance(value, str) else ""
+
+
 def send_ntfy(title: str, msg: str) -> None:
-    url = os.environ.get("NTFY_URL", "")
-    topic = os.environ.get("NTFY_TOPIC", "")
+    url = os.environ.get("NTFY_URL", "") or _settings_env("NTFY_URL")
+    topic = os.environ.get("NTFY_TOPIC", "") or _settings_env("NTFY_TOPIC")
     if not url or not topic:
         log_line(f"[{now_local()}] Skipped ntfy: NTFY_URL or NTFY_TOPIC unset")
         return

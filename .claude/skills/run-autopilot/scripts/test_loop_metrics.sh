@@ -7,7 +7,8 @@
 # session with all eight keys and the branch-derived signal
 # (continue|paused|done|died). Hermetic: no network, no real claude, temp
 # dirs only. The usage-limit branch sleeps ≥60s by design and is covered by
-# test_detect_usage_limit.py instead.
+# test_detect_usage_limit.py instead. Scenarios 5-7 cover the network-outage
+# branch (connection-level API failure -> bounded relaunch; curl stubbed).
 #
 # Run: bash ~/.claude/skills/run-autopilot/scripts/test_loop_metrics.sh
 
@@ -49,7 +50,10 @@ TMP1="$(mktemp -d)"
 TMP2="$(mktemp -d)"
 TMP3="$(mktemp -d)"
 TMP4="$(mktemp -d)"
-trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4"' EXIT
+TMP5="$(mktemp -d)"
+TMP6="$(mktemp -d)"
+TMP7="$(mktemp -d)"
+trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4" "$TMP5" "$TMP6" "$TMP7"' EXIT
 
 # ── Scenario 1: build -> review -> done -> drained (happy path) ──────
 # Three sessions advance the phases (branch 4 twice, branch 3 last); the
@@ -164,4 +168,93 @@ echo "$line4" | jq -e '.signal == "paused"' >/dev/null \
   || fail "scenario 4: signal not \"paused\""
 [ -f "$AP4/state.json" ] || fail "scenario 4: paused state.json was not left intact"
 
-echo "PASS: metrics + decision table across all four paths (continue/done, died, silent-append, paused)"
+# ── Scenario 5: connect-error session, network back — retry then drain ──
+# Regression (2026-07-12): a relaunch that got ConnectionRefused for its
+# whole 3-minute life was classified as a no-progress death and killed the
+# batch. Session 1 emits a connection-failure result and leaves state
+# untouched; the wrapper must poll connectivity (curl stub: up) and
+# relaunch. Session 2 drains.
+AP5="$TMP5/dev/local/autopilot"
+mkdir -p "$AP5"
+printf '%s\n' '{"prd":"00054-test.md","next_phase":"build","batch":{"id":"209901010000"}}' > "$AP5/state.json"
+# Backdate: a fixture written in the launch second reads as "touched by the
+# session" (branch 4) and the died branch is never reached.
+touch -t 202601010000 "$AP5/state.json"
+
+curl() { return 0; }                                   # network reachable
+claude() {
+  if [ ! -f "$AP_DIR/first-done" ]; then
+    : > "$AP_DIR/first-done"
+    echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: Unable to connect to API (ConnectionRefused)","total_cost_usd":0,"usage":{"output_tokens":0}}'
+    return 0
+  fi
+  printf '%s\n' '{"prd":"00054-test.md","next_phase":"","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":1.23,"usage":{"output_tokens":456}}'
+}
+
+run_loop "$AP5"
+rc5=$?
+[ "$rc5" -eq 0 ] || fail "scenario 5: loop did not survive a transient connect-error (rc=$rc5)"
+M5="$AP5/loop-metrics.jsonl"
+[ -f "$M5" ] || fail "scenario 5: no loop-metrics.jsonl written"
+n5=$(grep -c . "$M5")
+[ "$n5" -eq 2 ] || fail "scenario 5: expected 2 lines (net-retry continue, done), got $n5"
+sed -n 1p "$M5" | jq -e '.signal == "continue"' >/dev/null \
+  || fail "scenario 5: connect-error session did not signal continue"
+sed -n 2p "$M5" | jq -e '.signal == "done"' >/dev/null \
+  || fail "scenario 5: recovery session did not drain"
+
+# ── Scenario 6: persistent connect-error — retry cap, then died ──────
+# TCP reachable (curl up) but every session's API calls fail: the
+# consecutive-retry cap must stop the relaunch loop.
+AP6="$TMP6/dev/local/autopilot"
+mkdir -p "$AP6"
+printf '%s\n' '{"prd":"00054-test.md","next_phase":"build","batch":{"id":"209901010000"}}' > "$AP6/state.json"
+touch -t 202601010000 "$AP6/state.json"
+
+curl() { return 0; }
+claude() {
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: Unable to connect to API (ConnectionRefused)","total_cost_usd":0,"usage":{"output_tokens":0}}'
+}
+
+_AUTOPILOT_NET_RETRIES_MAX=2
+run_loop "$AP6"
+rc6=$?
+unset _AUTOPILOT_NET_RETRIES_MAX
+[ "$rc6" -eq 1 ] || fail "scenario 6: capped connect-error loop did not return 1 (rc=$rc6)"
+M6="$AP6/loop-metrics.jsonl"
+n6=$(grep -c . "$M6")
+[ "$n6" -eq 3 ] || fail "scenario 6: expected 3 lines (2 retries + died), got $n6"
+sed -n 1p "$M6" | jq -e '.signal == "continue"' >/dev/null \
+  || fail "scenario 6: retry 1 did not signal continue"
+sed -n 2p "$M6" | jq -e '.signal == "continue"' >/dev/null \
+  || fail "scenario 6: retry 2 did not signal continue"
+sed -n 3p "$M6" | jq -e '.signal == "died"' >/dev/null \
+  || fail "scenario 6: exhausted retries did not signal died"
+[ -f "$AP6/state.json" ] || fail "scenario 6: state.json not left intact for inspection"
+
+# ── Scenario 7: connect-error and network stays down — bounded, died ──
+# curl never succeeds; with a zero wait budget the poll must give up
+# immediately (no relaunch) and halt loud.
+AP7="$TMP7/dev/local/autopilot"
+mkdir -p "$AP7"
+printf '%s\n' '{"prd":"00054-test.md","next_phase":"build","batch":{"id":"209901010000"}}' > "$AP7/state.json"
+touch -t 202601010000 "$AP7/state.json"
+
+curl() { return 1; }
+claude() {
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: Unable to connect to API (ConnectionRefused)","total_cost_usd":0,"usage":{"output_tokens":0}}'
+}
+
+_AUTOPILOT_NET_WAIT_MAX=0
+run_loop "$AP7"
+rc7=$?
+unset _AUTOPILOT_NET_WAIT_MAX
+[ "$rc7" -eq 1 ] || fail "scenario 7: dead-network loop did not return 1 (rc=$rc7)"
+M7="$AP7/loop-metrics.jsonl"
+n7=$(grep -c . "$M7")
+[ "$n7" -eq 1 ] || fail "scenario 7: expected 1 line (died without relaunch), got $n7"
+jq -e '.signal == "died"' "$M7" >/dev/null \
+  || fail "scenario 7: unreachable-network session did not signal died"
+
+echo "PASS: metrics + decision table across all paths (continue/done, died, silent-append, paused, net-retry recover/cap/down)"
