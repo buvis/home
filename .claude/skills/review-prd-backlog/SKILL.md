@@ -1,6 +1,6 @@
 ---
 name: review-prd-backlog
-description: Use when reviewing dev/local/prds/backlog as the gate before /run-autopilot - create-prd compliance, collisions, sizing/regrouping, gaps, goal alignment. Triggers on "review backlog", "review prds", "audit backlog", "backlog ready".
+description: Use to review the PRD backlog (dev/local/prds/backlog) before /run-autopilot - create-prd compliance, collisions, sizing/regrouping, gaps, goal alignment. Triggers on "review backlog", "review prds", "audit backlog", "backlog ready".
 argument-hint: "[backlog dir, default dev/local/prds/backlog]"
 ---
 
