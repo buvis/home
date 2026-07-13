@@ -11,7 +11,7 @@ Two kinds of tests live here:
    assert the SKILL.md / recovery.md prose actually encodes the guards: a
    Phase 0 ``mkdir -p`` covering every lifecycle dir, and an existence-check +
    loud PAUSE after each of the three lifecycle ``mv`` sites (backlog->wip,
-   wip->done, wip->stalled).
+   wip->done, wip->hold).
 
 The contract tests bind to intent (verify-destination-exists + PAUSE on
 failure), not to incidental wording, so they fail loud when a move site is left
@@ -33,7 +33,7 @@ LIFECYCLE_DIRS = [
     "prds/backlog",
     "prds/wip",
     "prds/done",
-    "prds/stalled",
+    "prds/hold",
     "reviews",
     "tmp",
     "autopilot/reports",
@@ -183,15 +183,15 @@ def test_wip_to_done_move_is_verified() -> None:
     )
 
 
-def test_stalled_moves_are_verified() -> None:
-    """Every wip->stalled `mv` in recovery.md must verify + PAUSE on failure."""
-    anchor = re.compile(r"the PRD from[^\n]*wip/[^\n]*stalled/")
+def test_hold_moves_are_verified() -> None:
+    """Every wip->hold `mv` in recovery.md must verify + PAUSE on failure."""
+    anchor = re.compile(r"the PRD from[^\n]*wip/[^\n]*hold/")
     guards = _guarded_windows(RECOVERY, anchor)
     assert len(guards) >= 2, (
-        f"expected >=2 wip->stalled move sites in recovery.md, found {len(guards)}"
+        f"expected >=2 wip->hold move sites in recovery.md, found {len(guards)}"
     )
     assert all(guards), (
-        "every wip->stalled `mv` in recovery.md must be followed by an "
+        "every wip->hold `mv` in recovery.md must be followed by an "
         "existence check and a PAUSE on failure"
     )
 

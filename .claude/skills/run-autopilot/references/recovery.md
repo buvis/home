@@ -9,8 +9,8 @@ procedure. Every loop-mode failure site references THIS section instead of
 pausing. Interactive (non-loop) sites keep their PAUSE semantics.
 
 1. **Move the PRD** from `dev/local/prds/wip/<filename>` to
-   `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix), after
-   `mkdir -p dev/local/prds/stalled`. **Verify the move** (file exists at the
+   `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix), after
+   `mkdir -p dev/local/prds/hold`. **Verify the move** (file exists at the
    destination). If the `mv` fails, retry ONCE after re-running `mkdir -p`;
    if it still fails, this is the one legitimate loud stop — notify ⚠️ and
    halt (set `state.phase = "paused"`, `state.pause_reason = {"site":
@@ -30,7 +30,7 @@ pausing. Interactive (non-loop) sites keep their PAUSE semantics.
 4. **Print the banner** and continue the batch:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED ({site}) ────────────────
-   ── moved to dev/local/prds/stalled/ ── advancing to next PRD ──────
+   ── moved to dev/local/prds/hold/ ── advancing to next PRD ─────────
    ```
 5. **Continue**: end the turn (the wrapper relaunches on `next_phase:
    "build"`), or jump to Phase 0 in-session when interactive. Batch-end
@@ -43,7 +43,7 @@ Reached from **Phase 0** when `state.cap_rotations` gained an entry but no `stal
 
 The fresh session resumes `build` by artifact: capsule fresh → skip catchup; `state.tasks` non-empty → skip planning; `/work` continues at the first non-completed task. Because the in-flight task was reset to `pending`, it is that first non-completed task: its uncommitted partial attempt is discarded and re-attempted. Only the in-flight task's status changes (`in_progress → pending`); other `state.tasks` and `phases_completed` are untouched; `replan_count` is unchanged; no `replan-context.md` is written.
 
-**Livelock guard (in the cap hook).** If the last `cap_rotations` entry already names the in-flight task, a second consecutive fire on the same task means the task is genuinely oversized. The hook does NOT append another rotation; instead it records `stall_reason.stalled == "oversized_task"` and instructs the oversized-task stall — handled by the "plan-tasks stall: oversized task" procedure below (move the PRD to `dev/local/prds/stalled/`, advance to the next PRD). One oversized task costs at most two rotations before a loud stall.
+**Livelock guard (in the cap hook).** If the last `cap_rotations` entry already names the in-flight task, a second consecutive fire on the same task means the task is genuinely oversized. The hook does NOT append another rotation; instead it records `stall_reason.stalled == "oversized_task"` and instructs the oversized-task stall — handled by the "plan-tasks stall: oversized task" procedure below (move the PRD to `dev/local/prds/hold/`, advance to the next PRD). One oversized task costs at most two rotations before a loud stall.
 
 ## Work-phase abort: replan procedure
 
@@ -107,7 +107,7 @@ If `stall_reason.stalled` is anything else (or absent), return to Phase 0's Norm
 
 ## Crash recovery: escalation_exhausted seen at Phase 0
 
-`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/stalled/` but state still points at it): log a warning, clear `stall_reason`, do NOT re-run the move (Phase 6 already moved the PRD), AND reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD — `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`, preserve `batch`, set `next_phase: "build"` — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
+`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/hold/` but state still points at it): log a warning, clear `stall_reason`, do NOT re-run the move (Phase 6 already moved the PRD), AND reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD — `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`, preserve `batch`, set `next_phase: "build"` — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
 
 ## plan-tasks stall: oversized task
 
@@ -115,13 +115,13 @@ Reached from **Phase 2** when `/plan-tasks` exits non-zero and writes `state.sta
 
 1. Read `dev/local/autopilot/state.json`. If `stall_reason.stalled == "oversized_task"`, do NOT proceed to Phase 3.
 2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 5 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
-3. Ensure `dev/local/prds/stalled/` exists (`mkdir -p dev/local/prds/stalled`).
-4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/stalled/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
+3. Ensure `dev/local/prds/hold/` exists (`mkdir -p dev/local/prds/hold`).
+4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
 5. Clear the stall key from state: read state, delete `stall_reason`, write back. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`. Preserve `batch`. Set `next_phase: "build"`. Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
 6. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
-   ── moved to dev/local/prds/stalled/ ── advancing to next PRD ────
+   ── moved to dev/local/prds/hold/ ── advancing to next PRD ───────
    ```
 7. If `$_AUTOPILOT_LOOP` is set, end the turn — the wrapper reads `next_phase: "build"` and relaunches (same mechanism as the Phase 9 PRD-to-PRD transition). Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 
@@ -137,15 +137,15 @@ Rewrite the attempt entry's `outcome` to `"rework_failed"`, then merge into stat
 
 (The `outcome` rewrite is forensic — the stall move below clears `state.tasks` immediately after, so the `"rework_failed"` value only persists in pre-clear observers (the pidash dashboard reading state.json, any PostToolUse hook firing between the rewrite and the clear). It documents the failure mode for external observers in the brief window before reset; the durable record lives in the PRD's commit history and in `stall_reason.stalled` itself.)
 
-Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3). This ordering matters because a crash between the two leaves the PRD in `stalled/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
+Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3). This ordering matters because a crash between the two leaves the PRD in `hold/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
 
-1. `mkdir -p dev/local/prds/stalled` if missing.
-2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/stalled/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/stalled/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
+1. `mkdir -p dev/local/prds/hold` if missing.
+2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
 3. Clear `stall_reason` from state. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`. Preserve `batch`. Set `next_phase: "build"`. Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
 4. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──
-   ── moved to dev/local/prds/stalled/ ── advancing to next PRD ──────
+   ── moved to dev/local/prds/hold/ ── advancing to next PRD ─────────
    ```
 5. If `$_AUTOPILOT_LOOP` is set, end the turn — the wrapper reads `next_phase: "build"` and relaunches. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 

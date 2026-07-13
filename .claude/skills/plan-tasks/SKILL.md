@@ -213,7 +213,7 @@ When unable to split below the threshold (150K standard, 75K in replan mode), **
 
 **Then delete every task you already created** via `TaskCreate` for this PRD: query `TaskList`, call `TaskUpdate(status: "deleted")` on each. `/plan-tasks` calls `TaskCreate` before the per-task budget check, so by the time the stall fires there are orphan tasks in the tracker. Cleaning up here makes the stall self-contained: any caller (not just `/run-autopilot`) gets the same post-stall state. `/run-autopilot` Phase 2 also performs this cleanup as a backstop.
 
-After both writes succeed, exit non-zero so `/run-autopilot` Phase 2 detects the stall, moves the PRD from `dev/local/prds/wip/` to `dev/local/prds/stalled/` (creating the directory if missing), clears the stall key from state, and proceeds to the next backlog item without user prompt. See `/run-autopilot` Phase 2 for the consumer-side contract.
+After both writes succeed, exit non-zero so `/run-autopilot` Phase 2 detects the stall, moves the PRD from `dev/local/prds/wip/` to `dev/local/prds/hold/` (creating the directory if missing), clears the stall key from state, and proceeds to the next backlog item without user prompt. See `/run-autopilot` Phase 2 for the consumer-side contract.
 
 ### Estimator caveats
 

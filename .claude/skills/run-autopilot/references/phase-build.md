@@ -142,7 +142,7 @@ Invoke `/plan-tasks` with the selected PRD.
 
 ### Handle plan-tasks stall (oversized task)
 
-`/plan-tasks` exits non-zero with `state.stall_reason.stalled == "oversized_task"` when a task cannot be split below the per-task budget. When this happens, do NOT proceed to Phase 3 — **follow `references/recovery.md` → "plan-tasks stall: oversized task"** (deletes orphan tasks, moves the PRD to `dev/local/prds/stalled/`, advances to the next PRD).
+`/plan-tasks` exits non-zero with `state.stall_reason.stalled == "oversized_task"` when a task cannot be split below the per-task budget. When this happens, do NOT proceed to Phase 3 — **follow `references/recovery.md` → "plan-tasks stall: oversized task"** (deletes orphan tasks, moves the PRD to `dev/local/prds/hold/`, advances to the next PRD).
 
 **Other outcomes from `/plan-tasks`:**
 

@@ -238,7 +238,7 @@ class ContextCapRotationTests(unittest.TestCase):
         """A `.cap-fired` marker left by a PRIOR PRD must NOT suppress a
         legitimate over-cap fire during the next PRD's build prologue.
 
-        After a livelock stall the PRD moves to stalled/ and cap_rotations is
+        After a livelock stall the PRD moves to hold/ and cap_rotations is
         cleared, but recovery does not clear `.cap-fired`, so a stale marker
         (a real, old task id) survives into the next PRD. During that PRD's
         prologue no task is claimed yet (task_id == "unknown"). The cycle-2

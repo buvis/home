@@ -635,7 +635,7 @@ class InstructionBuilderContractTests(unittest.TestCase):
 
     def test_stall_text_still_describes_oversized_stall(self) -> None:
         """_oversized_stall_instructions must still reference 'oversized' and
-        moving the PRD to 'stalled'."""
+        the stall_reason 'stalled' state marker."""
         text = self.module._oversized_stall_instructions("task-abc")
         self.assertIn("oversized", text.lower())
         self.assertIn("stalled", text.lower())
