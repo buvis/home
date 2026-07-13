@@ -32,10 +32,11 @@ Unchecked = skipped. Apply re-verifies sha/path first; stale items are skipped a
 
 ## 4. Phase digests
 
-- catchup: <3 lines, capsule path>
+- catchup: <3 lines: capsule path, open PRs incl. dependency bots (point at git-ferry:review-deps-prs when piling up), CI state>
 - assess-evolution: <verdict, roadmap/PRD paths>
 - backlog: <counts, findings, artifact path>
 - agents-md: <what changed, commit sha>
+- atlas + debt: <survey result, ponytail-debt ledger path or none>
 
 ## 5. Failures and skips
 

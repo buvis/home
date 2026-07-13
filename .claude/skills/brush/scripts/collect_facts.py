@@ -69,6 +69,10 @@ def gather_repo_ctx(start: Path) -> dict:
                branch=git_out(root, "branch", "--show-current").strip() or None)
     ctx["autopilot_live"] = subprocess.run(
         ["pgrep", "-f", "autoclaude"], capture_output=True).returncode == 0
+    ops = [m for m in ("rebase-merge", "rebase-apply", "MERGE_HEAD",
+                       "CHERRY_PICK_HEAD", "BISECT_LOG", "REVERT_HEAD")
+           if (Path(git_dir) / m).exists()]
+    ctx["in_progress_op"] = ops or None
     return ctx
 
 

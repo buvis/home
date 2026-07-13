@@ -73,6 +73,7 @@ key material.
 - Age >= 3 days for any trash move (enforced by trash_untracked.py).
 - Branches with an open PR (facts `open_prs`): untouchable.
 - Current and default branch: untouchable. Default branch detection is master-first per house rule.
+- Detached HEAD in the main worktree: skip every branch action; flag it in the report as leftover state.
 - Heavy dirs (node_modules, target, dist, build, venv): never moved; the fix is a `.gitignore` entry only.
 - dev/local content: owned by purge-devlocal; brush never hand-cleans it.
 - Apply mode re-verifies each item's recorded sha/path before executing; mismatch means the repo moved on: mark STALE, skip, note.
