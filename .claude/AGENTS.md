@@ -33,9 +33,7 @@ With 1M context, research stays in-flight through implementation.
 ## Conventions
 
 - Repos live at `~/git/src/github.com/{org}/{repo}` (Go-style layout).
-- Write Claude Code hooks in Python only, never bash/sh (cross-platform).
 - Name tools, plugins, and projects with evocative single words (warden, strunk) over descriptive concatenations; offer 3-4 candidates with rationale.
-- In plugin skills, reference helper scripts via `${CLAUDE_SKILL_DIR}/scripts/…`, never `~/.claude/skills/` paths (`CLAUDE_PLUGIN_ROOT` is hooks-only).
 - When a standing rule already mandates a change discovered mid-task, produce the reversible artifact instead of asking; flag user-facing impact in the summary.
 
 ## Dotfiles repo
