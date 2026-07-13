@@ -180,17 +180,29 @@ function aggregateRubric(verdicts) {
   });
 }
 
+/** Nothing disproved an over-cap finding, so it stays a potential blocker and says so. */
+function marker(f) {
+  if (f.demoted) return " (demoted: no proof)";
+  if (f.verified === "unverified") return " (unverified: verify cap)";
+  return "";
+}
+
 /** `[AGENT] {emoji} {title} | File: {file} | Task: {task}` — the legacy parser's shape. */
 function findingLine(agentName, f) {
   const emoji = SEVERITY_EMOJI[f.severity] || SEVERITY_EMOJI.MEDIUM;
-  const title = cell(f.title) + (f.demoted ? " (demoted: no proof)" : "");
+  const title = cell(f.title) + marker(f);
   return `[${agentName}] ${emoji} ${title} | File: ${cell(f.file) || "N/A"} | Task: ${cell(f.task) || "general"}`;
+}
+
+/** Unproven is not innocent: an unverified potential blocker fails closed, like an incomplete review. */
+function decideVerdict({ blocking, incomplete, unverified }) {
+  const outstanding = blocking.length > 0 || incomplete || unverified > 0;
+  return outstanding ? "CHANGES_REQUESTED" : "APPROVE";
 }
 
 function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, rubric, statsLine }) {
   const parseable = [];
   const refutedNotes = [];
-  const capNotes = [];
 
   for (const dim of failedDimensions) {
     parseable.push(
@@ -201,8 +213,6 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
   for (const f of advisory) {
     if (f.verified === "refuted") {
       refutedNotes.push(`- refuted: ${cell(f.title)} - ${cell(f.refutation)}`);
-    } else if (f.verified === "unverified") {
-      capNotes.push(`- unverified (verify cap): ${cell(f.title)}`);
     } else {
       parseable.push(findingLine(agentName, f));
     }
@@ -212,9 +222,6 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
   const sections = [parseable.join("\n")];
   if (refutedNotes.length > 0) {
     sections.push(["### Refuted (adversarially verified, not blocking)", "", ...refutedNotes].join("\n"));
-  }
-  if (capNotes.length > 0) {
-    sections.push(["### Unverified (verify cap reached)", "", ...capNotes].join("\n"));
   }
   sections.push(["### Rubric", "", ...rubric.map((e) => `${e.rule_id}: ${e.verdict}`)].join("\n"));
 
@@ -527,7 +534,7 @@ log(
 );
 
 return {
-  verdict: verified.blocking.length > 0 || incomplete ? "CHANGES_REQUESTED" : "APPROVE",
+  verdict: decideVerdict({ blocking: verified.blocking, incomplete, unverified: verified.unverified }),
   blocking: verified.blocking,
   advisory: verified.advisory,
   rubric,
