@@ -28,6 +28,7 @@ export const PURE_SYMBOLS = [
   "SECURITY_RE",
   "coerceArgs",
   "validateArgs",
+  "isTruncated",
   "securityTriggered",
   "cell",
   "norm",
@@ -93,7 +94,7 @@ export function pure() {
   }
 
   const region = src.slice(start + START.length, end);
-  const sandbox = { console };
+  const sandbox = { console, Buffer };
   vm.createContext(sandbox);
   // The exporter runs in the same script, so it sees the region's top-level
   // `const`/`function` lexical bindings (which never land on globalThis).

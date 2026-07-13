@@ -74,10 +74,17 @@ function validateArgs(a) {
   };
   if (a === null || typeof a !== "object") bad("args must be an object");
   if (typeof a.diff !== "string" || a.diff.trim() === "") bad("diff is required and must be a non-empty unified diff");
-  if (a.diff.length > MAX_DIFF_BYTES) bad(`diff is longer than MAX_DIFF_BYTES (${MAX_DIFF_BYTES}); the caller must truncate it`);
+  if (Buffer.byteLength(a.diff, "utf8") > MAX_DIFF_BYTES) bad(`diff is longer than MAX_DIFF_BYTES (${MAX_DIFF_BYTES}); the caller must truncate it`);
   if (typeof a.rubric_text !== "string" || a.rubric_text.trim() === "") bad("rubric_text is required");
   if (typeof a.diff_bytes !== "number") bad("diff_bytes is required");
+  if (!Number.isFinite(a.diff_bytes) || a.diff_bytes < 0) bad("diff_bytes must be a finite non-negative number");
   if (a.diff_bytes > MAX_DIFF_BYTES && !a.diff_path) bad("diff_bytes is over MAX_DIFF_BYTES but no diff_path was supplied");
+}
+
+/** `diff_bytes` is a real byte count (from `wc -c`); `.length` counts UTF-16 code
+ *  units, so a non-ASCII diff needs the real byte count to avoid a false positive. */
+function isTruncated(diffBytes, diffText) {
+  return diffBytes > Buffer.byteLength(diffText, "utf8");
 }
 
 /** Split camelCase so `authToken` yields both words, then lowercase. */
@@ -419,7 +426,7 @@ validateArgs(input);
 
 const agentName = input.agent_name || "ALICE";
 const cycle = input.cycle || 1;
-const diffTruncated = input.diff_bytes > input.diff.length;
+const diffTruncated = isTruncated(input.diff_bytes, input.diff);
 const prdMatch = input.prd_path ? input.prd_path.match(/(\d{5})/) : null;
 const prdId = prdMatch ? prdMatch[1] : "";
 
