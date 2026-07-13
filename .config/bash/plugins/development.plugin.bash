@@ -161,7 +161,14 @@ autoclaude() {
     printf '\n━━ %s · phase %s · prd %s · %s ━━\n' \
       "$(date '+%H:%M:%S')" "${_phase_launched:-bootstrap}" "${_prd_launched:-no-prd}" "$_model"
 
-    WARDEN_UNATTENDED=1 claude -p --permission-mode auto --model "$_model" \
+    # CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0: wait indefinitely for live
+    # subagents after the final result (default caps at 10 min). The review
+    # Watcher subagent holds the session open while external-CLI reviewers
+    # (background Bash — killed ~5s after the result by design) still run;
+    # codex doubt reviews routinely exceed 10 min. The session cap above
+    # stays the backstop. (2026-07-12: codex killed at turn end, loop died.)
+    WARDEN_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+      claude -p --permission-mode auto --model "$_model" \
       --output-format stream-json --verbose "/run-autopilot" \
       < /dev/null 2>&1 | tee "$_ap_dir/last-session.log" \
       | { python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat; }
