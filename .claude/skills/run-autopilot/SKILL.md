@@ -129,6 +129,8 @@ The model's only job at a hand-off is to write `state.next_phase` (and `phase`/`
 
 **End the turn only at a real hand-off.** A phase is complete only when its artifacts are written and `state` is advanced (`phases_completed` updated, `next_phase` set). Dispatched work — `Agent` calls and background Bash — returns its results **within the same headless turn**: the harness re-invokes you with each `<task-notification>` before the turn can end, so dispatch, overlap independent work, wait for the results, and finish the phase. Do not end the turn to "wait for" something you dispatched.
 
+**Background Bash alone cannot hold a headless session open.** Documented `-p` behavior: live subagents keep the process alive across turn ends and re-invoke on completion, but background Bash tasks are killed ~5s after the final result. A turn that ends while ONLY background Bash (codex/gemini/qwen, `cargo test`, …) is still running kills that work and strands the phase (2026-07-12: the review session died this way twice — codex killed mid-review, state untouched, loop halted). Whenever dispatched background Bash may outlive every live subagent, dispatch a **Watcher subagent** in the same message that re-runs `~/.claude/skills/review-work-completion/scripts/await_reviewer_outputs.py` against the expected output files until `DONE` (procedure: `/review-work-completion` step 5). The wrapper exports `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` so the subagent wait has no 10-minute ceiling; the session wall-clock cap stays the backstop.
+
 An idle end-of-turn (phase unfinished, nothing pending) no longer thrashes anything — the wrapper relaunches and the next session resumes the phase by artifact (self-healing) — but it burns a session start, so treat it as waste, not as a mechanism.
 
 For long **Bash** (builds, tests), still prefer the FOREGROUND with an explicit `timeout` (up to 600000 ms) so the result is in hand directly. If genuine work cannot finish in this session, that is a PAUSE (`phase: "paused"` + `state.pause_reason = {"site": "work_incomplete", "detail": "<what could not finish>"}` + end turn), not a silent idle stop.
@@ -160,7 +162,8 @@ The `autoclaude` wrapper exports `_AUTOPILOT_LOOP=$$` before launching each head
 ```bash
 while true; do
   [ -f dev/local/autopilot/pause-requested ] && break   # operator pause
-  WARDEN_UNATTENDED=1 claude -p "/run-autopilot" 2>&1 | tee dev/local/autopilot/last-session.log
+  WARDEN_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+    claude -p "/run-autopilot" 2>&1 | tee dev/local/autopilot/last-session.log
   # read state.json and branch per the decision table above (1-5)
 done
 ```
