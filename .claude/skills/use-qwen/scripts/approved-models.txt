@@ -1,0 +1,8 @@
+# Approved-models registry for qwen-run.sh --approved-only.
+# One model id per line. Lines starting with # and blank lines are ignored.
+# Approval is per exact id (quant-specific) - a new quant or checkpoint
+# needs its own eval before it's added here.
+
+# Qualified 2026-07-12: 6-task agentic eval, 5/6 sonnet-tier Rust tasks
+# passed, served via llama.cpp.
+unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M
