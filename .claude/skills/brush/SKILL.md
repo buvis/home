@@ -26,6 +26,9 @@ cleanup for a missing skill (especially purge-devlocal).
 - `assess-evolution` (phase 3), `review-prd-backlog` (phase 4),
   `manage-agents-md` (phase 5)
 - `survey` (phase 6) - Cartographer atlas refresh
+- Optional plugins: `ponytail:ponytail-debt` (phase 6),
+  `git-ferry:resolve-git-conflicts` (preflight pointer),
+  `git-ferry:review-deps-prs` (report pointer when dep PRs pile up)
 - Optional: `gh` (PR-merge proof; absent = gone-branch deletes demote to
   ASK unless the squash probe proves the merge), `~/.claude/hooks/notify.py`.
 
@@ -40,10 +43,13 @@ cleanup for a missing skill (especially purge-devlocal).
 ## Preflight
 
 1. Run `python3 ${CLAUDE_SKILL_DIR}/scripts/collect_facts.py --repo <cwd>`.
-2. STOP and say why if: JSON has `refusals` (bare repo, buvis home tree) or
-   `autopilot_live` is true (never brush mid-batch).
+2. STOP and say why if: JSON has `refusals` (bare repo, buvis home tree),
+   `autopilot_live` is true (never brush mid-batch), or `in_progress_op` is
+   set (mid rebase/merge/bisect: point at `git-ferry:resolve-git-conflicts`).
 3. Dirty tracked files are user WIP: never touch, never stash; list in report.
 4. Read `${CLAUDE_SKILL_DIR}/references/hygiene-rules.md` before phase 2.
+5. Repo-local extension: a `brush-local` project skill or an AGENTS.md
+   `Hygiene` section adds rules; it never overrides the safety matrix.
 
 ## Phases
 
@@ -60,8 +66,9 @@ cleanup for a missing skill (especially purge-devlocal).
    catchup already ran this session.
 4. **Backlog** (full only): run the `review-prd-backlog` skill.
 5. **Instructions** (full only): run the `manage-agents-md` skill.
-6. **Atlas** (full only): run the `survey` skill so the Cartographer atlas
-   is refreshed while repo context is loaded.
+6. **Atlas + debt** (full only): run the `survey` skill so the Cartographer
+   atlas is refreshed while repo context is loaded; then run
+   `ponytail:ponytail-debt` and link its ledger (skip if plugin absent).
 7. **Report + handoff**: write `dev/local/brush-report.md` per
    `${CLAUDE_SKILL_DIR}/references/report-template.md`.
 
