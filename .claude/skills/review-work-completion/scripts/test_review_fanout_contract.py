@@ -201,6 +201,80 @@ class ReviewFanoutContractTests(unittest.TestCase):
             f"the then clause must require `proof`, got {required}",
         )
 
+    # ---- evidence/proof must be non-blank, not merely present ----
+
+    def test_schema_rejects_blank_evidence(self) -> None:
+        # PRD: "blockers cannot arrive unsupported; validation and retry happen
+        # at the tool layer." That applies to EVERY finding, not just
+        # CRITICAL/HIGH: `evidence: ""` is not evidence. FINDINGS_SCHEMA today has
+        # no `minLength` on evidence, so the empty string validates.
+        match = re.search(r"evidence:\s*\{([^}]*)\}", self.findings_schema)
+        self.assertIsNotNone(
+            match,
+            "could not locate the findings.evidence property definition in FINDINGS_SCHEMA",
+        )
+        body = match.group(1)
+        min_length_match = re.search(r"minLength:\s*(\d+)", body)
+        self.assertIsNotNone(
+            min_length_match,
+            "findings.evidence has no minLength, so evidence: \"\" satisfies the "
+            f"schema at the tool layer; property body: {body!r}",
+        )
+        self.assertGreaterEqual(
+            int(min_length_match.group(1)),
+            1,
+            "findings.evidence minLength must be >= 1 to reject the empty string, "
+            f"got minLength: {min_length_match.group(1)}",
+        )
+
+    def test_schema_rejects_blank_and_whitespace_only_proof_on_blockers(self) -> None:
+        # PRD: "every CHANGES_REQUESTED finding carries evidence and proof." A
+        # CRITICAL/HIGH finding with an empty or whitespace-only proof is an
+        # unsupported blocker. `then: { required: ["proof"] }` alone is satisfied
+        # by both proof: "" and proof: "   ", so the schema must also constrain
+        # proof's CONTENT, not merely its presence. Interpret the schema's own
+        # constraint as a regex and prove it rejects blank/whitespace and still
+        # accepts real proof text -- that pins the requirement, not one specific
+        # spelling of it.
+        proof_bodies = re.findall(r"proof:\s*\{([^}]*)\}", self.findings_schema)
+        self.assertTrue(
+            proof_bodies,
+            "could not locate any findings.proof property definition in FINDINGS_SCHEMA",
+        )
+
+        raw_pattern = None
+        for body in proof_bodies:
+            found = re.search(r'pattern:\s*"((?:[^"\\]|\\.)*)"', body)
+            if found:
+                raw_pattern = found.group(1)
+                break
+
+        self.assertIsNotNone(
+            raw_pattern,
+            "no findings.proof property definition carries a `pattern`, so proof "
+            'accepts "" and "   " even though `required: ["proof"]` is set on '
+            f"CRITICAL/HIGH; proof property bodies found: {proof_bodies!r}",
+        )
+
+        try:
+            js_regex = raw_pattern.encode("utf-8").decode("unicode_escape")
+            compiled = re.compile(js_regex)
+        except (UnicodeDecodeError, re.error) as exc:
+            self.fail(f"findings.proof pattern {raw_pattern!r} is not a usable regex: {exc}")
+
+        self.assertIsNone(
+            compiled.search(""),
+            f"findings.proof pattern {raw_pattern!r} must reject the empty string",
+        )
+        self.assertIsNone(
+            compiled.search("   "),
+            f"findings.proof pattern {raw_pattern!r} must reject a whitespace-only proof",
+        )
+        self.assertIsNotNone(
+            compiled.search("because the null check on line 42 is missing"),
+            f"findings.proof pattern {raw_pattern!r} must still accept real proof text",
+        )
+
     def test_verify_cap_and_max_diff_bytes_are_constants(self) -> None:
         self.assertRegex(self.js, r"(?m)^const MAX_DIFF_BYTES\s*=\s*\d+;")
         self.assertRegex(self.js, r"(?m)^const VERIFY_CAP\s*=\s*\d+;")
