@@ -79,6 +79,21 @@ assert.match(prTodos.find((t) => t.id === 'o/r:issue:#6').action, /engaged issue
 assert.match(prTodos.find((t) => t.id === 'o/r:issue:triage').action, /Triage 1 open issue/) // #7 only
 assert.match(prTodos.find((t) => t.kind === 'release').action, /CHANGELOG entries/)
 
+// --- brush cadence: nag at >=30d or never; id rolls with the last-run date ---
+const brushTodo = todos.find((t) => t.kind === 'brush') // base repo has no brush_last_run
+assert.equal(brushTodo.id, 'o/r:brush:never')
+assert.equal(brushTodo.agent, '/brush')
+assert.equal(quadrant(brushTodo), 'delegate')
+assert.match(attention(repo).reasons.map((x) => x.text).join(' | '), /never brushed/)
+const brushed45 = { ...repo, brush_last_run: day(45) }
+assert.match(todosFor([brushed45]).find((t) => t.kind === 'brush').why, /45d ago/)
+assert.equal(todosFor([brushed45]).find((t) => t.kind === 'brush').id, `o/r:brush:${day(45)}`)
+assert.match(attention(brushed45).reasons.map((x) => x.text).join(' | '), /brush overdue \(45d ago\)/)
+assert(todosFor([{ ...repo, brush_last_run: day(30) }]).some((t) => t.kind === 'brush')) // boundary: due at 30
+const freshBrush = { ...repo, brush_last_run: day(10) }
+assert.equal(todosFor([freshBrush]).find((t) => t.kind === 'brush'), undefined)
+assert(!attention(freshBrush).reasons.some((x) => /brush/.test(x.text)))
+
 // --- external PRs (outside the portfolio) ---
 const ext = externalTodos({
   review_requested: [{ repo: 'a/b', number: 9, title: 'T', created: '2026-07-01', url: 'u' }],
