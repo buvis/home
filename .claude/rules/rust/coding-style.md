@@ -16,7 +16,6 @@ paths:
 Rust variables are immutable by default - embrace this:
 
 - Use `let` by default; only `let mut` when mutation is required
-- Prefer returning new values over mutating in place
 - Use `Cow<'_, T>` when a function may or may not need to allocate
 
 ```rust
