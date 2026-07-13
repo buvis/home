@@ -9,6 +9,19 @@ Dispatch a review agent that receives ONLY the original spec. A reviewer who kno
 
 **Announce at start:** "I'm using the blind-review skill to validate this implementation against the spec."
 
+## Dependencies
+
+- Personal skills: `use-sonnet` - the reviewer itself runs via
+  `~/.claude/skills/use-sonnet/scripts/sonnet-run.sh` (and the `claude` CLI it
+  wraps)
+- Files read from other skill dirs:
+  `~/.claude/skills/review-work-completion/scripts/check_review_file.py` - hard
+  gate, a non-zero exit fails the review
+- Own reference inlined into the reviewer prompt: `references/rubric.md`
+- CLIs: `python3`, `timeout` (GNU coreutils; absent on stock macOS)
+- The aegis plugin hook blocks shell redirects into `dev/local/` - write review
+  files with the Write tool
+
 ## The Process
 
 ### Step 1: Gather the Spec and Rubric

@@ -9,6 +9,17 @@ Report on atlas coverage, freshness, and content quality across
 `~/.claude/cartographer/projects/`. The aggregation is deterministic, so a
 script computes it (PRD 00046) — never scan the atlas files in-model.
 
+## Dependencies
+
+- Skill: `survey` - produces the atlases audited here, and is the remediation
+  every finding points at.
+- Paths: `~/.claude/cartographer/projects/<hash>/atlas.json` (written by
+  `survey` plus the cartographer hooks), `~/.claude/instincts/projects.json`
+  (recent-activity cross-reference).
+- CLI: `python3`.
+- No atlas store yet = zero counts, which is the `LOW: no atlases found`
+  finding, not an error.
+
 ## Step 1: Run the report script
 
 ```bash

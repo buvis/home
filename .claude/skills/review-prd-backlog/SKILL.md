@@ -12,6 +12,12 @@ Review the PRD backlog before `/run-autopilot` drains it unattended. Two levels:
 
 **What this is NOT:** not a requirements review (`review-discovery-doc` did that upstream - do not re-litigate the WHAT), not a design review (the HOW is designed and reviewed inside autopilot Phase 1.5), not a code review. It never implements anything and never invents requirements the pipeline did not produce.
 
+## Dependencies
+
+- Personal skills (files read at runtime): `create-prd` (`SKILL.md` plus its `assets/` templates, the law for lens A), `plan-tasks` (`SKILL.md` steps 4-4.7, the budget and tier questions)
+- CLI: `rg` (lens D verifies grounding claims against the repo, never trusts them)
+- Optional: `assess-evolution` (recommended in the report, never invoked)
+
 ## Inputs
 
 Default target: `dev/local/prds/backlog/` in the current repo. An argument may override the directory. If the directory is missing or empty, say so and stop ("nothing to review; create PRDs with /create-prd"). If the user asked for "report only", skip the interactive resolution (step 8).

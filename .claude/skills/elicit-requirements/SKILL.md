@@ -10,6 +10,12 @@ Turn a rough idea into a validated discovery document that `/create-prd` can con
 
 **Pipeline position:** rough idea -> `/elicit-requirements` -> `/review-discovery-doc` -> `/create-prd` -> `/plan-tasks` -> `/run-autopilot`
 
+## Dependencies
+
+- Personal skills: `spike` (the spike fork runs the spike loop on a second non-answer)
+- Harness tool: `AskUserQuestion`
+- Optional pointers, suggested to the user but never invoked here: `review-discovery-doc`, `create-prd`
+
 ## Workflow
 
 ### 1. Accept Input

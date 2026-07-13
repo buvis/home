@@ -10,6 +10,22 @@ Orchestrate the full PRD lifecycle: catchup → design → plan-tasks → work �
 
 Makes autonomous decisions backed by research (dependencies, recurring issues, API/schema changes when PRD-driven) and pauses only for critical security, requirements ambiguity, or blocking decisions.
 
+## Dependencies
+
+- Personal skills (invoked as phases): `design-solution`, `plan-tasks`, `work`,
+  `review-work-completion`
+- Plugin skills: `git-ferry:catchup` (Phase 1, unless the PRD sets `catchup: skip`)
+- Files read from other skill dirs:
+  `~/.claude/skills/review-work-completion/scripts/await_reviewer_outputs.py`
+  (Watcher keep-alive)
+- Hooks outside the skill dir: `~/.claude/hooks/notify.py`;
+  `update-pidash-tasks.py` (PostToolUse hook registered in settings.json - the
+  SOLE maintainer of `tasks_total`/`tasks_completed`); `clear-pidash-attention.py`
+- Shell wrapper outside `~/.claude`: `autoclaude` in
+  `~/.config/bash/plugins/development.plugin.bash` - the unattended session loop
+- CLIs: `claude` (headless `-p`), `python3`, `git`, `awk`
+- Optional: `pidash` (buvis-gems) - dashboard only, absence changes nothing
+
 ## Execution Model
 
 **Run all phases in sequence without stopping.** After each phase completes, immediately update state and proceed to the next phase. Do not pause between phases, do not summarize progress, do not wait for user input - unless the phase explicitly says PAUSE or STOP. Completing a sub-skill invocation (`/catchup`, `/plan-tasks`, `/work`, `/review-work-completion`, etc.) is NOT a stopping point. It is an intermediate step. Continue.

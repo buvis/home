@@ -7,6 +7,13 @@ description: Use when breaking a PRD into granular, sequenced implementation tas
 
 Create implementation tasks from PRD documents.
 
+## Dependencies
+
+- Personal skills (files read at runtime): `work` - its `SKILL.md` "Gemini-first tasks" list is the single source of truth for the UI/backend split that sets `qwen_eligible`, and `references/qwen-integration.md` carries the qwen infra preflight (absent: qwen counts as unavailable and the eligibility trigger is skipped)
+- Harness tools: `TaskCreate`, `TaskUpdate`, `TaskList`
+- State contract with `run-autopilot`: `dev/local/autopilot/state.json`, `dev/local/autopilot/replan-context.md`
+- Optional: `pi` binary plus a reachable llama.cpp endpoint (gated by the preflight, never fatal)
+
 ## Workflow
 
 ### 1. List available PRDs

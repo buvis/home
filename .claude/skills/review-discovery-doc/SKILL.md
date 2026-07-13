@@ -14,6 +14,11 @@ Critical, finding-by-finding review of a feature discovery document produced by 
 
 **Shared core**: the interactive-review machinery - finding-card format, three-resolution-options discipline, option picker ordering, ground rules (critical subset), comprehension/confusion-notes pass, success criteria, session-safety core - lives in `~/.claude/skills/review-design-doc/references/interactive-review.md` (absolute path, shared with `review-design-doc`). Read it before generating findings. This skill's divergences from the shared core: **batch apply** (edits land in one pass at the end - Workflow step 6; Session safety) and the discovery card shape (Finding card format below).
 
+## Dependencies
+
+- Personal skills (files read at runtime): `review-design-doc` (`references/interactive-review.md`, the shared interactive-review core; mandatory read before generating findings)
+- Harness tool: `AskUserQuestion`
+
 ## Inputs
 
 **Required** - the discovery document path (absolute path to the markdown file under `dev/local/discovery/`).

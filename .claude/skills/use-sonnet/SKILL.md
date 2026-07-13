@@ -7,6 +7,13 @@ description: Use when running Anthropic Claude Sonnet via the native claude CLI 
 
 Sonnet is accessed via the native `claude` CLI (headless `-p`). The helper script defaults to the `sonnet` alias (latest base Sonnet) and exposes `-m/--model` for explicit overrides. This uses your Claude quota, not Copilot credits - never route Sonnet (or any model Claude already provides) through `copilot`.
 
+## Dependencies
+
+- Files read from other skill dirs:
+  `~/.claude/skills/use-codex/references/dispatch-contract.md` - mandatory,
+  applies verbatim (see below)
+- CLIs: `claude` (native, headless `-p`); `mise` for resolution
+
 ## Dispatch Contract (shared)
 
 Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill.

@@ -9,6 +9,16 @@ Qwen runs locally through the `pi` coding agent against a llama.cpp-served model
 
 > **Do not use Ollama for this.** Ollama's `qwen3coder` tool-call XML parser mangles large edit payloads, so agentic edits abort with no result. Serve the model with llama.cpp (`--jinja`, grammar-based tool-call parsing). LlamaBarn is a convenient llama.cpp manager.
 
+## Dependencies
+
+- Files read from other skill dirs:
+  `~/.claude/skills/use-codex/references/dispatch-contract.md` - mandatory,
+  applies verbatim (see below)
+- CLIs: the `pi` agent, plus `jq` and `curl` - hard-required, the helper exits 1
+  without them; `mise` for resolution
+- External service: a running llama.cpp server started with `--jinja`, and
+  `~/.pi/agent/models.json` defining the `llamacpp` provider (see Prerequisites)
+
 ## Dispatch Contract (shared)
 
 Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill (local inference is slow, so the background-dispatch guidance matters even more here).

@@ -15,6 +15,22 @@ Validates completed implementation work against PRD requirements using independe
 > before suggesting changes. This doesn't apply to skill users, as it doesn't add any useful information
 > to perform the skill.
 
+## Dependencies
+
+Step 1 (Validate prerequisites) owns the reviewer-CLI checks and their
+degradation rules - see it, this list does not repeat them. What step 1 does
+not name:
+
+- Personal skills: `use-codex` (hard - `scripts/codex-run.sh`, STOP if missing)
+- Files read from other skill dirs:
+  - `~/.claude/skills/run-autopilot/prompts/doubt-review.md` - the doubt-lens
+    prompt carried by Bob (and Eve)
+  - `~/.claude/skills/review-blindly/references/rubric.md` - inlined into
+    Blake's blind prompt
+- CLIs: `python3`, `git`
+- Optional (graceful degradation, detailed in step 1): `use-gemini`, `use-qwen`,
+  `git-ferry:catchup`
+
 ## Reviewers
 
 Every review cycle runs all lenses (PRD 00015) — consensus, blind, and doubt

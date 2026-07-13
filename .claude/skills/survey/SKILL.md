@@ -16,6 +16,15 @@ The atlas lives at `~/.claude/cartographer/projects/<hash>/`:
 - `atlas.md` — human-readable 2-5KB summary.
 - `staleness.flag` — empty marker; present means the atlas has drifted.
 
+## Dependencies
+
+- Path: `~/.claude/hooks/_lib_cartographer.py` - hard import in `scripts/run.py`
+  (project hash, tree-sitter access, audit append). Missing = the skill cannot run.
+- Path: `~/.claude/cartographer/projects/<hash>/` - the atlas store it writes.
+- CLI: `python3`.
+- Optional: `git` (staleness config and `head_sha`; absent = neither recorded),
+  tree-sitter (absent = regex fallback and the atlas is marked `degraded`).
+
 ## Arguments
 
 - *(no argument)* — No-op if `atlas.json` exists and `staleness.flag` is absent

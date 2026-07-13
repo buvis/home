@@ -14,6 +14,15 @@ stable flag interface onto two backends and resolves the mise-managed binary.
 > `GEMINI_BACKEND=copilot` or `GEMINI_BACKEND=gemini`. Both CLIs are
 > mise-managed and may not be on PATH; the helper resolves them via `mise which`.
 
+## Dependencies
+
+- Files read from other skill dirs:
+  `~/.claude/skills/use-codex/references/dispatch-contract.md` - mandatory,
+  applies verbatim (see below)
+- CLIs: `copilot` (preferred - the only backend serving
+  `gemini-3.1-pro-preview`) or the native `gemini` CLI; `mise which` for
+  resolution of either
+
 ## Dispatch Contract (shared)
 
 Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill.
