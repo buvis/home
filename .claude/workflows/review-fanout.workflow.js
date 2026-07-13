@@ -51,10 +51,21 @@ function dedupKey(f) {
 const rank = (severity) => (severity in SEVERITY_RANK ? SEVERITY_RANK[severity] : 4);
 const textLen = (s) => (typeof s === "string" ? s.trim().length : 0);
 
+/** The tool hands `args` through as a JSON string when the caller stringified it. */
+function coerceArgs(a) {
+  if (typeof a !== "string") return a;
+  try {
+    return JSON.parse(a);
+  } catch {
+    throw new Error("INVALID_ARGS: args arrived as a string that is not JSON");
+  }
+}
+
 function validateArgs(a) {
   const bad = (why) => {
     throw new Error(`INVALID_ARGS: ${why}`);
   };
+  if (a === null || typeof a !== "object") bad("args must be an object");
   if (typeof a.diff !== "string" || a.diff.trim() === "") bad("diff is required and must be a non-empty unified diff");
   if (a.diff.length > MAX_DIFF_BYTES) bad(`diff is longer than MAX_DIFF_BYTES (${MAX_DIFF_BYTES}); the caller must truncate it`);
   if (typeof a.rubric_text !== "string" || a.rubric_text.trim() === "") bad("rubric_text is required");
@@ -352,23 +363,24 @@ const DIMENSIONS = [
   },
 ];
 
-validateArgs(args);
+const input = coerceArgs(args);
+validateArgs(input);
 
-const agentName = args.agent_name || "ALICE";
-const cycle = args.cycle || 1;
-const diffTruncated = args.diff_bytes > args.diff.length;
-const prdId = args.prd_path ? (args.prd_path.match(/(\d{5})/) || [, args.prd_path])[1] : "";
+const agentName = input.agent_name || "ALICE";
+const cycle = input.cycle || 1;
+const diffTruncated = input.diff_bytes > input.diff.length;
+const prdId = input.prd_path ? (input.prd_path.match(/(\d{5})/) || [, input.prd_path])[1] : "";
 
 const context = [
   "## Diff under review",
   "```diff",
-  args.diff,
+  input.diff,
   "```",
-  args.prd_text ? `## Requirements (PRD)\n\n${args.prd_text}` : "",
-  args.diff_path
-    ? `The diff above is TRUNCATED. Read the full diff at ${args.diff_path} before you judge anything.`
+  input.prd_text ? `## Requirements (PRD)\n\n${input.prd_text}` : "",
+  input.diff_path
+    ? `The diff above is TRUNCATED. Read the full diff at ${input.diff_path} before you judge anything.`
     : "",
-  args.context_path ? `Further context for this change: read ${args.context_path}.` : "",
+  input.context_path ? `Further context for this change: read ${input.context_path}.` : "",
 ]
   .filter(Boolean)
   .join("\n\n");
@@ -399,7 +411,7 @@ const rubricPrompt = [
   "",
   "## Rubric",
   "",
-  args.rubric_text,
+  input.rubric_text,
   "",
   context,
 ].join("\n");
@@ -424,7 +436,7 @@ const skepticPrompt = (f) =>
 
 phase("Review");
 
-const armed = securityTriggered(args.diff, args.changed_files);
+const armed = securityTriggered(input.diff, input.changed_files);
 const dims = DIMENSIONS.filter((d) => d.name !== "security" || armed);
 log(`review-fanout: ${dims.length} finding dimensions + rubric${armed ? " (security armed)" : ""}`);
 
@@ -480,7 +492,7 @@ const stats = {
   refuted: verified.refuted,
   demoted: demoted.demoted,
   unverified: verified.unverified,
-  diff_bytes: args.diff_bytes,
+  diff_bytes: input.diff_bytes,
   diff_truncated: diffTruncated,
 };
 const statsLine =
@@ -503,9 +515,9 @@ const agent_output = renderAgentOutput(state);
 const review_markdown = renderReviewMarkdown(state, {
   prd: prdId,
   review: cycle,
-  date: args.date,
-  head_sha: args.head_sha,
-  tests_line: args.tests_line,
+  date: input.date,
+  head_sha: input.head_sha,
+  tests_line: input.tests_line,
 });
 
 log(
