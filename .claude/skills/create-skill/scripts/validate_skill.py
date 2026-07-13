@@ -178,7 +178,9 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
     body = content[match.end():].strip()
     if not body:
         warnings.append("SKILL.md body is empty - add instructions")
-    elif "TODO" in body:
+    elif re.search(r"^TODO:", body, re.MULTILINE):
+        # Match the template's leftover line (init_skill.py), not prose that
+        # merely names TODO as a marker (create-prd's guess-density gate does).
         warnings.append("SKILL.md body still contains TODO placeholders")
 
     # Check line count
