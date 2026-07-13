@@ -1,6 +1,6 @@
 ---
 name: manage-agents-md
-description: Use when creating, auditing, or improving an AGENTS.md file, or promoting project memories into it (progressive disclosure, context budgeting). Triggers on "AGENTS.md", "audit AGENTS.md", "promote memories", "memories to AGENTS.md".
+description: Use when creating, auditing, or improving an AGENTS.md file, or promoting project memories into it (progressive disclosure, context budgeting). Triggers on "agents.md", "AGENTS.md", "audit AGENTS.md", "promote memories", "memories to AGENTS.md".
 ---
 
 # manage-agents-md
