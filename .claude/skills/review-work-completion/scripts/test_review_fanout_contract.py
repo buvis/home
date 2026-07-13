@@ -10,12 +10,12 @@ shipped verdict to the pure `decideVerdict` function.
 
 Text-pinning only: this test reads the .js file as TEXT and asserts on its
 source. It does NOT execute JavaScript. Runtime semantics (dedup, demotion,
-verification, rendering) are covered by the sibling behavioral test
-`workflows/test_review_fanout.mjs`, which extracts the region between the
-pure-region markers and runs it in node:vm -- that is exactly why the
-marker test here matters: deleting or renaming a marker must fail LOUDLY
-in this file rather than making the behavioral test silently extract
-nothing.
+verification, rendering) are covered by the sibling behavioral suite
+`workflows/*.test.mjs` (shared harness in `workflows/_harness.mjs`), which
+extracts the region between the pure-region markers and runs it in
+node:vm -- that is exactly why the marker test here matters: deleting or
+renaming a marker must fail LOUDLY in this file rather than making the
+behavioral suite silently extract nothing.
 
 That same split is the behavioral suite's blind spot, and the reason for
 the verdict tests below. The .mjs harness can only reach the PURE region;
@@ -238,7 +238,7 @@ class ReviewFanoutContractTests(unittest.TestCase):
                 self.pure_region,
             ),
             "decideVerdict must be DEFINED between the pure-region markers, or the function "
-            "the engine calls is not the function test_review_fanout.mjs proves correct",
+            "the engine calls is not the function the workflows/*.test.mjs suite proves correct",
         )
 
     def test_engine_verdict_comes_from_decide_verdict_not_an_inline_ternary(self) -> None:
