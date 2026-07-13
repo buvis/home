@@ -1,7 +1,7 @@
 // Tests for renderAgentOutput in review-fanout.workflow.js: finding lines,
 // markers, sanitization (cell), the File cell, and injection safety.
 //
-// Run the whole suite: node --test /Users/bob/.claude/workflows/
+// Run the whole suite: node --test /Users/bob/.claude/workflows/*.test.mjs
 
 import test from "node:test";
 import assert from "node:assert/strict";

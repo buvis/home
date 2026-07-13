@@ -1,7 +1,7 @@
 // Tests for renderReviewMarkdown (frontmatter, verdict, findings counts) and
 // decideVerdict in review-fanout.workflow.js.
 //
-// Run the whole suite: node --test /Users/bob/.claude/workflows/
+// Run the whole suite: node --test /Users/bob/.claude/workflows/*.test.mjs
 
 import test from "node:test";
 import assert from "node:assert/strict";

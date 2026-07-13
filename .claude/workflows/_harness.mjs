@@ -8,7 +8,7 @@
 // This module has no test() calls, so `node --test` does not pick it up on
 // its own -- it is imported by the *.test.mjs files in this directory.
 //
-// Run the whole suite: node --test /Users/bob/.claude/workflows/
+// Run the whole suite: node --test /Users/bob/.claude/workflows/*.test.mjs
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
