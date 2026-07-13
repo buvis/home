@@ -200,14 +200,11 @@ function aggregateRubric(verdicts) {
   });
 }
 
-/** Nothing disproved an over-cap finding, so it stays a potential blocker and says so.
- *  `isAdvisory` marks a non-blocking line so a reader (or the consolidation script, which
- *  parses every parseable line) cannot mistake it for a blocking finding. */
-function marker(f, isAdvisory) {
+/** Nothing disproved an over-cap finding, so it stays a potential blocker and says so. */
+function marker(f) {
   if (f.demoted) return " (demoted: no proof)";
   if (f.verified === "unverified") return " (unverified: verify cap)";
   if (f.verified === "verifier_failed") return " (verifier: no usable verdict)";
-  if (isAdvisory) return " (advisory: does not block)";
   return "";
 }
 
@@ -227,6 +224,7 @@ function decideVerdict({ blocking, incomplete, unverified }) {
 function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, rubric, statsLine }) {
   const parseable = [];
   const refutedNotes = [];
+  const advisoryNotes = [];
 
   for (const dim of failedDimensions) {
     parseable.push(
@@ -237,8 +235,14 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
   for (const f of advisory) {
     if (f.verified === "refuted") {
       refutedNotes.push(`- refuted: ${cell(f.title)} - ${cell(f.refutation)}`);
-    } else {
+    } else if (f.verified === "unverified") {
+      // A cap-overflowed finding is never disproven, so it stays a potential
+      // blocker and keeps the parseable shape (see the "unverified" branch of marker()).
       parseable.push(findingLine(agentName, f, true));
+    } else {
+      // MEDIUM/LOW passthrough and demoted findings: advisory, so a note, never a
+      // parseable line. marker() still carries the demoted text onto the note.
+      advisoryNotes.push(`- ${cell(f.title)}${marker(f)}`);
     }
   }
   if (parseable.length === 0) parseable.push(`[${agentName}] ✅ No issues found`);
@@ -246,6 +250,9 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
   const sections = [parseable.join("\n")];
   if (refutedNotes.length > 0) {
     sections.push(["### Refuted (adversarially verified, not blocking)", "", ...refutedNotes].join("\n"));
+  }
+  if (advisoryNotes.length > 0) {
+    sections.push(["### Advisory (does not block)", "", ...advisoryNotes].join("\n"));
   }
   sections.push(["### Rubric", "", ...rubric.map((e) => `${e.rule_id}: ${e.verdict}`)].join("\n"));
 
