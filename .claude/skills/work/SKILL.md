@@ -295,8 +295,8 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 | Result | Action |
 |--------|--------|
 | Success | Continue to step 5. |
-| Timeout | Append attempt-log entry (`outcome: "aborted"`, `cause: "timeout"`). Split task (see below), mark original as blocked. |
-| Context exceeded | Append attempt-log entry (`outcome: "aborted"`, `cause: "context_overrun"`). Split task, mark original as blocked. |
+| Timeout | Append attempt-log entry (`outcome: "aborted"`, `cause: "timeout"`). Split task per `references/task-splitting.md`, mark original as blocked. |
+| Context exceeded | Append attempt-log entry (`outcome: "aborted"`, `cause: "context_overrun"`). Split task per `references/task-splitting.md`, mark original as blocked. |
 | Error | Invoke systematic-debugging if available (step 4.5). On unrecoverable error, append attempt-log entry (`outcome: "aborted"`, `cause: "error"`). Report to user. |
 | Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — apply the **infrastructure-failure circuit breaker** (step 4.2). |
 
@@ -460,38 +460,6 @@ Only stop the work phase once step 7 is fully green.
 
 When reporting the phase result, include the contents of `dev/local/assumptions.md` (if present) - the assumption ledger is input to the review phase and the user's 30-second examine pass.
 
-## Task Splitting
-
-**Note:** With 1M context, context-exceeded failures are rare. Split primarily for timeout or task complexity, not context limits.
-
-When a tool can't complete a task (timeout/complexity), split it:
-
-1. Analyze what was accomplished
-2. Create 2-4 smaller tasks covering remaining work
-3. Use `TaskCreate` for each subtask
-4. Set dependencies with `TaskUpdate.addBlockedBy` if sequential
-5. Mark original task as blocked or completed (if partially done)
-
-### Split criteria
-
-| Original scope | Split into |
-|----------------|------------|
-| Multiple files | One task per file |
-| Multiple features | One task per feature |
-| Large refactor | Extract → transform → cleanup |
-| Full-stack feature | Backend task (qwen or Claude per the routing table) → Frontend task (Gemini) |
-
-### Parallel dispatch for independent rework fixes
-
-If `superpowers:dispatching-parallel-agents` is in the available skills list and the current batch contains 2+ tasks that:
-- Touch completely different files (no overlap)
-- Have no `blockedBy` dependencies on each other
-- Are all tagged `[C{n}]` or `[D{n}]` (rework tasks, not original plan tasks)
-
-Then dispatch them in parallel using the dispatching-parallel-agents pattern, **with at most 2 agents in flight at once**. Parallel agents share one working tree — one `cargo` target dir and one build lock — so their compiles serialize on that lock, but each `cargo` invocation still spawns a full `rustc` fleet. Bounding that fleet is what keeps RAM safe: rely on the global `~/.cargo/config.toml` `[build] jobs` cap and **never raise `CARGO_BUILD_JOBS`, pass `--jobs`, or run a full-workspace `cargo build` / `cargo test --workspace` / `clippy` inside a parallel agent** (per-task verify in step 5.5 is single-crate; the full suite runs once in step 7). An uncapped fan-out once locked the whole machine (`references/design-rationale.md` § parallel rework cap).
-
-**Never parallelize original plan tasks** - the one-at-a-time rule remains for all non-rework tasks due to pidash sync requirements.
-
 ## Reference Files
 
 - `references/test-author-prompt.md` - Test author (Tess) prompt template
@@ -502,6 +470,7 @@ Then dispatch them in parallel using the dispatching-parallel-agents pattern, **
 - `references/code-quality-principles.md` - Think/Simplicity/Surgical/Goal-driven rules to inject into Ivan prompts
 - `references/code-quality-examples.md` - Before/after examples of the anti-patterns those rules prevent
 - `references/subagent-dispatch.md` - Dispatch Budget + Watchdog: how to safely make an Agent call
+- `references/task-splitting.md` - Splitting a timed-out or oversized task, plus the parallel-rework cap
 - `references/attempt-logging.md` - `state.tasks[].attempts[]` entry schema and write procedure
 - `references/self-deslop-prompt.md` - Step 5.6 prompt template (placeholders + `{{slop_catalog}}` substitution)
 - `references/simplification-mandate.md` - Step 5.7 reviewer-prompt appendix (append verbatim)
