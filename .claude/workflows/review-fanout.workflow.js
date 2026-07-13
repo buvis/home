@@ -20,9 +20,12 @@ const SEVERITY_RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
 // Matched against camel-split, lowercased text (see securityish), so `authToken`
 // hits both terms while `execute` and `hashmap` hit none. The trailing `s?`
-// admits plurals (`secrets.yml`).
+// admits plurals (`secrets.yml`). The auth-adjacent terms (authenticat, authoriz,
+// permission, login, forbidden, acl) match as open-ended stems on the right, on
+// purpose: a renamed guard (isAuthenticated, hasPermission, login_required) must
+// still arm even though it never contains the bare word `auth`.
 const SECURITY_RE =
-  /(?<![a-z0-9])(?:exec|eval|auth|token|password|secret|sql|crypto|hash|credential|session|cookie|csrf|xss|jwt|sanitize|injection|privilege)s?(?![a-z0-9])/;
+  /(?<![a-z0-9])(?:(?:exec|eval|auth|token|password|secret|sql|crypto|hash|credential|session|cookie|csrf|xss|jwt|sanitize|injection|privilege)s?(?![a-z0-9])|authenticat|authoriz|permission|login|forbidden|acl)/;
 
 /** One sanitized table cell: no pipes, no newlines, trimmed, length-capped. */
 function cell(value) {
@@ -87,14 +90,25 @@ function securityish(text) {
 }
 
 /** Security arms on what the diff ADDED or REMOVED, or on a security-ish changed path: a
- *  guard disappearing is at least as strong a signal as one appearing. */
+ *  guard disappearing is at least as strong a signal as one appearing. A real file header
+ *  (`--- a/path` / `+++ b/path`) only ever shows up as an adjacent pair; a removed content
+ *  line that merely starts with the same `--` prefix (a dropped flag, a SQL comment) has no
+ *  such partner, so it is scanned like any other removed line instead of being skipped. */
 function securityTriggered(diff, changedFiles) {
   for (const path of changedFiles || []) {
     if (securityish(path)) return true;
   }
-  for (const line of String(diff || "").split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++") && securityish(line)) return true;
-    if (line.startsWith("-") && !line.startsWith("---") && securityish(line)) return true;
+  const lines = String(diff || "").split("\n");
+  const isDashHeader = (l) => typeof l === "string" && /^---(?:\s|$)/.test(l);
+  const isPlusHeader = (l) => typeof l === "string" && /^\+\+\+(?:\s|$)/.test(l);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isHeader =
+      (isDashHeader(line) && isPlusHeader(lines[i + 1])) ||
+      (isPlusHeader(line) && isDashHeader(lines[i - 1]));
+    if (isHeader) continue;
+    if (line.startsWith("+") && securityish(line)) return true;
+    if (line.startsWith("-") && securityish(line)) return true;
   }
   return false;
 }
