@@ -1,6 +1,6 @@
 ---
 name: manage-agents-md
-description: Use when creating, auditing, or improving an AGENTS.md file for AI coding agents (progressive disclosure, context window budgeting). Triggers on "agents.md", "AGENTS.md", "create AGENTS.md", "audit AGENTS.md", "improve AGENTS.md".
+description: Use when creating, auditing, or improving an AGENTS.md file, or promoting project memories into it (progressive disclosure, context budgeting). Triggers on "AGENTS.md", "audit AGENTS.md", "promote memories", "memories to AGENTS.md".
 ---
 
 # manage-agents-md
@@ -60,6 +60,13 @@ Full and minimal AGENTS.md structures live in `references/template.md`.
 5. **Extract conditionals** - Move to agent_docs/
 6. **Validate** - Run checklist from `references/checklist.md`
 
+## Promoting Project Memories
+
+Migrate durable, public, repo-relevant facts from the project auto-memory
+into AGENTS.md, prune the rest, and delete what was promoted. Rubric and
+flow (classification, mandatory user confirmation before deletion, budget
+rules) live in `references/promote-memories.md`.
+
 ## Integrations
 
 - **Formatting/linting**: configure pre-commit hooks instead of writing style
@@ -72,3 +79,4 @@ Full and minimal AGENTS.md structures live in `references/template.md`.
 - `references/template.md` - Complete AGENTS.md template with examples
 - `references/checklist.md` - Validation checklist, exclusion list, anti-patterns
 - `references/progressive-disclosure.md` - Guide for organizing agent_docs/
+- `references/promote-memories.md` - Memory→AGENTS.md promotion rubric and flow
