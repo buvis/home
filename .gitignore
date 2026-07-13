@@ -16,6 +16,8 @@
 .claude/skills/**/dev/
 .claude/skills/**/node_modules/
 .claude/skills/brief-portfolio/app/dist/
+!.claude/workflows/
+!.claude/workflows/**
 .claude/dev/local/
 !.claude/cartographer/
 !.claude/cartographer/scripts/
