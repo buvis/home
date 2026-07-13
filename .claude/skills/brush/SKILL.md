@@ -26,8 +26,7 @@ cleanup for a missing skill (especially purge-devlocal).
 - `assess-evolution` (phase 3), `review-prd-backlog` (phase 4),
   `manage-agents-md` (phase 5)
 - `survey` (phase 6) - Cartographer atlas refresh
-- Optional plugins: `ponytail:ponytail-debt` (phase 6),
-  `git-ferry:resolve-git-conflicts` (preflight pointer),
+- Optional plugins: `git-ferry:resolve-git-conflicts` (preflight pointer),
   `git-ferry:review-deps-prs` (report pointer when dep PRs pile up)
 - Optional: `gh` (PR-merge proof; absent = gone-branch deletes demote to
   ASK unless the squash probe proves the merge), `~/.claude/hooks/notify.py`.
@@ -66,9 +65,8 @@ cleanup for a missing skill (especially purge-devlocal).
    catchup already ran this session.
 4. **Backlog** (full only): run the `review-prd-backlog` skill.
 5. **Instructions** (full only): run the `manage-agents-md` skill.
-6. **Atlas + debt** (full only): run the `survey` skill so the Cartographer
-   atlas is refreshed while repo context is loaded; then run
-   `ponytail:ponytail-debt` and link its ledger (skip if plugin absent).
+6. **Atlas** (full only): run the `survey` skill so the Cartographer atlas
+   is refreshed while repo context is loaded.
 7. **Report + handoff**: write `dev/local/brush-report.md` per
    `${CLAUDE_SKILL_DIR}/references/report-template.md`.
 

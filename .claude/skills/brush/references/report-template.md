@@ -36,7 +36,7 @@ Unchecked = skipped. Apply re-verifies sha/path first; stale items are skipped a
 - assess-evolution: <verdict, roadmap/PRD paths>
 - backlog: <counts, findings, artifact path>
 - agents-md: <what changed, commit sha>
-- atlas + debt: <survey result, ponytail-debt ledger path or none>
+- atlas: <survey result>
 
 ## 5. Failures and skips
 
