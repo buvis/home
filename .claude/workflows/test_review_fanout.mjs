@@ -25,6 +25,7 @@ const PURE_SYMBOLS = [
   "RUBRIC_IDS",
   "SEVERITY_EMOJI",
   "SECURITY_RE",
+  "coerceArgs",
   "validateArgs",
   "securityTriggered",
   "cell",
@@ -1231,6 +1232,29 @@ test("invalid arguments fail closed with an INVALID_ARGS error", () => {
   assert.doesNotThrow(() =>
     p.validateArgs({ ...ok, diff_bytes: p.MAX_DIFF_BYTES + 1, diff_path: "/tmp/diff.patch" }),
   );
+});
+
+test("args handed over as a JSON string are parsed, not rejected as an empty diff", () => {
+  const p = pure();
+  const ok = {
+    diff: "@@ -1 +1 @@\n+const a = 1;\n",
+    rubric_text: "R1: no stubs\n",
+    diff_bytes: 32,
+  };
+
+  // The Workflow tool delivers `args` verbatim, and a caller that stringified it
+  // sends one JSON string. Rejecting that as a missing diff stops the review.
+  // (Field-by-field: JSON.parse runs in the vm realm, so its prototype is foreign
+  // to deepStrictEqual.)
+  const parsed = p.coerceArgs(JSON.stringify(ok));
+  assert.equal(parsed.diff, ok.diff);
+  assert.equal(parsed.rubric_text, ok.rubric_text);
+  assert.equal(parsed.diff_bytes, ok.diff_bytes);
+  assert.doesNotThrow(() => p.validateArgs(parsed));
+
+  assert.equal(p.coerceArgs(ok), ok, "an object passes through untouched");
+  assert.throws(() => p.coerceArgs("not json at all"), invalidArgs, "unparseable string");
+  assert.throws(() => p.validateArgs(p.coerceArgs('"a bare string"')), invalidArgs, "not an object");
 });
 
 test("a clean review renders the single no-issues line, then the rubric and the stats", () => {
