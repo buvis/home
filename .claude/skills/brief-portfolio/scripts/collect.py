@@ -16,6 +16,7 @@ from pathlib import Path
 
 GITA_CSV = Path.home() / ".config/gita/repos.csv"
 REMOTE_RE = re.compile(r"github\.com[:/]([^/]+)/(.+?)(?:\.git)?/?$")
+BRUSH_RE = re.compile(r"^\s*-\s*generated:\s*(\d{4}-\d{2}-\d{2})")
 MAX_COMMITS = 200
 DIGEST_COMMITS = 50
 MAX_BRANCHES = 50
@@ -208,6 +209,18 @@ def collect_changelog(path):
     return False
 
 
+def collect_brush(path):
+    """ISO day of the last brush hygiene run (report's `generated:` line); None = never."""
+    f = Path(path) / "dev/local/audit-results/brush-report.md"
+    if not f.is_file():
+        return None
+    for line in f.read_text(errors="replace").splitlines():
+        m = BRUSH_RE.match(line)
+        if m:
+            return m.group(1)
+    return None
+
+
 def collect_external(known_slugs):
     """Open PRs involving the user outside the gita portfolio (review requests + own PRs)."""
     def search(flag):
@@ -257,7 +270,11 @@ def collect_local(path, branch):
 
 def collect_repo(path, days, fetch):
     errors = []
-    owner, name = repo_slug(path)
+    try:
+        owner, name = repo_slug(path)
+    except RuntimeError as e:
+        print(f"WARN {path}: skipped ({e})", file=sys.stderr)
+        return None
     repo = {"owner": owner, "name": name, "org": owner, "path": path, "errors": errors}
     if fetch:
         try:
@@ -284,7 +301,8 @@ def collect_repo(path, days, fetch):
                     ("branches", lambda: collect_branches(path, branch)),
                     ("prds", lambda: collect_prds(path)),
                     ("local", lambda: collect_local(path, branch)),
-                    ("changelog_unreleased", lambda: collect_changelog(path))]:
+                    ("changelog_unreleased", lambda: collect_changelog(path)),
+                    ("brush_last_run", lambda: collect_brush(path))]:
         try:
             repo[key] = fn()
         except Exception as e:
@@ -327,6 +345,7 @@ def main():
           file=sys.stderr)
     with ThreadPoolExecutor(max_workers=8) as ex:
         repos = list(ex.map(lambda p: collect_repo(p, args.days, not args.no_fetch), paths))
+    repos = [r for r in repos if r]
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)

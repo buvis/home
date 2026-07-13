@@ -3,6 +3,8 @@
 Write to `dev/local/audit-results/brush-report.md` (curated audit store,
 never dev/local root; overwrite per run; unchecked items re-derive on the
 next run, so no carry-forward). Keep every cmd verbatim and executable.
+The `generated:` date is machine-read: brief-portfolio parses it as the
+last-brushed stamp for its 30-day cadence nag, so keep that line's shape.
 
 ```markdown
 # Brush report - <repo-name>

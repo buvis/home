@@ -16,6 +16,9 @@ and a pickable cross-repo todo list for every repo in the gita registry
 - Path: `~/.config/gita/repos.csv` - the repo registry. Without it `collect.py`
   exits with "no repos found in gita registry" and there is nothing to brief.
 - CLIs: `gh` (authenticated), `git`, `python3`.
+- Reads per repo: `dev/local/audit-results/brush-report.md` — its `generated:`
+  line stamps the last `brush` run and powers the 30-day brush-cadence nag
+  (todo + attention reason). Missing report = never brushed = the nag fires.
 - Writes: `~/.claude/portfolio-brief/`.
 - Optional: `npm` plus node, only for the maintenance-only SPA rebuild below.
   Absent = the pre-built template still renders; you just cannot change `app/`.
@@ -77,8 +80,8 @@ Todo rules:
   unmerged PRs with checks state, unpushed/dirty local state with
   dirty-for-N-days, overdue releases with changelog readiness, milestone-due
   and engaged issues, stale-issue triage, PRD pipeline with wip idle-days,
-  stray branches and worktrees, review requests outside the portfolio). Do NOT
-  duplicate those.
+  stray branches and worktrees, review requests outside the portfolio, overdue
+  brush hygiene on a 30-day cadence). Do NOT duplicate those.
 - Add only judgment items: composed follow-ups ("this repo has been dirty for
   11 days — resume or park the PRD work"), cross-repo observations, process
   suggestions grounded in the data. A handful, not dozens.
@@ -98,6 +101,13 @@ open ~/.claude/portfolio-brief/portfolio-brief.html
 `build.py` injects `{data, epics}` into `assets/template.html` (pre-built
 Svelte 5 single-file app) and writes `~/.claude/portfolio-brief/portfolio-brief.html`.
 It works without epics.json but say so if you skipped step 2.
+
+## Tests
+
+```bash
+python3 -m pytest ~/.claude/skills/brief-portfolio/scripts/test_collect.py -q
+npm --prefix ~/.claude/skills/brief-portfolio/app test
+```
 
 ## Rebuilding the SPA template (maintenance only)
 

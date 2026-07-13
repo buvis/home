@@ -12,6 +12,7 @@ export function loadPayload() {
 
 const FAILING = new Set(['failure', 'timed_out', 'startup_failure'])
 const DAY = 86400000
+const BRUSH_DUE_DAYS = 30
 
 export const slug = (r) => `${r.owner}/${r.name}`
 
@@ -96,6 +97,10 @@ export function attention(repo) {
       `${prds.wip.length} PRD in progress` + (wipIdle >= 7 ? `, idle ${wipIdle}d` : ''))
   if (prds.backlog.length)
     add(Math.min(prds.backlog.length * 3, 12), 'warning', `${prds.backlog.length} PRDs in backlog`)
+
+  const brushed = daysAgo(repo.brush_last_run)
+  if (brushed === null || brushed >= BRUSH_DUE_DAYS)
+    add(6, 'warning', brushed === null ? 'never brushed' : `brush overdue (${brushed}d ago)`)
 
   if (!(repo.commits ?? []).length && issues.length) add(8, 'warning', 'idle repo with open issues')
   if (repo.errors?.length) add(5, 'warning', n(repo.errors.length, 'collection warning'))
@@ -254,6 +259,12 @@ export function todosFor(repos) {
     if (prds.backlog.length)
       add('prd', 'backlog', 'later', `Pick next PRD from backlog (${prds.backlog.length} waiting)`, `next: ${prds.backlog[0]}`,
         { effort: 'deep', agent: '/run-autopilot' })
+    const brushed = daysAgo(r.brush_last_run)
+    if (brushed === null || brushed >= BRUSH_DUE_DAYS)
+      add('brush', r.brush_last_run ?? 'never', 'soon', 'Run a /brush hygiene pass',
+        brushed === null ? `never brushed — target: one pass per ${BRUSH_DUE_DAYS}d`
+          : `last brushed ${brushed}d ago — target: one pass per ${BRUSH_DUE_DAYS}d`,
+        { agent: '/brush' })
     const stray = r.branches?.stray ?? []
     if (stray.length) {
       const merged = stray.filter((b) => b.merged).length
