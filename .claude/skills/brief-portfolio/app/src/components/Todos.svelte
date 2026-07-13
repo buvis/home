@@ -101,6 +101,7 @@
     border-radius: 7px;
     margin-bottom: 5px;
   }
+  .todo:nth-of-type(even) { background: color-mix(in srgb, var(--plane) 45%, var(--surface)); }
   .todo input { margin: 0; accent-color: var(--accent); }
   .todo label { flex: 1; cursor: pointer; }
   .isdone .action { text-decoration: line-through; color: var(--muted); }

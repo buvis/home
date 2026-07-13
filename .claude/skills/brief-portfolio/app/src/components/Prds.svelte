@@ -1,6 +1,6 @@
 <script>
   import { getContext } from 'svelte'
-  import { slug } from '../lib/derive.js'
+  import { slug, wipItems } from '../lib/derive.js'
 
   let { repos } = $props()
   const slots = getContext('slots')
@@ -40,7 +40,13 @@
           </div>
           {#if p.wip.length}
             <h3>in progress</h3>
-            <ul>{#each p.wip as t (t)}<li class="sev-serious">{t}</li>{/each}</ul>
+            <ul>
+              {#each wipItems(p) as w (w.title)}
+                <li class="sev-serious">
+                  {w.title}{#if w.idle_days >= 7}<span class="idle">idle {w.idle_days}d</span>{/if}
+                </li>
+              {/each}
+            </ul>
           {/if}
           {#if p.backlog.length}
             <h3>backlog</h3>
@@ -70,6 +76,7 @@
     margin: 10px 0 4px;
   }
   ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+  .idle { color: var(--muted); font-size: 11px; margin-left: 6px; }
   li { margin: 2px 0; }
   .empty { color: var(--muted); }
 </style>

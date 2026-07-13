@@ -1,49 +1,28 @@
-/* Roles from the validated reference palette (dataviz skill). Light is default;
-   dark applies via system preference or explicit [data-theme=dark]. */
+/* Single fixed theme: LCARS on soft slate — a muted blue-gray light base, no
+   glare, no darks (owner's eyes). LCARS hues deepened to hold contrast on the
+   light surface; categorical/sequential sets are the light variant of the
+   validated reference palette (dataviz skill). No theme switch. */
 :root {
-  --plane: #f9f9f7;
-  --surface: #fcfcfb;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --muted: #898781;
-  --grid: #e1e0d9;
-  --axis: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.1);
+  --plane: #a6aebd;
+  --surface: #c1c7d3;
+  --ink: #1c1f26;
+  --ink-2: #3e434e;
+  --muted: #5c6374;
+  --grid: #8993a4;
+  --axis: #6d7689;
+  --border: rgba(20, 23, 30, 0.24);
   --cat1: #2a78d6; --cat2: #1baf7a; --cat3: #eda100; --cat4: #008300;
   --cat5: #4a3aa7; --cat6: #e34948; --cat7: #e87ba4; --cat8: #eb6834;
   --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #1c5cab;
-  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
-  --accent: #2a78d6;
-}
-:root[data-theme='dark'] {
-  --plane: #0d0d0d;
-  --surface: #1a1a19;
-  --ink: #ffffff;
-  --ink-2: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --axis: #383835;
-  --border: rgba(255, 255, 255, 0.1);
-  --cat1: #3987e5; --cat2: #199e70; --cat3: #c98500; --cat4: #008300;
-  --cat5: #9085e9; --cat6: #e66767; --cat7: #d55181; --cat8: #d95926;
-  --seq-1: #0d366b; --seq-2: #184f95; --seq-3: #256abf; --seq-4: #3987e5; --seq-5: #6da7ec;
-  --accent: #3987e5;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --plane: #0d0d0d;
-    --surface: #1a1a19;
-    --ink: #ffffff;
-    --ink-2: #c3c2b7;
-    --muted: #898781;
-    --grid: #2c2c2a;
-    --axis: #383835;
-    --border: rgba(255, 255, 255, 0.1);
-    --cat1: #3987e5; --cat2: #199e70; --cat3: #c98500; --cat4: #008300;
-    --cat5: #9085e9; --cat6: #e66767; --cat7: #d55181; --cat8: #d95926;
-    --seq-1: #0d366b; --seq-2: #184f95; --seq-3: #256abf; --seq-4: #3987e5; --seq-5: #6da7ec;
-    --accent: #3987e5;
-  }
+  --good: #0a7d0a; --warning: #8f6700; --serious: #a9502b; --critical: #b52f2f;
+  --accent: #8a5600;
+  --glow-alpha: 0%;
+  --display: 'Avenir Next Condensed', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --lcars-a: #c97b00; /* amber */
+  --lcars-b: #b95a3a; /* salmon */
+  --lcars-c: #665aa8; /* lavender */
+  --lcars-d: #3a5f91; /* steel */
+  --lcars-ink: #241a00; /* text on filled lcars pills */
 }
 
 * { box-sizing: border-box; }
@@ -54,6 +33,11 @@ body {
   font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 h1, h2, h3 { font-weight: 650; }
+h1 {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button { font: inherit; color: inherit; }
@@ -75,45 +59,37 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
+  padding: 3px 12px 3px 10px;
   border: 1px solid var(--grid);
-  border-radius: 999px;
+  border-radius: 999px 5px 5px 999px;
   background: var(--surface);
   cursor: pointer;
   color: var(--ink-2);
 }
-.chip.active { border-color: var(--ink); color: var(--ink); }
+.chip.active { border-color: var(--lcars-a); background: color-mix(in srgb, var(--lcars-a) 22%, var(--surface)); color: var(--ink); }
 .chip:hover { border-color: var(--axis); }
 
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-}
-.tile {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-button.tile { cursor: pointer; }
-button.tile:hover { border-color: var(--axis); }
-.tile b { font-size: 26px; font-weight: 650; }
-.tile span { color: var(--ink-2); font-size: 12px; }
-.tile.bad b { color: var(--critical); }
-.tile.warn b { color: var(--serious); }
-
 .sec { margin-top: 22px; }
+/* LCARS label: lavender cap bar + amber condensed caps — colored text on the
+   dark plane, never text trapped on a violet fill */
 .sec > h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--display);
   font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0 0 8px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+.sec > h2::before {
+  content: '';
+  width: 24px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--lcars-c);
+  flex: none;
 }
 
 table { border-collapse: collapse; width: 100%; background: var(--surface); }
@@ -129,6 +105,8 @@ th {
 }
 td { padding: 6px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
 td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+/* subtle zebra so wide tables stay scannable */
+tbody tr:nth-child(even) { background: color-mix(in srgb, var(--plane) 45%, var(--surface)); }
 
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .repobtn {

@@ -162,9 +162,11 @@
   .runs { display: flex; gap: 8px; flex-wrap: wrap; }
   .run {
     font-size: 12px;
-    border: 1px solid var(--grid);
+    border: 1px solid color-mix(in srgb, currentColor 30%, var(--grid));
     border-radius: 999px;
     padding: 2px 9px;
+    background: color-mix(in srgb, currentColor 7%, var(--surface));
+    box-shadow: 0 1px 2px rgba(20, 23, 30, 0.08);
   }
   .run:hover { border-color: var(--axis); text-decoration: none; }
   .mut { color: var(--muted); }

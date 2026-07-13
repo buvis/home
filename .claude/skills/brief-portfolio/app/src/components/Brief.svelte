@@ -1,9 +1,10 @@
 <script>
   import { getContext } from 'svelte'
-  import { slug, worstSev, weeklyBins, allTodos, quickWins, sinceLast, historySeries, ago } from '../lib/derive.js'
+  import { slug, worstSev, allTodos, quickWins, sinceLast, historySeries, ago } from '../lib/derive.js'
   import { loadDone } from '../lib/done.js'
   import Horizon from './Horizon.svelte'
   import Sparkline from './Sparkline.svelte'
+  import Strip from './Strip.svelte'
   import Icon from './Icon.svelte'
 
   let { repos, agg, epics, sinceDays, prev, history, external, onselect, gototab } = $props()
@@ -36,11 +37,7 @@
 </script>
 
 <div class="stage">
-  <div class="field">
-    <Horizon {repos} {onselect} />
-  </div>
-
-  <aside class="glass left">
+  <section class="glass bar">
     <p class="head">
       <b>{repos.length}</b> repos ·
       <b class:hot={fires.length}>{fires.length}</b> burning
@@ -53,92 +50,103 @@
         </button>
       {/each}
     </div>
+  </section>
 
+  <section class="glass bar wins">
+    <h2>Quick wins</h2>
     {#if wins.length}
-      <h2>Quick wins</h2>
-      {#each wins as t (t.id)}
-        <button
-          class="win"
-          onclick={() => (byslug.has(t.repo) ? onselect(byslug.get(t.repo)) : t.url && window.open(t.url))}
-        >
-          <span class="wact">{t.action}</span>
-          <span class="wrepo">{t.repo}</span>
-        </button>
-      {/each}
+      <Strip>
+        {#each wins as t (t.id)}
+          <button
+            class="win"
+            onclick={() => (byslug.has(t.repo) ? onselect(byslug.get(t.repo)) : t.url && window.open(t.url))}
+          >
+            <span class="wact">{t.action}</span>
+            <span class="wrepo">{t.repo}</span>
+          </button>
+        {/each}
+      </Strip>
+    {:else}
+      <p class="calm"><Icon name="good" size={14} /> Nothing quick left.</p>
     {/if}
+  </section>
 
+  <section class="glass bar burn">
     <h2>Burning now</h2>
     {#if queue.length === 0}
       <p class="calm"><Icon name="good" size={14} /> All quiet. Nothing needs you.</p>
     {:else}
-      {#each queue.slice(0, 3) as { r, score, reasons } (slug(r))}
-        {@const sev = worstSev(reasons)}
-        <button
-          class="brow"
-          style="border-left-color: var(--cat{slots.get(r.org)})"
-          onclick={() => onselect(r)}
-        >
-          <span class="sevg sev-{sev}"><Icon name={sev} size={14} /></span>
-          <span class="bwrap">
-            <span class="bname">{slug(r)} <b class="bscore sev-{sev}">{score}</b></span>
+      <Strip>
+        {#each queue.slice(0, 3) as { r, score, reasons } (slug(r))}
+          {@const sev = worstSev(reasons)}
+          <button
+            class="brow"
+            style="border-left-color: var(--cat{slots.get(r.org)})"
+            onclick={() => onselect(r)}
+          >
+            <span class="sevg sev-{sev}"><Icon name={sev} size={13} /></span>
+            <span class="bname">{r.name}</span>
+            <b class="bscore sev-{sev}">{score}</b>
             <span class="meter">
               <span class="fill" style="width: {Math.min(100, (score / 150) * 100)}%; background: var(--{sev})"></span>
             </span>
-            <Sparkline values={weeklyBins(r.commits, sinceDays)} w={240} h={18} />
-            <span class="breasons">{reasons.slice(0, 2).map((x) => x.text).join(' · ')}</span>
-          </span>
-        </button>
-      {/each}
+            <span class="breasons">{reasons[0]?.text}</span>
+          </button>
+        {/each}
+      </Strip>
     {/if}
-  </aside>
+  </section>
 
-  <aside class="glass right">
-    <h2>The story</h2>
-    {#if paragraphs.length}
-      {#each paragraphs as p, i (i)}<p class="story">{p}</p>{/each}
-    {:else}
-      <p class="empty">No narrative yet — the epic-grouping step (epics.json) hasn't run.</p>
-    {/if}
-    {#if delta}
-      <h2>Since last brief</h2>
-      <p class="delta">
-        vs {ago(delta.at)}:
-        <b class="sev-good">{delta.cleared} cleared</b> ·
-        <b class:sev-serious={delta.added > 0}>{delta.added} new</b>
-      </p>
-      {#each delta.movers.slice(0, 3) as m (slug(m.r))}
-        <button class="mover" onclick={() => onselect(m.r)}>
-          <b class={m.d > 0 ? 'sev-critical' : 'sev-good'}>{m.d > 0 ? '▲' : '▼'} {Math.abs(m.d)}</b>
-          {slug(m.r)}
-        </button>
-      {/each}
-      {#if trend.length >= 3}
-        <div class="trend">
-          <Sparkline values={trend.map((h) => h.open)} w={300} h={22} />
-          <span class="tlab">open items across {trend.length} briefs</span>
-        </div>
+  <div class="mid">
+    <aside class="glass side">
+      <h2>The story</h2>
+      {#if paragraphs.length}
+        {#each paragraphs as p, i (i)}<p class="story">{p}</p>{/each}
+      {:else}
+        <p class="empty">No narrative yet — the epic-grouping step (epics.json) hasn't run.</p>
       {/if}
-    {/if}
+      {#if delta}
+        <h2>Since last brief</h2>
+        <p class="delta">
+          vs {ago(delta.at)}:
+          <b class="sev-good">{delta.cleared} cleared</b> ·
+          <b class:sev-serious={delta.added > 0}>{delta.added} new</b>
+        </p>
+        {#each delta.movers.slice(0, 3) as m (slug(m.r))}
+          <button class="mover" onclick={() => onselect(m.r)}>
+            <b class={m.d > 0 ? 'sev-critical' : 'sev-good'}>{m.d > 0 ? '▲' : '▼'} {Math.abs(m.d)}</b>
+            {slug(m.r)}
+          </button>
+        {/each}
+        {#if trend.length >= 3}
+          <div class="trend">
+            <Sparkline values={trend.map((h) => h.open)} w={300} h={22} />
+            <span class="tlab">open items across {trend.length} briefs</span>
+          </div>
+        {/if}
+      {/if}
+    </aside>
 
-    <p class="legend">
-      center = needs you · size = activity · ring = state · moons = stashes/worktrees ·
-      lit chevrons = burning repos
-    </p>
-  </aside>
+    <div class="field">
+      <Horizon {repos} {onselect} />
+      <p class="legend">
+        center = needs you · size = activity · ring = state · moons = stashes/worktrees ·
+        lit chevrons = burning repos
+      </p>
+    </div>
+  </div>
 </div>
 
 <style>
   .stage {
-    position: relative;
-    height: calc(100vh - 112px);
-    min-height: 540px;
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 14px 18px 46px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
-  .field { position: absolute; inset: 0; }
   .glass {
-    position: absolute;
-    top: 18px;
-    bottom: 18px;
-    overflow-y: auto;
     padding: 14px 18px 16px;
     border: 1px solid var(--border);
     border-radius: 18px;
@@ -161,44 +169,57 @@
       var(--lcars-b) 91% 100%
     );
   }
-  .glass.left {
-    left: 18px;
-    width: 330px;
+  .glass.bar {
+    display: flex;
+    align-items: center;
+    gap: 8px 16px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
     border-left: 14px solid var(--lcars-a);
   }
-  .glass.right {
-    right: 18px;
-    width: 360px;
-    border-right: 14px solid var(--lcars-d);
+  .glass.bar::before { display: none; }
+  .bar .head { margin: 0; }
+  .bar h2 { margin: 0; flex: none; }
+  .bar p { margin: 0; }
+  .bar.wins { border-left-color: var(--lcars-c); }
+  .bar.burn { border-left-color: var(--lcars-b); }
+  .bar.wins, .bar.burn { flex-wrap: nowrap; }
+  .mid {
+    display: grid;
+    grid-template-columns: 2fr 3fr;
+    gap: 12px;
+    align-items: stretch;
   }
-  @media (max-width: 1220px) {
-    .glass.right { position: static; width: auto; margin: 12px; border-right-width: 4px; }
-    .stage { height: auto; min-height: 0; display: flex; flex-direction: column; }
-    .field { position: relative; inset: auto; height: 56vh; order: 0; }
-    .glass.left { position: static; width: auto; margin: 12px; order: 1; }
-    .glass.right { order: 2; }
+  .field {
+    position: relative;
+    min-height: 48vh;
+  }
+  .glass.side { border-left: 14px solid var(--lcars-d); }
+  @media (max-width: 1100px) {
+    .mid { grid-template-columns: 1fr; }
+    .glass.side { order: 2; }
+    .field { order: 1; min-height: 44vh; }
   }
   .head {
     font-family: var(--display);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    font-size: 21px;
+    font-size: 17px;
     font-weight: 650;
-    margin: 0 0 10px;
+    margin: 0 0 7px;
   }
   .head .hot { color: var(--critical); }
   .mini {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
   }
   .stat {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
-    padding: 6px 14px 7px;
+    padding: 3px 12px 3px 10px;
     background: color-mix(in srgb, var(--surface) 60%, transparent);
     border: 1px solid var(--border);
     border-radius: 999px 8px 8px 999px;
@@ -209,7 +230,7 @@
   .stat .row { display: flex; align-items: center; gap: 7px; }
   .stat b {
     font-family: var(--display);
-    font-size: 20px;
+    font-size: 15px;
     line-height: 1.1;
     font-weight: 650;
     font-variant-numeric: tabular-nums;
@@ -245,54 +266,65 @@
     background: var(--lcars-c);
     flex: none;
   }
-  .glass.right h2 { margin-top: 0; }
+  .glass.side h2:first-of-type { margin-top: 0; }
   .brow {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    width: 100%;
-    padding: 9px 10px;
-    margin-bottom: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 480px;
+    min-width: 0;
+    padding: 3px 12px 3px 8px;
     background: color-mix(in srgb, var(--surface) 60%, transparent);
     border: 1px solid var(--border);
     border-left: 5px solid transparent;
-    border-radius: 10px;
+    border-radius: 999px 8px 8px 999px;
     cursor: pointer;
     text-align: left;
   }
   .brow:hover { border-color: var(--axis); }
-  .sevg { flex: none; width: 17px; text-align: center; font-size: 13px; margin-top: 1px; }
+  .sevg { flex: none; width: 16px; text-align: center; font-size: 13px; }
   .g { flex: none; width: 16px; text-align: center; color: var(--lcars-d); font-size: 13px; }
-  .bwrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-  .bname { font-size: 14.5px; font-weight: 650; }
-  .bscore { font-size: 12.5px; font-variant-numeric: tabular-nums; margin-left: 4px; }
+  .bname { font-size: 13px; font-weight: 650; white-space: nowrap; }
+  .bscore { font-size: 12px; font-variant-numeric: tabular-nums; }
   .meter {
-    display: block;
+    flex: none;
+    width: 54px;
     height: 5px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--axis) 35%, transparent);
     overflow: hidden;
   }
   .fill { display: block; height: 100%; border-radius: 999px; }
-  .breasons { color: var(--ink-2); font-size: 12px; }
+  .breasons {
+    color: var(--ink-2);
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .calm { color: var(--good); font-weight: 650; }
   .win {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    width: 100%;
-    padding: 6px 10px;
-    margin-bottom: 4px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    max-width: 420px;
+    min-width: 0;
+    padding: 3px 12px 3px 10px;
     background: color-mix(in srgb, var(--surface) 60%, transparent);
     border: 1px solid var(--border);
     border-left: 5px solid var(--good);
-    border-radius: 8px;
+    border-radius: 999px 8px 8px 999px;
     cursor: pointer;
     text-align: left;
   }
   .win:hover { border-color: var(--axis); }
-  .wact { font-size: 12.5px; }
-  .wrepo { color: var(--muted); font-size: 11px; }
+  .wact {
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wrepo { color: var(--muted); font-size: 11px; white-space: nowrap; }
   .delta { margin: 0 0 8px; font-size: 13px; }
   .mover {
     display: block;
@@ -309,6 +341,16 @@
   .tlab { display: block; color: var(--muted); font-size: 11px; }
   .story { color: var(--ink-2); font-size: 13px; margin: 0 0 8px; }
   .story:first-of-type { color: var(--ink); }
-  .legend { color: var(--muted); font-size: 11px; margin-top: 14px; }
+  .field .legend {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 6px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+    pointer-events: none;
+  }
   .empty { color: var(--muted); }
 </style>

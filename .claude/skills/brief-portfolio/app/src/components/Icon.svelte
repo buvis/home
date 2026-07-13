@@ -20,6 +20,7 @@
     quiet: '<circle cx="7" cy="7" r="1.6" fill="currentColor" stroke="none"/>',
     up: '<path d="M7 12 V2.5 M3.5 6 L7 2.5 L10.5 6"/>',
     down: '<path d="M7 2 V11.5 M3.5 8 L7 11.5 L10.5 8"/>',
+    filter: '<path d="M1.5 2.5 H12.5 L8.6 7.3 V11.2 L5.4 12.6 V7.3 Z"/>',
   }
 
   let { name, size = 14 } = $props()

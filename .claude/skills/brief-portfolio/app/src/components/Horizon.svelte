@@ -28,10 +28,12 @@
     if (!w || !h || !repos.length) return
     const cx = w / 2
     const cy = h / 2
+    // node sizes follow the field radius so a smaller stage gets smaller planets
+    const k = Math.max(0.5, Math.min(1, R / 340))
     const ns = repos.map((r, i) => {
       const sc = scored.get(slug(r))
       const sev = sc.reasons.length ? worstSev(sc.reasons) : 'quiet'
-      const radius = Math.min(30, 7 + 3 * Math.sqrt(r.commits?.length ?? 0))
+      const radius = k * Math.min(30, 7 + 3 * Math.sqrt(r.commits?.length ?? 0))
       const orbit = R * (0.06 + 0.9 * (1 - Math.min(sc.score, CAP) / CAP))
       const a = (i / repos.length) * 2 * Math.PI
       const moons = Math.min(
@@ -44,7 +46,7 @@
       return { r, sc, sev, radius, orbit, moons, x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }
     })
     const sim = forceSimulation(ns)
-      .force('collide', forceCollide((d) => d.radius + 7))
+      .force('collide', forceCollide((d) => d.radius + 4 + 3 * k))
       .force('radial', forceRadial((d) => d.orbit, cx, cy).strength(0.9))
       .force('charge', forceManyBody().strength(-12))
       .alphaDecay(0.08)
@@ -117,8 +119,8 @@
             r="2.2"
           />
         {/each}
-        {#if n.sc.score > 0 || n.radius >= 16}
-          <text y={n.radius + 14}>{n.r.name}</text>
+        {#if n.sc.score > 0 || n.radius >= 14}
+          <text y={n.radius + 12}>{n.r.name}</text>
         {/if}
       </g>
     {/each}

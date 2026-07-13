@@ -1,6 +1,7 @@
 <script>
   import { getContext } from 'svelte'
-  import { slug, epicsFor, isDepBot, daysAgo, ago, ciFailing } from '../lib/derive.js'
+  import { slug, epicsFor, isDepBot, daysAgo, ago, ciFailing, wipItems } from '../lib/derive.js'
+  import Icon from './Icon.svelte'
 
   let { repo, epics, onclose } = $props()
   const scored = getContext('scored')
@@ -42,11 +43,11 @@
 
   {#if l.dirty || l.ahead || l.behind || l.stashes || (l.branch && l.branch !== repo.default_branch)}
     <div class="localrow">
-      {#if l.branch && l.branch !== repo.default_branch}<span class="lbl">on {l.branch}</span>{/if}
-      {#if l.dirty}<span class="lbl sev-serious">{l.dirty} dirty</span>{/if}
-      {#if l.ahead}<span class="lbl sev-serious">{l.ahead} unpushed</span>{/if}
-      {#if l.behind}<span class="lbl sev-warning">{l.behind} behind</span>{/if}
-      {#if l.stashes}<span class="lbl">{l.stashes} stashed</span>{/if}
+      {#if l.branch && l.branch !== repo.default_branch}<span class="lbl"><Icon name="branch" size={11} /> on {l.branch}</span>{/if}
+      {#if l.dirty}<span class="lbl sev-serious"><Icon name="wip" size={11} /> {l.dirty} dirty</span>{/if}
+      {#if l.ahead}<span class="lbl sev-serious"><Icon name="up" size={11} /> {l.ahead} unpushed</span>{/if}
+      {#if l.behind}<span class="lbl sev-warning"><Icon name="down" size={11} /> {l.behind} behind</span>{/if}
+      {#if l.stashes}<span class="lbl"><Icon name="stash" size={11} /> {l.stashes} stashed</span>{/if}
     </div>
   {/if}
 
@@ -55,7 +56,7 @@
       <h3>Attention · score {sc.score}</h3>
       <ul>
         {#each sc.reasons as x, i (i)}
-          <li><span class="dot" style="background: var(--{x.sev})"></span> {x.text}</li>
+          <li><span class="sev-{x.sev}"><Icon name={x.sev} size={12} /></span> {x.text}</li>
         {/each}
       </ul>
     </section>
@@ -68,8 +69,22 @@
     </section>
   {/if}
 
+  {#if repo.security?.length}
+    <section>
+      <h3 class="sev-critical"><Icon name="security" size={12} /> Security alerts · {repo.security.length}</h3>
+      <ul>
+        {#each repo.security as a, i (i)}
+          <li>
+            <span class="lbl sev-{a.severity === 'critical' || a.severity === 'high' ? 'critical' : 'warning'}">{a.severity}</span>
+            {#if a.url}<a href={a.url} target="_blank" rel="noreferrer">{a.title}</a>{:else}{a.title}{/if}
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+
   <section>
-    <h3>What happened · {(repo.commits ?? []).length} commits</h3>
+    <h3><Icon name="commit" size={12} /> What happened · {(repo.commits ?? []).length} commits</h3>
     {#each grouped.epics as e (e.title)}
       <details open={grouped.epics.length <= 3}>
         <summary>
@@ -107,7 +122,7 @@
 
   {#if repo.ci?.length}
     <section>
-      <h3>CI</h3>
+      <h3><Icon name="ci" size={12} /> CI</h3>
       <ul>
         {#each repo.ci as w (w.workflow)}
           <li>
@@ -124,7 +139,7 @@
 
   {#if repo.prs?.length}
     <section>
-      <h3>Open PRs · {repo.prs.length}</h3>
+      <h3><Icon name="pr" size={12} /> Open PRs · {repo.prs.length}</h3>
       <ul>
         {#each repo.prs as p (p.number)}
           <li>
@@ -140,7 +155,7 @@
 
   {#if repo.issues?.length}
     <section>
-      <h3>Open issues · {repo.issues.length}</h3>
+      <h3><Icon name="issue" size={12} /> Open issues · {repo.issues.length}</h3>
       <ul>
         {#each repo.issues as i (i.number)}
           <li>
@@ -155,7 +170,7 @@
 
   {#if repo.releases?.length}
     <section>
-      <h3>Releases</h3>
+      <h3><Icon name="release" size={12} /> Releases</h3>
       <ul>
         {#each repo.releases as x (x.tag)}
           <li>
@@ -170,16 +185,39 @@
 
   {#if repo.prds && (repo.prds.backlog.length || repo.prds.wip.length || repo.prds.done_count)}
     <section>
-      <h3>PRDs</h3>
+      <h3><Icon name="prd" size={12} /> PRDs</h3>
       {#if repo.prds.wip.length}
         <p class="meta">wip:</p>
-        <ul>{#each repo.prds.wip as t (t)}<li class="sev-serious">{t}</li>{/each}</ul>
+        <ul>
+          {#each wipItems(repo.prds) as w (w.title)}
+            <li class="sev-serious">
+              {w.title}{#if w.idle_days >= 7}<span class="cdate">idle {w.idle_days}d</span>{/if}
+            </li>
+          {/each}
+        </ul>
       {/if}
       {#if repo.prds.backlog.length}
         <p class="meta">backlog:</p>
         <ul>{#each repo.prds.backlog as t (t)}<li>{t}</li>{/each}</ul>
       {/if}
       <p class="meta">{repo.prds.done_count} done</p>
+    </section>
+  {/if}
+
+  {#if repo.branches?.stray.length || repo.branches?.worktrees.length}
+    <section>
+      <h3><Icon name="branch" size={12} /> Branch litter</h3>
+      <ul>
+        {#each repo.branches.stray as b (b.name)}
+          <li class="mono">
+            {b.name} <span class="cdate">{b.date}</span>
+            {#if b.merged}<span class="lbl">merged</span>{/if}
+          </li>
+        {/each}
+        {#each repo.branches.worktrees as w (w)}
+          <li class="mono">worktree {w}</li>
+        {/each}
+      </ul>
     </section>
   {/if}
 </div>
