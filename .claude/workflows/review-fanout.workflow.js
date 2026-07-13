@@ -495,8 +495,6 @@ const state = {
   failedDimensions,
   rubric,
   statsLine,
-  confirmed: verified.confirmed,
-  refuted: verified.refuted,
   unverified: verified.unverified,
   verifierFailures: verified.verifierFailures,
 };
