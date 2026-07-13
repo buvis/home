@@ -91,6 +91,10 @@ pending or a phase failed, also send
 `python3 /Users/bob/.claude/hooks/notify.py --send "brush <repo>" "<N> decisions pending - dev/local/brush-report.md"`
 (skip silently if the script is absent).
 
+## Tests
+
+`python3 -m pytest ${CLAUDE_SKILL_DIR}/scripts/test_brush_scripts.py -q`
+
 ## Non-goals
 
 Remote branch/tag lifecycle, history rewriting, secret scanning depth, CI
