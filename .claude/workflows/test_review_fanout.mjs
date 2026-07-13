@@ -1303,7 +1303,7 @@ test("a rubric rule the agent never answered stays a fail", () => {
   assert.ok(!out.includes("R42:"), "R42 is not a rule");
 });
 
-test("a security word only counts when it lands on an added line or a changed path", () => {
+test("a security word counts when it lands on an added line, a removed line, or a changed path", () => {
   const p = pure();
 
   assert.equal(
@@ -1320,14 +1320,14 @@ test("a security word only counts when it lands on an added line or a changed pa
 
   assert.equal(
     p.securityTriggered("@@ -1,2 +1,1 @@\n-  child_process.exec(cmd);\n+  const a = 1;\n", []),
-    false,
-    "a removed line must not trigger",
+    true,
+    "a removed line carrying a security word triggers too: deleting it is at least as strong a signal as adding it",
   );
 
   assert.equal(
     p.securityTriggered("--- a/src/exec.js\n+++ b/src/exec.js\n const a = 1;\n", []),
     false,
-    "the +++ header is not an added line",
+    "the ---/+++ file headers are not content lines",
   );
 
   assert.equal(
@@ -1349,19 +1349,46 @@ test("a security word only counts when it lands on an added line or a changed pa
   );
 });
 
+test("a diff whose only change is removing a line containing an auth guard arms the security dimension", () => {
+  const p = pure();
+
+  assert.equal(
+    p.securityTriggered(
+      "@@ -1,2 +1,1 @@\n-  if (!auth.isValid(req)) return res.status(403).end();\n   next();\n",
+      [],
+    ),
+    true,
+    "a review engine that skips security review when a guard is deleted fails open: the deleted " +
+      "auth check must arm the security dimension even though nothing was added",
+  );
+});
+
 test("the security vocabulary covers the whole threat surface, not one or two words", () => {
   const p = pure();
   const added = (code) => `@@ -1 +1 @@\n+${code}\n`;
 
+  // Every term actually in SECURITY_RE, hardcoded independently of the regex source:
+  // an adversarial edit that deletes a term from SECURITY_RE must fail the matching
+  // assertion below, not silently shrink the list of terms under test.
   const terms = [
     ["exec", "  child_process.exec(cmd);"],
+    ["eval", "  eval(source);"],
     ["auth", "  router.use(auth);"],
     ["token", "  const token = req.headers.x;"],
     ["password", "  const password = body.pw;"],
     ["secret", "  const secret = load();"],
     ["sql", "  const sql = build(q);"],
-    ["eval", "  eval(source);"],
     ["crypto", "  const crypto = require('node:crypto');"],
+    ["hash", "  const hash = digest(x);"],
+    ["credential", "  const credential = load();"],
+    ["session", "  const session = req.session;"],
+    ["cookie", "  const cookie = req.headers.cookie;"],
+    ["csrf", "  const csrf = mintToken();"],
+    ["xss", "  const xss = check(input);"],
+    ["jwt", "  const jwt = sign(payload);"],
+    ["sanitize", "  sanitize(input);"],
+    ["injection", "  const injection = detect(input);"],
+    ["privilege", "  const privilege = checkRole();"],
   ];
 
   for (const [term, code] of terms) {
