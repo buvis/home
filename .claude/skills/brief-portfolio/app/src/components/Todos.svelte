@@ -1,24 +1,20 @@
 <script>
   import { getContext } from 'svelte'
-  import { slug, todosFor } from '../lib/derive.js'
+  import { slug, allTodos } from '../lib/derive.js'
+  import { loadDone, saveDone } from '../lib/done.js'
+  import Icon from './Icon.svelte'
 
-  let { repos, epics, onselect } = $props()
+  const KIND_ICON = { local: 'wip', external: 'pr' } // other kinds share the icon name
+
+  let { repos, epics, external, onselect } = $props()
   const slots = getContext('slots')
-  const KEY = 'brief-portfolio-done'
 
-  // ponytail: localStorage-on-file:// is one shared bucket; fine for one user
-  let done = $state(new Set(JSON.parse(localStorage.getItem(KEY) ?? '[]')))
+  let done = $state(loadDone())
   let hideDone = $state(false)
   let copied = $state('')
 
   const byslug = $derived(new Map(repos.map((r) => [slug(r), r])))
-  const todos = $derived.by(() => {
-    const manual = (epics.todos ?? [])
-      .filter((t) => byslug.has(t.repo))
-      .map((t) => ({ urgency: 'soon', kind: 'judgment', why: '', ...t, manual: true }))
-    const seen = new Set(manual.map((t) => t.id))
-    return [...manual, ...todosFor(repos).filter((t) => !seen.has(t.id))]
-  })
+  const todos = $derived(allTodos(repos, epics, external))
   const groups = $derived(
     ['now', 'soon', 'later'].map((u) => ({
       u,
@@ -33,7 +29,7 @@
     if (s.has(id)) s.delete(id)
     else s.add(id)
     done = s
-    localStorage.setItem(KEY, JSON.stringify([...s]))
+    saveDone(s)
   }
   async function copy(items, label) {
     const open = items.filter((t) => !done.has(t.id))
@@ -63,14 +59,21 @@
         <div class="todo" class:isdone={done.has(t.id)}>
           <input type="checkbox" id={t.id} checked={done.has(t.id)} onchange={() => toggle(t.id)} />
           <label for={t.id}>
-            <span class="action">{t.action}</span>
+            <span class="action">
+              {#if t.url}<a href={t.url} target="_blank" rel="noreferrer">{t.action}</a>{:else}{t.action}{/if}
+            </span>
             {#if t.why}<span class="why">{t.why}</span>{/if}
           </label>
-          <span class="lbl">{t.kind}{t.manual ? ' ✦' : ''}</span>
-          <button class="repobtn" onclick={() => onselect(byslug.get(t.repo))}>
-            <span class="dot" style="background: var(--cat{slots.get(byslug.get(t.repo).org)})"></span>
-            {t.repo}
-          </button>
+          {#if t.agent}<span class="lbl agent">→ {t.agent}</span>{/if}
+          <span class="lbl"><Icon name={KIND_ICON[t.kind] ?? t.kind} size={11} /> {t.kind}{t.manual ? ' ✦' : ''}</span>
+          {#if byslug.has(t.repo)}
+            <button class="repobtn" onclick={() => onselect(byslug.get(t.repo))}>
+              <span class="dot" style="background: var(--cat{slots.get(byslug.get(t.repo).org)})"></span>
+              {t.repo}
+            </button>
+          {:else}
+            <span class="lbl">{t.repo}</span>
+          {/if}
         </div>
       {/each}
     </section>
@@ -101,7 +104,9 @@
   .todo input { margin: 0; accent-color: var(--accent); }
   .todo label { flex: 1; cursor: pointer; }
   .isdone .action { text-decoration: line-through; color: var(--muted); }
+  .isdone .action a { text-decoration: line-through; color: var(--muted); }
   .why { color: var(--muted); font-size: 12px; margin-left: 8px; }
+  .agent { color: var(--accent); border-color: var(--accent); }
   .todo .repobtn { white-space: nowrap; font-size: 12.5px; }
   .empty { color: var(--muted); margin-top: 20px; }
 </style>

@@ -32,11 +32,20 @@ def main():
         print(f"WARN: {epics_file} not found — building without epic grouping", file=sys.stderr)
         epics = {"summary": "", "repos": {}}
 
+    prev_file = workdir / "data-prev.json"
+    prev = json.loads(prev_file.read_text()) if prev_file.is_file() else None
+    hist_file = workdir / "history.jsonl"
+    history = []
+    if hist_file.is_file():
+        lines = [l for l in hist_file.read_text().splitlines() if l.strip()]
+        history = [json.loads(l) for l in lines[-60:]]
+
     template = TEMPLATE.read_text()
     if PLACEHOLDER not in template:
         sys.exit(f"template {TEMPLATE} has no {PLACEHOLDER} marker")
     # <\/ keeps a literal </script> inside any commit subject from ending the tag
-    payload = json.dumps({"data": data, "epics": epics}).replace("</", "<\\/")
+    payload = json.dumps({"data": data, "epics": epics, "prev": prev,
+                          "history": history}).replace("</", "<\\/")
     out = Path(args.out)
     out.write_text(template.replace(PLACEHOLDER, payload))
     print(f"wrote {out} ({out.stat().st_size // 1024} kB)")

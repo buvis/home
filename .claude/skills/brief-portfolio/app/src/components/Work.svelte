@@ -2,10 +2,14 @@
   import { getContext } from 'svelte'
   import { slug, isDepBot, ciFailing, daysAgo } from '../lib/derive.js'
 
-  let { repos, onselect } = $props()
+  let { repos, external, onselect } = $props()
   const slots = getContext('slots')
   let showDeps = $state(false)
   let showDrafts = $state(true)
+  const extRows = $derived([
+    ...(external?.review_requested ?? []).map((p) => ({ ...p, role: 'review requested' })),
+    ...(external?.authored ?? []).map((p) => ({ ...p, role: 'your PR' })),
+  ])
 
   const allPrs = $derived(repos.flatMap((r) => (r.prs ?? []).map((p) => ({ ...p, r }))))
   const depCount = $derived(allPrs.filter(isDepBot).length)
@@ -32,6 +36,28 @@
     w.status !== 'completed' ? '◌' : w.conclusion === 'success' ? '✓' : ciFailing({ ci: [w] }).length ? '✗' : '–'
   const age = (c) => `${daysAgo(c) ?? '?'}d`
 </script>
+
+{#if extRows.length}
+  <section class="sec">
+    <h2>Waiting on you elsewhere · {extRows.length}</h2>
+    <table>
+      <thead><tr><th>age</th><th>role</th><th>repo</th><th>PR</th></tr></thead>
+      <tbody>
+        {#each extRows as p (p.role + p.repo + p.number)}
+          <tr>
+            <td class="num">{age(p.created)}</td>
+            <td class:sev-serious={p.role === 'review requested'}>{p.role}</td>
+            <td>{p.repo}</td>
+            <td>
+              <a href={p.url} target="_blank" rel="noreferrer">#{p.number} {p.title}</a>
+              {#if p.draft}<span class="lbl">draft</span>{/if}
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </section>
+{/if}
 
 <section class="sec">
   <h2>Open PRs · {prs.length}</h2>
