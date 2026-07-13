@@ -56,6 +56,7 @@ parse the YAML block between the opening `---` and the next `---`, then apply:
 | `design` | `run`, `skip` | `run` | `state.design_mode` | default + warn |
 | `design_gate` | exact `user` | field left absent | `state.design_gate` | leave absent, no warn |
 | `doubt_reviewer` | `codex`, `fable` | `codex` | `state.doubt_reviewer` | default + warn |
+| `consensus_engine` | `legacy`, `shadow`, `workflow` | `legacy` | `state.consensus_engine` | default + warn |
 | `pause_on_ambiguity` | exact `true` (PRD 00017) | treat as `false`, field left absent | `state.pause_on_ambiguity` | treat as `false`, no warn |
 
 Shared fallback: on malformed YAML or missing frontmatter, log ONE warning line
@@ -71,6 +72,7 @@ Semantics the table cannot carry:
 - `catchup`: `run` honors the Phase 1 batch cache; `skip` bypasses catchup entirely; `force` ignores the cache and re-runs full catchup regardless of recency.
 - `rework_cap` is consumed by the review gate's cap check (`references/phase-review.md` § Cap check).
 - `doubt_reviewer`: `fable` adds Eve to the review batch as a fifth lens; `codex` runs the standard roster.
+- `consensus_engine`: selects the engine behind Alice's consensus leg (`review-work-completion` step 1). `legacy` is today's single subagent; `workflow` makes the `review-fanout` workflow her leg; `shadow` runs both, with legacy gating and the workflow recorded as a non-gating observation.
 - `pause_on_ambiguity: true` — in loop mode a requirements ambiguity STALLS the PRD instead of being resolved by assumption; it never pauses the batch (see Phase 2).
 
 ## Phase 1: Catchup
