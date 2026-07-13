@@ -36,12 +36,18 @@ the impure region at all -- the one place no test can observe it.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 CLAUDE_DIR = Path(__file__).resolve().parents[3]
 WORKFLOW_JS = CLAUDE_DIR / "workflows" / "review-fanout.workflow.js"
+HARNESS_MJS = CLAUDE_DIR / "workflows" / "_harness.mjs"
+CHECK_REVIEW_FILE_PY = Path(__file__).resolve().parent / "check_review_file.py"
 
 PURE_START = "// ---- pure region (start) ----"
 PURE_END = "// ---- pure region (end) ----"
@@ -398,6 +404,169 @@ class ReviewFanoutContractTests(unittest.TestCase):
                 f"a constant argument makes decideVerdict correct and useless. Call site: "
                 f"decideVerdict({args})",
             )
+
+
+# ---- Phase 1 acceptance: the rendered file must pass the REAL coverage gate ----
+#
+# The PRD's Phase 1 acceptance criterion is a shell command someone runs by hand:
+# render a fixture, then `check_review_file.py --review-file <it>` and eyeball
+# exit 0. Nothing upstream of this section automated that -- the JS suite only
+# string-asserts on renderReviewMarkdown's output text; it never invokes the gate
+# script. So the gate's contract (heading shape, Verdict: line, Tests: line) could
+# drift out from under the renderer and every existing test would stay green. The
+# tests below close that gap: they render through the engine's REAL pure region
+# (the same `pure()` / `reviewBase()` seam `workflows/*.test.mjs` exercises, via
+# `_harness.mjs`) and then run the REAL `check_review_file.py` as a subprocess
+# against the rendered result -- no reimplementation of either.
+
+# A node ESM one-liner: reads {overrides, args} JSON from stdin, builds
+# reviewBase(p, overrides), and writes renderReviewMarkdown(state, args) to
+# stdout. Built by string concatenation (not an f-string) so the JS object
+# literals' braces need no escaping.
+_RENDER_SCRIPT = (
+    'import { pure, reviewBase } from "file://' + str(HARNESS_MJS) + '";\n'
+    'import { readFileSync } from "node:fs";\n'
+    'const input = JSON.parse(readFileSync(0, "utf8"));\n'
+    "const p = pure();\n"
+    "const state = reviewBase(p, input.overrides || {});\n"
+    "process.stdout.write(p.renderReviewMarkdown(state, input.args || {}));\n"
+)
+
+
+def _render_review_markdown(overrides: dict | None = None, args: dict | None = None) -> str:
+    """Render review markdown via the engine's REAL pure region.
+
+    Shells out to node to import `_harness.mjs`, build `reviewBase(p, overrides)`,
+    and call `renderReviewMarkdown(state, args)` -- the exact rendering path the
+    behavioral suite exercises. Nothing here reimplements or approximates the
+    renderer; the returned text is whatever the shipped engine actually produces.
+    """
+    payload = json.dumps({"overrides": overrides or {}, "args": args or {}})
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", _RENDER_SCRIPT],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "node failed to render review markdown via _harness.mjs "
+            f"(exit {result.returncode}): {result.stderr}"
+        )
+    return result.stdout
+
+
+def _run_coverage_gate(review_text: str, reviewers: str = "alice") -> subprocess.CompletedProcess:
+    """Write `review_text` to a temp file and run the REAL check_review_file.py on it.
+
+    Passes `--reviewers alice`, matching what the review-work-completion skill
+    passes at call time.
+    """
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as fh:
+        fh.write(review_text)
+        tmp_path = Path(fh.name)
+    try:
+        return subprocess.run(
+            [sys.executable, str(CHECK_REVIEW_FILE_PY), "--review-file", str(tmp_path), "--reviewers", reviewers],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+class RenderedReviewFilePassesTheRealCoverageGateTests(unittest.TestCase):
+    def test_rendered_review_file_with_findings_passes_the_real_coverage_gate(self) -> None:
+        # Code fixture: some findings, a real Tests: line -> gate exit 0.
+        overrides = {
+            "blocking": [
+                {
+                    "title": "missing null check",
+                    "severity": "HIGH",
+                    "file": "src/a.js",
+                    "task": "1",
+                    "evidence": "the guard on line 42 was removed",
+                    "proof": "line 42 has no null check",
+                    "verified": "confirmed",
+                },
+                {
+                    "title": "off by one in the paginator",
+                    "severity": "MEDIUM",
+                    "file": "src/b.js",
+                    "task": "2",
+                    "evidence": "loop bound uses <= instead of <",
+                    "verified": "confirmed",
+                },
+            ]
+        }
+        args = {
+            "prd": "00064",
+            "review": "1",
+            "date": "2026-07-13",
+            "head_sha": "abc1234",
+            "tests_line": "Tests: 12 passed, 0 failed, 0 skipped",
+        }
+        review_text = _render_review_markdown(overrides, args)
+        gate = _run_coverage_gate(review_text)
+        self.assertEqual(
+            gate.returncode,
+            0,
+            "the engine's own rendered output must pass its own coverage gate; "
+            f"gate stderr: {gate.stderr}\n\nrendered file:\n{review_text}",
+        )
+
+    def test_rendered_docs_only_review_file_passes_the_real_coverage_gate(self) -> None:
+        # Docs-only fixture: `Tests: none (docs-only)` -> gate exit 0. The caller
+        # hands renderReviewMarkdown the COMPLETE tests_line, prefix included.
+        args = {
+            "prd": "00064",
+            "review": "1",
+            "date": "2026-07-13",
+            "head_sha": "abc1234",
+            "tests_line": "Tests: none (docs-only)",
+        }
+        review_text = _render_review_markdown({}, args)
+        self.assertIn(
+            "Tests: none (docs-only)",
+            review_text,
+            f"sanity check: the docs-only tests_line must appear verbatim, got:\n{review_text}",
+        )
+        gate = _run_coverage_gate(review_text)
+        self.assertEqual(
+            gate.returncode,
+            0,
+            f"a docs-only review must pass the real gate; gate stderr: {gate.stderr}\n\n"
+            f"rendered file:\n{review_text}",
+        )
+
+    def test_rendered_review_file_with_unsubstituted_tests_line_fails_the_real_coverage_gate(self) -> None:
+        # No tests_line supplied -> the literal `{{TESTS_LINE}}` token ships, unfilled.
+        # This is the negative half of the same contract: the gate must reject that
+        # token, not accept it. If it ever started accepting the raw token, the
+        # documented tests_line substitution step could silently stop happening and
+        # the engine would ship a broken review file with nothing to catch it.
+        args = {"prd": "00064", "review": "1", "date": "2026-07-13", "head_sha": "abc1234"}
+        review_text = _render_review_markdown({}, args)
+        self.assertIn(
+            "{{TESTS_LINE}}",
+            review_text,
+            f"sanity check: an absent tests_line must render the literal token, got:\n{review_text}",
+        )
+        gate = _run_coverage_gate(review_text)
+        self.assertNotEqual(
+            gate.returncode,
+            0,
+            "a review file that still carries the unsubstituted {{TESTS_LINE}} token must "
+            f"NOT pass the real gate, but it exited 0 anyway. Rendered file:\n{review_text}",
+        )
+        self.assertIn(
+            "tests",
+            gate.stderr.lower(),
+            "the gate must reject this file because of the tests line specifically, not "
+            f"some unrelated reason. Gate stderr: {gate.stderr!r}",
+        )
 
 
 if __name__ == "__main__":
