@@ -62,7 +62,14 @@ test("every severity renders its own emoji, so a HIGH never masquerades as a CRI
   });
   const low = finding({ title: "stray log", severity: "LOW", file: "src/d.js", task: "5" });
 
-  const out = render(p, { blocking: [high], advisory: [low] });
+  // Route both through `blocking`: renderAgentOutput maps severity to emoji via
+  // findingLine() regardless of blocking/advisory placement -- that routing
+  // decision (what blocks vs. what is merely advisory) is made upstream of
+  // renderAgentOutput, not by it. A bare MEDIUM/LOW finding placed in `advisory`
+  // now renders as an inert note with NO emoji at all (see "a non-blocking
+  // advisory finding renders as an inert note"), so `advisory` can no longer be
+  // used to prove the severity-to-emoji mapping here.
+  const out = render(p, { blocking: [high, low] });
   const parseable = lines(out).filter((l) => l.startsWith("[ALICE]"));
 
   const highLine = parseable.find((l) => l.includes("path traversal in upload"));
