@@ -283,6 +283,13 @@ const FINDINGS_SCHEMA = {
           fix: { type: "string" },
           task: { type: "string" },
         },
+        if: {
+          properties: { severity: { enum: ["CRITICAL", "HIGH"] } },
+          required: ["severity"],
+        },
+        then: {
+          required: ["proof"],
+        },
       },
     },
   },

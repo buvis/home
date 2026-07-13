@@ -169,6 +169,38 @@ class ReviewFanoutContractTests(unittest.TestCase):
         # Bounds fan-out downstream (verify budget, table rendering).
         self.assertRegex(self.findings_schema, r"maxItems:\s*\d+")
 
+    def test_schema_requires_proof_on_critical_and_high(self) -> None:
+        # The PRD's actual mechanism: an if/then in the SCHEMA itself rejects an
+        # unproven CRITICAL/HIGH finding at the tool layer, forcing a retry.
+        # demote() stays as the app-level fail-safe for anything that still slips
+        # through -- this test pins the primary gate, not a replacement for it.
+        if_match = re.search(
+            r"if:\s*\{\s*properties:\s*\{\s*severity:\s*\{\s*enum:\s*\[([^\]]*)\]",
+            self.findings_schema,
+        )
+        self.assertIsNotNone(
+            if_match,
+            "FINDINGS_SCHEMA has no if/properties/severity/enum trigger for the proof requirement",
+        )
+        triggers = [v.strip().strip('"') for v in if_match.group(1).split(",")]
+        self.assertEqual(
+            set(triggers),
+            {"CRITICAL", "HIGH"},
+            f"the if/then must trigger on exactly CRITICAL and HIGH, got {triggers}",
+        )
+
+        then_match = re.search(r"then:\s*\{\s*required:\s*\[([^\]]*)\]", self.findings_schema)
+        self.assertIsNotNone(
+            then_match,
+            "FINDINGS_SCHEMA has no then/required clause following the severity if",
+        )
+        required = [v.strip().strip('"') for v in then_match.group(1).split(",")]
+        self.assertIn(
+            "proof",
+            required,
+            f"the then clause must require `proof`, got {required}",
+        )
+
     def test_verify_cap_and_max_diff_bytes_are_constants(self) -> None:
         self.assertRegex(self.js, r"(?m)^const MAX_DIFF_BYTES\s*=\s*\d+;")
         self.assertRegex(self.js, r"(?m)^const VERIFY_CAP\s*=\s*\d+;")
