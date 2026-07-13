@@ -5,7 +5,16 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pure, finding, lines, reviewBase, frontmatter, decide, verdictState } from "./_harness.mjs";
+import {
+  pure,
+  finding,
+  lines,
+  reviewBase,
+  frontmatter,
+  decide,
+  verdictState,
+  CONSOLIDATION_RE,
+} from "./_harness.mjs";
 test("the review file verdict, reviewers and tests token follow the legacy contract", () => {
   const p = pure();
   const args = {
@@ -446,7 +455,7 @@ test("verifierFailures still counts independently when it names a finding blocki
   );
 });
 
-test("advisory findings never inflate the Verdict count, no matter how many pile up", () => {
+test("advisory findings never inflate the Verdict count and never render as parseable lines, no matter how many pile up", () => {
   const p = pure();
   const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
   const nits = Array.from({ length: 15 }, (_, i) =>
@@ -468,12 +477,28 @@ test("advisory findings never inflate the Verdict count, no matter how many pile
     `fifteen advisory nits must not inflate the blocking count:\n${out}`,
   );
 
-  const parseable = outLines.filter((l) => l.startsWith("[ALICE]"));
+  // The parseable-line count and the Verdict count must agree: exactly one
+  // parseable line for the one blocking finding, not one per pile-up nit.
+  const parseable = outLines.filter((l) => CONSOLIDATION_RE.test(l));
   assert.equal(
     parseable.length,
-    16,
-    "fifteen advisory lines plus one blocking line, all still individually parseable",
+    1,
+    `only the blocking finding may produce a line the consolidation script can parse; the fifteen ` +
+      `advisory nits must not, or the Verdict count and the parseable-line count would disagree:\n${out}`,
   );
+  assert.ok(parseable[0].includes("rce via cmd param"), parseable[0]);
+
+  // The nits are information, not garbage: they must still appear, as inert notes.
+  assert.ok(
+    out.includes("### Advisory (does not block)"),
+    `the fifteen advisory nits must still appear, under their own section:\n${out}`,
+  );
+  for (const nit of nits) {
+    assert.ok(
+      out.includes(nit.title),
+      `advisory finding "${nit.title}" must still appear somewhere in the output:\n${out}`,
+    );
+  }
 });
 
 test("renderReviewMarkdown accepts a precomputed agent output instead of recomputing it internally", () => {

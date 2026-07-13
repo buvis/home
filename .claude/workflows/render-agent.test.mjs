@@ -5,7 +5,16 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pure, finding, render, lines, fileCell, arr, EXPECTED_RUBRIC_IDS } from "./_harness.mjs";
+import {
+  pure,
+  finding,
+  render,
+  lines,
+  fileCell,
+  arr,
+  EXPECTED_RUBRIC_IDS,
+  CONSOLIDATION_RE,
+} from "./_harness.mjs";
 test("a title carrying a pipe and a newline still renders exactly one parseable line", () => {
   const p = pure();
   const f = finding({
@@ -411,19 +420,40 @@ test("a clean review renders the single no-issues line, then the rubric and the 
   );
 });
 
-test("demoted findings still surface as advisory medium lines carrying the no-proof marker", () => {
+test("a demoted finding renders as an advisory note carrying the no-proof marker, never as a parseable line", () => {
   const p = pure();
+  // demote() strips CRITICAL/HIGH down to MEDIUM when nobody proved it. A demoted
+  // finding is advisory (it does not block) — see the background docstring on
+  // renderAgentOutput — so it must never reach the findings table.
   const { findings } = p.demote([
     finding({ title: "maybe a leak", severity: "CRITICAL", file: "src/a.js", task: "4" }),
   ]);
   const out = render(p, { advisory: arr(findings) });
+  const outLines = lines(out);
 
-  const parseable = lines(out).filter((l) => l.startsWith("[ALICE]"));
-  assert.equal(parseable.length, 1);
-  assert.match(parseable[0], /^\[ALICE\] 🟡 /, "a demoted finding renders at MEDIUM");
-  assert.ok(parseable[0].includes("maybe a leak (demoted: no proof)"), parseable[0]);
-  assert.ok(parseable[0].includes(" | File:"));
-  assert.ok(parseable[0].includes(" | Task:"));
+  assert.ok(
+    !outLines.some((l) => CONSOLIDATION_RE.test(l)),
+    `a demoted finding is advisory: it must never produce a line the consolidation script can parse:\n${out}`,
+  );
+  assert.ok(
+    outLines.includes("[ALICE] ✅ No issues found"),
+    `nothing blocks here, so the clean-run line must still appear:\n${out}`,
+  );
+
+  assert.ok(
+    out.includes("### Advisory (does not block)"),
+    `a demoted finding must appear under its own advisory section, same style as ### Refuted:\n${out}`,
+  );
+  const noteLine = outLines.find((l) => l.trim().startsWith("-") && l.includes("maybe a leak"));
+  assert.ok(noteLine, `the demoted finding must still appear, as a note bullet, not silently dropped:\n${out}`);
+  assert.ok(
+    !CONSOLIDATION_RE.test(noteLine),
+    `the note text must not match the parseable line shape: ${noteLine}`,
+  );
+  assert.ok(
+    /demoted/i.test(noteLine) && /no proof/i.test(noteLine),
+    `the note must still say the finding was demoted for lack of proof: ${noteLine}`,
+  );
 });
 
 test("the sanitizer collapses whitespace, neutralizes pipes, and caps cell length", () => {
@@ -478,7 +508,7 @@ test("a dead verifier's finding line names the verifier failure accurately, not 
   );
 });
 
-test("a non-blocking advisory finding is clearly marked advisory, distinct from a blocking finding", () => {
+test("a non-blocking advisory finding renders as an inert note, never as a parseable line beside a blocking finding", () => {
   const p = pure();
   const nit = finding({
     title: "duplicated parsing helper",
@@ -497,21 +527,30 @@ test("a non-blocking advisory finding is clearly marked advisory, distinct from 
 
   const out = render(p, { blocking: [blocker], advisory: [nit] });
   const outLines = lines(out);
-  const advisoryLine = outLines.find(
-    (l) => l.startsWith("[ALICE]") && l.includes("duplicated parsing helper"),
-  );
-  const blockingLine = outLines.find((l) => l.startsWith("[ALICE]") && l.includes("rce via cmd param"));
+  const parseable = outLines.filter((l) => CONSOLIDATION_RE.test(l));
 
-  assert.ok(advisoryLine, `missing the advisory line:\n${out}`);
-  assert.ok(blockingLine, `missing the blocking line:\n${out}`);
-  assert.ok(
-    /advisory/i.test(advisoryLine),
-    `an advisory finding must self-identify as advisory, so a reader -- human or the ` +
-      `consolidation script, which parses every parseable line -- cannot mistake it for a ` +
-      `blocking finding: ${advisoryLine}`,
+  assert.equal(
+    parseable.length,
+    1,
+    `only the blocking finding may produce a line the consolidation script can parse:\n${out}`,
   );
+  assert.ok(parseable[0].includes("rce via cmd param"), parseable[0]);
   assert.ok(
-    !/advisory/i.test(blockingLine),
-    `a blocking finding must not carry the advisory marker: ${blockingLine}`,
+    !parseable.some((l) => l.includes("duplicated parsing helper")),
+    `the advisory finding must never render as a parseable line -- it does not block, so the ` +
+      `consolidation script must never turn it into a rework task: ${out}`,
+  );
+
+  assert.ok(
+    out.includes("### Advisory (does not block)"),
+    `the advisory finding must appear under its own section, same style as ### Refuted:\n${out}`,
+  );
+  const noteLine = outLines.find(
+    (l) => l.trim().startsWith("-") && l.includes("duplicated parsing helper"),
+  );
+  assert.ok(noteLine, `the advisory finding must still appear, as a note bullet, not silently dropped:\n${out}`);
+  assert.ok(
+    !CONSOLIDATION_RE.test(noteLine),
+    `the note text must not match the parseable line shape: ${noteLine}`,
   );
 });

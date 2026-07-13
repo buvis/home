@@ -252,7 +252,7 @@ test("the verify cap is spent strictest-first, so an arrival-ordered HIGH never 
   }
 });
 
-test("non-blocking findings ride through verification untouched and still render as parseable advisory lines", () => {
+test("non-blocking findings ride through verification untouched and render as advisory notes, never as parseable lines", () => {
   const p = pure();
   const medium = finding({
     title: "duplicated parsing helper",
@@ -302,19 +302,34 @@ test("non-blocking findings ride through verification untouched and still render
   assert.ok(!byTitle["stray debug log"].verified);
 
   const out = render(p, { blocking: arr(res.blocking), advisory });
-  const parseable = lines(out).filter((l) => l.startsWith("[ALICE]"));
+  const outLines = lines(out);
+  const parseable = outLines.filter((l) => CONSOLIDATION_RE.test(l));
 
-  const mediumLine = parseable.find((l) => l.includes("duplicated parsing helper"));
-  assert.ok(mediumLine, `the MEDIUM passthrough must render as a parseable line:\n${out}`);
-  assert.match(mediumLine, /^\[ALICE\] 🟡 /, mediumLine);
-  assert.ok(mediumLine.includes(" | File:"), mediumLine);
-  assert.ok(mediumLine.includes(" | Task: 7"), mediumLine);
+  assert.equal(
+    parseable.length,
+    1,
+    `only the blocking finding may produce a line the consolidation script can parse; MEDIUM/LOW ` +
+      `passthrough findings are advisory and must not:\n${out}`,
+  );
+  assert.ok(parseable[0].includes("rce via cmd param"), parseable[0]);
+  assert.ok(
+    !parseable.some((l) => l.includes("duplicated parsing helper") || l.includes("stray debug log")),
+    `MEDIUM/LOW passthrough findings must never render as parseable lines:\n${out}`,
+  );
 
-  const lowLine = parseable.find((l) => l.includes("stray debug log"));
-  assert.ok(lowLine, `the LOW passthrough must render as a parseable line:\n${out}`);
-  assert.match(lowLine, /^\[ALICE\] ⚪ /, lowLine);
-  assert.ok(lowLine.includes(" | File:"), lowLine);
-  assert.ok(lowLine.includes(" | Task: 8"), lowLine);
+  assert.ok(
+    out.includes("### Advisory (does not block)"),
+    `the MEDIUM/LOW findings must still appear, as advisory notes, same style as ### Refuted:\n${out}`,
+  );
+  const mediumNote = outLines.find(
+    (l) => l.trim().startsWith("-") && l.includes("duplicated parsing helper"),
+  );
+  assert.ok(mediumNote, `the MEDIUM passthrough must still appear, as a note bullet:\n${out}`);
+  assert.ok(!CONSOLIDATION_RE.test(mediumNote), `the note must not match the parseable line shape: ${mediumNote}`);
+
+  const lowNote = outLines.find((l) => l.trim().startsWith("-") && l.includes("stray debug log"));
+  assert.ok(lowNote, `the LOW passthrough must still appear, as a note bullet:\n${out}`);
+  assert.ok(!CONSOLIDATION_RE.test(lowNote), `the note must not match the parseable line shape: ${lowNote}`);
 });
 
 test("thirteen proven blockers whose verified twelve are all refuted still cannot produce APPROVE", () => {
