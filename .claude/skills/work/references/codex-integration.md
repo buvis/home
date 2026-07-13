@@ -4,7 +4,7 @@ Codex is **a review tool only** in this skill — never an implementor. UI tasks
 
 ## Where Codex is invoked today
 
-Codex IS currently invoked as a reviewer from `/run-autopilot` Phase 4 (PRD-level review) — specifically by `skills/review-work-completion`, which dispatches the "Bob" reviewer subagent that runs `~/.claude/skills/use-codex/scripts/codex-run.sh` against a review prompt (see `skills/review-work-completion/references/agent-invocation.md`). Codex is also the executor of the batched de-slop pass run by `skills/run-autopilot/scripts/desloppify_run.py` (a cleanup pass over the PRD's `CLEANUP_SINCE..HEAD` range). These are the two ways `/work` indirectly produces work that Codex touches.
+Codex IS currently invoked as a reviewer from `/run-autopilot`'s review phase — specifically by `skills/review-work-completion`, which dispatches the "Bob" reviewer (doubt lens) as a background Bash call to `~/.claude/skills/use-codex/scripts/codex-run.sh` (see `skills/review-work-completion/references/agent-invocation.md`). That is the one way `/work` indirectly produces work that Codex touches. The batched de-slop pass Codex used to execute was removed in the 2026-06-09 lifecycle refactor; the per-task de-slop at step 5.6 is a Claude dispatch, not Codex.
 
 `/work` itself does not invoke Codex directly. The per-task code review at step 5.7 dispatches a Claude Agent code-reviewer, not Codex.
 
