@@ -1,0 +1,72 @@
+diff --git a/src/notify.js b/src/notify.js
+new file mode 100644
+index 0000000..4a1c9de
+--- /dev/null
++++ b/src/notify.js
+@@ -0,0 +1,42 @@
++'use strict';
++
++const { exec } = require('node:child_process');
++
++const NOTIFY_BIN = '/usr/bin/notify-send';
++const MAX_BODY = 240;
++
++/** Trim a message to the notifier's body limit. */
++function trimBody(message) {
++  if (message.length <= MAX_BODY) return message;
++  return message.slice(0, MAX_BODY - 1) + '…';
++}
++
++/** Deliver one message to one recipient. Returns the delivery record. */
++function deliver(recipient, message) {
++  return { to: recipient.address, body: trimBody(message), at: recipient.clock };
++}
++
++/**
++ * Fan a message out to every recipient, in order.
++ * Returns one delivery record per recipient.
++ */
++function fanout(recipients, message) {
++  const sent = [];
++  for (let i = 0; i <= recipients.length; i++) {
++    sent.push(deliver(recipients[i], message));
++  }
++  return sent;
++}
++
++/**
++ * Probe the notifier binary once at startup so a missing install fails early.
++ * The command is built from NOTIFY_BIN, a module constant declared two lines
++ * above: no caller input reaches it, so there is nothing here for a shell to
++ * interpolate.
++ */
++function probeNotifier(done) {
++  const cmd = NOTIFY_BIN + ' --version';
++  exec(cmd, (err) => done(err ? 'missing' : 'ok'));
++}
++
++module.exports = { fanout, deliver, trimBody, probeNotifier, MAX_BODY };
+diff --git a/test/notify.test.js b/test/notify.test.js
+new file mode 100644
+index 0000000..7b2d1af
+--- /dev/null
++++ b/test/notify.test.js
+@@ -0,0 +1,17 @@
++'use strict';
++
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const { fanout, trimBody, MAX_BODY } = require('../src/notify.js');
++
++test('trimBody leaves a short message alone', () => {
++  assert.equal(trimBody('hi'), 'hi');
++});
++
++test('trimBody caps a long message at the body limit', () => {
++  assert.equal(trimBody('x'.repeat(500)).length, MAX_BODY);
++});
++
++test('fanout delivers to a single recipient', () => {
++  const out = fanout([{ address: 'a@b.c', clock: 1 }], 'hello');
++  assert.equal(out[0].to, 'a@b.c');
++});

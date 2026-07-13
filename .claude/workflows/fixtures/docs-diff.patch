@@ -1,0 +1,34 @@
+diff --git a/README.md b/README.md
+index 3f1a2b7..9c4e0d1 100644
+--- a/README.md
++++ b/README.md
+@@ -12,6 +12,14 @@ Install with `npm install notify`.
+
+ ## Usage
+
++### Fanning a message out
++
++`fanout(recipients, message)` delivers one message to every recipient and
++returns one delivery record per recipient, in the order they were given.
++Messages longer than 240 characters are trimmed and end with an ellipsis.
++
++### Probing the notifier
++
+ Call `probeNotifier(done)` once at startup. It runs the notifier binary with
+ `--version` and calls back with `'ok'` or `'missing'`.
+
+diff --git a/docs/limits.md b/docs/limits.md
+new file mode 100644
+index 0000000..2ab5c31
+--- /dev/null
++++ b/docs/limits.md
+@@ -0,0 +1,9 @@
++# Limits
++
++| Limit | Value | Why |
++|-------|-------|-----|
++| Body length | 240 characters | The desktop notifier truncates past this. |
++| Recipients per fanout | unbounded | Delivery is synchronous and cheap. |
++
++A trimmed body always ends with a single ellipsis character, so a reader can
++tell a trimmed message from a short one.
