@@ -52,17 +52,61 @@ test("a security word counts when it lands on an added line, a removed line, or 
   );
 });
 
-test("a diff whose only change is removing a line containing an auth guard arms the security dimension", () => {
+test("a removed auth guard arms the security dimension whatever its spelling", () => {
+  const p = pure();
+  const removed = (code) => `@@ -1,2 +1,1 @@\n-${code}\n   next();\n`;
+
+  // Every entry is checked against the same rule: a review engine that skips security
+  // review when a guard is deleted fails open. The bare word 'auth' is not the only
+  // spelling of an auth guard, so every realistic spelling must arm it too.
+  const guards = [
+    ["the bare 'auth' token stands alone", "  if (!auth.isValid(req)) return res.status(403).end();"],
+    ["a requireAuth() call", "  requireAuth(req);"],
+    ["an isAuthenticated guard", "  if (!user.isAuthenticated) return res.status(403).end();"],
+    ["an isAuthorized guard", "  if (!isAuthorized(user, resource)) throw new ForbiddenError();"],
+    ["a requireAuthentication() call", "  requireAuthentication(req);"],
+    ["a @login_required decorator", "@login_required"],
+    ["a hasPermission guard", "  if (!hasPermission(user)) return null;"],
+  ];
+
+  for (const [label, code] of guards) {
+    assert.equal(
+      p.securityTriggered(removed(code), []),
+      true,
+      `deleting ${label} ('${code.trim()}') must arm the security dimension: a matcher that only ` +
+        "recognizes the bare stem 'auth' fails open on every realistic guard name",
+    );
+  }
+});
+
+test("a removed line whose own text starts with -- is scanned, while the diff's own --- file header is still ignored", () => {
   const p = pure();
 
+  const headerOnly =
+    "--- a/scripts/deploy.sh\n+++ b/scripts/deploy.sh\n@@ -1,2 +1,2 @@\n set -e\n docker login\n";
   assert.equal(
-    p.securityTriggered(
-      "@@ -1,2 +1,1 @@\n-  if (!auth.isValid(req)) return res.status(403).end();\n   next();\n",
-      [],
-    ),
+    p.securityTriggered(headerOnly, []),
+    false,
+    "the diff's own --- / +++ header lines are metadata, not content, and must not arm security on their own",
+  );
+
+  const droppedFlag =
+    "--- a/scripts/deploy.sh\n+++ b/scripts/deploy.sh\n@@ -1,3 +1,2 @@\n set -e\n---password-stdin\n docker login\n";
+  assert.equal(
+    p.securityTriggered(droppedFlag, []),
     true,
-    "a review engine that skips security review when a guard is deleted fails open: the deleted " +
-      "auth check must arm the security dimension even though nothing was added",
+    "a removed line whose own content begins with -- (here a dropped --password-stdin flag) is " +
+      "textually indistinguishable from the --- header prefix, but it is a removed content line " +
+      "inside the hunk body, not a file header, and must still be scanned for security words",
+  );
+
+  const droppedSqlComment =
+    "--- a/db/migrate.sql\n+++ b/db/migrate.sql\n@@ -1,2 +1,1 @@\n--- auth check\n SELECT 1;\n";
+  assert.equal(
+    p.securityTriggered(droppedSqlComment, []),
+    true,
+    "a removed SQL comment ('-- auth check') collides with the --- header prefix the same way; " +
+      "it sits inside the hunk body, not the file header, and must still arm security",
   );
 });
 
