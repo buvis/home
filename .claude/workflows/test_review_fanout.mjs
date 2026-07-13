@@ -218,39 +218,48 @@ test("the pure region is present and every contracted symbol is defined", () => 
   assert.equal(arr(p.RUBRIC_IDS).length, 12);
 });
 
-test("distinct titles sharing a file and evidence both survive dedupe", () => {
+test("distinct titles sharing a file and evidence collapse to one defect", () => {
   const p = pure();
+  // Two reviewers hit the same hunk and wrote it up under completely different
+  // titles. The PRD keys dedup on the normalized EVIDENCE snippet, not on the
+  // free-text title, so this is one defect, not two.
   const evidence = "for (let i = 0; i <= items.length; i++) { send(items[i]); }";
   const a = finding({
     title: "off-by-one walks past the end of items",
     file: "src/send.js",
     evidence,
     severity: "HIGH",
+    proof: "the loop uses <= against items.length, so the final iteration reads items[items.length], which is undefined",
     dimensions: ["correctness"],
   });
   const b = finding({
     title: "unvalidated input reaches send()",
     file: "src/send.js",
     evidence,
-    severity: "HIGH",
+    severity: "CRITICAL",
+    proof: "send() receives an out-of-bounds element with no guard against it",
     dimensions: ["security"],
   });
 
-  assert.notEqual(p.dedupKey(a), p.dedupKey(b), "the title must be part of the dedup key");
+  assert.equal(
+    p.dedupKey(a),
+    p.dedupKey(b),
+    "the title is free text two agents word differently; it must not be part of the dedup key",
+  );
 
   const { unique, raw } = p.dedupe([a, b]);
   assert.equal(raw, 2);
   assert.equal(
     arr(unique).length,
-    2,
-    "two different defects on the same hunk must not erase each other",
+    1,
+    "one quoted hunk of evidence in one file is one defect, no matter how many different titles reviewers give it",
   );
+  const survivor = arr(unique)[0];
+  assert.equal(survivor.severity, "CRITICAL", "the strictest severity survives the merge");
   assert.deepEqual(
-    arr(unique).map((f) => f.title).sort(),
-    [
-      "off-by-one walks past the end of items",
-      "unvalidated input reaches send()",
-    ].sort(),
+    arr(survivor.dimensions).sort(),
+    ["correctness", "security"],
+    "both reporting dimensions survive the merge",
   );
 });
 
@@ -324,8 +333,10 @@ test("the same title in one file but on different evidence stays two findings", 
 test("two reviewers wording the same defect differently report one finding, not two", () => {
   const p = pure();
   // Same defect, same file, same hunk — but two agents wrote it up in their own
-  // words, punctuation and case. The dedup key must normalize (i.e. actually
-  // call norm on its parts), or fuzzy cross-agent dedup does not exist at all.
+  // words, punctuation and case. The titles below are genuinely different
+  // prose (not case/punctuation variants of each other), so this only passes
+  // if the dedup key does not include the title at all — normalizing title
+  // punctuation would not be enough to collide these two.
   const alice = finding({
     title: "SQL Injection in user_lookup()",
     severity: "HIGH",
@@ -335,7 +346,7 @@ test("two reviewers wording the same defect differently report one finding, not 
     dimensions: ["security"],
   });
   const bob = finding({
-    title: "sql injection in user lookup",
+    title: "the id parameter is concatenated straight into the query string",
     severity: "CRITICAL",
     file: "src/db.js",
     evidence: "db.query(q)",
@@ -343,10 +354,15 @@ test("two reviewers wording the same defect differently report one finding, not 
     dimensions: ["correctness"],
   });
 
+  assert.notEqual(
+    p.norm(alice.title),
+    p.norm(bob.title),
+    "the fixture titles must be genuinely different prose, not the same words after normalization",
+  );
   assert.equal(
     p.dedupKey(alice),
     p.dedupKey(bob),
-    "wording, punctuation and case must not survive into the dedup key",
+    "the same evidence in the same file is one defect no matter how differently it is titled",
   );
 
   const { unique, raw } = p.dedupe([alice, bob]);
@@ -354,7 +370,7 @@ test("two reviewers wording the same defect differently report one finding, not 
   assert.equal(
     arr(unique).length,
     1,
-    "the same defect reported by two agents is one finding, not two",
+    "the same defect reported by two agents in different words is one finding, not two",
   );
   const survivor = arr(unique)[0];
   assert.equal(survivor.severity, "CRITICAL", "the strictest severity survives the fuzzy merge");
@@ -364,6 +380,67 @@ test("two reviewers wording the same defect differently report one finding, not 
     ["correctness", "security"],
     "both reporting dimensions survive the fuzzy merge",
   );
+});
+
+test("the evidence-keyed merge still keeps the strictest severity, longest proof and longest fix regardless of arrival order, even when the titles differ", () => {
+  const p = pure();
+  const evidence = "db.query(`SELECT * FROM u WHERE id = ${id}`)";
+  // Unlike the "collapsing a duplicate" fixture below (identical titles on both
+  // sides, which already collide under the old title|file|evidence key), these
+  // two titles are unrelated prose. This is the one test that actually exercises
+  // the merge logic under the NEW evidence-based key — proving the re-key did
+  // not regress which fields survive the collapse.
+  const strictButThin = finding({
+    title: "SQL injection in user lookup",
+    severity: "CRITICAL",
+    file: "src/db.js",
+    evidence,
+    proof: "id is unescaped",
+    fix: "escape it",
+    dimensions: ["security"],
+  });
+  const laxButDetailed = finding({
+    title: "raw id interpolated into the query string",
+    severity: "HIGH",
+    file: "src/db.js",
+    evidence,
+    proof: "id flows unescaped from req.params into the template literal at line 42",
+    fix: "use a parameterized query: db.query('SELECT * FROM u WHERE id = ?', [id])",
+    dimensions: ["correctness"],
+  });
+
+  assert.equal(
+    p.dedupKey(strictButThin),
+    p.dedupKey(laxButDetailed),
+    "the same defect in the same file on the same evidence is one key, even with unrelated titles",
+  );
+
+  for (const [order, input] of [
+    ["strict first", [strictButThin, laxButDetailed]],
+    ["strict last", [laxButDetailed, strictButThin]],
+  ]) {
+    const { unique, raw } = p.dedupe(input);
+    assert.equal(raw, 2, order);
+    assert.equal(arr(unique).length, 1, `${order}: the duplicate collapses`);
+
+    const survivor = arr(unique)[0];
+    assert.equal(survivor.severity, "CRITICAL", `${order}: the strictest severity survives`);
+    assert.equal(
+      survivor.proof,
+      laxButDetailed.proof,
+      `${order}: the longest proof survives, even when it arrives on the laxer report`,
+    );
+    assert.equal(
+      survivor.fix,
+      laxButDetailed.fix,
+      `${order}: the longest fix survives, even when it arrives on the laxer report`,
+    );
+    assert.deepEqual(
+      arr(survivor.dimensions).sort(),
+      ["correctness", "security"],
+      `${order}: both reporting dimensions survive`,
+    );
+  }
 });
 
 test("the dedup key delimits its parts, so shifting the title/file boundary is a different key", () => {
