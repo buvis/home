@@ -2224,3 +2224,221 @@ test("the rendered count sums every source of non-convergence, so no source can 
   // The control: with all four sources empty, and only then, the review converges.
   assert.equal(verdictLine(p, {}), "Verdict: converged");
 });
+
+// ---- defect fixes: no double-counting, accurate messages, advisory marking ----
+//
+// A single dead verifier's finding used to be represented in three different
+// state fields that renderReviewMarkdown sums independently (blocking,
+// verifierFailures, failedDimensions), so one outstanding item rendered as
+// three. The fix keeps each field's own additive contract (still exercised
+// above in isolation) but stops a finding that is ALREADY in `blocking` from
+// also being counted a second time via `verifierFailures`.
+
+test("a dead verifier already counted via blocking is not counted again by verifierFailures", () => {
+  const p = pure();
+  const dead = finding({
+    title: "rce in job runner",
+    severity: "CRITICAL",
+    file: "src/jobs.js",
+    task: "3",
+    proof: "proof for rce in job runner",
+    verified: "verifier_failed",
+  });
+
+  assert.equal(
+    verdictLine(p, {
+      blocking: [dead],
+      unverified: 0,
+      verifierFailures: ["rce in job runner"],
+      failedDimensions: [],
+    }),
+    "Verdict: 1 findings",
+    "one dead verifier is one outstanding item: it must not be counted once via blocking " +
+      "and again via verifierFailures for the very same finding",
+  );
+});
+
+test("verifierFailures still counts independently when it names a finding blocking does not carry", () => {
+  const p = pure();
+  // Control for the test above: when a verifierFailures title does NOT correspond to
+  // anything in blocking, it must still add to the count -- the dedup must key off the
+  // actual overlap, not silently discard verifierFailures whenever blocking is non-empty.
+  const unrelatedBlocker = finding({
+    title: "auth bypass",
+    severity: "CRITICAL",
+    file: "src/auth.js",
+    task: "1",
+    proof: "the guard is never called",
+    verified: "confirmed",
+  });
+
+  assert.equal(
+    verdictLine(p, {
+      blocking: [unrelatedBlocker],
+      unverified: 0,
+      verifierFailures: ["some other finding entirely"],
+      failedDimensions: [],
+    }),
+    "Verdict: 2 findings",
+    "a verifierFailures entry naming a DIFFERENT finding than anything in blocking is a second, " +
+      "distinct outstanding item",
+  );
+});
+
+test("a dead verifier's finding line names the verifier failure accurately, not as a dead dimension", () => {
+  const p = pure();
+  const dead = finding({
+    title: "rce in job runner",
+    severity: "CRITICAL",
+    file: "src/jobs.js",
+    task: "3",
+    proof: "proof for rce in job runner",
+    verified: "verifier_failed",
+  });
+
+  const out = render(p, { blocking: [dead] });
+  const outLines = lines(out);
+  const line = outLines.find((l) => l.startsWith("[ALICE]") && l.includes("rce in job runner"));
+  assert.ok(line, `missing the dead-verifier finding line in:\n${out}`);
+  assert.ok(!line.includes("dimension"), `a dead verifier is not a dead dimension: ${line}`);
+  assert.ok(
+    !line.includes("returned nothing"),
+    `a malformed verdict is a real answer, not "nothing": ${line}`,
+  );
+  assert.ok(
+    /verifier/i.test(line) && /no usable verdict/i.test(line),
+    `the line must say the verifier returned no usable verdict: ${line}`,
+  );
+
+  const parseable = outLines.filter((l) => l.startsWith("[ALICE]"));
+  assert.equal(
+    parseable.length,
+    1,
+    `one dead verifier must render exactly one parseable line, not a second "review incomplete" ` +
+      `line for the same finding:\n${out}`,
+  );
+});
+
+test("a non-blocking advisory finding is clearly marked advisory, distinct from a blocking finding", () => {
+  const p = pure();
+  const nit = finding({
+    title: "duplicated parsing helper",
+    severity: "MEDIUM",
+    file: "src/parse.js",
+    task: "7",
+  });
+  const blocker = finding({
+    title: "rce via cmd param",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    task: "1",
+    proof: "cmd reaches exec",
+    verified: "confirmed",
+  });
+
+  const out = render(p, { blocking: [blocker], advisory: [nit] });
+  const outLines = lines(out);
+  const advisoryLine = outLines.find(
+    (l) => l.startsWith("[ALICE]") && l.includes("duplicated parsing helper"),
+  );
+  const blockingLine = outLines.find((l) => l.startsWith("[ALICE]") && l.includes("rce via cmd param"));
+
+  assert.ok(advisoryLine, `missing the advisory line:\n${out}`);
+  assert.ok(blockingLine, `missing the blocking line:\n${out}`);
+  assert.ok(
+    /advisory/i.test(advisoryLine),
+    `an advisory finding must self-identify as advisory, so a reader -- human or the ` +
+      `consolidation script, which parses every parseable line -- cannot mistake it for a ` +
+      `blocking finding: ${advisoryLine}`,
+  );
+  assert.ok(
+    !/advisory/i.test(blockingLine),
+    `a blocking finding must not carry the advisory marker: ${blockingLine}`,
+  );
+});
+
+test("advisory findings never inflate the Verdict count, no matter how many pile up", () => {
+  const p = pure();
+  const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
+  const nits = Array.from({ length: 15 }, (_, i) =>
+    finding({ title: `nit ${i}`, severity: "LOW", file: `src/n${i}.js`, task: String(i) }),
+  );
+  const blocker = finding({
+    title: "rce via cmd param",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    task: "1",
+    proof: "cmd reaches exec",
+    verified: "confirmed",
+  });
+
+  const out = p.renderReviewMarkdown(reviewBase(p, { blocking: [blocker], advisory: nits }), args);
+  const outLines = lines(out);
+  assert.ok(
+    outLines.includes("Verdict: 1 findings"),
+    `fifteen advisory nits must not inflate the blocking count:\n${out}`,
+  );
+
+  const parseable = outLines.filter((l) => l.startsWith("[ALICE]"));
+  assert.equal(
+    parseable.length,
+    16,
+    "fifteen advisory lines plus one blocking line, all still individually parseable",
+  );
+});
+
+test("a finding proven by one dimension is not marked demoted merely because a duplicate report lacked proof", () => {
+  const p = pure();
+  const evidence = "child_process.exec(cmd)";
+  const noProofReport = finding({
+    title: "rce in handler",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    evidence,
+    dimensions: ["security"],
+  });
+  const provenReport = finding({
+    title: "unvalidated cmd reaches exec",
+    severity: "MEDIUM",
+    file: "src/a.js",
+    evidence,
+    proof: "cmd flows from req.body straight into exec with no validation",
+    dimensions: ["correctness"],
+  });
+
+  const { findings: demotedFindings, demoted } = p.demote([noProofReport]);
+  assert.equal(demoted, 1);
+  const demotedFinding = arr(demotedFindings)[0];
+  assert.equal(demotedFinding.severity, "MEDIUM");
+  assert.equal(demotedFinding.demoted, true);
+
+  for (const [order, input] of [
+    ["demoted first", [demotedFinding, provenReport]],
+    ["demoted last", [provenReport, demotedFinding]],
+  ]) {
+    const { unique } = p.dedupe(input);
+    assert.equal(arr(unique).length, 1, `${order}: same file+evidence collapses to one finding`);
+    const survivor = arr(unique)[0];
+    assert.ok(
+      !survivor.demoted,
+      `${order}: a dimension proved this defect with real proof, so the merged finding must not ` +
+        `render as demoted: no proof, got demoted=${survivor.demoted}`,
+    );
+  }
+});
+
+test("renderReviewMarkdown accepts a precomputed agent output instead of recomputing it internally", () => {
+  const p = pure();
+  const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
+  const precomputed = "PRECOMPUTED_AGENT_OUTPUT_MARKER";
+
+  const out = p.renderReviewMarkdown(reviewBase(p), args, precomputed);
+  assert.ok(
+    out.includes(precomputed),
+    `a precomputed agent output must be used verbatim instead of being recomputed from state:\n${out}`,
+  );
+  assert.ok(
+    !out.includes("No issues found"),
+    "when a precomputed output is supplied, the function must not fall back to computing its own",
+  );
+});

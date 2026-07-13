@@ -121,6 +121,7 @@ function dedupe(findings) {
       prev.severity = f.severity;
       prev.demoted = f.demoted;
     }
+    if (textLen(f.proof) > 0) prev.demoted = false;
     if (textLen(f.proof) > textLen(prev.proof)) prev.proof = f.proof;
     if (textLen(f.fix) > textLen(prev.fix)) prev.fix = f.fix;
     for (const d of f.dimensions || []) {
@@ -182,17 +183,21 @@ function aggregateRubric(verdicts) {
   });
 }
 
-/** Nothing disproved an over-cap finding, so it stays a potential blocker and says so. */
-function marker(f) {
+/** Nothing disproved an over-cap finding, so it stays a potential blocker and says so.
+ *  `isAdvisory` marks a non-blocking line so a reader (or the consolidation script, which
+ *  parses every parseable line) cannot mistake it for a blocking finding. */
+function marker(f, isAdvisory) {
   if (f.demoted) return " (demoted: no proof)";
   if (f.verified === "unverified") return " (unverified: verify cap)";
+  if (f.verified === "verifier_failed") return " (verifier: no usable verdict)";
+  if (isAdvisory) return " (advisory: does not block)";
   return "";
 }
 
 /** `[AGENT] {emoji} {title} | File: {file} | Task: {task}` — the legacy parser's shape. */
-function findingLine(agentName, f) {
+function findingLine(agentName, f, isAdvisory) {
   const emoji = SEVERITY_EMOJI[f.severity] || SEVERITY_EMOJI.MEDIUM;
-  const title = cell(f.title) + marker(f);
+  const title = cell(f.title) + marker(f, isAdvisory);
   return `[${agentName}] ${emoji} ${title} | File: ${cell(f.file) || "N/A"} | Task: ${cell(f.task) || "general"}`;
 }
 
@@ -211,12 +216,12 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
       `[${agentName}] 🔴 review incomplete: dimension ${cell(dim)} returned nothing | File: N/A | Task: general`,
     );
   }
-  for (const f of blocking) parseable.push(findingLine(agentName, f));
+  for (const f of blocking) parseable.push(findingLine(agentName, f, false));
   for (const f of advisory) {
     if (f.verified === "refuted") {
       refutedNotes.push(`- refuted: ${cell(f.title)} - ${cell(f.refutation)}`);
     } else {
-      parseable.push(findingLine(agentName, f));
+      parseable.push(findingLine(agentName, f, true));
     }
   }
   if (parseable.length === 0) parseable.push(`[${agentName}] ✅ No issues found`);
@@ -234,11 +239,17 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
   return sections.join("\n\n");
 }
 
-function renderReviewMarkdown(state, args) {
+function renderReviewMarkdown(state, args, agentOutput = renderAgentOutput(state)) {
   const agentName = state.agentName;
   const heading = agentName.charAt(0).toUpperCase() + agentName.slice(1).toLowerCase();
-  const outstanding =
-    state.blocking.length + state.unverified + state.verifierFailures.length + state.failedDimensions.length;
+  // A dead verifier's finding already lives in `blocking`; if its title is also in
+  // `verifierFailures`, that is the SAME outstanding item counted once via blocking,
+  // not a second one. Only a verifierFailures title with no matching blocking finding
+  // adds to the count.
+  const verifierFailureTitles = new Set(state.verifierFailures);
+  const verifierFailuresAlreadyBlocking = state.blocking.filter((f) => verifierFailureTitles.has(f.title)).length;
+  const extraVerifierFailures = Math.max(0, state.verifierFailures.length - verifierFailuresAlreadyBlocking);
+  const outstanding = state.blocking.length + state.unverified + extraVerifierFailures + state.failedDimensions.length;
   const verdict = outstanding === 0 ? "Verdict: converged" : `Verdict: ${outstanding} findings`;
   const testsLine = args.tests_line ? args.tests_line : "Tests: {{TESTS_LINE}}";
 
@@ -253,7 +264,7 @@ function renderReviewMarkdown(state, args) {
     "",
     `## ${heading}`,
     "",
-    renderAgentOutput(state),
+    agentOutput,
     "",
     verdict,
     testsLine,
@@ -385,7 +396,8 @@ validateArgs(input);
 const agentName = input.agent_name || "ALICE";
 const cycle = input.cycle || 1;
 const diffTruncated = input.diff_bytes > input.diff.length;
-const prdId = input.prd_path ? (input.prd_path.match(/(\d{5})/) || [, input.prd_path])[1] : "";
+const prdMatch = input.prd_path ? input.prd_path.match(/(\d{5})/) : null;
+const prdId = prdMatch ? prdMatch[1] : "";
 
 const context = [
   "## Diff under review",
@@ -492,11 +504,10 @@ const verdicts = await parallel(
   toVerify.map((f) => () => agent(skepticPrompt(f), { label: `verify: ${f.title}`, phase: "Verify", schema: VERDICT_SCHEMA })),
 );
 
+// A dead verifier's finding stays blocking via `verified.blocking` (see
+// applyVerification) and is rendered with its own accurate marker — it is not a
+// failed dimension, so it does not belong in `failedDimensions`.
 const verified = applyVerification({ toVerify, verdicts, overflow, passthrough });
-for (const title of verified.verifierFailures) {
-  failedDimensions.push(`verify:${title}`);
-  incomplete = true;
-}
 
 const rubric = aggregateRubric(rubricResult ? rubricResult.verdicts : null);
 
@@ -528,13 +539,17 @@ const state = {
 };
 
 const agent_output = renderAgentOutput(state);
-const review_markdown = renderReviewMarkdown(state, {
-  prd: prdId,
-  review: cycle,
-  date: input.date,
-  head_sha: input.head_sha,
-  tests_line: input.tests_line,
-});
+const review_markdown = renderReviewMarkdown(
+  state,
+  {
+    prd: prdId,
+    review: cycle,
+    date: input.date,
+    head_sha: input.head_sha,
+    tests_line: input.tests_line,
+  },
+  agent_output,
+);
 
 log(
   `review-fanout done: ${stats.raw} raw -> ${stats.unique} unique, ${verified.blocking.length} blocking, ` +
