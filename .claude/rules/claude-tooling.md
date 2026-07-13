@@ -1,7 +1,12 @@
 ---
+# *.sh/*.js entries catch wrong-language hook attempts; React/web hooks dirs (src/hooks/*.ts) deliberately unmatched
 paths:
   - "**/skills/**"
-  - "**/hooks/**"
+  - "**/.claude/hooks/**"
+  - "**/hooks/*.py"
+  - "**/hooks/*.sh"
+  - "**/hooks/*.js"
+  - "**/hooks/hooks.json"
 ---
 # Claude Tooling Authoring
 
