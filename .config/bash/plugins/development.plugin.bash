@@ -326,7 +326,11 @@ autoclaude() {
       fi
       ;;
     paused)
-      printf '\nautoclaude: session paused — %s. State left intact for an interactive /run-autopilot.\n' "$_detail" >&2
+      printf '\nautoclaude: session paused — %s.\n' "$_detail" >&2
+      printf 'To resume (re-running autoclaude now would just pause again):\n' >&2
+      printf '  1. claude            # interactive session in this repo\n' >&2
+      printf '  2. /run-autopilot    # resumes from state.json; blockers become questions\n' >&2
+      printf '  3. autoclaude        # after the decision, to continue unattended\n' >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Paused: $_detail"
       trap - INT TERM
       unset _AUTOPILOT_LOOP
