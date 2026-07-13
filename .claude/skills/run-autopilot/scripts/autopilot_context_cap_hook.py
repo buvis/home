@@ -17,7 +17,7 @@ thresholds against a single cost ceiling:
   — it is genuinely oversized. The hook does NOT append another rotation;
   instead it records the oversized-task stall (`stall_reason.stalled ==
   "oversized_task"`) and instructs the oversized-task stall recovery (move
-  the PRD to `dev/local/prds/stalled/`, advance to the next PRD).
+  the PRD to `dev/local/prds/hold/`, advance to the next PRD).
 - **Soft cap** (below the hard cap) — writes a `.handoff-requested` marker.
   This is non-destructive: state.json is untouched and no envelope is
   emitted. `/work` checks the marker at a task boundary (after a task
@@ -111,7 +111,7 @@ def _oversized_stall_instructions(task_id: str) -> str:
         "rotation — the task is oversized for a single build session. The hook "
         "has set state.stall_reason to {\"stalled\": \"oversized_task\"}. "
         "Perform the oversized-task stall recovery (references/recovery.md): "
-        "move the PRD from dev/local/prds/wip/ to dev/local/prds/stalled/, "
+        "move the PRD from dev/local/prds/wip/ to dev/local/prds/hold/, "
         "reset PRD-specific state fields, and advance to the next PRD. Then STOP. "
         "The autopilot Stop hook performs the loop handoff from next_phase."
     )
@@ -290,7 +290,7 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
     The livelock path: a task rotated twice in a row without finishing, so it
     is genuinely too big for one build session. The hook records the
     oversized-task stall and the model performs the recovery (move the PRD to
-    dev/local/prds/stalled/, advance to the next PRD). It does NOT append
+    dev/local/prds/hold/, advance to the next PRD). It does NOT append
     another rotation.
     """
     fresh = _load_state(autopilot_dir)

@@ -9,14 +9,14 @@ regressions in the documented procedure's shape; they do not verify that the
 model actually follows it.
 
 Covers the SKILL.md stall steps that have a checkable invariant:
-  - PRD moved from wip/ to stalled/
+  - PRD moved from wip/ to hold/
   - stall_reason cleared from state
   - PRD-specific fields reset (phases_completed, cycle, tasks, etc.) — note
     `tasks` reset to [] stands in for the SKILL.md "delete pre-stall tasks"
     step; the real TaskUpdate(status="deleted") calls are a model action
     against the TaskList API and are out of scope for a stdlib unittest
   - batch field preserved
-  - stalled/ directory created if absent
+  - hold/ directory created if absent
   - sequence prefix preserved on moved PRD
 """
 
@@ -82,19 +82,19 @@ def apply_stall_procedure(
     Steps:
     1. Read current state.
     2. Delete tasks from TaskList (simulated: clear state.tasks).
-    3. mkdir -p stalled/.
-    4. mv PRD from wip/ to stalled/.
+    3. mkdir -p hold/.
+    4. mv PRD from wip/ to hold/.
     5. Clear stall_reason; reset PRD-specific fields; preserve batch.
     6. Write state back atomically.
     """
     state_path = autopilot_dir / "state.json"
     state = json.loads(state_path.read_text())
 
-    stalled_dir = root / "dev" / "local" / "prds" / "stalled"
-    stalled_dir.mkdir(parents=True, exist_ok=True)
+    hold_dir = root / "dev" / "local" / "prds" / "hold"
+    hold_dir.mkdir(parents=True, exist_ok=True)
 
     src = wip_dir / prd_name
-    dst = stalled_dir / prd_name
+    dst = hold_dir / prd_name
     shutil.move(str(src), str(dst))
 
     batch = state.get("batch")
@@ -141,10 +141,10 @@ class Phase2StallPathTests(unittest.TestCase):
     def _state(self) -> dict:
         return json.loads((self.autopilot_dir / "state.json").read_text())
 
-    def test_prd_moved_from_wip_to_stalled(self) -> None:
+    def test_prd_moved_from_wip_to_hold(self) -> None:
         self.assertFalse((self.wip_dir / self.prd_name).exists())
-        stalled_path = self.root / "dev" / "local" / "prds" / "stalled" / self.prd_name
-        self.assertTrue(stalled_path.exists())
+        hold_path = self.root / "dev" / "local" / "prds" / "hold" / self.prd_name
+        self.assertTrue(hold_path.exists())
 
     def test_stall_reason_cleared(self) -> None:
         self.assertNotIn("stall_reason", self._state())
@@ -165,21 +165,21 @@ class Phase2StallPathTests(unittest.TestCase):
         self.assertEqual(batch["id"], "202601010000")
         self.assertEqual(batch["catchup_head_sha"], "abc1234")
 
-    def test_stalled_dir_created_if_missing(self) -> None:
+    def test_hold_dir_created_if_missing(self) -> None:
         root2 = Path(tempfile.mkdtemp())
         try:
             prd = "00001-new.md"
             ap_dir, wip = _setup_pre_stall_fixture(root2, prd)
-            stalled = root2 / "dev" / "local" / "prds" / "stalled"
-            self.assertFalse(stalled.exists())
+            hold = root2 / "dev" / "local" / "prds" / "hold"
+            self.assertFalse(hold.exists())
             apply_stall_procedure(root2, ap_dir, wip, prd)
-            self.assertTrue(stalled.exists())
+            self.assertTrue(hold.exists())
         finally:
             shutil.rmtree(str(root2), ignore_errors=True)
 
-    def test_stalled_prd_keeps_sequence_prefix(self) -> None:
-        stalled_path = self.root / "dev" / "local" / "prds" / "stalled" / self.prd_name
-        self.assertTrue(stalled_path.name.startswith("00042-"))
+    def test_hold_prd_keeps_sequence_prefix(self) -> None:
+        hold_path = self.root / "dev" / "local" / "prds" / "hold" / self.prd_name
+        self.assertTrue(hold_path.name.startswith("00042-"))
 
 
 if __name__ == "__main__":

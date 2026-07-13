@@ -176,12 +176,12 @@ Test-pinned invariants the build gate's Phase 0 references; they live here so ev
 **Lifecycle directories first.** Before the abort handlers and before PRD selection, as its own Bash call:
 
 ```bash
-mkdir -p dev/local/prds/backlog dev/local/prds/wip dev/local/prds/done dev/local/prds/stalled dev/local/reviews dev/local/tmp dev/local/autopilot/reports dev/local/autopilot/deferred
+mkdir -p dev/local/prds/backlog dev/local/prds/wip dev/local/prds/done dev/local/prds/hold dev/local/reviews dev/local/tmp dev/local/autopilot/reports dev/local/autopilot/deferred
 ```
 
 Idempotent, safe on every invocation. `mkdir` before any move is mandatory: a move into a missing destination silently misplaces the PRD (`references/design-rationale.md` § Verified moves).
 
-**Verified moves.** Every lifecycle `mv` (backlog→`wip/` at selection, and equally wip→done / wip→stalled at the other gates) is immediately followed by a verification: confirm the moved PRD now exists in the destination directory. If it does not, the `mv` failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, and the mv error>"}`, and PAUSE naming the source, the destination, and the `mv` error; do not continue past a failed move.
+**Verified moves.** Every lifecycle `mv` (backlog→`wip/` at selection, and equally wip→done / wip→hold at the other gates) is immediately followed by a verification: confirm the moved PRD now exists in the destination directory. If it does not, the `mv` failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, and the mv error>"}`, and PAUSE naming the source, the destination, and the `mv` error; do not continue past a failed move.
 
 **Batch-identity rollover.** When `state.batch` already exists at selection, mint a fresh `batch.id` (new `<yyyymmddHHMM>` timestamp, reset `completed_prds: []`) ONLY for a *genuinely closed* surviving batch: `phase == "done"` AND `next_phase == ""` (empty). Both conditions are required — only the batch-end "No more PRDs" branch writes the empty `next_phase`, while Phase 9 step 2 sets a transient `phase: "done"` (with `next_phase: "done"`) BEFORE the verified wip→done move, so a failed move or mid-Phase-9 crash leaves that shape and must NOT roll over (rolling over there would wipe the in-progress batch's `completed_prds` and mint a spurious id). Every normal in-progress resume preserves `batch.id` unchanged. (Forensics: `references/design-rationale.md` § Batch-identity rollover.)
 
@@ -227,7 +227,7 @@ The check is deterministic (the pinned `awk` above), NOT a model judgment.
 | `dev/local/` doesn't exist | Create it | Same |
 | Task tools unavailable | STOP, report — can't operate without tasks | Same (a broken harness is not a per-PRD failure) |
 | Git push fails (auth, locked signing agent, network) | Report and let the user retry | Log to `deferred_decisions[]`, leave the commits local (the user pushes manually per Phase 9), CONTINUE — a locked signing agent on an unattended host is expected (`references/design-rationale.md` § Git push failures) |
-| `mv` verify fails (backlog→wip, wip→done, wip→stalled) | PAUSE per the mv-verify sites | Retry the `mv` ONCE after re-running `mkdir -p`; persistent failure is one of the two sanctioned loop stops below |
+| `mv` verify fails (backlog→wip, wip→done, wip→hold) | PAUSE per the mv-verify sites | Retry the `mv` ONCE after re-running `mkdir -p`; persistent failure is one of the two sanctioned loop stops below |
 | **Security-critical finding** (exposed secret, vulnerability being shipped) | PAUSE | **PAUSE — sanctioned loop stop #1** (set `phase: "paused"` + `pause_reason`; the wrapper notifies and halts) |
 | **Detected data-loss risk** | PAUSE | **PAUSE — sanctioned loop stop #2** (same mechanics) |
 

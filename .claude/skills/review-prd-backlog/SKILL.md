@@ -28,15 +28,15 @@ Default target: `dev/local/prds/backlog/` in the current repo. An argument may o
 
 ## Workflow
 
-1. **Inventory.** List `backlog/` (the target) plus `wip/`, `stalled/`, `done/` (recent), and `dev/local/discovery/` for context. Hygiene checks - each is Blocking because it breaks autopilot Phase 0 selection or lifecycle moves:
+1. **Inventory.** List `backlog/` (the target) plus `wip/`, `hold/`, `done/` (recent), and `dev/local/discovery/` for context. Hygiene checks - each is Blocking because it breaks autopilot Phase 0 selection or lifecycle moves:
    - Only `NNNNN-{slug}-v{n}.md` PRD files in `backlog/`. A stray file mis-sorts the lowest-prefix pick (selection break). This review's own report NEVER goes inside `backlog/`.
-   - Sequence numbers unique across backlog/, wip/, done/, stalled/, AND `dev/local/discovery/` (create-prd allocates across all of them).
+   - Sequence numbers unique across backlog/, wip/, done/, hold/, AND `dev/local/discovery/` (create-prd allocates across all of them).
 2. **Load the law.** Read `~/.claude/skills/create-prd/SKILL.md` and its `assets/` templates (`minimal.md`, `standard.md`, `example_prd_rpg.md`). Lens A's checklist comes from these files as they are today. When budget or tier questions arise, consult `~/.claude/skills/plan-tasks/SKILL.md` steps 4-4.7.
 3. **Comprehension pass.** Read every PRD fully. Build the backlog map: number, title, template used, line count, subsystems/files touched, dependencies (stated and inferred), frontmatter fields. Keep confusion notes: where, what is unclear, and why a planner or test author could misread it - these become Question findings.
 4. **Per-PRD lenses A-D** (below). Scale note: with more than ~8 PRDs, dispatch lens D (grounding) per PRD to parallel subagents that return finding-shaped results; lenses A-C and E-H stay inline - the set lenses need every PRD in one context.
 5. **Set lenses E-H** (below) across the whole backlog.
 6. **Triage** every finding into:
-   - **Blocking** - names one of these failure mechanisms: *selection break* (Phase 0 picks or moves the wrong file), *stall* (plan-tasks cannot split a task under the 150K budget; PRD parked in `stalled/`), *wrong-TDD lock-in* (vague contract → tests invented from the task text alone encode a plausible-but-wrong schema; self-consistent failure surfaces only at PRD-level review), *rework thrash* (ambiguous acceptance criteria → reviewer and implementer disagree until the rework cap pauses the PRD), *coverage-gate block* (feature headings that reviewers cannot key verbatim), *unattended hang* (a step needs an interactive approval or credential mid-loop), *order break* (dependency on a higher-numbered PRD), *loop self-harm* (PRD edits the machinery executing the batch), *goal reversal* (PRD undoes what the project or another PRD is building toward).
+   - **Blocking** - names one of these failure mechanisms: *selection break* (Phase 0 picks or moves the wrong file), *stall* (plan-tasks cannot split a task under the 150K budget; PRD parked in `hold/`), *wrong-TDD lock-in* (vague contract → tests invented from the task text alone encode a plausible-but-wrong schema; self-consistent failure surfaces only at PRD-level review), *rework thrash* (ambiguous acceptance criteria → reviewer and implementer disagree until the rework cap pauses the PRD), *coverage-gate block* (feature headings that reviewers cannot key verbatim), *unattended hang* (a step needs an interactive approval or credential mid-loop), *order break* (dependency on a higher-numbered PRD), *loop self-harm* (PRD edits the machinery executing the batch), *goal reversal* (PRD undoes what the project or another PRD is building toward).
    - **Non-blocking** - weakens quality or efficiency but the loop survives it.
    - **Question** - genuine ambiguity needing the author's intent (mostly from confusion notes).
 7. **Write the report** with the Write tool to `dev/local/audit-results/backlog-review-{YYYY-MM-DD}.md` (curated dir per the GC contract; never inside `prds/`; never via shell redirect). Format below. Chat output stays at three sentences plus the verdict.
@@ -66,7 +66,7 @@ No human is present: nobody answers questions, approves prompts, or eyeballs a U
 - No step the unattended permission profile blocks or prompts on (`chmod +x`, force-push, novel network access). A warden `ask` mid-loop has hung a batch for hours. Flag to pre-authorize, rescope, or HOLD.
 - Resource sanity: no implied wide parallel builds or huge downloads (a workspace-wide parallel cargo rework once exhausted 48GB). `/work` caps at 2 parallel; a PRD that assumes more fights the harness.
 - Self-referential hazard: the PRD edits the autopilot/hook/permission machinery that will execute it or later PRDs → loop self-harm. Resequence it LAST in the batch or HOLD for an attended run.
-- PRD prose tax: plan-tasks adds the PRD slice to EVERY task's context estimate against the 150K cap. Bloated restatement inflates every task, pushing borderline tasks into bad splits or the whole PRD into `stalled/`. Trim prose; keep contracts.
+- PRD prose tax: plan-tasks adds the PRD slice to EVERY task's context estimate against the 150K cap. Bloated restatement inflates every task, pushing borderline tasks into bad splits or the whole PRD into `hold/`. Trim prose; keep contracts.
 - Frontmatter tuning (Non-blocking suggestions): docs-only or trivial → `catchup: skip`, `design: skip`; known-hard → `rework_cap: 5`, `design_gate: user`, or `default_model: opus`.
 
 ### C. Coherence - do the PRD's own parts agree?
@@ -86,7 +86,7 @@ Backlogs sit; code moves. Check with `rg`, not trust.
 - The structural tree matches the repo's real layout (`src/` vs `lib/` vs crate names).
 - Not already implemented: check `done/` PRDs, recent git log, and the code for the PRD's core surface.
 - Spot-check stated assumptions about current behavior.
-- No overlap with `wip/` (in-flight) and no dependence on anything in `stalled/` (parked work will not happen without a human).
+- No overlap with `wip/` (in-flight) and no dependence on anything in `hold/` (parked work will not happen without a human).
 
 ### E. Collisions - do PRDs fight each other?
 
@@ -101,7 +101,7 @@ Backlogs sit; code moves. Check with `rg`, not trust.
 
 Every PRD pays fixed ceremony: catchup (batch-cached), design, planning, work, review, blind review, doubt review, state churn. Too small and ceremony dominates; too big and it stalls or thrashes.
 
-- **Too big**: over ~200 lines, spans more than one subsystem, phases beyond ~3, or any single feature that clearly cannot plan under the 150K per-task budget. Failure: plan-tasks allows one split attempt, then parks the PRD in `stalled/`. Split at loosely-coupled seams; every part self-contained with its own features, structure, dependencies, phases, and verifiable end state.
+- **Too big**: over ~200 lines, spans more than one subsystem, phases beyond ~3, or any single feature that clearly cannot plan under the 150K per-task budget. Failure: plan-tasks allows one split attempt, then parks the PRD in `hold/`. Split at loosely-coupled seams; every part self-contained with its own features, structure, dependencies, phases, and verifiable end state.
 - **Too small**: a single mechanical change with no test surface of its own; three review surfaces will cost more than the work. Merge into a cohesive neighbor in the same subsystem. Never merge unrelated scopes just to save ceremony - unrelated diffs make review findings noisy.
 - **Mixed concerns**: a feature bundled with an unrelated fix → split; reviewers flag the unrelated half forever.
 - **Adjacency**: sequence same-subsystem PRDs consecutively (warm batch cache, fresh references); propose renumbering when it helps.
