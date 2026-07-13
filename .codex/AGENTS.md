@@ -1,1 +1,1 @@
-/Users/bob/.claude/CLAUDE.md
+/Users/bob/.claude/AGENTS.md

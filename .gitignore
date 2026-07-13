@@ -22,6 +22,7 @@
 !.claude/cartographer/scripts/**
 .claude/cartographer/audit.jsonl
 .claude/cartographer/projects/
+!.claude/AGENTS.md
 !.claude/CLAUDE.md
 !.claude/warden.yaml
 # Re-exclude tool dirs, backups, coverage, and logs the allowlist above would otherwise let through
