@@ -1,6 +1,6 @@
 <script>
   import { setContext } from 'svelte'
-  import { loadPayload, aggregate, attention, orgSlots, slug, ago, allTodos } from './lib/derive.js'
+  import { loadPayload, aggregate, attention, orgSlots, slug, ago, allTodos, quadrant } from './lib/derive.js'
   import { pruneDone } from './lib/done.js'
   import Brief from './components/Brief.svelte'
   import Todos from './components/Todos.svelte'
@@ -10,6 +10,7 @@
   import Work from './components/Work.svelte'
   import Prds from './components/Prds.svelte'
   import RepoDetail from './components/RepoDetail.svelte'
+  import Icon from './components/Icon.svelte'
 
   const payload = loadPayload()
   const repos = payload?.data.repos ?? []
@@ -26,6 +27,7 @@
 
   let tab = $state('brief')
   let org = $state('all')
+  let filterOpen = $state(false)
   let selected = $state(null)
   let tip = $state({ x: 0, y: 0, text: '', show: false })
   setContext('tip', {
@@ -52,15 +54,16 @@
       if (visible.some((r) => scored.get(slug(r)).reasons.some((x) => x.sev === sev))) return sev
     return 'good'
   })
-
-  function onkeydown(e) {
-    if (e.target.closest('input, textarea, select') || e.metaKey || e.ctrlKey) return
-    const i = '1234567'.indexOf(e.key)
-    if (i >= 0) tab = TABS[i][0]
-  }
+  const todosAll = $derived(allTodos(visible, epics, ext))
+  const counts = $derived({
+    todo: todosAll.length,
+    matrix: todosAll.filter((t) => quadrant(t) === 'do').length,
+    repos: visible.length,
+    activity: agg.commits,
+    work: agg.prs + agg.issues,
+    prds: agg.backlog + agg.wip,
+  })
 </script>
-
-<svelte:window {onkeydown} />
 
 {#if !payload}
   <div class="fatal">
@@ -70,26 +73,42 @@
 {:else}
   <div class="ambient" style="--glow: var(--{worstAll})"></div>
   <header>
-    <div class="brand">
-      <h1>Portfolio Brief</h1>
-      <span class="meta">
-        generated {ago(payload.data.generated_at)} · window {sinceDays}d · {repos.length} repos
-      </span>
-    </div>
-    <div class="orgs">
-      <button class="chip" class:active={org === 'all'} onclick={() => (org = 'all')}>all</button>
-      {#each orgs as o (o)}
-        <button class="chip" class:active={org === o} onclick={() => (org = o)}>
-          <span class="dot" style="background: var(--cat{slots.get(o)})"></span>{o}
+    <h1>Portfolio Brief</h1>
+    <span class="meta">generated {ago(payload.data.generated_at)} · window {sinceDays}d</span>
+    <nav>
+      {#each TABS as [id, label] (id)}
+        <button class:active={tab === id} onclick={() => (tab = id)}>
+          {label}{#if counts[id] != null}<span class="cnt">{counts[id]}</span>{/if}
         </button>
       {/each}
+    </nav>
+    <div class="filter">
+      <button
+        class="chip"
+        class:active={org !== 'all'}
+        aria-label="Filter by org"
+        onclick={() => (filterOpen = !filterOpen)}
+      >
+        <Icon name="filter" size={13} />
+        {#if org !== 'all'}
+          <span class="dot" style="background: var(--cat{slots.get(org)})"></span>{org}
+        {/if}
+      </button>
+      {#if filterOpen}
+        <button class="popback" aria-label="Close filter" onclick={() => (filterOpen = false)}></button>
+        <div class="pop">
+          <button class="chip" class:active={org === 'all'} onclick={() => ((org = 'all'), (filterOpen = false))}>
+            all orgs
+          </button>
+          {#each orgs as o (o)}
+            <button class="chip" class:active={org === o} onclick={() => ((org = o), (filterOpen = false))}>
+              <span class="dot" style="background: var(--cat{slots.get(o)})"></span>{o}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
   </header>
-  <nav>
-    {#each TABS as [id, label], i (id)}
-      <button class:active={tab === id} onclick={() => (tab = id)}>{label} <kbd>{i + 1}</kbd></button>
-    {/each}
-  </nav>
   <main class:full={tab === 'brief'}>
     {#if tab === 'brief'}
       <Brief repos={visible} {agg} {epics} {sinceDays} {prev} {history} external={ext} onselect={(r) => (selected = r)} gototab={(t) => (tab = t)} />
@@ -124,11 +143,11 @@
   header {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 10px 14px;
     flex-wrap: wrap;
-    padding: 14px 22px 0;
+    padding: 10px 22px;
+    border-bottom: 1px solid var(--grid);
   }
-  .brand { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
   h1 {
     font-size: 19px;
     margin: 0;
@@ -144,13 +163,38 @@
     border-radius: 6px 999px 999px 6px;
   }
   .meta { font-size: 12px; }
-  .orgs { display: flex; gap: 6px; margin-left: auto; }
   nav {
     display: flex;
     gap: 6px;
-    padding: 10px 22px;
-    border-bottom: 1px solid var(--grid);
+    flex-wrap: wrap;
   }
+  .filter { margin-left: auto; position: relative; }
+  .popback {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: transparent;
+    border: none;
+    cursor: default;
+  }
+  .pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 26;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 170px;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 7px solid var(--lcars-c);
+    border-radius: 12px 8px 8px 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .pop .chip { justify-content: flex-start; }
   nav button {
     font-family: var(--display);
     text-transform: uppercase;
@@ -170,7 +214,19 @@
     color: var(--lcars-ink);
     font-weight: 600;
   }
-  nav button.active kbd { color: var(--lcars-ink); border-color: color-mix(in srgb, var(--lcars-ink) 35%, transparent); }
+  nav .cnt {
+    margin-left: 7px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+    background: color-mix(in srgb, var(--plane) 75%, transparent);
+    border-radius: 999px;
+    padding: 1px 7px;
+  }
+  nav button.active .cnt {
+    color: var(--lcars-ink);
+    background: color-mix(in srgb, var(--lcars-ink) 12%, transparent);
+  }
   main { padding: 18px 22px 60px; max-width: 1280px; margin: 0 auto; }
   main.full { padding: 0; max-width: none; }
   .ambient {
