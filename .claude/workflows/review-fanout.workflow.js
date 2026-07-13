@@ -216,9 +216,9 @@ function marker(f) {
 }
 
 /** `[AGENT] {emoji} {title} | File: {file} | Task: {task}` — the legacy parser's shape. */
-function findingLine(agentName, f, isAdvisory) {
+function findingLine(agentName, f) {
   const emoji = SEVERITY_EMOJI[f.severity] || SEVERITY_EMOJI.MEDIUM;
-  const title = cell(f.title) + marker(f, isAdvisory);
+  const title = cell(f.title) + marker(f);
   return `[${agentName}] ${emoji} ${title} | File: ${cell(f.file) || "N/A"} | Task: ${cell(f.task) || "general"}`;
 }
 
@@ -238,14 +238,14 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
       `[${agentName}] 🔴 review incomplete: dimension ${cell(dim)} returned nothing | File: N/A | Task: general`,
     );
   }
-  for (const f of blocking) parseable.push(findingLine(agentName, f, false));
+  for (const f of blocking) parseable.push(findingLine(agentName, f));
   for (const f of advisory) {
     if (f.verified === "refuted") {
       refutedNotes.push(`- refuted: ${cell(f.title)} - ${cell(f.refutation)}`);
     } else if (f.verified === "unverified") {
       // A cap-overflowed finding is never disproven, so it stays a potential
       // blocker and keeps the parseable shape (see the "unverified" branch of marker()).
-      parseable.push(findingLine(agentName, f, true));
+      parseable.push(findingLine(agentName, f));
     } else {
       // MEDIUM/LOW passthrough and demoted findings: advisory, so a note, never a
       // parseable line. marker() still carries the demoted text onto the note.
@@ -273,14 +273,9 @@ function renderAgentOutput({ agentName, blocking, advisory, failedDimensions, ru
 function renderReviewMarkdown(state, args, agentOutput = renderAgentOutput(state)) {
   const agentName = state.agentName;
   const heading = agentName.charAt(0).toUpperCase() + agentName.slice(1).toLowerCase();
-  // A dead verifier's finding already lives in `blocking`; if its title is also in
-  // `verifierFailures`, that is the SAME outstanding item counted once via blocking,
-  // not a second one. Only a verifierFailures title with no matching blocking finding
-  // adds to the count.
-  const verifierFailureTitles = new Set(state.verifierFailures);
-  const verifierFailuresAlreadyBlocking = state.blocking.filter((f) => verifierFailureTitles.has(f.title)).length;
-  const extraVerifierFailures = Math.max(0, state.verifierFailures.length - verifierFailuresAlreadyBlocking);
-  const outstanding = state.blocking.length + state.unverified + extraVerifierFailures + state.failedDimensions.length;
+  // A dead verifier's finding is already counted once via `blocking`, so it must
+  // not be counted again here.
+  const outstanding = state.blocking.length + state.unverified + state.failedDimensions.length;
   const verdict = outstanding === 0 ? "Verdict: converged" : `Verdict: ${outstanding} findings`;
   const testsLine = args.tests_line ? args.tests_line : "Tests: {{TESTS_LINE}}";
 
