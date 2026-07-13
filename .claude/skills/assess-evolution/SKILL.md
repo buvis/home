@@ -11,11 +11,12 @@ Core stance: apply `rules/ai-app-design.md` (code answers deterministic question
 
 ## 0. Catch up first, then load project config
 
-**Live state first**: run the `catchup` skill (git-ferry plugin) before any lens work. Its output — branch diff, open PRs, open issues, CI health — steers direction: open PRs/issues join the already-tracked pointer auditors get in §2, failing CI and recent reverts are pain-point evidence for lens 7, and the §6 roadmap must sequence around in-flight PRs, not collide with them. No catchup skill? `gh pr list`, `gh issue list`, `gh run list --limit 20` cover the essentials.
+**Live state first**: run the `catchup` skill (git-ferry plugin) before any lens work. Its output — branch diff, open PRs, open issues, CI health — steers direction: open PRs/issues join the already-tracked pointer auditors get in §2, failing CI and recent reverts are pain-point evidence for lens 7, and the §7 roadmap must sequence around in-flight PRs, not collide with them. No catchup skill? `gh pr list`, `gh issue list`, `gh run list --limit 20` cover the essentials.
 
 Look for a project config the invoking skill or repo provides (a `.claude/evolution.md`, an `assess-*` project skill, or an AGENTS.md section). It supplies:
+- **Project goal**: what the project is for and what done looks like (a README promise, vision doc, or PRD index). Feeds lens 9.
 - **Downstream consumers**: name, repo path, how they consume this project (library dep, spawned binary, network API/transport, FFI), how they pin/version it. Keep this list extensible — new downstreams get appended.
-- **Work-selection mechanism**: how the team's pipeline picks the next unit of work. THIS IS LOAD-BEARING for numbering (see §6). E.g. an autopilot that drains a backlog by *lowest sequence number* means the roadmap's numeric order must equal its execution order.
+- **Work-selection mechanism**: how the team's pipeline picks the next unit of work. THIS IS LOAD-BEARING for numbering (see §7). E.g. an autopilot that drains a backlog by *lowest sequence number* means the roadmap's numeric order must equal its execution order.
 - **PRD/task conventions**: format, location, lifecycle folders.
 - **Project shape**: languages, whether it exposes multiple interfaces/transports, security surface, release model.
 
@@ -33,6 +34,7 @@ Run the lenses that fit. A library has no transports; a CLI has no auth surface;
 6. **Simplification & librarization** — duplicated primitives (the same helper implemented twice, diverging), one-off reimplementations of things a shared helper/library should own, speculative abstractions with one implementation to delete, and clusters that multiple call sites (or multiple downstreams) reinvent and that should be extracted into a library/shared module. Pairs with lens 5: what downstreams reimplement is a librarization signal.
 7. **Commit-history pain points** — mine the git log for design flaws that keep biting (see §3). Refactors that prevent a recurring bug class, not one-off fixes.
 8. **Top user-facing wins** — the 3 improvements most likely to benefit the end user of the shipped product (see §4).
+9. **Goal coverage** — reconstruct the project's goal from available content, decompose it into the capabilities needed to reach it, and judge whether each is shipped, planned, or at least inventoried for later planning; anything with no trace is a gap finding (see §5).
 
 ## 2. Execute — parallel read-only auditors
 
@@ -57,11 +59,20 @@ Then judge: for each pattern, name the underlying design flaw and the refactor t
 
 Rank candidate improvements by **(user value) × (likelihood it actually lands and is adopted)**. Draw candidates from: the product's public surface and its rough edges, the downstream consumers' unmet needs (from lens 5 — what they work around is often what users feel), and user-visible signals in commits/issues (repeated bug areas, feature requests). Output exactly 3, each with the concrete user benefit and a one-line "what it takes." Keep it honest — these compete with the safety fixes for the same hands.
 
-## 5. Synthesize the findings report
+## 5. Goal-coverage method (lens 9)
 
-One ranked report, written with the Write tool to `dev/local/audit-results/evolution-assessment-{YYYY-MM-DD}.md` (curated dir per the GC contract; never at `dev/local` root). Each finding: **severity** (Critical/High/Med/Low) · **lens** · one-line defect · exact `file:line` evidence · one sentence on why it blocks growth / threatens stability / costs users · cheapest fix direction · **NEW vs already-tracked**. Include a short "what the architecture gets right" list so the team doesn't fix non-problems, and a "checked and safe" list so ruled-out hazards are visible. Mark UNVERIFIED explicitly (fail loud).
+Answer one question: **could the current plan, fully executed, achieve the project's goal?**
 
-## 6. Emit a phased, session-sized PRD roadmap
+- **Reconstruct the goal** from available content: README promise, vision/roadmap docs, AGENTS.md/CLAUDE.md, PRD titles across backlog/wip/done, repo description, recurring issue themes. State it in 1-3 sentences. Sources conflict → prefer the most recent and flag the conflict. No stated goal anywhere → that is itself a High finding; infer one from what the code does and mark it INFERRED.
+- **Decompose** the goal into the capabilities needed to reach it — including non-code work (docs, packaging, migration, deprecations).
+- **Classify each capability**: **shipped** (verified in code) · **planned** (a PRD/task exists) · **inventoried** (named in a roadmap, notes, or to-do markers but not yet a PRD) · **missing** (no trace anywhere).
+- Missing capabilities are findings. Inventoried-only items: confirm the inventory location is still live (not a stale doc nobody reads) — a dead inventory counts as missing. Also flag the inverse: planned work that serves no goal capability (scope drift).
+
+## 6. Synthesize the findings report
+
+One ranked report, written with the Write tool to `dev/local/audit-results/evolution-assessment-{YYYY-MM-DD}.md` (curated dir per the GC contract; never at `dev/local` root). Each finding: **severity** (Critical/High/Med/Low) · **lens** · one-line defect · exact `file:line` evidence · one sentence on why it blocks growth / threatens stability / costs users · cheapest fix direction · **NEW vs already-tracked**. Include a short "what the architecture gets right" list so the team doesn't fix non-problems, and a "checked and safe" list so ruled-out hazards are visible. Mark UNVERIFIED explicitly (fail loud). Open the report with the reconstructed goal and the lens-9 coverage table so every finding reads against what the project is for.
+
+## 7. Emit a phased, session-sized PRD roadmap
 
 Convert findings into PRDs, each scoped to **one implementation session** (split anything that bundles independent capabilities or needs cross-cutting regeneration; a decision/spike with no code is its own small PRD). For each PRD: problem + evidence, session-sized scope, explicit **dependencies**, and per-downstream impact.
 
@@ -69,7 +80,9 @@ Convert findings into PRDs, each scoped to **one implementation session** (split
 
 Group into phases: **P0 stop-the-bleeding** (data-loss/safety) → **P1 correctness/convergence** → **P2 leverage** (the refactor that makes everything after cheaper) → **P3 downstream enablement** → **hygiene**. Look for the *one root cause behind many findings* (a half-built abstraction, a missing seam) — finishing it is usually the highest-leverage phase.
 
-## 7. Close the loop — guardrails + ledger
+Every **missing** capability from lens 9 becomes either a PRD in the roadmap or an explicit "inventoried, deferred" entry in the roadmap index with a one-line reason. No silent gaps: the roadmap must account for the whole goal, not just the findings.
+
+## 8. Close the loop — guardrails + ledger
 
 - **Guardrails**: encode the invariants that would have prevented the worst findings into the always-loaded agent instructions (AGENTS.md/CLAUDE.md) plus a developer-facing doc, honest about which invariants currently hold vs are gaps with a tracking PRD. This is what stops recurrence.
 - **Downstream deletion ledger**: table of upstream PRD → downstream LOC/complexity it deletes. This is the measurable "we're paying down the tax" signal.
@@ -81,6 +94,6 @@ Group into phases: **P0 stop-the-bleeding** (data-loss/safety) → **P1 correctn
 2. The phased PRD set in the project's backlog, numbered for its pipeline.
 3. A roadmap/index doc that is the ordering authority, at `dev/local/audit-results/evolution-roadmap-{YYYY-MM-DD}.md`.
 4. Guardrail edits (AGENTS.md/CLAUDE.md + a doc).
-5. A downstream deletion ledger and the top-3 user wins.
+5. A downstream deletion ledger, the top-3 user wins, and the goal-coverage verdict (could the plan, fully executed, achieve the goal?).
 
 Scale effort to the ask: a quick check runs a few lenses inline; "be thorough / get us back on track" runs the full parallel battery with adversarial verification.
