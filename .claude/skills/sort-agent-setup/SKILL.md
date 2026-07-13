@@ -9,6 +9,15 @@ Use this skill when a repo needs a project-specific surface instead of the defau
 
 The goal is not to guess what "feels useful." The goal is to classify components with evidence from the actual codebase.
 
+## Dependencies
+
+- CLI: `rg` - all repo-evidence gathering.
+- Paths it classifies: `~/.claude/skills/`, `commands/`, `rules/`, `hooks/`,
+  `settings.json`, and `~/.claude/dev/local/`.
+- Optional handoffs: the `update-config` skill (settings.json edits) and the
+  `claude-checkup:audit-authoring` / `claude-checkup:audit-context` plugin
+  skills. Absent = state the recommendation in the report and hand off nothing.
+
 ## When to Use
 
 - A project only needs a subset of the global setup and the full install is too noisy

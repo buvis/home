@@ -9,6 +9,14 @@ Report on the recon-brief hook's injection uniqueness, atlas coverage,
 staleness, and excerpt size. The aggregation is deterministic, so a script
 computes it (PRD 00046) — never parse `audit.jsonl` in-model.
 
+## Dependencies
+
+- Path: `~/.claude/cartographer/audit.jsonl` - the only event source
+  (`phase == "recon"`).
+- Hook: `~/.claude/hooks/cartographer-recon-brief.py` writes those events. An
+  absent hook means an empty audit, not a healthy silence.
+- CLI: `python3`.
+
 ## Step 1: Run the report script
 
 ```bash

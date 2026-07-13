@@ -7,6 +7,11 @@ description: Use when an idea is too fuzzy to spec confidently and a throwaway b
 
 Build-first discovery. The spec is a guess; the throwaway build is the elicitation device. Iterate attended until the contract is real, then graduate to a PRD. Nothing built here ships.
 
+## Dependencies
+
+- Personal skills: `create-prd` (invoked on the Graduate path, step 5)
+- CLI: `git` (spike branch and worktree)
+
 ## Loop
 
 ### 1. Rough spec (10 minutes, no polish)

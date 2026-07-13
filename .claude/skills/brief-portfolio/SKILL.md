@@ -11,6 +11,15 @@ failing CI, security alerts, PRD pipeline, local WIP, branch/worktree litter,
 and a pickable cross-repo todo list for every repo in the gita registry
 (`~/.config/gita/repos.csv`).
 
+## Dependencies
+
+- Path: `~/.config/gita/repos.csv` - the repo registry. Without it `collect.py`
+  exits with "no repos found in gita registry" and there is nothing to brief.
+- CLIs: `gh` (authenticated), `git`, `python3`.
+- Writes: `~/.claude/portfolio-brief/`.
+- Optional: `npm` plus node, only for the maintenance-only SPA rebuild below.
+  Absent = the pre-built template still renders; you just cannot change `app/`.
+
 ## Workflow
 
 ### 1. Collect (deterministic)

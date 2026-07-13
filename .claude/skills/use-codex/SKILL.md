@@ -10,6 +10,14 @@ Always run Codex through the `codex-run.sh` helper. The helper auto-detects its 
 - **codex backend** (preferred): OpenAI ChatGPT subscription, no per-request billing multiplier. Uses codex's own configured default model unless `-m` is passed.
 - **copilot backend** (fallback): GitHub Copilot, billed with a per-request multiplier - see below.
 
+## Dependencies
+
+- CLIs: `codex` (preferred) or `copilot` (fallback) - the helper fails if
+  neither resolves; `mise` for PATH resolution of either.
+- Dependency hub: this skill's `references/dispatch-contract.md` is the shared
+  contract that `use-gemini`, `use-qwen`, and `use-sonnet` read verbatim. Do not
+  move, rename, or narrow it without updating those three skills.
+
 ## Dispatch Contract (shared)
 
 Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill.

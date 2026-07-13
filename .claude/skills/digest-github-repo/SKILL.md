@@ -10,6 +10,11 @@ triage. Works in two modes depending on repo configuration.
 
 All files live under `~/bim/inbox/automated/digest-github-repo/`.
 
+## Dependencies
+
+- Plugin: `claude-in-chrome` (MCP browser tools). Activity collection is browser-driven; without it the skill cannot gather repo activity and must stop.
+- External `~/bim/` tree (hard anchor, no fallback): config `~/bim/inbox/automated/digest-github-repo/repos.yaml`, dedup grep over `~/bim/zettelkasten/` and `~/bim/inbox/`, output into `~/bim/inbox/automated/digest-github-repo/`.
+
 ## Triggers
 
 Use this skill whenever the user wants to catch up on a GitHub repository, says things like

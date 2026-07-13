@@ -19,6 +19,17 @@ records the path.
 It **never edits the PRD**. The design refines the PRD; acceptance criteria stay
 PRD-owned.
 
+## Dependencies
+
+- Personal skills (files read at runtime): `review-design-doc`
+  (`references/cardinal-sins.md`, the single source of truth, inlined into every
+  reviewer prompt), `use-codex` (`scripts/codex-run.sh`)
+- Rules: `~/.claude/rules/rationalizations.md` (drives the mandatory reuse sweep)
+- CLI: `codex` (review dispatch). Unavailable: fall back to the Claude subagent
+  reviewer documented in the review step
+- Optional: cartographer atlas `~/.claude/cartographer/projects/<hash>/atlas.md`
+  (skipped silently when absent)
+
 ## Inputs
 
 - **PRD path** (argument). If omitted, auto-select the single PRD in

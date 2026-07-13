@@ -7,6 +7,13 @@ description: Use when scanning new commits in the external affaan-m/everything-c
 
 Review new commits in `affaan-m/everything-claude-code` since last check and surface changes worth adopting.
 
+## Dependencies
+
+- CLI: `gh`, authenticated - reads the `affaan-m/everything-claude-code` repo.
+- Path: `~/.claude/dev/local/ecc-cursor` - cursor state, created on first run.
+  The aegis hook blocks shell redirects into `dev/local/`, so write the cursor
+  with the Write tool, never `>` or `tee`.
+
 ## Step 1 - Read cursor
 
 Read `~/.claude/dev/local/ecc-cursor`. Format:

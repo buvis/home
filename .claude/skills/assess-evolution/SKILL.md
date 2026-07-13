@@ -9,6 +9,15 @@ A repeatable self-assessment that finds what blocks a project's healthy growth a
 
 Core stance: apply `rules/ai-app-design.md` (code answers deterministic questions — git-log parsing is code; "is this churn a design flaw" is judgment). **Breadth via parallel read-only auditors, one per lens.** **Verify every load-bearing claim against source before asserting it** — an unverified finding is marked UNVERIFIED, never stated as fact. Calibrate: a healthy codebase under adversarial audit still yields localized, evidence-backed findings — thoroughness of the audit is not evidence of doom.
 
+## Dependencies
+
+- Plugin skill: `git-ferry:catchup` (step 0, mandatory). Absent: fall back to
+  `gh pr list`, `gh issue list`, `gh run list`.
+- Rules: `~/.claude/rules/ai-app-design.md` (the code-vs-judgment split).
+- CLIs: `git`, `rg`.
+- Optional: `ponytail:ponytail-debt` plugin skill for the lens-6 debt harvest;
+  absent = `rg -n "ponytail:"`.
+
 ## 0. Catch up first, then load project config
 
 **Live state first**: run the `catchup` skill (git-ferry plugin) before any lens work. Its output — branch diff, open PRs, open issues, CI health — steers direction: open PRs/issues join the already-tracked pointer auditors get in §2, failing CI and recent reverts are pain-point evidence for lens 7, and the §7 roadmap must sequence around in-flight PRs, not collide with them. No catchup skill? `gh pr list`, `gh issue list`, `gh run list --limit 20` cover the essentials.

@@ -7,6 +7,14 @@ description: Use when extracting a cluster of personal skills/hooks/commands int
 
 End-to-end playbook for turning a cluster of personal `~/.claude/` items into a published plugin in the `buvis-plugins` marketplace. Walks through eleven phases with four user checkpoints. Codifies what we learned shipping `audit-suite` and `strunk`.
 
+## Dependencies
+
+- Personal skills: `create-skill` (Phase 8 runs `python3 ~/.claude/skills/create-skill/scripts/validate_skill.py`)
+- CLIs: `gh`, `git`, `python3`, `uv` (`uv run --with pytest`), and **bash >= 4** (`scripts/check-readiness.sh` uses `mapfile`; macOS `/bin/bash` 3.2 lacks it)
+- External repos: `~/git/src/github.com/buvis/claude-plugins` (marketplace registration), `claude-strunk` (source of the copied LICENSE and `.gitignore`)
+- Reads `~/.claude/` surfaces (`hooks/`, `commands/`, `agents/`, `rules/`, `settings.json`) and the shell rc files
+- Harness tool: `AskUserQuestion`
+
 ## Conventions
 
 - Plugin repos live at `~/git/src/github.com/buvis/claude-<plugin-name>/`.

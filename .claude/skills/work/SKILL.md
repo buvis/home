@@ -7,6 +7,20 @@ description: Use when executing already-planned tasks one at a time, dispatching
 
 Implement pending tasks one-by-one, committing after each completion.
 
+## Dependencies
+
+- Personal skills: `run-autopilot` - this skill is a phase inside that loop and
+  shares its state contract, `dev/local/autopilot/state.json` (see run-autopilot's
+  state-schema and phase-review references).
+- Files read from other skill dirs:
+  - `~/.claude/skills/run-autopilot/scripts/_walk_up.py` - run at every task
+    start and at the handoff check
+  - `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` - its
+    `## What to remove` section is inlined into the step-5.6 deslop dispatch
+- CLIs: `git`, `python3`
+- Optional (explicit fallback exists): `use-gemini` skill (UI tasks), `use-qwen`
+  skill, `superpowers:*` plugin skills
+
 ## CRITICAL: Never Ask the User to Run Commands
 
 This skill runs inside an **automated autopilot loop**. The user is not watching. Do not ask the user to run tests, commands, or do anything manually. The only valid reasons to surface output to the user are:
