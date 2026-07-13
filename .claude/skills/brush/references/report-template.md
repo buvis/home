@@ -1,7 +1,8 @@
 # Brush report template
 
-Write to `dev/local/brush-report.md` (overwrite; unchecked items re-derive on
-the next run, so no carry-forward). Keep every cmd verbatim and executable.
+Write to `dev/local/audit-results/brush-report.md` (curated audit store,
+never dev/local root; overwrite per run; unchecked items re-derive on the
+next run, so no carry-forward). Keep every cmd verbatim and executable.
 
 ```markdown
 # Brush report - <repo-name>

@@ -67,8 +67,9 @@ cleanup for a missing skill (especially purge-devlocal).
 5. **Instructions** (full only): run the `manage-agents-md` skill.
 6. **Atlas** (full only): run the `survey` skill so the Cartographer atlas
    is refreshed while repo context is loaded.
-7. **Report + handoff**: write `dev/local/brush-report.md` per
-   `${CLAUDE_SKILL_DIR}/references/report-template.md`.
+7. **Report + handoff**: write `dev/local/audit-results/brush-report.md`
+   (audit reports live in the curated audit-results store, never dev/local
+   root) per `${CLAUDE_SKILL_DIR}/references/report-template.md`.
 
 Unattended posture for phases 3-5: take each sub-skill's recommended default
 instead of asking questions; log every defaulted decision in the report. A
@@ -85,11 +86,23 @@ phase failure never aborts the run: record it under Failures and continue.
 
 ## Ending
 
-Always end with: report path, auto-action count, pending-decision count,
-unpushed-commit count, and the exact resume line (`/brush apply` after marking `[x]`). If decisions are
-pending or a phase failed, also send
-`python3 /Users/bob/.claude/hooks/notify.py --send "brush <repo>" "<N> decisions pending - dev/local/brush-report.md"`
-(skip silently if the script is absent).
+The human must always see exactly how to proceed. Print this block verbatim,
+filled in, as the last thing in the final message:
+
+```
+brush <mode> done - <repo>
+report: dev/local/audit-results/brush-report.md
+auto: <N> | decisions: <M> | manual: <K> | unpushed: <U>
+next: edit the report, mark [x] on approved BR items, then run
+  /brush apply               (in a session opened in <repo>)
+  claude -p "/brush apply"   (headless)
+nothing pending and no manual items -> no action needed
+```
+
+If decisions are pending or a phase failed, also send
+`python3 /Users/bob/.claude/hooks/notify.py --send "brush <repo>" "<M> decisions pending - dev/local/audit-results/brush-report.md"`.
+Skip the notify silently if the script is absent or the human is present in
+an interactive session.
 
 ## Tests
 
