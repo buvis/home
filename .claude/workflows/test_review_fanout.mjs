@@ -40,6 +40,18 @@ const PURE_SYMBOLS = [
   "renderReviewMarkdown",
 ];
 
+// Symbols the pure region MUST expose but does not yet. They resolve leniently
+// (a missing one lands as `undefined` rather than blowing up the whole suite),
+// so a not-yet-implemented contract fails its own tests loudly and leaves every
+// other test's signal intact.
+const CONTRACT_SYMBOLS = ["decideVerdict"];
+
+// The shape the downstream consolidation script parses. A finding that does not
+// match this is invisible to it: it never reaches the findings table and never
+// becomes a rework task.
+const CONSOLIDATION_RE =
+  /^\[([A-Z][A-Z0-9_]*)\] (🔴|🟠|🟡|⚪) (.+?) \| File: (.+?) \| Task: (.+)$/u;
+
 const EXPECTED_RUBRIC_IDS = [
   "R1",
   "R2",
@@ -84,7 +96,17 @@ function pure() {
   vm.createContext(sandbox);
   // The exporter runs in the same script, so it sees the region's top-level
   // `const`/`function` lexical bindings (which never land on globalThis).
-  const exporter = `\n;globalThis.__pure__ = { ${PURE_SYMBOLS.join(", ")} };\n`;
+  // CONTRACT_SYMBOLS are read through a try/catch: an undeclared identifier
+  // throws a catchable ReferenceError, so a missing contract symbol arrives as
+  // `undefined` and only its own tests fail.
+  const exporter =
+    `\n;globalThis.__pure__ = { ${PURE_SYMBOLS.join(", ")} };\n` +
+    `;globalThis.__contract__ = {};\n` +
+    CONTRACT_SYMBOLS.map(
+      (name) =>
+        `;try { globalThis.__contract__.${name} = ${name}; } ` +
+        `catch (e) { globalThis.__contract__.${name} = undefined; }\n`,
+    ).join("");
   try {
     vm.runInContext(region + exporter, sandbox, { filename: SCRIPT });
   } catch (err) {
@@ -99,8 +121,28 @@ function pure() {
     throw new Error(`pure region failed to evaluate: ${name}: ${msg}`);
   }
 
-  cached = sandbox.__pure__;
+  cached = { ...sandbox.__pure__, ...sandbox.__contract__ };
   return cached;
+}
+
+/**
+ * Call the contracted verdict function, failing with the interface it must have
+ * rather than with a bare "is not a function".
+ */
+function decide(p, state) {
+  assert.equal(
+    typeof p.decideVerdict,
+    "function",
+    "the verdict must be decided by decideVerdict({blocking, incomplete, unverified}) " +
+      "INSIDE the pure region — an inline ternary in the impure region is unreachable, " +
+      "so no test can prove the engine fails closed",
+  );
+  return p.decideVerdict(state);
+}
+
+/** The verdict inputs of a review with nothing outstanding. */
+function verdictState(over = {}) {
+  return { blocking: [], incomplete: false, unverified: 0, ...over };
 }
 
 // Values that cross back out of the vm realm carry the vm's intrinsics, so
@@ -132,6 +174,13 @@ function render(p, over = {}) {
     statsLine: "stats: raw=0 unique=0",
     ...over,
   });
+}
+
+/** The File cell of a finding line, as the consolidation script would read it. */
+function fileCell(line) {
+  const m = line.match(CONSOLIDATION_RE);
+  assert.ok(m, `the line does not match the consolidation shape at all: ${line}`);
+  return m[4];
 }
 
 function reviewBase(p, over = {}) {
@@ -578,6 +627,127 @@ test("a finding with no task renders the general task fallback, never the string
   assert.ok(!out.includes("undefined"), `nothing may render as the string "undefined":\n${out}`);
 });
 
+// ---- the File cell: a rework task must point at real code ----
+
+test("each finding line carries its own file in the File cell, not a shared placeholder", () => {
+  const p = pure();
+  // The consolidation script builds a rework task from the File cell. A line that
+  // renders "N/A" for a finding that HAS a file sends the fixer to nothing: the
+  // finding is reported, counted, blocks convergence, and cannot be acted on.
+  const charge = finding({
+    title: "unauthenticated refund path",
+    severity: "CRITICAL",
+    file: "src/payments/charge.js",
+    task: "1",
+    proof: "refund() is reachable without the auth middleware",
+    verified: "confirmed",
+  });
+  const upload = finding({
+    title: "path traversal in upload",
+    severity: "HIGH",
+    file: "src/upload/handler.js",
+    task: "2",
+    proof: "filename is joined unchecked",
+    verified: "confirmed",
+  });
+
+  const out = render(p, { blocking: [charge, upload] });
+  const parseable = lines(out).filter((l) => l.startsWith("[ALICE]"));
+
+  const chargeLine = parseable.find((l) => l.includes("unauthenticated refund path"));
+  assert.ok(chargeLine, `missing the blocking finding line in:\n${out}`);
+  assert.equal(
+    fileCell(chargeLine),
+    "src/payments/charge.js",
+    `the File cell must carry the finding's own file: a rework task built from this line ` +
+      `points at whatever the cell says, so a placeholder points at nothing: ${chargeLine}`,
+  );
+
+  const uploadLine = parseable.find((l) => l.includes("path traversal in upload"));
+  assert.ok(uploadLine, `missing the second blocking finding line in:\n${out}`);
+  assert.equal(
+    fileCell(uploadLine),
+    "src/upload/handler.js",
+    `each finding keeps its OWN file: one constant cell for every finding is the same ` +
+      `defect as N/A for every finding: ${uploadLine}`,
+  );
+
+  assert.notEqual(
+    fileCell(chargeLine),
+    fileCell(uploadLine),
+    "two findings in two files must not render the same File cell",
+  );
+  assert.ok(
+    !out.includes("| File: N/A |"),
+    `no finding here lacks a file, so nothing may fall back to N/A:\n${out}`,
+  );
+});
+
+test("an unverified over-cap finding carries its own file too, so the cap cannot erase the location", () => {
+  const p = pure();
+  // The over-cap finding is the one most likely to become a rework task without a
+  // human ever reading it: nobody verified it, so nobody re-derived where it lives.
+  const unproven = finding({
+    title: "unauthenticated admin route",
+    severity: "CRITICAL",
+    file: "src/routes/admin.js",
+    task: "4",
+    proof: "no auth middleware on /admin",
+  });
+
+  const res = p.applyVerification({
+    toVerify: [],
+    verdicts: [],
+    overflow: [unproven],
+    passthrough: [],
+  });
+  assert.equal(res.unverified, 1);
+
+  const out = render(p, { blocking: arr(res.blocking), advisory: arr(res.advisory) });
+  const line = lines(out).find(
+    (l) => l.startsWith("[ALICE]") && l.includes("unauthenticated admin route"),
+  );
+  assert.ok(line, `the unverified potential blocker must reach the findings table:\n${out}`);
+  assert.equal(
+    fileCell(line),
+    "src/routes/admin.js",
+    `an unverified finding keeps its file: it is still a rework candidate, and a rework ` +
+      `task pointed at N/A is unfixable: ${line}`,
+  );
+});
+
+test("the review-incomplete line is the only line allowed to say File: N/A", () => {
+  const p = pure();
+  // N/A is the fallback for a finding that genuinely has no file (a whole dimension
+  // that never answered). Pinning it here keeps the fallback a fallback: if some
+  // implementation starts emitting N/A everywhere, the two tests above fail and this
+  // one still passes, so the failure reads as "the File cell was dropped", not as
+  // "the fallback was removed".
+  const fileless = finding({
+    title: "the review itself is incomplete",
+    severity: "CRITICAL",
+    file: undefined,
+    task: "1",
+    proof: "p",
+  });
+  assert.equal(fileless.file, undefined, "the fixture deliberately carries no file");
+
+  const out = render(p, { blocking: [fileless], failedDimensions: ["security"] });
+
+  const dimLine = lines(out).find((l) => l.includes("dimension security returned nothing"));
+  assert.ok(dimLine, `missing the review-incomplete line in:\n${out}`);
+  assert.equal(fileCell(dimLine), "N/A", `a dead dimension has no file of its own: ${dimLine}`);
+
+  const filelessLine = lines(out).find((l) => l.includes("the review itself is incomplete"));
+  assert.ok(filelessLine, `missing the file-less finding line in:\n${out}`);
+  assert.equal(
+    fileCell(filelessLine),
+    "N/A",
+    `a finding with no file falls back to N/A rather than rendering "undefined": ${filelessLine}`,
+  );
+  assert.ok(!out.includes("undefined"), `nothing may render as the string "undefined":\n${out}`);
+});
+
 test("a refuted finding renders as an inert note and never as a parseable finding line", () => {
   const p = pure();
   const f = finding({
@@ -725,13 +895,37 @@ test("a newline in an overflowed finding title cannot forge a second verify-cap 
   assert.equal(res.unverified, 1);
 
   const out = render(p, { blocking: arr(res.blocking), advisory: arr(res.advisory) });
-  const notes = lines(out).filter((l) => l.startsWith("- unverified (verify cap):"));
+  const outLines = lines(out);
+
+  // An unverified finding is a potential blocker, so it renders as a parseable
+  // finding line (see "an over-cap blocker still reaches the findings table").
+  // The injected newline must not split it into two, nor forge an extra note.
+  const parseable = outLines.filter((l) => l.startsWith("[ALICE]"));
   assert.equal(
-    notes.length,
+    parseable.length,
     1,
+    `the over-cap finding renders as exactly one parseable line:\n${out}`,
+  );
+  assert.ok(parseable[0].includes("slow query"), parseable[0]);
+  assert.equal(
+    (parseable[0].match(/\|/g) || []).length,
+    2,
+    `only the File and Task separators survive: ${parseable[0]}`,
+  );
+  assert.ok(
+    !outLines.some((l) =>
+      l.trim().startsWith("- unverified (verify cap): fabricated second overflow"),
+    ),
+    `an injected newline must not forge a second overflow entry:\n${out}`,
+  );
+  const notes = outLines.filter((l) => l.trim().startsWith("- unverified (verify cap):"));
+  assert.ok(
+    notes.length <= 1,
     `a newline in the title must not forge an extra cap note:\n${out}`,
   );
-  assert.ok(!notes[0].includes("|"), `a cap note must contain no pipe: ${notes[0]}`);
+  for (const note of notes) {
+    assert.ok(!note.includes("|"), `a cap note must contain no pipe: ${note}`);
+  }
 });
 
 test("only a literal refuted:true refutes; any other verdict shape is a dead verifier that keeps the finding blocking", () => {
@@ -900,14 +1094,24 @@ test("the verify cap is spent strictest-first, so an arrival-ordered HIGH never 
   assert.equal(capped.severity, "HIGH");
 
   const out = render(p, { blocking: arr(res.blocking), advisory: arr(res.advisory) });
-  const notes = lines(out).filter((l) => l.startsWith("- unverified (verify cap):"));
-  assert.equal(notes.length, 1);
-  assert.ok(!notes[0].includes("|"), `a cap note must contain no pipe: ${notes[0]}`);
-  assert.ok(notes[0].includes(capped.title));
-  assert.ok(
-    !lines(out).some((l) => l.startsWith("[ALICE]") && l.includes(capped.title)),
-    "an unverified finding must not block",
+  const outLines = lines(out);
+
+  // The cap overflow was never disproven, so it is still a potential blocker: it
+  // must survive into the parseable findings, not evaporate into prose.
+  const cappedLine = outLines.find(
+    (l) => l.startsWith("[ALICE]") && l.includes(capped.title),
   );
+  assert.ok(
+    cappedLine,
+    `an unverified potential blocker must render as a parseable finding line:\n${out}`,
+  );
+  assert.ok(cappedLine.includes(" | File:"), cappedLine);
+  assert.ok(cappedLine.includes(" | Task:"), cappedLine);
+
+  const notes = outLines.filter((l) => l.trim().startsWith("- unverified (verify cap):"));
+  for (const note of notes) {
+    assert.ok(!note.includes("|"), `a cap note must contain no pipe: ${note}`);
+  }
 });
 
 test("non-blocking findings ride through verification untouched and still render as parseable advisory lines", () => {
@@ -1507,6 +1711,316 @@ test("an unverified potential blocker means the review has not converged", () =>
   );
 });
 
+// ---- fail closed: an unverified potential blocker never approves ----
+
+test("the verdict is decided by a pure function the harness can reach, not by an inline ternary", () => {
+  const p = pure();
+  assert.equal(
+    typeof p.decideVerdict,
+    "function",
+    "decideVerdict({blocking, incomplete, unverified}) must live INSIDE the pure region: " +
+      "a verdict computed inline at the bottom of the script is unreachable from any test, " +
+      "so nothing can prove the engine fails closed",
+  );
+});
+
+test("a blocking finding cannot produce APPROVE", () => {
+  const p = pure();
+  const confirmed = finding({
+    title: "rce via cmd param",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    task: "1",
+    proof: "req.body.cmd reaches child_process.exec at line 17",
+    verified: "confirmed",
+  });
+
+  assert.equal(decide(p, verdictState({ blocking: [confirmed] })), "CHANGES_REQUESTED");
+});
+
+test("an incomplete review cannot produce APPROVE", () => {
+  const p = pure();
+  // A dimension agent (or a verifier) never answered. The reviewer did not look
+  // at part of the change, so it cannot vouch for it.
+  assert.equal(decide(p, verdictState({ incomplete: true })), "CHANGES_REQUESTED");
+});
+
+test("an unverified potential blocker cannot produce APPROVE", () => {
+  const p = pure();
+  // Nothing blocks and nothing is incomplete, but a CRITICAL/HIGH was pushed
+  // past VERIFY_CAP and never disproven. Unproven is not innocent.
+  assert.equal(
+    decide(p, verdictState({ unverified: 1 })),
+    "CHANGES_REQUESTED",
+    "a finding nobody verified may well be real, so it must not ship an APPROVE",
+  );
+  assert.equal(decide(p, verdictState({ unverified: 7 })), "CHANGES_REQUESTED");
+});
+
+test("a review approves only when nothing blocks, nothing is incomplete and nothing is unverified", () => {
+  const p = pure();
+  const blocker = finding({
+    title: "auth bypass",
+    severity: "CRITICAL",
+    file: "src/auth.js",
+    proof: "the guard is never called",
+    verified: "confirmed",
+  });
+
+  assert.equal(
+    decide(p, verdictState()),
+    "APPROVE",
+    "all three gates clear: this is the only state that approves",
+  );
+
+  // Every non-clear combination is a CHANGES_REQUESTED, so no pair of triggers
+  // can cancel out and no single trigger is silently ignored.
+  for (const blocking of [[], [blocker]]) {
+    for (const incomplete of [false, true]) {
+      for (const unverified of [0, 2]) {
+        const state = { blocking, incomplete, unverified };
+        const clear = blocking.length === 0 && !incomplete && unverified === 0;
+        const expected = clear ? "APPROVE" : "CHANGES_REQUESTED";
+        assert.equal(
+          decide(p, state),
+          expected,
+          `blocking=${blocking.length} incomplete=${incomplete} unverified=${unverified}`,
+        );
+      }
+    }
+  }
+});
+
+test("thirteen proven blockers whose verified twelve are all refuted still cannot produce APPROVE", () => {
+  const p = pure();
+  assert.equal(p.VERIFY_CAP, 12, "the fixture overflows the cap by exactly one");
+
+  const raw = [];
+  for (let i = 0; i < 13; i++) {
+    raw.push(
+      finding({
+        title: `critical ${i}`,
+        severity: "CRITICAL",
+        file: `src/c${i}.js`,
+        evidence: `evidence c${i}`,
+        proof: `req.body.cmd reaches exec at line ${i + 10} of c${i}.js`,
+        task: String(i),
+      }),
+    );
+  }
+
+  const { findings: kept, demoted } = p.demote(raw);
+  assert.equal(demoted, 0, "every fixture carries a proof, so nothing is demoted");
+  const { unique } = p.dedupe(arr(kept));
+  assert.equal(arr(unique).length, 13, "thirteen distinct defects");
+
+  const { toVerify, overflow } = p.selectForVerify(arr(unique));
+  assert.equal(arr(toVerify).length, 12);
+  assert.equal(arr(overflow).length, 1, "the thirteenth blocker never gets a verifier");
+  const unproven = arr(overflow)[0];
+
+  const res = p.applyVerification({
+    toVerify: arr(toVerify),
+    verdicts: arr(toVerify).map(() => ({ refuted: true, reason: "guarded by the caller" })),
+    overflow: arr(overflow),
+    passthrough: [],
+  });
+  assert.equal(arr(res.blocking).length, 0, "all twelve verified findings came back refuted");
+  assert.equal(res.refuted, 12);
+  assert.equal(res.unverified, 1, "the thirteenth survives, unproven");
+
+  const verdict = decide(p, {
+    blocking: arr(res.blocking),
+    incomplete: false,
+    unverified: res.unverified,
+  });
+  assert.notEqual(
+    verdict,
+    "APPROVE",
+    "an empty blocking list is not a clean review while a potential blocker was never checked",
+  );
+  assert.equal(verdict, "CHANGES_REQUESTED");
+
+  const out = render(p, {
+    blocking: arr(res.blocking),
+    advisory: arr(res.advisory),
+    statsLine: "stats: raw=13 unique=13",
+  });
+  assert.ok(
+    !out.includes("✅ No issues found"),
+    `the engine must not report a clean run while ${res.unverified} finding(s) went unverified:\n${out}`,
+  );
+
+  const line = lines(out).find((l) => l.startsWith("[ALICE]") && l.includes(unproven.title));
+  assert.ok(line, `the unproven blocker must survive into the output:\n${out}`);
+  assert.match(
+    line,
+    CONSOLIDATION_RE,
+    `the unproven blocker must be parseable by the consolidation script, or it never becomes a rework task: ${line}`,
+  );
+
+  const review = lines(
+    p.renderReviewMarkdown(
+      reviewBase(p, {
+        blocking: arr(res.blocking),
+        advisory: arr(res.advisory),
+        refuted: res.refuted,
+        unverified: res.unverified,
+      }),
+      { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" },
+    ),
+  );
+  assert.ok(
+    !review.includes("Verdict: converged"),
+    `the review file must not claim convergence while the returned verdict is ${verdict}:\n${review.join("\n")}`,
+  );
+});
+
+test("an over-cap blocker reaches the findings table as a rework-able line, keeping its own severity", () => {
+  const p = pure();
+  const critical = finding({
+    title: "rce via cmd param",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    task: "2",
+    proof: "cmd reaches exec",
+  });
+  const high = finding({
+    title: "path traversal in upload",
+    severity: "HIGH",
+    file: "src/upload.js",
+    task: "3",
+    proof: "filename is joined unchecked",
+  });
+
+  const res = p.applyVerification({
+    toVerify: [],
+    verdicts: [],
+    overflow: [critical, high],
+    passthrough: [],
+  });
+  assert.equal(res.unverified, 2);
+  for (const f of arr(res.advisory)) {
+    assert.equal(f.verified, "unverified", "the fixture models cap overflow, not refutation");
+  }
+
+  const out = render(p, { advisory: arr(res.advisory) });
+  const parseable = lines(out).filter((l) => l.startsWith("[ALICE]"));
+
+  const criticalLine = parseable.find((l) => l.includes("rce via cmd param"));
+  assert.ok(
+    criticalLine,
+    `an unverified CRITICAL must render as a parseable finding line, not as prose:\n${out}`,
+  );
+  assert.match(
+    criticalLine,
+    CONSOLIDATION_RE,
+    `only this shape reaches the findings table and becomes a rework task: ${criticalLine}`,
+  );
+  assert.match(
+    criticalLine,
+    /^\[ALICE\] 🔴 /u,
+    `an unverified CRITICAL keeps its own emoji: it must not be laundered into a lesser severity: ${criticalLine}`,
+  );
+  assert.match(
+    criticalLine,
+    /unverified/i,
+    `the line must tell the reader it was never verified: ${criticalLine}`,
+  );
+  assert.ok(criticalLine.includes(" | Task: 2"), criticalLine);
+  assert.equal(
+    (criticalLine.match(/\|/g) || []).length,
+    2,
+    `only the File and Task separators: ${criticalLine}`,
+  );
+
+  const highLine = parseable.find((l) => l.includes("path traversal in upload"));
+  assert.ok(highLine, `an unverified HIGH must render as a parseable finding line:\n${out}`);
+  assert.match(highLine, CONSOLIDATION_RE, highLine);
+  assert.match(highLine, /^\[ALICE\] 🟠 /u, `an unverified HIGH stays orange: ${highLine}`);
+  assert.match(highLine, /unverified/i, highLine);
+  assert.ok(highLine.includes(" | Task: 3"), highLine);
+});
+
+test("the agent output never reports a clean run while a finding went unverified", () => {
+  const p = pure();
+  const unproven = finding({
+    title: "unauthenticated admin route",
+    severity: "CRITICAL",
+    file: "src/routes.js",
+    task: "1",
+    proof: "no auth middleware on /admin",
+  });
+
+  const res = p.applyVerification({
+    toVerify: [],
+    verdicts: [],
+    overflow: [unproven],
+    passthrough: [],
+  });
+
+  const out = render(p, { blocking: arr(res.blocking), advisory: arr(res.advisory) });
+  assert.equal(arr(res.blocking).length, 0, "nothing was confirmed, because nothing was checked");
+  assert.ok(
+    !out.includes("✅ No issues found"),
+    `"no issues found" is a lie while an unverified potential blocker exists:\n${out}`,
+  );
+  assert.ok(
+    lines(out).some((l) => CONSOLIDATION_RE.test(l)),
+    `the run must emit at least one parseable finding line:\n${out}`,
+  );
+});
+
+test("the rendered verdict count and the returned verdict never disagree about convergence", () => {
+  const p = pure();
+  const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
+  const blocker = finding({
+    title: "rce via cmd param",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    task: "1",
+    proof: "cmd reaches exec",
+    verified: "confirmed",
+  });
+
+  const cases = [
+    ["a clean run", { blocking: [], unverified: 0, failedDimensions: [], verifierFailures: [] }],
+    ["a confirmed blocker", { blocking: [blocker], unverified: 0, failedDimensions: [], verifierFailures: [] }],
+    ["a cap overflow", { blocking: [], unverified: 2, failedDimensions: [], verifierFailures: [] }],
+    ["a dead dimension", { blocking: [], unverified: 0, failedDimensions: ["security"], verifierFailures: [] }],
+    [
+      "a dead verifier",
+      {
+        blocking: [],
+        unverified: 0,
+        failedDimensions: ["verify:rce via cmd param"],
+        verifierFailures: ["rce via cmd param"],
+      },
+    ],
+  ];
+
+  for (const [label, state] of cases) {
+    // The engine marks the review incomplete exactly when a dimension or a
+    // verifier failed to answer.
+    const incomplete = state.failedDimensions.length > 0;
+    const verdict = decide(p, {
+      blocking: state.blocking,
+      incomplete,
+      unverified: state.unverified,
+    });
+    const converged = lines(p.renderReviewMarkdown(reviewBase(p, state), args)).includes(
+      "Verdict: converged",
+    );
+
+    assert.equal(
+      converged,
+      verdict === "APPROVE",
+      `${label}: the review file says ${converged ? "converged" : "not converged"} while the ` +
+        `returned verdict is ${verdict} — one run must not ship two contradictory answers`,
+    );
+  }
+});
+
 test("a dead verifier means the review has not converged", () => {
   const p = pure();
   const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
@@ -1525,4 +2039,84 @@ test("a dead verifier means the review has not converged", () => {
     dead.some((l) => l.startsWith("Verdict:")),
     "the review file still carries a Verdict: line",
   );
+});
+
+// ---- the rendered count: every outstanding item is counted, not just the blockers ----
+//
+// "Verdict: N findings" is what a human (and the rework step) reads first. A count
+// that only sums `blocking` renders "Verdict: 0 findings" for a review held open by
+// unverified findings, a dead verifier, or a dead dimension: it reads as clean while
+// claiming non-convergence, and 0 is the number that gets believed.
+
+/** The single Verdict: line of a rendered review file. */
+function verdictLine(p, state) {
+  const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
+  const found = lines(p.renderReviewMarkdown(reviewBase(p, state), args)).filter((l) =>
+    l.startsWith("Verdict:"),
+  );
+  assert.equal(found.length, 1, `exactly one Verdict: line, got ${found.length}`);
+  return found[0];
+}
+
+test("a review held open only by unverified findings renders that exact count, never a clean zero", () => {
+  const p = pure();
+  assert.equal(
+    verdictLine(p, { unverified: 3 }),
+    "Verdict: 3 findings",
+    "three cap-overflowed potential blockers are three outstanding findings",
+  );
+  assert.equal(verdictLine(p, { unverified: 1 }), "Verdict: 1 findings");
+  assert.notEqual(
+    verdictLine(p, { unverified: 3 }),
+    "Verdict: 0 findings",
+    "a count that ignores the unverified reads as a clean review while refusing to converge",
+  );
+});
+
+test("a review held open only by a dead verifier renders that exact count, never a clean zero", () => {
+  const p = pure();
+  assert.equal(
+    verdictLine(p, { verifierFailures: ["rce in job runner", "csrf token never checked"] }),
+    "Verdict: 2 findings",
+    "two verifiers that never answered are two outstanding findings",
+  );
+  assert.equal(verdictLine(p, { verifierFailures: ["rce in job runner"] }), "Verdict: 1 findings");
+});
+
+test("a review held open only by a dead dimension renders that exact count, never a clean zero", () => {
+  const p = pure();
+  assert.equal(
+    verdictLine(p, { failedDimensions: ["security", "tests"] }),
+    "Verdict: 2 findings",
+    "two dimensions that returned nothing are two outstanding findings",
+  );
+  assert.equal(verdictLine(p, { failedDimensions: ["rubric"] }), "Verdict: 1 findings");
+});
+
+test("the rendered count sums every source of non-convergence, so no source can be dropped", () => {
+  const p = pure();
+  const blocker = finding({
+    title: "rce via cmd param",
+    severity: "CRITICAL",
+    file: "src/a.js",
+    task: "1",
+    proof: "cmd reaches exec",
+    verified: "confirmed",
+  });
+
+  // One of each, deliberately distinct, so a count that drops any single source
+  // lands on a different number than 5 and this fails with the number it produced.
+  assert.equal(
+    verdictLine(p, {
+      blocking: [blocker],
+      unverified: 2,
+      verifierFailures: ["csrf token never checked"],
+      failedDimensions: ["security"],
+    }),
+    "Verdict: 5 findings",
+    "1 blocking + 2 unverified + 1 dead verifier + 1 dead dimension = 5 outstanding findings",
+  );
+
+  // The control: with all four sources empty, and only then, the review converges.
+  assert.equal(verdictLine(p, {}), "Verdict: converged");
 });
