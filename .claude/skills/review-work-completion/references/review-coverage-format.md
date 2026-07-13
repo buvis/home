@@ -13,6 +13,7 @@ were retired (their operational record was false blocks, not caught defects).
    - `reviewers: alice,blake,bob[,carl][,quinn][,eve]` — comma-separated
      lowercase names of every reviewer that actually RAN this cycle
    - `codex_thread_id: <id>` — optional; present when Bob ran on codex
+   - `consensus_run_id: <id>` — optional; present when the consensus engine ran (`consensus_engine` is `workflow` or `shadow`)
 2. **One `## <Name>` section per launched reviewer**, non-empty: the
    reviewer's findings, or a one-line all-clear. Bob's section keeps his
    `R{n}: pass|fail` doubt-rubric lines (consolidation parses them into
