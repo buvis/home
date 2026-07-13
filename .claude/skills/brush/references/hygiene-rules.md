@@ -28,6 +28,18 @@ Safety taxonomy. Every candidate action falls in exactly one class:
 | `git maintenance run --auto` | always | none needed |
 | purge-devlocal skill (dry, sanity-check, apply) | dev/local exists | its own manifest |
 
+## Phase-2 order (facts go stale)
+
+1. `git fetch --prune` (and `git fetch upstream` when that remote exists).
+2. Re-run collect_facts in full: `[gone]`, merged, and upstream state are
+   fetch-dependent, so the preflight JSON is stale for ref decisions.
+3. Gitignore fixes: ensure `dev/local/` is ignored BEFORE the first trash
+   move ever creates it.
+4. Trash moves, then branch and worktree actions, then
+   `git maintenance run --auto`, then purge-devlocal.
+5. Commit tracked fixes only while on the default branch; on any other
+   branch queue them as BR-items (keeps feature-PR diffs clean).
+
 ## ASK - queue as `- [ ] BR-n` Decisions (report section 2)
 
 - Delete unmerged or no-upstream local branches (`git branch -D`, sha in the item).
@@ -42,11 +54,15 @@ Safety taxonomy. Every candidate action falls in exactly one class:
 - Remote branch deletion (`git push origin --delete ...`).
 - History rewrite / `git filter-repo` / LFS migration when `big_tracked` or pack size is alarming (>500MB: flag, suggest investigation).
 - Submodule drift surgery.
+- Fork drift: when an `upstream` remote exists, report how far HEAD is
+  behind `upstream/<default>` and point at `git-ferry:catchup-upstream`;
+  never auto-sync.
 - Anything involving files matching secret patterns. A TRACKED secret is CRITICAL: put it at the top of the report and stop hygiene until acknowledged.
 
 ## NEVER
 
-`git clean -f` (bypasses trash), force-push, tag deletion, `git gc --aggressive`
+`git clean -f` (bypasses trash), any `git push` (brush never pushes; the
+report counts unpushed commits), tag deletion, `git gc --aggressive`
 (disruptive; maintenance covers it), touching dirty tracked files, stashing or
 staging user WIP, docs (`*.md`, `*.rst`, `*.txt`, `docs/`, README, LICENSE,
 CHANGELOG), anything under `dev/local/` (purge-devlocal owns it), `.env*` and

@@ -25,14 +25,16 @@ cleanup for a missing skill (especially purge-devlocal).
 - `purge-devlocal` (phase 2) - sole owner of dev/local GC
 - `assess-evolution` (phase 3), `review-prd-backlog` (phase 4),
   `manage-agents-md` (phase 5)
+- `survey` (phase 6) - Cartographer atlas refresh
 - Optional: `gh` (PR-merge proof; absent = gone-branch deletes demote to
   ASK unless the squash probe proves the merge), `~/.claude/hooks/notify.py`.
 
 ## Modes ($ARGUMENTS)
 
 - (none) full: all phases
-- `quick`: phases 1, 2, 6 only; pass `--fast` to collect_facts
+- `quick`: phases 1, 2, 7 only; pass `--fast` to collect_facts
 - `dry`: like quick but execute nothing; report what would happen
+  (recommended for a repo's first brush)
 - `apply`: execute approved items from an existing report (see Apply)
 
 ## Preflight
@@ -46,9 +48,9 @@ cleanup for a missing skill (especially purge-devlocal).
 ## Phases
 
 1. **Context**: run the `git-ferry:catchup` skill.
-2. **Git hygiene**: from the facts JSON, execute every AUTO row of
-   hygiene-rules.md; queue ASK rows as BR-items and MANUAL rows as section 3
-   items. Trash moves only via
+2. **Git hygiene**: follow the Phase-2 order in hygiene-rules.md (fetch,
+   re-collect facts, then act): execute every AUTO row; queue ASK rows as
+   BR-items and MANUAL rows as section 3 items. Trash moves only via
    `python3 ${CLAUDE_SKILL_DIR}/scripts/trash_untracked.py --repo <root> <paths>`
    (it re-vetoes protected paths itself). For dev/local, invoke the
    `purge-devlocal` skill scoped to this repo: dry-run, sanity-check, apply;
@@ -58,7 +60,9 @@ cleanup for a missing skill (especially purge-devlocal).
    catchup already ran this session.
 4. **Backlog** (full only): run the `review-prd-backlog` skill.
 5. **Instructions** (full only): run the `manage-agents-md` skill.
-6. **Report + handoff**: write `dev/local/brush-report.md` per
+6. **Atlas** (full only): run the `survey` skill so the Cartographer atlas
+   is refreshed while repo context is loaded.
+7. **Report + handoff**: write `dev/local/brush-report.md` per
    `${CLAUDE_SKILL_DIR}/references/report-template.md`.
 
 Unattended posture for phases 3-5: take each sub-skill's recommended default
@@ -76,8 +80,8 @@ phase failure never aborts the run: record it under Failures and continue.
 
 ## Ending
 
-Always end with: report path, auto-action count, pending-decision count, and
-the exact resume line (`/brush apply` after marking `[x]`). If decisions are
+Always end with: report path, auto-action count, pending-decision count,
+unpushed-commit count, and the exact resume line (`/brush apply` after marking `[x]`). If decisions are
 pending or a phase failed, also send
 `python3 /Users/bob/.claude/hooks/notify.py --send "brush <repo>" "<N> decisions pending - dev/local/brush-report.md"`
 (skip silently if the script is absent).

@@ -6,8 +6,8 @@ the next run, so no carry-forward). Keep every cmd verbatim and executable.
 ```markdown
 # Brush report - <repo-name>
 
-- generated: <YYYY-MM-DD HH:MM> | mode: <full|quick|dry> | HEAD: <sha12> | branch: <name>
-- phases: catchup OK | git-hygiene OK | assess SKIPPED (quick) | backlog OK | agents-md FAILED
+- generated: <YYYY-MM-DD HH:MM> | mode: <full|quick|dry> | HEAD: <sha12> | branch: <name> | unpushed: <n>
+- phases: catchup OK | git-hygiene OK | assess SKIPPED (quick) | backlog OK | agents-md FAILED | atlas OK
 
 ## 1. Done automatically (all reversible)
 
