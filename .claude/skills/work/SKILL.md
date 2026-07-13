@@ -294,13 +294,11 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 
 | Result | Action |
 |--------|--------|
-| Success | Continue to step 5. (The `completed` dispatch-log append is performed by the Subagent Watchdog — no separate append in this row.) |
+| Success | Continue to step 5. |
 | Timeout | Append attempt-log entry (`outcome: "aborted"`, `cause: "timeout"`). Split task (see below), mark original as blocked. |
 | Context exceeded | Append attempt-log entry (`outcome: "aborted"`, `cause: "context_overrun"`). Split task, mark original as blocked. |
 | Error | Invoke systematic-debugging if available (step 4.5). On unrecoverable error, append attempt-log entry (`outcome: "aborted"`, `cause: "error"`). Report to user. |
 | Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — apply the **infrastructure-failure circuit breaker** (step 4.2). |
-
-Every non-success row ALSO appends a dispatch-log entry per `references/subagent-dispatch.md` § "Dispatch-log append", with the matching outcome (`timeout` / `context_overrun` / `error` / `hung`; step 4.2's second failure logs `infra_failure`).
 
 ### 4.2. Infrastructure-failure circuit breaker
 
@@ -308,7 +306,7 @@ A lost/empty Agent result or a watchdog-killed hang is an infrastructure failure
 
 1. Check the working tree (`git status --short`). A crashed agent may have left partial, uncommitted, **unverified** changes. Note them in the task output; do not commit them blind and do not assume they compile.
 2. Re-dispatch the **same** task at most **once**. Track infrastructure re-dispatches per task — this cap is separate from the test-failure retry cap (step 5.5) and the review-cycle cap (step 5.7).
-3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`, append the dispatch-log entry (`outcome: "infra_failure"`). Escalate to the user. Do **not** advance to the next task.
+3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`. Escalate to the user. Do **not** advance to the next task.
 
 ### 4.5. Debug on error (if superpowers available)
 
