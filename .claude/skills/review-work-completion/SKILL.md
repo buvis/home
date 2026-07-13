@@ -36,7 +36,7 @@ not name:
 Every review cycle runs all lenses (PRD 00015) — consensus, blind, and doubt
 are prompt disciplines carried by the roster, not separate phases:
 
-- **Alice** → Claude subagent (direct, not nested CLI); implementation-aware consensus lens
+- **Alice** → Claude subagent (direct, not nested CLI); implementation-aware consensus lens. Her leg runs on the engine the PRD's `consensus_engine` flag selects (step 1): the legacy single subagent by default, or the `review-fanout` workflow — dimension fan-out, dedup, adversarial verification — when the flag opts in
 - **Blake** → Claude subagent, **blind lens**: PRD-only prompt — no diff, no file list, no review history, no design doc (see `references/blind-lens-prompt.md`)
 - **Bob** → Codex, **doubt lens**: carries the doubt rubric (R1-R5) and the de-slop lens every cycle; when codex is unavailable, a Claude subagent runs the same prompt so the lens never silently drops
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
@@ -61,6 +61,16 @@ Check these exist:
 Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 
 **Path convention:** All `dev/local/` paths in this skill are relative to the project root. When passing file paths to subagents or external scripts, always use absolute paths (e.g. `$PWD/dev/local/tmp/...`) so they resolve correctly regardless of the subagent's working directory.
+
+**Resolve the consensus engine.** Alice's leg runs on one of three engines. Read `state.consensus_engine` from `dev/local/autopilot/state.json` (autopilot parses the PRD frontmatter once, at Phase 0); on a standalone run with no state file, read `consensus_engine` straight from the wip PRD's frontmatter.
+
+| value | Alice's leg |
+|-------|-------------|
+| `legacy` (default — also every absent or invalid value) | Today's single Task subagent. No Workflow call, nothing else changes. |
+| `workflow` | The `review-fanout` workflow **is** Alice's leg (step 5). |
+| `shadow` | Both. Legacy Alice gates the cycle; the workflow runs beside her, non-gating, and its result is recorded as an observation (step 8). |
+
+An invalid value falls back to `legacy` with one logged warning line (same rule as `rework_cap` / `doubt_reviewer`). Hold the resolved value as `CONSENSUS_ENGINE` for steps 5 and 8.
 
 **If CLI/script check fails, STOP and report:**
 
@@ -155,6 +165,39 @@ The Watcher is scaffolding, not a reviewer: its return is never saved, consolida
 
 **Bob fallback (the doubt lens never drops).** If `codex-run.sh` exits non-zero with exit 3 (codex unavailable) or 4 (codex ran but failed, e.g. quota), dispatch a Claude Task subagent with Bob's exact assembled prompt (doubt lens + rubric included) and use its output as Bob's. Only if the fallback also fails does Bob count as a failed reviewer per `references/retry-policy.md`.
 
+**Alice on the workflow engine** (`CONSENSUS_ENGINE` is `workflow` or `shadow`; skip this whole block on `legacy`). The workflow call goes in the SAME single dispatch message as the other reviewers — it is a foreground tool call whose inner agents are live subagents, so it holds a headless session open exactly as a Task subagent does. The Watcher rule above is unchanged: it exists for the background-Bash CLI reviewers.
+
+```
+Workflow({
+  scriptPath: "/Users/bob/.claude/workflows/review-fanout.workflow.js",
+  args: { ... }
+})
+```
+
+Invoke by absolute `scriptPath`, never by `name` — the named-workflow registry resolves `.claude/workflows/` relative to the project root, and when the project root *is* `~/.claude` that path is ambiguous.
+
+Build `args` from the context already gathered in step 3:
+
+| arg | value |
+|-----|-------|
+| `diff` | The diff file's text, **truncated by you to at most 400000 bytes** (`MAX_DIFF_BYTES`). The payload crosses the tool boundary as JSON, so the cap is the caller's job. |
+| `diff_bytes` | The diff file's **real** byte size before truncation (`wc -c`). |
+| `diff_path` | Absolute path to the full diff file. Mandatory whenever `diff_bytes` exceeds 400000; the dimension agents are told to read it. |
+| `rubric_text` | `references/rubric.md`, verbatim. Alice's `R{n}: pass\|fail` verdict lines are generated from it, and `references/retry-policy.md` fails a reviewer that omits them. |
+| `prd_text`, `prd_path`, `changed_files`, `context_path` | From step 3's gathered context. |
+| `head_sha`, `date`, `cycle`, `agent_name` | `head_sha` from step 3; `date` as `YYYY-MM-DD` (the sandbox cannot call `Date()`); `cycle` = this review cycle; `agent_name` = `ALICE`. |
+| `tests_line` | Omit on the live path — test counts do not exist until step 6. Shadow runs substitute it at step 8. |
+
+On return, write the result's `agent_output` verbatim to `dev/local/tmp/alice-output-{id}.txt`. Step 6 consolidates it unchanged: it already speaks the `[ALICE] {emoji} … | File: … | Task: …` line format, carries the twelve `R{n}` verdict lines, and ends with the engine's `stats_line`.
+
+Three failure classes, three different answers — **only the last one may fall back to legacy**:
+
+1. **`INVALID_ARGS` throw** (empty diff, missing `rubric_text`, an over-cap diff with no `diff_path`). A caller bug or a review with nothing valid to review — it must NOT degrade to legacy Alice, which would paper over it. Repairable (e.g. `rubric_text` was not passed) → repair and re-invoke once. An **empty diff STOPS the review**: a review of nothing must never reach `Verdict: converged`.
+2. **`incomplete: true` in the return value** (a dimension agent or a verifier died). Re-invoke once with `resumeFromRunId: <runId>` — completed dimensions replay from cache, only the dead ones re-run. Still `incomplete` → its 🔴 `review incomplete` lines stand (a partial review cannot converge) and Alice counts as a degraded reviewer per `references/retry-policy.md`.
+3. **Engine unavailable** (the `Workflow` tool is absent or the harness refuses the call). This — and only this — falls back to legacy Alice for the cycle, loudly, with the fallback noted in the review file.
+
+On `shadow`, legacy Alice still runs and still gates; the workflow's output is never written to `alice-output-{id}.txt` and never consolidated. Step 8 records it.
+
 Active reviewers: Alice, Blake, Bob, Carl, Quinn, plus Eve when `doubt_reviewer: fable`. Include Carl only if the optional Gemini check in step 1 passed, and Quinn only if the optional qwen preflight in step 1 passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
@@ -212,6 +255,10 @@ Stamp the `head_sha` frontmatter field with the HEAD sha captured in step 3 — 
 Stamp the `codex_thread_id` frontmatter field with the thread id from `dev/local/tmp/bob-thread-{id}.txt` when that file exists and is non-empty AND Bob produced output this cycle — the next rework cycle reads it (step 3) to resume Bob's codex session via `--resume-thread`; omit the field otherwise (Bob was skipped, or thread-id capture failed).
 
 Stamp the `reviewers:` frontmatter field with the comma-separated lowercase names of every reviewer that actually ran (e.g. `reviewers: alice,blake,bob,quinn`) — `check_review_file.py` reads it to verify each section.
+
+**Stamp `consensus_run_id`** with the `runId` the Workflow tool returned, whenever the engine ran (`workflow` or `shadow`) — same pattern as `codex_thread_id`, and the forensic handle for that cycle's run. It is deliberately not written to `state.json`: `resumeFromRunId` is same-session only, so a stored id would outlive its own usefulness.
+
+**Shadow runs (`CONSENSUS_ENGINE == "shadow"`).** The workflow's `review_markdown` carries the literal token `{{TESTS_LINE}}` (step 5 passed no `tests_line`). Substitute the `Tests:` line composed in step 6 for that token — a file still carrying the token cannot pass `check_review_file.py` — then write the result to `dev/local/tmp/<prd-base>-consensus-shadow-{cycle}.md`. **Never** to `dev/local/reviews/`: step 3's `-review-*.md` glob finds the prior cycle there, and a shadow file in that directory would be mistaken for one. Gate the shadow file with `check_review_file.py --reviewers alice`, then record in the real review file, under Alice's section, the engine's `stats_line` and any verdict divergence from legacy Alice — as an observation, never as a finding. The shadow never gates.
 
 Include all findings even if zero issues. Give each reviewer that ran a `## <Name>` section (their findings, or a one-line all-clear; Bob's keeps his `R{n}:` verdict lines), and end the file with the `Verdict:` and `Tests:` lines composed in step 6.
 
