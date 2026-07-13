@@ -59,7 +59,7 @@ Rank candidate improvements by **(user value) × (likelihood it actually lands a
 
 ## 5. Synthesize the findings report
 
-One ranked report. Each finding: **severity** (Critical/High/Med/Low) · **lens** · one-line defect · exact `file:line` evidence · one sentence on why it blocks growth / threatens stability / costs users · cheapest fix direction · **NEW vs already-tracked**. Include a short "what the architecture gets right" list so the team doesn't fix non-problems, and a "checked and safe" list so ruled-out hazards are visible. Mark UNVERIFIED explicitly (fail loud).
+One ranked report, written with the Write tool to `dev/local/audit-results/evolution-assessment-{YYYY-MM-DD}.md` (curated dir per the GC contract; never at `dev/local` root). Each finding: **severity** (Critical/High/Med/Low) · **lens** · one-line defect · exact `file:line` evidence · one sentence on why it blocks growth / threatens stability / costs users · cheapest fix direction · **NEW vs already-tracked**. Include a short "what the architecture gets right" list so the team doesn't fix non-problems, and a "checked and safe" list so ruled-out hazards are visible. Mark UNVERIFIED explicitly (fail loud).
 
 ## 6. Emit a phased, session-sized PRD roadmap
 
@@ -77,9 +77,9 @@ Group into phases: **P0 stop-the-bleeding** (data-loss/safety) → **P1 correctn
 
 ## Outputs
 
-1. A findings report (working doc).
+1. A findings report at `dev/local/audit-results/evolution-assessment-{YYYY-MM-DD}.md`.
 2. The phased PRD set in the project's backlog, numbered for its pipeline.
-3. A roadmap/index doc that is the ordering authority.
+3. A roadmap/index doc that is the ordering authority, at `dev/local/audit-results/evolution-roadmap-{YYYY-MM-DD}.md`.
 4. Guardrail edits (AGENTS.md/CLAUDE.md + a doc).
 5. A downstream deletion ledger and the top-3 user wins.
 
