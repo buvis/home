@@ -157,7 +157,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "claude-fable-5[1m]",
+  "model": "opus[1m]",
   "hooks": {
     "UserPromptSubmit": [
       {
