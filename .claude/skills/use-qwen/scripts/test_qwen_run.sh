@@ -18,8 +18,12 @@ FAIL() { echo "FAIL: $1 -- $2"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 # ── cleanup registry ──────────────────────────────────────────────────────────
 _DIRS=()
 SERVER_PID=""
+SERVER_LOW_PID=""
+SERVER_HIGH_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
+    [ -n "$SERVER_LOW_PID" ] && kill "$SERVER_LOW_PID" 2>/dev/null
+    [ -n "$SERVER_HIGH_PID" ] && kill "$SERVER_HIGH_PID" 2>/dev/null
     local d
     for d in "${_DIRS[@]+"${_DIRS[@]}"}"; do
         rm -rf "$d"
@@ -65,6 +69,7 @@ import sys
 
 PORT = int(sys.argv[1])
 MODE_FILE = sys.argv[2]
+MODEL_ID = sys.argv[3]
 
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -80,7 +85,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.rstrip('/') == '/v1/models':
-            body = json.dumps({"object": "list", "data": [{"id": "mock-qwen", "object": "model"}]}).encode()
+            body = json.dumps({"object": "list", "data": [{"id": MODEL_ID, "object": "model"}]}).encode()
             self._send(200, body)
         else:
             self._send(404, b'{}')
@@ -101,7 +106,7 @@ http.server.HTTPServer(('127.0.0.1', PORT), H).serve_forever()
 PY
 
 PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
-python3 "$WORK/server.py" "$PORT" "$MODE_FILE" &
+python3 "$WORK/server.py" "$PORT" "$MODE_FILE" "mock-qwen" &
 SERVER_PID=$!
 i=0
 until curl -sf --max-time 1 "http://127.0.0.1:$PORT/v1/models" > /dev/null 2>&1; do
@@ -243,6 +248,168 @@ case "$T6_STDOUT" in
     *"not found"*) FAIL "missing prompt file: error text stays off stdout" "stdout: $T6_STDOUT" ;;
     *) PASS "missing prompt file: error text stays off stdout" ;;
 esac
+
+# ══ --approved-only fixture: two live, fully HEALTHY providers ═══════════════
+# LOW port serves an UNAPPROVED id, HIGH port serves the APPROVED id. BOTH pass
+# their /chat/completions probe (mode "ok"). Health is deliberately identical so
+# that approval is the ONLY variable: if a provider gets skipped, the registry
+# is the only thing that could have skipped it. (A LOW that 500s would let an
+# implementation with no approval logic at all — one that just falls through to
+# the next provider on a failed probe — pass these asserts.)
+MODE_FILE_2="$WORK/mode2"
+echo "ok" > "$MODE_FILE_2"
+
+PORT_X=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+PORT_Y=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+if [ "$PORT_X" -lt "$PORT_Y" ]; then
+    PORT_LOW=$PORT_X
+    PORT_HIGH=$PORT_Y
+else
+    PORT_LOW=$PORT_Y
+    PORT_HIGH=$PORT_X
+fi
+
+CFGDIR2="$WORK/agent2"
+mkdir -p "$CFGDIR2"
+cat > "$CFGDIR2/models.json" <<EOF
+{"providers": {"llamacpp_low": {"baseUrl": "http://127.0.0.1:$PORT_LOW/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "mock-unapproved"}]}, "llamacpp_high": {"baseUrl": "http://127.0.0.1:$PORT_HIGH/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "mock-approved"}]}}}
+EOF
+
+# Registry path is resolved script-relative ($(dirname "$0")/approved-models.txt)
+# with no env override, so the only way to inject a fake registry is to copy
+# qwen-run.sh next to it and run the copy.
+APPROVED_WORK="$WORK/approved"
+mkdir -p "$APPROVED_WORK"
+cp "$QWEN_RUN_SH" "$APPROVED_WORK/qwen-run.sh"
+cat > "$APPROVED_WORK/approved-models.txt" <<'EOF'
+# fake registry for --approved-only tests: only the mock APPROVED id.
+mock-approved
+EOF
+QWEN_RUN_SH_APPROVED="$APPROVED_WORK/qwen-run.sh"
+REGISTRY_PATH="$APPROVED_WORK/approved-models.txt"
+
+# run_qwen2 <test-name> [args...] — like run_qwen but against the copied
+# script + CFGDIR2 (two-provider fixture).
+run_qwen2() {
+    local name="$1"
+    shift
+    export STUB_ARGV_FILE="$WORK/$name.argv"
+    export STUB_STDIN_FILE="$WORK/$name.stdin"
+    OUT=$(PI_CODING_AGENT_DIR="$CFGDIR2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" "$@" < /dev/null 2>&1)
+    RC=$?
+}
+
+# Start the LOW (healthy, unapproved) server only; HIGH stays down for T7.
+python3 "$WORK/server.py" "$PORT_LOW" "$MODE_FILE_2" "mock-unapproved" &
+SERVER_LOW_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_LOW/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock low server did not start on port $PORT_LOW"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+# ══ T7: --approved-only, only the (healthy) unapproved provider is live ═══════
+# The backend is healthy, so completion_failed would be the WRONG outcome here:
+# the only honest reason to refuse is that the approved id is not live.
+run_qwen2 t7 --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t7.argv" ]; then
+    PASS "a healthy but unapproved sole provider is refused, not dispatched"
+else
+    FAIL "a healthy but unapproved sole provider is refused, not dispatched" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t7.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *model_id_missing*) PASS "no-approved-id-live refusal names model_id_missing (not completion_failed: the backend is healthy)" ;;
+    *) FAIL "no-approved-id-live refusal names model_id_missing (not completion_failed: the backend is healthy)" "output: $OUT" ;;
+esac
+case "$OUT" in
+    *"$REGISTRY_PATH"*) PASS "no-approved-id-live refusal names the registry path" ;;
+    *) FAIL "no-approved-id-live refusal names the registry path" "output: $OUT" ;;
+esac
+
+# Bring up the HIGH (healthy, approved) server. From here BOTH providers are
+# live and healthy; only the registry can explain a skip.
+python3 "$WORK/server.py" "$PORT_HIGH" "$MODE_FILE_2" "mock-approved" &
+SERVER_HIGH_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_HIGH/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock high server did not start on port $PORT_HIGH"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+# ══ T8: --approved-only skips a healthy unapproved LOWER port for the approved
+# HIGHER port ═════════════════════════════════════════════════════════════════
+# Both are live and healthy and the unapproved one sorts first, so ascending-port
+# order alone would pick it. Only the registry can send resolution to the higher
+# port. Asserts pin WHICH provider/model was resolved, not merely rc=0 (both
+# providers succeed, so rc=0 alone proves nothing).
+run_qwen2 t8 --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t8.argv" ] && grep -q "mock-approved" "$WORK/t8.argv" && ! grep -q "mock-unapproved" "$WORK/t8.argv"; then
+    PASS "unapproved lower port is skipped for the approved higher port (pi dispatched with the approved provider/model)"
+else
+    FAIL "unapproved lower port is skipped for the approved higher port (pi dispatched with the approved provider/model)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t8.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ T9: default no-flag run on the SAME fixture is unchanged ══════════════════
+# PRD edge case: flag absent -> ascending-port behavior identical to today, i.e.
+# the healthy unapproved lower port WINS and dispatches. A script-adjacent
+# approved-models.txt must be inert without the flag.
+run_qwen2 t9 -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t9.argv" ] && grep -q "mock-unapproved" "$WORK/t9.argv"; then
+    PASS "without the flag the ascending port rule still wins (healthy unapproved lower port dispatches)"
+else
+    FAIL "without the flag the ascending port rule still wins (healthy unapproved lower port dispatches)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t9.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ T10: -m naming an unapproved id is refused ════════════════════════════════
+run_qwen2 t10 -m mock-unapproved --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t10.argv" ]; then
+    PASS "-m an unapproved id is refused, not dispatched (even though that model is live and healthy)"
+else
+    FAIL "-m an unapproved id is refused, not dispatched (even though that model is live and healthy)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t10.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *model_id_missing*"$REGISTRY_PATH"* | *"$REGISTRY_PATH"*model_id_missing*)
+        PASS "-m unapproved refusal names model_id_missing and the registry path" ;;
+    *) FAIL "-m unapproved refusal names model_id_missing and the registry path" "output: $OUT" ;;
+esac
+
+# ══ T11: -P naming a provider that serves an unapproved id is refused ═════════
+run_qwen2 t11 -P llamacpp_low --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t11.argv" ]; then
+    PASS "-P a provider serving an unapproved id is refused, not dispatched (even though it is live and healthy)"
+else
+    FAIL "-P a provider serving an unapproved id is refused, not dispatched (even though it is live and healthy)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t11.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *model_id_missing*"$REGISTRY_PATH"* | *"$REGISTRY_PATH"*model_id_missing*)
+        PASS "-P unapproved-provider refusal names model_id_missing and the registry path" ;;
+    *) FAIL "-P unapproved-provider refusal names model_id_missing and the registry path" "output: $OUT" ;;
+esac
+
+# ══ T12: --preflight --approved-only composes ═════════════════════════════════
+# Both providers would pass a probe, so "healthy" alone proves nothing — the
+# verdict must name the APPROVED candidate to prove the probe ran against it.
+run_qwen2 t12 --preflight --approved-only
+T12_OK=no
+if [ "$RC" -eq 0 ]; then
+    case "$OUT" in
+        *"mock-unapproved"*) ;;
+        *healthy*"mock-approved"* | *"mock-approved"*healthy*) T12_OK=yes ;;
+    esac
+fi
+if [ "$T12_OK" = yes ]; then
+    PASS "--preflight --approved-only reports healthy for the approved candidate only (never probes the unapproved one)"
+else
+    FAIL "--preflight --approved-only reports healthy for the approved candidate only (never probes the unapproved one)" "rc=$RC; output: $OUT"
+fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
