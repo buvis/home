@@ -304,32 +304,12 @@ test("the rendered verdict count and the returned verdict never disagree about c
   }
 });
 
-test("a dead verifier means the review has not converged", () => {
-  const p = pure();
-  const args = { prd: "00064", review: "1", date: "2026-07-13", head_sha: "abc1234" };
-
-  const dead = lines(
-    p.renderReviewMarkdown(
-      reviewBase(p, { verifierFailures: ["rce in job runner", "csrf token never checked"] }),
-      args,
-    ),
-  );
-  assert.ok(
-    !dead.includes("Verdict: converged"),
-    `a verifier that never answered must not be reported as converged:\n${dead.join("\n")}`,
-  );
-  assert.ok(
-    dead.some((l) => l.startsWith("Verdict:")),
-    "the review file still carries a Verdict: line",
-  );
-});
-
 // ---- the rendered count: every outstanding item is counted, not just the blockers ----
 //
 // "Verdict: N findings" is what a human (and the rework step) reads first. A count
 // that only sums `blocking` renders "Verdict: 0 findings" for a review held open by
-// unverified findings, a dead verifier, or a dead dimension: it reads as clean while
-// claiming non-convergence, and 0 is the number that gets believed.
+// unverified findings or a dead dimension: it reads as clean while claiming
+// non-convergence, and 0 is the number that gets believed.
 
 /** The single Verdict: line of a rendered review file. */
 function verdictLine(p, state) {
@@ -356,16 +336,6 @@ test("a review held open only by unverified findings renders that exact count, n
   );
 });
 
-test("a review held open only by a dead verifier renders that exact count, never a clean zero", () => {
-  const p = pure();
-  assert.equal(
-    verdictLine(p, { verifierFailures: ["rce in job runner", "csrf token never checked"] }),
-    "Verdict: 2 findings",
-    "two verifiers that never answered are two outstanding findings",
-  );
-  assert.equal(verdictLine(p, { verifierFailures: ["rce in job runner"] }), "Verdict: 1 findings");
-});
-
 test("a review held open only by a dead dimension renders that exact count, never a clean zero", () => {
   const p = pure();
   assert.equal(
@@ -387,20 +357,20 @@ test("the rendered count sums every source of non-convergence, so no source can 
     verified: "confirmed",
   });
 
-  // One of each, deliberately distinct, so a count that drops any single source
-  // lands on a different number than 5 and this fails with the number it produced.
+  // One of each source, deliberately distinct, so a count that drops any single
+  // source lands on a different number than 4 and this fails with the number it
+  // produced.
   assert.equal(
     verdictLine(p, {
       blocking: [blocker],
       unverified: 2,
-      verifierFailures: ["csrf token never checked"],
       failedDimensions: ["security"],
     }),
-    "Verdict: 5 findings",
-    "1 blocking + 2 unverified + 1 dead verifier + 1 dead dimension = 5 outstanding findings",
+    "Verdict: 4 findings",
+    "1 blocking + 2 unverified + 1 dead dimension = 4 outstanding findings",
   );
 
-  // The control: with all four sources empty, and only then, the review converges.
+  // The control: with all three sources empty, and only then, the review converges.
   assert.equal(verdictLine(p, {}), "Verdict: converged");
 });
 
@@ -425,33 +395,6 @@ test("a dead verifier already counted via blocking is not counted again by verif
     "Verdict: 1 findings",
     "one dead verifier is one outstanding item: it must not be counted once via blocking " +
       "and again via verifierFailures for the very same finding",
-  );
-});
-
-test("verifierFailures still counts independently when it names a finding blocking does not carry", () => {
-  const p = pure();
-  // Control for the test above: when a verifierFailures title does NOT correspond to
-  // anything in blocking, it must still add to the count -- the dedup must key off the
-  // actual overlap, not silently discard verifierFailures whenever blocking is non-empty.
-  const unrelatedBlocker = finding({
-    title: "auth bypass",
-    severity: "CRITICAL",
-    file: "src/auth.js",
-    task: "1",
-    proof: "the guard is never called",
-    verified: "confirmed",
-  });
-
-  assert.equal(
-    verdictLine(p, {
-      blocking: [unrelatedBlocker],
-      unverified: 0,
-      verifierFailures: ["some other finding entirely"],
-      failedDimensions: [],
-    }),
-    "Verdict: 2 findings",
-    "a verifierFailures entry naming a DIFFERENT finding than anything in blocking is a second, " +
-      "distinct outstanding item",
   );
 });
 

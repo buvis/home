@@ -173,11 +173,9 @@ test("two reviewers wording the same defect differently report one finding, not 
 test("the evidence-keyed merge still keeps the strictest severity, longest proof and longest fix regardless of arrival order, even when the titles differ", () => {
   const p = pure();
   const evidence = "db.query(`SELECT * FROM u WHERE id = ${id}`)";
-  // Unlike the "collapsing a duplicate" fixture below (identical titles on both
-  // sides, which already collide under the old title|file|evidence key), these
-  // two titles are unrelated prose. This is the one test that actually exercises
-  // the merge logic under the NEW evidence-based key — proving the re-key did
-  // not regress which fields survive the collapse.
+  // The two titles are unrelated prose on purpose: the merge collapses on file +
+  // evidence alone, so this proves title has no bearing on the collapse or on
+  // which fields survive it.
   const strictButThin = finding({
     title: "SQL injection in user lookup",
     severity: "CRITICAL",
@@ -231,14 +229,9 @@ test("the evidence-keyed merge still keeps the strictest severity, longest proof
   }
 });
 
-test("the dedup key delimits its parts, so shifting the title/file boundary is a different key", () => {
+test("the dedup key delimits its parts, so shifting the file/evidence boundary is a different key", () => {
   const p = pure();
-  // Raw concatenation ("ab" + "c" + "e" === "a" + "bc" + "e") collides here.
-  assert.notEqual(
-    p.dedupKey({ title: "ab", file: "c", evidence: "e" }),
-    p.dedupKey({ title: "a", file: "bc", evidence: "e" }),
-    "the title/file boundary must be delimited in the key",
-  );
+  // Raw concatenation ("b" + "cd" === "bc" + "d") collides here.
   assert.notEqual(
     p.dedupKey({ title: "a", file: "b", evidence: "cd" }),
     p.dedupKey({ title: "a", file: "bc", evidence: "d" }),
@@ -282,66 +275,6 @@ test("the severity rank is total, so MEDIUM outranks LOW no matter which arrived
     "HIGH",
     "HIGH outranks MEDIUM in either arrival order",
   );
-});
-
-test("collapsing a duplicate keeps the strictest severity, the longest proof and the longest fix regardless of arrival order", () => {
-  const p = pure();
-  const evidence = "db.query(`SELECT * FROM u WHERE id = ${id}`)";
-  // The fields are crossed on purpose: the strictest severity lives on one
-  // element and the longest proof/fix on the other, so neither "last writer
-  // wins" nor "first writer wins" can produce the contracted survivor.
-  const strictButThin = finding({
-    title: "SQL injection in user lookup",
-    severity: "CRITICAL",
-    file: "src/db.js",
-    evidence,
-    proof: "id is unescaped",
-    fix: "escape it",
-    dimensions: ["security"],
-  });
-  const laxButDetailed = finding({
-    title: "SQL injection in user lookup",
-    severity: "HIGH",
-    file: "src/db.js",
-    evidence,
-    proof: "id flows unescaped from req.params into the template literal at line 42",
-    fix: "use a parameterized query: db.query('SELECT * FROM u WHERE id = ?', [id])",
-    dimensions: ["correctness"],
-  });
-
-  assert.equal(
-    p.dedupKey(strictButThin),
-    p.dedupKey(laxButDetailed),
-    "the same defect in the same file on the same evidence is one key",
-  );
-
-  for (const [order, input] of [
-    ["strict first", [strictButThin, laxButDetailed]],
-    ["strict last", [laxButDetailed, strictButThin]],
-  ]) {
-    const { unique, raw } = p.dedupe(input);
-    assert.equal(raw, 2, order);
-    assert.equal(arr(unique).length, 1, `${order}: the duplicate collapses`);
-
-    const survivor = arr(unique)[0];
-    assert.equal(survivor.title, "SQL injection in user lookup", order);
-    assert.equal(survivor.severity, "CRITICAL", `${order}: the strictest severity survives`);
-    assert.equal(
-      survivor.proof,
-      laxButDetailed.proof,
-      `${order}: the longest proof survives, even when it arrives on the laxer report`,
-    );
-    assert.equal(
-      survivor.fix,
-      laxButDetailed.fix,
-      `${order}: the longest fix survives, even when it arrives on the laxer report`,
-    );
-    assert.deepEqual(
-      arr(survivor.dimensions).sort(),
-      ["correctness", "security"],
-      `${order}: both reporting dimensions survive`,
-    );
-  }
 });
 
 test("a proof-less CRITICAL is demoted to MEDIUM and is never verified", () => {
