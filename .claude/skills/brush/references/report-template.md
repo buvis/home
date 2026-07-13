@@ -22,13 +22,14 @@ the next run, so no carry-forward). Keep every cmd verbatim and executable.
 - [ ] BR-1 (branch-delete) sha=abc1234 age=94d - unmerged `spike/foo`, no upstream - cmd: `git branch -D spike/foo`
 - [ ] BR-2 (stash-drop) age=61d - stash@{2} "wip: old experiment" - cmd: `git stash drop stash@{2}`
 - [ ] BR-3 (trash-scratch) age=12d - `scratch_bench.py`, unreferenced - cmd: `python3 ~/.claude/skills/brush/scripts/trash_untracked.py --repo <root> --rule brush-scratch scratch_bench.py`
+- [ ] BR-4 (rebase) base=master behind=23 - local-only `feat/y` drifted - cmd: `git rebase master feat/y`
 
 Unchecked = skipped. Apply re-verifies sha/path first; stale items are skipped and noted.
 
 ## 3. Manual only - never executed by apply
 
-- MANUAL BR-4 (remote-delete) `origin/old-feature` looks dead - you run: `git push origin --delete old-feature`
-- MANUAL BR-5 (repo-size) pack 1.2GB - consider LFS or `git filter-repo`; investigate before acting
+- MANUAL BR-5 (remote-delete) `origin/old-feature` looks dead - you run: `git push origin --delete old-feature`
+- MANUAL BR-6 (repo-size) pack 1.2GB - consider LFS or `git filter-repo`; investigate before acting
 
 ## 4. Phase digests
 

@@ -190,6 +190,12 @@ def gather_branches(root: Path, default: str, fast: bool) -> list[dict]:
              "age_days": int((time.time() - int(cdate)) // 86400),
              "merged": git_rc(root, "merge-base", "--is-ancestor",
                               sha, default) == 0}
+        try:
+            lr = git_out(root, "rev-list", "--left-right", "--count",
+                         f"{default}...{name}").split()
+            b["behind"], b["ahead"] = int(lr[0]), int(lr[1])
+        except (RuntimeError, subprocess.SubprocessError, ValueError):
+            b["behind"] = b["ahead"] = None
         if not fast and not b["merged"] and b["gone"] and probes < SQUASH_CAP:
             probes += 1
             b["squash_merged"] = probe_squash(root, default, name)
@@ -301,6 +307,9 @@ def main() -> int:
             root, "status", "--porcelain").splitlines()
             if not l.startswith("??")][:50],
         "untracked": lambda: gather_untracked(root, args.fast),
+        "tracked_junk": lambda: list(filter(None, git_out(
+            root, "ls-files", "-z", "--", ".DS_Store", "**/.DS_Store",
+            "Thumbs.db", "**/Thumbs.db", "*.pyc").split("\0")))[:50],
         "branches": lambda: gather_branches(root, default, args.fast),
         "open_prs": lambda: gather_prs(root),
         "worktrees": lambda: gather_worktrees(root, default, args.fast),

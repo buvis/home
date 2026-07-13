@@ -24,7 +24,7 @@ Safety taxonomy. Every candidate action falls in exactly one class:
 | `git branch -D <b>` | upstream `[gone]` AND (gh shows merged PR OR `squash_merged` true) | `git branch <b> <sha>` |
 | trash untracked junk | class os-junk / junk / junk-dir, age >= 3d, not referenced | mv back per manifest.tsv |
 | append `.gitignore` gaps | `gitignore_missing` from facts | `git revert` |
-| `git rm --cached` + ignore | tracked os-junk only (.DS_Store class) | `git revert` |
+| `git rm --cached` + ignore | facts `tracked_junk` (os-junk, `*.pyc`) | `git revert` |
 | `git maintenance run --auto` | always | none needed |
 | purge-devlocal skill (dry, sanity-check, apply) | dev/local exists | its own manifest |
 
@@ -35,8 +35,10 @@ Safety taxonomy. Every candidate action falls in exactly one class:
    fetch-dependent, so the preflight JSON is stale for ref decisions.
 3. Gitignore fixes: ensure `dev/local/` is ignored BEFORE the first trash
    move ever creates it.
-4. Trash moves, then branch and worktree actions, then
-   `git maintenance run --auto`, then purge-devlocal.
+4. Trash moves; then worktree removals and `git worktree prune` (run from
+   the main root; a branch checked out in any worktree refuses deletion);
+   then branch deletions; then `git maintenance run --auto`; then
+   purge-devlocal.
 5. Commit tracked fixes only while on the default branch; on any other
    branch queue them as BR-items (keeps feature-PR diffs clean).
 
@@ -44,6 +46,9 @@ Safety taxonomy. Every candidate action falls in exactly one class:
 
 - Delete unmerged or no-upstream local branches (`git branch -D`, sha in the item).
 - Drop stashes older than 30d (`git stash drop`, highest index first).
+- Rebase local-only branches (upstream gone or never set) sitting behind the
+  default branch (facts `behind`/`ahead`); on apply, abort on any conflict
+  and mark FAILED - never resolve conflicts unattended.
 - Trash scratch-class files (debug_*, scratch*, tmp_*, root test.py/test.sh).
 - `git rm` tracked junk beyond the os-junk class (committed logs, build output).
 - `git maintenance start` (registers background schedule) and `fetch.prune=true`.
@@ -57,6 +62,8 @@ Safety taxonomy. Every candidate action falls in exactly one class:
 - Fork drift: when an `upstream` remote exists, report how far HEAD is
   behind `upstream/<default>` and point at `git-ferry:catchup-upstream`;
   never auto-sync.
+- Live-upstream branch drift: rebasing implies push semantics brush does not
+  own; report behind/ahead and leave the rebase to the human.
 - Anything involving files matching secret patterns. A TRACKED secret is CRITICAL: put it at the top of the report and stop hygiene until acknowledged.
 
 ## NEVER
