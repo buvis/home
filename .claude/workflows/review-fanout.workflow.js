@@ -43,9 +43,13 @@ function norm(value) {
     .trim();
 }
 
-/** Two agents quoting the same evidence in the same file collide here, no matter the title. */
+/** Two agents quoting the same evidence in the same file collide here, no matter the title.
+ *  A blank evidence is the ABSENCE of a locator, not one every fileless finding shares, so it
+ *  falls back to the title — the only locator such a finding has left. */
 function dedupKey(f) {
-  return [norm(f.file), norm(f.evidence)].join("|");
+  const evidence = norm(f.evidence);
+  if (evidence === "") return [norm(f.file), "title", norm(f.title)].join("|");
+  return [norm(f.file), "evidence", evidence].join("|");
 }
 
 const rank = (severity) => (severity in SEVERITY_RANK ? SEVERITY_RANK[severity] : 4);
@@ -117,13 +121,12 @@ function dedupe(findings) {
       byKey.set(key, { ...f, dimensions: [...(f.dimensions || [])] });
       continue;
     }
-    if (rank(f.severity) < rank(prev.severity)) {
-      prev.severity = f.severity;
-      prev.demoted = f.demoted;
-    }
-    if (textLen(f.proof) > 0) prev.demoted = false;
+    if (rank(f.severity) < rank(prev.severity)) prev.severity = f.severity;
     if (textLen(f.proof) > textLen(prev.proof)) prev.proof = f.proof;
     if (textLen(f.fix) > textLen(prev.fix)) prev.fix = f.fix;
+    // The flag belongs to the surviving RECORD, not to whichever copy won the severity rank:
+    // a demotion sticks only while the merged record still has no proof to show.
+    prev.demoted = (prev.demoted || f.demoted) && textLen(prev.proof) === 0;
     for (const d of f.dimensions || []) {
       if (!prev.dimensions.includes(d)) prev.dimensions.push(d);
     }
