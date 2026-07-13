@@ -43,9 +43,9 @@ function norm(value) {
     .trim();
 }
 
-/** Two agents wording one defect the same way collide here; two defects never do. */
+/** Two agents quoting the same evidence in the same file collide here, no matter the title. */
 function dedupKey(f) {
-  return [norm(f.title), norm(f.file), norm(f.evidence)].join("|");
+  return [norm(f.file), norm(f.evidence)].join("|");
 }
 
 const rank = (severity) => (severity in SEVERITY_RANK ? SEVERITY_RANK[severity] : 4);
