@@ -7,8 +7,9 @@ description: Use when the user wants a portfolio-wide status brief of all gita-r
 
 Produce `~/.claude/portfolio-brief/portfolio-brief.html`: a self-contained Svelte
 SPA showing recent releases/commits (grouped into epics), open issues/PRs,
-failing CI, PRD pipeline, local WIP, and a pickable cross-repo todo list for
-every repo in the gita registry (`~/.config/gita/repos.csv`).
+failing CI, security alerts, PRD pipeline, local WIP, branch/worktree litter,
+and a pickable cross-repo todo list for every repo in the gita registry
+(`~/.config/gita/repos.csv`).
 
 ## Workflow
 
@@ -20,9 +21,11 @@ python3 ~/.claude/skills/brief-portfolio/scripts/collect.py
 
 Options: `--days N` (window, default 60), `--no-fetch` (skip `git fetch`, much
 faster), `--out DIR` (default `~/.claude/portfolio-brief`). Writes `data.json` and
-`commits-digest.md` into the out dir. Report any `WARN` lines from stderr to the
-user verbatim — transient GitHub API failures land there and in each repo's
-`errors` field.
+`commits-digest.md` into the out dir; it also rotates the previous `data.json`
+to `data-prev.json` (powers the "Since last brief" diff) and appends one
+summary line per run to `history.jsonl` (powers the trend sparkline) — never
+delete those two. Report any `WARN` lines from stderr to the user verbatim —
+transient GitHub API failures land there and in each repo's `errors` field.
 
 ### 2. Epics + judgment todos (model step)
 
@@ -61,14 +64,20 @@ Epic rules:
   dropped by the UI, so don't invent any.
 
 Todo rules:
-- The app already auto-generates mechanical todos (failing CI, unmerged PRs,
-  unpushed/dirty local state, overdue releases, stale issues, PRD pipeline).
-  Do NOT duplicate those.
+- The app already auto-generates mechanical todos (failing CI, security alerts,
+  unmerged PRs with checks state, unpushed/dirty local state with
+  dirty-for-N-days, overdue releases with changelog readiness, milestone-due
+  and engaged issues, stale-issue triage, PRD pipeline with wip idle-days,
+  stray branches and worktrees, review requests outside the portfolio). Do NOT
+  duplicate those.
 - Add only judgment items: composed follow-ups ("this repo has been dirty for
   11 days — resume or park the PRD work"), cross-repo observations, process
   suggestions grounded in the data. A handful, not dozens.
 - `urgency`: `now` | `soon` | `later`. Ids must be stable across runs (checked
   state persists in the browser by id).
+- Optional per-todo fields for the Matrix (Eisenhower) tab: `importance`
+  (`high` | `low`, default `high`) and `effort` (`quick` | `medium` | `deep`,
+  default `medium`). Set them only when the defaults are wrong.
 
 ### 3. Build and open
 
@@ -87,6 +96,7 @@ Only needed after changing `app/` sources:
 
 ```bash
 npm --prefix ~/.claude/skills/brief-portfolio/app install
+npm --prefix ~/.claude/skills/brief-portfolio/app test
 npm --prefix ~/.claude/skills/brief-portfolio/app run build
 cp ~/.claude/skills/brief-portfolio/app/dist/index.html ~/.claude/skills/brief-portfolio/assets/template.html
 ```
