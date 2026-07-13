@@ -61,9 +61,10 @@ parse the YAML block between the opening `---` and the next `---`, then apply:
 
 Shared fallback: on malformed YAML or missing frontmatter, log ONE warning line
 ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run,
-rework_cap=3, design_mode=run, doubt_reviewer=codex"), take every default, and
-continue — never crash Phase 0 on a frontmatter problem. Frontmatter is the
-source of truth; once Phase 0 has parsed it, do not re-parse it after Phase 0.
+rework_cap=3, design_mode=run, doubt_reviewer=codex, consensus_engine=legacy"),
+take every default, and continue — never crash Phase 0 on a frontmatter
+problem. Frontmatter is the source of truth; once Phase 0 has parsed it, do
+not re-parse it after Phase 0.
 (Exception by design: `default_model` belongs to `/plan-tasks` and is re-read
 from the PRD at Phase 6 rework dispatch — Phase 0 never touches it.)
 
