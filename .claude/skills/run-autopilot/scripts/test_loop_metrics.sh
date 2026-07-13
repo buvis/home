@@ -53,7 +53,8 @@ TMP4="$(mktemp -d)"
 TMP5="$(mktemp -d)"
 TMP6="$(mktemp -d)"
 TMP7="$(mktemp -d)"
-trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4" "$TMP5" "$TMP6" "$TMP7"' EXIT
+TMP8="$(mktemp -d)"
+trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4" "$TMP5" "$TMP6" "$TMP7" "$TMP8"' EXIT
 
 # ── Scenario 1: build -> review -> done -> drained (happy path) ──────
 # Three sessions advance the phases (branch 4 twice, branch 3 last); the
@@ -257,4 +258,32 @@ n7=$(grep -c . "$M7")
 jq -e '.signal == "died"' "$M7" >/dev/null \
   || fail "scenario 7: unreachable-network session did not signal died"
 
-echo "PASS: metrics + decision table across all paths (continue/done, died, silent-append, paused, net-retry recover/cap/down)"
+# ── Scenario 8: multiple result events — cost comes from the LAST ────
+# Background-task re-invokes make a headless session emit one result
+# event per re-invoke, each carrying the CUMULATIVE conversation cost
+# (observed on 00054 review sessions, 2026-07-13). The metrics parse
+# must take the last event, not choke on a multi-line jq match and
+# silently drop cost_usd/tokens_out.
+AP8="$TMP8/dev/local/autopilot"
+mkdir -p "$AP8"
+printf '%s\n' '{"prd":"00054-test.md","next_phase":"done","batch":{"id":"209901010000"}}' > "$AP8/state.json"
+touch -t 202601010000 "$AP8/state.json"
+
+claude() {
+  printf '%s\n' '{"prd":"00054-test.md","next_phase":"","batch":{"id":"209901010000"}}' > "$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":1.11,"usage":{"output_tokens":100}}'
+  echo '{"type":"result","subtype":"success","total_cost_usd":8.02,"usage":{"output_tokens":1072}}'
+}
+
+run_loop "$AP8"
+rc8=$?
+[ "$rc8" -eq 0 ] || fail "scenario 8: loop did not drain (rc=$rc8)"
+M8="$AP8/loop-metrics.jsonl"
+n8=$(grep -c . "$M8")
+[ "$n8" -eq 1 ] || fail "scenario 8: expected 1 line, got $n8"
+line8=$(cat "$M8")
+echo "scenario 8 line: $line8"
+echo "$line8" | jq -e '.cost_usd == 8.02 and .tokens_out == 1072' >/dev/null \
+  || fail "scenario 8: cost/tokens not taken from the LAST result event"
+
+echo "PASS: metrics + decision table across all paths (continue/done, died, silent-append, paused, net-retry recover/cap/down, multi-result cost)"

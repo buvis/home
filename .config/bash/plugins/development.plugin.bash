@@ -284,13 +284,17 @@ autoclaude() {
     # the line. Observation only — the append can never block or fail the
     # loop (the one sanctioned silent failure, scoped to itself).
     # PRD 00018: the line always carries "model"; "cost_usd"/"tokens_out"
-    # are added only when the session log's final result event provides
+    # are added only when the session log's LAST result event provides
     # them (parse failure degrades to model-only, never blocks the loop).
+    # Sessions re-invoked by background-task notifications emit one result
+    # event PER re-invoke, each with the cumulative conversation cost —
+    # `tail -n 1` takes the final one (a multi-line match used to fail the
+    # numeric test below and silently drop both keys, 2026-07-13).
     local _ts_end _wall _cost _tokens_out
     _ts_end=$(date +%s)
     _wall=$(( _ts_end - _ts_start ))
-    _cost=$(jq -rR 'fromjson? | select(.type=="result") | .total_cost_usd // empty' "$_ap_dir/last-session.log" 2>/dev/null)
-    _tokens_out=$(jq -rR 'fromjson? | select(.type=="result") | .usage.output_tokens // empty' "$_ap_dir/last-session.log" 2>/dev/null)
+    _cost=$(jq -rR 'fromjson? | select(.type=="result") | .total_cost_usd // empty' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
+    _tokens_out=$(jq -rR 'fromjson? | select(.type=="result") | .usage.output_tokens // empty' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
     jq -nc \
       --argjson ts_start "$_ts_start" \
       --argjson ts_end "$_ts_end" \
