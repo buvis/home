@@ -82,13 +82,15 @@ function securityish(text) {
   );
 }
 
-/** Security only arms on what the diff ADDED, or on a security-ish changed path. */
+/** Security arms on what the diff ADDED or REMOVED, or on a security-ish changed path: a
+ *  guard disappearing is at least as strong a signal as one appearing. */
 function securityTriggered(diff, changedFiles) {
   for (const path of changedFiles || []) {
     if (securityish(path)) return true;
   }
   for (const line of String(diff || "").split("\n")) {
     if (line.startsWith("+") && !line.startsWith("+++") && securityish(line)) return true;
+    if (line.startsWith("-") && !line.startsWith("---") && securityish(line)) return true;
   }
   return false;
 }
