@@ -196,6 +196,8 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 
 **Body:** Use imperative/infinitive form. Structure by workflow, task, reference, or capabilities - whichever fits the skill's purpose.
 
+**Dependencies:** if the skill needs anything outside its own directory - another skill, a plugin skill, an external CLI, a file under `~/.claude`, an external service - state it in a `## Dependencies` section right after the intro. Name each dep and what happens when it is missing (hard failure, or which fallback runs). Namespace plugin skills as `plugin:skill`. Frontmatter is the wrong home for this: `metadata` never reaches the model at runtime, the body loads exactly when the skill triggers. See `brush` or `run-autopilot` for the shape.
+
 **Token efficiency:**
 - Frequently-loaded skills: aim for <200 words total
 - Other skills: <500 words in SKILL.md body
