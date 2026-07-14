@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 from rich.console import Console
 from rich.text import Text
 
@@ -564,3 +565,104 @@ def test_fleet_table_headers_include_all_named_columns() -> None:
     text = _render(panels.fleet_table(rows)).lower()
     for column in ("project", "status", "phase", "prd", "task", "cycle", "cost", "sessions"):
         assert column in text
+
+
+# --- fleet_cells: the shared row-builder behind both fleet views -------------
+
+
+def test_fleet_cells_returns_the_eight_columns_in_order() -> None:
+    row = _loop_row(
+        name="myrepo",
+        status=Status(label="● live", style="green", rank=2, in_flight=True),
+        phase="build",
+        prd="00061-x.md",
+        task="2/6",
+        cycle="1/3",
+        cost=10.0,
+        live_cost=0.0,
+        sessions=3,
+    )
+
+    cells = panels.fleet_cells(row)
+
+    assert len(cells) == 8
+    project, status, phase, prd, task, cycle, cost, sessions = cells
+    assert project == "myrepo"
+    assert isinstance(status, Text) and status.plain == "● live"
+    assert phase == "build"
+    assert prd == "00061-x.md"
+    assert task == "2/6"
+    assert cycle == "1/3"
+    assert isinstance(cost, Text) and cost.plain == "$10.00"
+    assert sessions == "3"
+
+
+def test_fleet_cells_project_is_a_plain_string_not_rich_text() -> None:
+    cells = panels.fleet_cells(_loop_row(name="myproj"))
+    assert cells[0] == "myproj"
+    assert isinstance(cells[0], str) and not isinstance(cells[0], Text)
+
+
+def test_fleet_cells_status_text_carries_the_rows_style() -> None:
+    row = _loop_row(status=Status(label="⚠ attention", style="bold red", rank=0, in_flight=False))
+    status_cell = panels.fleet_cells(row)[1]
+    assert isinstance(status_cell, Text)
+    assert status_cell.plain == "⚠ attention"
+    assert status_cell.style == "bold red"
+
+
+def test_fleet_cells_prd_untouched_at_exactly_44_chars() -> None:
+    prd = "P" * 44
+    cells = panels.fleet_cells(_loop_row(prd=prd))
+    assert cells[3] == prd
+
+
+def test_fleet_cells_prd_truncates_to_43_chars_plus_ellipsis_at_45_chars() -> None:
+    prd = "P" * 45
+    cells = panels.fleet_cells(_loop_row(prd=prd))
+    assert cells[3] == "P" * 43 + "…"
+    assert len(cells[3]) == 44
+
+
+def test_fleet_cells_cost_chip_present_when_live_cost_positive() -> None:
+    cost_cell = panels.fleet_cells(_loop_row(cost=10.0, live_cost=2.5))[6]
+    assert isinstance(cost_cell, Text)
+    assert cost_cell.plain == "$10.00 +$2.50"
+    assert _styles_containing(cost_cell, "dim")
+
+
+def test_fleet_cells_cost_chip_absent_when_live_cost_zero() -> None:
+    cost_cell = panels.fleet_cells(_loop_row(cost=5.0, live_cost=0.0))[6]
+    assert cost_cell.plain == "$5.00"
+
+
+def test_fleet_cells_sessions_is_the_stringified_count() -> None:
+    cells = panels.fleet_cells(_loop_row(sessions=7))
+    assert cells[7] == "7"
+    assert isinstance(cells[7], str)
+
+
+# --- fleet_table: must delegate to fleet_cells, never rebuild cells itself ---
+
+
+def test_fleet_table_delegates_row_construction_to_fleet_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fleet_table and the Textual dashboard build the SAME cells today by
+    duplicating the (rank, name) sort, the 44-char prd truncation, and the
+    cost chip logic in two places. They must share one builder -- fleet_cells
+    -- so the views cannot silently drift apart."""
+    rows = [_loop_row(name="alpha"), _loop_row(name="beta")]
+    calls: list[LoopRow] = []
+    original = panels.fleet_cells
+
+    def spy(row: LoopRow) -> tuple:
+        calls.append(row)
+        return original(row)
+
+    monkeypatch.setattr(panels, "fleet_cells", spy)
+
+    panels.fleet_table(rows)
+
+    assert len(calls) == 2
+    assert {r.name for r in calls} == {"alpha", "beta"}
