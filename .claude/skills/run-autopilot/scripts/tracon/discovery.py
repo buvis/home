@@ -19,7 +19,7 @@ from .model import LoopState, MetricsRow
 
 GITA_REGISTRY = Path.home() / ".config/gita/repos.csv"
 LIVE_WINDOW = 20.0
-IN_FLIGHT_SLACK = 5.0
+IN_FLIGHT_SLACK = 2.0
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ def classify(
 ) -> Status:
     last = model.last_row(rows)
     in_flight = log_mtime is not None and (
-        last is None or log_mtime >= (last.ts_end or 0.0) + IN_FLIGHT_SLACK
+        last is None or log_mtime > (last.ts_end or 0.0) + IN_FLIGHT_SLACK
     )
     live = in_flight and (now - log_mtime) < LIVE_WINDOW
     quiet = in_flight and not live
@@ -78,7 +78,7 @@ def classify(
     if not state.exists:
         return Status(label="○ no state", style="dim", rank=5, in_flight=in_flight)
     if log_mtime is None:
-        return Status(label="○ idle", style="dim", rank=3, in_flight=in_flight)
+        return Status(label="○ no log", style="dim", rank=3, in_flight=in_flight)
     age = model.fmt_dur(now - log_mtime)
     return Status(label=f"○ idle {age}", style="dim", rank=3, in_flight=in_flight)
 
