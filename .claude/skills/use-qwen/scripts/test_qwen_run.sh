@@ -23,6 +23,8 @@ SERVER_HIGH_PID=""
 SERVER_MULTI_PID=""
 SERVER_EMPTY_PID=""
 SERVER_DASH_PID=""
+SERVER_PIN_LOW_PID=""
+SERVER_PIN_HIGH_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
     [ -n "$SERVER_LOW_PID" ] && kill "$SERVER_LOW_PID" 2>/dev/null
@@ -30,6 +32,8 @@ cleanup() {
     [ -n "$SERVER_MULTI_PID" ] && kill "$SERVER_MULTI_PID" 2>/dev/null
     [ -n "$SERVER_EMPTY_PID" ] && kill "$SERVER_EMPTY_PID" 2>/dev/null
     [ -n "$SERVER_DASH_PID" ] && kill "$SERVER_DASH_PID" 2>/dev/null
+    [ -n "$SERVER_PIN_LOW_PID" ] && kill "$SERVER_PIN_LOW_PID" 2>/dev/null
+    [ -n "$SERVER_PIN_HIGH_PID" ] && kill "$SERVER_PIN_HIGH_PID" 2>/dev/null
     local d
     for d in "${_DIRS[@]+"${_DIRS[@]}"}"; do
         rm -rf "$d"
@@ -633,6 +637,155 @@ if [ -f "$SHIPPED_REGISTRY" ] && grep -qFx -- "$SHIPPED_DEFAULT_ID" "$SHIPPED_RE
     PASS "the shipped approved-models.txt lists the documented default model id"
 else
     FAIL "the shipped approved-models.txt lists the documented default model id" "registry: $SHIPPED_REGISTRY; expected exact line: $SHIPPED_DEFAULT_ID"
+fi
+
+# ══ --approved-only fixture: TWO approved ids, each on its own provider,
+# LOWER port serving mock-approved-a, HIGHER port serving mock-approved-b.
+# Both fully healthy (completion mode "ok"). Registry approves BOTH ids, so
+# ascending-port auto-detect logic alone could still resolve the wrong
+# provider for a forced -m id — this fixture isolates that failure mode.
+MODE_FILE_PIN="$WORK/mode_pin"
+echo "ok" > "$MODE_FILE_PIN"
+
+PORT_PIN_X=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+PORT_PIN_Y=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+if [ "$PORT_PIN_X" -lt "$PORT_PIN_Y" ]; then
+    PORT_PIN_LOW=$PORT_PIN_X
+    PORT_PIN_HIGH=$PORT_PIN_Y
+else
+    PORT_PIN_LOW=$PORT_PIN_Y
+    PORT_PIN_HIGH=$PORT_PIN_X
+fi
+
+python3 "$WORK/server.py" "$PORT_PIN_LOW" "$MODE_FILE_PIN" "mock-approved-a" &
+SERVER_PIN_LOW_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_PIN_LOW/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock pin-low server did not start on port $PORT_PIN_LOW"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+python3 "$WORK/server.py" "$PORT_PIN_HIGH" "$MODE_FILE_PIN" "mock-approved-b" &
+SERVER_PIN_HIGH_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_PIN_HIGH/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock pin-high server did not start on port $PORT_PIN_HIGH"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR_PIN="$WORK/agent_pin"
+mkdir -p "$CFGDIR_PIN"
+cat > "$CFGDIR_PIN/models.json" <<EOF
+{"providers": {"prov_a": {"baseUrl": "http://127.0.0.1:$PORT_PIN_LOW/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "mock-approved-a"}]}, "prov_b": {"baseUrl": "http://127.0.0.1:$PORT_PIN_HIGH/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "mock-approved-b"}]}}}
+EOF
+
+APPROVED_PIN="$WORK/approved_pin"
+mkdir -p "$APPROVED_PIN"
+cp "$QWEN_RUN_SH" "$APPROVED_PIN/qwen-run.sh"
+cat > "$APPROVED_PIN/approved-models.txt" <<'EOF'
+# fake registry for T20: both ids approved so ascending-port order alone
+# cannot explain a correct pick — only pinning to the id actually served can.
+mock-approved-a
+mock-approved-b
+EOF
+QWEN_RUN_SH_PIN="$APPROVED_PIN/qwen-run.sh"
+
+# ══ T20: auto-detect with an explicit -m must bind the provider that actually
+# serves THAT id, not merely a provider serving SOME approved id ═════════════
+# Both providers are live, healthy, and approved; the lower port serves
+# mock-approved-a and would win under plain ascending-port order. Forcing
+# -m mock-approved-b must steer resolution to the HIGHER port — llama.cpp
+# ignores the request's model field, so binding the wrong provider would
+# silently run the prompt against the wrong checkpoint.
+export STUB_ARGV_FILE="$WORK/t20.argv"
+export STUB_STDIN_FILE="$WORK/t20.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_PIN" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_PIN" --approved-only -m mock-approved-b -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t20.argv" ] && grep -q "prov_b" "$WORK/t20.argv" && grep -q "mock-approved-b" "$WORK/t20.argv" && ! grep -q "prov_a" "$WORK/t20.argv"; then
+    PASS "auto-detect with an explicit -m binds the provider that actually serves that id, not merely one serving some approved id"
+else
+    FAIL "auto-detect with an explicit -m binds the provider that actually serves that id, not merely one serving some approved id" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t20.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ down-endpoint fixture: a provider defined in config but with NO server
+# listening (endpoint down), paired with an -m id that IS in the approved
+# registry (reusing the T7+ APPROVED_WORK registry, which already lists
+# mock-approved) ═══════════════════════════════════════════════════════════
+PORT_DOWN21=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+
+CFGDIR_DOWN21="$WORK/agent_down21"
+mkdir -p "$CFGDIR_DOWN21"
+cat > "$CFGDIR_DOWN21/models.json" <<EOF
+{"providers": {"prov_down": {"baseUrl": "http://127.0.0.1:$PORT_DOWN21/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "mock-approved"}]}}}
+EOF
+
+# ══ T21: -P naming a DOWN provider, with an -m id that IS in the registry,
+# must be diagnosed as endpoint_unreachable — never as a registry problem ════
+# The id IS approved; only the backend is unreachable. Misreporting this as
+# "not in the approved registry" points debugging at the wrong file.
+export STUB_ARGV_FILE="$WORK/t21.argv"
+export STUB_STDIN_FILE="$WORK/t21.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_DOWN21" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" --approved-only -P prov_down -m mock-approved -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+case "$OUT" in
+    *endpoint_unreachable*) PASS "a down provider with an approved -m id is diagnosed as endpoint_unreachable" ;;
+    *) FAIL "a down provider with an approved -m id is diagnosed as endpoint_unreachable" "rc=$RC; output: $OUT" ;;
+esac
+case "$OUT" in
+    *"not in the approved registry"*) FAIL "a down provider with an approved -m id is NOT misreported as a registry problem" "output: $OUT" ;;
+    *) PASS "a down provider with an approved -m id is NOT misreported as a registry problem" ;;
+esac
+
+# ══ trailing-whitespace registry fixture: the sole entry is "mock-approved"
+# followed by trailing spaces. printf (not a heredoc) guarantees the trailing
+# whitespace survives byte-for-byte. ═════════════════════════════════════════
+APPROVED_TRAILWS="$WORK/approved_trailws"
+mkdir -p "$APPROVED_TRAILWS"
+cp "$QWEN_RUN_SH" "$APPROVED_TRAILWS/qwen-run.sh"
+printf 'mock-approved   \n' > "$APPROVED_TRAILWS/approved-models.txt"
+QWEN_RUN_SH_TRAILWS="$APPROVED_TRAILWS/qwen-run.sh"
+
+# ══ T22: a registry entry with trailing whitespace still approves its id ═════
+# "mock-approved   " (trailing spaces) must still approve the id
+# "mock-approved" — a registry typo like this must not silently darken an
+# otherwise-live, otherwise-approved lane.
+export STUB_ARGV_FILE="$WORK/t22.argv"
+export STUB_STDIN_FILE="$WORK/t22.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_TRAILWS" --approved-only -P llamacpp_high -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t22.argv" ] && grep -q "mock-approved" "$WORK/t22.argv"; then
+    PASS "a registry entry with trailing whitespace still approves its id (dispatch succeeds)"
+else
+    FAIL "a registry entry with trailing whitespace still approves its id (dispatch succeeds)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t22.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ comment-only-id registry fixture: the id appears ONLY inside a comment
+# line, with no bare entry anywhere in the file ══════════════════════════════
+APPROVED_COMMENTONLY="$WORK/approved_commentonly"
+mkdir -p "$APPROVED_COMMENTONLY"
+cp "$QWEN_RUN_SH" "$APPROVED_COMMENTONLY/qwen-run.sh"
+printf '# mock-approved\n' > "$APPROVED_COMMENTONLY/approved-models.txt"
+QWEN_RUN_SH_COMMENTONLY="$APPROVED_COMMENTONLY/qwen-run.sh"
+
+# ══ T23: a #-commented id does NOT approve ════════════════════════════════
+# "# mock-approved" is a comment, not an approval. The (healthy) provider
+# serving mock-approved must be refused, not dispatched.
+export STUB_ARGV_FILE="$WORK/t23.argv"
+export STUB_STDIN_FILE="$WORK/t23.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_COMMENTONLY" --approved-only -P llamacpp_high -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t23.argv" ]; then
+    PASS "a #-commented id (no bare entry) does not approve; the healthy provider serving it is refused"
+else
+    FAIL "a #-commented id (no bare entry) does not approve; the healthy provider serving it is refused" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t23.argv" 2>/dev/null || echo MISSING); output: $OUT"
 fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
