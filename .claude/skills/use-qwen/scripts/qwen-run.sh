@@ -182,11 +182,21 @@ probe_models() { curl -sf --max-time 2 "$1/models" < /dev/null 2>/dev/null | jq 
 # Look up a provider's baseUrl from the config (empty if the provider is absent).
 provider_base_url() { jq -r --arg p "$1" '.providers[$p].baseUrl // empty' "$MODELS_JSON" < /dev/null; }
 
-# --approved-only: true if $1 is an exact line in the registry. The registry
-# can contain blank lines (formatting/section breaks), so the empty string is
-# rejected explicitly instead of letting it exact-match one; `--` stops a
-# `-`-prefixed model id from being parsed as a grep option.
-is_approved() { [ -n "$1" ] && grep -qFx -- "$1" "$REGISTRY" 2>/dev/null; }
+# --approved-only: true if $1 exactly matches a registry line once that line's
+# leading/trailing whitespace is trimmed (`read` does this trimming itself
+# under the default IFS). The registry can contain blank lines
+# (formatting/section breaks), so the empty string is rejected explicitly
+# instead of letting a trimmed blank line exact-match it. A plain string
+# compare (not grep) means a `-`-prefixed model id is never at risk of being
+# parsed as an option.
+is_approved() {
+    [ -n "$1" ] || return 1
+    local line
+    while read -r line; do
+        [ "$line" = "$1" ] && return 0
+    done < "$REGISTRY" 2>/dev/null
+    return 1
+}
 
 # The deciding health signal: a real 1-token completion against the served
 # model (max_tokens=1). Exercises the lazy worker spawn that /v1/models never
@@ -216,26 +226,24 @@ if [ -n "$PROVIDER" ]; then
         if [ -n "$APPROVED_ONLY" ]; then
             # Scan every id this provider serves for the first approved one,
             # not just .data[0].id (same defect/fix as the auto-detect branch).
-            ids="$(probe_models "$BASE_URL")"
-            [ -z "$ids" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
+            # Stashed in SELECTED_IDS so the post-resolution gate below reuses
+            # it instead of probing this same URL a second time.
+            SELECTED_IDS="$(probe_models "$BASE_URL")"
+            [ -z "$SELECTED_IDS" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
             while IFS= read -r id; do
                 is_approved "$id" && { MODEL="$id"; break; }
-            done <<< "$ids"
+            done <<< "$SELECTED_IDS"
         else
             MODEL="$(probe_model "$BASE_URL")"
             [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
-        fi
-    fi
-    if [ -n "$APPROVED_ONLY" ]; then
-        if ! is_approved "$MODEL" || ! probe_models "$BASE_URL" | grep -qFx -- "$MODEL"; then
-            echo "ERROR: preflight failed (model_id_missing): '$MODEL' at $BASE_URL (provider $PROVIDER) is not in the approved registry ($REGISTRY)." >&2
-            exit 1
         fi
     fi
 else
     # Probe every provider in ascending port order; first live one wins.
     # With --approved-only, a live provider serving an unapproved id is
     # skipped (not treated as a match) so probing continues to the next port.
+    # A forced -m (MODEL already set) narrows this further: a provider only
+    # qualifies if it actually serves THAT id, not merely some approved id.
     BASE_URL=""
     SAW_UNAPPROVED_LIVE=""
     while IFS=$'\t' read -r _port name base_url; do
@@ -244,9 +252,13 @@ else
             served=""
             ids="$(probe_models "$base_url")"
             if [ -n "$ids" ]; then
-                while IFS= read -r id; do
-                    is_approved "$id" && { served="$id"; break; }
-                done <<< "$ids"
+                if [ -n "$MODEL" ]; then
+                    grep -qFx -- "$MODEL" <<< "$ids" && served="$MODEL"
+                else
+                    while IFS= read -r id; do
+                        is_approved "$id" && { served="$id"; break; }
+                    done <<< "$ids"
+                fi
             fi
             if [ -z "$served" ]; then
                 [ -n "$ids" ] && SAW_UNAPPROVED_LIVE="1"
@@ -259,6 +271,7 @@ else
         PROVIDER="$name"
         BASE_URL="$base_url"
         [ -z "$MODEL" ] && MODEL="$served"
+        [ -n "$APPROVED_ONLY" ] && SELECTED_IDS="$ids"
         break
     done < <(jq -r '
         .providers | to_entries[]
@@ -267,9 +280,44 @@ else
     ' "$MODELS_JSON" < /dev/null | sort -n)
     if [ -z "$PROVIDER" ]; then
         if [ -n "$APPROVED_ONLY" ] && [ -n "$SAW_UNAPPROVED_LIVE" ]; then
-            echo "ERROR: preflight failed (model_id_missing): no approved model id is live on any provider in $MODELS_JSON (registry: $REGISTRY)." >&2
+            if [ -n "$MODEL" ]; then
+                # MODEL was forced by -m and passed the front-gate registry
+                # check, so it IS approved — it is simply not live anywhere.
+                # Other approved ids may well be live; naming THIS id (not a
+                # blanket "no approved id is live" claim) keeps the refusal true.
+                echo "ERROR: preflight failed (model_id_missing): forced model id '$MODEL' is not live on any provider in $MODELS_JSON (registry: $REGISTRY)." >&2
+            else
+                echo "ERROR: preflight failed (model_id_missing): no approved model id is live on any provider in $MODELS_JSON (registry: $REGISTRY)." >&2
+            fi
         else
             echo "ERROR: preflight failed (endpoint_unreachable): no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)." >&2
+        fi
+        exit 1
+    fi
+fi
+
+# Post-resolution gate: the one invariant that must hold on EVERY resolution
+# path under --approved-only, not just -P+-m — whatever MODEL was finally
+# resolved must actually be served by the finally-selected provider. Reuses
+# SELECTED_IDS from resolution above when a listing was already fetched for
+# this provider, so it is probed at most once.
+if [ -n "$APPROVED_ONLY" ]; then
+    [ -z "${SELECTED_IDS+x}" ] && SELECTED_IDS="$(probe_models "$BASE_URL")"
+    if [ -z "$SELECTED_IDS" ]; then
+        echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2
+        exit 1
+    fi
+    if ! grep -qFx -- "$MODEL" <<< "$SELECTED_IDS"; then
+        # By construction every resolution path above only ever settles on an
+        # approved MODEL (front-gate check for a forced -m, is_approved
+        # filtering for an auto-picked one) — so a mismatch here means the
+        # provider just doesn't serve it, not that it is unapproved. Only a
+        # forced-empty edge case (no served id was ever approved) leaves
+        # MODEL genuinely absent from the registry; keep that wording for it.
+        if is_approved "$MODEL"; then
+            echo "ERROR: preflight failed (model_id_missing): '$MODEL' is approved but not served by provider '$PROVIDER' at $BASE_URL (registry: $REGISTRY)." >&2
+        else
+            echo "ERROR: preflight failed (model_id_missing): '$MODEL' at $BASE_URL (provider $PROVIDER) is not in the approved registry ($REGISTRY)." >&2
         fi
         exit 1
     fi
