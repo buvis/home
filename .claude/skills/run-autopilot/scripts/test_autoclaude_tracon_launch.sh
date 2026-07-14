@@ -1427,3 +1427,265 @@ rc28=$?
 [ ! -e "$AP28/pause-requested" ] || fail "scenario 28: pause-requested marker was not consumed"
 
 echo "PASS: registry removal on the operator pause-requested exit, session never launched, marker consumed (scenario 28)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section E: registry lifecycle hardening (scenarios 29-33). Five behaviors
+# NOT yet fixed in the current plugin — every scenario below is red-first
+# against it, pinning the FUTURE contract:
+#   - F5a: the loop installs INT and TERM traps (~line 213-214) but no HUP
+#     trap. A real SIGHUP to a genuinely-running loop (the documented
+#     terminal-close-after-`q`-detach path) takes bash's default action and
+#     never runs _autopilot_loop_teardown, leaking the registry file.
+#     Scenario 29.
+#   - F5b: nothing prunes a stale `<pid>.json` registry entry for a pid that
+#     is definitely dead. It accumulates forever. Scenario 30.
+#   - F5c: nothing validates that a live registry pid is actually tagged
+#     _AUTOPILOT_LOOP=<pid> (the marker _autopilot_loop_cleanup, ~line 200,
+#     greps for) — so a live-but-unrelated pid can misread as an existing
+#     loop via the duplicate-loop guard (tracon_wrapper_alive.py, driven
+#     only through the tracon path). Scenario 31.
+#   - F10: the registry write (`jq -n --argjson pid ... >"$_reg"`, ~line
+#     251-255) has no error check. A failed jq leaves a 0-byte `<pid>.json`
+#     behind (the `>` redirect truncates/creates the file before jq ever
+#     runs) and the loop proceeds thinking it registered. Scenario 32.
+#   - F11: the wrapper reads `${_AUTOPILOT_LOOPS_DIR:-default}` into a LOCAL
+#     var (`_loops_dir`) and never exports the resolved value back onto
+#     _AUTOPILOT_LOOPS_DIR itself, so a child process that reads the
+#     variable from its own environment (tracon's discovery.py, at import
+#     time) can see a different loops dir than the one the wrapper actually
+#     wrote to — UNLESS some ancestor shell already exported it (as every
+#     other scenario in this file deliberately does). Scenario 33.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Scenario 29 (F5a): a real SIGHUP to a genuinely-running loop's own
+#    process group removes NO registry file today — no HUP trap exists
+#    (only INT/TERM). Reuses CHILD_SCRIPT_TRACON verbatim (same "loop
+#    genuinely running, claude in flight" setup as scenarios 20/25); only
+#    the signal, and its target (the LOOP's own pid/group, read off its
+#    registry entry — never the tracon parent), differ. The loop's own pid
+#    is its own process-group leader by design (_autoclaude_tracon forks it
+#    under `set -m`; scenarios 15-19 already prove `kill -INT -"$_loop"`
+#    reaches its claude/tee/present pipeline too, so `-HUP` to the same
+#    group is expected to reach the whole tree the same way) ─────────────
+AP29="$TMP1/s29/dev/local/autopilot"
+mkdir -p "$AP29"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010029"}}' >"$AP29/state.json"
+LOOPS29="$TMP1/s29-registry"
+CLAUDE_PID29="$TMP1/s29-claude-pid"
+
+set -m
+AP_DIR="$AP29" _AUTOPILOT_LOOPS_DIR="$LOOPS29" CLAUDE_PID_FILE="$CLAUDE_PID29" \
+  bash "$CHILD_SCRIPT_TRACON" >/dev/null 2>&1 &
+CHILD29=$!
+set +m
+
+i=0
+while [ ! -s "$CLAUDE_PID29" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+[ -s "$CLAUDE_PID29" ] || fail "scenario 29 setup: the loop's claude stub inside the child never started"
+
+reg29=$(command ls "$LOOPS29"/*.json 2>/dev/null | head -n 1)
+[ -n "$reg29" ] || fail "scenario 29 setup: no registry entry for the loop before the SIGHUP"
+loop_pid29=$(jq -r '.pid' "$reg29" 2>/dev/null)
+[ -n "$loop_pid29" ] && [ "$loop_pid29" != "null" ] || fail "scenario 29 setup: could not read the loop's pid from its registry entry $reg29"
+
+kill -HUP -"$loop_pid29" 2>/dev/null
+
+# F7: same post-teardown fragility class as scenario 9's wait.
+i=0
+while [ -e "$LOOPS29/$loop_pid29.json" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+reg_survived29=0
+[ -e "$LOOPS29/$loop_pid29.json" ] && reg_survived29=1
+
+claude_pid29="$(cat "$CLAUDE_PID29")"
+claude_alive29=0
+kill -0 "$claude_pid29" 2>/dev/null && claude_alive29=1
+
+# Clean up the orphan (if any) and the still-running tracon parent (blocked
+# in its own `wait` for the stubbed uv's 30s sleep, unaffected by a HUP
+# scoped to the loop's OWN, separate group) BEFORE asserting.
+kill -KILL "$claude_pid29" 2>/dev/null
+kill -KILL -"$loop_pid29" 2>/dev/null
+rm -f "$LOOPS29/$loop_pid29.json"
+kill -KILL -"$CHILD29" 2>/dev/null
+wait "$CHILD29" 2>/dev/null
+
+[ "$reg_survived29" -eq 0 ] || fail "scenario 29: registry entry for the loop pid $loop_pid29 still present after a real SIGHUP to the loop — no HUP trap exists (only INT/TERM), so _autopilot_loop_teardown never ran and the registry file leaked"
+[ "$claude_alive29" -eq 0 ] || fail "scenario 29: claude stub pid $claude_pid29 (inside the loop) still alive after the SIGHUP — the loop's pipeline was orphaned"
+
+echo "PASS: a real SIGHUP to a genuinely-running loop removes its registry entry (scenario 29)"
+
+# ── Scenario 30 (F5b): a stale registry entry for a definitely-DEAD pid
+#    does not block a new loop, and is pruned at loop start. Plain
+#    (non-tracon) path — the plain loop body never scans the registry dir
+#    at all today, so (a) is expected to already hold; (b) is the red one ──
+AP30="$TMP1/s30/dev/local/autopilot"
+mkdir -p "$AP30"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010030"}}' >"$AP30/state.json"
+LOOPS30="$TMP1/s30-registry"
+mkdir -p "$LOOPS30"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS30"
+
+# A known-dead pid: start a sleep, capture its pid, kill+wait it so the OS
+# has fully reaped it before the stale entry is even seeded.
+sleep 60 &
+DEADPID30=$!
+kill "$DEADPID30" 2>/dev/null
+wait "$DEADPID30" 2>/dev/null
+
+jq -n --argjson pid "$DEADPID30" --arg root "$TMP1/s30" --arg ap_dir "$AP30" \
+  --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' \
+  >"$LOOPS30/$DEADPID30.json" # stale entry for a pid that is definitely dead
+
+claude() {
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010030"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+run_loop "$AP30"
+rc30=$?
+
+[ "$rc30" -eq 0 ] || fail "scenario 30: drained loop was blocked by a stale dead-pid registry entry (rc=$rc30) — expected a normal drain (rc 0)"
+[ ! -e "$LOOPS30/$DEADPID30.json" ] || fail "scenario 30: stale dead-pid registry entry $LOOPS30/$DEADPID30.json was never pruned at loop start"
+
+echo "PASS: a stale dead-pid registry entry does not block a new loop and is pruned at loop start (scenario 30)"
+
+# ── Scenario 31 (F5c): a live-but-NOT-autoclaude pid in the registry must
+#    not read as a live wrapper — the wrapper tags its own loop processes
+#    with _AUTOPILOT_LOOP=<pid> in their environment (_autopilot_loop_cleanup,
+#    ~line 200); a live pid whose process is not so tagged (a plain,
+#    unrelated `sleep`) is not a real loop and must not block a new one.
+#    Drives the tracon path (_AUTOPILOT_TRACON=1) — the only route where the
+#    duplicate-loop guard (tracon_wrapper_alive.py) actually runs — the same
+#    setup scenario 11 uses for the GENUINE duplicate case, substituting an
+#    unrelated live pid for the seeded entry instead of $$ ────────────────
+AP31="$TMP1/s31/dev/local/autopilot"
+mkdir -p "$AP31"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010031"}}' >"$AP31/state.json"
+LOOPS31="$TMP1/s31-registry"
+mkdir -p "$LOOPS31"
+ROOT31="$TMP1/s31"
+
+sleep 60 &
+UNRELATED31=$!
+
+jq -n --argjson pid "$UNRELATED31" --arg root "$ROOT31" --arg ap_dir "$AP31" \
+  --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' \
+  >"$LOOPS31/other-loop.json" # a LIVE pid, but NOT tagged _AUTOPILOT_LOOP=<pid> — a plain sleep, not a real loop
+export _AUTOPILOT_LOOPS_DIR="$LOOPS31"
+
+UV_CALLS31="$TMP1/s31-uv-calls"
+: >"$UV_CALLS31"
+UV_CALLS_FILE="$UV_CALLS31"
+
+CLAUDE_CALLS31="$TMP1/s31-claude-calls"
+: >"$CLAUDE_CALLS31"
+claude() {
+  printf 'x\n' >>"$CLAUDE_CALLS31"
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010031"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+export _AUTOPILOT_TRACON=1
+run_loop "$AP31"
+rc31=$?
+unset _AUTOPILOT_TRACON
+UV_CALLS_FILE=""
+
+kill "$UNRELATED31" 2>/dev/null
+wait "$UNRELATED31" 2>/dev/null
+
+[ "$rc31" -eq 0 ] || fail "scenario 31: a live-but-unrelated (untagged) pid in the registry blocked a new loop (rc=$rc31) — the duplicate-loop guard must verify the _AUTOPILOT_LOOP tag, not just liveness"
+[ -s "$CLAUDE_CALLS31" ] || fail "scenario 31: claude was never invoked — the loop was blocked by a live-but-unrelated registry entry"
+
+echo "PASS: a live-but-unrelated (untagged) pid in the registry does not block a new loop (scenario 31)"
+
+# ── Scenario 32 (F10): a failed registry-write jq call must leave no 0-byte
+#    registry file, and the loop must still drain normally. Stubs jq to FAIL
+#    only for the registry-write invocation (matched on the unique literal
+#    substring "--argjson pid", used nowhere else in the plugin); every
+#    other jq call (decision table, metrics) passes through to the real jq.
+#    The drained exit path unconditionally `rm -f`s $_reg regardless of
+#    whether the write ever succeeded, so a POST-exit check would never
+#    observe the leaked 0-byte file — the claude() stub inspects the
+#    registry dir mid-session, before that teardown runs ─────────────────
+AP32="$TMP1/s32/dev/local/autopilot"
+mkdir -p "$AP32"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010032"}}' >"$AP32/state.json"
+LOOPS32="$TMP1/s32-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS32"
+
+jq() {
+  case "$*" in
+  *'-n'*'--argjson pid'*) return 1 ;; # simulate only the registry-write jq call failing
+  *) command jq "$@" ;;
+  esac
+}
+
+ZEROBYTE32="$TMP1/s32-zerobyte-found"
+claude() {
+  if [ -e "$LOOPS32/$$.json" ] && [ ! -s "$LOOPS32/$$.json" ]; then
+    printf 'found\n' >"$ZEROBYTE32"
+  fi
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010032"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+run_loop "$AP32"
+rc32=$?
+unset -f jq # restore the real jq for later scenarios
+
+[ "$rc32" -eq 0 ] || fail "scenario 32: drained loop did not return 0 despite a failed registry-write jq call (rc=$rc32) — a registry-write failure must not break the loop"
+[ ! -s "$ZEROBYTE32" ] || fail "scenario 32: a 0-byte registry file $LOOPS32/\$\$.json was left behind mid-session after the registry-write jq call failed — the >\"\$_reg\" redirect truncates/creates the file before jq runs, and there is no error check to remove or avoid it"
+
+echo "PASS: a failed registry-write jq call leaves no 0-byte registry file and the loop still drains (scenario 32)"
+
+# ── Scenario 33 (F11): _AUTOPILOT_LOOPS_DIR must be EXPORTED by the wrapper
+#    so a child process sees the same loops dir the wrapper itself resolved
+#    and wrote to. Every other scenario in this file `export`s
+#    _AUTOPILOT_LOOPS_DIR itself before calling autoclaude, which would mask
+#    this exact defect (a value already in the environment via the CALLER's
+#    own export is inherited by children regardless of what the wrapper
+#    does). This scenario instead leaves the variable genuinely unset and
+#    sandboxes $HOME, so the wrapper's own internal default
+#    (${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}) is the ONLY
+#    source of the value — the claude() stub execs a REAL external binary
+#    (printenv), not a forked shell, so only a genuinely EXPORTED variable
+#    can reach it ──────────────────────────────────────────────────────────
+AP33="$TMP1/s33/dev/local/autopilot"
+mkdir -p "$AP33"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010033"}}' >"$AP33/state.json"
+
+unset _AUTOPILOT_TRACON
+unset _AUTOPILOT_LOOPS_DIR
+
+HOME33="$TMP1/s33-home"
+mkdir -p "$HOME33"
+WANT_LOOPS33="$HOME33/.claude/autopilot-loops"
+SEEN33="$TMP1/s33-seen-env"
+
+claude() {
+  command printenv _AUTOPILOT_LOOPS_DIR >"$SEEN33" 2>/dev/null
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010033"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+_home_saved33="$HOME"
+export HOME="$HOME33"
+run_loop "$AP33"
+rc33=$?
+export HOME="$_home_saved33"
+
+[ "$rc33" -eq 0 ] || fail "scenario 33 setup: drained loop did not return 0 (rc=$rc33)"
+
+got33="$(cat "$SEEN33" 2>/dev/null)"
+[ "$got33" = "$WANT_LOOPS33" ] || fail "scenario 33: a child process of the loop saw _AUTOPILOT_LOOPS_DIR='$got33', expected the wrapper's own resolved loops dir '$WANT_LOOPS33' — the wrapper reads \${_AUTOPILOT_LOOPS_DIR:-default} into a local var (_loops_dir) and never exports the resolved value back onto _AUTOPILOT_LOOPS_DIR, so a child that reads it from its own environment (e.g. tracon's discovery.py at import time) can diverge from where the wrapper actually writes"
+
+echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the wrapper so a child process observes the same resolved loops dir (scenario 33)"
