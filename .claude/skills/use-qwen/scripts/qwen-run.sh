@@ -25,7 +25,8 @@ fi
 # probe, run before ANY pi dispatch; the listing is only a fast pre-check.
 # Mirrors the preflight contract in
 # ~/.claude/skills/work/references/qwen-integration.md (outcomes: pi_missing /
-# endpoint_unreachable / completion_failed).
+# endpoint_unreachable / model_id_missing / completion_failed; model_id_missing
+# fires only under --approved-only).
 MODELS_JSON="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json"
 REGISTRY="$(dirname "$0")/approved-models.txt"
 MODEL=""             # empty = take whatever the live server reports
@@ -57,7 +58,9 @@ usage() {
     echo "  -s, --silent         Accepted for compatibility (no-op; pi output is already clean)"
     echo "      --preflight      Probe only: resolve provider/model and require a real"
     echo "                       1-token completion. Exit 0 = healthy; nonzero names the"
-    echo "                       failing check (pi_missing/endpoint_unreachable/completion_failed)."
+    echo "                       failing check (pi_missing/endpoint_unreachable/"
+    echo "                       model_id_missing/completion_failed). model_id_missing"
+    echo "                       fires only with --approved-only."
     echo "  -f, --file FILE      Read prompt from file"
     echo "  -o, --output FILE    Write output to file (via tee)"
     echo "  -r, --resume [ID]    Resume session (optionally a specific session id)"

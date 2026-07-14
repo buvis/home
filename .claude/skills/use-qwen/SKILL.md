@@ -71,7 +71,7 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
    - `-o, --output FILE` to capture output
    - `-c, --continue` / `-r, --resume [ID]` to continue a session
    - `--approved-only` to restrict provider/model resolution to ids in `scripts/approved-models.txt`: auto-detect skips an unapproved live engine and keeps probing; a forced `-m`/`-P` that resolves to an unapproved id is refused (`model_id_missing`)
-   - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes - the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`completion_failed`). Every dispatch runs the same probe internally before spawning `pi`.
+   - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes - the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`model_id_missing`/`completion_failed`). `model_id_missing` fires only under `--approved-only`: no approved id is live, or the registry file itself is missing (the message says which). Every dispatch runs the same probe internally before spawning `pi`.
 3. Run the helper, capture output.
 4. **Verify the actual result - never trust the model's textual claim.** A local model may narrate "all tests pass" without having run them. Run the tests yourself, check the files on disk, then report.
 

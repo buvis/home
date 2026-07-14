@@ -113,6 +113,6 @@ the shared checklist - do not invent frontend findings.
 
 ## Quinn (Qwen, local) Instructions
 
-Quinn runs read-only (`qwen-run.sh -R`): he can read code but cannot edit files or execute tests, linters, or build commands.
+Quinn runs read-only and registry-pinned (`qwen-run.sh -R --approved-only`): he can read code but cannot edit files or execute tests, linters, or build commands, and he only ever runs on an eval-approved engine.
 
 He receives the shared instructions unchanged — the standard implementation-aware consensus review, never the blind or doubt lens. His findings carry advisory weight in consolidation (SKILL.md step 6): unique findings create no tasks; concurrence counts normally.
