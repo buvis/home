@@ -20,10 +20,16 @@ _DIRS=()
 SERVER_PID=""
 SERVER_LOW_PID=""
 SERVER_HIGH_PID=""
+SERVER_MULTI_PID=""
+SERVER_EMPTY_PID=""
+SERVER_DASH_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
     [ -n "$SERVER_LOW_PID" ] && kill "$SERVER_LOW_PID" 2>/dev/null
     [ -n "$SERVER_HIGH_PID" ] && kill "$SERVER_HIGH_PID" 2>/dev/null
+    [ -n "$SERVER_MULTI_PID" ] && kill "$SERVER_MULTI_PID" 2>/dev/null
+    [ -n "$SERVER_EMPTY_PID" ] && kill "$SERVER_EMPTY_PID" 2>/dev/null
+    [ -n "$SERVER_DASH_PID" ] && kill "$SERVER_DASH_PID" 2>/dev/null
     local d
     for d in "${_DIRS[@]+"${_DIRS[@]}"}"; do
         rm -rf "$d"
@@ -69,7 +75,9 @@ import sys
 
 PORT = int(sys.argv[1])
 MODE_FILE = sys.argv[2]
-MODEL_ID = sys.argv[3]
+# Variadic: one id per trailing argv (order preserved). A single trailing arg
+# reproduces the original single-id behavior byte-for-byte.
+MODEL_IDS = sys.argv[3:]
 
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -85,7 +93,8 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.rstrip('/') == '/v1/models':
-            body = json.dumps({"object": "list", "data": [{"id": MODEL_ID, "object": "model"}]}).encode()
+            data = [{"id": m, "object": "model"} for m in MODEL_IDS]
+            body = json.dumps({"object": "list", "data": data}).encode()
             self._send(200, body)
         else:
             self._send(404, b'{}')
@@ -410,6 +419,188 @@ if [ "$T12_OK" = yes ]; then
 else
     FAIL "--preflight --approved-only reports healthy for the approved candidate only (never probes the unapproved one)" "rc=$RC; output: $OUT"
 fi
+
+# ══ multi-id fixture: ONE healthy provider whose /v1/models lists TWO ids ═════
+# "decoy-multi-id" is listed FIRST, "mock-approved" SECOND. Only the registry
+# (already loaded with "mock-approved" from the T7-T12 fixture) makes the
+# second position resolvable; reading only .data[0].id would see the decoy and
+# nothing else, so it must fail today.
+PORT_MULTI=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_MULTI" "$MODE_FILE_2" "decoy-multi-id" "mock-approved" &
+SERVER_MULTI_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_MULTI/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock multi-id server did not start on port $PORT_MULTI"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR3="$WORK/agent3"
+mkdir -p "$CFGDIR3"
+cat > "$CFGDIR3/models.json" <<EOF
+{"providers": {"llamacpp_multi": {"baseUrl": "http://127.0.0.1:$PORT_MULTI/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "decoy-multi-id"}, {"id": "mock-approved"}]}}}
+EOF
+
+# ══ T13: --approved-only resolves an approved id at a NON-FIRST list position ═
+export STUB_ARGV_FILE="$WORK/t13.argv"
+export STUB_STDIN_FILE="$WORK/t13.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR3" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" --approved-only -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t13.argv" ] && grep -q "mock-approved" "$WORK/t13.argv" && ! grep -q "decoy-multi-id" "$WORK/t13.argv"; then
+    PASS "an approved id listed at a non-first /v1/models position still resolves and dispatches (not just .data[0].id)"
+else
+    FAIL "an approved id listed at a non-first /v1/models position still resolves and dispatches (not just .data[0].id)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t13.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ T14: flagless path on the SAME multi-id endpoint still takes .data[0].id ══
+export STUB_ARGV_FILE="$WORK/t14.argv"
+export STUB_STDIN_FILE="$WORK/t14.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR3" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t14.argv" ] && grep -q "decoy-multi-id" "$WORK/t14.argv" && ! grep -q "mock-approved" "$WORK/t14.argv"; then
+    PASS "without --approved-only, resolution still takes the FIRST listed id even on a multi-id endpoint (ascending-port + .data[0].id byte-identical)"
+else
+    FAIL "without --approved-only, resolution still takes the FIRST listed id even on a multi-id endpoint (ascending-port + .data[0].id byte-identical)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t14.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ T15: -P forcing a provider that SERVES an unapproved id, plus an approved
+# -m, is refused (the live-served id is probed, not the claimed -m value) ═════
+run_qwen2 t15 -P llamacpp_low -m mock-approved --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t15.argv" ]; then
+    PASS "-P a provider that actually serves an unapproved id, combined with a claimed-approved -m, is refused, not dispatched"
+else
+    FAIL "-P a provider that actually serves an unapproved id, combined with a claimed-approved -m, is refused, not dispatched" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t15.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *model_id_missing*"$REGISTRY_PATH"* | *"$REGISTRY_PATH"*model_id_missing*)
+        PASS "-P+-m mismatch refusal names model_id_missing and the registry path" ;;
+    *) FAIL "-P+-m mismatch refusal names model_id_missing and the registry path" "output: $OUT" ;;
+esac
+
+# ══ empty-string-id fixture: a healthy provider whose /v1/models reports the
+# EMPTY STRING as its sole id, against a registry containing only a blank line.
+# An exact-match against an unfiltered blank line would wrongly approve "".
+APPROVED_EMPTY="$WORK/approved_empty"
+mkdir -p "$APPROVED_EMPTY"
+cp "$QWEN_RUN_SH" "$APPROVED_EMPTY/qwen-run.sh"
+cat > "$APPROVED_EMPTY/approved-models.txt" <<'EOF'
+# registry with only a blank line below: must never approve an empty id
+
+EOF
+QWEN_RUN_SH_EMPTY="$APPROVED_EMPTY/qwen-run.sh"
+
+PORT_EMPTY=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_EMPTY" "$MODE_FILE_2" "" &
+SERVER_EMPTY_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_EMPTY/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock empty-id server did not start on port $PORT_EMPTY"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR_EMPTY="$WORK/agent_empty"
+mkdir -p "$CFGDIR_EMPTY"
+cat > "$CFGDIR_EMPTY/models.json" <<EOF
+{"providers": {"llamacpp_empty": {"baseUrl": "http://127.0.0.1:$PORT_EMPTY/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": ""}]}}}
+EOF
+
+# ══ T16: an empty-string served model id is never approved ═══════════════════
+export STUB_ARGV_FILE="$WORK/t16.argv"
+export STUB_STDIN_FILE="$WORK/t16.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_EMPTY" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_EMPTY" --approved-only -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t16.argv" ]; then
+    PASS "an empty-string served model id is never approved, even against a registry containing a blank line"
+else
+    FAIL "an empty-string served model id is never approved, even against a registry containing a blank line" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t16.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ dash-id fixture: a healthy provider whose /v1/models reports "-e" (an
+# option-shaped id) as its sole id. Append "-e" to the shared T7-T12 registry
+# (safe: those assertions already ran and check unrelated ids).
+echo "-e" >> "$REGISTRY_PATH"
+
+PORT_DASH=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_DASH" "$MODE_FILE_2" "-e" &
+SERVER_DASH_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_DASH/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: mock dash-id server did not start on port $PORT_DASH"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR_DASH="$WORK/agent_dash"
+mkdir -p "$CFGDIR_DASH"
+cat > "$CFGDIR_DASH/models.json" <<EOF
+{"providers": {"llamacpp_dash": {"baseUrl": "http://127.0.0.1:$PORT_DASH/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "-e"}]}}}
+EOF
+
+# ══ T17: a model id beginning with "-" is compared as a literal string ═══════
+export STUB_ARGV_FILE="$WORK/t17.argv"
+export STUB_STDIN_FILE="$WORK/t17.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_DASH" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" --approved-only -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t17.argv" ] && grep -qx -- "-e" "$WORK/t17.argv"; then
+    PASS "a model id beginning with - is compared as a literal string, never parsed as an option, and still dispatches when approved"
+else
+    FAIL "a model id beginning with - is compared as a literal string, never parsed as an option, and still dispatches when approved" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t17.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# ══ T18: --approved-only with a MISSING registry file fails closed, and is
+# distinguishable from the ordinary "unapproved model" refusal ═══════════════
+APPROVED_MISSING="$WORK/approved_missing"
+mkdir -p "$APPROVED_MISSING"
+cp "$QWEN_RUN_SH" "$APPROVED_MISSING/qwen-run.sh"
+# Deliberately no approved-models.txt written here.
+QWEN_RUN_SH_MISSING="$APPROVED_MISSING/qwen-run.sh"
+REGISTRY_PATH_MISSING="$APPROVED_MISSING/approved-models.txt"
+
+export STUB_ARGV_FILE="$WORK/t18.argv"
+export STUB_STDIN_FILE="$WORK/t18.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_MISSING" --approved-only -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t18.argv" ]; then
+    PASS "a missing registry file fails closed under --approved-only, not dispatched"
+else
+    FAIL "a missing registry file fails closed under --approved-only, not dispatched" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t18.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *"$REGISTRY_PATH_MISSING"*) PASS "missing-registry refusal names the registry path" ;;
+    *) FAIL "missing-registry refusal names the registry path" "output: $OUT" ;;
+esac
+# Strip both the sanctioned outcome token AND the registry path itself before
+# looking for a cause phrase: the fixture's own path (.../approved_missing/...)
+# contains the literal substring "missing", which would otherwise make this
+# assert pass on path coincidence rather than on real diagnosis text.
+OUT_SANS_TOKEN="${OUT//model_id_missing/}"
+OUT_SANS_TOKEN="${OUT_SANS_TOKEN//$REGISTRY_PATH_MISSING/}"
+case "$OUT_SANS_TOKEN" in
+    *"not found"*|*"missing"*)
+        PASS "missing-registry refusal states the registry file is missing (cause phrase, e.g. not found/missing)" ;;
+    *)
+        FAIL "missing-registry refusal states the registry file is missing (cause phrase, e.g. not found/missing)" "output: $OUT" ;;
+esac
+case "$OUT" in
+    *"is not in the approved registry ($REGISTRY_PATH_MISSING)"*)
+        FAIL "missing-registry refusal is distinguishable from the ordinary unapproved-model refusal (must not reuse its wording)" "output: $OUT" ;;
+    *)
+        PASS "missing-registry refusal is distinguishable from the ordinary unapproved-model refusal (must not reuse its wording)" ;;
+esac
+case "$OUT" in
+    *model_id_missing*) PASS "missing-registry refusal still uses the existing model_id_missing outcome token (no new enum member)" ;;
+    *) FAIL "missing-registry refusal still uses the existing model_id_missing outcome token (no new enum member)" "output: $OUT" ;;
+esac
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
