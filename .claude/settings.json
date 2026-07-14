@@ -157,7 +157,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -230,11 +230,6 @@
             "type": "command",
             "command": "python3 ~/.claude/hooks/notify.py",
             "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/set-pidash-attention.py",
-            "timeout": 5
           }
         ]
       },
@@ -245,11 +240,6 @@
             "type": "command",
             "command": "python3 ~/.claude/hooks/notify.py",
             "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/set-pidash-attention.py",
-            "timeout": 5
           }
         ]
       }
@@ -286,15 +276,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/cleanup-pidash-session.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "python3 ~/.claude/hooks/analyze-instincts.py",
             "timeout": 10
           }
@@ -318,35 +299,6 @@
             "type": "command",
             "command": "python3 ~/.claude/hooks/design-quality-check.py",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "TaskUpdate",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/update-pidash-tasks.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/sync-pidash-on-agent-return.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/clear-pidash-attention.py",
-            "timeout": 3
           }
         ]
       },
