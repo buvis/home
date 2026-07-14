@@ -17,6 +17,10 @@ repos:
     commit_pattern: "^Add resource: .+ \\(#(\\d+)\\)$"
     # Commits page to check
     source_url: https://github.com/hesreallyhim/awesome-claude-code/commits/main
+    # Optional: also scan open PRs for proposed items (asked when registering).
+    # Useful when the maintainer is slow/inactive — surfaces a separate
+    # "Community Suggestions (Open PRs)" section in the digest.
+    # also_check_prs: true
     # Commits to ignore (automated/noise)
     ignore_patterns:
       - "^chore: update repo ticker data$"

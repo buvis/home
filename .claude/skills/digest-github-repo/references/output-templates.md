@@ -26,13 +26,20 @@ Digest of [OWNER/REPO](https://github.com/OWNER/REPO) — new items.
 
 - [ ] **<short-name>** — [<item-owner>/<item-repo>](https://github.com/<item-owner>/<item-repo>) — <description>. ★<count>
 
+## Community Suggestions (Open PRs)
+
+Proposed via open PRs — not yet merged into the list.
+
+- [ ] **<short-name>** — [<item-owner>/<item-repo>](https://github.com/<item-owner>/<item-repo>) — <description>. ★<count> ([PR #NNN](https://github.com/OWNER/REPO/pull/NNN))
+
 ## Dropped
 
 - [-] [<item-owner>/<item-repo>](https://github.com/<item-owner>/<item-repo>) — <reason>
 ```
 
 Use `- [ ]` for items to evaluate, `- [-]` for items being dropped. Do not duplicate any item
-from the dedup list.
+from the dedup list. Include the Community Suggestions section only when the repo config has
+`also_check_prs: true` and the PR pass found items.
 
 ## Activity-digest mode
 
