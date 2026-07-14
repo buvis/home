@@ -181,7 +181,7 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
                 current_roots = [forced]
             else:
                 current_roots = discovery.discover_loops()
-                
+
             rows = [discovery.loop_status(r) for r in current_roots]
             sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))
 
@@ -190,7 +190,7 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
 
             self.table.clear()
             self._roots = []
-            
+
             if not sorted_rows:
                 self.table.add_row("No loops found.", "", "", "", "", "", "", "")
                 return
