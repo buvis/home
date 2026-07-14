@@ -13,12 +13,13 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 INSTINCTS_ROOT = Path.home() / ".claude" / "instincts"
 PROJECTS_DIR = INSTINCTS_ROOT / "projects"
 REGISTRY_FILE = INSTINCTS_ROOT / "projects.json"
+RETENTION_DAYS_DEFAULT = 14
 
 
 def detect_project() -> tuple[str, str, str]:
@@ -92,6 +93,54 @@ def set_last_analysis(project_hash: str) -> None:
         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         encoding="utf-8"
     )
+
+
+def prune_observations(project_hash: str, last_analysis: str | None) -> None:
+    """Age out analyzed observations and stale rotated archives.
+
+    load_observations never re-reads rows at or behind last_analysis, and the
+    rotated .jsonl.1 archives are never read at all, so both are safe to drop
+    once they leave the retention window (INSTINCTS_RETENTION_DAYS, default
+    14; <= 0 disables pruning). Rows newer than last_analysis are NEVER
+    pruned, however old - unanalyzed data survives dormant periods. A row
+    appended by a concurrent session during the rewrite can be lost; accepted
+    like the gateguard state race - one observation, self-healing.
+    """
+    if last_analysis is None:
+        return
+    try:
+        days = int(os.environ.get("INSTINCTS_RETENTION_DAYS", RETENTION_DAYS_DEFAULT))
+    except ValueError:
+        days = RETENTION_DAYS_DEFAULT
+    if days <= 0:
+        return
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = min(cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), last_analysis)
+    proj_dir = PROJECTS_DIR / project_hash
+    obs_file = proj_dir / "observations.jsonl"
+    if obs_file.exists():
+        kept: list[str] = []
+        for line in obs_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                entry = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue  # corrupted rows age out with the prune
+            if entry.get("ts", "") > cutoff:
+                kept.append(stripped)
+        tmp = obs_file.with_name(obs_file.name + ".tmp")
+        tmp.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        tmp.replace(obs_file)
+    rotated = proj_dir / "observations.jsonl.1"
+    if rotated.exists():
+        try:
+            stale = rotated.stat().st_mtime < cutoff_dt.timestamp()
+        except OSError:
+            stale = False
+        if stale:
+            rotated.unlink(missing_ok=True)
 
 
 def _extract_file_path(tool_input: dict | str) -> str:
@@ -547,6 +596,7 @@ def main() -> None:
     since = get_last_analysis(project_hash)
     recent_observations = load_observations(project_hash, since)
     if not recent_observations:
+        prune_observations(project_hash, since)
         return
 
     # Run detectors
@@ -561,8 +611,9 @@ def main() -> None:
     # Rebuild project CLAUDE.md with active instincts
     rebuild_claude_md(project_hash)
 
-    # Mark analysis complete
+    # Mark analysis complete, then age out what analysis has consumed
     set_last_analysis(project_hash)
+    prune_observations(project_hash, get_last_analysis(project_hash))
 
 
 if __name__ == "__main__":
