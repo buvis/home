@@ -163,9 +163,9 @@ After completion, query `TaskList` and update state: stay on `phase: "build"` an
 Before invoking `/work`, query `TaskList` and write the full `tasks` snapshot to `dev/local/autopilot/state.json`:
 - `tasks`: array of `{"id": "<task-id>", "name": "<title>", "status": "pending|in_progress|completed", ...metadata}` for EVERY task. The snapshot **must preserve every field plan-tasks or the review gate's rework may have written** — at minimum: `model` (when set by plan-tasks tier classifier or Phase 6 escalation), `attempts` (the per-attempt log; see "Attempt logging" in `/work`), `estimated_tokens` and `est_context_peak` (when plan-tasks recorded a budget estimate), `qwen_eligible` and `qwen_excluded_reason` (when plan-tasks classified qwen eligibility — the Phase 9 Implementor Mix render reads them, PRD 00019). Stripping these on snapshot would break the hydration round-trip (subsequent sessions read them back into TaskList metadata) and lose Phase 6's tier-escalation history across the handoff. Treat the snapshot as merge-preserving over `state.tasks[i]`, not a three-field replacement.
 
-`tasks_total`/`tasks_completed` are NOT written here — the `update-pidash-tasks.py` sync hook recomputes both from this `tasks` snapshot on every `TaskUpdate` (core `SKILL.md` § Task Counts).
+`tasks_total`/`tasks_completed` ARE written here, derived from the snapshot in the same write: `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` — the pidash-era sync hook is retired (PRD 00063; core `SKILL.md` § Task Counts).
 
-**Include the task `id` field** — the `update-pidash-tasks.py` PostToolUse hook on TaskUpdate matches on it (via `taskId`) to sync status changes and recompute counts. This is mandatory.
+**Include the task `id` field** — state readers and the hydration round-trip key on it (`rework_task_ids` targeting, attempt logging, tracon). This is mandatory.
 
 **Capture `work_start_sha`** per the invariant in core `SKILL.md` § "Phase 3 invariants": once per PRD, before `/work` runs, only when unset — never re-captured on a cap-rotation or resume re-entry.
 

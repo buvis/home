@@ -176,3 +176,116 @@ def test_non_json_lines_pass_through_verbatim() -> None:
     out = _run(["plain stderr line", "{not valid json"])
     assert "plain stderr line\n" in out
     assert "{not valid json\n" in out
+
+
+def _task_spawn(block_id: str, description: str) -> str:
+    return _assistant(
+        [
+            {
+                "type": "tool_use",
+                "id": block_id,
+                "name": "Task",
+                "input": {"description": description, "prompt": "go"},
+            }
+        ]
+    )
+
+
+def test_subagent_lane_label_from_task_description() -> None:
+    out = _run(
+        [
+            _task_spawn("toolu_A", "review bugs"),
+            _assistant(
+                [{"type": "tool_use", "name": "Edit", "input": {"file_path": "a.rs"}}],
+                parent="toolu_A",
+            ),
+        ]
+    )
+    assert "⟨review bugs⟩" in out
+    assert "↳ Edit · a.rs" in out
+
+
+def test_unknown_parent_falls_back_to_agent_n() -> None:
+    out = _run(
+        [
+            _assistant(
+                [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}],
+                parent="toolu_unseen",
+            )
+        ]
+    )
+    assert "⟨agent1⟩" in out
+
+
+def test_lanes_are_distinct_and_stable_across_events() -> None:
+    out = _run(
+        [
+            _task_spawn("toolu_A", "lane alpha"),
+            _task_spawn("toolu_B", "lane beta"),
+            _assistant(
+                [{"type": "tool_use", "name": "Read", "input": {"file_path": "x"}}],
+                parent="toolu_A",
+            ),
+            _assistant(
+                [{"type": "tool_use", "name": "Read", "input": {"file_path": "y"}}],
+                parent="toolu_B",
+            ),
+            _assistant(
+                [{"type": "tool_use", "name": "Read", "input": {"file_path": "z"}}],
+                parent="toolu_A",
+            ),
+        ]
+    )
+    assert out.count("⟨lane alpha⟩") == 2
+    assert out.count("⟨lane beta⟩") == 1
+
+
+def test_lane_color_stable_per_lane_and_distinct() -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("render_stream_mod", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    rs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rs)
+    rs._color_enabled = True
+    rs._lanes.clear()
+    rs._register_lane("toolu_A", "alpha")
+    rs._register_lane("toolu_B", "beta")
+    a_first = rs._lane("toolu_A")
+    b_first = rs._lane("toolu_B")
+    a_second = rs._lane("toolu_A")
+    assert a_first == a_second
+    assert a_first != b_first
+    assert a_first.split("⟨")[0] != b_first.split("⟨")[0]
+
+
+def test_subagent_error_line_carries_lane() -> None:
+    err = json.dumps(
+        {
+            "type": "user",
+            "parent_tool_use_id": "toolu_A",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "is_error": True,
+                        "content": [{"type": "text", "text": "boom"}],
+                    }
+                ]
+            },
+        }
+    )
+    out = _run([_task_spawn("toolu_A", "review bugs"), err])
+    assert "⟨review bugs⟩" in out
+    assert "✗ boom" in out
+
+
+def test_parent_lines_carry_no_lane_brackets() -> None:
+    out = _run(
+        [
+            _assistant(
+                [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]
+            )
+        ]
+    )
+    assert "⟨" not in out

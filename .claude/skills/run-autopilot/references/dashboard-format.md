@@ -1,41 +1,28 @@
 # Live Dashboard
 
-The autopilot dashboard is provided by `pidash` (from buvis-gems).
+`tracon` (this skill's `scripts/tracon/`) is the autopilot dashboard. It
+replaces the retired `pidash` (PRD 00063). PRD 00062 (wip) wires tracon as
+the default `autoclaude` front-end; until it lands, the loop terminal shows
+the fallback renderer below.
 
-## Usage
+## What tracon shows
 
-Run in a separate terminal pane while autopilot is working:
+- Reads `dev/local/autopilot/state.json` via the tolerant parser in
+  `scripts/tracon/model.py` (missing or malformed fields degrade, never crash)
+- Phase, cycle vs rework cap, task counts, guard flags (stall, cap-pause)
+- Batch progress from the `batch` field; session cost from the raw log tail
 
-```bash
-pidash [project-path]
-```
+## State contract
 
-Defaults to current directory. Watches `dev/local/autopilot/state.json` and updates in real time.
+- Keep `dev/local/autopilot/state.json` updated at phase transitions.
+- When writing the `tasks` snapshot, recompute `tasks_total` and
+  `tasks_completed` in the same write. The retired pidash PostToolUse sync
+  hook no longer does this for you.
+- `batch` needs no extra action - readers pick it up from state.
 
-## What It Shows
+## Fallback: render_stream
 
-- Phase pipeline: CATCHUP → PLANNING → WORKING → REVIEWING → DOUBT → DONE
-- Task progress bar (during WORKING phase)
-- Decision log (autonomous + pending)
-- Review cycle history with severity counts
-
-## Install
-
-```bash
-pip install buvis-gems[pidash]
-# or
-uv tool install buvis-gems[pidash]
-```
-
-## Batch Progress
-
-When `batch` is present in the state file, pidash shows batch progress alongside per-PRD progress:
-
-- Batch indicator: `{completed} PRDs done`
-- Completed PRDs list with cycle counts
-
-No extra action needed from autopilot — pidash reads the `batch` field automatically.
-
-## No Action Required from Autopilot
-
-Pidash watches the state file directly. As long as autopilot keeps `dev/local/autopilot/state.json` updated at phase transitions, the dashboard reflects current state automatically.
+`autoclaude` pipes the headless stream through `scripts/render_stream.py`.
+Subagent lines carry a stable per-lane `⟨label⟩` tag (label from the spawning
+Task description, `⟨agentN⟩` fallback, stable color per lane), so parallel
+phases stay readable without tracon.

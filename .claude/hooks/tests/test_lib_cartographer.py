@@ -257,12 +257,30 @@ def test_append_audit_swallows_write_errors(
 
 
 def _load_gateguard():
-    spec = importlib.util.spec_from_file_location(
-        "gateguard_fact_force", HOOKS_DIR / "gateguard-fact-force.py"
+    """Load the live gateguard: the installed aegis plugin copy.
+
+    The personal ~/.claude/hooks copy was retired (PRD 00056); session-key
+    parity must hold against the implementation that actually gates calls.
+    """
+    import sys
+
+    # Anchor via HOOKS_DIR (__file__-derived): fixtures monkeypatch HOME, so
+    # Path.home() would resolve into the fake home and miss the real cache.
+    cache = HOOKS_DIR.parent / "plugins" / "cache" / "buvis-plugins" / "aegis"
+    candidates = sorted(
+        cache.glob("*/hooks/gateguard_fact_force.py"),
+        key=lambda p: p.stat().st_mtime,
     )
+    assert candidates, f"no installed aegis gateguard under {cache}"
+    target = candidates[-1]
+    spec = importlib.util.spec_from_file_location("gateguard_fact_force", target)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    sys.path.insert(0, str(target.parent))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(str(target.parent))
     return mod
 
 
