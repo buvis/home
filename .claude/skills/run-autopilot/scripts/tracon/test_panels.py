@@ -358,6 +358,36 @@ def test_row1_renders_em_dash_for_unknown_task_and_cycle_counts() -> None:
     assert "None" not in rendered
 
 
+def test_row1_phase_field_falls_back_to_em_dash_with_no_dangling_separator() -> None:
+    """The phase field follows the same precedence rule as
+    discovery.loop_status: `state.phase or state.next_phase or "—"`. With an
+    empty/absent LoopState (a missing or malformed state.json leaves both
+    phase and next_phase blank), row 1 must render a "—" placeholder rather
+    than an empty leading field before the prd separator, and phase_strip's
+    own trailing `" · " + current` suffix (row 2) must not dangle with
+    nothing after it."""
+    state = _state(
+        prd="",
+        phase="",
+        next_phase="",
+        phases_completed=(),
+        cycle=None,
+        rework_cap=None,
+        tasks_total=None,
+        tasks_completed=None,
+        needs_attention=False,
+        raw={},
+    )
+    panel = _head(state=state)
+    texts = list(_iter_texts(panel))
+
+    row1 = texts[0]
+    assert row1.plain == "— · — · task — · —"
+
+    row2 = texts[1]
+    assert row2.plain.endswith(" · —")
+
+
 # --- build_head: backlog/wip come from the injected tuple, never disk --------
 
 
@@ -527,6 +557,60 @@ def test_agents_row_lists_background_bash_task_alongside_agent_lane() -> None:
     assert "build task" in plain
     assert "⚒Read×12" in plain
     assert "design review" in plain
+
+
+def test_agents_row_renders_background_task_as_summary_and_status_glyph_not_agent_shape() -> None:
+    """Agent lanes (kind="local_agent") and background-task lanes
+    (kind="local_bash") are different kinds of live work and must render
+    differently, or a running background reviewer is indistinguishable from a
+    subagent lane. Agents keep the existing `⟨label⟩ ⚒tool×n` shape;
+    background tasks render as `summary ▷status` -- no angle brackets, the
+    task's summary followed by the ▷ glyph and its status. Background-task
+    lanes are registered by AgentTracker._apply_background_tasks from
+    background_tasks_changed events, whose entries carry a status; Lane must
+    expose that status for agents_row to read (natural field name: `status`)."""
+    tracker = AgentTracker()
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "t1",
+            "tool_use_id": "tu1",
+            "description": "build task",
+            "task_type": "local_agent",
+        }
+    )
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_progress",
+            "task_id": "t1",
+            "last_tool_name": "Read",
+            "usage": {"tool_uses": 12},
+        }
+    )
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "design review",
+                    "status": "running",
+                }
+            ],
+        }
+    )
+
+    text = panels.agents_row(tracker)
+    assert text is not None
+    plain = text.plain
+
+    assert "⟨build task⟩ ⚒Read×12" in plain
+    assert "design review ▷running" in plain
+    assert "⟨design review⟩" not in plain
 
 
 # --- fleet_table --------------------------------------------------------------
