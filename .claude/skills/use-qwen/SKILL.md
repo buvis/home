@@ -56,6 +56,7 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
 
 - **Default: `qwen3-coder-30b-a3b` (Q4_K_M).** A *coder*-tuned model. It cleared 5 of 6 real sonnet-tier Rust tasks in an agentic eval. Best on single-file, well-scoped work.
 - **Do not** swap in a general-purpose model (e.g. `gemma4-26b`) without re-running an eval. In testing, gemma4 wrote wrong code *and* falsely claimed all tests passed.
+- Every autonomous autopilot dispatch (the `/work` implementor lane, the plan-tasks preflight, the Quinn reviewer) passes `--approved-only`, so it can never run on an unqualified engine, while manual use stays unrestricted. See `references/eval-runbook.md` for the way to qualify a new checkpoint.
 - This is a local model - capable for well-scoped work, not a frontier replacement. Two known failure modes: it **under-covers multi-file tasks** (finishes one file, silently drops the rest) and **over-claims completeness** in its final report. Reserve it for single-file, well-specified tasks, **always keep code review on**, and verify against a real test gate - never against its self-report.
 
 ## Running a Task
@@ -69,6 +70,7 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
    - `-f, --file FILE` to read the prompt from a file
    - `-o, --output FILE` to capture output
    - `-c, --continue` / `-r, --resume [ID]` to continue a session
+   - `--approved-only` to restrict provider/model resolution to ids in `scripts/approved-models.txt`: auto-detect skips an unapproved live engine and keeps probing; a forced `-m`/`-P` that resolves to an unapproved id is refused (`model_id_missing`)
    - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes - the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`completion_failed`). Every dispatch runs the same probe internally before spawning `pi`.
 3. Run the helper, capture output.
 4. **Verify the actual result - never trust the model's textual claim.** A local model may narrate "all tests pass" without having run them. Run the tests yourself, check the files on disk, then report.
@@ -83,6 +85,7 @@ Local models vary widely in agentic reliability - the wrong one fails silently a
 | Override model | `-m other-model -f /tmp/qwen-prompt.txt` |
 | Resume recent session | `-c` |
 | Health probe only | `--preflight` |
+| Approved models only | `--approved-only` |
 
 ## Helper Script
 
