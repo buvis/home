@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import json
+import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -18,6 +20,7 @@ from . import model
 from .model import LoopState, MetricsRow
 
 GITA_REGISTRY = Path.home() / ".config/gita/repos.csv"
+LOOPS_DIR = Path(os.environ.get("_AUTOPILOT_LOOPS_DIR") or Path.home() / ".claude" / "autopilot-loops")
 LIVE_WINDOW = 20.0
 IN_FLIGHT_SLACK = 2.0
 
@@ -42,6 +45,58 @@ class LoopRow:
     cost: float
     live_cost: float
     sessions: int
+    wrapper: bool = False
+
+
+@dataclass(frozen=True)
+class Wrapper:
+    pid: int
+    root: Path
+    started_at: str
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def read_registry(loops_dir: Path | None = None) -> list[Wrapper]:
+    loops_dir = LOOPS_DIR if loops_dir is None else loops_dir
+    try:
+        paths = list(loops_dir.glob("*.json"))
+    except OSError:
+        return []
+
+    wrappers: list[Wrapper] = []
+    for path in paths:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        pid = data.get("pid")
+        root = data.get("root")
+        if not isinstance(pid, int) or isinstance(pid, bool) or not isinstance(root, str):
+            continue
+        started_at = data.get("started_at")
+        wrappers.append(
+            Wrapper(pid=pid, root=Path(root), started_at=started_at if isinstance(started_at, str) else "")
+        )
+    return wrappers
+
+
+def wrapper_alive(root: Path, loops_dir: Path | None = None) -> bool:
+    resolved_root = root.resolve()
+    return any(
+        wrapper.root.resolve() == resolved_root and pid_alive(wrapper.pid)
+        for wrapper in read_registry(loops_dir=loops_dir)
+    )
 
 
 def _fmt_clock(ts: float | None) -> str:
@@ -120,27 +175,45 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
         cost=sum(row.cost_usd for row in rows),
         live_cost=live_cost,
         sessions=len(rows),
+        wrapper=wrapper_alive(root),
     )
 
 
-def discover_loops(registry: Path = GITA_REGISTRY) -> list[Path]:
+def discover_loops(registry: Path = GITA_REGISTRY, loops_dir: Path | None = None) -> list[Path]:
     home = Path.home() / ".claude"
+    candidates = [home]
+
     try:
         text = registry.read_text()
     except OSError:
-        return [home] if (home / "dev" / "local" / "autopilot").is_dir() else []
+        text = None
 
-    candidates = [home]
-    for row in csv.reader(text.splitlines()):
-        if not row:
-            continue
-        col1 = row[0].strip()
-        if not col1:
-            continue
-        path = Path(col1)
-        if not path.is_absolute():
-            continue
-        if path not in candidates:
-            candidates.append(path)
+    if text is not None:
+        for row in csv.reader(text.splitlines()):
+            if not row:
+                continue
+            col1 = row[0].strip()
+            if not col1:
+                continue
+            path = Path(col1)
+            if not path.is_absolute():
+                continue
+            if path not in candidates:
+                candidates.append(path)
 
-    return [root for root in candidates if (root / "dev" / "local" / "autopilot").is_dir()]
+    for wrapper in read_registry(loops_dir=loops_dir):
+        if pid_alive(wrapper.pid) and wrapper.root not in candidates:
+            candidates.append(wrapper.root)
+
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for root in candidates:
+        if not (root / "dev" / "local" / "autopilot").is_dir():
+            continue
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        result.append(root)
+
+    return result
