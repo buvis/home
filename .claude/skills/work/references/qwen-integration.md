@@ -1,6 +1,6 @@
 # Qwen Integration
 
-How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M`; `-m` overrides it, but an autopilot dispatch runs under `--approved-only`, so any id it names must be in the approved registry or the run is refused. Inference is local and free — no API cost, no token billing.
+How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL`; `-m` overrides it, but an autopilot dispatch runs under `--approved-only`, so any id it names must be in the approved registry or the run is refused. Inference is local and free — no API cost, no token billing.
 
 Qwen routing is gated by `task.metadata.qwen_eligible` (written upstream by `/plan-tasks`) and by the **Preflight** below. `work`'s step 3 routing table picks qwen only when the flag is `true` AND preflight is healthy; otherwise it falls back to Claude at the task's original tier.
 

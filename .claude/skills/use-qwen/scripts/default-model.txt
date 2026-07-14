@@ -1,0 +1,4 @@
+# Promoted default for qwen-run.sh resolution - written by promote-default.sh.
+# One id: dispatch prefers it whenever the resolved server lists it
+# (--approved-only additionally requires it to be approved).
+unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL

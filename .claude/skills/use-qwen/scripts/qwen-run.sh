@@ -15,8 +15,12 @@ fi
 #
 # Provider/model are auto-detected from pi's config (~/.pi/agent/models.json):
 # every provider is probed in ascending port order and the first one with a
-# live server wins; the model id comes from that server's /v1/models. Override
-# with --provider and/or -m. A config entry is NOT proof a server is up, so we
+# live server wins; the model id comes from that server's /v1/models listing,
+# preferring the promoted default (scripts/default-model.txt, written by
+# promote-default.sh) when the server lists it - multi-model servers
+# (LlamaBarn) list every downloaded model, so listing order alone would pin
+# dispatches to whatever happens to sit at .data[0]. Override with --provider
+# and/or -m. A config entry is NOT proof a server is up, so we
 # probe rather than trust the lowest port blindly. And a /v1/models listing is
 # NOT proof the worker can serve — LlamaBarn-style servers enumerate models
 # straight from config and spawn the inference worker lazily on the first
@@ -31,13 +35,14 @@ MODELS_JSON="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json"
 REGISTRY="$(dirname "$0")/approved-models.txt"
 MODEL=""             # empty = take whatever the live server reports
 PROVIDER=""          # empty = auto-detect lowest live port
-MODE="prompt"        # prompt, interactive, resume, continue
+MODE="prompt"        # prompt, interactive, resume, continue, preflight, register
 OUTPUT_MODE="text"   # text or json (pi --mode)
 READ_ONLY=""
 APPROVED_ONLY=""     # empty = registry not consulted (today's behavior)
 PROMPT=""
 PROMPT_FILE=""
 OUTPUT_FILE=""
+MODEL_NAME=""        # optional --name for --register-model (default: probed id)
 
 usage() {
     echo "Usage: $0 [options] [prompt]"
@@ -49,7 +54,9 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -P, --provider NAME  Force a pi provider (default: lowest live port)"
-    echo "  -m, --model MODEL    Force model id (default: whatever the live server reports)"
+    echo "  -m, --model MODEL    Force model id (default: the promoted default in"
+    echo "                       scripts/default-model.txt when the live server lists"
+    echo "                       it, else the first id the server reports)"
     echo "      --approved-only  Restrict provider/model resolution to ids listed in"
     echo "                       $REGISTRY (refuses/skips unapproved live ids)"
     echo "  -i, --interactive    Interactive mode with initial prompt"
@@ -61,6 +68,16 @@ usage() {
     echo "                       failing check (pi_missing/endpoint_unreachable/"
     echo "                       model_id_missing/completion_failed). model_id_missing"
     echo "                       fires only with --approved-only."
+    echo "      --register-model Requires -P/--provider. Probes that provider's live"
+    echo "                       /v1/models for the real id + context window and upserts"
+    echo "                       it into \$MODELS_JSON (by id - re-running updates, never"
+    echo "                       duplicates). Pass -m to pick one id when the server"
+    echo "                       lists several (LlamaBarn lists every downloaded model)."
+    echo "                       Never derives the id from a filename or naming"
+    echo "                       convention. Does not create providers or touch the"
+    echo "                       approved registry (see references/eval-runbook.md)."
+    echo "      --name NAME      Friendly display name for --register-model (default:"
+    echo "                       the probed model id)."
     echo "  -f, --file FILE      Read prompt from file"
     echo "  -o, --output FILE    Write output to file (via tee)"
     echo "  -r, --resume [ID]    Resume session (optionally a specific session id)"
@@ -72,6 +89,8 @@ usage() {
     echo "  $0 -R -f /tmp/qwen-prompt.txt              # read-only analysis"
     echo "  $0 -j -o /tmp/result.jsonl -f /tmp/qwen-prompt.txt"
     echo "  $0 -m other-model -f /tmp/qwen-prompt.txt"
+    echo "  $0 --register-model -P llamacpp8001            # add whatever :8001 is serving"
+    echo "  $0 --register-model -P llamacpp -m <live-id>   # multi-model server: pick one"
 }
 
 # Parse arguments
@@ -109,6 +128,14 @@ while [[ $# -gt 0 ]]; do
         --preflight)
             MODE="preflight"
             shift
+            ;;
+        --register-model)
+            MODE="register"
+            shift
+            ;;
+        --name)
+            MODEL_NAME="$2"
+            shift 2
             ;;
         -f|--file)
             PROMPT_FILE="$2"
@@ -198,6 +225,40 @@ is_approved() {
     return 1
 }
 
+# Promoted default (scripts/default-model.txt, written by promote-default.sh):
+# first non-comment, non-blank line. File absent = no preference, resolution
+# behaves as before (single-model servers never notice the difference).
+DEFAULT_FILE="$(dirname "$0")/default-model.txt"
+DEFAULT_MODEL=""
+if [ -f "$DEFAULT_FILE" ]; then
+    while IFS= read -r _dline; do
+        case "$_dline" in ''|\#*) continue ;; esac
+        DEFAULT_MODEL="$_dline"
+        break
+    done < "$DEFAULT_FILE"
+fi
+
+# Pick the dispatch id from a newline-separated live listing: the promoted
+# default when the listing carries it (and, under --approved-only, it is
+# approved), else the first (plain) / first approved (--approved-only) id.
+# Echoes empty when nothing qualifies.
+pick_id() {
+    local id
+    if [ -n "$DEFAULT_MODEL" ] && grep -qFx -- "$DEFAULT_MODEL" <<< "$1"; then
+        if [ -z "$APPROVED_ONLY" ] || is_approved "$DEFAULT_MODEL"; then
+            printf '%s\n' "$DEFAULT_MODEL"
+            return 0
+        fi
+    fi
+    if [ -n "$APPROVED_ONLY" ]; then
+        while IFS= read -r id; do
+            is_approved "$id" && { printf '%s\n' "$id"; return 0; }
+        done <<< "$1"
+        return 0
+    fi
+    printf '%s\n' "$1" | head -n1
+}
+
 # The deciding health signal: a real 1-token completion against the served
 # model (max_tokens=1). Exercises the lazy worker spawn that /v1/models never
 # does. 120s ceiling covers a cold model load (~18.5 GB GGUF) and doubles as a
@@ -208,6 +269,59 @@ probe_completion() {
         -d "{\"model\": \"$2\", \"messages\": [{\"role\": \"user\", \"content\": \"ping\"}], \"max_tokens\": 1, \"stream\": false}" \
         < /dev/null > /dev/null 2>&1
 }
+
+# --register-model: probes -P's live /v1/models and upserts the reported id
+# into MODELS_JSON (keyed by id, so re-running updates in place rather than
+# duplicating). Never derives the id or contextWindow from a filename or
+# naming convention - a real id (unsloth/Qwen3.6-27B-MTP) turned out not to
+# match the org/repo-GGUF:quant pattern every prior entry happened to share.
+# Requires -P: this adds a model to an already-configured provider, it does
+# not create providers (baseUrl/api/apiKey/compat are choices this script
+# should not guess). With -m, registers that id from the live list - multi-
+# model servers (LlamaBarn) list every downloaded model, so .data[0] is not
+# necessarily the one just added. Does not touch approved-models.txt - see
+# references/eval-runbook.md before trusting a newly-registered id.
+if [ "$MODE" = "register" ]; then
+    if [ -z "$PROVIDER" ]; then
+        echo "ERROR: --register-model requires -P/--provider (which provider's server did you just start?)." >&2
+        exit 1
+    fi
+    BASE_URL="$(provider_base_url "$PROVIDER")"
+    if [ -z "$BASE_URL" ]; then
+        echo "ERROR: provider '$PROVIDER' not found in $MODELS_JSON. Add its baseUrl/api/apiKey block manually first - --register-model only adds models to an existing provider." >&2
+        exit 1
+    fi
+    RESP="$(curl -sf --max-time 5 "$BASE_URL/models" < /dev/null 2>/dev/null || true)"
+    if [ -n "$MODEL" ]; then
+        NEW_ID="$(jq -r --arg id "$MODEL" '[.data[]? | select(.id == $id)][0].id // empty' <<< "$RESP" 2>/dev/null)"
+        if [ -z "$NEW_ID" ] && [ -n "$RESP" ]; then
+            echo "ERROR: server at $BASE_URL does not list '$MODEL' in /v1/models. Live ids: $(jq -r '[.data[]?.id] | join(", ")' <<< "$RESP" 2>/dev/null)" >&2
+            exit 1
+        fi
+    else
+        NEW_ID="$(jq -r '.data[0].id // empty' <<< "$RESP" 2>/dev/null)"
+    fi
+    if [ -z "$NEW_ID" ]; then
+        echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server first." >&2
+        exit 1
+    fi
+    CTX="$(jq -r --arg id "$NEW_ID" '[.data[]? | select(.id == $id)][0].meta.n_ctx // 131072' <<< "$RESP" 2>/dev/null)"
+    NAME="${MODEL_NAME:-$NEW_ID}"
+    TMP_JSON="$(mktemp)"
+    jq --arg p "$PROVIDER" --arg id "$NEW_ID" --arg name "$NAME" --argjson ctx "$CTX" '
+        .providers[$p].models = ((.providers[$p].models // []) | map(select(.id != $id))
+            + [{id: $id, name: $name, input: ["text"], contextWindow: $ctx, maxTokens: 32768,
+                cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}}])
+    ' "$MODELS_JSON" > "$TMP_JSON" && mv "$TMP_JSON" "$MODELS_JSON"
+    echo "Registered '$NEW_ID' (contextWindow=$CTX) into provider '$PROVIDER' in $MODELS_JSON." >&2
+    if probe_completion "$BASE_URL" "$NEW_ID"; then
+        echo "Verified: 1-token completion succeeded. Not yet approved - run references/eval-runbook.md before using --approved-only." >&2
+        exit 0
+    else
+        echo "WARNING: registered, but the 1-token completion probe failed (worker spawn issue?). Entry is saved; fix the backend, then re-check with --preflight." >&2
+        exit 1
+    fi
+fi
 
 # --approved-only with an explicit -m: refuse up front, before any provider
 # probing, if the forced id is not in the registry.
@@ -224,17 +338,16 @@ if [ -n "$PROVIDER" ]; then
     fi
     if [ -z "$MODEL" ]; then
         if [ -n "$APPROVED_ONLY" ]; then
-            # Scan every id this provider serves for the first approved one,
-            # not just .data[0].id (same defect/fix as the auto-detect branch).
-            # Stashed in SELECTED_IDS so the post-resolution gate below reuses
-            # it instead of probing this same URL a second time.
+            # Scan every id this provider serves (promoted default first, then
+            # the first approved one), not just .data[0].id (same defect/fix
+            # as the auto-detect branch). Stashed in SELECTED_IDS so the
+            # post-resolution gate below reuses it instead of probing this
+            # same URL a second time.
             SELECTED_IDS="$(probe_models "$BASE_URL")"
             [ -z "$SELECTED_IDS" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
-            while IFS= read -r id; do
-                is_approved "$id" && { MODEL="$id"; break; }
-            done <<< "$SELECTED_IDS"
+            MODEL="$(pick_id "$SELECTED_IDS")"
         else
-            MODEL="$(probe_model "$BASE_URL")"
+            MODEL="$(pick_id "$(probe_models "$BASE_URL")")"
             [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
         fi
     fi
@@ -255,9 +368,7 @@ else
                 if [ -n "$MODEL" ]; then
                     grep -qFx -- "$MODEL" <<< "$ids" && served="$MODEL"
                 else
-                    while IFS= read -r id; do
-                        is_approved "$id" && { served="$id"; break; }
-                    done <<< "$ids"
+                    served="$(pick_id "$ids")"
                 fi
             fi
             if [ -z "$served" ]; then
@@ -265,7 +376,7 @@ else
                 continue
             fi
         else
-            served="$(probe_model "$base_url")"
+            served="$(pick_id "$(probe_models "$base_url")")"
             [ -z "$served" ] && continue
         fi
         PROVIDER="$name"

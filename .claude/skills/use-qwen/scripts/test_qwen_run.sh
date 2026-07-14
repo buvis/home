@@ -25,6 +25,9 @@ SERVER_EMPTY_PID=""
 SERVER_DASH_PID=""
 SERVER_PIN_LOW_PID=""
 SERVER_PIN_HIGH_PID=""
+SERVER_REG_PID=""
+SERVER_REG2_PID=""
+SERVER_DEF_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
     [ -n "$SERVER_LOW_PID" ] && kill "$SERVER_LOW_PID" 2>/dev/null
@@ -34,6 +37,9 @@ cleanup() {
     [ -n "$SERVER_DASH_PID" ] && kill "$SERVER_DASH_PID" 2>/dev/null
     [ -n "$SERVER_PIN_LOW_PID" ] && kill "$SERVER_PIN_LOW_PID" 2>/dev/null
     [ -n "$SERVER_PIN_HIGH_PID" ] && kill "$SERVER_PIN_HIGH_PID" 2>/dev/null
+    [ -n "$SERVER_REG_PID" ] && kill "$SERVER_REG_PID" 2>/dev/null
+    [ -n "$SERVER_REG2_PID" ] && kill "$SERVER_REG2_PID" 2>/dev/null
+    [ -n "$SERVER_DEF_PID" ] && kill "$SERVER_DEF_PID" 2>/dev/null
     local d
     for d in "${_DIRS[@]+"${_DIRS[@]}"}"; do
         rm -rf "$d"
@@ -72,51 +78,9 @@ chmod +x "$STUBDIR/mise"
 MODE_FILE="$WORK/mode"
 echo "fail500" > "$MODE_FILE"
 
-cat > "$WORK/server.py" <<'PY'
-import http.server
-import json
-import sys
-
-PORT = int(sys.argv[1])
-MODE_FILE = sys.argv[2]
-# Variadic: one id per trailing argv (order preserved). A single trailing arg
-# reproduces the original single-id behavior byte-for-byte.
-MODEL_IDS = sys.argv[3:]
-
-
-class H(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
-
-    def _send(self, code, body):
-        self.send_response(code)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        if self.path.rstrip('/') == '/v1/models':
-            data = [{"id": m, "object": "model"} for m in MODEL_IDS]
-            body = json.dumps({"object": "list", "data": data}).encode()
-            self._send(200, body)
-        else:
-            self._send(404, b'{}')
-
-    def do_POST(self):
-        n = int(self.headers.get('Content-Length') or 0)
-        self.rfile.read(n)
-        with open(MODE_FILE) as f:
-            mode = f.read().strip()
-        if self.path.rstrip('/') == '/v1/chat/completions' and mode == 'ok':
-            body = json.dumps({"choices": [{"message": {"role": "assistant", "content": "x"}}]}).encode()
-            self._send(200, body)
-        else:
-            self._send(500, b'{"error": "failed to spawn server instance"}')
-
-
-http.server.HTTPServer(('127.0.0.1', PORT), H).serve_forever()
-PY
+# Shared with test_eval_automation.sh - see mock-llama-server.py itself for
+# the false-healthy shape (models 200 / completions 500) it reproduces.
+cp "$(dirname "$QWEN_RUN_SH")/mock-llama-server.py" "$WORK/server.py"
 
 PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 python3 "$WORK/server.py" "$PORT" "$MODE_FILE" "mock-qwen" &
@@ -632,7 +596,7 @@ esac
 # work/references/qwen-integration.md both document as the default; if you
 # genuinely retire it, update those docs in the same commit.
 SHIPPED_REGISTRY="$(dirname "$QWEN_RUN_SH")/approved-models.txt"
-SHIPPED_DEFAULT_ID="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M"
+SHIPPED_DEFAULT_ID="unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL"
 if [ -f "$SHIPPED_REGISTRY" ] && grep -qFx -- "$SHIPPED_DEFAULT_ID" "$SHIPPED_REGISTRY"; then
     PASS "the shipped approved-models.txt lists the documented default model id"
 else
@@ -864,6 +828,264 @@ case "$OUT" in
     *mock-approved-c*) PASS "forced-id-not-live refusal names the forced model id" ;;
     *) FAIL "forced-id-not-live refusal names the forced model id" "output: $OUT" ;;
 esac
+
+# ══ T26-T30: --register-model probes a live provider and upserts by id ═══════
+# Independent fixture (fresh mock server + throwaway models.json copy) so
+# these tests can freely mutate config without touching the shared fixtures
+# used above.
+MODE_FILE_REG="$WORK/mode_reg"
+echo "ok" > "$MODE_FILE_REG"
+PORT_REG=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_REG" "$MODE_FILE_REG" "unsloth/Qwen3.6-27B-MTP" &
+SERVER_REG_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_REG/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: register-mode mock server did not start on port $PORT_REG"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR_REG="$WORK/agent_reg"
+mkdir -p "$CFGDIR_REG"
+cat > "$CFGDIR_REG/models.json" <<EOF
+{"providers": {"regprov": {"baseUrl": "http://127.0.0.1:$PORT_REG/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "stale-placeholder"}]}}}
+EOF
+
+# T26: happy path - probed id lands in models.json, contextWindow falls back
+# to 131072 (this mock, like real llama.cpp servers pre-meta, may omit
+# meta.n_ctx), and pi is never dispatched (config-only operation).
+export STUB_ARGV_FILE="$WORK/t26.argv"
+export STUB_STDIN_FILE="$WORK/t26.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ]; then
+    PASS "--register-model exits 0 against a healthy live server"
+else
+    FAIL "--register-model exits 0 against a healthy live server" "rc=$RC; output: $OUT"
+fi
+if jq -e '.providers.regprov.models | any(.id == "unsloth/Qwen3.6-27B-MTP")' "$CFGDIR_REG/models.json" > /dev/null 2>&1; then
+    PASS "--register-model writes the probed id (never a guessed/derived one) into models.json"
+else
+    FAIL "--register-model writes the probed id (never a guessed/derived one) into models.json" "models.json: $(cat "$CFGDIR_REG/models.json" 2>/dev/null)"
+fi
+CTX_GOT="$(jq -r '.providers.regprov.models[] | select(.id == "unsloth/Qwen3.6-27B-MTP") | .contextWindow' "$CFGDIR_REG/models.json" 2>/dev/null)"
+if [ "$CTX_GOT" = "131072" ]; then
+    PASS "--register-model falls back to contextWindow 131072 when the probe has no meta.n_ctx"
+else
+    FAIL "--register-model falls back to contextWindow 131072 when the probe has no meta.n_ctx" "got: $CTX_GOT"
+fi
+if [ ! -f "$WORK/t26.argv" ]; then
+    PASS "--register-model never dispatches pi (config-only operation)"
+else
+    FAIL "--register-model never dispatches pi (config-only operation)" "stub pi ran with argv: $(tr '\n' ' ' < "$WORK/t26.argv")"
+fi
+
+# T27: re-running upserts in place - no duplicate entries, --name overrides
+# the default label, and unrelated sibling entries are left untouched.
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov --name "Qwen3.6 27B MTP" < /dev/null 2>&1)
+RC=$?
+COUNT_GOT="$(jq '[.providers.regprov.models[] | select(.id == "unsloth/Qwen3.6-27B-MTP")] | length' "$CFGDIR_REG/models.json" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$COUNT_GOT" = "1" ]; then
+    PASS "re-running --register-model for the same id upserts in place (no duplicate entries)"
+else
+    FAIL "re-running --register-model for the same id upserts in place (no duplicate entries)" "rc=$RC; count=$COUNT_GOT; output: $OUT"
+fi
+NAME_GOT="$(jq -r '.providers.regprov.models[] | select(.id == "unsloth/Qwen3.6-27B-MTP") | .name' "$CFGDIR_REG/models.json" 2>/dev/null)"
+if [ "$NAME_GOT" = "Qwen3.6 27B MTP" ]; then
+    PASS "--name overrides the default (id-as-name) label"
+else
+    FAIL "--name overrides the default (id-as-name) label" "got: $NAME_GOT"
+fi
+STALE_STILL_THERE="$(jq '[.providers.regprov.models[] | select(.id == "stale-placeholder")] | length' "$CFGDIR_REG/models.json" 2>/dev/null)"
+if [ "$STALE_STILL_THERE" = "1" ]; then
+    PASS "--register-model does not disturb other pre-existing entries in the same provider"
+else
+    FAIL "--register-model does not disturb other pre-existing entries in the same provider" "count=$STALE_STILL_THERE"
+fi
+
+# T28: no -P is refused before touching the file.
+BEFORE_HASH="$(md5 -q "$CFGDIR_REG/models.json" 2>/dev/null || md5sum "$CFGDIR_REG/models.json" | cut -d' ' -f1)"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model < /dev/null 2>&1)
+RC=$?
+AFTER_HASH="$(md5 -q "$CFGDIR_REG/models.json" 2>/dev/null || md5sum "$CFGDIR_REG/models.json" | cut -d' ' -f1)"
+if [ "$RC" -ne 0 ]; then
+    PASS "--register-model without -P/--provider is refused"
+else
+    FAIL "--register-model without -P/--provider is refused" "rc=0; output: $OUT"
+fi
+if [ "$BEFORE_HASH" = "$AFTER_HASH" ]; then
+    PASS "--register-model without -P/--provider leaves models.json untouched"
+else
+    FAIL "--register-model without -P/--provider leaves models.json untouched" "file changed despite refusal"
+fi
+
+# T29: unknown provider name is refused (this adds models to an EXISTING
+# provider only - it must not silently create one).
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P nope-does-not-exist < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ]; then
+    PASS "--register-model against an unconfigured provider name is refused"
+else
+    FAIL "--register-model against an unconfigured provider name is refused" "rc=0; output: $OUT"
+fi
+
+# T30: dead server names endpoint_unreachable (same honesty contract as the
+# rest of the script - no silent no-op).
+kill "$SERVER_REG_PID" 2>/dev/null
+wait "$SERVER_REG_PID" 2>/dev/null
+SERVER_REG_PID=""
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ]; then
+    PASS "--register-model against a dead server is refused"
+else
+    FAIL "--register-model against a dead server is refused" "rc=0; output: $OUT"
+fi
+case "$OUT" in
+    *endpoint_unreachable*) PASS "--register-model dead-server refusal names endpoint_unreachable" ;;
+    *) FAIL "--register-model dead-server refusal names endpoint_unreachable" "output: $OUT" ;;
+esac
+
+# ══ T31-T32: --register-model -m picks the id on multi-model servers ═════════
+# LlamaBarn-style servers list every downloaded model in /v1/models, so
+# .data[0] is not necessarily the model just added. -m selects the intended
+# live id; an id the server does not list is refused (never written from a
+# guess).
+MODE_FILE_REG2="$WORK/mode_reg2"
+echo "ok" > "$MODE_FILE_REG2"
+PORT_REG2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_REG2" "$MODE_FILE_REG2" "decoy-first-id" "wanted-second-id" &
+SERVER_REG2_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_REG2/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: multi-model register mock server did not start on port $PORT_REG2"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR_REG2="$WORK/agent_reg2"
+mkdir -p "$CFGDIR_REG2"
+cat > "$CFGDIR_REG2/models.json" <<EOF
+{"providers": {"regprov2": {"baseUrl": "http://127.0.0.1:$PORT_REG2/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": []}}}
+EOF
+
+# T31: -m registers the named live id, not .data[0].
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov2 -m wanted-second-id < /dev/null 2>&1)
+RC=$?
+WANTED_IN="$(jq '[.providers.regprov2.models[] | select(.id == "wanted-second-id")] | length' "$CFGDIR_REG2/models.json" 2>/dev/null)"
+DECOY_IN="$(jq '[.providers.regprov2.models[] | select(.id == "decoy-first-id")] | length' "$CFGDIR_REG2/models.json" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$WANTED_IN" = "1" ] && [ "$DECOY_IN" = "0" ]; then
+    PASS "--register-model -m registers the named id on a multi-model server (not .data[0])"
+else
+    FAIL "--register-model -m registers the named id on a multi-model server (not .data[0])" "rc=$RC; wanted=$WANTED_IN decoy=$DECOY_IN; output: $OUT"
+fi
+
+# T32: -m naming an id the live server does not list is refused, file untouched.
+BEFORE_HASH="$(md5 -q "$CFGDIR_REG2/models.json" 2>/dev/null || md5sum "$CFGDIR_REG2/models.json" | cut -d' ' -f1)"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov2 -m not-served-anywhere < /dev/null 2>&1)
+RC=$?
+AFTER_HASH="$(md5 -q "$CFGDIR_REG2/models.json" 2>/dev/null || md5sum "$CFGDIR_REG2/models.json" | cut -d' ' -f1)"
+if [ "$RC" -ne 0 ] && [ "$BEFORE_HASH" = "$AFTER_HASH" ]; then
+    PASS "--register-model -m with an id the server does not list is refused, models.json untouched"
+else
+    FAIL "--register-model -m with an id the server does not list is refused, models.json untouched" "rc=$RC; output: $OUT"
+fi
+
+# ══ T33-T36: promoted default steers resolution on multi-model servers ═══════
+# promote-default.sh writes scripts/default-model.txt; resolution prefers that
+# id whenever the resolved server lists it (--approved-only additionally
+# demands it be approved). Without this, .data[0]/first-approved wins and a
+# promotion is documentation-only: dispatches keep using the old model.
+MODE_FILE_DEF="$WORK/mode_def"
+echo "ok" > "$MODE_FILE_DEF"
+PORT_DEF=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_DEF" "$MODE_FILE_DEF" "listed-first-id" "promoted-default-id" &
+SERVER_DEF_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_DEF/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: default-pref mock server did not start on port $PORT_DEF"
+        exit 1
+    fi
+    sleep 0.1
+done
+
+CFGDIR_DEF="$WORK/agent_def"
+mkdir -p "$CFGDIR_DEF"
+cat > "$CFGDIR_DEF/models.json" <<EOF
+{"providers": {"defprov": {"baseUrl": "http://127.0.0.1:$PORT_DEF/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": [{"id": "listed-first-id"}, {"id": "promoted-default-id"}]}}}
+EOF
+
+# default-model.txt is resolved script-relative (same contract as the
+# registry), so inject a fake one by copying the script next to it.
+DEFAULT_WORK="$WORK/default"
+mkdir -p "$DEFAULT_WORK"
+cp "$QWEN_RUN_SH" "$DEFAULT_WORK/qwen-run.sh"
+cat > "$DEFAULT_WORK/approved-models.txt" <<'EOF'
+# fake registry for T34: BOTH ids approved, so only the default file can
+# explain resolution skipping the first-listed one.
+listed-first-id
+promoted-default-id
+EOF
+cat > "$DEFAULT_WORK/default-model.txt" <<'EOF'
+# fake promoted default for T33-T35
+promoted-default-id
+EOF
+
+run_qwen3() {
+    local name="$1"
+    shift
+    export STUB_ARGV_FILE="$WORK/$name.argv"
+    export STUB_STDIN_FILE="$WORK/$name.stdin"
+    OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_DEF" PATH="$STUBDIR:$PATH" bash "$DEFAULT_WORK/qwen-run.sh" "$@" < /dev/null 2>&1)
+    RC=$?
+}
+
+# T33: plain dispatch prefers the promoted default over .data[0].
+run_qwen3 t33 -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t33.argv" ] && grep -q "promoted-default-id" "$WORK/t33.argv" && ! grep -q "listed-first-id" "$WORK/t33.argv"; then
+    PASS "plain dispatch prefers the promoted default over the first listed id"
+else
+    FAIL "plain dispatch prefers the promoted default over the first listed id" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t33.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# T34: --approved-only prefers the promoted default over an earlier-listed
+# approved id (both approved - only the default file distinguishes them).
+run_qwen3 t34 --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t34.argv" ] && grep -q "promoted-default-id" "$WORK/t34.argv" && ! grep -q "listed-first-id" "$WORK/t34.argv"; then
+    PASS "--approved-only prefers the promoted default over an earlier-listed approved id"
+else
+    FAIL "--approved-only prefers the promoted default over an earlier-listed approved id" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t34.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# T35: a promoted default that is not live anywhere falls back to the old
+# behavior (first listed id) instead of refusing.
+cat > "$DEFAULT_WORK/default-model.txt" <<'EOF'
+not-live-anywhere-id
+EOF
+run_qwen3 t35 -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t35.argv" ] && grep -q "listed-first-id" "$WORK/t35.argv"; then
+    PASS "a not-live promoted default falls back to the first listed id"
+else
+    FAIL "a not-live promoted default falls back to the first listed id" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t35.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
+# T36: the SHIPPED default-model.txt pins the documented default - promotion
+# is now a four-file invariant (SKILL.md, qwen-integration.md, T19's
+# SHIPPED_DEFAULT_ID, and the resolution-level default file).
+SHIPPED_DEFAULT_FILE="$(dirname "$QWEN_RUN_SH")/default-model.txt"
+if [ -f "$SHIPPED_DEFAULT_FILE" ] && grep -qFx -- "$SHIPPED_DEFAULT_ID" "$SHIPPED_DEFAULT_FILE"; then
+    PASS "shipped default-model.txt exists and pins the documented default id"
+else
+    FAIL "shipped default-model.txt exists and pins the documented default id" "file: $SHIPPED_DEFAULT_FILE; content: $(cat "$SHIPPED_DEFAULT_FILE" 2>/dev/null || echo MISSING)"
+fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
