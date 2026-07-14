@@ -165,28 +165,48 @@ autoclaude() {
       _prd_launched=""
     fi
 
-    # Per-phase launch model (PRD 00018). Safe where the old
+    # Per-phase launch model (PRD 00018) + effort. Safe where the old
     # _autoclaude_pick_model died: the phase comes from the SAME state.json
     # read the relaunch decision uses, not a pre-launch guess from stale
-    # state. build/review stay on Opus (the decision gate classifies
-    # findings); finalize (done) is mechanical rendering — Sonnet. Unknown
-    # or absent phase (including the first-ever launch) → Opus: fail
-    # expensive, never fail dumb.
-    local _model
+    # state. build/review stay on Opus at xhigh (the decision gate
+    # classifies findings); finalize (done) is mechanical rendering —
+    # Sonnet at medium. Unknown or absent phase (including the first-ever
+    # launch) → Opus xhigh: fail expensive, never fail dumb.
+    local _model _effort
     case "$_phase_launched" in
-    build) _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}" ;;
-    review) _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}" ;;
-    done) _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}" ;;
-    *) _model="claude-opus-4-8" ;;
+    build)
+      _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}"
+      _effort="${_AUTOPILOT_EFFORT_BUILD:-xhigh}"
+      ;;
+    review)
+      _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}"
+      _effort="${_AUTOPILOT_EFFORT_REVIEW:-xhigh}"
+      ;;
+    done)
+      _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}"
+      _effort="${_AUTOPILOT_EFFORT_DONE:-medium}"
+      ;;
+    *)
+      _model="claude-opus-4-8"
+      _effort="xhigh"
+      ;;
     esac
+
+    # --fallback-model rides out primary-model brownouts (a ConnectionRefused
+    # relaunch storm killed a batch silently, 2026-07); skipped when it equals
+    # the launch model. The metrics line records the REQUESTED model; the
+    # result event in the raw log records what actually served the turn.
+    local _fallback="${_AUTOPILOT_FALLBACK_MODEL:-claude-sonnet-5}"
+    local _fallback_args=()
+    [ "$_fallback" != "$_model" ] && _fallback_args=(--fallback-model "$_fallback")
 
     # Operator view: banner + render_stream.py turn the stream-json events
     # into one-line summaries. The raw log tee'd upstream is untouched (it
     # stays greppable for detect_usage_limit.py and the metrics parse), and
     # `|| cat` degrades to the raw view if the renderer is missing or dies —
     # a dead pipe stage would otherwise SIGPIPE-kill the session.
-    printf '\n━━ %s · phase %s · prd %s · %s ━━\n' \
-      "$(date '+%H:%M:%S')" "${_phase_launched:-bootstrap}" "${_prd_launched:-no-prd}" "$_model"
+    printf '\n━━ %s · phase %s · prd %s · %s/%s ━━\n' \
+      "$(date '+%H:%M:%S')" "${_phase_launched:-bootstrap}" "${_prd_launched:-no-prd}" "$_model" "$_effort"
 
     # CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0: wait indefinitely for live
     # subagents after the final result (default caps at 10 min). The review
@@ -195,7 +215,8 @@ autoclaude() {
     # codex doubt reviews routinely exceed 10 min. The session cap above
     # stays the backstop. (2026-07-12: codex killed at turn end, loop died.)
     WARDEN_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-      claude -p --permission-mode auto --model "$_model" \
+      claude -p --permission-mode auto --model "$_model" --effort "$_effort" \
+      "${_fallback_args[@]}" \
       --output-format stream-json --verbose "/run-autopilot" \
       </dev/null 2>&1 | tee "$_ap_dir/last-session.log" |
       { python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat; }
