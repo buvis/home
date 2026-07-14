@@ -68,7 +68,6 @@
       "Edit(/Users/bob/.local/tmp/claude-dev/**)",
       "Edit(/Users/bob/.local/tmp/claude-dev/*)",
       "mcp__claude_ai_Context7__*",
-      "mcp__plugin_context-mode_context-mode__*",
       "Bash(git:*)",
       "Bash(rm:*)",
       "Bash(gh:*)",
@@ -301,17 +300,6 @@
           }
         ]
       }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"/Users/bob/.claude/hooks/context-mode-cache-heal.mjs\"",
-            "timeout": 30
-          }
-        ]
-      }
     ]
   },
   "enabledPlugins": {
@@ -326,7 +314,6 @@
     "strunk@buvis-plugins": true,
     "aegis@buvis-plugins": true,
     "claude-checkup@buvis-plugins": true,
-    "context-mode@context-mode": true,
     "ponytail@ponytail": true
   },
   "extraKnownMarketplaces": {
@@ -343,12 +330,6 @@
         "repo": "revfactory/harness"
       }
     },
-    "context-mode": {
-      "source": {
-        "source": "github",
-        "repo": "mksglu/context-mode"
-      }
-    },
     "ponytail": {
       "source": {
         "source": "github",
@@ -358,6 +339,7 @@
   },
   "effortLevel": "xhigh",
   "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
   "autoMode": {
     "allow": [
