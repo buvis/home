@@ -10,6 +10,7 @@
 - For end-to-end PRD execution, use `/run-autopilot`.
 - Never skip or thin the review phase of `/run-autopilot`: every review cycle runs all lenses — consensus (Alice), blind/PRD-only (Blake), doubt+de-slop with rubric R1-R5 (Bob) — regardless of how small, simple, or well-specified the PRD looks. Do not ask whether the review is worth it - the answer is always yes. The worst issues land precisely when the code feels obviously correct. Reviewers get isolated contexts by construction (subagent prompts, external CLIs); the review phase itself runs in a fresh session after the build hand-off (end the turn: set `state.next_phase`, print the banner, STOP — in loop mode the headless session exits and the `autoclaude` wrapper relaunches from `state.json`). Never invoke `/review-work-completion` from the work session, even if context budget appears sufficient.
 - After completing work, clean up stale worktrees, orphan branches, temp files, and executed plan files in the repo's `dev/local/plans/`.
+- Meta-budget: Claude-on-Claude work (the `~/.claude` project) targets <= 30% of monthly spend; the portfolio brief surfaces the share monthly (red above ceiling). Released-plugin repo work counts as product, not meta.
 
 ## Compaction
 
