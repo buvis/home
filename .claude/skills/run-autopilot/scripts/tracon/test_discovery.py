@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from tracon import discovery, model
+
+WRAPPER_ALIVE_SCRIPT = SCRIPTS_DIR / "tracon_wrapper_alive.py"
 
 
 def _state(**overrides: Any) -> model.LoopState:
@@ -891,3 +894,100 @@ def test_discover_loops_registry_root_without_autopilot_dir_is_filtered(
     result = discovery.discover_loops(registry=gita_csv, loops_dir=loops_dir)
 
     assert bare_root not in result
+
+
+# --- tracon_wrapper_alive.py: subprocess guard over discovery.wrapper_alive -
+#
+# Thin CLI adapter: `python3 tracon_wrapper_alive.py <root>` exits 0 when a
+# live wrapper owns <root>, 1 otherwise. It reads the registry via the
+# _AUTOPILOT_LOOPS_DIR env var (discovery.LOOPS_DIR is resolved from that var
+# at import time), so these tests run it as a real subprocess with that var
+# set in `env`, rather than monkeypatching discovery in-process.
+
+
+def _run_wrapper_alive_guard(root: Path, loops_dir: Path) -> subprocess.CompletedProcess[bytes]:
+    env = dict(os.environ)
+    env["_AUTOPILOT_LOOPS_DIR"] = str(loops_dir)
+    return subprocess.run(
+        [sys.executable, str(WRAPPER_ALIVE_SCRIPT), str(root)],
+        env=env,
+        capture_output=True,
+    )
+
+
+def test_exits_zero_when_live_wrapper_owns_root(tmp_path: Path) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = _run_wrapper_alive_guard(root, loops_dir)
+
+    assert result.returncode == 0
+
+
+def test_exits_one_when_no_registry_entry_for_root(tmp_path: Path) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()  # empty registry
+
+    result = _run_wrapper_alive_guard(root, loops_dir)
+
+    assert result.returncode == 1
+
+
+def test_exits_one_when_registry_entry_pid_is_dead(tmp_path: Path) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+
+    # Spawn and wait out a real subprocess so its pid is guaranteed reaped,
+    # rather than mocking os.kill (not possible across a subprocess boundary).
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead_pid = child.pid
+    child.wait()
+
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": dead_pid, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = _run_wrapper_alive_guard(root, loops_dir)
+
+    assert result.returncode == 1
+
+
+def test_exits_one_for_nonexistent_root_without_crashing(tmp_path: Path) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+
+    result = _run_wrapper_alive_guard(Path("/nonexistent/root"), loops_dir)
+
+    assert result.returncode == 1
+    assert b"Traceback" not in result.stderr
+
+
+def test_guard_is_read_only_leaves_registry_and_root_untouched(tmp_path: Path) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    entry_path = _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+    before_entry_text = entry_path.read_text()
+    before_loops_names = sorted(p.name for p in loops_dir.iterdir())
+    before_root_names = sorted(p.name for p in root.iterdir())
+
+    _run_wrapper_alive_guard(root, loops_dir)
+
+    assert sorted(p.name for p in loops_dir.iterdir()) == before_loops_names
+    assert sorted(p.name for p in root.iterdir()) == before_root_names
+    assert entry_path.read_text() == before_entry_text
