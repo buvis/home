@@ -23,7 +23,7 @@ The four checks, in order:
 
 The preflight runs once per task attempt. It does NOT run on Claude or Gemini dispatches.
 
-**Script enforcement (PRD 00019)**: `qwen-run.sh` enforces the same deciding signal internally — every dispatch re-runs the 1-token completion probe after provider/model resolution and exits 1 with the failing outcome named on stderr (`completion_failed` / `endpoint_unreachable` / `pi_missing`) BEFORE any `pi` spawn; its `/v1/models` probe is only the provider auto-detect fast pre-check. `qwen-run.sh --preflight` runs the probe standalone (checks 1, 2, and 4; the model id it completes against is the one the endpoint reports, not a config cross-check) and exits 0 only on a successful completion — the one-command probe `review-work-completion` step 1 uses for Quinn's active-check. Regression-tested by `~/.claude/skills/use-qwen/scripts/test_qwen_run.sh` (models-200/completion-500 → refuse, no dispatch).
+**Script enforcement (PRD 00019)**: `qwen-run.sh` enforces the same deciding signal internally — every dispatch re-runs the 1-token completion probe after provider/model resolution and exits 1 with the failing outcome named on stderr (`completion_failed` / `endpoint_unreachable` / `pi_missing`) BEFORE any `pi` spawn; its `/v1/models` probe is only the provider auto-detect fast pre-check. `qwen-run.sh --preflight --approved-only` runs the probe standalone (checks 1, 2, and 4; the model id it completes against is the one the endpoint reports, not a config cross-check) and exits 0 only on a successful completion — the one-command probe `review-work-completion` step 1 uses for Quinn's active-check. Regression-tested by `~/.claude/skills/use-qwen/scripts/test_qwen_run.sh` (models-200/completion-500 → refuse, no dispatch). Every autopilot surface passes `--approved-only`, so an autonomous dispatch can never reach a model id outside the registry — that guarantee lives at the call sites, not in anything the script infers on its own.
 
 ## One-shot attempt budget — and why it always escalates to Sonnet
 
@@ -71,9 +71,10 @@ All flags are passed to `qwen-run.sh`.
 | Task type | Flags |
 |-----------|-------|
 | Analysis only | `-R -f prompt.txt` (read-only — no file edits) |
-| Code changes | `-f prompt.txt` (default — pi auto-approves edit tools) |
+| Code changes | `-f prompt.txt --approved-only` (default — pi auto-approves edit tools) |
 | Structured output | `-j -o /tmp/result.jsonl -f prompt.txt` |
 | Override model | `-m other-model -f prompt.txt` |
+| Autopilot surface | add `--approved-only` (restricts engine resolution to the eval-qualified allowlist; required on every autonomous/unattended dispatch) |
 
 ## Execution Modes
 

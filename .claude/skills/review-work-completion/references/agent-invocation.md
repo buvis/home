@@ -59,7 +59,7 @@ Write the prompt to a temp file, then dispatch (**absolute paths** - relative `d
 
 ```
 Bash tool (run_in_background: true):
-  ~/.claude/skills/use-qwen/scripts/qwen-run.sh -R -f "{quinn_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/quinn-output-{id}.txt"
+  ~/.claude/skills/use-qwen/scripts/qwen-run.sh -R --approved-only -f "{quinn_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/quinn-output-{id}.txt"
 ```
 
 `-o` writes Quinn's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. The script re-runs its own 1-token completion preflight before dispatch, so a backend that died between step 1 and step 5 exits non-zero fast instead of hanging; local inference then takes minutes — the harness re-invokes the session when the background command finishes. When it completes, read `quinn-output-{id}.txt`. If `qwen-run.sh` exits non-zero, skip Quinn and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
