@@ -1088,3 +1088,184 @@ grep -q '━━' "$AP23/wrapper.log" ||
   fail "scenario 23: wrapper.log is missing the wrapper's own banner lines"
 
 echo "PASS: presentation sink — wrapper.log carries only the wrapper's own banners, last-session.log carries every session event (scenario 23)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section C: two defects in _autoclaude_tracon's own INT/TERM handling that
+# Section B's scenarios (15-23) do not reach, because they all drive the
+# STEADY-STATE stop (loop already forked, uv's TUI call in flight) or the
+# post-fork real-signal race (scenario 20/21). Both defects are UNFIXED
+# today:
+#
+#   (A) the parent installs its INT trap BEFORE the fork
+#       (`trap ... "${_loop:-$!}" ... INT`), but `_loop` is a `local` that
+#       is still empty between the trap install and `_loop=$!` capturing
+#       the backgrounded loop's pid. An INT landing in that PRE-fork window
+#       falls back to `$!` — the CALLER's own most recent background job,
+#       which may be a completely unrelated process the user backgrounded
+#       earlier. `_autoclaude_tracon_stop` then signals THAT job's process
+#       group instead of the (not-yet-existing) loop.
+#
+#   (B) `_autoclaude_tracon` installs only an INT trap, never a TERM trap.
+#       A SIGTERM to the foreground wrapper takes bash's default action
+#       (the parent dies outright); the backgrounded loop keeps running as
+#       an orphan, and its own teardown contract
+#       (`_autopilot_loop_teardown; return 143`) never runs because nothing
+#       ever tells the loop to stop.
+#
+# Scenario 24 pins (A); scenario 25 pins (B). Both are EXPECTED TO FAIL
+# today.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Scenario 24: Defect A — an INT delivered in the PRE-fork window (after
+#    the trap install, before the backgrounded loop's pid is captured) must
+#    NOT signal an unrelated background job the caller already had running,
+#    and autoclaude must still converge on rc 130.
+#
+#    The real danger window is a single bash "simple command" wide (the
+#    fork line itself) and far too small to hit with a real, externally
+#    delivered `kill` in wall-clock time. Reproduced deterministically
+#    instead with a `functrace` DEBUG trap (DEBUG traps are not inherited
+#    into function calls without it) that recognizes the ONE fork line by
+#    its literal, unique text (`_AUTOPILOT_TRACON_CHILD=1`, which appears
+#    nowhere else in the function) and self-signals — via $BASHPID, not $$,
+#    which stays pinned to the OUTER script's pid inside a subshell —
+#    immediately before that line executes. That lands the INT exactly
+#    where the trap is already installed but `_loop` is still unset, same
+#    as a real pre-fork tty Ctrl-C would. Measured against this plugin
+#    (2026-07-15): the harmless job dies and rc is still 130 — proving the
+#    stop path is reached with the WRONG target, not that the stop path is
+#    skipped ───────────────────────────────────────────────────────────────
+AP24="$TMP1/s24/dev/local/autopilot"
+mkdir -p "$AP24"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010024"}}' >"$AP24/state.json"
+LOOPS24="$TMP1/s24-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS24"
+
+CLAUDE_CALLS24="$TMP1/s24-claude-calls"
+: >"$CLAUDE_CALLS24"
+claude() {
+  printf 'x\n' >>"$CLAUDE_CALLS24"
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010024"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=0
+
+# The caller's own unrelated background job, in its OWN process group (set
+# -m) — exactly the shape _autoclaude_tracon_stop's `kill -INT -"$1"` would
+# hit if it were ever handed this job's pid instead of the loop's.
+set -m
+sleep 60 &
+HARMLESS24=$!
+set +m
+
+AP_DIR="$AP24"
+(
+  set -o functrace
+  trap 'case "$BASH_COMMAND" in
+    *_AUTOPILOT_TRACON_CHILD=1*) kill -INT $BASHPID ;;
+  esac' DEBUG
+  export _AUTOPILOT_TRACON=1
+  autoclaude >/dev/null 2>&1
+  exit $?
+)
+rc24=$?
+
+[ "$rc24" -eq 130 ] || fail "scenario 24: a pre-fork-window INT did not converge to rc 130 (rc=$rc24)"
+
+[ ! -s "$CLAUDE_CALLS24" ] || fail "scenario 24 setup: claude was invoked — the interrupt landed AFTER the fork completed, not in the pre-fork window this scenario targets (calls: $(wc -l <"$CLAUDE_CALLS24"))"
+[ ! -e "$LOOPS24" ] || [ -z "$(command ls -A "$LOOPS24" 2>/dev/null)" ] || fail "scenario 24 setup: a registry entry exists at $LOOPS24 — the loop was forked before the interrupt landed, not in the pre-fork window this scenario targets"
+
+kill -0 "$HARMLESS24" 2>/dev/null \
+  || fail "scenario 24: the pre-fork-window INT killed the CALLER's unrelated background job (pid $HARMLESS24) — \${_loop:-\$!} fell back to \$!, which pointed at this harmless job (not the not-yet-forked loop), and _autoclaude_tracon_stop signaled its process group"
+
+kill -- -"$HARMLESS24" 2>/dev/null
+wait "$HARMLESS24" 2>/dev/null
+
+echo "PASS: a pre-fork-window INT converges on rc 130 without signaling the caller's unrelated background job (scenario 24)"
+
+# ── Scenario 25: Defect B — no TERM trap on the tracon parent. A real
+#    SIGTERM to the foreground wrapper PROCESS ONLY (never its group — a
+#    real terminal signals the foreground process, not indiscriminately the
+#    whole session) must converge on rc 143 with the loop's own teardown
+#    contract honored: loop stopped, its registry entry removed, no
+#    orphaned claude stub. Reuses CHILD_SCRIPT_TRACON verbatim — the same
+#    "loop genuinely running, claude in flight" setup scenario 20 already
+#    established for a real INT — only the signal and its target (pid, not
+#    group) differ. Measured against this plugin (2026-07-15): rc IS 143
+#    (bash's own default-signal-exit convention, not a real trap-driven
+#    teardown), but the registry entry survives and the claude stub is left
+#    running as an orphan — the discriminating assertions below, not the
+#    rc, are what catch this defect ─────────────────────────────────────────
+AP25="$TMP1/s25/dev/local/autopilot"
+mkdir -p "$AP25"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010025"}}' >"$AP25/state.json"
+LOOPS25="$TMP1/s25-registry"
+CLAUDE_PID25="$TMP1/s25-claude-pid"
+
+set -m
+AP_DIR="$AP25" _AUTOPILOT_LOOPS_DIR="$LOOPS25" CLAUDE_PID_FILE="$CLAUDE_PID25" \
+  bash "$CHILD_SCRIPT_TRACON" >/dev/null 2>&1 &
+CHILD25=$!
+set +m
+
+i=0
+while [ ! -s "$CLAUDE_PID25" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+[ -s "$CLAUDE_PID25" ] || fail "scenario 25 setup: the loop's claude stub inside the child never started"
+
+reg25=$(command ls "$LOOPS25"/*.json 2>/dev/null | head -n 1)
+[ -n "$reg25" ] || fail "scenario 25 setup: no registry entry for the loop before the TERM"
+loop_pid25=$(jq -r '.pid' "$reg25" 2>/dev/null)
+[ -n "$loop_pid25" ] && [ "$loop_pid25" != "null" ] || fail "scenario 25 setup: could not read the loop's pid from its registry entry $reg25"
+
+# Bounded wait WITHOUT _wait_bounded: its watchdog is a `(...) &` subshell,
+# which inherits this file's own top-level `trap ... rm -rf "$TMP1" EXIT`
+# (subshells inherit EXIT-trap dispositions from their parent by default,
+# no functrace needed). Killing that watchdog subshell (its normal
+# cleanup path) makes IT run the inherited EXIT trap too, wiping $TMP1
+# out from under this still-running scenario before the assertions below
+# ever read it (measured 2026-07-15: this exact interaction, isolated). A
+# plain poll-then-`wait` never forks anything that could inherit the trap.
+kill -TERM "$CHILD25"
+i=0
+while kill -0 "$CHILD25" 2>/dev/null && [ "$i" -lt 200 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+kill -0 "$CHILD25" 2>/dev/null && kill -KILL "$CHILD25" 2>/dev/null
+wait "$CHILD25" 2>/dev/null
+rc25=$?
+
+i=0
+while [ -e "$LOOPS25/$loop_pid25.json" ] && [ "$i" -lt 40 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+reg_survived25=0
+[ -e "$LOOPS25/$loop_pid25.json" ] && reg_survived25=1
+
+claude_pid25="$(cat "$CLAUDE_PID25")"
+claude_alive25=0
+kill -0 "$claude_pid25" 2>/dev/null && claude_alive25=1
+
+# Clean up the orphan (if any) BEFORE asserting, so a failure here can
+# never leak a live claude stub or loop process group into later scenarios.
+kill -KILL "$claude_pid25" 2>/dev/null
+kill -KILL -"$loop_pid25" 2>/dev/null
+rm -f "$LOOPS25/$loop_pid25.json"
+
+[ "$rc25" -eq 143 ] || fail "scenario 25: TERM to the tracon parent did not converge to rc 143 (rc=$rc25)"
+[ "$reg_survived25" -eq 0 ] || fail "scenario 25: registry entry for the loop pid $loop_pid25 still present after TERM to the tracon parent — the loop's own teardown (_autopilot_loop_teardown) never ran because nothing told it to stop"
+[ "$claude_alive25" -eq 0 ] || fail "scenario 25: claude stub pid $claude_pid25 (inside the orphaned loop) still alive after TERM to the tracon parent — SIGTERM took bash's default action on the parent and the backgrounded loop kept running as an orphan"
+
+leaked_int_trap25="$(trap -p INT)"
+leaked_term_trap25="$(trap -p TERM)"
+[ -z "$leaked_int_trap25" ] || fail "scenario 25: INT trap leaked in the invoking shell after the TERM scenario: $leaked_int_trap25"
+[ -z "$leaked_term_trap25" ] || fail "scenario 25: TERM trap leaked in the invoking shell after the TERM scenario: $leaked_term_trap25"
+
+echo "PASS: a real SIGTERM to the tracon parent (pid, not group) converges on rc 143 with the loop stopped, its registry entry removed, and no orphaned claude stub (scenario 25)"
