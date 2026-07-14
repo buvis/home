@@ -210,16 +210,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "mcp__serena__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/cartographer-echo.py",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "Notification": [
