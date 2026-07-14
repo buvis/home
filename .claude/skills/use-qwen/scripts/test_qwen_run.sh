@@ -473,8 +473,8 @@ fi
 # ══ T14b: --approved-only -P forcing the multi-id provider with NO -m must
 # still resolve the approved id at a non-first position (same multi-id
 # fixture as T13/T14; llamacpp_multi is already a named -P-addressable
-# provider in CFGDIR3/models.json). The forced-provider branch currently
-# reads only probe_model (.data[0].id), so this is expected to FAIL today. ═══
+# provider in CFGDIR3/models.json) — the forced-provider branch must not be
+# .data[0].id-only. ═════════════════════════════════════════════════════════
 export STUB_ARGV_FILE="$WORK/t14b.argv"
 export STUB_STDIN_FILE="$WORK/t14b.stdin"
 OUT=$(PI_CODING_AGENT_DIR="$CFGDIR3" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" --approved-only -P llamacpp_multi -f "$PROMPT_FILE_T" < /dev/null 2>&1)
