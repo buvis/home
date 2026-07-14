@@ -41,13 +41,13 @@ class Collector:
             event = json.loads(raw)
         except (ValueError, RecursionError):
             return None, render_line(raw, None)
-        
+
         if not isinstance(event, dict):
             return None, render_line(raw, None)
 
         self._usage.feed(event)
         self._tracker.feed(event)
-        
+
         texts = render_line(raw, event)
         tag = self._tracker.tag_for(event)
         if tag is not None:
@@ -58,7 +58,7 @@ class Collector:
                 p.append_text(t)
                 res.append(p)
             texts = res
-            
+
         return event, texts
 
     def reset_session(self) -> None:
@@ -72,7 +72,7 @@ class Collector:
             log_mtime: float | None = (self._autopilot / "last-session.log").stat().st_mtime
         except OSError:
             log_mtime = None
-            
+
         now = time.time()
         status = discovery.classify(state, rows, log_mtime, now)
         counts = model.prd_counts(self.root)
@@ -120,7 +120,6 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
             yield Footer()
 
         def on_mount(self) -> None:
-            self.update_head()
             self.tick()
             self.set_interval(DETAIL_TICK, self.tick)
 
@@ -180,7 +179,7 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
         def refresh_table(self) -> None:
             rows = [discovery.loop_status(r) for r in roots]
             sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))
-            
+
             cursor_row = self.table.cursor_row
             self.table.clear()
             self._roots = []
@@ -226,7 +225,7 @@ def run_app(roots: list[Path], forced: Path | None = None) -> int:
 def run_once(root: Path | None = None) -> int:
     from rich.console import Console
     console = Console()
-    
+
     loops = discovery.discover_loops()
     if not loops:
         console.print("No loops found.")
@@ -234,7 +233,7 @@ def run_once(root: Path | None = None) -> int:
 
     table = panels.fleet_table([discovery.loop_status(r) for r in loops])
     console.print(table)
-    
+
     if root is None:
         cwd = Path.cwd()
         cwd_loops = [r for r in loops if cwd in r.parents or cwd == r]
@@ -242,7 +241,7 @@ def run_once(root: Path | None = None) -> int:
             root = cwd_loops[0]
         else:
             root = Path.home() / ".claude"
-            
+
     collector = Collector(root)
     lines, _ = collector.poll()
 

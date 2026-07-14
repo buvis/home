@@ -22,7 +22,7 @@ def main() -> int:
     try:
         if args.once:
             return screens.run_once(args.root)
-        
+
         loops = discovery.discover_loops()
         return screens.run_app(loops, args.root)
     except KeyboardInterrupt:
