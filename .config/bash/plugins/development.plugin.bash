@@ -54,8 +54,123 @@ _autopilot_session_cap() {
   done
 }
 
+# _autoclaude_tracon <args...> — foreground the tracon TUI while the loop runs
+# backgrounded as a process-group leader. See autoclaude's presentation
+# branch (_AUTOPILOT_TRACON=0/1/auto) for the routing decision.
+_autoclaude_tracon() {
+  local _ap_dir _root _loop _rc _mset _tracon_py="$HOME/.claude/skills/run-autopilot/scripts/tracon.py"
+  _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
+  [ -n "$_ap_dir" ] || _ap_dir="$PWD/dev/local/autopilot"
+  _root="${_ap_dir%/dev/local/autopilot}"
+  mkdir -p "$_ap_dir" 2>/dev/null
+
+  # (1) Duplicate-loop guard FIRST (cheap; before any uv cost).
+  if python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root"; then
+    printf 'autoclaude: a loop is already running for %s (registry: %s).\n' \
+      "$_root" "${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}" >&2
+    printf 'Attach:  uv run --no-project %s --root %s\n' "$_tracon_py" "$_root" >&2
+    return 1
+  fi
+
+  # (2) Dependency preflight. Failure => today's renderer, zero behavior change.
+  if ! uv run --quiet --no-project "$_tracon_py" --preflight >/dev/null 2>&1; then
+    printf 'autoclaude: tracon unavailable (uv/textual preflight failed); using the plain renderer.\n' >&2
+    _AUTOPILOT_TRACON=0 autoclaude "$@"
+    return $?
+  fi
+
+  # (3) Job control ON so the child is a process-group LEADER. Decided BEFORE forking:
+  # if monitor mode will not stick, never fork a loop we cannot stop.
+  case "$-" in *m*) _mset=1 ;; *) _mset=0 ;; esac
+  set -m
+  case "$-" in
+    *m*) ;;
+    *)  printf 'autoclaude: job control unavailable; using the plain renderer.\n' >&2
+        _AUTOPILOT_TRACON=0 autoclaude "$@"
+        return $? ;;
+  esac
+
+  # (4) Parent INT trap installed BEFORE the fork.
+  trap 'trap - INT; _autoclaude_tracon_stop "${_loop:-$!}"; return 130' INT
+
+  # `</dev/null`: a background job that reads the tty is stopped with SIGTTIN.
+  _AUTOPILOT_TRACON_CHILD=1 autoclaude "$@" </dev/null >"$_ap_dir/wrapper.log" 2>&1 &
+  _loop=$!
+  [ "$_mset" -eq 1 ] || set +m
+
+  # (5) Belt-and-braces: never pid-INT a live loop.
+  if ! kill -0 -"$_loop" 2>/dev/null; then
+    wait "$_loop" 2>/dev/null
+    trap - INT
+    printf 'autoclaude: loop is not a process-group leader; using the plain renderer.\n' >&2
+    _AUTOPILOT_TRACON=0 autoclaude "$@"
+    return $?
+  fi
+
+  uv run --quiet --no-project "$_tracon_py" --root "$_root" --wrapper-pid "$_loop"
+  _rc=$?
+  trap - INT
+
+  case "$_rc" in
+    130)                                   # ctrl+c inside tracon: stop the loop
+      _autoclaude_tracon_stop "$_loop"
+      return 130 ;;
+    3)                                     # tracon says the loop ended — verify
+      if ! kill -0 "$_loop" 2>/dev/null; then
+        wait "$_loop"
+        return $?
+      fi ;;                                # still alive => a stray 3: fall through
+  esac
+
+  if kill -0 "$_loop" 2>/dev/null; then    # q (or a tracon crash): detach
+    [ "$_rc" -eq 0 ] || printf 'autoclaude: tracon exited rc=%s; loop still running.\n' "$_rc" >&2
+    printf 'autoclaude: detached. Loop running (pid %s) as a job of THIS shell — closing this\n' "$_loop"
+    printf 'terminal ends it. Reattach:\n  uv run --no-project %s --root %s\n' "$_tracon_py" "$_root"
+    return 0
+  fi
+  wait "$_loop"                            # already ended: surface its exit code
+  return $?
+}
+
+# SIGINT to the child's process GROUP. No pid-directed fallback: a pid-directed
+# INT is DEFERRED by bash until the child's foreground pipeline ends (measured)
+# — that is the known-bad path and must never be added.
+_autoclaude_tracon_stop() {
+  kill -INT -"$1" 2>/dev/null
+  wait "$1" 2>/dev/null
+}
+
+_autopilot_present() {   # the pipeline's last stage; tracon owns the screen in child mode
+  if [ -n "$_AUTOPILOT_TRACON_CHILD" ]; then
+    cat >/dev/null
+  else
+    python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat
+  fi
+}
+
 autoclaude() {
+  local _tracon=0
+  case "${_AUTOPILOT_TRACON:-auto}" in
+    0) _tracon=0 ;;                                                    # escape hatch
+    1) _tracon=1 ;;                                                    # forced (tests)
+    *) { [ -t 1 ] && command -v uv >/dev/null 2>&1; } && _tracon=1 ;;  # auto-detect
+  esac
+  if [ "$_tracon" -eq 1 ] && [ -z "$_AUTOPILOT_TRACON_CHILD" ]; then
+    _autoclaude_tracon "$@"
+    return $?
+  fi
+
   export _AUTOPILOT_LOOP=$BASHPID
+
+  # Child pgrp self-guard: refuse to run a loop that cannot be stopped (the
+  # tracon parent signals the whole process GROUP, never a bare pid).
+  if [ -n "$_AUTOPILOT_TRACON_CHILD" ]; then
+    if [ "$BASHPID" != "$(ps -o pgid= -p "$BASHPID" 2>/dev/null | tr -d ' ')" ]; then
+      printf 'autoclaude: refusing to run a loop that cannot be stopped (not a process-group leader).\n' >&2
+      return 1
+    fi
+  fi
+
   local _cap_pid=""    # session-cap sidecar pid; referenced by the INT/TERM traps
   local _reg=""         # loop-registry file path; referenced by every exit path and both traps
   local _net_retries=0 # consecutive network-death relaunches (decide branch 5)
@@ -140,7 +255,13 @@ autoclaude() {
     fi
 
     # Session cap: the only kill path in the headless loop.
-    _autopilot_session_cap "$BASHPID" "${_AUTOPILOT_SESSION_MAX:-7200}" 30 60 &
+    # _AUTOPILOT_LOOP (exported at function entry via a plain `=$BASHPID`
+    # assignment in the loop's own process) is passed here, NOT a bare
+    # $BASHPID: for a backgrounded simple command bash forks first and
+    # expands words inside the new async subshell, so a bare "$BASHPID" at
+    # this call site would evaluate to the SIDECAR's own pid, not the
+    # loop's — breaking pgrep -P and silently disarming the wall-clock cap.
+    _autopilot_session_cap "$_AUTOPILOT_LOOP" "${_AUTOPILOT_SESSION_MAX:-7200}" 30 60 &
     _cap_pid=$!
 
     # Headless launch (PRD 00014): one session = one -p turn = one process
@@ -218,8 +339,7 @@ autoclaude() {
       claude -p --permission-mode auto --model "$_model" --effort "$_effort" \
       "${_fallback_args[@]}" \
       --output-format stream-json --verbose "/run-autopilot" \
-      </dev/null 2>&1 | tee "$_ap_dir/last-session.log" |
-      { python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat; }
+      </dev/null 2>&1 | tee "$_ap_dir/last-session.log" | _autopilot_present
 
     kill "$_cap_pid" 2>/dev/null
     wait "$_cap_pid" 2>/dev/null
