@@ -34,6 +34,7 @@ class Lane:
     label: str  # task_started.description, trimmed to 20 chars
     color: str
     kind: str  # "local_agent" | "local_bash" (task_started.task_type)
+    status: str = ""  # background task status
     last: str = ""  # last_tool_name, straight off task_progress (agents only)
     n: int = 0  # usage.tool_uses, straight off task_progress (agents only)
     done: bool = False  # retired by task_updated/task_notification status, or by its tool_result
@@ -221,6 +222,9 @@ class AgentTracker:
                 kind = str(item.get("task_type") or "local_bash")
                 label = str(item.get("description") or task_id)[:20]
                 self._register(task_id=task_id, tool_use_id=task_id, label=label, kind=kind)
+            lane = self._by_task[task_id]
+            if lane.kind == "local_bash":
+                lane.status = str(item.get("status") or "")
         for task_id, lane in self._by_task.items():
             if lane.kind == "local_bash" and task_id not in alive:
                 lane.done = True

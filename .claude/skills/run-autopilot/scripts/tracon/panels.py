@@ -25,7 +25,7 @@ def fmt_tok(n: int) -> str:
 
 
 def phase_strip(state: model.LoopState) -> Text:
-    current = state.phase or state.next_phase
+    current = state.phase or state.next_phase or "—"
 
     if current not in PHASES:
         parts = []
@@ -80,15 +80,87 @@ def agents_row(tracker: AgentTracker) -> Text | None:
     for i, lane in enumerate(combined):
         if i > 0:
             t.append(" · ")
-        t.append(f"⟨{lane.label}⟩", style=lane.color)
-        if lane.n > 0 or lane.last:
-            t.append(f" ⚒{lane.last}×{lane.n}")
+        if lane.kind == "local_agent":
+            t.append(f"⟨{lane.label}⟩", style=lane.color)
+            if lane.n > 0 or lane.last:
+                t.append(f" ⚒{lane.last}×{lane.n}")
+        else:
+            t.append(f"{lane.label} ▷{lane.status}", style=lane.color)
 
     return t
 
 
 def head_rows(agents: Text | None) -> int:
     return 5 if agents is not None else 4
+
+
+def _row_head(state: model.LoopState) -> Text:
+    row1 = Text(no_wrap=True, overflow="ellipsis")
+    task = (
+        f"{state.tasks_completed}/{state.tasks_total}"
+        if state.tasks_completed is not None and state.tasks_total is not None
+        else "—"
+    )
+    cycle = (
+        f"{state.cycle}/{state.rework_cap}"
+        if state.cycle is not None and state.rework_cap is not None
+        else "—"
+    )
+    phase = state.phase or state.next_phase or "—"
+    row1.append(f"{phase} · {state.prd_name} · task {task} · {cycle}")
+
+    gs = model.guards(state)
+    if gs:
+        g_texts = [f"{label}: {detail}" for label, detail in gs]
+        row1.append(" · " + ", ".join(g_texts))
+
+    if state.needs_attention:
+        row1.append(" · ⚠ needs attention")
+    return row1
+
+
+def _row_progress(
+    rows: Sequence[model.MetricsRow],
+    status: Status,
+    prd_counts: tuple[int, int],
+    batch_id: str,
+    session_start: float | None,
+    now: float,
+    usage: SessionUsage,
+) -> Text:
+    row3 = Text(no_wrap=True, overflow="ellipsis")
+    backlog, wip = prd_counts
+    sess_count = len(rows)
+
+    last = model.last_row(rows)
+    b_start = model.batch_start_ts(batch_id, rows)
+
+    if b_start is None:
+        elapsed_str = "—"
+    else:
+        end_ts = now if status.in_flight else (last.ts_end if last else None)
+        elapsed_str = "—" if end_ts is None else fmt_dur(end_ts - b_start)
+
+    active_secs = sum(r.wall_secs for r in rows)
+    if status.in_flight and session_start is not None:
+        active_secs += now - session_start
+
+    cost = sum(r.cost_usd for r in rows)
+
+    row3.append(f"{backlog} backlog · {wip} wip · {sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
+
+    if status.in_flight and usage.session_cost > 0:
+        row3.append(f" +${usage.session_cost:.2f} live")
+
+    return row3
+
+
+def _row_usage(usage: SessionUsage, status: Status) -> Text:
+    row4 = Text(no_wrap=True, overflow="ellipsis")
+    up, cached, out = usage.totals()
+    row4.append(f"session {usage.model} · tok ↑{fmt_tok(up)} ⤓{fmt_tok(cached)} ↓{fmt_tok(out)} · ctx {fmt_tok(usage.context_size())} · ")
+    row4.append(status.label, style=status.style)
+    return row4
 
 
 def build_head(
@@ -106,65 +178,14 @@ def build_head(
     if now is None:
         now = time.time()
 
-    row1 = Text(no_wrap=True, overflow="ellipsis")
-
-    task = (
-        f"{state.tasks_completed}/{state.tasks_total}"
-        if state.tasks_completed is not None and state.tasks_total is not None
-        else "—"
-    )
-    cycle = (
-        f"{state.cycle}/{state.rework_cap}"
-        if state.cycle is not None and state.rework_cap is not None
-        else "—"
-    )
-    row1.append(
-        f"{state.phase or state.next_phase} · {state.prd_name} · task {task} · {cycle}"
-    )
-
-    gs = model.guards(state)
-    if gs:
-        g_texts = [f"{label}: {detail}" for label, detail in gs]
-        row1.append(" · " + ", ".join(g_texts))
-
-    if state.needs_attention:
-        row1.append(" · ⚠ needs attention")
+    row1 = _row_head(state)
 
     row2 = phase_strip(state)
     row2.no_wrap = True
     row2.overflow = "ellipsis"
 
-    row3 = Text(no_wrap=True, overflow="ellipsis")
-    backlog, wip = prd_counts
-    sess_count = len(rows)
-
-    last = model.last_row(rows)
-    b_start = model.batch_start_ts(batch_id, rows)
-
-    if b_start is None:
-        elapsed_str = "—"
-    else:
-        # `last` is None when the batch has written no metrics row yet, and
-        # last.ts_end is None on a partially-written final line: elapsed has no
-        # end to measure to. Unknown, never a crash on the 0.5s tick.
-        end_ts = now if status.in_flight else (last.ts_end if last else None)
-        elapsed_str = "—" if end_ts is None else fmt_dur(end_ts - b_start)
-
-    active_secs = sum(r.wall_secs for r in rows)
-    if status.in_flight and session_start is not None:
-        active_secs += now - session_start
-
-    cost = sum(r.cost_usd for r in rows)
-
-    row3.append(f"{backlog} backlog · {wip} wip · {sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
-
-    if status.in_flight and usage.session_cost > 0:
-        row3.append(f" +${usage.session_cost:.2f} live")
-
-    row4 = Text(no_wrap=True, overflow="ellipsis")
-    up, cached, out = usage.totals()
-    row4.append(f"session {usage.model} · tok ↑{fmt_tok(up)} ⤓{fmt_tok(cached)} ↓{fmt_tok(out)} · ctx {fmt_tok(usage.context_size())} · ")
-    row4.append(status.label, style=status.style)
+    row3 = _row_progress(rows, status, prd_counts, batch_id, session_start, now, usage)
+    row4 = _row_usage(usage, status)
 
     lines = [row1, row2, row3, row4]
     if agents is not None:
