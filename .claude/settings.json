@@ -181,11 +181,6 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/gateguard-fact-force.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.claude/hooks/cartographer-echo.py",
             "timeout": 5
           }
@@ -197,11 +192,6 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/enforce_prd_location.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/gateguard-fact-force.py",
             "timeout": 5
           },
           {
