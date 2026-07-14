@@ -50,6 +50,7 @@ class LogTail:
         self._ino: int | None = None
         self._buf = b""
         self._attached = False
+        self._saw_missing = False
 
     def _close(self) -> None:
         if self._fh is not None:
@@ -79,11 +80,12 @@ class LogTail:
             self._close()
             if was_open:
                 self.session_start = time.time()
+            self._saw_missing = True
             return [], was_open
 
         reset = False
         if self._fh is None:
-            first_attach = not self._attached
+            first_attach = not self._attached and not self._saw_missing
             if not self._open(st.st_ino):
                 return [], False
             self._attached = True
@@ -163,10 +165,8 @@ class SessionUsage:
     def totals(self) -> tuple[int, int, int]:
         up = cached = out = 0
         for u in self._by_msg.values():
-            up += u.get("input_tokens") or 0
-            cached += (u.get("cache_read_input_tokens") or 0) + (
-                u.get("cache_creation_input_tokens") or 0
-            )
+            up += (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+            cached += u.get("cache_read_input_tokens") or 0
             out += u.get("output_tokens") or 0
         return up, cached, out
 
@@ -197,9 +197,11 @@ class AgentTracker:
         self._by_tool[tool_use_id] = lane
         return lane
 
+    _TERMINAL_STATUSES = frozenset({"completed", "failed", "stopped", "killed"})
+
     def _retire_by_task_id(self, task_id: Any, status: Any) -> None:
         lane = self._by_task.get(str(task_id))
-        if lane is not None and status:
+        if lane is not None and status in self._TERMINAL_STATUSES:
             lane.done = True
 
     def _apply_background_tasks(self, tasks: Any) -> None:
