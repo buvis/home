@@ -614,17 +614,21 @@ def test_dashboard_table_sorts_rows_by_status_rank_before_name(
 
 
 def _dashboard_visible_text(screen: Any) -> str:
-    """Best-effort text dump of everything a DashboardScreen renders: any
-    Static/Label `.renderable`, plus every DataTable cell -- covers an
-    empty-state message realized either as a separate widget or as a table
-    row/placeholder."""
+    """Best-effort text dump of everything a screen renders: Static/Label text,
+    plus every DataTable cell -- covers a message realized either as a separate
+    widget or as a table row/placeholder.
+
+    Static exposes its text as `.renderable` before Textual 8 and as `.content`
+    from 8 on; read both, or the helper goes blind to every Static on the
+    pinned range (>=1.0,<9) and silently reports an empty screen."""
     from textual.widgets import DataTable
 
     parts: list[str] = []
     for widget in screen.query("*"):
-        renderable = getattr(widget, "renderable", None)
-        if renderable is not None:
-            parts.append(str(renderable))
+        for attr in ("renderable", "content"):
+            value = getattr(widget, attr, None)
+            if value is not None:
+                parts.append(str(value))
         if isinstance(widget, DataTable):
             for i in range(widget.row_count):
                 for cell in widget.get_row_at(i):
