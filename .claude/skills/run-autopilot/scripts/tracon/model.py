@@ -31,7 +31,6 @@ class MetricsRow:
     model: str
     cost_usd: float
     tokens_out: int
-    raw: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -151,7 +150,6 @@ def _parse_metrics_row(data: dict[str, Any]) -> MetricsRow:
         model=_str(data.get("model")),
         cost_usd=_float_or_default(data.get("cost_usd")),
         tokens_out=_int_or_default(data.get("tokens_out")),
-        raw=data,
     )
 
 
@@ -256,8 +254,6 @@ def scan_session_cost(path: Path, tail_bytes: int = TAIL_BYTES) -> float:
     except OSError:
         return 0.0
     lines = chunk.decode("utf-8", errors="ignore").split("\n")
-    if offset > 0:
-        lines = lines[1:]
     cost = 0.0
     for line in lines:
         line = line.strip()
