@@ -486,6 +486,21 @@ def test_background_tasks_changed_registers_a_task_id_not_seen_before() -> None:
     assert live[0].kind == "local_bash"
 
 
+def test_background_tasks_changed_missing_status_key_fails_open_to_running() -> None:
+    """Membership in the background_tasks_changed running set already means
+    the task is live: an entry with no "status" key must fail open to
+    "running", not leave lane.status empty (which panels.py would then render
+    as a dangling `label ▷` marker with nothing after it)."""
+    tracker = stream.AgentTracker()
+    tracker.feed(
+        _background_tasks_changed(
+            [{"task_id": "t9", "task_type": "local_bash", "description": "no status field"}]
+        )
+    )
+    lane = tracker.live_tasks()[0]
+    assert lane.status == "running"
+
+
 # --- AgentTracker: retirement via task_updated / task_notification ----------
 
 
