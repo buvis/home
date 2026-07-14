@@ -19,14 +19,19 @@
 # return-based: no leaked `trap -p INT` in the invoking shell after a normal
 # run, and that shell survives to keep running assertions.
 #
-# EXPECTED TO FAIL TODAY: the loop registry does not exist yet in the
-# plugin. This file is red-first.
+# Shipped, green regression suite (2026-07-15): every scenario below passes
+# against the current plugin. Started red-first against a plugin with no
+# loop registry at all; kept as a regression suite once the registry, the
+# tracon launch matrix, and the Ctrl-C stop path all shipped.
 #
-# Hermetic: no network, no real claude, bounded wall-clock (short polls only,
-# the two child-process scenarios sleep ~1.5s each inside their own stub).
-# Per-scenario temp dirs for both the autopilot state dir (AP_DIR) and the
-# registry dir (_AUTOPILOT_LOOPS_DIR) — always export _AUTOPILOT_LOOPS_DIR so
-# the wrapper never touches the real $HOME/.claude/autopilot-loops.
+# Hermetic: no network, no real claude, no real dev/local GC (the drained
+# `done` branch's `purge_devlocal.py --repo "$PWD" --apply` call is
+# intercepted by the python3() stub below, never the real script), bounded
+# wall-clock (short polls only, the two child-process scenarios sleep ~1.5s
+# each inside their own stub). Per-scenario temp dirs for both the autopilot
+# state dir (AP_DIR) and the registry dir (_AUTOPILOT_LOOPS_DIR) — always
+# export _AUTOPILOT_LOOPS_DIR so the wrapper never touches the real
+# $HOME/.claude/autopilot-loops.
 #
 # Later tasks may append further scenarios below PASS; keep shared
 # helpers/stubs above the "── Scenario 1" banner.
@@ -48,6 +53,15 @@ source "$PLUGIN"
 # AP_DIR is reassigned per scenario; the stubs below read it at call time.
 AP_DIR=""
 
+# PURGE_CALLS is "" by default (record nothing, matching the UV_CALLS_FILE
+# idiom below): the drained (`done`) branch calls the REAL trash-first
+# dev/local GC (purge_devlocal.py --repo "$PWD" --apply) with no stub of its
+# own, so every drained-path scenario in this file must swallow that call
+# via python3() below or it runs for real against whatever repo this suite
+# happens to be invoked from. A scenario that must prove the call was
+# intercepted points PURGE_CALLS at a temp file first.
+PURGE_CALLS=""
+
 # Stubs defined AFTER source so they win over the plugin's own definitions.
 sysctl() { echo 1; }                                   # no memory pressure
 python3() {
@@ -55,6 +69,7 @@ python3() {
     *_walk_up.py*)           printf '%s\n' "$AP_DIR" ;; # resolve ap dir -> temp
     *detect_usage_limit.py*) return 1 ;;                # not usage-limited
     *notify.py*)             : ;;                        # swallow notifications
+    *purge_devlocal.py*)     [ -n "$PURGE_CALLS" ] && printf '%s\n' "$*" >>"$PURGE_CALLS"; return 0 ;; # swallow the real GC
     *)                       command python3 "$@" ;;
   esac
 }
@@ -192,9 +207,18 @@ EOF
 # stop regression (a hung teardown) fails this scenario loudly instead of
 # hanging the whole suite. Sets $? to the waited process's own exit status
 # on the happy path (watchdog loses the race and is reaped silently).
+#
+# `trap - EXIT` is the FIRST thing the watchdog subshell does: a `(...) &`
+# subshell inherits this file's own top-level `trap 'rm -rf "$TMP1"' EXIT`
+# by default, so killing the watchdog on the happy path (the `kill
+# "$watchdog"` below, its normal cleanup) would otherwise fire that
+# inherited EXIT trap INSIDE the watchdog subshell and silently wipe the
+# whole $TMP1 scratch tree out from under the rest of this still-running
+# suite. Clearing the disposition before doing anything else closes that
+# window (measured 2026-07-15, isolated).
 _wait_bounded() {
   local pid="$1" ceiling="$2" watchdog
-  (sleep "$ceiling"; kill -KILL -"$pid" 2>/dev/null) &
+  (trap - EXIT; sleep "$ceiling"; kill -KILL -"$pid" 2>/dev/null) &
   watchdog=$!
   wait "$pid"
   local rc=$?
@@ -251,6 +275,14 @@ autoclaude
 exit $?
 EOF
 # ---------------------------------------------------------------------------
+
+# F23: every scenario below identifies the loop's own pid via $BASHPID,
+# which is unset under macOS's stock /bin/bash 3.2 (bash 4+ only) — an
+# invocation with that bash would otherwise surface as a confusing
+# scenario-1 failure instead of a clear version error.
+if [ -z "$BASHPID" ]; then
+  fail "this suite requires bash 4+ (\$BASHPID is unset — likely macOS's stock /bin/bash 3.2); re-run with a newer bash (e.g. \`brew install bash\`)"
+fi
 
 # ── Scenario 1: registry dir absent at start; file created before the first
 #    session runs with a valid pid/root/ap_dir/started_at shape; removed
@@ -425,15 +457,13 @@ echo "PASS: registry create-at-start + shape (scenario 1), removal on drain/paus
 #   - last-session.log must stay byte-identical between the two presentations
 #     (the tee sits at the same pipeline position in both)
 #
-# NOT implemented yet (development.plugin.bash has no _AUTOPILOT_TRACON
-# check, no _autoclaude_tracon, no uv call anywhere) — these scenarios are
-# red-first for the tracon feature specifically. Scenarios 7/8/12 pin
-# behavior that already holds today (there is no branch yet to break the
-# escape hatch/auto-detect/render-path contract), which is expected: they
-# are regression pins against a FUTURE conditional, not proof a mechanism
-# exists yet. Scenarios 9/10/11/13/14 assert the NEW mechanism directly
-# (uv gets invoked with specific argv, the duplicate guard blocks a launch,
-# the child's own pid propagates) and fail today for that reason.
+# Implemented: development.plugin.bash carries _AUTOPILOT_TRACON,
+# _autoclaude_tracon, and the uv preflight/TUI calls this section pins.
+# Scenarios 7/8/12 pin behavior on the escape-hatch/auto-detect/render-path
+# routes (uv never called). Scenarios 9/10/11/13/14 pin the tracon
+# mechanism itself directly (uv gets invoked with specific argv, the
+# duplicate guard blocks a launch, the child's own pid propagates). All
+# green as regression pins against the shipped conditional.
 #
 # The tracon fork this design describes is a `&` job of THIS bash process
 # (not a new bash binary, unlike CHILD_SCRIPT above), so every stub in this
@@ -553,8 +583,12 @@ got_wpid=$(_argv_value "$tui_line" --wrapper-pid)
 
 [ "$rc9" -eq 0 ] || fail "scenario 9: autoclaude did not return 0 after a q-quit TUI (rc=$rc9)"
 
+# F7: a fixed 1s budget (20 * 0.05s) here was measured flaky under load —
+# the drained (`done`) branch forks jq/mkdir/mv/python3 several times before
+# reaching the registry rm, and a loaded box can blow past 1s easily. 100 *
+# 0.05s = 5s, generous without hanging a genuine failure for long.
 i=0
-while [ -e "$LOOPS9/$want_wpid.json" ] && [ "$i" -lt 20 ]; do
+while [ -e "$LOOPS9/$want_wpid.json" ] && [ "$i" -lt 100 ]; do
   sleep 0.05
   i=$((i + 1))
 done
@@ -954,8 +988,10 @@ if kill -0 "$claude_pid20" 2>/dev/null; then
   fail "scenario 20: claude stub pid $claude_pid20 (inside the child's loop) still alive after the real SIGINT stop"
 fi
 
+# F7: same post-teardown fragility class as scenario 9's wait — raised to
+# 100 * 0.05s = 5s for load headroom.
 i=0
-while [ -n "$(command ls -A "$LOOPS20" 2>/dev/null)" ] && [ "$i" -lt 40 ]; do
+while [ -n "$(command ls -A "$LOOPS20" 2>/dev/null)" ] && [ "$i" -lt 100 ]; do
   sleep 0.05
   i=$((i + 1))
 done
@@ -996,8 +1032,10 @@ UV_TUI_RC=0
 [ "$rc21" -eq 130 ] || fail "scenario 21: fork-window Ctrl-C did not return 130 (rc=$rc21)"
 [ "$_ts21_elapsed" -lt 10 ] || fail "scenario 21: fork-window stop took ${_ts21_elapsed}s (>=10s) — did not converge quickly"
 
+# F7: same post-teardown fragility class as scenario 9's wait — raised to
+# 100 * 0.05s = 5s for load headroom.
 i=0
-while [ -n "$(command ls -A "$LOOPS21" 2>/dev/null)" ] && [ "$i" -lt 40 ]; do
+while [ -n "$(command ls -A "$LOOPS21" 2>/dev/null)" ] && [ "$i" -lt 100 ]; do
   sleep 0.05
   i=$((i + 1))
 done
@@ -1093,27 +1131,23 @@ echo "PASS: presentation sink — wrapper.log carries only the wrapper's own ban
 # Section C: two defects in _autoclaude_tracon's own INT/TERM handling that
 # Section B's scenarios (15-23) do not reach, because they all drive the
 # STEADY-STATE stop (loop already forked, uv's TUI call in flight) or the
-# post-fork real-signal race (scenario 20/21). Both defects are UNFIXED
-# today:
+# post-fork real-signal race (scenario 20/21). Both are FIXED in the current
+# plugin (regression pins below, not red-first probes):
 #
-#   (A) the parent installs its INT trap BEFORE the fork
-#       (`trap ... "${_loop:-$!}" ... INT`), but `_loop` is a `local` that
-#       is still empty between the trap install and `_loop=$!` capturing
-#       the backgrounded loop's pid. An INT landing in that PRE-fork window
-#       falls back to `$!` — the CALLER's own most recent background job,
-#       which may be a completely unrelated process the user backgrounded
-#       earlier. `_autoclaude_tracon_stop` then signals THAT job's process
-#       group instead of the (not-yet-existing) loop.
+#   (A) the parent installs its INT trap BEFORE the fork. The trap body
+#       gates the stop call on `[ -n "$_loop" ]` rather than falling back to
+#       a bare `$!` (which would be the CALLER's own most recent background
+#       job, possibly unrelated), so an INT landing in the PRE-fork window
+#       (trap installed, `_loop` still empty) is a no-op: the not-yet-
+#       existing loop is never signaled, and neither is anything else.
 #
-#   (B) `_autoclaude_tracon` installs only an INT trap, never a TERM trap.
-#       A SIGTERM to the foreground wrapper takes bash's default action
-#       (the parent dies outright); the backgrounded loop keeps running as
-#       an orphan, and its own teardown contract
-#       (`_autopilot_loop_teardown; return 143`) never runs because nothing
-#       ever tells the loop to stop.
+#   (B) `_autoclaude_tracon` installs both an INT and a TERM trap before the
+#       fork. A SIGTERM to the foreground wrapper now runs the same
+#       `[ -n "$_loop" ] && _autoclaude_tracon_stop "$_loop"` teardown as
+#       INT, instead of taking bash's default action and leaving the
+#       backgrounded loop running as an orphan.
 #
-# Scenario 24 pins (A); scenario 25 pins (B). Both are EXPECTED TO FAIL
-# today.
+# Scenario 24 pins (A); scenario 25 pins (B). Both pass today.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Scenario 24: Defect A — an INT delivered in the PRE-fork window (after
@@ -1132,9 +1166,9 @@ echo "PASS: presentation sink — wrapper.log carries only the wrapper's own ban
 #    immediately before that line executes. That lands the INT exactly
 #    where the trap is already installed but `_loop` is still unset, same
 #    as a real pre-fork tty Ctrl-C would. Measured against this plugin
-#    (2026-07-15): the harmless job dies and rc is still 130 — proving the
-#    stop path is reached with the WRONG target, not that the stop path is
-#    skipped ───────────────────────────────────────────────────────────────
+#    (2026-07-15): the harmless job survives and rc is still 130 — the
+#    `[ -n "$_loop" ]` gate on the trap body means a pre-fork INT is a no-op
+#    rather than a misdirected kill ─────────────────────────────────────────
 AP24="$TMP1/s24/dev/local/autopilot"
 mkdir -p "$AP24"
 printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010024"}}' >"$AP24/state.json"
@@ -1194,11 +1228,11 @@ echo "PASS: a pre-fork-window INT converges on rc 130 without signaling the call
 #    orphaned claude stub. Reuses CHILD_SCRIPT_TRACON verbatim — the same
 #    "loop genuinely running, claude in flight" setup scenario 20 already
 #    established for a real INT — only the signal and its target (pid, not
-#    group) differ. Measured against this plugin (2026-07-15): rc IS 143
-#    (bash's own default-signal-exit convention, not a real trap-driven
-#    teardown), but the registry entry survives and the claude stub is left
-#    running as an orphan — the discriminating assertions below, not the
-#    rc, are what catch this defect ─────────────────────────────────────────
+#    group) differ. Measured against this plugin (2026-07-15): rc IS 143 via
+#    the TERM trap's own `return 143` (a real trap-driven teardown, not
+#    bash's bare default-signal-exit convention), and the registry entry is
+#    removed with no orphaned claude stub — the discriminating assertions
+#    below, not the rc alone, are what confirm the teardown actually ran ──
 AP25="$TMP1/s25/dev/local/autopilot"
 mkdir -p "$AP25"
 printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010025"}}' >"$AP25/state.json"
@@ -1241,8 +1275,10 @@ kill -0 "$CHILD25" 2>/dev/null && kill -KILL "$CHILD25" 2>/dev/null
 wait "$CHILD25" 2>/dev/null
 rc25=$?
 
+# F7: same post-teardown fragility class as scenario 9's wait — raised to
+# 100 * 0.05s = 5s for load headroom.
 i=0
-while [ -e "$LOOPS25/$loop_pid25.json" ] && [ "$i" -lt 40 ]; do
+while [ -e "$LOOPS25/$loop_pid25.json" ] && [ "$i" -lt 100 ]; do
   sleep 0.05
   i=$((i + 1))
 done
@@ -1269,3 +1305,125 @@ leaked_term_trap25="$(trap -p TERM)"
 [ -z "$leaked_term_trap25" ] || fail "scenario 25: TERM trap leaked in the invoking shell after the TERM scenario: $leaked_term_trap25"
 
 echo "PASS: a real SIGTERM to the tracon parent (pid, not group) converges on rc 143 with the loop stopped, its registry entry removed, and no orphaned claude stub (scenario 25)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section D: hermeticity + untested exit paths (scenarios 26-28).
+#   - F6: the done)/drained branch calls the REAL trash-first dev/local GC
+#     (purge_devlocal.py --repo "$PWD" --apply) with no stub of its own; the
+#     python3() stub near the top of this file now swallows it. Scenario 26
+#     proves the stub intercepts the call and the real script never runs.
+#   - F17: registry removal (the `[ -n "$_reg" ] && rm -f "$_reg"` line) was
+#     untested on 2 of the wrapper's 7 exit paths — the memory-pressure
+#     circuit-breaker and the operator pause-requested branch. Scenarios 27
+#     and 28 close that gap.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Scenario 26: hermeticity — the drained (`done`) branch's real dev/local
+#    GC call must be intercepted by the python3() stub, never the real
+#    purge_devlocal.py. Proof, both directions: (a) a sandboxed "$PWD" with
+#    its own file tree is left byte-for-byte untouched (the real script
+#    never ran against it), and (b) PURGE_CALLS recorded exactly the call
+#    the stub swallowed, naming that same --repo. (b) is the discriminating
+#    assertion: it fails if the python3() case above is ever removed, since
+#    only the stub — never the real script — writes to PURGE_CALLS ────────
+AP26="$TMP1/s26/dev/local/autopilot"
+mkdir -p "$AP26"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010026"}}' >"$AP26/state.json"
+LOOPS26="$TMP1/s26-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS26"
+
+# A sandboxed "repo" this scenario cd's into, so `--repo "$PWD"` (which the
+# plugin always resolves from the CALLING shell's cwd, not AP_DIR) points
+# somewhere observable and disposable instead of wherever this suite
+# happened to be invoked from.
+REPO26="$TMP1/s26-repo"
+mkdir -p "$REPO26/dev/local/prds/done"
+printf 'marker\n' >"$REPO26/dev/local/prds/done/00001-marker.md"
+TREE26_BEFORE=$(find "$REPO26" | sort)
+
+PURGE_CALLS26="$TMP1/s26-purge-calls"
+: >"$PURGE_CALLS26"
+PURGE_CALLS="$PURGE_CALLS26"
+
+claude() {
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010026"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+_pwd26="$PWD"
+cd "$REPO26" || fail "scenario 26 setup: could not cd into sandbox repo $REPO26"
+run_loop "$AP26"
+rc26=$?
+cd "$_pwd26" || fail "scenario 26 setup: could not cd back to $_pwd26"
+PURGE_CALLS=""
+
+[ "$rc26" -eq 0 ] || fail "scenario 26: drained loop did not return 0 (rc=$rc26)"
+
+TREE26_AFTER=$(find "$REPO26" | sort)
+[ "$TREE26_BEFORE" = "$TREE26_AFTER" ] || fail "scenario 26: sandbox repo's file tree changed after a drained run — the REAL purge_devlocal.py ran against it instead of being intercepted by the python3() stub"
+
+[ -s "$PURGE_CALLS26" ] || fail "scenario 26: python3() stub never recorded a purge_devlocal.py call — the drained branch's GC invocation was not intercepted at all (this assertion fails against the unstubbed suite, where the call falls through to the real script instead)"
+
+grep -qF -- "--repo $REPO26" "$PURGE_CALLS26" || fail "scenario 26: recorded purge_devlocal.py call did not carry --repo $REPO26 (got: $(cat "$PURGE_CALLS26"))"
+
+echo "PASS: the drained branch's real dev/local GC call is intercepted by the python3() stub, never the real purge_devlocal.py — sandbox repo untouched, call recorded (scenario 26)"
+
+# ── Scenario 27: registry removal on the memory-pressure circuit-breaker
+#    exit (plugin's sysctl check, top of the loop) — untested by scenarios
+#    1-26. `_reg` is only assigned after the FIRST session's registry write
+#    (later in the same loop body), so a pressure trip on the very first
+#    pass never has a registry file to remove; drive one normal "continue"
+#    session first, then trip sysctl to >=2 on the SECOND pass so the
+#    removal actually exercises a live registry entry ────────────────────
+AP27="$TMP1/s27/dev/local/autopilot"
+mkdir -p "$AP27"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010027"}}' >"$AP27/state.json"
+LOOPS27="$TMP1/s27-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS27"
+
+CLAUDE_COUNT27="$TMP1/s27-claude-count"
+: >"$CLAUDE_COUNT27"
+claude() {
+  printf 'x\n' >>"$CLAUDE_COUNT27"
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"review","batch":{"id":"209901010027"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+sysctl() { [ -s "$CLAUDE_COUNT27" ] && echo 2 || echo 1; } # pressure only AFTER the first session ran
+
+run_loop "$AP27"
+rc27=$?
+sysctl() { echo 1; } # restore the shared no-pressure stub for later scenarios
+
+[ "$rc27" -eq 1 ] || fail "scenario 27: memory-pressure exit did not return 1 (rc=$rc27)"
+[ "$(wc -l <"$CLAUDE_COUNT27")" -eq 1 ] || fail "scenario 27: expected exactly 1 claude invocation before the memory-pressure trip stopped the loop, got $(wc -l <"$CLAUDE_COUNT27")"
+[ -z "$(command ls -A "$LOOPS27" 2>/dev/null)" ] || fail "scenario 27: registry dir $LOOPS27 not empty after the memory-pressure exit: $(command ls "$LOOPS27")"
+
+echo "PASS: registry removal on the memory-pressure circuit-breaker exit (scenario 27)"
+
+# ── Scenario 28: registry removal on the operator pause-requested exit
+#    (`<ap_dir>/pause-requested`, checked after the registry write) —
+#    untested by scenarios 1-27. Pre-create the marker so the FIRST pass
+#    honors it before ever launching a session ────────────────────────────
+AP28="$TMP1/s28/dev/local/autopilot"
+mkdir -p "$AP28"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010028"}}' >"$AP28/state.json"
+touch "$AP28/pause-requested"
+LOOPS28="$TMP1/s28-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS28"
+
+CLAUDE_CALLS28="$TMP1/s28-claude-calls"
+: >"$CLAUDE_CALLS28"
+claude() {
+  printf 'x\n' >>"$CLAUDE_CALLS28"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+run_loop "$AP28"
+rc28=$?
+
+[ "$rc28" -eq 0 ] || fail "scenario 28: operator-pause exit did not return 0 (rc=$rc28)"
+[ ! -s "$CLAUDE_CALLS28" ] || fail "scenario 28: claude was invoked despite pause-requested being present before the loop ever ran a session"
+[ -z "$(command ls -A "$LOOPS28" 2>/dev/null)" ] || fail "scenario 28: registry dir $LOOPS28 not empty after the operator-pause exit: $(command ls "$LOOPS28")"
+[ ! -e "$AP28/pause-requested" ] || fail "scenario 28: pause-requested marker was not consumed"
+
+echo "PASS: registry removal on the operator pause-requested exit, session never launched, marker consumed (scenario 28)"
