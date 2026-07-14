@@ -175,7 +175,47 @@ def build_head(
     return Panel(Group(*lines), title=root_name)
 
 
+
+def fleet_cells(row: LoopRow) -> tuple:
+    prd = row.prd if len(row.prd) <= 44 else row.prd[:43] + "…"
+    cost_t = Text(f"${row.cost:.2f}")
+    if row.live_cost > 0:
+        cost_t.append(f" +${row.live_cost:.2f}", style="dim")
+
+    return (
+        row.name,
+        Text(row.status.label, style=row.status.style),
+        row.phase,
+        prd,
+        row.task,
+        row.cycle,
+        cost_t,
+        str(row.sessions),
+    )
+
+
+
+def fleet_cells(row: LoopRow) -> tuple:
+    prd = row.prd if len(row.prd) <= 44 else row.prd[:43] + "…"
+    cost_t = Text(f"${row.cost:.2f}")
+    if row.live_cost > 0:
+        cost_t.append(f" +${row.live_cost:.2f}", style="dim")
+
+    return (
+        row.name,
+        Text(row.status.label, style=row.status.style),
+        row.phase,
+        prd,
+        row.task,
+        row.cycle,
+        cost_t,
+        str(row.sessions),
+    )
+
+
 def fleet_table(rows: Sequence[LoopRow]) -> Table:
+
+
     table = Table(box=None, show_header=True)
     table.add_column("project")
     table.add_column("status")
@@ -189,20 +229,6 @@ def fleet_table(rows: Sequence[LoopRow]) -> Table:
     sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))
 
     for r in sorted_rows:
-        prd = r.prd if len(r.prd) <= 44 else r.prd[:43] + "…"
-        cost_t = Text(f"${r.cost:.2f}")
-        if r.live_cost > 0:
-            cost_t.append(f" +${r.live_cost:.2f}", style="dim")
-
-        table.add_row(
-            r.name,
-            Text(r.status.label, style=r.status.style),
-            r.phase,
-            prd,
-            r.task,
-            r.cycle,
-            cost_t,
-            str(r.sessions),
-        )
+        table.add_row(*fleet_cells(r))
 
     return table
