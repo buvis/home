@@ -230,8 +230,15 @@ mkdir -p "$AP4"
 printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010004"}}' > "$AP4/state.json"
 LOOPS4="$TMP1/s4-registry"
 
+# Spawn under monitor mode so the child is a process-group LEADER, and signal
+# the GROUP — that is what a tty Ctrl-C does. A pid-only INT to a bash whose
+# foreground pipeline survives the signal is DISCARDED by bash (measured
+# 2026-07-14: trap never fires, loop keeps iterating), so it cannot test the
+# teardown contract.
+set -m
 AP_DIR="$AP4" _AUTOPILOT_LOOPS_DIR="$LOOPS4" bash "$CHILD_SCRIPT" >/dev/null 2>&1 &
 CHILD4=$!
+set +m
 
 i=0
 while [ ! -e "$LOOPS4/$CHILD4.json" ] && [ "$i" -lt 20 ]; do
@@ -240,7 +247,7 @@ while [ ! -e "$LOOPS4/$CHILD4.json" ] && [ "$i" -lt 20 ]; do
 done
 [ -e "$LOOPS4/$CHILD4.json" ] || fail "scenario 4: registry file for child pid $CHILD4 never appeared before INT"
 
-kill -INT "$CHILD4"
+kill -INT -"$CHILD4"
 wait "$CHILD4"
 rc4=$?
 
