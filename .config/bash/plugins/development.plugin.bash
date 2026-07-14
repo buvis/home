@@ -58,7 +58,7 @@ _autopilot_session_cap() {
 # backgrounded as a process-group leader. See autoclaude's presentation
 # branch (_AUTOPILOT_TRACON=0/1/auto) for the routing decision.
 _autoclaude_tracon() {
-  local _ap_dir _root _loop _rc _mset _tracon_py="$HOME/.claude/skills/run-autopilot/scripts/tracon.py"
+  local _ap_dir _root _loop="" _rc _mset _tracon_py="$HOME/.claude/skills/run-autopilot/scripts/tracon.py"
   _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
   [ -n "$_ap_dir" ] || _ap_dir="$PWD/dev/local/autopilot"
   _root="${_ap_dir%/dev/local/autopilot}"
@@ -90,8 +90,12 @@ _autoclaude_tracon() {
         return $? ;;
   esac
 
-  # (4) Parent INT trap installed BEFORE the fork.
-  trap 'trap - INT; _autoclaude_tracon_stop "${_loop:-$!}"; return 130' INT
+  # (4) Parent INT/TERM traps installed BEFORE the fork. Mirrors the loop's
+  # own INT/TERM contract below (~line 199): only act once `_loop` actually
+  # holds the backgrounded loop's pid — a signal landing before the fork
+  # line runs must never fall back to $! (an unrelated job of the caller).
+  trap 'trap - INT TERM; [ -n "$_loop" ] && _autoclaude_tracon_stop "$_loop"; return 130' INT
+  trap 'trap - INT TERM; [ -n "$_loop" ] && _autoclaude_tracon_stop "$_loop"; return 143' TERM
 
   # `</dev/null`: a background job that reads the tty is stopped with SIGTTIN.
   _AUTOPILOT_TRACON_CHILD=1 autoclaude "$@" </dev/null >"$_ap_dir/wrapper.log" 2>&1 &
@@ -101,15 +105,25 @@ _autoclaude_tracon() {
   # (5) Belt-and-braces: never pid-INT a live loop.
   if ! kill -0 -"$_loop" 2>/dev/null; then
     wait "$_loop" 2>/dev/null
-    trap - INT
+    trap - INT TERM
     printf 'autoclaude: loop is not a process-group leader; using the plain renderer.\n' >&2
     _AUTOPILOT_TRACON=0 autoclaude "$@"
     return $?
   fi
 
-  uv run --quiet --no-project "$_tracon_py" --root "$_root" --wrapper-pid "$_loop"
+  # Backgrounded + `wait`-ed, not a plain synchronous foreground command: a
+  # signal trapped by the shell while it is blocked inside a synchronous
+  # foreground command is deferred until that command exits on its own
+  # (measured) — a pid-only TERM would never reach the trap above while the
+  # TUI is up. `wait` is interruptible immediately. `set +m` first keeps this
+  # background job in THIS shell's own process group (no new pgrp), so it
+  # still reads the tty exactly as a foreground command would — no SIGTTIN.
+  set +m
+  uv run --quiet --no-project "$_tracon_py" --root "$_root" --wrapper-pid "$_loop" &
+  wait $!
   _rc=$?
-  trap - INT
+  [ "$_mset" -eq 1 ] && set -m
+  trap - INT TERM
 
   case "$_rc" in
     130)                                   # ctrl+c inside tracon: stop the loop
