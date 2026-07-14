@@ -99,7 +99,7 @@ def test_attention_wins_over_every_other_condition() -> None:
 
 def test_live_when_in_flight_and_log_written_within_live_window() -> None:
     last = _row(ts_end=1000.0, signal="continue")
-    status = discovery.classify(_state(), rows=[last], log_mtime=1005.0, now=1010.0)
+    status = discovery.classify(_state(), rows=[last], log_mtime=1006.0, now=1010.0)
     assert status.label.startswith("● live")
     assert status.rank == 2
     assert status.in_flight is True
@@ -146,11 +146,15 @@ def test_no_state_wins_over_no_log_when_both_absent() -> None:
     assert status.rank == 5
 
 
-def test_no_log_when_state_exists_and_log_missing() -> None:
+def test_missing_log_with_state_present_collapses_into_idle() -> None:
+    """The ninth label `○ no log` is not part of the contract: state present,
+    no session log at all, must render as an idle-prefixed label, never
+    `○ no log`."""
     status = discovery.classify(
         _state(exists=True, needs_attention=False), rows=[], log_mtime=None, now=1000.0
     )
-    assert status.label == "○ no log"
+    assert status.label.startswith("○ idle")
+    assert not status.label.startswith("○ no log")
     assert status.rank == 3
 
 
@@ -164,6 +168,19 @@ def test_idle_when_terminal_and_in_flight_conditions_are_exhausted() -> None:
     )
     assert status.label.startswith("○ idle")
     assert status.rank == 3
+
+
+def test_idle_age_suffix_uses_fmt_dur_shape_not_zero_padded_minutes() -> None:
+    """Age suffixes render via model.fmt_dur, not a discovery-local formatter:
+    9 whole seconds must render `9s`, never `0m09s`."""
+    last = _row(ts_end=1000.0, signal="continue")
+    status = discovery.classify(
+        _state(exists=True, needs_attention=False),
+        rows=[last],
+        log_mtime=1000.5,
+        now=1009.5,
+    )
+    assert status.label == "○ idle 9s"
 
 
 # --- classify: headline in-flight cases --------------------------------------
@@ -190,7 +207,7 @@ def test_in_flight_log_with_missing_state_file_is_live_not_no_state() -> None:
 def test_in_flight_is_independent_of_attention_label() -> None:
     last = _row(ts_end=1000.0, signal="continue")
     status = discovery.classify(
-        _state(needs_attention=True), rows=[last], log_mtime=1005.0, now=1030.0
+        _state(needs_attention=True), rows=[last], log_mtime=1006.0, now=1030.0
     )
     assert status.label == "⚠ attention"
     assert status.rank == 0
@@ -200,16 +217,16 @@ def test_in_flight_is_independent_of_attention_label() -> None:
 # --- classify: IN_FLIGHT_SLACK boundary, pinned from both sides -------------
 
 
-def test_in_flight_slack_boundary_just_under_two_seconds_is_terminal() -> None:
+def test_in_flight_slack_boundary_just_under_five_seconds_is_terminal() -> None:
     last = _row(ts_end=1000.0, signal="died")
-    status = discovery.classify(_state(), rows=[last], log_mtime=1001.9, now=1002.0)
+    status = discovery.classify(_state(), rows=[last], log_mtime=1004.9, now=1005.0)
     assert status.in_flight is False
     assert status.label.startswith("■ died")
 
 
-def test_in_flight_slack_boundary_just_over_two_seconds_is_in_flight() -> None:
+def test_in_flight_slack_boundary_just_over_five_seconds_is_in_flight() -> None:
     last = _row(ts_end=1000.0, signal="died")
-    status = discovery.classify(_state(), rows=[last], log_mtime=1002.1, now=1002.2)
+    status = discovery.classify(_state(), rows=[last], log_mtime=1005.1, now=1005.2)
     assert status.in_flight is True
     assert status.label.startswith("● live")
 
@@ -313,11 +330,11 @@ def test_loop_status_live_cost_populated_only_when_in_flight(tmp_path: Path) -> 
     log_path = _write_lines(
         autopilot_dir / "last-session.log", [_result_event(7.77)]
     )
-    # ts_end + IN_FLIGHT_SLACK = 1002.0; write the log after that -> in flight,
+    # ts_end + IN_FLIGHT_SLACK = 1005.0; write the log after that -> in flight,
     # and within LIVE_WINDOW of `now` -> live.
-    os.utime(log_path, (1005.0, 1005.0))
+    os.utime(log_path, (1006.0, 1006.0))
 
-    row = discovery.loop_status(tmp_path, now=1006.0)
+    row = discovery.loop_status(tmp_path, now=1007.0)
 
     assert row.status.in_flight is True
     assert row.live_cost == pytest.approx(7.77)
@@ -326,11 +343,32 @@ def test_loop_status_live_cost_populated_only_when_in_flight(tmp_path: Path) -> 
 # --- discover_loops: registry handling ---------------------------------------
 
 
-def test_discover_loops_missing_registry_degrades_to_home_claude_only(
-    tmp_path: Path,
+def test_missing_registry_returns_empty_when_home_claude_lacks_autopilot_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The degrade path is filtered too: a missing registry falls back to
+    ~/.claude as the sole candidate, but that candidate still has to clear
+    the same dev/local/autopilot filter as every other root."""
+    fake_home = tmp_path / "home-bare"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
     result = discovery.discover_loops(registry=tmp_path / "does-not-exist.csv")
-    assert result == [Path.home() / ".claude"]
+
+    assert result == []
+
+
+def test_missing_registry_returns_home_claude_when_autopilot_dir_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home-active"
+    autopilot_dir = fake_home / ".claude" / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
+    result = discovery.discover_loops(registry=tmp_path / "does-not-exist.csv")
+
+    assert result == [fake_home / ".claude"]
 
 
 def test_discover_loops_skips_blank_and_relative_column_one_rows(
@@ -362,6 +400,22 @@ def test_discover_loops_drops_root_without_autopilot_dir(tmp_path: Path) -> None
     assert root_no_autopilot not in result
 
 
+def test_registry_row_with_quoted_comma_path_is_parsed_via_csv_module(
+    tmp_path: Path,
+) -> None:
+    """The registry is real CSV, not line.split(',', 1): a quoted first
+    column containing a comma must yield the full path, not a truncated
+    prefix up to the first comma."""
+    root_with_comma = tmp_path / "my,repo"
+    (root_with_comma / "dev" / "local" / "autopilot").mkdir(parents=True)
+    registry = tmp_path / "repos.csv"
+    registry.write_text(f'"{root_with_comma}",name,flags\n')
+
+    result = discovery.discover_loops(registry=registry)
+
+    assert root_with_comma in result
+
+
 # --- module-level interface pins --------------------------------------------
 
 
@@ -370,7 +424,13 @@ def test_live_window_constant_matches_spec() -> None:
 
 
 def test_in_flight_slack_constant_matches_spec() -> None:
-    assert discovery.IN_FLIGHT_SLACK == 2.0
+    assert discovery.IN_FLIGHT_SLACK == 5.0
+
+
+def test_discovery_has_no_separate_age_formatter() -> None:
+    """fmt_dur is the sole duration formatter, living in model.py; discovery
+    must not carry its own near-duplicate."""
+    assert not hasattr(discovery, "_fmt_age")
 
 
 def test_gita_registry_constant_matches_spec() -> None:

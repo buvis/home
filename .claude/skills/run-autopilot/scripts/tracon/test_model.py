@@ -488,6 +488,25 @@ def test_scan_session_cost_ignores_result_event_before_tail_window(
     assert model.scan_session_cost(path, tail_bytes=2000) == 0.0
 
 
+# --- fmt_dur: the one surviving duration formatter --------------------------
+#
+# model.fmt_dur is the sole duration formatter in the package (relocated from
+# panels.fmt_dur; discovery's near-duplicate _fmt_age is retired). Below 60s
+# it renders bare seconds, never zero-padded minutes.
+
+
+def test_fmt_dur_seconds_render_bare_with_no_minute_padding() -> None:
+    assert model.fmt_dur(9) == "9s"
+
+
+def test_fmt_dur_minutes_under_an_hour_zero_pad_seconds() -> None:
+    assert model.fmt_dur(303) == "5m03s"
+
+
+def test_fmt_dur_an_hour_or_more_zero_pads_minutes() -> None:
+    assert model.fmt_dur(7620) == "2h07m"
+
+
 # --- module-level interface pins --------------------------------------------
 
 
