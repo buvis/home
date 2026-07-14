@@ -788,6 +788,83 @@ else
     FAIL "a #-commented id (no bare entry) does not approve; the healthy provider serving it is refused" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t23.argv" 2>/dev/null || echo MISSING); output: $OUT"
 fi
 
+# ══ T24: -P naming a LIVE, HEALTHY provider that does NOT serve the forced
+# (approved) -m id must name the ACTUAL cause. Reuses the T20 fixture
+# ($CFGDIR_PIN / $QWEN_RUN_SH_PIN): prov_a is live and serves mock-approved-a;
+# mock-approved-b IS in that registry, just not served by prov_a. The refusal
+# must say the model is not SERVED BY THAT PROVIDER — it must NOT claim the
+# model is missing from the registry (it isn't; that wording would send the
+# reader to edit an already-correct file). ═══════════════════════════════════
+export STUB_ARGV_FILE="$WORK/t24.argv"
+export STUB_STDIN_FILE="$WORK/t24.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_PIN" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_PIN" --approved-only -P prov_a -m mock-approved-b -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t24.argv" ]; then
+    PASS "-P naming a live provider that does not serve the forced approved -m id is refused, not dispatched"
+else
+    FAIL "-P naming a live provider that does not serve the forced approved -m id is refused, not dispatched" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t24.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *model_id_missing*) PASS "provider/model mismatch refusal still uses the existing model_id_missing outcome token (no new enum member)" ;;
+    *) FAIL "provider/model mismatch refusal still uses the existing model_id_missing outcome token (no new enum member)" "output: $OUT" ;;
+esac
+case "$OUT" in
+    *"not in the approved registry"*)
+        FAIL "provider/model mismatch refusal does NOT falsely claim the model is missing from the registry (mock-approved-b IS approved)" "output: $OUT" ;;
+    *)
+        PASS "provider/model mismatch refusal does NOT falsely claim the model is missing from the registry (mock-approved-b IS approved)" ;;
+esac
+if grep -q "not served" <<< "$OUT" && grep -q "prov_a" <<< "$OUT" && grep -q "mock-approved-b" <<< "$OUT"; then
+    PASS "provider/model mismatch refusal states the model is not served by that provider, naming both the provider and the model id"
+else
+    FAIL "provider/model mismatch refusal states the model is not served by that provider, naming both the provider and the model id" "output: $OUT"
+fi
+
+# ══ T25 fixture: a THIRD approved id ("mock-approved-c") added to a fresh
+# registry copy, layered on the SAME $CFGDIR_PIN config as T20/T24 (prov_a /
+# prov_b). No server serves mock-approved-c — reuses the T20 servers, starts
+# none new. ═══════════════════════════════════════════════════════════════
+APPROVED_PIN3="$WORK/approved_pin3"
+mkdir -p "$APPROVED_PIN3"
+cp "$QWEN_RUN_SH" "$APPROVED_PIN3/qwen-run.sh"
+cat > "$APPROVED_PIN3/approved-models.txt" <<'EOF'
+# T25 registry: three approved ids; mock-approved-c is approved but live on
+# neither provider in CFGDIR_PIN.
+mock-approved-a
+mock-approved-b
+mock-approved-c
+EOF
+QWEN_RUN_SH_PIN3="$APPROVED_PIN3/qwen-run.sh"
+
+# ══ T25: auto-detect (no -P) forcing an approved -m id that is live on NEITHER
+# provider must name the ACTUAL cause. mock-approved-a and mock-approved-b are
+# both live AND approved on $CFGDIR_PIN's two providers, so "no approved model
+# id is live" would be false here — only the specific forced id
+# (mock-approved-c) is unreachable. The refusal must name that id. ══════════
+export STUB_ARGV_FILE="$WORK/t25.argv"
+export STUB_STDIN_FILE="$WORK/t25.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_PIN" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_PIN3" --approved-only -m mock-approved-c -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && [ ! -f "$WORK/t25.argv" ]; then
+    PASS "auto-detect forcing an approved -m id that is live on no provider is refused, not dispatched"
+else
+    FAIL "auto-detect forcing an approved -m id that is live on no provider is refused, not dispatched" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t25.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+case "$OUT" in
+    *model_id_missing*) PASS "forced-id-not-live refusal still uses the existing model_id_missing outcome token (no new enum member)" ;;
+    *) FAIL "forced-id-not-live refusal still uses the existing model_id_missing outcome token (no new enum member)" "output: $OUT" ;;
+esac
+case "$OUT" in
+    *"no approved model id is live"*)
+        FAIL "forced-id-not-live refusal does NOT falsely claim no approved id at all is live (mock-approved-a and mock-approved-b both are)" "output: $OUT" ;;
+    *)
+        PASS "forced-id-not-live refusal does NOT falsely claim no approved id at all is live (mock-approved-a and mock-approved-b both are)" ;;
+esac
+case "$OUT" in
+    *mock-approved-c*) PASS "forced-id-not-live refusal names the forced model id" ;;
+    *) FAIL "forced-id-not-live refusal names the forced model id" "output: $OUT" ;;
+esac
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
