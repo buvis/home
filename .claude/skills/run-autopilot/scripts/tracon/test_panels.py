@@ -780,3 +780,32 @@ def test_fleet_table_delegates_row_construction_to_fleet_cells(
 
     assert len(calls) == 2
     assert {r.name for r in calls} == {"alpha", "beta"}
+
+
+# --- fleet_cells: wrapper-alive badge on the project cell -------------------
+
+
+def test_fleet_cells_project_cell_carries_wrapper_marker_when_wrapper_alive() -> None:
+    row = _loop_row(name="myrepo", wrapper=True)
+    cells = panels.fleet_cells(row)
+    assert cells[0] == "⟳ myrepo"
+    assert isinstance(cells[0], str) and not isinstance(cells[0], Text)
+
+
+def test_fleet_cells_project_cell_plain_when_wrapper_not_alive() -> None:
+    row = _loop_row(name="myrepo", wrapper=False)
+    cells = panels.fleet_cells(row)
+    assert cells[0] == "myrepo"
+
+
+# --- build_head: wrapper-alive chip ------------------------------------------
+
+
+def test_build_head_shows_wrapper_chip_when_wrapper_alive() -> None:
+    rendered = _render(_head(wrapper=True))
+    assert "⟳ wrapper" in rendered
+
+
+def test_build_head_omits_wrapper_chip_when_wrapper_not_alive() -> None:
+    rendered = _render(_head(wrapper=False))
+    assert "⟳ wrapper" not in rendered

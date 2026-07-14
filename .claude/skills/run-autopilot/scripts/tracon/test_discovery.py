@@ -512,3 +512,382 @@ def test_loop_status_with_no_state_and_in_flight_log_is_never_drained_or_no_stat
     assert row.status.in_flight is True
     assert row.status.label.startswith("● live")
     assert row.status.rank == 2
+
+
+# --- pid_alive: os.kill(pid, 0) probe, tolerant of permission errors --------
+
+
+def test_pid_alive_true_for_live_process() -> None:
+    assert discovery.pid_alive(os.getpid()) is True
+
+
+def test_pid_alive_false_when_kill_raises_process_lookup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_lookup(pid: int, sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(discovery.os, "kill", raise_lookup)
+    assert discovery.pid_alive(999999) is False
+
+
+def test_pid_alive_true_when_kill_raises_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A process owned by another user still answers os.kill(pid, 0) with
+    PermissionError, not ProcessLookupError - the OS confirmed the pid
+    exists, it just refused to let us signal it. That must read as alive."""
+
+    def raise_perm(pid: int, sig: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(discovery.os, "kill", raise_perm)
+    assert discovery.pid_alive(1) is True
+
+
+# --- read_registry: tolerant parse of one-file-per-wrapper registry ---------
+
+
+def test_read_registry_returns_empty_list_when_dir_absent(tmp_path: Path) -> None:
+    result = discovery.read_registry(loops_dir=tmp_path / "does-not-exist")
+    assert result == []
+
+
+def test_read_registry_skips_non_json_file(tmp_path: Path) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    (loops_dir / "12345.json").write_text("not json {")
+
+    result = discovery.read_registry(loops_dir=loops_dir)
+
+    assert result == []
+
+
+def test_read_registry_skips_entry_missing_pid(tmp_path: Path) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "orphan.json",
+        {"root": str(tmp_path), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = discovery.read_registry(loops_dir=loops_dir)
+
+    assert result == []
+
+
+def test_read_registry_skips_entry_missing_root(tmp_path: Path) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "12345.json",
+        {"pid": 12345, "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = discovery.read_registry(loops_dir=loops_dir)
+
+    assert result == []
+
+
+def test_read_registry_parses_valid_entry_into_wrapper(tmp_path: Path) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    root = tmp_path / "myrepo"
+    _write_json(
+        loops_dir / "12345.json",
+        {
+            "pid": 12345,
+            "root": str(root),
+            "ap_dir": str(root / "dev/local/autopilot"),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
+    )
+
+    result = discovery.read_registry(loops_dir=loops_dir)
+
+    assert len(result) == 1
+    wrapper = result[0]
+    assert isinstance(wrapper, discovery.Wrapper)
+    assert wrapper.pid == 12345
+    assert isinstance(wrapper.pid, int)
+    assert wrapper.root == root
+    assert isinstance(wrapper.root, Path)
+    assert wrapper.started_at == "2026-07-14T00:00:00Z"
+
+
+# --- wrapper_alive: registry membership AND liveness, root paths resolved ---
+
+
+def test_wrapper_alive_true_when_registry_entry_matches_root_and_pid_live(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    assert discovery.wrapper_alive(root, loops_dir=loops_dir) is True
+
+
+def test_wrapper_alive_false_when_registry_pid_is_dead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": 999999, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    def raise_lookup(pid: int, sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(discovery.os, "kill", raise_lookup)
+
+    assert discovery.wrapper_alive(root, loops_dir=loops_dir) is False
+
+
+def test_wrapper_alive_false_when_no_registry_entry_exists(tmp_path: Path) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+
+    assert discovery.wrapper_alive(root, loops_dir=loops_dir) is False
+
+
+def test_wrapper_alive_false_when_entry_is_for_a_different_root(tmp_path: Path) -> None:
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    other_root = tmp_path / "otherrepo"
+    other_root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(other_root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    assert discovery.wrapper_alive(root, loops_dir=loops_dir) is False
+
+
+def test_wrapper_alive_resolves_symlinked_root_to_match_registry_entry(
+    tmp_path: Path,
+) -> None:
+    """Repo roots can be symlinks: a registry entry recorded against the real
+    path must still match a caller passing the symlink, so both sides
+    compare after Path.resolve()."""
+    real_root = tmp_path / "real-repo"
+    real_root.mkdir()
+    symlink_root = tmp_path / "symlinked-repo"
+    symlink_root.symlink_to(real_root)
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(real_root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    assert discovery.wrapper_alive(symlink_root, loops_dir=loops_dir) is True
+
+
+# --- loop_status: wrapper field reflects wrapper_alive for the loop root ----
+
+
+def test_loop_status_wrapper_true_when_registry_entry_alive_for_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(tmp_path), "started_at": "2026-07-14T00:00:00Z"},
+    )
+    monkeypatch.setattr(discovery, "LOOPS_DIR", loops_dir)
+
+    row = discovery.loop_status(tmp_path, now=1000.0)
+
+    assert row.wrapper is True
+
+
+def test_loop_status_wrapper_false_when_registry_entry_pid_is_dead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A registry entry exists for this exact root, so this only exercises
+    the negative path meaningfully if the pid-liveness check truly runs - a
+    stub that always returns False would pass just as easily, but so would
+    one that never calls wrapper_alive at all; pairing this with the
+    true-case test above rules out both."""
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": 999999, "root": str(tmp_path), "started_at": "2026-07-14T00:00:00Z"},
+    )
+    monkeypatch.setattr(discovery, "LOOPS_DIR", loops_dir)
+
+    def raise_lookup(pid: int, sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(discovery.os, "kill", raise_lookup)
+
+    row = discovery.loop_status(tmp_path, now=1000.0)
+
+    assert row.wrapper is False
+
+
+# --- discover_loops: union of ~/.claude, gita CSV rows, live registry roots -
+
+
+def test_discover_loops_includes_live_registry_root_absent_from_gita_csv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)  # no autopilot dir -> filtered
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
+    registry_root = tmp_path / "wrapper-only-repo"
+    (registry_root / "dev" / "local" / "autopilot").mkdir(parents=True)
+
+    gita_csv = tmp_path / "repos.csv"
+    gita_csv.write_text("")
+
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {
+            "pid": os.getpid(),
+            "root": str(registry_root),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
+    )
+
+    result = discovery.discover_loops(registry=gita_csv, loops_dir=loops_dir)
+
+    assert registry_root in result
+
+
+def test_discover_loops_dedups_root_present_in_both_gita_csv_and_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
+    shared_root = tmp_path / "shared-repo"
+    (shared_root / "dev" / "local" / "autopilot").mkdir(parents=True)
+
+    gita_csv = tmp_path / "repos.csv"
+    gita_csv.write_text(f"{shared_root},sharedrepo,,\n")
+
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {
+            "pid": os.getpid(),
+            "root": str(shared_root),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
+    )
+
+    result = discovery.discover_loops(registry=gita_csv, loops_dir=loops_dir)
+
+    assert result.count(shared_root) == 1
+
+
+def test_discover_loops_excludes_dead_pid_registry_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
+    dead_root = tmp_path / "dead-wrapper-repo"
+    (dead_root / "dev" / "local" / "autopilot").mkdir(parents=True)
+
+    gita_csv = tmp_path / "repos.csv"
+    gita_csv.write_text("")
+
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": 999999, "root": str(dead_root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    def raise_lookup(pid: int, sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(discovery.os, "kill", raise_lookup)
+
+    result = discovery.discover_loops(registry=gita_csv, loops_dir=loops_dir)
+
+    assert dead_root not in result
+
+
+def test_discover_loops_registry_root_survives_unreadable_gita_csv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pre-existing degrade path for a missing gita registry falls back
+    to ~/.claude alone; a live wrapper-registry entry must still surface its
+    root through that same fallback, not get dropped alongside the CSV."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)  # no autopilot dir -> filtered
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
+    registry_root = tmp_path / "wrapper-survives-repo"
+    (registry_root / "dev" / "local" / "autopilot").mkdir(parents=True)
+
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {
+            "pid": os.getpid(),
+            "root": str(registry_root),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
+    )
+
+    result = discovery.discover_loops(
+        registry=tmp_path / "does-not-exist.csv", loops_dir=loops_dir
+    )
+
+    assert registry_root in result
+
+
+def test_discover_loops_registry_root_without_autopilot_dir_is_filtered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(discovery.Path, "home", classmethod(lambda cls: fake_home))
+
+    bare_root = tmp_path / "bare-wrapper-repo"
+    bare_root.mkdir()  # no dev/local/autopilot
+
+    gita_csv = tmp_path / "repos.csv"
+    gita_csv.write_text("")
+
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(bare_root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = discovery.discover_loops(registry=gita_csv, loops_dir=loops_dir)
+
+    assert bare_root not in result
