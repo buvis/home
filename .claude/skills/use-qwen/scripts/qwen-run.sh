@@ -27,11 +27,13 @@ fi
 # ~/.claude/skills/work/references/qwen-integration.md (outcomes: pi_missing /
 # endpoint_unreachable / completion_failed).
 MODELS_JSON="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json"
+REGISTRY="$(dirname "$0")/approved-models.txt"
 MODEL=""             # empty = take whatever the live server reports
 PROVIDER=""          # empty = auto-detect lowest live port
 MODE="prompt"        # prompt, interactive, resume, continue
 OUTPUT_MODE="text"   # text or json (pi --mode)
 READ_ONLY=""
+APPROVED_ONLY=""     # empty = registry not consulted (today's behavior)
 PROMPT=""
 PROMPT_FILE=""
 OUTPUT_FILE=""
@@ -47,6 +49,8 @@ usage() {
     echo "Options:"
     echo "  -P, --provider NAME  Force a pi provider (default: lowest live port)"
     echo "  -m, --model MODEL    Force model id (default: whatever the live server reports)"
+    echo "      --approved-only  Restrict provider/model resolution to ids listed in"
+    echo "                       $REGISTRY (refuses/skips unapproved live ids)"
     echo "  -i, --interactive    Interactive mode with initial prompt"
     echo "  -R, --read-only      Restrict to read-only tools (no file edits)"
     echo "  -j, --json           Emit a structured JSON event stream (pi --mode json)"
@@ -77,6 +81,10 @@ while [[ $# -gt 0 ]]; do
         -m|--model)
             MODEL="$2"
             shift 2
+            ;;
+        --approved-only)
+            APPROVED_ONLY="1"
+            shift
             ;;
         -i|--interactive)
             MODE="interactive"
@@ -162,6 +170,11 @@ probe_model() { curl -sf --max-time 2 "$1/models" < /dev/null 2>/dev/null | jq -
 # Look up a provider's baseUrl from the config (empty if the provider is absent).
 provider_base_url() { jq -r --arg p "$1" '.providers[$p].baseUrl // empty' "$MODELS_JSON" < /dev/null; }
 
+# --approved-only: true if $1 is an exact line in the registry. Comments and
+# blank lines can never match a real model id via fixed-string exact match, so
+# no separate filtering is needed.
+is_approved() { grep -qFx "$1" "$REGISTRY" 2>/dev/null; }
+
 # The deciding health signal: a real 1-token completion against the served
 # model (max_tokens=1). Exercises the lazy worker spawn that /v1/models never
 # does. 120s ceiling covers a cold model load (~18.5 GB GGUF) and doubles as a
@@ -173,6 +186,13 @@ probe_completion() {
         < /dev/null > /dev/null 2>&1
 }
 
+# --approved-only with an explicit -m: refuse up front, before any provider
+# probing, if the forced id is not in the registry.
+if [ -n "$APPROVED_ONLY" ] && [ -n "$MODEL" ] && ! is_approved "$MODEL"; then
+    echo "ERROR: preflight failed (model_id_missing): '$MODEL' is not in the approved registry ($REGISTRY)." >&2
+    exit 1
+fi
+
 if [ -n "$PROVIDER" ]; then
     BASE_URL="$(provider_base_url "$PROVIDER")"
     if [ -z "$BASE_URL" ]; then
@@ -183,13 +203,24 @@ if [ -n "$PROVIDER" ]; then
         MODEL="$(probe_model "$BASE_URL")"
         [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
     fi
+    if [ -n "$APPROVED_ONLY" ] && ! is_approved "$MODEL"; then
+        echo "ERROR: preflight failed (model_id_missing): '$MODEL' at $BASE_URL (provider $PROVIDER) is not in the approved registry ($REGISTRY)." >&2
+        exit 1
+    fi
 else
     # Probe every provider in ascending port order; first live one wins.
+    # With --approved-only, a live provider serving an unapproved id is
+    # skipped (not treated as a match) so probing continues to the next port.
     BASE_URL=""
+    SAW_UNAPPROVED_LIVE=""
     while IFS=$'\t' read -r _port name base_url; do
         [ -z "$base_url" ] && continue
         served="$(probe_model "$base_url")"
         if [ -n "$served" ]; then
+            if [ -n "$APPROVED_ONLY" ] && ! is_approved "$served"; then
+                SAW_UNAPPROVED_LIVE="1"
+                continue
+            fi
             PROVIDER="$name"
             BASE_URL="$base_url"
             [ -z "$MODEL" ] && MODEL="$served"
@@ -201,7 +232,11 @@ else
             .key, (.value.baseUrl // "") ] | @tsv
     ' "$MODELS_JSON" < /dev/null | sort -n)
     if [ -z "$PROVIDER" ]; then
-        echo "ERROR: preflight failed (endpoint_unreachable): no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)." >&2
+        if [ -n "$APPROVED_ONLY" ] && [ -n "$SAW_UNAPPROVED_LIVE" ]; then
+            echo "ERROR: preflight failed (model_id_missing): no approved model id is live on any provider in $MODELS_JSON (registry: $REGISTRY)." >&2
+        else
+            echo "ERROR: preflight failed (endpoint_unreachable): no llama-server responding on any provider in $MODELS_JSON. Start one (e.g. llama-server ... --port 8080)." >&2
+        fi
         exit 1
     fi
 fi
