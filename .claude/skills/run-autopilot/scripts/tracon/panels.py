@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Sequence
+from collections.abc import Sequence
 
 from rich.panel import Panel
 from rich.table import Table
@@ -47,7 +47,7 @@ def phase_strip(state: model.LoopState) -> Text:
             if i > 0:
                 parts.append(" ─ ")
             parts.append(("○ " + p, "dim"))
-        
+
         t = Text.assemble(*parts)
         if current == "paused":
             t.stylize("bold yellow")
@@ -74,7 +74,7 @@ def phase_strip(state: model.LoopState) -> Text:
                 parts.append((f"{mark} {p}", style))
             else:
                 parts.append(f"{mark} {p}")
-        
+
         t = Text.assemble(*parts)
 
     if state.needs_attention:
@@ -121,7 +121,7 @@ def build_head(
         now = time.time()
 
     row1 = Text(no_wrap=True, overflow="ellipsis")
-    
+
     task = (
         f"{state.tasks_completed}/{state.tasks_total}"
         if state.tasks_completed is not None and state.tasks_total is not None
