@@ -6,3 +6,7 @@
 # Qualified 2026-07-12: 6-task agentic eval, 5/6 sonnet-tier Rust tasks
 # passed, served via llama.cpp.
 unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M
+
+# Qualified 2026-07-14: 6-task agentic eval, 6/6 passed, tasks drawn from
+# /Users/bob/.local/tmp/claude-dev/qwen-eval-2026-07-14/tasks.tsv (see evidence: /Users/bob/.claude/dev/local/audit-results/qwen-eval-unsloth-Qwen3.6-27B-MTP-GGUF-UD-Q6_K_XL-2026-07-14.md). Served via llama.cpp.
+unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL
