@@ -570,6 +570,38 @@ def test_dashboard_shows_an_explicit_empty_state_when_no_loops_are_discovered(
     asyncio.run(_drive())
 
 
+@pytest.mark.ui
+def test_enter_on_empty_dashboard_does_not_crash_or_push_detail_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The zero-loop dashboard's placeholder row ("No loops found.") is backed
+    by nothing -- `_roots` stays empty. Pressing Enter on it must be a
+    harmless no-op: the product contract requires the degraded-discovery case
+    to never crash, but `on_data_table_row_selected` indexes `self._roots`
+    unconditionally, so this used to raise IndexError and would have pushed a
+    DetailScreen for a root that does not exist."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import DataTable
+
+    from tracon import screens
+
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    async def _drive() -> None:
+        app = screens.build_app([])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            stack_depth_before = len(app.screen_stack)
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert len(app.screen_stack) == stack_depth_before  # no DetailScreen pushed
+            assert app.screen.query_one(DataTable) is not None  # still on the dashboard
+
+    asyncio.run(_drive())
+
+
 # --- one fleet row-builder, shared by both views ------------------------------
 
 

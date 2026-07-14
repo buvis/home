@@ -613,6 +613,36 @@ def test_agents_row_renders_background_task_as_summary_and_status_glyph_not_agen
     assert "⟨design review⟩" not in plain
 
 
+def test_agents_row_background_task_missing_status_renders_running_not_dangling_marker() -> None:
+    """A background_tasks_changed entry with no "status" key must still fail
+    open to "running" and render `label ▷running` -- never a dangling `▷`
+    with nothing after it. Membership in the running set already means the
+    task is live, so a missing status is not the same as an unknown one."""
+    tracker = AgentTracker()
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "design review",
+                    # no "status" key
+                }
+            ],
+        }
+    )
+
+    text = panels.agents_row(tracker)
+    assert text is not None
+    plain = text.plain
+
+    assert "design review ▷running" in plain
+    assert "▷ " not in plain  # no dangling marker followed by the " · " separator
+    assert not plain.rstrip().endswith("▷")  # no dangling marker at the end of the row
+
+
 # --- fleet_table --------------------------------------------------------------
 
 
