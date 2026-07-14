@@ -14,9 +14,15 @@ Relevance rules (first match wins, `live` always wins):
 | missing-prd     | numbered file in designs/reviews/plans/(root)/00XXX-* | trash  |
 |                 | dir whose PRD exists nowhere                          |        |
 | stale-tmp       | tmp/** older than --tmp-age-days                      | trash  |
+| ledger          | autopilot/ledger/** (durable outcome ledger)          | keep   |
 | stale-autopilot | autopilot/** older than --autopilot-age-days          | trash  |
 | stale-log       | root *.log/*.bak/*.tmp older than --tmp-age-days      | trash  |
 | unclassified    | everything else                                       | keep   |
+
+Trashed reviews/*.md leave their Verdict: lines in
+autopilot/ledger/review-verdicts.jsonl before the move, so review outcomes
+outlive the satellite GC (2026-07-14: the quarter's eval found zero surviving
+metrics or verdicts).
 
 Nothing is unlinked: trash moves files to <store>/.trash/<date>/<relpath> and
 appends to .trash/manifest.tsv. With --apply, trash batches older than
@@ -25,6 +31,7 @@ trash of freshly touched files so live batches are never disturbed.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -125,6 +132,8 @@ def classify_artifact(rel: Path, mtime: float, live: set[str], done: set[str],
         return "keep", "prds"
     if rel.name in KEEP_NAMES:
         return "keep", "keeper"
+    if len(rel.parts) > 2 and rel.parts[0] == "autopilot" and rel.parts[1] == "ledger":
+        return "keep", "ledger"
     if toks & live:
         return "keep", "live-linked"
     if top in FLAG_DIRS:
@@ -150,6 +159,37 @@ def classify_artifact(rel: Path, mtime: float, live: set[str], done: set[str],
             return "keep", f"fresh:{rule}"
         return action, rule
     return "keep", "unclassified"
+
+
+VERDICT_RE = re.compile(r"^Verdict:\s*(.+)$", re.M)
+REVIEWERS_RE = re.compile(r"^reviewers?:\s*(.+)$", re.M)
+
+
+def harvest_review_verdicts(store: Path, rel: Path, now: float) -> None:
+    """Append a trashed review file's Verdict lines to the GC-exempt ledger."""
+    try:
+        text = (store / rel).read_text(errors="ignore")
+    except OSError:
+        return
+    verdicts = VERDICT_RE.findall(text)
+    if not verdicts:
+        return
+    prd = PRD_NUM.search(rel.name)
+    reviewers = REVIEWERS_RE.search(text)
+    row = {
+        "ts": int(now),
+        "file": rel.as_posix(),
+        "prd": prd.group(1) if prd else None,
+        "verdicts": [v.strip() for v in verdicts],
+        "reviewers": reviewers.group(1).strip() if reviewers else None,
+    }
+    ledger = store / "autopilot" / "ledger" / "review-verdicts.jsonl"
+    try:
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("a") as fh:
+            fh.write(json.dumps(row) + "\n")
+    except OSError as exc:
+        print(f"  WARN verdict harvest failed for {rel.as_posix()}: {exc}")
 
 
 def trash_file(store: Path, rel: Path, rule: str, batch: str) -> None:
@@ -210,6 +250,8 @@ def process_store(label: str, store: Path, args, now: float) -> dict:
             trash_counts[rule] += 1
             trashed.append((rule, rel.as_posix()))
             if args.apply:
+                if len(rel.parts) > 1 and rel.parts[0] == "reviews" and rel.suffix == ".md":
+                    harvest_review_verdicts(store, rel, now)
                 trash_file(store, rel, rule, batch)
         elif action == "flag":
             flags.append(rel.as_posix())
