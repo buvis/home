@@ -1,6 +1,6 @@
 # Qwen Integration
 
-How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M`; override with `-m`. Inference is local and free — no API cost, no token billing.
+How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M`; `-m` overrides it, but an autopilot dispatch runs under `--approved-only`, so any id it names must be in the approved registry or the run is refused. Inference is local and free — no API cost, no token billing.
 
 Qwen routing is gated by `task.metadata.qwen_eligible` (written upstream by `/plan-tasks`) and by the **Preflight** below. `work`'s step 3 routing table picks qwen only when the flag is `true` AND preflight is healthy; otherwise it falls back to Claude at the task's original tier.
 
@@ -12,10 +12,12 @@ The four checks, in order:
 
 1. **`pi` resolvable on PATH.** `command -v pi` exits 0. On failure: `preflight_outcome = "pi_missing"`.
 2. **llama.cpp `/v1/models` endpoint reachable.** An HTTP GET against the configured base URL's `/v1/models` returns a 2xx response within **3 seconds** (a healthy local llamacpp responds in tens of ms; 3s is conservative slack for a busy laptop). Read the base URL from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.baseUrl`. On any failure (connection refused, timeout ≥ 3s, non-2xx, missing config): `preflight_outcome = "endpoint_unreachable"`.
-3. **Configured qwen model id present in the endpoint's model list.** Parse the `/v1/models` JSON response (`data[].id`). The configured model id (read from `~/.pi/agent/models.json` at JSON path `.providers.llamacpp.models[].id`, defaulting to `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M`) must appear in that list. On absence: `preflight_outcome = "model_id_missing"`.
+3. **An APPROVED model id is live on the endpoint.** Parse the `/v1/models` JSON response (`data[].id` — a server can list SEVERAL ids, so check every entry, never just the first). At least one listed id must appear in the approved registry (`~/.claude/skills/use-qwen/scripts/approved-models.txt`); that approved id is the one check 4 probes and the dispatch runs. On absence: `preflight_outcome = "model_id_missing"`. **The registry, not the config, is the authority here.** This is exactly the gate `qwen-run.sh --approved-only` applies at dispatch, and the preflight MUST apply it too: a preflight that verdicts `healthy` on an unapproved-but-live engine sends `/work` into a dispatch the script then refuses — which consumes the one-shot qwen attempt (see "Helper exits non-zero") on a task qwen never actually ran, and logs `preflight_outcome: "healthy"` for an attempt that never happened. The Fallback rule below is the intended path instead.
 4. **Real 1-token completion succeeds.** Checks 2-3 only enumerate configured models — LlamaBarn (and any on-demand server) lists the model straight from config and spawns the inference worker *lazily, on the first completion*. They pass even when the worker cannot start, so this is the only check that exercises the spawn. POST to `${baseUrl}/chat/completions` with body `{"model": <configured id>, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1, "stream": false}`, timeout **120 seconds**. A 2xx response → the check passes (verdict `healthy`). Any non-2xx (e.g. `500 "failed to spawn server instance"`), connection error, or timeout → `preflight_outcome = "completion_failed"`. The 120s ceiling covers a cold model load (the ~18.5 GB GGUF takes tens of seconds the first time); the probe doubles as a warm-up, so the model is resident when the real dispatch follows — the load is not wasted. A backend that cannot emit one token in 120s would blow the task watchdog anyway: treat it as failed and fall back.
 
-**Inputs**: PATH, the llama.cpp server endpoint and its `/chat/completions` route (from `~/.pi/agent/models.json`'s `baseUrl`), the configured qwen model id (from the same file's `models[].id` — reused from the `use-qwen` skill's prerequisites).
+**Inputs**: PATH, the llama.cpp server endpoint and its `/chat/completions` route (from `~/.pi/agent/models.json`'s `baseUrl`), the ids the endpoint actually reports at `/v1/models`, and the approved-model registry (`~/.claude/skills/use-qwen/scripts/approved-models.txt`).
+
+**The one-command probe**: `qwen-run.sh --preflight --approved-only` performs checks 1-4 exactly as written and exits 0 only on `healthy`. Prefer it over a hand-rolled probe — running the same script the dispatch runs is what keeps the preflight verdict and the dispatch decision from ever disagreeing.
 
 **Outputs**: Health verdict — `"healthy"`, or one of `"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`.
 
@@ -23,7 +25,7 @@ The four checks, in order:
 
 The preflight runs once per task attempt. It does NOT run on Claude or Gemini dispatches.
 
-**Script enforcement (PRD 00019)**: `qwen-run.sh` enforces the same deciding signal internally — every dispatch re-runs the 1-token completion probe after provider/model resolution and exits 1 with the failing outcome named on stderr (`completion_failed` / `endpoint_unreachable` / `pi_missing`) BEFORE any `pi` spawn; its `/v1/models` probe is only the provider auto-detect fast pre-check. `qwen-run.sh --preflight --approved-only` runs the probe standalone (checks 1, 2, and 4; the model id it completes against is the one the endpoint reports, not a config cross-check) and exits 0 only on a successful completion — the one-command probe `review-work-completion` step 1 uses for Quinn's active-check. Regression-tested by `~/.claude/skills/use-qwen/scripts/test_qwen_run.sh` (models-200/completion-500 → refuse, no dispatch). Every autopilot surface passes `--approved-only`, so an autonomous dispatch can never reach a model id outside the registry — that guarantee lives at the call sites, not in anything the script infers on its own.
+**Script enforcement (PRD 00019)**: `qwen-run.sh` enforces the same deciding signal internally — every dispatch re-runs the 1-token completion probe after provider/model resolution and exits 1 with the failing outcome named on stderr (`completion_failed` / `endpoint_unreachable` / `pi_missing`) BEFORE any `pi` spawn; its `/v1/models` probe is only the provider auto-detect fast pre-check. `qwen-run.sh --preflight --approved-only` runs the probe standalone (all four checks; the model id it completes against is the approved id the endpoint reports, not a config cross-check) and exits 0 only on a successful completion — the one-command probe `review-work-completion` step 1 uses for Quinn's active-check. Regression-tested by `~/.claude/skills/use-qwen/scripts/test_qwen_run.sh` (models-200/completion-500 → refuse, no dispatch). Every autopilot surface passes `--approved-only`, so an autonomous dispatch can never reach a model id outside the registry — that guarantee lives at the call sites, not in anything the script infers on its own.
 
 ## One-shot attempt budget — and why it always escalates to Sonnet
 
@@ -68,19 +70,19 @@ Instructions:
 
 All flags are passed to `qwen-run.sh`.
 
+**Every command line on this page is an autopilot dispatch, so every one carries `--approved-only`** — it restricts engine resolution to the eval-qualified allowlist (`use-qwen/scripts/approved-models.txt`), and an autonomous dispatch must never reach an unqualified model. There is no autopilot task type that omits it. Manual, unpinned use is a different surface and is documented in `use-qwen/SKILL.md`; a model override (`-m`) belongs there too, since under `--approved-only` an id outside the registry is refused by design.
+
 | Task type | Flags |
 |-----------|-------|
-| Analysis only | `-R -f prompt.txt` (read-only — no file edits) |
-| Code changes | `-f prompt.txt --approved-only` (default — pi auto-approves edit tools) |
-| Structured output | `-j -o /tmp/result.jsonl -f prompt.txt` |
-| Override model | `-m other-model -f prompt.txt` |
-| Autopilot surface | add `--approved-only` (restricts engine resolution to the eval-qualified allowlist; required on every autonomous/unattended dispatch) |
+| Analysis only | `-R --approved-only -f prompt.txt` (read-only — no file edits) |
+| Code changes | `--approved-only -f prompt.txt` (default — pi auto-approves edit tools) |
+| Structured output | `-j --approved-only -o /tmp/result.jsonl -f prompt.txt` |
 
 ## Execution Modes
 
 | Mode | Flag | Use case |
 |------|------|----------|
-| Non-interactive | `-f prompt.txt` | Scripted execution, exits after completion |
+| Non-interactive | `--approved-only -f prompt.txt` | Scripted execution, exits after completion |
 | Resume recent session | `-c` | Continue most recent session |
 | Resume specific session | `-r <ID>` | Continue named session |
 
