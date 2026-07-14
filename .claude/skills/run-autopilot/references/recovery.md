@@ -135,7 +135,7 @@ Rewrite the attempt entry's `outcome` to `"rework_failed"`, then merge into stat
 "stall_reason": {"stalled": "escalation_exhausted", "task": "<id>"}
 ```
 
-(The `outcome` rewrite is forensic — the stall move below clears `state.tasks` immediately after, so the `"rework_failed"` value only persists in pre-clear observers (the pidash dashboard reading state.json, any PostToolUse hook firing between the rewrite and the clear). It documents the failure mode for external observers in the brief window before reset; the durable record lives in the PRD's commit history and in `stall_reason.stalled` itself.)
+(The `outcome` rewrite is forensic — the stall move below clears `state.tasks` immediately after, so the `"rework_failed"` value only persists in pre-clear observers (any state.json reader — e.g. the tracon dashboard — catching the window between the rewrite and the clear). It documents the failure mode for external observers in the brief window before reset; the durable record lives in the PRD's commit history and in `stall_reason.stalled` itself.)
 
 Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3). This ordering matters because a crash between the two leaves the PRD in `hold/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
 

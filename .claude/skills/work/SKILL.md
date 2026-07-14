@@ -34,7 +34,7 @@ This skill runs inside an **automated autopilot loop**. The user is not watching
 
 ## CRITICAL: One Task at a Time
 
-**STOP.** Before dispatching ANY Agent or helper-script call, verify you are sending it EXACTLY ONE task. PostToolUse hooks do not fire inside subagents — batching tasks into one Agent call makes pidash show stale progress for the entire duration.
+**STOP.** Before dispatching ANY Agent or helper-script call, verify you are sending it EXACTLY ONE task. Batching tasks into one Agent call leaves `state.tasks` (and every dashboard reading state.json) stale for the entire duration and collapses per-task attempt logging.
 
 **The loop runs in YOUR session (the main session), not inside a subagent:**
 
@@ -123,7 +123,7 @@ Codex (`use-codex`) is **not** an implementor. It appears only in the review pat
 
 ## Dashboard State Sync
 
-`pidash` watches `dev/local/autopilot/state.json` automatically via PostToolUse hooks on `TaskUpdate` and `Agent` calls — no manual sync required from `/work`. Keep `state.tasks[].status` accurate (updated in step 2 at task start and in step 6 at task end) and the dashboard reflects progress in real time.
+The dashboard (tracon; `render_stream.py` fallback) reads `dev/local/autopilot/state.json` directly. Keep `state.tasks[].status` accurate (updated in step 2 at task start and in step 6 at task end) and recompute `tasks_total`/`tasks_completed` in the same write — the pidash sync hooks are retired (PRD 00063) — and the dashboard reflects progress in real time.
 
 ## Workflow
 
@@ -335,7 +335,7 @@ Never chain these with `&&` in a single Bash call. Commit message rules: convent
 Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full project test suite, smoke tests, integration tests, or lint here — those run once at the end of the phase (step 7).
 
 - Target the narrowest scope that covers the new tests:
-  - Rust: `cargo test -p <crate> --test <test_file>` or `cargo test -p <crate> <module::test_name>`
+  - Rust: run `cargo check -p <crate>` first — a compile failure IS the gate failure (skip the test run, go straight to the retry path with the compiler output); then `cargo test -p <crate> --test <test_file>` or `cargo test -p <crate> <module::test_name>`
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - If tests fail, dispatch Ivan again with the failure output. Never dispatch Tess to weaken tests.
@@ -443,7 +443,7 @@ After all tasks in the phase are marked completed, run the project's full verifi
 
 **What to run** (project-dependent — use the commands documented in `AGENTS.md` / `CLAUDE.md` / project README):
 
-- Full workspace tests (e.g., `cargo test --workspace`, `pytest`, `npm test`)
+- Full workspace tests — Rust: `cargo nextest run --workspace` when nextest is installed (probe once with `cargo nextest --version`; on any nextest infra error fall back to `cargo test --workspace` — doc-tests are NOT run by nextest, so add `cargo test --workspace --doc` when the project has doc-tests); otherwise `cargo test --workspace`. Other stacks: `pytest`, `npm test`
 - Lint (e.g., `cargo clippy --workspace`, `ruff check`, `eslint .`)
 - Smoke tests if the project defines them (e.g., `./tests/smoke.sh`)
 - Integration / e2e tests if the project defines them (e.g., `./tests/integration.sh`, `cargo test -p <crate>-e2e`)

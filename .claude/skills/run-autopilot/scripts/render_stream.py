@@ -12,7 +12,8 @@ Contract:
   token counters, rate-limit pings) is dropped BY DESIGN; it stays in the
   raw log.
 - Subagent events (parent_tool_use_id set) show tool calls only, dimmed and
-  indented; subagent prose is noise at loop-watching altitude.
+  tagged with a stable per-lane ⟨label⟩ (from the spawning Task description;
+  ⟨agentN⟩ fallback); subagent prose is noise at loop-watching altitude.
 - Non-JSON lines (merged stderr, wrapper banners) pass through verbatim.
 - Never breaks the session: a line that fails to render passes through
   raw, and a dead stdout (closed terminal) switches to draining stdin so
@@ -47,6 +48,36 @@ _SUMMARY_KEYS = (
     "url",
     "query",
 )
+
+# Lane registry: parent_tool_use_id -> (label, ansi color). Registered when a
+# top-level Task/Agent tool_use appears; unknown parents self-register as
+# ⟨agentN⟩ so a stream joined mid-run still lane-tags (PRD 00063 Phase 0).
+_AGENT_TOOLS = frozenset({"Task", "Agent"})
+_LANE_COLORS = (
+    "\033[35m",
+    "\033[33m",
+    "\033[36m",
+    "\033[32m",
+    "\033[34m",
+    "\033[95m",
+    "\033[93m",
+    "\033[96m",
+)
+_lanes: dict[str, tuple[str, str]] = {}
+
+
+def _register_lane(block_id: str, description: str) -> None:
+    if block_id in _lanes:
+        return
+    label = _trunc(description, 24) if description.strip() else f"agent{len(_lanes) + 1}"
+    _lanes[block_id] = (label, _LANE_COLORS[len(_lanes) % len(_LANE_COLORS)])
+
+
+def _lane(parent_id: str) -> str:
+    if parent_id not in _lanes:
+        _register_lane(parent_id, "")
+    label, color = _lanes[parent_id]
+    return _c(color, f"⟨{label}⟩")
 
 
 def _c(code: str, text: str) -> str:
@@ -99,11 +130,22 @@ def _render_assistant(event: dict[str, Any]) -> list[str]:
             name = str(block.get("name", "?"))
             summary = _trunc(_tool_summary(block.get("input")))
             if subagent:
-                plain = f"{time.strftime('%H:%M:%S')}   ↳ {name}"
+                tail = f"↳ {name}"
                 if summary:
-                    plain += f" · {summary}"
-                lines.append(_c(_DIM, plain))
+                    tail += f" · {summary}"
+                lane = _lane(str(event.get("parent_tool_use_id")))
+                lines.append(
+                    f"{_c(_DIM, time.strftime('%H:%M:%S'))} {lane} {_c(_DIM, tail)}"
+                )
             else:
+                if name in _AGENT_TOOLS and isinstance(block.get("id"), str):
+                    lane_input = block.get("input")
+                    desc = (
+                        lane_input.get("description", "")
+                        if isinstance(lane_input, dict)
+                        else ""
+                    )
+                    _register_lane(block["id"], desc if isinstance(desc, str) else "")
                 line = f"{_stamp()} {_c(_CYAN, '⚒ ' + name)}"
                 if summary:
                     line += f" · {summary}"
@@ -119,7 +161,8 @@ def _render_tool_results(event: dict[str, Any]) -> list[str]:
     content = (event.get("message") or {}).get("content")
     if not isinstance(content, list):
         return []
-    indent = "  " if event.get("parent_tool_use_id") else ""
+    parent_id = event.get("parent_tool_use_id")
+    prefix = f"{_lane(str(parent_id))} " if parent_id else ""
     lines: list[str] = []
     for block in content:
         if (
@@ -128,7 +171,7 @@ def _render_tool_results(event: dict[str, Any]) -> list[str]:
             and block.get("is_error")
         ):
             detail = _trunc(_result_text(block.get("content"))) or "tool error"
-            lines.append(f"{_stamp()} {indent}{_c(_RED, '✗ ' + detail)}")
+            lines.append(f"{_stamp()} {prefix}{_c(_RED, '✗ ' + detail)}")
     return lines
 
 

@@ -18,13 +18,11 @@ Makes autonomous decisions backed by research (dependencies, recurring issues, A
 - Files read from other skill dirs:
   `~/.claude/skills/review-work-completion/scripts/await_reviewer_outputs.py`
   (Watcher keep-alive)
-- Hooks outside the skill dir: `~/.claude/hooks/notify.py`;
-  `update-pidash-tasks.py` (PostToolUse hook registered in settings.json - the
-  SOLE maintainer of `tasks_total`/`tasks_completed`); `clear-pidash-attention.py`
+- Hooks outside the skill dir: `~/.claude/hooks/notify.py`
 - Shell wrapper outside `~/.claude`: `autoclaude` in
   `~/.config/bash/plugins/development.plugin.bash` - the unattended session loop
 - CLIs: `claude` (headless `-p`), `python3`, `git`, `awk`
-- Optional: `pidash` (buvis-gems) - dashboard only, absence changes nothing
+- Optional: `tracon` (`scripts/tracon/`; PRD 00062 wires the default launch) - dashboard only, absence changes nothing
 
 ## Execution Model
 
@@ -101,7 +99,7 @@ A running headless turn is never interrupted except by the wrapper's wall-clock 
 
 ### Task Counts
 
-`tasks_total` and `tasks_completed` are maintained **solely** by the `update-pidash-tasks.py` PostToolUse sync hook (registered on `TaskUpdate` in `settings.json`), which recomputes both from the `state.tasks` snapshot on every `TaskUpdate` — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")`. The model does NOT query `TaskList` to mirror counts at each state update; that ceremony is gone. Keep `state.tasks` accurate at phase transitions (the snapshot the hook reads) and the counts follow automatically, keeping the dashboard progress bar live.
+`tasks_total` and `tasks_completed` are maintained by whoever writes the `state.tasks` snapshot: recompute both in the same write — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` (the pidash-era PostToolUse sync hook is retired, PRD 00063). The model does NOT query `TaskList` to mirror counts at each state update; the arithmetic runs on the snapshot already in hand. Keep `state.tasks` accurate at phase transitions and recompute the counts with each snapshot write, keeping the dashboard progress bar live.
 
 ### Hydrate TaskList from state.tasks (shared sub-step)
 
@@ -115,7 +113,7 @@ Run this hydration **before any phase invokes `/work` or queries TaskList for ro
 
 ### Live Dashboard
 
-The user can run `pidash` (from buvis-gems) in a separate terminal pane to watch progress in real time. It watches `dev/local/autopilot/state.json` automatically — no action needed from autopilot beyond keeping the state file updated.
+The user can run `tracon` (`scripts/tracon/`; default launch lands with PRD 00062) in a separate terminal pane to watch progress in real time. It reads `dev/local/autopilot/state.json` — no action needed from autopilot beyond keeping the state file updated. Until tracon launches by default, the loop terminal shows the `render_stream.py` fallback with per-lane subagent tags.
 
 ### Phase Banners
 
@@ -260,7 +258,7 @@ The check is deterministic (the pinned `awk` above), NOT a model judgment.
 - `references/decision-framework.md` — auto-fix vs escalate classification rules
 - `references/recovery.md` — rare-path handlers (abort/replan, stalls, escalation-exhausted, cap-pause resume)
 - `references/design-rationale.md` — incident history behind the rules (non-normative)
-- `references/dashboard-format.md` — live dashboard via pidash
+- `references/dashboard-format.md` — live dashboard via tracon (render_stream fallback)
 - `references/batch-report-format.md` — batch audit report format
 - `references/audit-log-format.md` — audit entry format, render procedure, decisions.md projection
 - `references/doubt-review-rubric.md` — Bob's doubt-lens rubric (R1-R5)
