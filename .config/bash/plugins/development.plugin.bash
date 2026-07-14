@@ -15,9 +15,9 @@ about-plugin 'functions for software development'
 # SIGINT etiquette — a capped session is a died session and takes the
 # wrapper's no-progress branch.
 _autopilot_session_cap() {
-  local _self="$BASHPID"          # FIRST statement — capture this sidecar subshell's own pid
-                                  # OUTSIDE any $(...): $BASHPID inside a command substitution
-                                  # is the substitution's subshell, NOT this function-subshell.
+  local _self="$BASHPID" # FIRST statement — capture this sidecar subshell's own pid
+  # OUTSIDE any $(...): $BASHPID inside a command substitution
+  # is the substitution's subshell, NOT this function-subshell.
   local _wpid="$1" _max="$2" _secs="$3" _grace="$4"
   local _start _cpid="" _p
   _start=$(date +%s)
@@ -33,12 +33,15 @@ _autopilot_session_cap() {
         # is the basename on macOS but may be a full path elsewhere, so accept
         # a trailing `/claude` too.
         case "$(ps -p "$_p" -o comm= 2>/dev/null)" in
-          claude|*/claude) _cpid="$_p"; break ;;
+        claude | */claude)
+          _cpid="$_p"
+          break
+          ;;
         esac
       done
     fi
     [ -n "$_cpid" ] && kill -0 "$_cpid" 2>/dev/null || break
-    if [ $(( $(date +%s) - _start )) -ge "$_max" ]; then
+    if [ $(($(date +%s) - _start)) -ge "$_max" ]; then
       printf '\nautoclaude: session exceeded the %ss wall-clock cap; SIGTERM (session cap).\n' "$_max" >&2
       kill -TERM "$_cpid" 2>/dev/null
       sleep "$_grace"
@@ -53,8 +56,8 @@ _autopilot_session_cap() {
 
 autoclaude() {
   export _AUTOPILOT_LOOP=$$
-  local _cap_pid=""   # session-cap sidecar pid; referenced by the INT/TERM traps
-  local _net_retries=0   # consecutive network-death relaunches (decide branch 5)
+  local _cap_pid=""    # session-cap sidecar pid; referenced by the INT/TERM traps
+  local _net_retries=0 # consecutive network-death relaunches (decide branch 5)
 
   # Kill orphaned (PPID=1) processes tagged with our marker.
   # Uses SIGHUP so shells propagate the signal to their children.
@@ -147,10 +150,10 @@ autoclaude() {
     # expensive, never fail dumb.
     local _model
     case "$_phase_launched" in
-      build)  _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}" ;;
-      review) _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}" ;;
-      done)   _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}" ;;
-      *)      _model="claude-opus-4-8" ;;
+    build) _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}" ;;
+    review) _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}" ;;
+    done) _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}" ;;
+    *) _model="claude-opus-4-8" ;;
     esac
 
     # Operator view: banner + render_stream.py turn the stream-json events
@@ -170,8 +173,8 @@ autoclaude() {
     WARDEN_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
       claude -p --permission-mode auto --model "$_model" \
       --output-format stream-json --verbose "/run-autopilot" \
-      < /dev/null 2>&1 | tee "$_ap_dir/last-session.log" \
-      | { python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat; }
+      </dev/null 2>&1 | tee "$_ap_dir/last-session.log" |
+      { python3 -u ~/.claude/skills/run-autopilot/scripts/render_stream.py || cat; }
 
     kill "$_cap_pid" 2>/dev/null
     wait "$_cap_pid" 2>/dev/null
@@ -195,7 +198,7 @@ autoclaude() {
       _mtime=$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$_state" 2>/dev/null)
       [ -n "$_mtime" ] && [ "$_mtime" -ge "$_ts_start" ] 2>/dev/null && _state_touched=1
     fi
-    [ "$_state_touched" -eq 1 ] && _net_retries=0   # any productive session resets the cap
+    [ "$_state_touched" -eq 1 ] && _net_retries=0 # any productive session resets the cap
     if [ -f "$_state" ] && jq -e . "$_state" >/dev/null 2>&1; then
       _prd=$(jq -r '.prd // ""' "$_state" 2>/dev/null)
       _batch=$(jq -r '.batch.id // ""' "$_state" 2>/dev/null)
@@ -205,14 +208,15 @@ autoclaude() {
       local _stalled
       _stalled=$(jq -r '.stall_reason.stalled? // empty' "$_state" 2>/dev/null)
       if [ -n "$_detail" ]; then
-        _signal="paused"                               # (1) needs a human
+        _signal="paused" # (1) needs a human
       elif [ "$_stalled" = "subagent_prompt_overrun" ]; then
-        _signal="continue"; _detail="replan"           # (2) replan in place
+        _signal="continue"
+        _detail="replan" # (2) replan in place
       elif [ -z "$_next" ]; then
-        _signal="done"                                 # (3) backlog drained
+        _signal="done" # (3) backlog drained
       elif [ "$_state_touched" -eq 1 ]; then
-        _signal="continue"                             # (4) next phase queued
-      fi                                               # untouched -> falls through to (5)
+        _signal="continue" # (4) next phase queued
+      fi                   # untouched -> falls through to (5)
     fi
     if [ -z "$_signal" ]; then
       # (5) No progress this session (state missing, unreadable, or
@@ -223,7 +227,7 @@ autoclaude() {
       _reset=$(python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py --log "$_ap_dir/last-session.log" "$PWD" 2>/dev/null)
       case "$_reset" in *[!0-9]*) _reset="" ;; esac
       if [ -n "$_reset" ]; then
-        _limit_wait=$(( _reset - $(date +%s) + 120 ))
+        _limit_wait=$((_reset - $(date +%s) + 120))
         [ "$_limit_wait" -lt 60 ] && _limit_wait=60
         if [ "$_limit_wait" -le "${_AUTOPILOT_LIMIT_WAIT_MAX:-21600}" ]; then
           _signal="continue"
@@ -245,13 +249,16 @@ autoclaude() {
         _api_fail=$(jq -rR 'fromjson? | select(.type=="result" and .is_error==true) | .result // ""' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
         if printf '%s' "$_api_fail" | grep -qiE 'unable to connect|connection ?(refused|reset|error)|econn|etimedout|enotfound|eai_again|network is unreachable|fetch failed'; then
           if [ "$_net_retries" -lt "${_AUTOPILOT_NET_RETRIES_MAX:-3}" ]; then
-            _net_retries=$(( _net_retries + 1 ))
+            _net_retries=$((_net_retries + 1))
             local _net_max="${_AUTOPILOT_NET_WAIT_MAX:-1800}" _net_deadline _net_ok=0
-            _net_deadline=$(( $(date +%s) + _net_max ))
+            _net_deadline=$(($(date +%s) + _net_max))
             printf '\nautoclaude: API unreachable (%s). Polling connectivity, max %ss (retry %s/%s)…\n' \
               "$_api_fail" "$_net_max" "$_net_retries" "${_AUTOPILOT_NET_RETRIES_MAX:-3}" >&2
             while :; do
-              if curl -m 5 -s -o /dev/null https://api.anthropic.com; then _net_ok=1; break; fi
+              if curl -m 5 -s -o /dev/null https://api.anthropic.com; then
+                _net_ok=1
+                break
+              fi
               [ "$(date +%s)" -ge "$_net_deadline" ] && break
               sleep 30
             done
@@ -292,7 +299,7 @@ autoclaude() {
     # numeric test below and silently drop both keys, 2026-07-13).
     local _ts_end _wall _cost _tokens_out
     _ts_end=$(date +%s)
-    _wall=$(( _ts_end - _ts_start ))
+    _wall=$((_ts_end - _ts_start))
     _cost=$(jq -rR 'fromjson? | select(.type=="result") | .total_cost_usd // empty' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
     _tokens_out=$(jq -rR 'fromjson? | select(.type=="result") | .usage.output_tokens // empty' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
     jq -nc \
@@ -310,13 +317,13 @@ autoclaude() {
       '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal,model:$model}
        + (if ($cost | test("^[0-9.]+$")) then {cost_usd: ($cost | tonumber)} else {} end)
        + (if ($tokens_out | test("^[0-9]+$")) then {tokens_out: ($tokens_out | tonumber)} else {} end)' \
-      2>/dev/null >> "$_ap_dir/loop-metrics.jsonl" || true
+      2>/dev/null >>"$_ap_dir/loop-metrics.jsonl" || true
 
     # ── Act on the branch ──
     case "$_signal" in
     continue)
       if [ -n "$_limit_wait" ]; then
-        printf '\nautoclaude: usage limit hit; waiting %s min (%s).\n' "$(( _limit_wait / 60 ))" "$_detail"
+        printf '\nautoclaude: usage limit hit; waiting %s min (%s).\n' "$((_limit_wait / 60))" "$_detail"
         python3 ~/.claude/hooks/notify.py --send "autopilot ⏳ ${PWD##*/}" "Usage limit; $_detail." 2>/dev/null
         sleep "$_limit_wait"
       elif [ "$_detail" = "replan" ]; then
@@ -359,8 +366,10 @@ autoclaude() {
 
 start_qwen() {
   llama-server \
-    -hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL \
-    --alias "unsloth/Qwen3.6-35B-A3B" \
+    -hf unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL \
+    --alias "unsloth/Qwen3.6-27B-MTP" \
+    --spec-type draft-mtp \
+    --spec-draft-n-max 2 \
     --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.00 \
     --ctx-size 131072 \
     --flash-attn on \
