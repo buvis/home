@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import pytest
 from rich.text import Text
 
 from tracon import stream
@@ -249,6 +251,26 @@ def test_log_tail_file_disappearance_triggers_session_reset_without_raising(
     assert reset2 is True
 
 
+def test_log_tail_file_appearing_while_watched_sets_session_start(tmp_path: Path) -> None:
+    # We were already polling (log file did not exist yet) when the session's log
+    # appeared and started receiving lines -- we watched it begin, so session_start
+    # must be set, unlike attaching to a log that already had content on first look.
+    path = tmp_path / "last-session.log"
+    log_tail = stream.LogTail(path, tail_bytes=1_000_000)
+    assert log_tail.session_start is None
+
+    lines1, reset1 = log_tail.read_new()  # path does not exist yet
+    assert lines1 == []
+    assert log_tail.session_start is None
+
+    path.write_text("A\nB\n")
+    lines2, reset2 = log_tail.read_new()
+
+    assert lines2 == ["A", "B"]
+    assert log_tail.session_start is not None
+    assert abs(log_tail.session_start - time.time()) < 5
+
+
 # --- LogTail: partial trailing line buffering --------------------------------
 
 
@@ -274,11 +296,33 @@ def test_log_tail_partial_trailing_line_buffered_until_completed(tmp_path: Path)
 
 
 def test_totals_dedupe_uses_real_captured_assistant_event_shape() -> None:
+    # Header contract: tokens up(input + cache-creation) cached(cache-read) out(output).
+    # cache_creation_input_tokens belongs in the "up" bucket, not "cached" -- it is new
+    # context being written to the cache, not context served from it.
     usage = stream.SessionUsage()
     event = _real_assistant_event()
     usage.feed(event)
     usage.feed(event)  # same message.id fed twice must count once
-    assert usage.totals() == (2, 42117 + 17592, 1)
+    assert usage.totals() == (2 + 42117, 17592, 1)
+
+
+def test_totals_up_bucket_includes_cache_creation_not_cache_read() -> None:
+    # input_tokens, cache_creation_input_tokens, and cache_read_input_tokens are all
+    # distinct and non-zero here so the three buckets cannot be confused with each other.
+    usage = stream.SessionUsage()
+    usage.feed(
+        _assistant_event(
+            "msg_1",
+            input_tokens=100,
+            cache_read_input_tokens=20,
+            cache_creation_input_tokens=7,
+            output_tokens=3,
+        )
+    )
+    up, cached, out = usage.totals()
+    assert up == 100 + 7  # input_tokens + cache_creation_input_tokens
+    assert cached == 20  # cache_read_input_tokens only
+    assert out == 3
 
 
 def test_totals_sums_tokens_across_distinct_message_ids() -> None:
@@ -301,7 +345,8 @@ def test_totals_sums_tokens_across_distinct_message_ids() -> None:
             output_tokens=7,
         )
     )
-    assert usage.totals() == (11, 11, 10)
+    # up = (10+0) + (1+4) = 15; cached = 5 + 2 = 7; out = 3 + 7 = 10
+    assert usage.totals() == (15, 7, 10)
 
 
 def test_context_size_reflects_only_the_last_fed_message() -> None:
@@ -455,6 +500,44 @@ def test_task_notification_terminal_status_retires_lane() -> None:
     tracker = stream.AgentTracker()
     tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
     tracker.feed(_task_notification("t1", "failed"))
+    assert tracker.live_lanes() == []
+
+
+@pytest.mark.parametrize("status", ["in_progress", "running", "queued"])
+def test_non_terminal_status_via_task_updated_keeps_lane_live(status: str) -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
+    tracker.feed(_task_updated("t1", status))
+    lanes = tracker.live_lanes()
+    assert len(lanes) == 1
+    assert lanes[0].task_id == "t1"
+    assert lanes[0].done is False
+
+
+@pytest.mark.parametrize("status", ["in_progress", "running", "queued"])
+def test_non_terminal_status_via_task_notification_keeps_lane_live(status: str) -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
+    tracker.feed(_task_notification("t1", status))
+    lanes = tracker.live_lanes()
+    assert len(lanes) == 1
+    assert lanes[0].task_id == "t1"
+    assert lanes[0].done is False
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "stopped", "killed"])
+def test_terminal_status_via_task_updated_retires_lane(status: str) -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
+    tracker.feed(_task_updated("t1", status))
+    assert tracker.live_lanes() == []
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "stopped", "killed"])
+def test_terminal_status_via_task_notification_retires_lane(status: str) -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
+    tracker.feed(_task_notification("t1", status))
     assert tracker.live_lanes() == []
 
 
