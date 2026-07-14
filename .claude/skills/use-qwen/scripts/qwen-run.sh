@@ -159,6 +159,10 @@ if [ ! -f "$MODELS_JSON" ]; then
     echo "ERROR: preflight failed (endpoint_unreachable): pi model config not found: $MODELS_JSON" >&2
     exit 1
 fi
+if [ -n "$APPROVED_ONLY" ] && [ ! -f "$REGISTRY" ]; then
+    echo "ERROR: preflight failed (model_id_missing): approved-models registry not found at $REGISTRY (--approved-only requires it)." >&2
+    exit 1
+fi
 
 # Ask a provider's llama-server for the id it's actually serving (empty if down).
 # Fast pre-check only — a listing is never the deciding health signal.
@@ -167,13 +171,19 @@ fi
 # before the endpoint_unreachable error could be printed).
 probe_model() { curl -sf --max-time 2 "$1/models" < /dev/null 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null || true; }
 
+# Full list of ids a provider's /v1/models currently serves (one per line,
+# empty if down). Used only under --approved-only, where an approved id may
+# sit at any position in the listing, not just [0].
+probe_models() { curl -sf --max-time 2 "$1/models" < /dev/null 2>/dev/null | jq -r '.data[].id' 2>/dev/null || true; }
+
 # Look up a provider's baseUrl from the config (empty if the provider is absent).
 provider_base_url() { jq -r --arg p "$1" '.providers[$p].baseUrl // empty' "$MODELS_JSON" < /dev/null; }
 
-# --approved-only: true if $1 is an exact line in the registry. Comments and
-# blank lines can never match a real model id via fixed-string exact match, so
-# no separate filtering is needed.
-is_approved() { grep -qFx "$1" "$REGISTRY" 2>/dev/null; }
+# --approved-only: true if $1 is an exact line in the registry. The registry
+# can contain blank lines (formatting/section breaks), so the empty string is
+# rejected explicitly instead of letting it exact-match one; `--` stops a
+# `-`-prefixed model id from being parsed as a grep option.
+is_approved() { [ -n "$1" ] && grep -qFx -- "$1" "$REGISTRY" 2>/dev/null; }
 
 # The deciding health signal: a real 1-token completion against the served
 # model (max_tokens=1). Exercises the lazy worker spawn that /v1/models never
@@ -200,12 +210,24 @@ if [ -n "$PROVIDER" ]; then
         exit 1
     fi
     if [ -z "$MODEL" ]; then
-        MODEL="$(probe_model "$BASE_URL")"
-        [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
+        if [ -n "$APPROVED_ONLY" ]; then
+            # Scan every id this provider serves for the first approved one,
+            # not just .data[0].id (same defect/fix as the auto-detect branch).
+            ids="$(probe_models "$BASE_URL")"
+            [ -z "$ids" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
+            while IFS= read -r id; do
+                is_approved "$id" && { MODEL="$id"; break; }
+            done <<< "$ids"
+        else
+            MODEL="$(probe_model "$BASE_URL")"
+            [ -z "$MODEL" ] && { echo "ERROR: preflight failed (endpoint_unreachable): no server responding at $BASE_URL (provider $PROVIDER). Start llama-server or pass -m." >&2; exit 1; }
+        fi
     fi
-    if [ -n "$APPROVED_ONLY" ] && ! is_approved "$MODEL"; then
-        echo "ERROR: preflight failed (model_id_missing): '$MODEL' at $BASE_URL (provider $PROVIDER) is not in the approved registry ($REGISTRY)." >&2
-        exit 1
+    if [ -n "$APPROVED_ONLY" ]; then
+        if ! is_approved "$MODEL" || ! probe_models "$BASE_URL" | grep -qFx -- "$MODEL"; then
+            echo "ERROR: preflight failed (model_id_missing): '$MODEL' at $BASE_URL (provider $PROVIDER) is not in the approved registry ($REGISTRY)." >&2
+            exit 1
+        fi
     fi
 else
     # Probe every provider in ascending port order; first live one wins.
@@ -215,17 +237,26 @@ else
     SAW_UNAPPROVED_LIVE=""
     while IFS=$'\t' read -r _port name base_url; do
         [ -z "$base_url" ] && continue
-        served="$(probe_model "$base_url")"
-        if [ -n "$served" ]; then
-            if [ -n "$APPROVED_ONLY" ] && ! is_approved "$served"; then
-                SAW_UNAPPROVED_LIVE="1"
+        if [ -n "$APPROVED_ONLY" ]; then
+            served=""
+            ids="$(probe_models "$base_url")"
+            if [ -n "$ids" ]; then
+                while IFS= read -r id; do
+                    is_approved "$id" && { served="$id"; break; }
+                done <<< "$ids"
+            fi
+            if [ -z "$served" ]; then
+                [ -n "$ids" ] && SAW_UNAPPROVED_LIVE="1"
                 continue
             fi
-            PROVIDER="$name"
-            BASE_URL="$base_url"
-            [ -z "$MODEL" ] && MODEL="$served"
-            break
+        else
+            served="$(probe_model "$base_url")"
+            [ -z "$served" ] && continue
         fi
+        PROVIDER="$name"
+        BASE_URL="$base_url"
+        [ -z "$MODEL" ] && MODEL="$served"
+        break
     done < <(jq -r '
         .providers | to_entries[]
         | [ ((.value.baseUrl // "") | capture(":(?<p>[0-9]+)").p // "0" | tonumber),

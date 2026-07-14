@@ -466,6 +466,21 @@ else
     FAIL "without --approved-only, resolution still takes the FIRST listed id even on a multi-id endpoint (ascending-port + .data[0].id byte-identical)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t14.argv" 2>/dev/null || echo MISSING); output: $OUT"
 fi
 
+# ══ T14b: --approved-only -P forcing the multi-id provider with NO -m must
+# still resolve the approved id at a non-first position (same multi-id
+# fixture as T13/T14; llamacpp_multi is already a named -P-addressable
+# provider in CFGDIR3/models.json). The forced-provider branch currently
+# reads only probe_model (.data[0].id), so this is expected to FAIL today. ═══
+export STUB_ARGV_FILE="$WORK/t14b.argv"
+export STUB_STDIN_FILE="$WORK/t14b.stdin"
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR3" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH_APPROVED" --approved-only -P llamacpp_multi -f "$PROMPT_FILE_T" < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t14b.argv" ] && grep -q "mock-approved" "$WORK/t14b.argv" && ! grep -q "decoy-multi-id" "$WORK/t14b.argv"; then
+    PASS "-P a provider serving the approved id at a non-first position resolves and dispatches it (forced-provider path is not .data[0].id-only)"
+else
+    FAIL "-P a provider serving the approved id at a non-first position resolves and dispatches it (forced-provider path is not .data[0].id-only)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t14b.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+
 # ══ T15: -P forcing a provider that SERVES an unapproved id, plus an approved
 # -m, is refused (the live-served id is probed, not the claimed -m value) ═════
 run_qwen2 t15 -P llamacpp_low -m mock-approved --approved-only -f "$PROMPT_FILE_T"
@@ -525,7 +540,10 @@ fi
 # ══ dash-id fixture: a healthy provider whose /v1/models reports "-e" (an
 # option-shaped id) as its sole id. Append "-e" to the shared T7-T12 registry
 # (safe: those assertions already ran and check unrelated ids).
-echo "-e" >> "$REGISTRY_PATH"
+# printf, NOT echo: bash's echo builtin eats a sole "-e" as its own flag and
+# appends an empty line, which silently left the registry without the very id
+# this fixture exists to test.
+printf '%s\n' "-e" >> "$REGISTRY_PATH"
 
 PORT_DASH=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 python3 "$WORK/server.py" "$PORT_DASH" "$MODE_FILE_2" "-e" &
