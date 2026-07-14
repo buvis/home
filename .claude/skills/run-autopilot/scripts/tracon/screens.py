@@ -177,30 +177,34 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
             self.set_interval(FLEET_TICK, self.refresh_table)
 
         def refresh_table(self) -> None:
-            rows = [discovery.loop_status(r) for r in roots]
+            if forced is not None:
+                current_roots = [forced]
+            else:
+                current_roots = discovery.discover_loops()
+                
+            rows = [discovery.loop_status(r) for r in current_roots]
             sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))
 
             cursor_row = self.table.cursor_row
+            selected_root = self._roots[cursor_row] if cursor_row is not None and cursor_row < len(self._roots) else None
+
             self.table.clear()
             self._roots = []
+            
+            if not sorted_rows:
+                self.table.add_row("No loops found.", "", "", "", "", "", "", "")
+                return
+
             for r in sorted_rows:
                 self._roots.append(r.root)
-                prd = r.prd if len(r.prd) <= 44 else r.prd[:43] + "…"
-                cost_t = Text(f"${r.cost:.2f}")
-                if r.live_cost > 0:
-                    cost_t.append(f" +${r.live_cost:.2f}", style="dim")
-                self.table.add_row(
-                    r.name,
-                    Text(r.status.label, style=r.status.style),
-                    r.phase,
-                    prd,
-                    r.task,
-                    r.cycle,
-                    cost_t,
-                    str(r.sessions),
-                )
-            if cursor_row is not None and cursor_row < len(sorted_rows):
-                self.table.move_cursor(row=cursor_row)
+                self.table.add_row(*panels.fleet_cells(r))
+
+            if selected_root is not None:
+                try:
+                    new_cursor_row = self._roots.index(selected_root)
+                    self.table.move_cursor(row=new_cursor_row)
+                except ValueError:
+                    pass
 
         def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
             root = self._roots[event.cursor_row]
@@ -236,7 +240,7 @@ def run_once(root: Path | None = None) -> int:
 
     if root is None:
         cwd = Path.cwd()
-        cwd_loops = [r for r in loops if cwd in r.parents or cwd == r]
+        cwd_loops = [r for r in loops if r == cwd or r in cwd.parents]
         if cwd_loops:
             root = cwd_loops[0]
         else:
