@@ -24,6 +24,18 @@ LOG_KEEP = 5000
 DETAIL_TICK = 0.5
 FLEET_TICK = 2.0
 
+# Rendered label discovery.classify() uses for each terminal loop-metrics
+# signal -- reused verbatim for the wrapper-dead loop-exit banner.
+_SIGNAL_LABELS = {"done": "drained", "died": "died", "paused": "paused"}
+
+
+def _final_signal_label(root: Path) -> str:
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    rows = model.read_metrics(autopilot_dir / "loop-metrics.jsonl")
+    last = model.last_row(rows)
+    signal = last.signal if last is not None else ""
+    return _SIGNAL_LABELS.get(signal, signal)
+
 
 class Collector:
     def __init__(self, root: Path) -> None:
@@ -95,17 +107,26 @@ class Collector:
         return panel, panels.head_rows(agents)
 
 
-def build_app(roots: list[Path], forced: Path | None = None) -> App:
+def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> App:
     from textual.app import App, ComposeResult
     from textual.widgets import DataTable, RichLog, Static, Footer
     from textual.screen import Screen
     from textual.binding import Binding
 
+    wrapper_root = forced if forced is not None else (roots[0] if roots else None)
+
+    def _touch_pause_marker(app: App, root: Path) -> None:
+        try:
+            (root / "dev" / "local" / "autopilot" / "pause-requested").touch()
+        except OSError as exc:
+            app.notify(f"pause-requested write failed: {exc}", severity="error")
+
     class DetailScreen(Screen):
         BINDINGS = [
             Binding("escape", "app.pop_screen", "Back"),
             Binding("f", "toggle_follow", "Toggle Follow"),
-            Binding("q", "app.quit", "Quit"),
+            Binding("q", "app.detach", "Detach"),
+            Binding("p", "pause_loop", "Pause"),
         ]
 
         def __init__(self, root: Path) -> None:
@@ -160,9 +181,13 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
             log = self.query_one("#log", RichLog)
             log.auto_scroll = not log.auto_scroll
 
+        def action_pause_loop(self) -> None:
+            _touch_pause_marker(self.app, self.root)
+
     class DashboardScreen(Screen):
         BINDINGS = [
-            Binding("q", "app.quit", "Quit"),
+            Binding("q", "app.detach", "Detach"),
+            Binding("p", "pause_loop", "Pause"),
         ]
 
         def compose(self) -> ComposeResult:
@@ -177,10 +202,7 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
             self.set_interval(FLEET_TICK, self.refresh_table)
 
         def refresh_table(self) -> None:
-            if forced is not None:
-                current_roots = [forced]
-            else:
-                current_roots = discovery.discover_loops()
+            current_roots = discovery.discover_loops()
 
             rows = [discovery.loop_status(r) for r in current_roots]
             sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))
@@ -212,20 +234,54 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
             root = self._roots[event.cursor_row]
             self.app.push_screen(DetailScreen(root))
 
+        def action_pause_loop(self) -> None:
+            cursor_row = self.table.cursor_row
+            if cursor_row is None or cursor_row >= len(self._roots):
+                return
+            _touch_pause_marker(self.app, self._roots[cursor_row])
+
+    class _WrapperDeadScreen(Screen):
+        def __init__(self, label: str) -> None:
+            super().__init__()
+            self._label = label
+
+        def compose(self) -> ComposeResult:
+            yield Static(f"loop exited: {self._label}")
+
     class TraconApp(App):
+        BINDINGS = [Binding("ctrl+c", "quit", "Stop loop", priority=True)]
+
         def on_mount(self) -> None:
             self.push_screen(DashboardScreen())
             if forced is not None:
                 self.push_screen(DetailScreen(forced))
             elif len(roots) == 1:
                 self.push_screen(DetailScreen(roots[0]))
+            if wrapper_pid is not None:
+                self._wrapper_alive = True
+                self.set_interval(2.0, self._poll_wrapper)
+
+        def action_quit(self) -> None:
+            self.exit(return_code=130)
+
+        def action_detach(self) -> None:
+            self.exit(return_code=0)
+
+        def _poll_wrapper(self) -> None:
+            alive = discovery.pid_alive(wrapper_pid)
+            if self._wrapper_alive and not alive:
+                self._wrapper_alive = False
+                label = _final_signal_label(wrapper_root)
+                self.push_screen(_WrapperDeadScreen(label))
+                self.set_timer(2.0, lambda: self.exit(return_code=3))
 
     return TraconApp()
 
 
-def run_app(roots: list[Path], forced: Path | None = None) -> int:
-    build_app(roots, forced).run()
-    return 0
+def run_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> int:
+    app = build_app(roots, forced, wrapper_pid)
+    app.run()
+    return app.return_code
 
 
 def run_once(root: Path | None = None) -> int:

@@ -17,16 +17,25 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--wrapper-pid", type=int)
     args = parser.parse_args()
+
+    if args.preflight:
+        import importlib
+
+        importlib.import_module("rich")
+        importlib.import_module("textual")
+        return 0
 
     try:
         if args.once:
             return screens.run_once(args.root)
 
         loops = discovery.discover_loops()
-        return screens.run_app(loops, args.root)
+        return screens.run_app(loops, args.root, wrapper_pid=args.wrapper_pid)
     except KeyboardInterrupt:
-        return 0
+        return 130
 
 if __name__ == "__main__":
     sys.exit(main())
