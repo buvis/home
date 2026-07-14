@@ -142,6 +142,40 @@ def test_second_run_is_idempotent(tmp_path, capsys):
     assert "trash=0" in capsys.readouterr().out
 
 
+def test_ledger_is_exempt_from_autopilot_age(tmp_path):
+    store = make_store(tmp_path)
+    touch(store / "autopilot" / "ledger" / "loop-metrics.jsonl", days_old=200)
+    touch(store / "autopilot" / "old-report.md", days_old=20)
+    run(store, "--apply")
+    assert (store / "autopilot" / "ledger" / "loop-metrics.jsonl").exists()
+    assert not (store / "autopilot" / "old-report.md").exists()
+
+
+def test_trashed_review_verdicts_land_in_ledger(tmp_path):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    review = store / "reviews" / "00042-foo-alice.md"
+    touch(review)
+    review.write_text("---\nreviewers: alice\n---\nVerdict: APPROVED\nTests: pass\n")
+    ts = NOW - 10 * gc.DAY
+    os.utime(review, (ts, ts))
+    run(store, "--apply")
+    assert not review.exists()
+    row = (store / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
+    assert '"prd": "00042"' in row
+    assert "APPROVED" in row
+    assert '"reviewers": "alice"' in row
+
+
+def test_review_without_verdict_trashes_without_ledger_row(tmp_path):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "reviews" / "00042-notes.md", days_old=10)
+    run(store, "--apply")
+    assert not (store / "reviews" / "00042-notes.md").exists()
+    assert not (store / "autopilot" / "ledger" / "review-verdicts.jsonl").exists()
+
+
 def test_empty_trash_ages_out_old_batches_only(tmp_path):
     store = make_store(tmp_path)
     old = store / gc.TRASH_DIR / "2020-01-01" / "x.md"

@@ -42,6 +42,7 @@ manifest, and trash batches older than 30 days are emptied on later runs.
 | done-linked | any non-prds file carrying a done PRD number | trash |
 | missing-prd | numbered designs/reviews/plans/root files with no PRD anywhere | trash |
 | stale-tmp | tmp/** older than 7d | trash |
+| ledger | autopilot/ledger/** (durable outcome ledger) | keep |
 | stale-autopilot | autopilot/** older than 14d | trash |
 | stale-log | root *.log, *.bak, *.tmp older than 7d | trash |
 | unclassified | everything else | keep, counted |
@@ -55,6 +56,11 @@ absorbed by the 30-day trash window.
 `<store>/.trash/manifest.tsv` records `date, rule, original path, trash path`
 for every move. Restore by `mv`-ing the file back. Trash survives 30 days
 (`--empty-trash-days`).
+
+Trashed `reviews/*.md` leave their `Verdict:` lines in
+`autopilot/ledger/review-verdicts.jsonl` before the move - review outcomes
+outlive the satellite GC, and the wrapper appends loop-metrics to the same
+GC-exempt `ledger/` dir.
 
 ## Wire-in
 

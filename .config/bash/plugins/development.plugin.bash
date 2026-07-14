@@ -58,6 +58,8 @@ autoclaude() {
   export _AUTOPILOT_LOOP=$$
   local _cap_pid=""    # session-cap sidecar pid; referenced by the INT/TERM traps
   local _net_retries=0 # consecutive network-death relaunches (decide branch 5)
+  local _fp_prev=""    # progress fingerprint of the previous continue-branch session
+  local _fp_repeats=0  # consecutive sessions with an identical fingerprint
 
   # Kill orphaned (PPID=1) processes tagged with our marker.
   # Uses SIGHUP so shells propagate the signal to their children.
@@ -286,6 +288,32 @@ autoclaude() {
       fi
     fi
 
+    # Progress-fingerprint bound (2026-07-14): branch (4) relaunches are
+    # self-healing by design, but nothing bounded a session that touches
+    # state without advancing ANY progress counter — the retired pre-00014
+    # thrash guard's old job. Fingerprint = the fields that must move for
+    # the batch to progress; N identical fingerprints in a row = the loop
+    # is burning sessions on nothing. Cap deliberately generous (the 2026-06
+    # guard fired at 3 and its halts were mostly benign):
+    # _AUTOPILOT_PHASE_REPEATS_MAX, default 5. Any progress resets it.
+    if [ "$_signal" = "continue" ] && [ "$_state_touched" -eq 1 ] && [ "$_detail" != "replan" ]; then
+      local _fp
+      _fp=$(jq -r '[.prd, .next_phase, (.tasks_completed // -1), (.review_cycles // -1), (.cycle // -1), ((.cap_rotations // []) | length), (.replan_count // -1)] | map(tostring) | join("|")' "$_state" 2>/dev/null)
+      if [ -n "$_fp" ] && [ "$_fp" = "$_fp_prev" ]; then
+        _fp_repeats=$((_fp_repeats + 1))
+        if [ "$_fp_repeats" -ge "${_AUTOPILOT_PHASE_REPEATS_MAX:-5}" ]; then
+          _signal="paused"
+          _detail="no measurable progress across ${_fp_repeats} consecutive sessions (fingerprint ${_fp}); inspect state.json"
+        fi
+      else
+        _fp_repeats=0
+      fi
+      _fp_prev="$_fp"
+    else
+      _fp_repeats=0
+      _fp_prev=""
+    fi
+
     # Loop metrics (PRD 00013): append exactly one JSONL line per session,
     # after the decision and before any exit path, so every branch records
     # the line. Observation only — the append can never block or fail the
@@ -297,12 +325,12 @@ autoclaude() {
     # event PER re-invoke, each with the cumulative conversation cost —
     # `tail -n 1` takes the final one (a multi-line match used to fail the
     # numeric test below and silently drop both keys, 2026-07-13).
-    local _ts_end _wall _cost _tokens_out
+    local _ts_end _wall _cost _tokens_out _mline
     _ts_end=$(date +%s)
     _wall=$((_ts_end - _ts_start))
     _cost=$(jq -rR 'fromjson? | select(.type=="result") | .total_cost_usd // empty' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
     _tokens_out=$(jq -rR 'fromjson? | select(.type=="result") | .usage.output_tokens // empty' "$_ap_dir/last-session.log" 2>/dev/null | tail -n 1)
-    jq -nc \
+    _mline=$(jq -nc \
       --argjson ts_start "$_ts_start" \
       --argjson ts_end "$_ts_end" \
       --argjson wall_secs "$_wall" \
@@ -317,7 +345,16 @@ autoclaude() {
       '{ts_start:$ts_start,ts_end:$ts_end,wall_secs:$wall_secs,prd:$prd,batch:$batch,phase_launched:$phase_launched,phase_end:$phase_end,signal:$signal,model:$model}
        + (if ($cost | test("^[0-9.]+$")) then {cost_usd: ($cost | tonumber)} else {} end)
        + (if ($tokens_out | test("^[0-9]+$")) then {tokens_out: ($tokens_out | tonumber)} else {} end)' \
-      2>/dev/null >>"$_ap_dir/loop-metrics.jsonl" || true
+      2>/dev/null) || _mline=""
+    if [ -n "$_mline" ]; then
+      printf '%s\n' "$_mline" >>"$_ap_dir/loop-metrics.jsonl" 2>/dev/null || true
+      # Durable ledger (2026-07-14): purge-devlocal GC'd every repo's
+      # loop-metrics at 14d before the quarter's eval could read them.
+      # ledger/ is GC-exempt, so outcome data survives for tuning (00079)
+      # and debriefs. Same sanctioned-silent-failure scope as above.
+      { mkdir -p "$_ap_dir/ledger" &&
+        printf '%s\n' "$_mline" >>"$_ap_dir/ledger/loop-metrics.jsonl"; } 2>/dev/null || true
+    fi
 
     # ── Act on the branch ──
     case "$_signal" in
@@ -375,5 +412,7 @@ start_qwen() {
     --flash-attn on \
     --cache-type-k q8_0 --cache-type-v q8_0 \
     --jinja \
-    --port 8001
+    --port 8001 \
+    --no-log-timestamps 2>&1 |
+    gawk '{ print strftime("%H:%M:%S"), $0; fflush() }'
 }
