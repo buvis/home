@@ -312,6 +312,51 @@ def test_elapsed_renders_em_dash_when_unknown() -> None:
     assert "—" in rendered
 
 
+def test_elapsed_survives_known_batch_start_with_no_metrics_rows() -> None:
+    """A batch whose id parses as a timestamp but which has written no metrics
+    row yet, while NOT in flight (no log): batch_start is known, but `last` is
+    None, so there is no end timestamp to measure to. Elapsed is unknown, not a
+    crash -- the header renders on a 0.5s tick and must never raise."""
+    status = Status(label="○ no log", style="dim", rank=3, in_flight=False)
+    rendered = _render(
+        _head(
+            rows=[],
+            status=status,
+            batch_id="202607120753",  # parses via the "%Y%m%d%H%M" fallback
+            now=2000.0,
+        )
+    )
+    assert "—" in rendered
+
+
+def test_elapsed_survives_last_row_missing_ts_end() -> None:
+    """A partially-written final metrics line carries no ts_end. Not in flight,
+    so elapsed would measure to that missing timestamp: unknown, not a crash."""
+    status = Status(label="○ idle", style="dim", rank=3, in_flight=False)
+    rendered = _render(
+        _head(
+            rows=[_mrow(ts_start=1000.0, ts_end=None)],
+            status=status,
+            batch_id="B1",
+            now=2000.0,
+        )
+    )
+    assert "—" in rendered
+
+
+def test_row1_renders_em_dash_for_unknown_task_and_cycle_counts() -> None:
+    """A stateless or partial loop has None task/cycle counts. The header must
+    not print the literal string "None/None" at the operator."""
+    rendered = _render(
+        _head(
+            state=_state(
+                tasks_total=None, tasks_completed=None, cycle=None, rework_cap=None
+            )
+        )
+    )
+    assert "None" not in rendered
+
+
 # --- build_head: backlog/wip come from the injected tuple, never disk --------
 
 
