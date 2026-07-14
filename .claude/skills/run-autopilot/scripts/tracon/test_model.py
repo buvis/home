@@ -112,6 +112,13 @@ def test_read_state_non_dict_top_level_is_treated_as_not_exists(
     assert state.exists is False
 
 
+def test_read_state_survives_non_utf8_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "state.json"
+    path.write_bytes(b'{"prd": "x.md", "phase": "\xff\xfebuild"}')
+    state = model.read_state(path)
+    assert state.exists is False
+
+
 def test_read_state_partial_file_defaults_every_absent_field(
     tmp_path: Path,
 ) -> None:
@@ -237,6 +244,17 @@ def test_read_metrics_skips_unparseable_line_and_keeps_file_order(
     )
     rows = model.read_metrics(path, batch=None)
     assert [r.phase_end for r in rows] == ["build", "done"]
+
+
+def test_read_metrics_survives_non_utf8_line(tmp_path: Path) -> None:
+    path = tmp_path / "loop-metrics.jsonl"
+    path.write_bytes(_metrics_line(phase_end="build").encode("utf-8") + b"\n\xff\xfe not utf8\n")
+    rows = model.read_metrics(path, batch=None)
+    assert isinstance(rows, list)
+
+
+def test_read_metrics_survives_missing_file(tmp_path: Path) -> None:
+    assert model.read_metrics(tmp_path / "nope.jsonl") == []
 
 
 def test_read_metrics_defaults_absent_optional_fields(tmp_path: Path) -> None:

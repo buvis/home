@@ -113,11 +113,11 @@ def _empty_state() -> LoopState:
 def read_state(path: Path) -> LoopState:
     try:
         text = path.read_text()
-    except OSError:
+    except (OSError, ValueError):
         return _empty_state()
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return _empty_state()
     if not isinstance(data, dict):
         return _empty_state()
@@ -135,6 +135,17 @@ def read_state(path: Path) -> LoopState:
         exists=True,
         raw=data,
     )
+
+
+def _parse_json_object_line(line: str) -> dict[str, Any] | None:
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        data = json.loads(line)
+    except (ValueError, RecursionError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _parse_metrics_row(data: dict[str, Any]) -> MetricsRow:
@@ -158,18 +169,12 @@ def read_metrics(path: Path, batch: str | None = None) -> list[MetricsRow]:
         return []
     try:
         lines = path.read_text().splitlines()
-    except OSError:
+    except (OSError, ValueError):
         return []
     rows: list[MetricsRow] = []
     for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(data, dict):
+        data = _parse_json_object_line(line)
+        if data is None:
             continue
         row = _parse_metrics_row(data)
         if batch is not None and row.batch != batch:
@@ -256,14 +261,10 @@ def scan_session_cost(path: Path, tail_bytes: int = TAIL_BYTES) -> float:
     lines = chunk.decode("utf-8", errors="ignore").split("\n")
     cost = 0.0
     for line in lines:
-        line = line.strip()
-        if not line:
+        data = _parse_json_object_line(line)
+        if data is None:
             continue
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, dict) and data.get("type") == "result":
+        if data.get("type") == "result":
             c = data.get("total_cost_usd")
             if isinstance(c, (int, float)) and not isinstance(c, bool):
                 cost = float(c)
