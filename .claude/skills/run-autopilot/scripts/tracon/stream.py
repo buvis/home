@@ -228,10 +228,11 @@ class AgentTracker:
             if task_id not in self._by_task:
                 kind = str(item.get("task_type") or "local_bash")
                 label = str(item.get("description") or task_id)[:20]
-                self._register(task_id=task_id, tool_use_id=task_id, label=label, kind=kind)
-            lane = self._by_task[task_id]
+                lane = self._register(task_id=task_id, tool_use_id=task_id, label=label, kind=kind)
+            else:
+                lane = self._by_task[task_id]
             if lane.kind == "local_bash":
-                lane.status = str(item.get("status") or "")
+                lane.status = str(item.get("status") or "running")
         for task_id, lane in self._by_task.items():
             if lane.kind == "local_bash" and task_id not in alive:
                 lane.done = True

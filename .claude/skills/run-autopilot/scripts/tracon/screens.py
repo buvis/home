@@ -207,6 +207,8 @@ def build_app(roots: list[Path], forced: Path | None = None) -> App:
                     pass
 
         def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+            if event.cursor_row >= len(self._roots):
+                return
             root = self._roots[event.cursor_row]
             self.app.push_screen(DetailScreen(root))
 
