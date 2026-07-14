@@ -282,6 +282,7 @@ def test_run_once_falls_back_to_home_claude_when_no_root_contains_cwd(
 
 def test_dashboard_pilot_lists_loops_then_enter_and_f_drive_detail_screen(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pytest.importorskip("textual")
     from textual.widgets import DataTable, RichLog
@@ -290,6 +291,10 @@ def test_dashboard_pilot_lists_loops_then_enter_and_f_drive_detail_screen(
 
     root_a = _make_loop(tmp_path / "loop-a")
     root_b = _make_loop(tmp_path / "loop-b")
+    # isolate from the real machine: refresh_table re-discovers on every
+    # tick, so without this the fleet tick would read this developer
+    # machine's real gita registry instead of the temp fixture roots.
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_a, root_b])
 
     async def _drive() -> None:
         app = screens.build_app([root_a, root_b])
@@ -313,6 +318,7 @@ def test_dashboard_pilot_lists_loops_then_enter_and_f_drive_detail_screen(
 
 def test_lines_written_after_attach_are_not_banner_ed_as_replay(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Attaching to an idle loop and watching it start is the common workflow.
     Its first lines are LIVE, not pre-attach history: they must not arrive under
@@ -324,6 +330,9 @@ def test_lines_written_after_attach_are_not_banner_ed_as_replay(
 
     root = _make_loop(tmp_path / "idle-loop", log_lines=[])  # log exists, empty
     log_path = root / "dev" / "local" / "autopilot" / "last-session.log"
+    # isolate from the real machine: DashboardScreen mounts underneath the
+    # auto-pushed DetailScreen and re-discovers on every fleet tick.
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
 
     async def _drive() -> None:
         app = screens.build_app([root])  # single root -> auto-pushes DetailScreen
@@ -420,6 +429,7 @@ def test_forced_root_pins_dashboard_to_one_loop_without_rediscovery(
 
 def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """'Cursor position survives refresh' means the cursor stays on the same
     LOOP after a refresh, even when the attention-first sort order changes
@@ -433,6 +443,9 @@ def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
 
     root_alpha = _make_loop(tmp_path / "alpha")
     root_beta = _make_loop(tmp_path / "beta")
+    # isolate from the real machine: refresh_table() (called explicitly
+    # below, and by the fleet tick) re-discovers on every call.
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_alpha, root_beta])
 
     async def _drive() -> None:
         app = screens.build_app([root_alpha, root_beta])
@@ -470,6 +483,7 @@ def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
 
 def test_dashboard_table_sorts_rows_by_status_rank_before_name(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Both fleet views sort by (status.rank, name): a lower-rank status must
     sort before a higher-rank one even when its name is alphabetically
@@ -481,6 +495,9 @@ def test_dashboard_table_sorts_rows_by_status_rank_before_name(
 
     root_alpha = _make_loop(tmp_path / "alpha")
     root_zeta = _make_loop(tmp_path / "zeta")
+    # isolate from the real machine: DashboardScreen re-discovers on mount
+    # and on every fleet tick.
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_alpha, root_zeta])
 
     state_path = root_zeta / "dev" / "local" / "autopilot" / "state.json"
     state = json.loads(state_path.read_text())
@@ -556,6 +573,9 @@ def test_dashboard_table_uses_fleet_cells_for_row_construction(
 
     root_a = _make_loop(tmp_path / "loop-a")
     root_b = _make_loop(tmp_path / "loop-b")
+    # isolate from the real machine: DashboardScreen re-discovers on mount
+    # and on every fleet tick.
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_a, root_b])
 
     calls: list[Any] = []
     original = screens.panels.fleet_cells
