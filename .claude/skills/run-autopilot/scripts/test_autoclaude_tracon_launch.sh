@@ -184,6 +184,74 @@ autoclaude
 exit $?
 EOF
 
+# ---------------------------------------------------------------------------
+# Shared stubs/helpers for section B (Ctrl-C stop semantics, scenarios 15+).
+
+# _wait_bounded <pid> <ceiling_secs> — like `wait`, but SIGKILLs the pid's
+# own process GROUP if it hasn't returned within <ceiling_secs>, so a real
+# stop regression (a hung teardown) fails this scenario loudly instead of
+# hanging the whole suite. Sets $? to the waited process's own exit status
+# on the happy path (watchdog loses the race and is reaped silently).
+_wait_bounded() {
+  local pid="$1" ceiling="$2" watchdog
+  (sleep "$ceiling"; kill -KILL -"$pid" 2>/dev/null) &
+  watchdog=$!
+  wait "$pid"
+  local rc=$?
+  kill "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  return "$rc"
+}
+
+# Child-process script for scenario 20: forces the FULL tracon launch path
+# (_AUTOPILOT_TRACON=1) inside its own standalone bash process, spawned
+# under `set -m` so it is a process-group LEADER — reproducing the real
+# terminal arrangement where a tty Ctrl-C during the pre-raw-mode window
+# (before Textual has grabbed the tty) delivers an actual SIGINT to the
+# foreground process group. That group contains this child bash process
+# and its OWN foreground `uv` call (job control is back OFF by the time
+# `uv run` executes — _autoclaude_tracon only holds `set -m` across the
+# fork so the LOOP lands in its own, separate group) — never the
+# backgrounded loop, which is a distinct process group by design. So this
+# signal lands on _autoclaude_tracon's own `trap ... INT` (the
+# async-interrupt path), not the exit-code-130 case branch scenarios
+# 15/21 exercise via a stubbed uv return; the trap then issues its OWN,
+# separate `kill -INT` at the loop's group. AP_DIR / _AUTOPILOT_LOOPS_DIR /
+# CLAUDE_PID_FILE are supplied via the environment at invocation time.
+CHILD_SCRIPT_TRACON="$TMP1/child_tracon.sh"
+cat > "$CHILD_SCRIPT_TRACON" <<'EOF'
+#!/usr/bin/env bash
+cite() { :; }
+about-plugin() { :; }
+# shellcheck source=/dev/null
+source "$PLUGIN"
+sysctl() { echo 1; }
+python3() {
+  case "$*" in
+    *_walk_up.py*)           printf '%s\n' "$AP_DIR" ;;
+    *detect_usage_limit.py*) return 1 ;;
+    *notify.py*)             : ;;
+    *)                       command python3 "$@" ;;
+  esac
+}
+_autopilot_session_cap() { :; }
+claude() {
+  printf '%s\n' "$BASHPID" >"$CLAUDE_PID_FILE"
+  sleep 30
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+uv() {
+  case "$*" in
+  *--preflight*) return 0 ;;
+  *) sleep 30 ;;   # still "starting up" when the real SIGINT below arrives
+  esac
+}
+export _AUTOPILOT_TRACON=1
+autoclaude
+exit $?
+EOF
+# ---------------------------------------------------------------------------
+
 # ── Scenario 1: registry dir absent at start; file created before the first
 #    session runs with a valid pid/root/ap_dir/started_at shape; removed
 #    after a drained exit (rc 0) ────────────────────────────────────────────
@@ -742,3 +810,281 @@ cmp "$AP14A/last-session.log" "$AP14B/last-session.log" ||
   fail "scenario 14: last-session.log differs between the render path and the tracon path (tee must sit in the same pipeline position in both)"
 
 echo "PASS: escape hatch + auto-detect never call uv (scenarios 7-8), tracon TUI invoked once with --root/--wrapper-pid + loop drains (scenario 9), preflight-fail fallback never launches a TUI (scenario 10), duplicate-loop guard blocks before any uv/claude cost (scenario 11), render-path registry contract unchanged (scenario 12), session-cap sees the child's own pid not the parent's (scenario 13), last-session.log byte-identical across presentations (scenario 14)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section B: Ctrl-C stop semantics (scenarios 15-23). Pins the approved stop
+# path:
+#   - inside tracon's raw mode, Ctrl-C arrives as a KEY EVENT and tracon
+#     exits rc=130 — an EXIT-CODE branch in _autoclaude_tracon's steady
+#     state, driven here by stubbing `uv`'s TUI call to return 130 (no pty
+#     needed: scenarios 15-19, 21, 23)
+#   - _autoclaude_tracon_stop sends SIGINT to the LOOP's process GROUP
+#     (`kill -INT -"$1"`), never a bare pid — a pid-directed INT is
+#     DEFERRED by bash until the foreground pipeline ends (measured), which
+#     is the known-bad path this suite must catch: scenario 15 pins the
+#     TIMING (fast stop vs. the claude stub's slow sleep), not just the
+#     exit code
+#   - before tracon grabs raw mode, a real tty Ctrl-C is an actual SIGINT
+#     to the foreground process group, landing on _autoclaude_tracon's own
+#     `trap ... INT` (the async-interrupt path) rather than the exit-code
+#     branch — scenario 20 is the one scenario that drives this with a
+#     genuine signal, per the CHILD_SCRIPT_TRACON recipe above
+#   - the worst regression this section must catch: after a stop, NO
+#     second session starts, and no `claude`/loop process is left orphaned
+#
+# Scenarios 15-19 assert on a SINGLE stop run (fewer, denser scenarios);
+# 20-23 are each a separate run.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Scenarios 15-19: steady-state Ctrl-C stop — rc 130 AND fast (15), the
+#    claude stub is dead (16), exactly one session ran (17), the registry
+#    is emptied (18), and the INT trap is not leaked in this shell, which
+#    keeps running (19). uv's TUI call deliberately waits for the loop's
+#    claude stub to actually be in flight before returning 130, so this
+#    scenario tests the STEADY-STATE stop, not the fork-window race
+#    (scenario 21 tests that race on purpose) ───────────────────────────
+AP15="$TMP1/s15/dev/local/autopilot"
+mkdir -p "$AP15"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010015"}}' >"$AP15/state.json"
+LOOPS15="$TMP1/s15-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS15"
+
+CLAUDE_PID15="$TMP1/s15-claude-pid"
+CLAUDE_COUNT15="$TMP1/s15-claude-count"
+: >"$CLAUDE_COUNT15"
+claude() {
+  printf '%s\n' "$BASHPID" >"$CLAUDE_PID15"
+  printf 'x\n' >>"$CLAUDE_COUNT15"
+  sleep 30
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+# Scenario-local uv override: waits (bounded) for the claude stub's pid
+# file to appear before returning 130 for the TUI call, so the stop lands
+# on a genuinely in-flight session. Restored to the shared section-A stub
+# right after this run so scenarios 20-23 below get the normal one back.
+UV_CALLS_FILE=""
+uv() {
+  case "$*" in
+  *--preflight*) return 0 ;;
+  *)
+    local i=0
+    while [ ! -s "$CLAUDE_PID15" ] && [ "$i" -lt 100 ]; do
+      sleep 0.05
+      i=$((i + 1))
+    done
+    return 130
+    ;;
+  esac
+}
+
+export _AUTOPILOT_TRACON=1
+_ts15_start=$SECONDS
+run_loop "$AP15"
+rc15=$?
+_ts15_elapsed=$((SECONDS - _ts15_start))
+unset _AUTOPILOT_TRACON
+uv() {   # restore the shared section-A stub for scenarios 20-23
+  local rec="$*"
+  [ -n "$UV_CALLS_FILE" ] && printf '%s\n' "$rec" >>"$UV_CALLS_FILE"
+  case "$rec" in
+  *--preflight*) return "$UV_PREFLIGHT_RC" ;;
+  *) return "$UV_TUI_RC" ;;
+  esac
+}
+
+# Scenario 15: rc 130, and FAST — well under the claude stub's 30s sleep.
+[ "$rc15" -eq 130 ] || fail "scenario 15: Ctrl-C stop did not return 130 (rc=$rc15)"
+[ "$_ts15_elapsed" -lt 10 ] || fail "scenario 15: Ctrl-C stop took ${_ts15_elapsed}s (>=10s) — deferred-trap bug: the stop did not return until near the claude stub's 30s sleep"
+
+# Scenario 16: the claude stub process is dead after the stop.
+[ -s "$CLAUDE_PID15" ] || fail "scenario 16 setup: claude stub never recorded its own pid"
+claude_pid15="$(cat "$CLAUDE_PID15")"
+if kill -0 "$claude_pid15" 2>/dev/null; then
+  fail "scenario 16: claude stub pid $claude_pid15 still alive after the stop"
+fi
+
+# Scenario 17: exactly one session ran — no second session started.
+count15=$(wc -l <"$CLAUDE_COUNT15")
+[ "$count15" -eq 1 ] || fail "scenario 17: expected exactly 1 claude invocation, got $count15 (a second session started after the stop)"
+
+# Scenario 18: the registry dir is empty after the stop.
+[ -z "$(command ls -A "$LOOPS15" 2>/dev/null)" ] || fail "scenario 18: registry dir $LOOPS15 not empty after the stop: $(command ls "$LOOPS15")"
+
+# Scenario 19: no leaked INT trap in this shell, and this shell survives to
+# keep running (proven by reaching every assertion below in this same,
+# still-alive shell — same technique scenario 6 already established).
+leaked_int_trap15="$(trap -p INT)"
+[ -z "$leaked_int_trap15" ] || fail "scenario 19: INT trap leaked in the invoking shell after a Ctrl-C stop: $leaked_int_trap15"
+
+echo "PASS: Ctrl-C stop is rc 130 and fast, not deferred to the claude stub's slow sleep (scenario 15), claude stub reaped (scenario 16), no second session (scenario 17), registry emptied (scenario 18), INT trap not leaked + shell survives (scenario 19)"
+
+# ── Scenario 20: a REAL SIGINT (the pre-raw-mode window) — signal the
+#    CHILD bash process's own process group exactly as a tty Ctrl-C would;
+#    per the CHILD_SCRIPT_TRACON comment above, this lands on
+#    _autoclaude_tracon's own `trap ... INT`, not the exit-code-130 branch.
+#    Converges on the same outcome: loop stopped, no orphan, rc 130 ───────
+AP20="$TMP1/s20/dev/local/autopilot"
+mkdir -p "$AP20"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010020"}}' >"$AP20/state.json"
+LOOPS20="$TMP1/s20-registry"
+CLAUDE_PID20="$TMP1/s20-claude-pid"
+
+set -m
+AP_DIR="$AP20" _AUTOPILOT_LOOPS_DIR="$LOOPS20" CLAUDE_PID_FILE="$CLAUDE_PID20" \
+  bash "$CHILD_SCRIPT_TRACON" >/dev/null 2>&1 &
+CHILD20=$!
+set +m
+
+i=0
+while [ ! -s "$CLAUDE_PID20" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+[ -s "$CLAUDE_PID20" ] || fail "scenario 20 setup: the loop's claude stub inside the child never started"
+
+kill -INT -"$CHILD20"
+_wait_bounded "$CHILD20" 20
+rc20=$?
+
+[ "$rc20" -eq 130 ] || fail "scenario 20: a real group SIGINT (pre-raw-mode window) did not converge to rc 130 (rc=$rc20)"
+
+claude_pid20="$(cat "$CLAUDE_PID20")"
+if kill -0 "$claude_pid20" 2>/dev/null; then
+  fail "scenario 20: claude stub pid $claude_pid20 (inside the child's loop) still alive after the real SIGINT stop"
+fi
+
+i=0
+while [ -n "$(command ls -A "$LOOPS20" 2>/dev/null)" ] && [ "$i" -lt 40 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+[ -z "$(command ls -A "$LOOPS20" 2>/dev/null)" ] || fail "scenario 20: registry dir $LOOPS20 not empty after the real SIGINT stop: $(command ls "$LOOPS20")"
+
+echo "PASS: a real group SIGINT in the pre-raw-mode window converges on rc 130, loop stopped, no orphan (scenario 20)"
+
+# ── Scenario 21: fork-window Ctrl-C — uv's stubbed TUI call returns 130
+#    immediately, with no artificial wait for the loop to reach its claude
+#    stub, maximizing the race between "loop just forked" and "stop
+#    fires". Whichever way the race lands, no orphan may survive and the
+#    registry must end up empty ──────────────────────────────────────────
+AP21="$TMP1/s21/dev/local/autopilot"
+mkdir -p "$AP21"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010021"}}' >"$AP21/state.json"
+LOOPS21="$TMP1/s21-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS21"
+
+CLAUDE_PID21="$TMP1/s21-claude-pid"
+claude() {
+  printf '%s\n' "$BASHPID" >"$CLAUDE_PID21"
+  sleep 30
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=130   # returns immediately — no wait for the claude stub to start
+
+export _AUTOPILOT_TRACON=1
+_ts21_start=$SECONDS
+run_loop "$AP21"
+rc21=$?
+_ts21_elapsed=$((SECONDS - _ts21_start))
+unset _AUTOPILOT_TRACON
+UV_TUI_RC=0
+
+[ "$rc21" -eq 130 ] || fail "scenario 21: fork-window Ctrl-C did not return 130 (rc=$rc21)"
+[ "$_ts21_elapsed" -lt 10 ] || fail "scenario 21: fork-window stop took ${_ts21_elapsed}s (>=10s) — did not converge quickly"
+
+i=0
+while [ -n "$(command ls -A "$LOOPS21" 2>/dev/null)" ] && [ "$i" -lt 40 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+[ -z "$(command ls -A "$LOOPS21" 2>/dev/null)" ] || fail "scenario 21: registry dir $LOOPS21 not empty after the fork-window stop: $(command ls "$LOOPS21")"
+
+if [ -s "$CLAUDE_PID21" ]; then
+  claude_pid21="$(cat "$CLAUDE_PID21")"
+  if kill -0 "$claude_pid21" 2>/dev/null; then
+    fail "scenario 21: claude stub pid $claude_pid21 still alive after the fork-window stop (the race landed with the stub running, and it was not reaped)"
+  fi
+fi
+
+echo "PASS: fork-window Ctrl-C (stop arriving before the loop reaches its claude stub) still converges — no orphan, registry emptied, rc 130 (scenario 21)"
+
+# ── Scenario 22: child pgrp self-guard — invoke autoclaude directly in
+#    child mode (_AUTOPILOT_TRACON_CHILD=1) as a pipeline stage with
+#    monitor mode explicitly OFF, so it inherits this shell's existing
+#    process group rather than leading its own (a pipeline stage's own pid
+#    can never equal a pgid that was already fixed before it was forked).
+#    Must refuse: return 1, launch NO claude, write NO registry file ─────
+AP22="$TMP1/s22/dev/local/autopilot"
+mkdir -p "$AP22"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010022"}}' >"$AP22/state.json"
+LOOPS22="$TMP1/s22-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS22"
+
+CLAUDE_CALLS22="$TMP1/s22-claude-calls"
+: >"$CLAUDE_CALLS22"
+claude() {
+  printf 'x\n' >>"$CLAUDE_CALLS22"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+AP_DIR="$AP22"
+set +m
+_AUTOPILOT_TRACON_CHILD=1 autoclaude 2>/dev/null | cat >/dev/null
+rc22=${PIPESTATUS[0]}
+
+[ "$rc22" -eq 1 ] || fail "scenario 22: non-pgrp-leader child self-guard did not return 1 (rc=$rc22)"
+[ ! -s "$CLAUDE_CALLS22" ] || fail "scenario 22: claude was invoked despite the pgrp self-guard (calls: $(wc -l <"$CLAUDE_CALLS22"))"
+[ ! -e "$LOOPS22" ] || [ -z "$(command ls -A "$LOOPS22" 2>/dev/null)" ] || fail "scenario 22: a registry file was written despite the pgrp self-guard refusing before the loop's main body: $(command ls "$LOOPS22")"
+
+echo "PASS: child pgrp self-guard refuses a loop that cannot be stopped — rc 1, no claude, no registry file (scenario 22)"
+
+# ── Scenario 23: presentation sink — wrapper.log holds the wrapper's own
+#    banners but NO session event lines (_autopilot_present's child-mode
+#    branch discards its copy of the stream); last-session.log holds every
+#    session event (the tee sits upstream of that discard) ──────────────
+AP23="$TMP1/s23/dev/local/autopilot"
+mkdir -p "$AP23"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010023"}}' >"$AP23/state.json"
+LOOPS23="$TMP1/s23-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS23"
+
+CLAUDE_LOG_LINE23='{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+claude() {
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010023"}}' >"$AP_DIR/state.json"
+  printf '%s\n' "$CLAUDE_LOG_LINE23"
+}
+
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=0
+
+export _AUTOPILOT_TRACON=1
+run_loop "$AP23"
+rc23=$?
+unset _AUTOPILOT_TRACON
+
+[ "$rc23" -eq 0 ] || fail "scenario 23: tracon-path drain did not return 0 (rc=$rc23)"
+
+i=0
+while [ ! -s "$AP23/last-session.log" ] && [ "$i" -lt 40 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+[ -s "$AP23/last-session.log" ] || fail "scenario 23: last-session.log was never created/populated"
+[ -s "$AP23/wrapper.log" ] || fail "scenario 23: wrapper.log was never created/populated"
+
+grep -qF "$CLAUDE_LOG_LINE23" "$AP23/last-session.log" ||
+  fail "scenario 23: last-session.log is missing the session event line (tee did not capture it)"
+
+if grep -qF "$CLAUDE_LOG_LINE23" "$AP23/wrapper.log"; then
+  fail "scenario 23: wrapper.log leaked a session event line — _autopilot_present's child-mode branch must sink it, not the wrapper's own log"
+fi
+
+grep -q '━━' "$AP23/wrapper.log" ||
+  fail "scenario 23: wrapper.log is missing the wrapper's own banner lines"
+
+echo "PASS: presentation sink — wrapper.log carries only the wrapper's own banners, last-session.log carries every session event (scenario 23)"
