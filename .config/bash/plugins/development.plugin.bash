@@ -55,8 +55,9 @@ _autopilot_session_cap() {
 }
 
 autoclaude() {
-  export _AUTOPILOT_LOOP=$$
+  export _AUTOPILOT_LOOP=$BASHPID
   local _cap_pid=""    # session-cap sidecar pid; referenced by the INT/TERM traps
+  local _reg=""         # loop-registry file path; referenced by every exit path and both traps
   local _net_retries=0 # consecutive network-death relaunches (decide branch 5)
   local _fp_prev=""    # progress fingerprint of the previous continue-branch session
   local _fp_repeats=0  # consecutive sessions with an identical fingerprint
@@ -72,8 +73,16 @@ autoclaude() {
     done < <(pgrep -u "$USER" -P 1 2>/dev/null)
   }
 
-  trap '_autopilot_loop_cleanup; kill "$_cap_pid" 2>/dev/null; unset _AUTOPILOT_LOOP; trap - INT; kill -INT $$' INT
-  trap '_autopilot_loop_cleanup; kill "$_cap_pid" 2>/dev/null; unset _AUTOPILOT_LOOP; trap - TERM; kill -TERM $$' TERM
+  _autopilot_loop_teardown() {          # trap-safe: clears traps FIRST, then unwinds
+    trap - INT TERM
+    _autopilot_loop_cleanup
+    kill "$_cap_pid" 2>/dev/null
+    [ -n "$_reg" ] && rm -f "$_reg"
+    unset _AUTOPILOT_LOOP
+  }
+
+  trap '_autopilot_loop_teardown; return 130' INT
+  trap '_autopilot_loop_teardown; return 143' TERM
 
   while true; do
     # Memory circuit-breaker (2026-06-25): refuse to launch a session when the
@@ -87,6 +96,7 @@ autoclaude() {
       printf '\nautoclaude: memory pressure (level %s); stopping loop before launching next session. Free RAM, then re-run.\n' "$_mem_pressure" >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: memory pressure (level $_mem_pressure). Free RAM, then re-run autoclaude." 2>/dev/null
       trap - INT TERM
+      [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 1
     fi
@@ -105,6 +115,17 @@ autoclaude() {
     fi
     mkdir -p "$_ap_dir" 2>/dev/null
 
+    if [ -z "$_reg" ]; then
+      local _loops_dir="${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}"
+      mkdir -p "$_loops_dir" 2>/dev/null
+      _reg="$_loops_dir/$BASHPID.json"
+      jq -n --argjson pid "$BASHPID" \
+        --arg root "${_ap_dir%/dev/local/autopilot}" \
+        --arg ap_dir "$_ap_dir" \
+        --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' >"$_reg"
+    fi
+
     # Operator pause (PRD 00014): `touch <ap_dir>/pause-requested` is the
     # sanctioned "let me in" signal, honored at the next session boundary.
     # The marker is consumed so a later autoclaude run starts normally.
@@ -113,12 +134,13 @@ autoclaude() {
       printf '\nautoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.\n'
       python3 ~/.claude/hooks/notify.py --send "autopilot ⏸ ${PWD##*/}" "Paused by operator at a session boundary. State intact." 2>/dev/null
       trap - INT TERM
+      [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 0
     fi
 
     # Session cap: the only kill path in the headless loop.
-    _autopilot_session_cap "$$" "${_AUTOPILOT_SESSION_MAX:-7200}" 30 60 &
+    _autopilot_session_cap "$BASHPID" "${_AUTOPILOT_SESSION_MAX:-7200}" 30 60 &
     _cap_pid=$!
 
     # Headless launch (PRD 00014): one session = one -p turn = one process
@@ -347,7 +369,7 @@ autoclaude() {
        + (if ($tokens_out | test("^[0-9]+$")) then {tokens_out: ($tokens_out | tonumber)} else {} end)' \
       2>/dev/null) || _mline=""
     if [ -n "$_mline" ]; then
-      printf '%s\n' "$_mline" >>"$_ap_dir/loop-metrics.jsonl" 2>/dev/null || true
+      printf '%s\n' "$_mline" 2>/dev/null >>"$_ap_dir/loop-metrics.jsonl" || true
       # Durable ledger (2026-07-14): purge-devlocal GC'd every repo's
       # loop-metrics at 14d before the quarter's eval could read them.
       # ledger/ is GC-exempt, so outcome data survives for tuning (00079)
@@ -377,6 +399,7 @@ autoclaude() {
       printf '  3. autoclaude        # after the decision, to continue unattended\n' >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Paused: $_detail"
       trap - INT TERM
+      [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 1
       ;;
@@ -387,6 +410,7 @@ autoclaude() {
       python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained."
       python3 ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py --repo "$PWD" --apply || true
       trap - INT TERM
+      [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return
       ;;
@@ -394,6 +418,7 @@ autoclaude() {
       printf '\nautoclaude: session died (%s). Backlog NOT drained. Check %s/state.json and %s/last-session.log.\n' "$_detail" "$_ap_dir" "$_ap_dir" >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: $_detail. Needs attention."
       trap - INT TERM
+      [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 1
       ;;
