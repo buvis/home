@@ -415,9 +415,9 @@ if [ "$RC" -eq 0 ]; then
     esac
 fi
 if [ "$T12_OK" = yes ]; then
-    PASS "--preflight --approved-only reports healthy for the approved candidate only (never probes the unapproved one)"
+    PASS "--preflight --approved-only completes against the approved candidate, not the unapproved lower port"
 else
-    FAIL "--preflight --approved-only reports healthy for the approved candidate only (never probes the unapproved one)" "rc=$RC; output: $OUT"
+    FAIL "--preflight --approved-only completes against the approved candidate, not the unapproved lower port" "rc=$RC; output: $OUT"
 fi
 
 # ══ multi-id fixture: ONE healthy provider whose /v1/models lists TWO ids ═════
@@ -619,6 +619,21 @@ case "$OUT" in
     *model_id_missing*) PASS "missing-registry refusal still uses the existing model_id_missing outcome token (no new enum member)" ;;
     *) FAIL "missing-registry refusal still uses the existing model_id_missing outcome token (no new enum member)" "output: $OUT" ;;
 esac
+
+# ══ T19: the SHIPPED registry actually contains the documented default id ═════
+# Every assert above runs against a FAKE registry (mock-approved), so a typo or
+# an accidental emptying of the real approved-models.txt would darken the whole
+# autopilot qwen lane with zero test signal. This is the one assert that binds
+# the shipped file. The id below is the one use-qwen/SKILL.md and
+# work/references/qwen-integration.md both document as the default; if you
+# genuinely retire it, update those docs in the same commit.
+SHIPPED_REGISTRY="$(dirname "$QWEN_RUN_SH")/approved-models.txt"
+SHIPPED_DEFAULT_ID="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q4_K_M"
+if [ -f "$SHIPPED_REGISTRY" ] && grep -qFx -- "$SHIPPED_DEFAULT_ID" "$SHIPPED_REGISTRY"; then
+    PASS "the shipped approved-models.txt lists the documented default model id"
+else
+    FAIL "the shipped approved-models.txt lists the documented default model id" "registry: $SHIPPED_REGISTRY; expected exact line: $SHIPPED_DEFAULT_ID"
+fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
