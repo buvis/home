@@ -10,24 +10,10 @@ from rich.console import Group
 
 from tracon import model
 from tracon.discovery import LoopRow, Status
+from tracon.model import fmt_dur
 from tracon.stream import AgentTracker, SessionUsage
 
 PHASES = ("build", "review", "done")
-
-
-def fmt_dur(secs: float) -> str:
-    if secs < 0:
-        secs = 0
-    secs = int(secs)
-    if secs < 60:
-        return f"{secs}s"
-    mins = secs // 60
-    s = secs % 60
-    if mins < 60:
-        return f"{mins}m{s:02}s"
-    h = mins // 60
-    m = mins % 60
-    return f"{h}h{m:02}m"
 
 
 def fmt_tok(n: int) -> str:
