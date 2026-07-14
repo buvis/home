@@ -57,7 +57,8 @@ context files that exist. Identify the capabilities and features the PRD asks fo
 
 ### 2. Reuse sweep (before designing any new code)
 
-Grep the codebase for existing helpers and patterns that already do what the PRD
+Search the codebase (Bash `rg`; the native Grep tool is absent in this build,
+see rules/tools.md) for existing helpers and patterns that already do what the PRD
 needs, per the synonym sets in `~/.claude/rules/rationalizations.md`
 ("Synonyms-to-grep"). For each capability:
 

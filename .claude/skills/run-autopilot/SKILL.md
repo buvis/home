@@ -226,7 +226,7 @@ The check is deterministic (the pinned `awk` above), NOT a model judgment.
 
 - **Never chain commands** with `&&`, `|`, or `;` in a single Bash call. Use separate Bash tool calls instead.
 - **Never use redirections** like `2>/dev/null`. Handle missing files by checking existence or catching errors in the tool result.
-- Use `Glob` or `Read` instead of `ls` where possible (e.g. to check if files exist or list directory contents).
+- Use `Read` for file contents; for existence and listing checks Bash `ls` is fine (the native `Glob` tool is absent in this build - rules/tools.md).
 - Use `mkdir -p` in its own Bash call when creating directories.
 
 ## Error Handling
