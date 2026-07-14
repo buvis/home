@@ -146,15 +146,15 @@ def test_no_state_wins_over_no_log_when_both_absent() -> None:
     assert status.rank == 5
 
 
-def test_missing_log_with_state_present_collapses_into_idle() -> None:
-    """The ninth label `○ no log` is not part of the contract: state present,
-    no session log at all, must render as an idle-prefixed label, never
-    `○ no log`."""
+def test_missing_log_renders_dedicated_no_log_status_not_idle() -> None:
+    """Row 8 of the truth table: state present, no session log at all
+    (log_mtime is None) renders the dedicated `○ no log` status - distinct
+    from `○ idle {age}` (row 9), which requires a log to compute an age
+    from."""
     status = discovery.classify(
         _state(exists=True, needs_attention=False), rows=[], log_mtime=None, now=1000.0
     )
-    assert status.label.startswith("○ idle")
-    assert not status.label.startswith("○ no log")
+    assert status.label == "○ no log"
     assert status.rank == 3
 
 
@@ -217,18 +217,38 @@ def test_in_flight_is_independent_of_attention_label() -> None:
 # --- classify: IN_FLIGHT_SLACK boundary, pinned from both sides -------------
 
 
-def test_in_flight_slack_boundary_just_under_five_seconds_is_terminal() -> None:
+def test_slack_boundary_just_under_two_seconds_is_terminal_signal() -> None:
+    """A log written 1.9s after ts_end - inside the 2s truncation-guard
+    slack - does not establish in-flight, so a died session at that instant
+    still renders its terminal signal, not quiet."""
     last = _row(ts_end=1000.0, signal="died")
-    status = discovery.classify(_state(), rows=[last], log_mtime=1004.9, now=1005.0)
+    status = discovery.classify(_state(), rows=[last], log_mtime=1001.9, now=1001.9)
     assert status.in_flight is False
     assert status.label.startswith("■ died")
 
 
-def test_in_flight_slack_boundary_just_over_five_seconds_is_in_flight() -> None:
+def test_slack_boundary_just_over_two_seconds_is_in_flight_quiet() -> None:
+    """A log written 2.1s after ts_end - past the 2s slack - establishes
+    in-flight. Once the session has gone quiet past LIVE_WINDOW it renders
+    `◐ quiet`, never the previous session's terminal signal."""
     last = _row(ts_end=1000.0, signal="died")
-    status = discovery.classify(_state(), rows=[last], log_mtime=1005.1, now=1005.2)
+    status = discovery.classify(_state(), rows=[last], log_mtime=1002.1, now=1030.0)
     assert status.in_flight is True
-    assert status.label.startswith("● live")
+    assert status.label.startswith("◐ quiet")
+
+
+def test_exact_slack_boundary_is_not_in_flight() -> None:
+    """The slack comparison is strict `>`, not `>=`: a log written at
+    exactly last.ts_end + IN_FLIGHT_SLACK does not establish in-flight, so a
+    died session at exactly that instant still renders its terminal signal.
+    This is the only boundary test that discriminates `>` from `>=` - a
+    write a fraction of a second to either side agrees under both
+    operators, so it can't catch the operator flipping back to `>=`."""
+    last = _row(ts_end=1000.0, signal="died")
+    log_mtime = last.ts_end + discovery.IN_FLIGHT_SLACK
+    status = discovery.classify(_state(), rows=[last], log_mtime=log_mtime, now=log_mtime)
+    assert status.in_flight is False
+    assert status.label.startswith("■ died")
 
 
 # --- classify: rank ordering -------------------------------------------------
@@ -330,7 +350,7 @@ def test_loop_status_live_cost_populated_only_when_in_flight(tmp_path: Path) -> 
     log_path = _write_lines(
         autopilot_dir / "last-session.log", [_result_event(7.77)]
     )
-    # ts_end + IN_FLIGHT_SLACK = 1005.0; write the log after that -> in flight,
+    # ts_end + IN_FLIGHT_SLACK = 1002.0; write the log after that -> in flight,
     # and within LIVE_WINDOW of `now` -> live.
     os.utime(log_path, (1006.0, 1006.0))
 
@@ -424,7 +444,7 @@ def test_live_window_constant_matches_spec() -> None:
 
 
 def test_in_flight_slack_constant_matches_spec() -> None:
-    assert discovery.IN_FLIGHT_SLACK == 5.0
+    assert discovery.IN_FLIGHT_SLACK == 2.0
 
 
 def test_discovery_has_no_separate_age_formatter() -> None:
