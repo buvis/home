@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import importlib.util
 import json
 import re
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +82,24 @@ def _make_loop(root: Path, *, batch_id: str = "B1", log_lines: list[str] | None 
         "".join(line + "\n" for line in log_lines)
     )
     return root
+
+
+def _load_tracon_cli() -> Any:
+    """Load the top-level tracon.py CLI script under a distinct module name.
+
+    `tracon.py` (this script) and the `tracon/` package share the name
+    `tracon` on disk; a plain `import tracon` always resolves to the
+    package (regular packages win over same-named modules on the same
+    sys.path entry), so `main()` is only reachable by loading the file
+    directly, by path, under a name that cannot collide.
+    """
+    path = SCRIPTS_DIR / "tracon.py"
+    spec = importlib.util.spec_from_file_location("tracon_cli", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 # --- the lazy-import guard: the headline contract of this module ------------
@@ -282,6 +303,67 @@ def test_run_once_falls_back_to_home_claude_when_no_root_contains_cwd(
     assert not _panel_title_present(out, "loop-y")
 
 
+# --- exit codes: the wrapper branches on these (bare python3, no textual) ---
+
+
+@pytest.mark.parametrize("code", [0, 130])
+def test_run_app_propagates_the_apps_return_code(
+    monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    """run_app() must return app.return_code, NOT a hard-coded 0. The
+    wrapper branches on 0 (detach, keep the loop running) vs. 130 (stop the
+    loop). Note App.exit(return_code=...) sets App.return_code; App.run()'s
+    own return value is a DIFFERENT attribute (return_value) -- that mix-up
+    is the bug this pins."""
+    from tracon import screens
+
+    class _FakeApp:
+        return_code = code
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(screens, "build_app", lambda *a, **kw: _FakeApp())
+
+    assert screens.run_app([]) == code
+
+
+def test_main_returns_130_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """tracon.py's `except KeyboardInterrupt` must return 130 (the SIGINT
+    convention), not swallow it as a clean 0 exit."""
+    module = _load_tracon_cli()
+    monkeypatch.setattr(sys, "argv", ["tracon.py"])
+    monkeypatch.setattr(module.discovery, "discover_loops", lambda: [])
+
+    def _raise(*args: Any, **kwargs: Any) -> int:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(module.screens, "run_app", _raise)
+
+    assert module.main() == 130
+
+
+def test_wrapper_pid_flag_is_forwarded_to_run_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--wrapper-pid is a new CLI flag; main() must plumb its value through
+    to run_app so the app can poll discovery.pid_alive for the wrapper that
+    launched it."""
+    module = _load_tracon_cli()
+    monkeypatch.setattr(sys, "argv", ["tracon.py", "--wrapper-pid", "4242"])
+    monkeypatch.setattr(module.discovery, "discover_loops", lambda: [])
+
+    captured: dict[str, Any] = {}
+
+    def _fake_run_app(*args: Any, **kwargs: Any) -> int:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return 0
+
+    monkeypatch.setattr(module.screens, "run_app", _fake_run_app)
+
+    assert module.main() == 0
+    assert 4242 in captured["args"] or captured["kwargs"].get("wrapper_pid") == 4242
+
+
 # --- Textual pilot smoke test: needs textual, skips cleanly without it ------
 
 
@@ -403,12 +485,15 @@ def test_refresh_discovers_a_loop_registered_after_boot(
 
 
 @pytest.mark.ui
-def test_forced_root_pins_dashboard_to_one_loop_without_rediscovery(
+def test_forced_root_dashboard_always_shows_the_full_discovered_fleet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An explicit --root/forced override pins the app to ONE loop: the
-    dashboard behind it must show only that loop, never the full registry,
-    even though discovery would return more loops."""
+    """CONTRACT REVERSAL (design gate, 2026-07-14): --root/forced now ONLY
+    selects which loop gets the auto-attached DetailScreen -- the dashboard
+    behind it is NEVER pinned to one loop. Escaping from the auto-attached
+    detail screen must land on the FULL discovered fleet, not a one-row
+    table: an autoclaude-launched tracon monitors the whole fleet, not just
+    its own root."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import DataTable
 
@@ -427,8 +512,7 @@ def test_forced_root_pins_dashboard_to_one_loop_without_rediscovery(
             await pilot.pause()
 
             table = app.screen.query_one(DataTable)
-            assert table.row_count == 1
-            assert table.get_row_at(0)[0] == "loop-a"
+            assert table.row_count == 2
 
     asyncio.run(_drive())
 
@@ -638,3 +722,257 @@ def test_dashboard_table_uses_fleet_cells_for_row_construction(
             assert len(calls) == 2
 
     asyncio.run(_drive())
+
+
+# --- key protocol: q detaches, ctrl+c stops the loop ------------------------
+
+
+@pytest.mark.ui
+def test_q_detaches_the_dashboard_with_return_code_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """q leaves the loop running: it is rebound from app.quit to
+    app.detach, which must exit with return_code=0 so the wrapper knows to
+    keep the loop alive."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    async def _drive() -> None:
+        app = screens.build_app([])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("q")
+            await pilot.pause()
+            assert app.return_code == 0
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_q_detaches_the_detail_screen_with_return_code_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """q is rebound on BOTH screens, not just the dashboard."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import RichLog
+
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])  # single root -> auto-pushes DetailScreen
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(RichLog) is not None  # on the detail screen
+
+            await pilot.press("q")
+            await pilot.pause()
+            assert app.return_code == 0
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_ctrl_c_stops_the_loop_with_return_code_130(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl+C arrives as a key event in Textual's raw mode, not a
+    KeyboardInterrupt: TraconApp.action_quit is overridden to exit 130 so
+    the wrapper stops the loop instead of treating it as a clean detach."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    async def _drive() -> None:
+        app = screens.build_app([])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+            assert app.return_code == 130
+
+    asyncio.run(_drive())
+
+
+# --- p: tracon's only write, anywhere ----------------------------------------
+
+
+@pytest.mark.ui
+def test_p_on_detail_screen_writes_only_the_pause_requested_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """p is tracon's ONLY write, anywhere: on the detail screen it must
+    touch <root>/dev/local/autopilot/pause-requested in the ATTACHED root,
+    and nothing else lands in that directory."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    before = {p.name for p in autopilot_dir.iterdir()}
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])  # single root -> auto-pushes DetailScreen
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("p")
+            await pilot.pause()
+
+    asyncio.run(_drive())
+
+    after = {p.name for p in autopilot_dir.iterdir()}
+    assert after - before == {"pause-requested"}
+    assert (autopilot_dir / "pause-requested").is_file()
+
+
+@pytest.mark.ui
+def test_p_on_dashboard_targets_the_selected_rows_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """p on the dashboard must target the SELECTED row's root, not the
+    first-discovered or the alphabetically-first loop."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import DataTable
+
+    from tracon import screens
+
+    root_a = _make_loop(tmp_path / "loop-a")
+    root_b = _make_loop(tmp_path / "loop-b")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_a, root_b])
+
+    async def _drive() -> None:
+        app = screens.build_app([root_a, root_b])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert table.get_row_at(0)[0] == "loop-a"
+            assert table.get_row_at(1)[0] == "loop-b"
+
+            table.move_cursor(row=1)  # select loop-b, NOT the first row
+            await pilot.pause()
+            await pilot.press("p")
+            await pilot.pause()
+
+    asyncio.run(_drive())
+
+    assert (root_b / "dev" / "local" / "autopilot" / "pause-requested").is_file()
+    assert not (root_a / "dev" / "local" / "autopilot" / "pause-requested").exists()
+
+
+@pytest.mark.ui
+def test_p_write_failure_notifies_instead_of_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pause-requested write failure (e.g. an unwritable autopilot dir)
+    must surface as a Textual notification, never an unhandled exception."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import RichLog
+
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    def _raise_touch(self: Path, *args: Any, **kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(screens.Path, "touch", _raise_touch)
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            notifications: list[Any] = []
+            app.notify = lambda *a, **kw: notifications.append((a, kw))
+
+            await pilot.pause()
+            await pilot.press("p")
+            await pilot.pause()
+
+            assert notifications  # a notification fired, not an exception
+            assert app.screen.query_one(RichLog) is not None  # app still alive
+
+    asyncio.run(_drive())
+
+
+# --- --wrapper-pid: the wrapper's own life is polled ------------------------
+
+
+@pytest.mark.ui
+def test_wrapper_pid_dead_transition_shows_banner_and_exits_three(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the wrapper that launched tracon dies, tracon must render a
+    loop-exit banner naming the final signal from the last loop-metrics row
+    (here "done" -> "drained", the same label discovery.classify already
+    uses for this signal), then exit 3 -- an alive->dead TRANSITION, not
+    just "started dead"."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    metrics_path = root / "dev" / "local" / "autopilot" / "loop-metrics.jsonl"
+    _write_lines(metrics_path, [_metrics_line(signal="done")])
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    wrapper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+
+    async def _drive() -> None:
+        app = screens.build_app([root], wrapper_pid=wrapper.pid)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await asyncio.sleep(2.5)  # >= one poll tick while the wrapper is alive
+            await pilot.pause()
+            assert app.return_code is None  # still alive: no exit yet
+
+            wrapper.terminate()
+            wrapper.wait(timeout=5)  # reaped: the pid is now genuinely dead
+
+            banner_seen = False
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline and app.return_code is None:
+                await asyncio.sleep(0.2)
+                await pilot.pause()
+                if "drained" in _dashboard_visible_text(app.screen).lower():
+                    banner_seen = True
+
+            assert banner_seen
+            assert app.return_code == 3
+
+    try:
+        asyncio.run(_drive())
+    finally:
+        if wrapper.poll() is None:
+            wrapper.kill()
+            wrapper.wait()
+
+
+# --- --preflight: dependency check, not a startup proof ---------------------
+
+
+@pytest.mark.ui
+def test_preflight_flag_exits_zero_without_launching_the_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--preflight imports textual and rich and exits 0 -- a dependency
+    check, NOT a startup proof: it must return before ever calling
+    run_app()."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    module = _load_tracon_cli()
+    monkeypatch.setattr(sys, "argv", ["tracon.py", "--preflight"])
+
+    calls: list[Any] = []
+
+    def _fake_run_app(*args: Any, **kwargs: Any) -> int:
+        calls.append((args, kwargs))
+        return 0
+
+    monkeypatch.setattr(module.screens, "run_app", _fake_run_app)
+
+    assert module.main() == 0
+    assert calls == []
