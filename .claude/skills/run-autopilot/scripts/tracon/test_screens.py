@@ -21,6 +21,11 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+_TEXTUAL_SKIP_REASON = (
+    "PRD 00061 Phase 2 acceptance test: requires textual, run with "
+    "`uv run --with textual --with rich --with pytest pytest .`"
+)
+
 
 def _write_lines(path: Path, lines: list[str]) -> Path:
     path.write_text("\n".join(lines) + "\n")
@@ -280,11 +285,12 @@ def test_run_once_falls_back_to_home_claude_when_no_root_contains_cwd(
 # --- Textual pilot smoke test: needs textual, skips cleanly without it ------
 
 
+@pytest.mark.ui
 def test_dashboard_pilot_lists_loops_then_enter_and_f_drive_detail_screen(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import DataTable, RichLog
 
     from tracon import screens
@@ -316,6 +322,7 @@ def test_dashboard_pilot_lists_loops_then_enter_and_f_drive_detail_screen(
     asyncio.run(_drive())
 
 
+@pytest.mark.ui
 def test_lines_written_after_attach_are_not_banner_ed_as_replay(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -323,7 +330,7 @@ def test_lines_written_after_attach_are_not_banner_ed_as_replay(
     """Attaching to an idle loop and watching it start is the common workflow.
     Its first lines are LIVE, not pre-attach history: they must not arrive under
     the replay banner. Only content already in the log at the first poll may."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import RichLog
 
     from tracon import screens
@@ -358,6 +365,7 @@ def test_lines_written_after_attach_are_not_banner_ed_as_replay(
 # --- the fleet dashboard re-discovers loops on every refresh ----------------
 
 
+@pytest.mark.ui
 def test_refresh_discovers_a_loop_registered_after_boot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -365,7 +373,7 @@ def test_refresh_discovers_a_loop_registered_after_boot(
     not a `roots` list captured once at startup. A loop that appears after
     boot (a repo gets registered, or gains a dev/local/autopilot dir) must
     show up on the very next refresh, without restarting the app."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import DataTable
 
     from tracon import screens
@@ -394,13 +402,14 @@ def test_refresh_discovers_a_loop_registered_after_boot(
     asyncio.run(_drive())
 
 
+@pytest.mark.ui
 def test_forced_root_pins_dashboard_to_one_loop_without_rediscovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An explicit --root/forced override pins the app to ONE loop: the
     dashboard behind it must show only that loop, never the full registry,
     even though discovery would return more loops."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import DataTable
 
     from tracon import screens
@@ -427,6 +436,7 @@ def test_forced_root_pins_dashboard_to_one_loop_without_rediscovery(
 # --- the cursor follows the SELECTED LOOP, not the row index ----------------
 
 
+@pytest.mark.ui
 def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -436,7 +446,7 @@ def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
     and that loop moves to a different row index. Saving and restoring the
     integer cursor_row silently lands the cursor on whatever loop now sits
     at the OLD index -- a different loop."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import DataTable
 
     from tracon import screens
@@ -481,6 +491,7 @@ def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
     asyncio.run(_drive())
 
 
+@pytest.mark.ui
 def test_dashboard_table_sorts_rows_by_status_rank_before_name(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -488,7 +499,7 @@ def test_dashboard_table_sorts_rows_by_status_rank_before_name(
     """Both fleet views sort by (status.rank, name): a lower-rank status must
     sort before a higher-rank one even when its name is alphabetically
     later."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import DataTable
 
     from tracon import screens
@@ -537,13 +548,14 @@ def _dashboard_visible_text(screen: Any) -> str:
     return "\n".join(parts)
 
 
+@pytest.mark.ui
 def test_dashboard_shows_an_explicit_empty_state_when_no_loops_are_discovered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With zero discovered loops the dashboard must show a visible
     empty-state message -- run_once already prints "No loops found." for
     this case; the app must not stay mute with a silently empty table."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
     monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
@@ -561,6 +573,7 @@ def test_dashboard_shows_an_explicit_empty_state_when_no_loops_are_discovered(
 # --- one fleet row-builder, shared by both views ------------------------------
 
 
+@pytest.mark.ui
 def test_dashboard_table_uses_fleet_cells_for_row_construction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -568,7 +581,7 @@ def test_dashboard_table_uses_fleet_cells_for_row_construction(
     panels.fleet_cells builder, not hand-duplicate the (rank, name) sort, the
     44-char prd truncation, and the cost chip logic that panels.fleet_table
     also builds -- one builder, so the two views cannot drift apart."""
-    pytest.importorskip("textual")
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
     root_a = _make_loop(tmp_path / "loop-a")

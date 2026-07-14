@@ -184,9 +184,7 @@ def read_metrics(path: Path, batch: str | None = None) -> list[MetricsRow]:
 
 
 def last_row(rows: Sequence[MetricsRow]) -> MetricsRow | None:
-    if not rows:
-        return None
-    return max(rows, key=lambda row: row.ts_end if row.ts_end is not None else 0.0)
+    return max(rows, key=lambda row: row.ts_end if row.ts_end is not None else 0.0, default=None)
 
 
 def batch_start_ts(batch: str, rows: Sequence[MetricsRow]) -> float | None:

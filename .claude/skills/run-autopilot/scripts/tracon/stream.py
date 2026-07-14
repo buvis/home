@@ -72,6 +72,40 @@ class LogTail:
         self._buf = b""
         return True
 
+    def _attach_or_reset(self, st: Any) -> tuple[bool, bool]:
+        """Decide attach/reopen/reset from the current stat. Returns
+        (session_reset, ok) where ok is False if a needed (re)open failed."""
+        if self._fh is None:
+            first_attach = not self._attached and not self._saw_missing
+            if not self._open(st.st_ino):
+                return False, False
+            self._attached = True
+            if first_attach:
+                self.session_start = None
+                offset = max(0, st.st_size - self.tail_bytes)
+                if offset:
+                    self._fh.seek(offset)
+                    try:
+                        chunk = self._fh.read()
+                    except OSError:
+                        chunk = b""
+                    self._buf = chunk.partition(b"\n")[2]  # discard the partial first line
+                return False, True
+            self.session_start = time.time()
+            return True, True
+        if st.st_ino != self._ino:  # atomic rename: new inode, old fd now points at nothing
+            self._close()
+            if not self._open(st.st_ino):
+                return True, False
+            self.session_start = time.time()
+            return True, True
+        if st.st_size < self._fh.tell():  # truncated in place: tee reopened for a new session
+            self._fh.seek(0)
+            self._buf = b""
+            self.session_start = time.time()
+            return True, True
+        return False, True
+
     def read_new(self) -> tuple[list[str], bool]:
         """Return (new complete lines, session_reset)."""
         try:
@@ -84,36 +118,9 @@ class LogTail:
             self._saw_missing = True
             return [], was_open
 
-        reset = False
-        if self._fh is None:
-            first_attach = not self._attached and not self._saw_missing
-            if not self._open(st.st_ino):
-                return [], False
-            self._attached = True
-            if first_attach:
-                self.session_start = None
-                offset = max(0, st.st_size - self.tail_bytes)
-                if offset:
-                    self._fh.seek(offset)
-                    try:
-                        chunk = self._fh.read()
-                    except OSError:
-                        chunk = b""
-                    self._buf = chunk.partition(b"\n")[2]  # discard the partial first line
-            else:
-                reset = True
-                self.session_start = time.time()
-        elif st.st_ino != self._ino:  # atomic rename: new inode, old fd now points at nothing
-            self._close()
-            if not self._open(st.st_ino):
-                return [], True
-            reset = True
-            self.session_start = time.time()
-        elif st.st_size < self._fh.tell():  # truncated in place: tee reopened for a new session
-            self._fh.seek(0)
-            self._buf = b""
-            reset = True
-            self.session_start = time.time()
+        reset, ok = self._attach_or_reset(st)
+        if not ok:
+            return [], reset
 
         try:
             data = self._fh.read()

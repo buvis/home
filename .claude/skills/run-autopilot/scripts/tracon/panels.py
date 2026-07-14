@@ -8,10 +8,10 @@ from rich.table import Table
 from rich.text import Text
 from rich.console import Group
 
-from tracon import model
-from tracon.discovery import LoopRow, Status
-from tracon.model import fmt_dur
-from tracon.stream import AgentTracker, SessionUsage
+from . import model
+from .discovery import LoopRow, Status
+from .model import fmt_dur
+from .stream import AgentTracker, SessionUsage
 
 PHASES = ("build", "review", "done")
 
