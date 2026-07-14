@@ -58,8 +58,15 @@ Look up the requested repo in the config. If it's not listed, ask the user:
 >   for you to mark as reviewed. Nothing is kept or dropped, just acknowledged. Best for project
 >   repos where you want to stay informed on development activity."
 
-Then add the repo to `repos.yaml` with sensible defaults, set `last_check` to today's date,
-and stop with: "Repo registered. Run again to pick up activity from today onward."
+If the user picks **curated-list**, ask one follow-up:
+
+> "Should I also scan open PRs for proposed items (`also_check_prs`)? Useful when the
+> maintainer is slow or inactive — PRs show what the community is proposing before (or
+> instead of) a merge."
+
+Then add the repo to `repos.yaml` with sensible defaults (recording `also_check_prs` if
+chosen), set `last_check` to today's date, and stop with: "Repo registered. Run again to
+pick up activity from today onward."
 
 ---
 
@@ -113,6 +120,15 @@ For each matching commit, fetch the corresponding PR page to extract:
 
 Skip any item whose `owner/repo` appears in the dedup list.
 
+#### Open-PR pass (only when the repo config has `also_check_prs: true`)
+
+After the commit scan, visit
+`https://github.com/OWNER/REPO/pulls?q=is%3Apr+is%3Aopen+sort%3Aupdated-desc` and collect
+open PRs created or updated after `last_check`. From each PR's title and body, extract the
+proposed item (owner/repo, short name, one-sentence description, star count); skip PRs that
+don't propose a list item. Apply the same dedup list. Keep these items separate from commit
+items: a commit means "accepted into the list", an open PR means "proposed, pending".
+
 ### For activity-digest mode
 
 Visit these pages in sequence, paginating until past the `last_check` cutoff:
@@ -141,6 +157,11 @@ most fitting section based on the item's description and the PR context that add
 If an item is clearly niche, low-value, or irrelevant for the user (the config may include
 a `relevance_hint` describing the user's interests), place it in the **Dropped** section with
 a brief reason. This prevents it from appearing in future scans.
+
+Items from the open-PR pass never go into the config sections. They go into a single
+**Community Suggestions (Open PRs)** section, each with its PR number and link, so the
+proposed-vs-accepted distinction survives into the digest. Relevance filtering still
+applies: irrelevant PR items go to Dropped.
 
 ### For activity-digest mode
 
