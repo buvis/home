@@ -11,13 +11,23 @@ Do not reuse a fixed task list - pick fresh from whatever is currently in `dev/l
 - Prefer tasks completed recently, across more than one PRD, so the sample isn't biased by one feature's quirks.
 - Skip any task whose "done" state can't be re-verified today (test deleted, dependency moved on).
 
-## 2. Run each task
+## 2. Run each task - against the candidate, and nothing else
 
 ```
-~/.claude/skills/use-qwen/scripts/qwen-run.sh -m <candidate-model-id> -f <prompt-file>
+~/.claude/skills/use-qwen/scripts/qwen-run.sh -P <candidate-provider> -m <candidate-model-id> -f <prompt-file>
 ```
 
 One task per invocation. Use the task's original description as the prompt; do not simplify it for the candidate.
+
+**Pin the provider, not just the model.** `-m` names the id sent in the request; it does NOT choose which server answers. Without `-P`, auto-detect takes the lowest live port, and llama.cpp serves whatever checkpoint that server has loaded regardless of the `model` field - so with two servers up you can score a candidate on a completely different model's output. That is the same false-evidence failure the registry exists to prevent (see the gemma4 note below). Either pass `-P <candidate-provider>`, or stop every other llama-server before you start.
+
+Then confirm it before you score anything: the helper prints
+
+```
+Using provider '<provider>' model '<model-id>'
+```
+
+as its first line. If that line does not name your candidate, discard the run - do not score it.
 
 ## 3. Verify against the real gate - never the model's self-report
 
