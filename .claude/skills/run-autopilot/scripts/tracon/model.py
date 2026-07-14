@@ -269,3 +269,18 @@ def scan_session_cost(path: Path, tail_bytes: int = TAIL_BYTES) -> float:
             if isinstance(c, (int, float)) and not isinstance(c, bool):
                 cost = float(c)
     return cost
+
+
+def fmt_dur(secs: float) -> str:
+    if secs < 0:
+        secs = 0
+    secs = int(secs)
+    if secs < 60:
+        return f"{secs}s"
+    mins = secs // 60
+    s = secs % 60
+    if mins < 60:
+        return f"{mins}m{s:02}s"
+    h = mins // 60
+    m = mins % 60
+    return f"{h}h{m:02}m"

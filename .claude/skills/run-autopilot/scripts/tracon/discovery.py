@@ -7,6 +7,7 @@ root, and discovers loop roots from the gita repo registry.
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import time
 from collections.abc import Sequence
@@ -18,7 +19,7 @@ from .model import LoopState, MetricsRow
 
 GITA_REGISTRY = Path.home() / ".config/gita/repos.csv"
 LIVE_WINDOW = 20.0
-IN_FLIGHT_SLACK = 2.0
+IN_FLIGHT_SLACK = 5.0
 
 
 @dataclass(frozen=True)
@@ -43,15 +44,6 @@ class LoopRow:
     sessions: int
 
 
-def _fmt_age(seconds: float) -> str:
-    total = max(0, int(seconds))
-    if total < 3600:
-        return f"{total // 60}m{total % 60:02d}s"
-    hours = total // 3600
-    minutes = (total % 3600) // 60
-    return f"{hours}h{minutes:02d}m"
-
-
 def _fmt_clock(ts: float | None) -> str:
     return dt.datetime.fromtimestamp(ts or 0.0).strftime("%H:%M")
 
@@ -61,7 +53,7 @@ def classify(
 ) -> Status:
     last = model.last_row(rows)
     in_flight = log_mtime is not None and (
-        last is None or log_mtime > (last.ts_end or 0.0) + IN_FLIGHT_SLACK
+        last is None or log_mtime >= (last.ts_end or 0.0) + IN_FLIGHT_SLACK
     )
     live = in_flight and (now - log_mtime) < LIVE_WINDOW
     quiet = in_flight and not live
@@ -71,7 +63,7 @@ def classify(
     if live:
         return Status(label="● live", style="green", rank=2, in_flight=in_flight)
     if quiet:
-        age = _fmt_age(now - log_mtime)
+        age = model.fmt_dur(now - log_mtime)
         return Status(label=f"◐ quiet {age}", style="yellow", rank=2, in_flight=in_flight)
     if last is not None:
         if last.signal == "died":
@@ -86,8 +78,8 @@ def classify(
     if not state.exists:
         return Status(label="○ no state", style="dim", rank=5, in_flight=in_flight)
     if log_mtime is None:
-        return Status(label="○ no log", style="dim", rank=3, in_flight=in_flight)
-    age = _fmt_age(now - log_mtime)
+        return Status(label="○ idle", style="dim", rank=3, in_flight=in_flight)
+    age = model.fmt_dur(now - log_mtime)
     return Status(label=f"○ idle {age}", style="dim", rank=3, in_flight=in_flight)
 
 
@@ -136,14 +128,15 @@ def discover_loops(registry: Path = GITA_REGISTRY) -> list[Path]:
     try:
         text = registry.read_text()
     except OSError:
-        return [home]
+        return [home] if (home / "dev" / "local" / "autopilot").is_dir() else []
 
     candidates = [home]
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
+    for row in csv.reader(text.splitlines()):
+        if not row:
             continue
-        col1 = line.split(",", 1)[0].strip()
+        col1 = row[0].strip()
+        if not col1:
+            continue
         path = Path(col1)
         if not path.is_absolute():
             continue
