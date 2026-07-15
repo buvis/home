@@ -1700,3 +1700,84 @@ got33="$(cat "$SEEN33" 2>/dev/null)"
 [ "$got33" = "$WANT_LOOPS33" ] || fail "scenario 33: a child process of the loop saw _AUTOPILOT_LOOPS_DIR='$got33', expected the wrapper's own resolved loops dir '$WANT_LOOPS33' — the wrapper reads \${_AUTOPILOT_LOOPS_DIR:-default} into a local var (_loops_dir) and never exports the resolved value back onto _AUTOPILOT_LOOPS_DIR, so a child that reads it from its own environment (e.g. tracon's discovery.py at import time) can diverge from where the wrapper actually writes"
 
 echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the wrapper so a child process observes the same resolved loops dir (scenario 33)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section F: loop-exit diagnostics surfaced from wrapper.log (scenarios
+# 34-36). F9: in tracon mode the loop child's stdout/stderr are redirected
+# to wrapper.log (~line 128: `... >"$_ap_dir/wrapper.log" 2>&1 &`), so when
+# the loop exits paused/died/memory-pressure, the operator-facing
+# diagnostics (the 3-step resume runbook, the died-session state.json/
+# last-session.log pointer) are written to wrapper.log but NEVER reach the
+# terminal — tracon shows only a 2-word banner and exits. The fix adds a
+# helper, _autoclaude_tracon_surface <wrapper_log_path> <child_rc>, called
+# at _autoclaude_tracon's two loop-child-exited-on-its-own exit paths
+# (case-3 and the final `wait`). Contract: child_rc != 0 and a non-empty
+# wrapper.log -> print a separator + the tail of wrapper.log (~last 20
+# lines) to stderr; child_rc == 0 (clean drain) -> print nothing; a missing
+# or empty wrapper.log -> print nothing, no error, regardless of child_rc.
+#
+# RED today: the helper does not exist yet, so every call below is a bash
+# "command not found" (rc 127, an error message on stderr) rather than the
+# contracted behavior — scenario 34's content assertion and scenario 35's
+# emptiness assertion both fail for that reason; scenario 36's rc/emptiness
+# assertions fail too (127 != 0, and the "command not found" text is not
+# empty). Measured (2026-07-15, isolated): an undefined command called as
+# `undefinedfunc "a" 1 2>"$f"` still honors the LOCAL stderr redirect —
+# bash applies simple-command redirections before command lookup — so the
+# "command not found" text lands in the captured file, not this suite's
+# real stderr; that is what the assertions below observe.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Shared wrapper.log fixture: real lines lifted verbatim from the plugin's
+# operator-pause branch (~line 300: "autoclaude: paused by operator...")
+# and the paused-signal branch's 3-step resume runbook (~line 588-591,
+# "1. claude" / "2. /run-autopilot" / "3. autoclaude"), so the assertions
+# below bind the ACTUAL swallowed messages, not stand-ins.
+WRAPPERLOG_F="$TMP1/f-wrapper.log"
+cat > "$WRAPPERLOG_F" <<'EOF'
+━━ 12:00:00 · phase build · prd tracon-test.md · claude-opus-4-8/xhigh ━━
+
+autoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.
+
+autoclaude: session paused — needs human input.
+To resume (re-running autoclaude now would just pause again):
+  1. claude            # interactive session in this repo
+  2. /run-autopilot    # resumes from state.json; blockers become questions
+  3. autoclaude        # after the decision, to continue unattended
+EOF
+
+# ── Scenario 34: non-zero child_rc surfaces the resume-runbook text on
+#    stderr ──────────────────────────────────────────────────────────────
+ERR34="$TMP1/f34-err"
+_autoclaude_tracon_surface "$WRAPPERLOG_F" 1 2>"$ERR34"
+
+grep -qF '1. claude' "$ERR34" ||
+  fail "scenario 34: _autoclaude_tracon_surface did not surface the resume-runbook text ('1. claude') from wrapper.log to stderr on a non-zero child_rc (captured stderr: $(cat "$ERR34" 2>/dev/null))"
+
+# ── Scenario 35: a clean drain (child_rc 0) surfaces NOTHING, even though
+#    the same wrapper.log has diagnostics in it — a drained backlog needs
+#    no diagnostics ────────────────────────────────────────────────────────
+ERR35="$TMP1/f35-err"
+_autoclaude_tracon_surface "$WRAPPERLOG_F" 0 2>"$ERR35"
+
+[ ! -s "$ERR35" ] || fail "scenario 35: _autoclaude_tracon_surface printed diagnostics on a clean drain (child_rc=0): $(cat "$ERR35" 2>/dev/null)"
+
+# ── Scenario 36: a missing or empty wrapper.log is safe — no output, no
+#    error, even with a non-zero child_rc ─────────────────────────────────
+MISSING36="$TMP1/f36-does-not-exist.log"
+EMPTY36="$TMP1/f36-empty.log"
+: >"$EMPTY36"
+
+ERR36A="$TMP1/f36-err-missing"
+_autoclaude_tracon_surface "$MISSING36" 1 2>"$ERR36A"
+rc36a=$?
+[ "$rc36a" -eq 0 ] || fail "scenario 36: _autoclaude_tracon_surface exited non-zero ($rc36a) for a missing wrapper.log — must not error"
+[ ! -s "$ERR36A" ] || fail "scenario 36: _autoclaude_tracon_surface printed diagnostics for a MISSING wrapper.log: $(cat "$ERR36A" 2>/dev/null)"
+
+ERR36B="$TMP1/f36-err-empty"
+_autoclaude_tracon_surface "$EMPTY36" 1 2>"$ERR36B"
+rc36b=$?
+[ "$rc36b" -eq 0 ] || fail "scenario 36: _autoclaude_tracon_surface exited non-zero ($rc36b) for an empty wrapper.log — must not error"
+[ ! -s "$ERR36B" ] || fail "scenario 36: _autoclaude_tracon_surface printed diagnostics for an EMPTY wrapper.log: $(cat "$ERR36B" 2>/dev/null)"
+
+echo "PASS: non-zero child_rc surfaces the resume-runbook text from wrapper.log to stderr (scenario 34), a clean drain surfaces nothing (scenario 35), a missing or empty wrapper.log is safe — no output, no error (scenario 36)"
