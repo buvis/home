@@ -10,6 +10,7 @@ import asyncio
 import importlib
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from rich.console import Console
 from rich.text import Text
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
@@ -186,6 +188,44 @@ def test_collector_poll_returns_lines_appended_since_the_last_call(
 
     second_lines, _ = collector.poll()
     assert second_lines == [second_event]
+
+
+def _render(panel: Any) -> str:
+    """Render a rich Panel to plain text (mirrors test_panels.py's _render)."""
+    console = Console(width=200, record=True)
+    console.print(panel)
+    return console.export_text()
+
+
+def test_detail_head_shows_wrapper_chip_when_wrapper_alive(tmp_path: Path) -> None:
+    """The detail screen's head must carry the same ⟳ wrapper chip as the
+    fleet dashboard row (panels.fleet_cells) when a live wrapper is
+    registered for this root. panels.build_head only renders the chip when
+    called with wrapper=True, but Collector.head() calls build_head without
+    ever passing wrapper= -- so the detail screen can never show it today,
+    even though discovery.wrapper_alive(self.root) is available to it."""
+    from tracon import discovery, screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    registry_entry = {"pid": os.getpid(), "root": str(root.resolve())}
+    (discovery.LOOPS_DIR / "wrapper.json").write_text(json.dumps(registry_entry))
+
+    collector = screens.Collector(root)
+    panel, _ = collector.head()
+
+    assert "⟳ wrapper" in _render(panel)
+
+
+def test_detail_head_omits_wrapper_chip_when_no_wrapper_registered(tmp_path: Path) -> None:
+    """Mirror of the above: with no live registry entry for this root, the
+    detail head must not show the wrapper chip."""
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    panel, _ = collector.head()
+
+    assert "⟳ wrapper" not in _render(panel)
 
 
 # --- run_once: the rich-only smoke path (no textual) -------------------------
@@ -954,6 +994,32 @@ def test_wrapper_pid_dead_transition_shows_banner_and_exits_three(
         if wrapper.poll() is None:
             wrapper.kill()
             wrapper.wait()
+
+
+@pytest.mark.ui
+def test_poll_wrapper_survives_none_wrapper_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """wrapper_root = forced if forced is not None else (roots[0] if roots
+    else None): with forced=None and an empty roots list, wrapper_root is
+    None. _poll_wrapper must still handle the wrapper's alive -> dead
+    transition without crashing -- it must not blindly compute
+    wrapper_root / "dev" / "local" / ... on a None root."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    dead_proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead_proc.wait()  # reaped: the pid is now genuinely dead
+    dead_pid = dead_proc.pid
+
+    async def _drive() -> None:
+        app = screens.build_app([], forced=None, wrapper_pid=dead_pid)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._poll_wrapper()  # drive the alive -> dead transition directly
+            await pilot.pause()
+
+    asyncio.run(_drive())
 
 
 # --- --preflight: dependency check, not a startup proof ---------------------
