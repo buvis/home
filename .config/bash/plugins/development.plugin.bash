@@ -224,8 +224,12 @@ autoclaude() {
 
   # Child pgrp self-guard: refuse to run a loop that cannot be stopped (the
   # tracon parent signals the whole process GROUP, never a bare pid).
+  # Use $_AUTOPILOT_LOOP (the loop's own pid, captured just above in a plain
+  # assignment) on BOTH sides: a bare $BASHPID inside the command substitution
+  # would expand to the substitution's subshell, not this loop — it only read
+  # correctly before because the subshell inherits the loop's process group.
   if [ -n "$_AUTOPILOT_TRACON_CHILD" ]; then
-    if [ "$BASHPID" != "$(ps -o pgid= -p "$BASHPID" 2>/dev/null | tr -d ' ')" ]; then
+    if [ "$_AUTOPILOT_LOOP" != "$(ps -o pgid= -p "$_AUTOPILOT_LOOP" 2>/dev/null | tr -d ' ')" ]; then
       printf 'autoclaude: refusing to run a loop that cannot be stopped (not a process-group leader).\n' >&2
       return 1
     fi
