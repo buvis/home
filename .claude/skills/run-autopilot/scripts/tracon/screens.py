@@ -25,16 +25,38 @@ DETAIL_TICK = 0.5
 FLEET_TICK = 2.0
 
 # Rendered label discovery.classify() uses for each terminal loop-metrics
-# signal -- reused verbatim for the wrapper-dead loop-exit banner.
+# signal -- reused verbatim for the wrapper-dead loop-exit banner. A signal
+# missing from this map (e.g. a stale non-terminal "continue" left by a
+# prior session) falls back to "stopped" rather than being echoed verbatim.
 _SIGNAL_LABELS = {"done": "drained", "died": "died", "paused": "paused"}
 
 
-def _final_signal_label(root: Path) -> str:
+def _final_signal_label(root: Path | None) -> str:
+    """Classify a wrapper-dead loop exit, state.json first.
+
+    The wrapper's operator-pause and memory-pressure exits append NO new
+    loop-metrics row, so the last metrics row on disk can be a stale PRIOR
+    session's non-terminal signal (e.g. "continue"). state.json reflects the
+    CURRENT, authoritative loop state and wins for the two cases it can
+    prove outright (drained via empty next_phase, paused via its markers).
+    For everything else -- including a genuinely terminal exit where
+    state.json still shows the in-flight phase -- fall back to the last
+    metrics row's signal.
+    """
+    if root is None:
+        return "stopped"
+    state = model.read_state(root / "dev" / "local" / "autopilot" / "state.json")
+    if not state.exists:
+        return "stopped"
+    if state.next_phase == "":
+        return "drained"
+    if state.phase == "paused" or "pause_reason" in state.raw or "cap_pause_reason" in state.raw:
+        return "paused"
     autopilot_dir = root / "dev" / "local" / "autopilot"
     rows = model.read_metrics(autopilot_dir / "loop-metrics.jsonl")
     last = model.last_row(rows)
     signal = last.signal if last is not None else ""
-    return _SIGNAL_LABELS.get(signal, signal)
+    return _SIGNAL_LABELS.get(signal, "stopped")
 
 
 class Collector:
@@ -272,7 +294,7 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             alive = discovery.pid_alive(wrapper_pid)
             if self._wrapper_alive and not alive:
                 self._wrapper_alive = False
-                label = _final_signal_label(wrapper_root) if wrapper_root is not None else ""
+                label = _final_signal_label(wrapper_root)
                 self.push_screen(_WrapperDeadScreen(label))
                 self.set_timer(2.0, lambda: self.exit(return_code=3))
 
@@ -282,7 +304,7 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
 def run_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> int:
     app = build_app(roots, forced, wrapper_pid)
     app.run()
-    return app.return_code
+    return app.return_code if app.return_code is not None else 0
 
 
 def run_once(root: Path | None = None) -> int:
