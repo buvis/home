@@ -103,6 +103,7 @@ class Collector:
             root_name=self.root.name,
             session_start=self._tail.session_start,
             agents=agents,
+            wrapper=discovery.wrapper_alive(self.root),
         )
         return panel, panels.head_rows(agents)
 
@@ -271,7 +272,7 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             alive = discovery.pid_alive(wrapper_pid)
             if self._wrapper_alive and not alive:
                 self._wrapper_alive = False
-                label = _final_signal_label(wrapper_root)
+                label = _final_signal_label(wrapper_root) if wrapper_root is not None else ""
                 self.push_screen(_WrapperDeadScreen(label))
                 self.set_timer(2.0, lambda: self.exit(return_code=3))
 
