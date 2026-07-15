@@ -118,7 +118,7 @@ _argv_value() {
 }
 # ---------------------------------------------------------------------------
 
-fail() { echo "FAIL: $1" >&2; exit 1; }
+fail() { echo "FAIL: $1" >&2; rm -rf "$TMP1"; exit 1; }
 
 run_loop() {  # $1 = temp autopilot dir
   AP_DIR="$1"
@@ -167,8 +167,38 @@ assert_registry_shape() {
     || fail "$label: 'started_at' does not look like an ISO-8601 UTC timestamp (got $(jq -r '.started_at' "$f"))"
 }
 
+# G3: the tracon path forks the loop as a `&` job of THIS shell (Section A
+# below), and a `q`-detach scenario (e.g. 9) deliberately returns while that
+# job is still alive — so it, and the backgrounded uv TUI job that spawns it
+# each time _autoclaude_tracon runs in-process, are still running as this
+# suite moves on to later scenarios. Any such job — a `(...) &` subshell —
+# inherits a bare top-level `trap ... EXIT` by default (same mechanism
+# _wait_bounded's own comment below documents for its watchdog), so once one
+# of those detached jobs finally exits on its own (its stubbed claude()
+# returns, its poll loop ends), it fires the inherited trap TOO and wipes
+# $TMP1 out from under this still-running suite — measured 2026-07-15: a
+# stale scenario-30 seed silently landing in an already-deleted
+# s30-registry/ dir ("No such file or directory" on stderr), making that
+# scenario's assertions test nothing.
+#
+# NOT fixed with a guarded `trap ... EXIT` (checking $BASHPID against the
+# main shell's own pid, captured up front): measured 2026-07-15, isolated —
+# a guarded trap still FIRES (and is dispatched by bash) in every one of
+# those detached subshells even though its body then no-ops, and that alone
+# was enough to reproduce a SEPARATE, pre-existing bash job-control race
+# ("wait_for: No record of process <pid>" on this suite's own stderr,
+# ~50% of runs) once the suite actually reaches full completion instead of
+# silently truncating early. True with both a named-function trap and a
+# plain conditional trap STRING — the race tracks "a trap fires in these
+# subshells at all", not which shell construct implements the guard.
+# Fixed instead by never installing a top-level EXIT trap in the first
+# place: nothing for a subshell to inherit, so nothing to guard. $TMP1 is
+# removed explicitly on both of this suite's own exit paths — the natural
+# end (after the last scenario's PASS, below) and fail() (~line 121) —
+# matching what the old trap covered for THIS shell, without covering an
+# external signal to the suite itself (accepted: not part of this defect,
+# and this is a manually-invoked test script, not a long-running service).
 TMP1="$(mktemp -d)"
-trap 'rm -rf "$TMP1"' EXIT
 
 # Child-process script shared by scenarios 4 (INT) and 5 (TERM): a standalone
 # bash process that sources the real plugin the same way this script does,
@@ -209,13 +239,14 @@ EOF
 # on the happy path (watchdog loses the race and is reaped silently).
 #
 # `trap - EXIT` is the FIRST thing the watchdog subshell does: a `(...) &`
-# subshell inherits this file's own top-level `trap 'rm -rf "$TMP1"' EXIT`
-# by default, so killing the watchdog on the happy path (the `kill
-# "$watchdog"` below, its normal cleanup) would otherwise fire that
-# inherited EXIT trap INSIDE the watchdog subshell and silently wipe the
-# whole $TMP1 scratch tree out from under the rest of this still-running
-# suite. Clearing the disposition before doing anything else closes that
-# window (measured 2026-07-15, isolated).
+# subshell inherits ANY EXIT trap set in this shell at fork time by default
+# (a `(...) &` subshell inheriting a bare top-level `trap ... EXIT` was
+# exactly how a detached tracon-loop subshell used to wipe the whole $TMP1
+# scratch tree out from under this still-running suite — see G3, ~line 170).
+# This file no longer installs a top-level EXIT trap at all (that same G3
+# note), so there is currently nothing for the watchdog to inherit — this
+# line is defense-in-depth against a future top-level trap reappearing, kept
+# cheap and harmless either way.
 _wait_bounded() {
   local pid="$1" ceiling="$2" watchdog
   (trap - EXIT; sleep "$ceiling"; kill -KILL -"$pid" 2>/dev/null) &
@@ -1257,14 +1288,15 @@ reg25=$(command ls "$LOOPS25"/*.json 2>/dev/null | head -n 1)
 loop_pid25=$(jq -r '.pid' "$reg25" 2>/dev/null)
 [ -n "$loop_pid25" ] && [ "$loop_pid25" != "null" ] || fail "scenario 25 setup: could not read the loop's pid from its registry entry $reg25"
 
-# Bounded wait WITHOUT _wait_bounded: its watchdog is a `(...) &` subshell,
-# which inherits this file's own top-level `trap ... rm -rf "$TMP1" EXIT`
-# (subshells inherit EXIT-trap dispositions from their parent by default,
-# no functrace needed). Killing that watchdog subshell (its normal
-# cleanup path) makes IT run the inherited EXIT trap too, wiping $TMP1
-# out from under this still-running scenario before the assertions below
-# ever read it (measured 2026-07-15: this exact interaction, isolated). A
-# plain poll-then-`wait` never forks anything that could inherit the trap.
+# Bounded wait WITHOUT _wait_bounded: written when this file still installed
+# a bare top-level `trap ... rm -rf "$TMP1" EXIT` — _wait_bounded's watchdog
+# is a `(...) &` subshell, which would have inherited that trap and wiped
+# $TMP1 out from under this still-running scenario the moment the watchdog
+# was killed on its normal cleanup path (measured 2026-07-15: this exact
+# interaction, isolated). This file no longer installs a top-level EXIT trap
+# at all (see G3, ~line 170), so that specific hazard no longer applies —
+# kept as a plain poll-then-`wait` anyway since it already works and forks
+# nothing extra.
 kill -TERM "$CHILD25"
 i=0
 while kill -0 "$CHILD25" 2>/dev/null && [ "$i" -lt 200 ]; do
@@ -1429,32 +1461,35 @@ rc28=$?
 echo "PASS: registry removal on the operator pause-requested exit, session never launched, marker consumed (scenario 28)"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Section E: registry lifecycle hardening (scenarios 29-33). Five behaviors
-# NOT yet fixed in the current plugin — every scenario below is red-first
-# against it, pinning the FUTURE contract:
-#   - F5a: the loop installs INT and TERM traps (~line 213-214) but no HUP
-#     trap. A real SIGHUP to a genuinely-running loop (the documented
-#     terminal-close-after-`q`-detach path) takes bash's default action and
-#     never runs _autopilot_loop_teardown, leaking the registry file.
-#     Scenario 29.
-#   - F5b: nothing prunes a stale `<pid>.json` registry entry for a pid that
-#     is definitely dead. It accumulates forever. Scenario 30.
-#   - F5c: nothing validates that a live registry pid is actually tagged
-#     _AUTOPILOT_LOOP=<pid> (the marker _autopilot_loop_cleanup, ~line 200,
-#     greps for) — so a live-but-unrelated pid can misread as an existing
-#     loop via the duplicate-loop guard (tracon_wrapper_alive.py, driven
-#     only through the tracon path). Scenario 31.
-#   - F10: the registry write (`jq -n --argjson pid ... >"$_reg"`, ~line
-#     251-255) has no error check. A failed jq leaves a 0-byte `<pid>.json`
-#     behind (the `>` redirect truncates/creates the file before jq ever
-#     runs) and the loop proceeds thinking it registered. Scenario 32.
-#   - F11: the wrapper reads `${_AUTOPILOT_LOOPS_DIR:-default}` into a LOCAL
-#     var (`_loops_dir`) and never exports the resolved value back onto
-#     _AUTOPILOT_LOOPS_DIR itself, so a child process that reads the
-#     variable from its own environment (tracon's discovery.py, at import
-#     time) can see a different loops dir than the one the wrapper actually
-#     wrote to — UNLESS some ancestor shell already exported it (as every
-#     other scenario in this file deliberately does). Scenario 33.
+# Section E: registry lifecycle hardening (scenarios 29-33). Five behaviors,
+# all FIXED in the current plugin (regression pins below, not red-first
+# probes):
+#   - F5a: the loop installs INT, TERM, AND a HUP trap (_autopilot_loop_
+#     teardown, ~line 265-275), so a real SIGHUP to a genuinely-running loop
+#     (the documented terminal-close-after-`q`-detach path) now runs the same
+#     teardown INT/TERM already got, instead of taking bash's default action
+#     and leaking the registry file. Scenario 29.
+#   - F5b: _autopilot_prune_registry (~line 66-77) sweeps a stale
+#     `<pid>.json` registry entry for a pid that is definitely dead, before
+#     the duplicate-loop guard or a new registration ever reads it — it no
+#     longer accumulates forever. Scenario 30.
+#   - F5c: the same prune also validates that a live registry pid is
+#     actually tagged _AUTOPILOT_LOOP=<pid> (the marker
+#     _autopilot_loop_cleanup, ~line 256, greps for) — a live-but-unrelated
+#     pid no longer misreads as an existing loop via the duplicate-loop guard
+#     (tracon_wrapper_alive.py, driven only through the tracon path).
+#     Scenario 31.
+#   - F10: the registry write (~line 313-325) writes to a `.tmp.$BASHPID`
+#     file first and `mv -f`s it into place only once jq succeeds, removing
+#     the tmp file and leaving `_reg` unset on failure — a failed jq call no
+#     longer leaves a 0-byte `<pid>.json` behind, and the loop still drains
+#     normally. Scenario 32.
+#   - F11: the wrapper exports the resolved value back onto
+#     _AUTOPILOT_LOOPS_DIR itself (plain loop body ~line 309-310;
+#     _autoclaude_tracon ~line 93), not just a local `_loops_dir`, so a child
+#     process that reads the variable from its own environment (tracon's
+#     discovery.py, at import time) sees the same loops dir the wrapper
+#     itself resolved and wrote to. Scenario 33.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Scenario 29 (F5a): a real SIGHUP to a genuinely-running loop's own
@@ -1716,16 +1751,13 @@ echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the wrapper so a child process o
 # lines) to stderr; child_rc == 0 (clean drain) -> print nothing; a missing
 # or empty wrapper.log -> print nothing, no error, regardless of child_rc.
 #
-# RED today: the helper does not exist yet, so every call below is a bash
-# "command not found" (rc 127, an error message on stderr) rather than the
-# contracted behavior — scenario 34's content assertion and scenario 35's
-# emptiness assertion both fail for that reason; scenario 36's rc/emptiness
-# assertions fail too (127 != 0, and the "command not found" text is not
-# empty). Measured (2026-07-15, isolated): an undefined command called as
-# `undefinedfunc "a" 1 2>"$f"` still honors the LOCAL stderr redirect —
-# bash applies simple-command redirections before command lookup — so the
-# "command not found" text lands in the captured file, not this suite's
-# real stderr; that is what the assertions below observe.
+# Shipped: _autoclaude_tracon_surface is defined in the plugin (~line
+# 198-211) and wired at both loop-child-exited-on-its-own exit paths —
+# case-3 "tracon says the loop ended — verify" (~line 169-175) and the final
+# `wait "$_loop"` fallback (~line 184-187). Scenarios 34-36 below pin the
+# helper's own contract directly (called standalone, not through a full
+# tracon run); scenario 39 (Section H) drives the two live call sites
+# end-to-end. All green as regression pins against the shipped helper.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Shared wrapper.log fixture: real lines lifted verbatim from the plugin's
@@ -1783,12 +1815,12 @@ rc36b=$?
 echo "PASS: non-zero child_rc surfaces the resume-runbook text from wrapper.log to stderr (scenario 34), a clean drain surfaces nothing (scenario 35), a missing or empty wrapper.log is safe — no output, no error (scenario 36)"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Section G: two behaviors in _autoclaude_tracon not yet fixed in the
-# current plugin (scenarios 37-38), both concerning what a CHILD the tracon
-# PARENT spawns can observe about the parent's own file descriptors /
-# environment — neither is reachable through the loop CHILD (which inherits
-# everything as a same-process fork regardless of export/redirection, so
-# scenarios 9-36 above cannot see either gap):
+# Section G: two behaviors in _autoclaude_tracon, both FIXED in the current
+# plugin (scenarios 37-38 are regression pins, not red-first probes), each
+# concerning what a CHILD the tracon PARENT spawns can observe about the
+# parent's own file descriptors / environment — neither is reachable through
+# the loop CHILD (which inherits everything as a same-process fork regardless
+# of export/redirection, so scenarios 9-36 above cannot see either gap):
 #   - G1 (scenario 37): `_autoclaude_tracon` backgrounds the tracon TUI
 #     itself (`uv run ... --wrapper-pid "$_loop" &`, ~line 149) under
 #     `set +m` with no explicit stdin redirection. Per POSIX, an
@@ -1977,3 +2009,89 @@ echo "scenario 38: observed _AUTOPILOT_LOOPS_DIR in the backgrounded uv TUI call
 [ "$got38" = "$LOOPS38" ] || fail "scenario 38: the backgrounded uv TUI call — a REAL child the tracon PARENT spawns — saw _AUTOPILOT_LOOPS_DIR='${got38:-<empty>}' in its own environment, expected the parent's resolved loops dir '$LOOPS38' — _autoclaude_tracon reads \${_AUTOPILOT_LOOPS_DIR:-default} inline at each of its own call sites but never exports the resolved value, unlike the plain loop body (~line 299-300)"
 
 echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the tracon PARENT itself before it spawns children, observable via a real exec'd child's own environment (scenario 38)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section H: end-to-end wiring of the surfaced-diagnostics helper (scenario
+# 39). Section F pins _autoclaude_tracon_surface's own contract by calling it
+# directly (scenarios 34-36); its two LIVE call sites inside
+# _autoclaude_tracon itself — case-3 "tracon says the loop ended — verify"
+# and the final `wait "$_loop"` fallback — were never driven end-to-end.
+# Drives the tracon path for real: the loop pauses (state.json phase=paused
+# + pause_reason, same shape scenario 2 uses) so its own paused branch prints
+# the 3-step resume runbook to stderr, which the tracon fork redirects into
+# wrapper.log (~line 138: `... >"$_ap_dir/wrapper.log" 2>&1 &`); the uv
+# TUI-call stub polls the loop's own pid (read off its own argv, via
+# _argv_value) AND its registry entry until both are gone — the same
+# "loop actually finished" signal scenarios 9/31 poll for, tightened to
+# close the race between "registry entry removed" and "the backgrounded
+# subshell has actually exited" — before returning 3. Asserts the
+# resume-runbook text reaches the PARENT autoclaude call's own stderr via
+# _autoclaude_tracon_surface, not just the helper's standalone contract.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Scenario 39 (G7): a paused loop's resume-runbook diagnostics, written to
+#    wrapper.log by the backgrounded tracon child, reach the PARENT
+#    autoclaude call's own stderr ──────────────────────────────────────────
+AP39="$TMP1/s39/dev/local/autopilot"
+mkdir -p "$AP39"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010039"}}' >"$AP39/state.json"
+LOOPS39="$TMP1/s39-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS39"
+
+claude() {
+  printf '%s\n' '{"prd":"tracon-test.md","phase":"paused","pause_reason":{"summary":"needs human input"},"batch":{"id":"209901010039"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=0
+# Scenario-local uv override: --preflight succeeds; the TUI call polls until
+# the loop's own pid is dead AND its registry entry is gone, then returns 3
+# ("tracon says the loop ended"), landing on _autoclaude_tracon's case-3
+# verify branch (or, if the race lands the other way, the final `wait`
+# fallback a few lines later — both call the same helper, so the assertion
+# below holds either way). Restored to the shared section-A stub right after.
+uv() {
+  case "$*" in
+  *--preflight*) return 0 ;;
+  *--wrapper-pid*)
+    local wpid i
+    wpid=$(_argv_value "$*" --wrapper-pid)
+    i=0
+    while { [ -e "$LOOPS39/$wpid.json" ] || kill -0 "$wpid" 2>/dev/null; } && [ "$i" -lt 100 ]; do
+      sleep 0.05
+      i=$((i + 1))
+    done
+    return 3 ;;
+  *) return 0 ;;
+  esac
+}
+
+ERR39="$TMP1/s39-err"
+AP_DIR="$AP39"
+export _AUTOPILOT_TRACON=1
+autoclaude >/dev/null 2>"$ERR39"
+rc39=$?
+unset _AUTOPILOT_TRACON
+uv() {   # restore the shared section-A stub for any scenario appended after this one
+  local rec="$*"
+  [ -n "$UV_CALLS_FILE" ] && printf '%s\n' "$rec" >>"$UV_CALLS_FILE"
+  case "$rec" in
+  *--preflight*) return "$UV_PREFLIGHT_RC" ;;
+  *) return "$UV_TUI_RC" ;;
+  esac
+}
+
+[ "$rc39" -eq 1 ] || fail "scenario 39: paused loop via the tracon path did not return 1 (rc=$rc39)"
+
+grep -qF '1. claude' "$ERR39" ||
+  fail "scenario 39: the paused loop's resume-runbook text ('1. claude') never reached the PARENT autoclaude call's own stderr — _autoclaude_tracon_surface is not wired at its live call sites (captured stderr: $(cat "$ERR39" 2>/dev/null))"
+
+[ -z "$(command ls -A "$LOOPS39" 2>/dev/null)" ] || fail "scenario 39: registry dir $LOOPS39 not empty after the paused exit: $(command ls "$LOOPS39")"
+
+echo "PASS: a paused loop's resume-runbook diagnostics reach the PARENT autoclaude call's own stderr via _autoclaude_tracon_surface, driven end-to-end through its live wiring (scenario 39)"
+
+# G3: natural-completion cleanup for the $TMP1 scratch tree (~line 201) — see
+# that note for why this is a plain end-of-script `rm -rf`, not a trap.
+rm -rf "$TMP1"
