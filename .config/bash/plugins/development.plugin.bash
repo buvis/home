@@ -86,10 +86,16 @@ _autoclaude_tracon() {
   _root="${_ap_dir%/dev/local/autopilot}"
   mkdir -p "$_ap_dir" 2>/dev/null
 
+  # Export the resolved loops dir BEFORE any child is spawned (guard,
+  # preflight, uv): unlike the plain loop body (~line 300) this function
+  # never exported it, so a real child process (e.g. tracon's discovery.py)
+  # could resolve a different dir than the wrapper itself writes to.
+  export _AUTOPILOT_LOOPS_DIR="${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}"
+
   # Prune stale registry entries BEFORE the duplicate-loop guard reads them:
   # a dead pid or a live-but-untagged (recycled) pid must never block a new
   # loop.
-  _autopilot_prune_registry "${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}"
+  _autopilot_prune_registry "$_AUTOPILOT_LOOPS_DIR"
 
   # (1) Duplicate-loop guard FIRST (cheap; before any uv cost).
   if python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root"; then
@@ -123,6 +129,10 @@ _autoclaude_tracon() {
   # line runs must never fall back to $! (an unrelated job of the caller).
   trap 'trap - INT TERM; [ -n "$_loop" ] && _autoclaude_tracon_stop "$_loop"; return 130' INT
   trap 'trap - INT TERM; [ -n "$_loop" ] && _autoclaude_tracon_stop "$_loop"; return 143' TERM
+  # ponytail: the trap above does not explicitly kill/wait the backgrounded
+  # uv TUI or restore `set -m` before its `return` — folding that in risks
+  # the INT/TERM return-code contract (scenarios 20/21/24/25) for a process
+  # that is short-lived and reaped on shell exit anyway; skipped.
 
   # `</dev/null`: a background job that reads the tty is stopped with SIGTTIN.
   _AUTOPILOT_TRACON_CHILD=1 autoclaude "$@" </dev/null >"$_ap_dir/wrapper.log" 2>&1 &
@@ -146,7 +156,7 @@ _autoclaude_tracon() {
   # background job in THIS shell's own process group (no new pgrp), so it
   # still reads the tty exactly as a foreground command would — no SIGTTIN.
   set +m
-  uv run --quiet --no-project "$_tracon_py" --root "$_root" --wrapper-pid "$_loop" &
+  uv run --quiet --no-project "$_tracon_py" --root "$_root" --wrapper-pid "$_loop" <&0 &
   wait $!
   _rc=$?
   [ "$_mset" -eq 1 ] && set -m
