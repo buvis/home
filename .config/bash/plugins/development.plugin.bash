@@ -159,7 +159,9 @@ _autoclaude_tracon() {
     3)                                     # tracon says the loop ended — verify
       if ! kill -0 "$_loop" 2>/dev/null; then
         wait "$_loop"
-        return $?
+        local _crc=$?
+        _autoclaude_tracon_surface "$_ap_dir/wrapper.log" "$_crc"
+        return "$_crc"
       fi ;;                                # still alive => a stray 3: fall through
   esac
 
@@ -170,7 +172,9 @@ _autoclaude_tracon() {
     return 0
   fi
   wait "$_loop"                            # already ended: surface its exit code
-  return $?
+  local _crc=$?
+  _autoclaude_tracon_surface "$_ap_dir/wrapper.log" "$_crc"
+  return "$_crc"
 }
 
 # SIGINT to the child's process GROUP. No pid-directed fallback: a pid-directed
@@ -179,6 +183,21 @@ _autoclaude_tracon() {
 _autoclaude_tracon_stop() {
   kill -INT -"$1" 2>/dev/null
   wait "$1" 2>/dev/null
+}
+
+# _autoclaude_tracon_surface <wrapper_log_path> <child_rc> — tracon mode
+# redirects the loop child's stdout/stderr into wrapper.log (never the
+# terminal), so operator-facing diagnostics (the paused resume runbook, the
+# died-session state.json/last-session.log pointer) are otherwise swallowed
+# when the loop exits on its own. Called only from the loop-child-exited
+# paths above; a non-zero child_rc with a non-empty log surfaces the log's
+# tail to stderr, a clean drain (rc 0) or a missing/empty log stays silent.
+_autoclaude_tracon_surface() {   # $1=wrapper.log, $2=child rc — surface swallowed diagnostics on a non-zero exit
+  [ "$2" -ne 0 ] || return 0
+  [ -s "$1" ] || return 0
+  printf '\n── autoclaude: loop exited (rc %s); last output below ──\n' "$2" >&2
+  tail -n 20 "$1" >&2
+  return 0
 }
 
 _autopilot_present() {   # the pipeline's last stage; tracon owns the screen in child mode
