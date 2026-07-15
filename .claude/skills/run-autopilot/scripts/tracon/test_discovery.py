@@ -548,6 +548,14 @@ def test_pid_alive_true_when_kill_raises_permission_error(
     assert discovery.pid_alive(1) is True
 
 
+def test_pid_alive_rejects_nonpositive_pid() -> None:
+    """os.kill(pid, 0) targets a process GROUP for pid 0 and pid -1, so it
+    reports success even though no such process exists. pid_alive must reject
+    both before ever reaching os.kill, not just relay its return value."""
+    assert discovery.pid_alive(0) is False
+    assert discovery.pid_alive(-1) is False
+
+
 # --- read_registry: tolerant parse of one-file-per-wrapper registry ---------
 
 
@@ -616,6 +624,31 @@ def test_read_registry_parses_valid_entry_into_wrapper(tmp_path: Path) -> None:
     assert wrapper.root == root
     assert isinstance(wrapper.root, Path)
     assert wrapper.started_at == "2026-07-14T00:00:00Z"
+
+
+def test_read_registry_rejects_nonpositive_pid() -> None:
+    """A registry entry with pid 0 or a negative pid must never be treated as
+    a live wrapper candidate: pid 0 and pid -1 both target process GROUPS
+    under os.kill, so a bogus entry would otherwise read as alive forever."""
+    loops_dir = discovery.LOOPS_DIR
+    root = loops_dir / "myrepo"
+    _write_json(
+        loops_dir / "zero.json",
+        {"pid": 0, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+    _write_json(
+        loops_dir / "negative.json",
+        {"pid": -1, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+    _write_json(
+        loops_dir / "valid.json",
+        {"pid": 12345, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = discovery.read_registry()
+
+    pids = [wrapper.pid for wrapper in result]
+    assert pids == [12345]
 
 
 # --- wrapper_alive: registry membership AND liveness, root paths resolved ---
@@ -698,6 +731,22 @@ def test_wrapper_alive_resolves_symlinked_root_to_match_registry_entry(
     )
 
     assert discovery.wrapper_alive(symlink_root, loops_dir=loops_dir) is True
+
+
+def test_wrapper_alive_ignores_nonpositive_pid_entry(tmp_path: Path) -> None:
+    """A registry entry for this exact root with pid 0 must never read as a
+    live wrapper: os.kill(0, 0) succeeds because it targets the calling
+    process's group, not because pid 0 is a real, live wrapper process."""
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": 0, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    assert discovery.wrapper_alive(root, loops_dir=loops_dir) is False
 
 
 # --- loop_status: wrapper field reflects wrapper_alive for the loop root ----
@@ -991,3 +1040,21 @@ def test_guard_is_read_only_leaves_registry_and_root_untouched(tmp_path: Path) -
     assert sorted(p.name for p in loops_dir.iterdir()) == before_loops_names
     assert sorted(p.name for p in root.iterdir()) == before_root_names
     assert entry_path.read_text() == before_entry_text
+
+
+def test_wrapper_alive_script_requires_root_arg() -> None:
+    """Invoked with no <root> argument, the script must exit non-zero with a
+    usage message on stderr - not raise an uncaught IndexError traceback from
+    an unguarded sys.argv[1] access."""
+    result = subprocess.run(
+        [sys.executable, str(WRAPPER_ALIVE_SCRIPT)],
+        cwd=SCRIPTS_DIR,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    stderr_lower = result.stderr.lower()
+    assert "usage" in stderr_lower or "root" in stderr_lower
+    assert "traceback" not in stderr_lower
+    assert "indexerror" not in stderr_lower
