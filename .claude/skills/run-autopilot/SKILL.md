@@ -22,7 +22,7 @@ Makes autonomous decisions backed by research (dependencies, recurring issues, A
 - Shell wrapper outside `~/.claude`: `autoclaude` in
   `~/.config/bash/plugins/development.plugin.bash` - the unattended session loop
 - CLIs: `claude` (headless `-p`), `python3`, `git`, `awk`
-- Optional: `tracon` (`scripts/tracon/`; PRD 00062 wires the default launch) - dashboard only, absence changes nothing
+- Optional: `tracon` (`scripts/tracon/`; the default `autoclaude` front-end since PRD 00062, `_AUTOPILOT_TRACON=0` or no tty/`uv` falls back to `render_stream.py`) - dashboard only, absence changes nothing
 
 ## Execution Model
 
@@ -113,7 +113,7 @@ Run this hydration **before any phase invokes `/work` or queries TaskList for ro
 
 ### Live Dashboard
 
-The user can run `tracon` (`scripts/tracon/`; default launch lands with PRD 00062) in a separate terminal pane to watch progress in real time. It reads `dev/local/autopilot/state.json` — no action needed from autopilot beyond keeping the state file updated. Until tracon launches by default, the loop terminal shows the `render_stream.py` fallback with per-lane subagent tags.
+`autoclaude` launches `tracon` (`scripts/tracon/`) in the foreground by default (PRD 00062), so the loop terminal shows the live dashboard with no extra step. It reads `dev/local/autopilot/state.json` — no action needed from autopilot beyond keeping the state file updated. `q` detaches (loop keeps running, wrapper prints the reattach command), `p` pauses at the next session boundary, `Ctrl-C` stops the loop with full cleanup. When there is no tty, no `uv`, or `_AUTOPILOT_TRACON=0`, the loop terminal shows the `render_stream.py` fallback with per-lane subagent tags instead. Full operator surface: `references/dashboard-format.md`.
 
 ### Phase Banners
 
