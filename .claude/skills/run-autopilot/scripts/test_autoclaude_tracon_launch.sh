@@ -1781,3 +1781,199 @@ rc36b=$?
 [ ! -s "$ERR36B" ] || fail "scenario 36: _autoclaude_tracon_surface printed diagnostics for an EMPTY wrapper.log: $(cat "$ERR36B" 2>/dev/null)"
 
 echo "PASS: non-zero child_rc surfaces the resume-runbook text from wrapper.log to stderr (scenario 34), a clean drain surfaces nothing (scenario 35), a missing or empty wrapper.log is safe — no output, no error (scenario 36)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Section G: two behaviors in _autoclaude_tracon not yet fixed in the
+# current plugin (scenarios 37-38), both concerning what a CHILD the tracon
+# PARENT spawns can observe about the parent's own file descriptors /
+# environment — neither is reachable through the loop CHILD (which inherits
+# everything as a same-process fork regardless of export/redirection, so
+# scenarios 9-36 above cannot see either gap):
+#   - G1 (scenario 37): `_autoclaude_tracon` backgrounds the tracon TUI
+#     itself (`uv run ... --wrapper-pid "$_loop" &`, ~line 149) under
+#     `set +m` with no explicit stdin redirection. Per POSIX, an
+#     asynchronous command's stdin "shall be considered to be assigned to
+#     /dev/null in the absence of explicit redirections" when job control is
+#     not in effect — exactly the state at that call site. If bash applies
+#     that here, the real tracon TUI (Textual reads fd 0 directly for key
+#     events) is DEAF: `q` never quits, arrow keys never navigate. The fix
+#     (a later task) adds `<&0` to that line so the backgrounded uv
+#     explicitly inherits the parent shell's own fd 0 instead of leaving it
+#     to bash's default. Pinned by feeding a known sentinel on THIS script's
+#     own stdin and having the uv TUI-call stub read one line off its own
+#     fd 0 — a real external-process stdin read is not simulable any other
+#     way inside this stub-as-shell-function harness.
+#   - G2 (scenario 38): `_autoclaude_tracon` reads
+#     `${_AUTOPILOT_LOOPS_DIR:-default}` inline at each of its own call
+#     sites (the prune, the duplicate-loop guard, the TUI launch) and never
+#     exports the resolved value — unlike the plain loop body (~line
+#     299-300: `export _AUTOPILOT_LOOPS_DIR="$_loops_dir" # so any child
+#     (guard, tracon) resolves the SAME dir`). Every scenario above this one
+#     masks that gap by `export`ing _AUTOPILOT_LOOPS_DIR itself before
+#     calling autoclaude — inherited by every child regardless of what the
+#     wrapper does. Scenario 38 instead sets it with a plain (non-exported)
+#     assignment, the only way to isolate the tracon PARENT's own export
+#     contract, and checks a child the PARENT itself spawns (the uv
+#     TUI-call stub again) via `command printenv` — a real exec, the only
+#     way to distinguish "truly exported" from "merely a shell variable the
+#     same-process fork happens to see".
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Scenario 37 (G1): the backgrounded tracon TUI call must receive the
+#    parent shell's own stdin, not /dev/null — feed a sentinel on this
+#    invocation's stdin and have the uv TUI-call stub read it back off its
+#    own fd 0 ──────────────────────────────────────────────────────────────
+AP37="$TMP1/s37/dev/local/autopilot"
+mkdir -p "$AP37"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010037"}}' >"$AP37/state.json"
+LOOPS37="$TMP1/s37-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS37"
+
+claude() {
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010037"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+STDIN_CAP37="$TMP1/s37-stdin-capture"
+: >"$STDIN_CAP37"
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=0
+# Scenario-local uv override: the TUI call (--wrapper-pid) reads ONE line
+# off its own fd 0 and records it, rather than just recording argv like the
+# shared stub. `IFS= read -r` returns non-zero on EOF and leaves the target
+# variable empty rather than blocking — safe either way this lands: the
+# sentinel is already sitting on the pipe by the time this runs (fed via
+# the here-string on the `run_loop` call below), so this never blocks on an
+# empty source either. Restored to the shared section-A stub right after.
+uv() {
+  case "$*" in
+  *--preflight*) return "$UV_PREFLIGHT_RC" ;;
+  *--wrapper-pid*)
+    local _line=""
+    IFS= read -r _line <&0
+    printf '%s' "$_line" >"$STDIN_CAP37"
+    return "$UV_TUI_RC" ;;
+  *) return "$UV_TUI_RC" ;;
+  esac
+}
+
+export _AUTOPILOT_TRACON=1
+run_loop "$AP37" <<<'STDIN_SENTINEL_XYZ'
+rc37=$?
+unset _AUTOPILOT_TRACON
+uv() {   # restore the shared section-A stub for any scenario appended after this one
+  local rec="$*"
+  [ -n "$UV_CALLS_FILE" ] && printf '%s\n' "$rec" >>"$UV_CALLS_FILE"
+  case "$rec" in
+  *--preflight*) return "$UV_PREFLIGHT_RC" ;;
+  *) return "$UV_TUI_RC" ;;
+  esac
+}
+
+[ "$rc37" -eq 0 ] || fail "scenario 37 setup: tracon-path drain did not return 0 (rc=$rc37)"
+
+# F7-class defensive bound: the loop is a fast synchronous claude() stub, but
+# poll for its own registry teardown anyway so no background job from this
+# scenario can outlive it.
+i=0
+while [ -n "$(command ls -A "$LOOPS37" 2>/dev/null)" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+
+got37="$(cat "$STDIN_CAP37" 2>/dev/null)"
+echo "scenario 37: backgrounded-uv observed stdin: '${got37:-<empty>}'"
+
+[ "$got37" = "STDIN_SENTINEL_XYZ" ] || fail "scenario 37: the backgrounded uv TUI call's own fd 0 read '${got37:-<empty>}', expected the parent shell's stdin sentinel 'STDIN_SENTINEL_XYZ' — bash gave the async uv job a stdin other than the parent's own (per POSIX, /dev/null in the absence of an explicit redirection when job control is off), which would leave the real tracon TUI deaf to tty keys"
+
+echo "PASS: the backgrounded tracon TUI call inherits the parent shell's own stdin, not a bash-default /dev/null (scenario 37)"
+
+# ── Scenario 38 (G2): _AUTOPILOT_LOOPS_DIR must be exported by the tracon
+#    PARENT itself before it spawns anything that reads it from its own
+#    environment — unlike every scenario above, this one sets it with a
+#    plain (non-exported) assignment so only a genuine `export` inside
+#    _autoclaude_tracon can make it visible to a REAL child process ───────
+AP38="$TMP1/s38/dev/local/autopilot"
+mkdir -p "$AP38"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010038"}}' >"$AP38/state.json"
+
+LOOPS38="$TMP1/s38-registry"
+mkdir -p "$LOOPS38"
+unset _AUTOPILOT_LOOPS_DIR       # drop any earlier scenario's export attribute entirely — a plain
+                                  # reassignment over an already-exported var stays exported
+_AUTOPILOT_LOOPS_DIR="$LOOPS38"  # plain assignment, deliberately NOT exported
+
+# Sandbox $HOME too: tracon_wrapper_alive.py (the duplicate-loop guard, run
+# for real here — the python3() stub only intercepts _walk_up.py/
+# detect_usage_limit.py/notify.py/purge_devlocal.py by substring) is invoked
+# by the literal path `~/.claude/skills/.../tracon_wrapper_alive.py`, which
+# tilde-expands against $HOME at call time. Under a sandboxed HOME that path
+# does not exist, so the real `python3 <missing file>` call fails fast
+# (nonzero rc, same as a proper "not alive" result — the guard's own
+# correctness is already pinned by scenarios 11/31, not the target here)
+# WITHOUT ever importing tracon.discovery and reading the real
+# ~/.claude/autopilot-loops — the only way to drive this scenario's actual
+# target (the uv TUI-call child's own environment) without letting an
+# unrelated real script touch real user files as a side effect of the very
+# gap being pinned.
+HOME38="$TMP1/s38-home"
+mkdir -p "$HOME38"
+_home_saved38="$HOME"
+export HOME="$HOME38"
+
+claude() {
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010038"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+ENV_CAP38="$TMP1/s38-env-capture"
+: >"$ENV_CAP38"
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=0
+# Scenario-local uv override: the TUI call execs a REAL external binary
+# (printenv) instead of just reading the shell variable — the only way to
+# distinguish "truly exported" from "a plain shell variable the same-process
+# async fork happens to see regardless of export". Restored to the shared
+# section-A stub right after.
+uv() {
+  case "$*" in
+  *--preflight*) return "$UV_PREFLIGHT_RC" ;;
+  *--wrapper-pid*)
+    command printenv _AUTOPILOT_LOOPS_DIR >"$ENV_CAP38" 2>/dev/null
+    return "$UV_TUI_RC" ;;
+  *) return "$UV_TUI_RC" ;;
+  esac
+}
+
+export _AUTOPILOT_TRACON=1
+run_loop "$AP38"
+rc38=$?
+unset _AUTOPILOT_TRACON
+uv() {   # restore the shared section-A stub for any scenario appended after this one
+  local rec="$*"
+  [ -n "$UV_CALLS_FILE" ] && printf '%s\n' "$rec" >>"$UV_CALLS_FILE"
+  case "$rec" in
+  *--preflight*) return "$UV_PREFLIGHT_RC" ;;
+  *) return "$UV_TUI_RC" ;;
+  esac
+}
+export HOME="$_home_saved38"
+unset _AUTOPILOT_LOOPS_DIR   # leave no dangling non-exported value for any scenario appended after this one
+
+[ "$rc38" -eq 0 ] || fail "scenario 38 setup: tracon-path drain did not return 0 (rc=$rc38)"
+
+# F7-class defensive bound: same reasoning as scenario 37's poll above.
+i=0
+while [ -n "$(command ls -A "$LOOPS38" 2>/dev/null)" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+
+got38="$(cat "$ENV_CAP38" 2>/dev/null)"
+echo "scenario 38: observed _AUTOPILOT_LOOPS_DIR in the backgrounded uv TUI call's own (real, execed) environment: '${got38:-<empty>}' (parent used '$LOOPS38')"
+
+[ "$got38" = "$LOOPS38" ] || fail "scenario 38: the backgrounded uv TUI call — a REAL child the tracon PARENT spawns — saw _AUTOPILOT_LOOPS_DIR='${got38:-<empty>}' in its own environment, expected the parent's resolved loops dir '$LOOPS38' — _autoclaude_tracon reads \${_AUTOPILOT_LOOPS_DIR:-default} inline at each of its own call sites but never exports the resolved value, unlike the plain loop body (~line 299-300)"
+
+echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the tracon PARENT itself before it spawns children, observable via a real exec'd child's own environment (scenario 38)"
