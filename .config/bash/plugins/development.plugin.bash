@@ -54,6 +54,28 @@ _autopilot_session_cap() {
   done
 }
 
+# _autopilot_prune_registry <loops_dir> — sweep <loops_dir>/*.json for stale
+# entries before a duplicate-loop check or a new registration: an entry
+# whose stored pid is dead, or alive but not tagged with its own
+# _AUTOPILOT_LOOP=<pid> (a recycled pid claimed by an unrelated process), is
+# not a real loop and must not linger or block a new one. Malformed or
+# unreadable entries (jq failure, empty pid) are swept the same way — they
+# can never denote a live loop either. Never touches the CURRENT process's
+# own entry (stored pid == $BASHPID, whatever the entry's filename) — this
+# process is definitionally alive and is never its own stale duplicate.
+_autopilot_prune_registry() {
+  local _dir="$1" _f _pid
+  for _f in "$_dir"/*.json; do
+    [ -e "$_f" ] || continue
+    _pid=$(jq -r '.pid // empty' "$_f" 2>/dev/null)
+    [ "$_pid" = "$BASHPID" ] && continue
+    if [ -z "$_pid" ] || ! kill -0 "$_pid" 2>/dev/null ||
+      ! ps ewww -p "$_pid" -o command= 2>/dev/null | grep -qE "_AUTOPILOT_LOOP=${_pid}( |$)"; then
+      rm -f "$_f"
+    fi
+  done
+}
+
 # _autoclaude_tracon <args...> — foreground the tracon TUI while the loop runs
 # backgrounded as a process-group leader. See autoclaude's presentation
 # branch (_AUTOPILOT_TRACON=0/1/auto) for the routing decision.
@@ -63,6 +85,11 @@ _autoclaude_tracon() {
   [ -n "$_ap_dir" ] || _ap_dir="$PWD/dev/local/autopilot"
   _root="${_ap_dir%/dev/local/autopilot}"
   mkdir -p "$_ap_dir" 2>/dev/null
+
+  # Prune stale registry entries BEFORE the duplicate-loop guard reads them:
+  # a dead pid or a live-but-untagged (recycled) pid must never block a new
+  # loop.
+  _autopilot_prune_registry "${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}"
 
   # (1) Duplicate-loop guard FIRST (cheap; before any uv cost).
   if python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root"; then
@@ -203,7 +230,7 @@ autoclaude() {
   }
 
   _autopilot_loop_teardown() {          # trap-safe: clears traps FIRST, then unwinds
-    trap - INT TERM
+    trap - INT TERM HUP
     _autopilot_loop_cleanup
     kill "$_cap_pid" 2>/dev/null
     [ -n "$_reg" ] && rm -f "$_reg"
@@ -212,6 +239,7 @@ autoclaude() {
 
   trap '_autopilot_loop_teardown; return 130' INT
   trap '_autopilot_loop_teardown; return 143' TERM
+  trap '_autopilot_loop_teardown; return 129' HUP
 
   while true; do
     # Memory circuit-breaker (2026-06-25): refuse to launch a session when the
@@ -224,7 +252,7 @@ autoclaude() {
     if [ -n "$_mem_pressure" ] && [ "$_mem_pressure" -ge 2 ] 2>/dev/null; then
       printf '\nautoclaude: memory pressure (level %s); stopping loop before launching next session. Free RAM, then re-run.\n' "$_mem_pressure" >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: memory pressure (level $_mem_pressure). Free RAM, then re-run autoclaude." 2>/dev/null
-      trap - INT TERM
+      trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 1
@@ -246,13 +274,22 @@ autoclaude() {
 
     if [ -z "$_reg" ]; then
       local _loops_dir="${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}"
+      export _AUTOPILOT_LOOPS_DIR="$_loops_dir" # so any child (guard, tracon) resolves the SAME dir
       mkdir -p "$_loops_dir" 2>/dev/null
+      _autopilot_prune_registry "$_loops_dir"
       _reg="$_loops_dir/$BASHPID.json"
-      jq -n --argjson pid "$BASHPID" \
+      local _reg_tmp="$_reg.tmp.$BASHPID"
+      if jq -n --argjson pid "$BASHPID" \
         --arg root "${_ap_dir%/dev/local/autopilot}" \
         --arg ap_dir "$_ap_dir" \
         --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' >"$_reg"
+        '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' >"$_reg_tmp" 2>/dev/null; then
+        mv -f "$_reg_tmp" "$_reg"
+      else
+        rm -f "$_reg_tmp"
+        printf 'autoclaude: registry write failed (jq); running unregistered.\n' >&2
+        _reg=""
+      fi
     fi
 
     # Operator pause (PRD 00014): `touch <ap_dir>/pause-requested` is the
@@ -262,7 +299,7 @@ autoclaude() {
       rm -f "$_ap_dir/pause-requested"
       printf '\nautoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.\n'
       python3 ~/.claude/hooks/notify.py --send "autopilot ⏸ ${PWD##*/}" "Paused by operator at a session boundary. State intact." 2>/dev/null
-      trap - INT TERM
+      trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 0
@@ -553,7 +590,7 @@ autoclaude() {
       printf '  2. /run-autopilot    # resumes from state.json; blockers become questions\n' >&2
       printf '  3. autoclaude        # after the decision, to continue unattended\n' >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Paused: $_detail"
-      trap - INT TERM
+      trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 1
@@ -564,7 +601,7 @@ autoclaude() {
       printf '\nBacklog drained.\n'
       python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained."
       python3 ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py --repo "$PWD" --apply || true
-      trap - INT TERM
+      trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return
@@ -572,7 +609,7 @@ autoclaude() {
     died)
       printf '\nautoclaude: session died (%s). Backlog NOT drained. Check %s/state.json and %s/last-session.log.\n' "$_detail" "$_ap_dir" "$_ap_dir" >&2
       python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: $_detail. Needs attention."
-      trap - INT TERM
+      trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 1
