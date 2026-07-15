@@ -1599,6 +1599,17 @@ rc31=$?
 unset _AUTOPILOT_TRACON
 UV_CALLS_FILE=""
 
+# The tracon path forks the loop as a BACKGROUND child and detaches (rc 0)
+# the instant the stubbed `uv` TUI returns — before the child reaches its
+# claude() call. Poll for that side effect, same as scenarios 9/13/20/25/29
+# do for the backgrounded loop's progress, so the claude-invoked assertion
+# below is not a synchronous race against a detached child.
+i=0
+while [ ! -s "$CLAUDE_CALLS31" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+
 kill "$UNRELATED31" 2>/dev/null
 wait "$UNRELATED31" 2>/dev/null
 
