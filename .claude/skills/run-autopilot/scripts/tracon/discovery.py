@@ -56,6 +56,8 @@ class Wrapper:
 
 
 def pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -82,7 +84,7 @@ def read_registry(loops_dir: Path | None = None) -> list[Wrapper]:
             continue
         pid = data.get("pid")
         root = data.get("root")
-        if not isinstance(pid, int) or isinstance(pid, bool) or not isinstance(root, str):
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or not isinstance(root, str):
             continue
         started_at = data.get("started_at")
         wrappers.append(
