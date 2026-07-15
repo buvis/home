@@ -404,6 +404,128 @@ def test_wrapper_pid_flag_is_forwarded_to_run_app(monkeypatch: pytest.MonkeyPatc
     assert 4242 in captured["args"] or captured["kwargs"].get("wrapper_pid") == 4242
 
 
+# --- _final_signal_label: state.json is authoritative, not the last row ----
+#
+# The wrapper's operator-pause and memory-pressure exits return BEFORE
+# running a session -- they append NO new loop-metrics row. Reading the LAST
+# row on disk then surfaces whatever a PRIOR session left behind, which can
+# be a non-terminal signal like "continue". state.json reflects the CURRENT,
+# authoritative loop state and must win over a stale metrics row.
+
+
+def _write_autopilot_state(root: Path, **overrides: Any) -> Path:
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True, exist_ok=True)
+    state: dict[str, Any] = {"prd": "00061-x.md", "phase": "build", "next_phase": "review"}
+    state.update(overrides)
+    path = autopilot_dir / "state.json"
+    path.write_text(json.dumps(state))
+    return path
+
+
+def test_final_signal_label_reports_stopped_not_stale_continue_on_markerless_exit(
+    tmp_path: Path,
+) -> None:
+    """The wrapper's operator-pause exit consumes pause-requested and exits
+    WITHOUT running a session, so it appends no new loop-metrics row: the
+    LAST row on disk is whatever a PRIOR mid-run session left behind (here
+    signal="continue" -- a NON-terminal signal). This exit path leaves
+    state.json otherwise untouched: next_phase stays non-empty and no
+    pause_reason / cap_pause_reason marker is written. Today
+    _final_signal_label reads only the last metrics row and returns
+    "continue" for this case -- a non-terminal signal must never label a
+    loop-exit banner. With no pause marker present, the honest terminal
+    label for this exit is "stopped"."""
+    from tracon import screens
+
+    root = tmp_path / "loop-a"
+    _write_autopilot_state(root, next_phase="review")
+    metrics_path = root / "dev" / "local" / "autopilot" / "loop-metrics.jsonl"
+    _write_lines(metrics_path, [_metrics_line(signal="continue")])
+
+    label = screens._final_signal_label(root)
+
+    assert label != "continue"  # observed today: "continue" (a non-terminal signal)
+    assert label == "stopped"
+
+
+def test_final_signal_label_reports_drained_when_next_phase_empty(
+    tmp_path: Path,
+) -> None:
+    """A genuinely drained loop has next_phase="" in state.json -- that must
+    win over the last metrics row, including a stale non-terminal "continue"
+    left by a prior session."""
+    from tracon import screens
+
+    root = tmp_path / "loop-a"
+    _write_autopilot_state(root, next_phase="")
+    metrics_path = root / "dev" / "local" / "autopilot" / "loop-metrics.jsonl"
+    _write_lines(metrics_path, [_metrics_line(signal="continue")])
+
+    label = screens._final_signal_label(root)
+
+    assert label == "drained"
+
+
+def test_final_signal_label_reports_paused_when_pause_reason_set(
+    tmp_path: Path,
+) -> None:
+    """An operator pause that DOES leave a pause_reason marker (phase
+    "paused" + pause_reason) must label the banner "paused", regardless of
+    what the last metrics row's signal says."""
+    from tracon import screens
+
+    root = tmp_path / "loop-a"
+    _write_autopilot_state(
+        root,
+        phase="paused",
+        next_phase="review",
+        pause_reason={"site": "review", "detail": "waiting on doubt"},
+    )
+    metrics_path = root / "dev" / "local" / "autopilot" / "loop-metrics.jsonl"
+    _write_lines(metrics_path, [_metrics_line(signal="continue")])
+
+    label = screens._final_signal_label(root)
+
+    assert label == "paused"
+
+
+def test_final_signal_label_handles_missing_state(tmp_path: Path) -> None:
+    """A root with no state.json on disk at all must still yield a concrete
+    terminal label, never raise."""
+    from tracon import screens
+
+    label = screens._final_signal_label(tmp_path / "loop-a")
+
+    assert label == "stopped"
+
+
+# --- run_app: Textual may leave return_code unset, the wrapper needs an int -
+
+
+def test_run_app_never_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_app() returns app.return_code verbatim (see
+    test_run_app_propagates_the_apps_return_code above) -- but Textual can
+    leave App.return_code as None if the app's message pump exits without an
+    explicit app.exit(return_code=...) call. The wrapper treats run_app()'s
+    return value as a process exit code unconditionally; a bare None there
+    is a crash waiting to happen. run_app must never surface None."""
+    from tracon import screens
+
+    class _FakeApp:
+        return_code = None
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(screens, "build_app", lambda *a, **kw: _FakeApp())
+
+    result = screens.run_app([])
+
+    assert result is not None  # observed today: None
+    assert isinstance(result, int)
+
+
 # --- Textual pilot smoke test: needs textual, skips cleanly without it ------
 
 
