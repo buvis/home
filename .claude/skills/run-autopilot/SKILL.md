@@ -172,6 +172,8 @@ The `autoclaude` wrapper exports `_AUTOPILOT_LOOP=$$` before launching each head
 
 **Review-file gate (in-session quality gate).** `review_coverage_hook.py` stays registered on Stop: at the done hand-off, when the saved review file is missing or fails the `check_review_file.py` shape check (missing reviewer section, verdict, or tests line — PRD 00016), it exit-2-blocks the turn's end and feeds the gap back to the model so the review can be finished before the turn ends. Exit-2 Stop-hook blocking works in `-p` mode (`references/design-rationale.md` § Review-file gate). This is a completeness gate on review artifacts, not loop orchestration.
 
+**State-write gate (in-session integrity gate).** `validate_state_json_hook.py` is registered on PostToolUse for `Edit|Write|MultiEdit`: any write that leaves `dev/local/autopilot/state.json` unparseable exit-2-feeds the parse error back to the model immediately, while the session can still rewrite it. Without it, the corruption surfaces only at session exit, where the wrapper's `jq` check misreads a healthy PAUSE as `died (state.json unreadable)` and halts the loop (harness-tag bleed appended `</content>` to a state write, ddb 2026-07-16).
+
 **Wrapper sketch** (the real `autoclaude` adds the memory circuit-breaker, the session wall-clock cap, orphan cleanup, metrics, notifications, and the operator-view renderer — `scripts/render_stream.py` turns the stream-json terminal output into one-line summaries while `last-session.log` keeps the raw events):
 
 ```bash
