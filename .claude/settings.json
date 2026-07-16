@@ -299,11 +299,20 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/skills/run-autopilot/scripts/validate_state_json_hook.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },
   "enabledPlugins": {
-    "pr-review-toolkit@claude-plugins-official": false,
     "lua-lsp@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
@@ -323,12 +332,6 @@
         "repo": "buvis/claude-plugins"
       },
       "autoUpdate": true
-    },
-    "harness-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "revfactory/harness"
-      }
     },
     "ponytail": {
       "source": {
