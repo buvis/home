@@ -309,8 +309,16 @@ def _read_audit_events(home: Path) -> list[dict]:
     return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _payload(file_path: str = "/repo/app.py", session_id: str = "sess-1", tool_name: str = "Read") -> dict:
-    return {"session_id": session_id, "tool_name": tool_name, "tool_input": {"file_path": file_path}}
+def _payload(
+    file_path: str = "/repo/app.py",
+    session_id: str = "sess-1",
+    tool_name: str = "Read",
+    agent_id: str | None = None,
+) -> dict:
+    payload = {"session_id": session_id, "tool_name": tool_name, "tool_input": {"file_path": file_path}}
+    if agent_id is not None:
+        payload["agent_id"] = agent_id
+    return payload
 
 
 def _novel_dir() -> str:
@@ -1117,6 +1125,87 @@ def test_a_malformed_store_is_rebuilt_and_the_injection_still_ships(
 
     assert envelope["hookSpecificOutput"]["additionalContext"] == _expected_payload(("python-patterns",))
     assert _read_store(fake_home) == {"sess-1": {"day": _TODAY, "skills": ["python-patterns"]}}
+
+
+# ---------------------------------------------------------------------------
+# Throttle: subagent starvation regression (2026-07-17)
+# ---------------------------------------------------------------------------
+#
+# Measured live (PRD 00064, task 3 gate): a subagent's tool calls carry the
+# PARENT's session_id, not one of its own, even though the subagent has its own
+# separate context. A session_id-only throttle key means the first context to
+# touch a mapped file type consumes the skill for every later subagent in that
+# session, which get NOTHING. The fix keys on (session_id, agent_id) when the
+# payload carries an agent_id (present only on subagent-dispatched tool calls;
+# absent on the parent session's own calls) and falls back to session_id alone
+# otherwise, so the parent and each subagent are distinct throttle contexts.
+
+def test_two_subagents_in_the_same_session_each_receive_the_skill(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    first = _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared", agent_id="agent-a"))
+    assert first != ""
+
+    second = _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared", agent_id="agent-b"))
+
+    assert json.loads(second)["hookSpecificOutput"]["additionalContext"] == _expected_payload(("python-patterns",))
+
+
+def test_the_parent_session_and_a_subagent_each_receive_the_skill(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    parent = _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared"))
+    assert parent != ""
+
+    sub = _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared", agent_id="agent-a"))
+
+    assert json.loads(sub)["hookSpecificOutput"]["additionalContext"] == _expected_payload(("python-patterns",))
+
+
+def test_the_same_subagent_touching_the_same_skill_twice_is_still_throttled(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    first = _run(
+        hook, monkeypatch, capsys,
+        _payload(file_path="/repo/app.py", session_id="sess-shared", agent_id="agent-a"),
+    )
+    assert first != ""
+
+    second = _run(
+        hook, monkeypatch, capsys,
+        _payload(file_path="/repo/other.py", session_id="sess-shared", agent_id="agent-a"),
+    )
+
+    assert second == ""
+
+
+def test_store_keys_a_subagent_context_separately_from_its_parent_session(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared"))
+    _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared", agent_id="agent-a"))
+
+    assert set(_read_store(fake_home)) == {"sess-shared", "sess-shared:agent-a"}
+
+
+def test_audit_event_records_the_agent_id_when_present(hook, monkeypatch, capsys, fake_home) -> None:
+    _write_cache(fake_home)
+
+    _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared", agent_id="agent-a"))
+
+    assert _read_audit_events(fake_home)[0]["agent_id"] == "agent-a"
+
+
+def test_audit_event_records_no_agent_id_for_the_parent_session(hook, monkeypatch, capsys, fake_home) -> None:
+    _write_cache(fake_home)
+
+    _run(hook, monkeypatch, capsys, _payload(session_id="sess-shared"))
+
+    assert _read_audit_events(fake_home)[0]["agent_id"] is None
 
 
 # ---------------------------------------------------------------------------
