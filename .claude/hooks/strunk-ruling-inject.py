@@ -279,11 +279,18 @@ def main() -> None:
         session_id = data.get("session_id") or ""
         if not session_id:
             return
+        # Subagent tool calls carry the PARENT's session_id (measured 2026-07-17,
+        # PRD 00064 task 3 gate) even though each subagent has its own separate
+        # context. `agent_id` is present only on subagent-dispatched calls, so it
+        # is the per-context discriminator; a session_id-only key would starve
+        # every subagent after the first one to touch a mapped file type.
+        agent_id = data.get("agent_id") or ""
+        context_key = f"{session_id}:{agent_id}" if agent_id else session_id
 
         with _file_mutex(_STORE_PATH.with_suffix(".lock")):
             today = datetime.now(timezone.utc).date().isoformat()
             store = _prune_store(_load_store(_STORE_PATH), today)
-            seen = (store.get(session_id) or {}).get("skills") or []
+            seen = (store.get(context_key) or {}).get("skills") or []
             pending = tuple(skill for skill in skills if skill not in seen)
             if not pending:
                 return  # steady state; auditing it would flood the log
@@ -292,7 +299,7 @@ def main() -> None:
             if resolved is None:
                 _append_audit({
                     "ts": datetime.now(timezone.utc).isoformat(),
-                    "session": session_id, "decision": "resolve-failed",
+                    "session": session_id, "agent_id": agent_id or None, "decision": "resolve-failed",
                     "file": file_path, "skills": [], "version": None,
                 })
                 return
@@ -303,7 +310,7 @@ def main() -> None:
                 if skill not in delivered:
                     _append_audit({
                         "ts": datetime.now(timezone.utc).isoformat(),
-                        "session": session_id, "decision": "skill-unreadable",
+                        "session": session_id, "agent_id": agent_id or None, "decision": "skill-unreadable",
                         "file": file_path, "skills": [skill], "version": version,
                     })
             if not payload:
@@ -316,11 +323,11 @@ def main() -> None:
                     "additionalContext": payload,
                 }
             }))
-            store[session_id] = {"day": today, "skills": list(seen) + list(delivered)}
+            store[context_key] = {"day": today, "skills": list(seen) + list(delivered)}
             _save_store(_STORE_PATH, store)
             _append_audit({
                 "ts": datetime.now(timezone.utc).isoformat(),
-                "session": session_id, "decision": "inject",
+                "session": session_id, "agent_id": agent_id or None, "decision": "inject",
                 "file": file_path, "skills": list(delivered), "version": version,
             })
     except Exception as exc:
