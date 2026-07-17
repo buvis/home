@@ -164,6 +164,21 @@
             "type": "command",
             "command": "python3 ~/.claude/hooks/cartographer-echo.py",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/strunk-ruling-inject.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/strunk-ruling-inject.py",
+            "timeout": 5
           }
         ]
       },
