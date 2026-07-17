@@ -18,7 +18,7 @@ The prompt file contents are inlined directly into the Task prompt. The subagent
 
 ## Bob (Codex)
 
-Run codex as a **direct background Bash command - do NOT wrap it in a Task subagent.** A subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "codex still running" and the reviewer never reports. That is the recurring Phase 4 review thrash-halt (playground 00007, 2026-06-30). Run codex directly and the harness tracks the background process, then re-invokes the session when it finishes.
+Run codex as a **direct background Bash command - do NOT wrap it in a Task subagent.** A subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "codex still running" and the reviewer never reports. That is the recurring Phase 4 review thrash-halt (playground 00007, 2026-06-30). Run codex directly and the harness tracks the background process. **In an interactive session** this re-invokes you when it finishes; **in headless/loop mode (`$_AUTOPILOT_LOOP` set) it does not** — headless `claude -p` kills background Bash ~5s after your turn ends, so ending the turn to "wait" for Bob kills him mid-review (2026-07-15 loop death, PRD 00062 cycle 3: Bob/Quinn killed with empty output). Dispatch the Watcher subagent from SKILL.md step 5 in the same message, or you will not be re-invoked.
 
 Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved).
 
@@ -53,7 +53,7 @@ Bash tool (run_in_background: true):
 
 ## Quinn (Qwen, local)
 
-Quinn runs local qwen as a **direct background Bash command - do NOT wrap it in a Task subagent.** Like Bob and Carl, a subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "still running" and the reviewer never reports. Run `qwen-run.sh` (the `pi` agent against a llama.cpp-served model) directly and the harness tracks the background process, then re-invokes the session when it finishes.
+Quinn runs local qwen as a **direct background Bash command - do NOT wrap it in a Task subagent.** Like Bob and Carl, a subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "still running" and the reviewer never reports. Run `qwen-run.sh` (the `pi` agent against a llama.cpp-served model) directly and the harness tracks the background process. **This only re-invokes you in an interactive session.** In headless/loop mode (`$_AUTOPILOT_LOOP` set), the Watcher subagent from SKILL.md step 5 is what keeps the session alive while Quinn runs — dispatch it in the same message, or ending your turn kills Quinn mid-review.
 
 Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved). Pass `-R` (read-only tools — a reviewer must never edit the repo; pi's default mode auto-approves edit tools):
 
@@ -62,7 +62,7 @@ Bash tool (run_in_background: true):
   ~/.claude/skills/use-qwen/scripts/qwen-run.sh -R --approved-only -f "{quinn_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/quinn-output-{id}.txt"
 ```
 
-`-o` writes Quinn's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. The script re-runs its own 1-token completion preflight before dispatch, so a backend that died between step 1 and step 5 exits non-zero fast instead of hanging; local inference then takes minutes — the harness re-invokes the session when the background command finishes. When it completes, read `quinn-output-{id}.txt`. If `qwen-run.sh` exits non-zero, skip Quinn and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
+`-o` writes Quinn's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. The script re-runs its own 1-token completion preflight before dispatch, so a backend that died between step 1 and step 5 exits non-zero fast instead of hanging; local inference then takes minutes, and only the Watcher subagent (SKILL.md step 5, headless/loop mode) keeps the session alive to see it finish — background Bash alone does not re-invoke a headless session. When it completes, read `quinn-output-{id}.txt`. If `qwen-run.sh` exits non-zero, skip Quinn and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
 
 Quinn's prompt is still built from Alice's shared template (`SKILL.md` step 4) - the standard implementation-aware review prompt, never the blind or doubt lens, and no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the local reviewer. Quinn's weight is ADVISORY (`SKILL.md` step 6): findings unique to him land under `advisory (local model, unconfirmed)` and create no tasks; his concurrence counts toward consensus normally.
 

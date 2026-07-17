@@ -153,7 +153,7 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
-**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Quinn are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/qwen) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls and the background Bash calls in the one message.
+**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Quinn are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/qwen) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls, the Watcher (below, if `$_AUTOPILOT_LOOP` is set), and the background Bash calls in the one message - if any CLI reviewer is in the dispatch, the Watcher goes in the same message or nothing holds the session open to see it finish.
 
 **Watcher (headless keep-alive — dispatch only when `$_AUTOPILOT_LOOP` is set).** Headless `claude -p` kills background Bash tasks ~5s after the final result; only a live subagent holds the session open (2026-07-12 loop death: every Claude subagent reviewer finished first, the CLI exited at turn end and killed codex mid-review, the loop halted). So in the SAME dispatch message, launch one extra Task subagent named Watcher (general-purpose) whose entire prompt is:
 
