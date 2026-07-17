@@ -7,7 +7,9 @@ under an attribution header) as `additionalContext`.
 
 Never blocks a tool call: exit 0 on every path, diagnostics to stderr only.
 Shape follows cartographer-recon-brief.py, with the (repo x UTC-day) throttle
-key swapped for (session x skill).
+key swapped for a per-context (session_id:agent_id x skill) key: subagent tool
+calls carry the parent session_id, so keying on session alone would starve every
+subagent after the first one to touch a mapped file type.
 """
 
 from __future__ import annotations
@@ -176,7 +178,7 @@ def build_payload(skills_dir: Path, skills: tuple[str, ...]) -> tuple[str, tuple
     for skill in skills:
         try:
             body = (skills_dir / skill / "SKILL.md").read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         sections.append(_ATTRIBUTION.format(skill=skill) + "\n\n" + strip_frontmatter(body))
         delivered.append(skill)
@@ -184,6 +186,16 @@ def build_payload(skills_dir: Path, skills: tuple[str, ...]) -> tuple[str, tuple
 
 
 # --- audit ---
+
+
+def _audit_event(session_id: str, agent_id: str, decision: str, file_path: str,
+                 skills: list, version: str | None) -> dict:
+    """Build one audit event dict. Shape pinned by the design — never reorder."""
+    return {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "session": session_id, "agent_id": agent_id or None, "decision": decision,
+        "file": file_path, "skills": skills, "version": version,
+    }
 
 
 def _append_audit(event: dict) -> None:
@@ -266,6 +278,45 @@ def _file_mutex(lock_path: Path) -> Iterator[None]:
 # --- main ---
 
 
+def _deliver(context_key: str, session_id: str, agent_id: str,
+             skills: tuple[str, ...], file_path: str) -> None:
+    """Resolve the cache, build the payload, emit it, and record the throttle +
+    audit — the whole store transaction, serialized by the file mutex."""
+    with _file_mutex(_STORE_PATH.with_suffix(".lock")):
+        today = datetime.now(timezone.utc).date().isoformat()
+        store = _prune_store(_load_store(_STORE_PATH), today)
+        seen = (store.get(context_key) or {}).get("skills")
+        if not isinstance(seen, list):
+            seen = []  # malformed same-day entry: treat as nothing delivered
+        pending = tuple(skill for skill in skills if skill not in seen)
+        if not pending:
+            return  # steady state; auditing it would flood the log
+
+        resolved = resolve_strunk_skills_dir()
+        if resolved is None:
+            _append_audit(_audit_event(session_id, agent_id, "resolve-failed", file_path, [], None))
+            return
+        skills_dir, version = resolved
+
+        payload, delivered = build_payload(skills_dir, pending)
+        for skill in pending:
+            if skill not in delivered:
+                _append_audit(_audit_event(session_id, agent_id, "skill-unreadable", file_path, [skill], version))
+        if not payload:
+            return
+
+        # Delivery outranks bookkeeping: emit before the store/audit writes.
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": payload,
+            }
+        }))
+        store[context_key] = {"day": today, "skills": list(seen) + list(delivered)}
+        _save_store(_STORE_PATH, store)
+        _append_audit(_audit_event(session_id, agent_id, "inject", file_path, list(delivered), version))
+
+
 def main() -> None:
     try:
         data = _common.read_input()
@@ -286,50 +337,7 @@ def main() -> None:
         # every subagent after the first one to touch a mapped file type.
         agent_id = data.get("agent_id") or ""
         context_key = f"{session_id}:{agent_id}" if agent_id else session_id
-
-        with _file_mutex(_STORE_PATH.with_suffix(".lock")):
-            today = datetime.now(timezone.utc).date().isoformat()
-            store = _prune_store(_load_store(_STORE_PATH), today)
-            seen = (store.get(context_key) or {}).get("skills") or []
-            pending = tuple(skill for skill in skills if skill not in seen)
-            if not pending:
-                return  # steady state; auditing it would flood the log
-
-            resolved = resolve_strunk_skills_dir()
-            if resolved is None:
-                _append_audit({
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "session": session_id, "agent_id": agent_id or None, "decision": "resolve-failed",
-                    "file": file_path, "skills": [], "version": None,
-                })
-                return
-            skills_dir, version = resolved
-
-            payload, delivered = build_payload(skills_dir, pending)
-            for skill in pending:
-                if skill not in delivered:
-                    _append_audit({
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                        "session": session_id, "agent_id": agent_id or None, "decision": "skill-unreadable",
-                        "file": file_path, "skills": [skill], "version": version,
-                    })
-            if not payload:
-                return
-
-            # Delivery outranks bookkeeping: emit before the store/audit writes.
-            print(json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "additionalContext": payload,
-                }
-            }))
-            store[context_key] = {"day": today, "skills": list(seen) + list(delivered)}
-            _save_store(_STORE_PATH, store)
-            _append_audit({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "session": session_id, "agent_id": agent_id or None, "decision": "inject",
-                "file": file_path, "skills": list(delivered), "version": version,
-            })
+        _deliver(context_key, session_id, agent_id, skills, file_path)
     except Exception as exc:
         # A delivery hook that blocks a tool call is worse than no guidance.
         print(f"[strunk-inject] failed: {exc}", file=sys.stderr)

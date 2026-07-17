@@ -804,6 +804,19 @@ def test_unreadable_skill_md_is_skipped_rather_than_fabricated(hook, fake_home) 
     assert payload == _attribution("web-patterns") + "\n\n" + _body_for("web-patterns")
 
 
+def test_undecodable_skill_md_is_skipped_rather_than_dropping_the_whole_payload(hook, fake_home) -> None:
+    """A SKILL.md that is not valid UTF-8 must be skipped like an unreadable one -
+    it must NOT let the exception escape build_payload and drop EVERY skill's
+    guidance (a corrupt cache file would otherwise silently switch delivery off)."""
+    skills_dir = _write_cache(fake_home)
+    _skill_md(fake_home, "apply-design-system").write_bytes(b"\xff\xfe not valid utf-8 \x80\x81")
+
+    payload, delivered = hook.build_payload(skills_dir, ("web-patterns", "apply-design-system"))
+
+    assert delivered == ("web-patterns",)
+    assert payload == _attribution("web-patterns") + "\n\n" + _body_for("web-patterns")
+
+
 def test_all_skills_missing_yields_an_empty_payload_and_no_delivered_skills(hook, fake_home) -> None:
     skills_dir = _write_cache(fake_home, skills=())
 
@@ -1125,6 +1138,27 @@ def test_a_malformed_store_is_rebuilt_and_the_injection_still_ships(
 
     assert envelope["hookSpecificOutput"]["additionalContext"] == _expected_payload(("python-patterns",))
     assert _read_store(fake_home) == {"sess-1": {"day": _TODAY, "skills": ["python-patterns"]}}
+
+
+@pytest.mark.parametrize(
+    "bad_skills",
+    ["python-patterns", 5, {"python-patterns": 1}],
+    ids=["string", "int", "dict"],
+)
+def test_a_same_day_entry_with_a_non_list_skills_value_still_injects(
+    hook, monkeypatch, capsys, fake_home, bad_skills
+) -> None:
+    """A malformed same-day store entry whose `skills` is not a list survives
+    _prune_store (its `day` is today). It must NOT mis-throttle delivery (a string
+    would substring-match) or raise inside the pending loop (a non-str would); the
+    hook treats a non-list as nothing-seen and delivers, self-healing the entry."""
+    _write_cache(fake_home)
+    _seed_store_file(fake_home, {"sess-1": {"day": _TODAY, "skills": bad_skills}})
+
+    out = _run(hook, monkeypatch, capsys, _payload(file_path="/repo/app.py", session_id="sess-1"))
+
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == _expected_payload(("python-patterns",))
+    assert _read_store(fake_home)["sess-1"]["skills"] == ["python-patterns"]
 
 
 # ---------------------------------------------------------------------------
