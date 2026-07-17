@@ -79,7 +79,7 @@ Before any Agent call for a task, read `task.metadata.model` (or equivalently `s
 
 Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps: Tess and her quality-gate/adversarial-round re-dispatches (steps 2.7-2.85), Devon (2.85), Ivan and every Ivan re-dispatch (3, 5.5, 5.7 fix, 7 regression fix), and the code reviewer (5.7). If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
 
-**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again. This is the one-shot qwen attempt budget (why: `references/design-rationale.md` § one shot): qwen failure escalates to Sonnet on the next attempt, with zero qwen retries, and the normal max-2 step-5.5 retry budget then runs entirely on Claude Sonnet. All non-step-5.5 Agent calls continue to obey `task.metadata.model` with no exceptions.
+**Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again. This is the one-shot qwen attempt budget — the ladder's `qwen -> sonnet` capability edge (`run-autopilot/references/model-ladder.md` § Capability ladders and § Per-rung budgets; why: `references/design-rationale.md` § one shot): qwen gets exactly 1 dispatch, a qwen gate failure escalates to Sonnet immediately with zero qwen retries, and step 5.5's Claude-rung budget then runs entirely on Claude Sonnet — see step 5.5 below for the full diagnose/repair/escalate flow this now drives. Applies unchanged under `_AUTOPILOT_ESCALATION=legacy` (model-ladder.md § Kill-switches). All non-step-5.5 Agent calls continue to obey `task.metadata.model` with no exceptions.
 
 Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
 
@@ -282,13 +282,20 @@ Apply the rows in this order — the first match wins (in practice `qwen_eligibl
 |---|------------|-------------|-----------|
 | 1 | UI / visual task (per "Gemini-first tasks") | Gemini if available, else Claude at `task.metadata.model` | `references/gemini-integration.md` |
 | 2 | Backend `opus` tier | Claude Opus (Agent dispatch) | — |
-| 3 | Backend, `qwen_eligible == true`, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
-| 4 | Backend, `qwen_eligible == true`, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
-| 5 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
+| 3 | Backend, `qwen_eligible == true`, `_AUTOPILOT_ESCALATION != "legacy"`, qwen capability breaker tripped (`qwen_breaker.tripped == true`, after the batch-scope check below) | Claude at the task's ORIGINAL tier (`haiku` → Haiku, `sonnet` → Sonnet) — **skip the preflight probe**, stamp the eventual attempt `breaker_skipped:true` | qwen capability breaker (below) |
+| 4 | Backend, `qwen_eligible == true`, row 3 did not fire, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
+| 5 | Backend, `qwen_eligible == true`, row 3 did not fire, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
+| 6 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
 
 qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
 
-**Re-evaluate the routing table for EVERY claimed task — no session-level memory.** The table is per-task, and so is the one-shot qwen budget: a qwen attempt on task A (success OR failure) never excludes qwen for task B. Do not generalize a fallback ("qwen was slow on the last task, route the rest to Claude") — that decision belongs to the table and the preflight, not to session memory (observed failure: `references/design-rationale.md` § no session memory). Self-check before each Ivan dispatch: if `task.metadata.qwen_eligible == true` and you are about to dispatch Claude, the attempt log MUST carry a non-`"healthy"` `preflight_outcome` justifying the fallback — if it would read `null` or `"healthy"`, you skipped the table; run it now.
+**qwen capability breaker (routing-time consult, row 3).** Guarded by `_AUTOPILOT_ESCALATION != "legacy"` (`model-ladder.md` § Kill-switches) — under `legacy` the breaker is fully off, row 3 never fires, and rows 4-5 behave exactly as today's rows 3-4.
+
+- **Batch-scope check, before any breaker read or write:** compute the effective batch id `(state.batch.id // "no-batch")` and compare to `qwen_breaker.batch_id`. Mismatch or field absent → new batch: reset `qwen_breaker = {tripped:false, after_task:null, failed_tasks:[], batch_id:<effective id>}` and `qwen_gate_failures_consecutive = 0`, then proceed. Match → preserve the breaker state. This is a lazy per-batch reset — no run-autopilot Phase 0/9 edit needed.
+- **Consult:** row 3 fires when the table would otherwise take row 4 (qwen-eligible) AND `qwen_breaker.tripped == true`. This is the routing-time order (`model-ladder.md` § Ordering): breaker consult happens BEFORE the preflight probe, so a tripped breaker skips the probe entirely. A breaker-skipped attempt's `preflight_outcome` records `null` (the probe never ran).
+- **Counter/latch update** happens later, at the step-5.5 gate — see that section.
+
+**Re-evaluate the routing table for EVERY claimed task — no session-level memory.** The table is per-task, and so is the one-shot qwen budget: a qwen attempt on task A (success OR failure) never excludes qwen for task B. Do not generalize a fallback ("qwen was slow on the last task, route the rest to Claude") — that decision belongs to the table and the preflight, not to session memory (observed failure: `references/design-rationale.md` § no session memory). Self-check before each Ivan dispatch: if `task.metadata.qwen_eligible == true` and you are about to dispatch Claude, the attempt log MUST carry a non-`"healthy"` `preflight_outcome` justifying the fallback — if it would read `null` or `"healthy"`, you skipped the table; run it now. **Exception:** the qwen capability breaker (row 3 above) is the one deliberate, state-tracked override — it reroutes off `qwen_breaker.tripped` (durable, batch-scoped state), not ad-hoc session judgment; the self-check above only applies when row 3 did not fire (a breaker-skipped attempt's `null` `preflight_outcome` is expected, not a skipped table).
 
 **Gemini availability check.** "Gemini if available" means the `use-gemini` helper resolves AND can run a no-op probe. Concretely: `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND `mise which gemini` (or `command -v gemini`) exits 0. If either fails, fall back to Claude at `task.metadata.model` for that UI task. Treat a runtime helper-script failure (non-zero exit, no output) the same way: record the failure and re-dispatch the task to Claude at the task's tier. Cross-reference: `references/gemini-integration.md`.
 
@@ -338,13 +345,87 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Rust: run `cargo check -p <crate>` first — a compile failure IS the gate failure (skip the test run, go straight to the retry path with the compiler output); then `cargo test -p <crate> --test <test_file>` or `cargo test -p <crate> <module::test_name>`
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
-- If tests fail, dispatch Ivan again with the failure output. Never dispatch Tess to weaken tests.
-- **If the failing attempt's implementor was qwen** (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again (the carve-out in "Per-task model dispatch" above). The max-2 retry budget below then applies to the Claude Sonnet re-dispatches; the qwen attempt does NOT consume a slot — it consumed the (single) qwen attempt.
-- **Retry prompts must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
-- Max 2 implementation retries before escalating to the user.
+- Never dispatch Tess to weaken tests.
+- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) **must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
 - If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
 
 **Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
+
+**Gate-failure handling.** Read `_AUTOPILOT_ESCALATION` (env var; `model-ladder.md` § Kill-switches).
+
+**`_AUTOPILOT_ESCALATION == "legacy"`** (byte-identical to pre-00065 — replaces the old same-tier retry-cap text; no diagnosis, repair, escalation, attribution stamping, or qwen capability breaker):
+- If tests fail, dispatch Ivan again with the failure output.
+- If the failing attempt's implementor was qwen (one-shot qwen attempt budget): the re-dispatch targets **Claude Sonnet** — never qwen again (the carve-out in "Per-task model dispatch" above). The retry budget below then applies to the Claude Sonnet re-dispatches; the qwen attempt does not consume a slot.
+- Max 2 implementation retries before escalating to the user.
+
+**Any other value / absent — diagnose→repair/escalate flow (default):**
+
+Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — cite, do not restate: Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one feedback retry) before diagnosis; the qwen rung gets 1 dispatch (no feedback retry — the existing one-shot carve-out, named the ladder's `qwen -> sonnet` capability edge); repair is capped at 1 per task, total, and is Claude-rungs only (qwen never repairs).
+
+```
+gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure output, SAME tier
+                                (Claude rungs only — the qwen rung has no feedback retry: its single
+                                gate failure goes straight to DIAGNOSE below, per the 1-dispatch budget)
+gate fail #2 at current rung → DIAGNOSE:
+  1. Write task.description (from TaskGet) to dev/local/tmp/diagnose-task-<id>.txt and run:
+       python3 ~/.claude/skills/work/scripts/diagnose_task.py <task-file> --repo-root <project-root>
+     `<project-root>` = the dir containing dev/local/, resolved by walking up from cwd (same anchor
+     as _walk_up.py) — NOT state.repo_root, which differs under a bare-repo-backed project.
+     verdict "spec_gap" (exit 0) → REPAIR path below, if repair unused this task AND current rung
+     is a Claude rung (qwen never repairs — see budgets above)
+  2. verdict "pass", OR the script errored (exit 2, shape-check inconclusive) → inline rubric
+     judgment, this session, at its current tier: spec_gap | solid_spec, with a one-line
+     justification, stamped as `diagnosis` on the diagnosed rung's attempt entry (see Attribution
+     below). The orchestrator never overrides a deterministic spec_gap verdict from step 1.
+REPAIR (spec_gap, repair not yet used this task, current rung is a Claude rung): fill the identified
+  gaps (missing Contract, missing Acceptance criteria, dangling file references) from the PRD +
+  design doc, rewrite the task description via TaskUpdate(taskId, description=<repaired>) — the
+  canonical store /work re-reads via TaskGet — and re-dispatch Ivan at the SAME tier ONCE. Stamp
+  `repair_used:true` on that rung's attempt entry. A gate failure after the repair takes the
+  solid_spec path below — repair is exhausted for this task.
+ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any qwen-rung spec_gap):
+  1. Clean-worktree guard: `git status --porcelain`.
+     - empty → `git reset --hard <test_commit_sha>` (this task's own test commit, captured
+       in-session right after step 2.9 — never a prior task's commit)
+     - non-empty (foreign/uncommitted files present) → do NOT reset; escalate fix-forward instead
+       (dispatch the higher rung against the current tree + failing tests, no reset) and log the
+       deviation on the attempt. Never discard files this task did not create (memory:
+       feedback_subagents_vs_live_worktree — ~/.claude is a live worktree the user edits).
+  2. Stamp the LOWER rung's entry: `outcome:"escalated"`, `diagnosis:<verdict>` (+
+     `qwen_gate_failed:true` if that rung's implementor was qwen, + `repair_used:true` if a repair
+     ran at that rung).
+  3. `TaskUpdate(taskId, metadata={model: <new tier>})` (mirrors the state-schema.md tasks[].model
+     Phase-6 pattern), mirrored into `state.tasks[i].model` per Dashboard State Sync — BEFORE the
+     dispatch below, so the **Per-task model dispatch** rule picks up the escalated tier for Ivan
+     and every downstream read this task (step 5.6, step 5.7's tier gate).
+  4. Dispatch ONE rung up (per `model-ladder.md` § Capability ladders — qwen -> sonnet skipping
+     haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY: failing test names, the last
+     gate-output excerpt, the diagnosis verdict, and the prior implementor + tier.
+  5. Stamp the HIGHER rung's NEW attempt entry: `escalation_reason:"gate_failure"`,
+     `escalated_from:<prev tier>`.
+  6. At the new rung the budget resets (initial + one feedback retry, per `model-ladder.md` §
+     Per-rung budgets), then this same gate-failure flow re-applies if it fails again.
+  Opus-rung exhaustion (2 failures at opus) flows into the existing abort/stall machinery (PRD
+  00017) — do not invent a new halt class.
+```
+
+**Attribution row ownership** (one entry per rung/dispatch-group — never lump every field onto a single entry; see `references/attempt-logging.md` § Attribution row ownership):
+
+| Field | Row it is stamped on |
+|-------|----------------------|
+| `diagnosis` | the **diagnosed** (lower) rung's entry |
+| `qwen_gate_failed` | the qwen (lower) rung's entry |
+| `repair_used` | the entry of the same-tier attempt that ran after a repair (that rung's entry) |
+| `escalation_reason:"gate_failure"` | the rung escalated **INTO** (higher)'s entry |
+| `escalated_from` | the rung escalated **INTO** (higher)'s entry |
+
+**Pipeline stamping on escalation.** An in-loop escalation re-dispatches the implementor at the higher rung and re-runs the tier-appropriate post-implementor gates (step 5.7 reviewer for sonnet+, and this step-5.5 gate) — it does NOT re-run Devon (2.85; the tests are already committed). Stamp the escalated-into entry `pipeline:"lean"` (implementor + reviewer), never `"full"` — `"full"` stays reserved for a from-scratch opus task/rework that actually ran Devon.
+
+**qwen capability breaker counter (this gate).** Guarded by `_AUTOPILOT_ESCALATION != "legacy"`, same as the routing consult in step 3. On an `implementor:"qwen"` attempt only: gate pass → reset `qwen_gate_failures_consecutive = 0`; gate fail → stamp that attempt `qwen_gate_failed:true` and increment `qwen_gate_failures_consecutive`; at 2 consecutive → latch `qwen_breaker = {tripped:true, after_task:<this task id>, failed_tasks:[<the two ids>], batch_id:<effective batch id>}` (batch-scope check as in step 3). Keys off the stored `qwen_gate_failed` field, not `outcome` (an escalated-away qwen entry reads `outcome:"escalated"`), keeping the increment jq-expressible. Rework attempts never touch the breaker — rework never routes qwen. A non-qwen task between two qwen failures leaves the counter unchanged (`run-autopilot/references/state-schema.md` `qwen_gate_failures_consecutive`).
+
+**Deterministic precedence — two separately-scoped orderings** (`model-ladder.md` § Ordering; NOT one linear chain):
+- **Routing-time** (step 3, per task): qwen breaker consult → qwen infra preflight → dispatch.
+- **Failure-classification** (here, or on a lost result per step 4.2): an infra failure (preflight fail, watchdog/lost result) falls back at the SAME tier and never enters diagnosis or touches the breaker; a capability failure (a real test-gate failure, this section) enters diagnosis, where repair precedes escalate.
 
 ### 5.6. Self-deslop pre-commit pass
 
