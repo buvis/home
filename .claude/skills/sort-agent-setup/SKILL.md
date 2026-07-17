@@ -119,8 +119,6 @@ Use this format:
 ```text
 skills/frontend-patterns | skill | DAILY   | 84 .svelte files, svelte.config.js | core frontend stack
 skills/python-patterns   | skill | LIBRARY | no .py files, no pyproject.toml    | not active in this repo
-rules/web/*              | rules | DAILY   | package.json + svelte.config.js    | active web repo
-rules/rust/*             | rules | LIBRARY | zero Rust source files              | keep accessible only
 ```
 
 ### 3. Decide DAILY vs LIBRARY
