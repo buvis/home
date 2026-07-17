@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""strunk-ruling-inject: inject strunk skill rulings once per (session, skill).
+"""strunk-ruling-inject: inject strunk skill rulings once per (session_id:agent_id x skill).
 
 PreToolUse hook. Reads one JSON payload from stdin; when the tool's target file
 has a mapped extension, injects the matching strunk `SKILL.md` bodies (verbatim,
