@@ -87,6 +87,57 @@ def test_indented_contract_line_satisfies_requirement(tmp_path: Path) -> None:
     assert "missing_contract" not in data["gaps"]
 
 
+def test_contractor_word_not_accepted_as_contract(tmp_path: Path) -> None:
+    # Word-boundary regression: "Contractor" must NOT satisfy the Contract check
+    # (the old startswith("contract") wrongly accepted it → missed spec gap).
+    body = (
+        "Contractor notes for the widget follow.\n"
+        "\n"
+        "Acceptance criteria:\n"
+        "  - The widget renders.\n"
+    )
+    task_file = _write_task(tmp_path, body)
+
+    result = _run([str(task_file), "--repo-root", str(tmp_path)], cwd=tmp_path)
+
+    data = json.loads(result.stdout)
+    assert "missing_contract" in data["gaps"]
+
+
+def test_heading_contractual_not_accepted_as_contract(tmp_path: Path) -> None:
+    # The Markdown-heading tolerance must not leak the word boundary: a
+    # "## Contractual background" heading is not a Contract line.
+    body = (
+        "## Contractual background for the widget.\n"
+        "\n"
+        "Acceptance criteria:\n"
+        "  - The widget renders.\n"
+    )
+    task_file = _write_task(tmp_path, body)
+
+    result = _run([str(task_file), "--repo-root", str(tmp_path)], cwd=tmp_path)
+
+    data = json.loads(result.stdout)
+    assert "missing_contract" in data["gaps"]
+
+
+def test_markdown_heading_contract_line_satisfies_requirement(tmp_path: Path) -> None:
+    # Positive: a genuine "## Contract" heading DOES satisfy the check.
+    body = (
+        "## Contract (verbatim - do not deviate)\n"
+        "  Implement exactly as specified below.\n"
+        "\n"
+        "Acceptance criteria:\n"
+        "  - The widget renders.\n"
+    )
+    task_file = _write_task(tmp_path, body)
+
+    result = _run([str(task_file), "--repo-root", str(tmp_path)], cwd=tmp_path)
+
+    data = json.loads(result.stdout)
+    assert "missing_contract" not in data["gaps"]
+
+
 # --- missing_acceptance ---------------------------------------------------
 
 

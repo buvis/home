@@ -24,6 +24,9 @@ GLOB_CHARS = set("*?[]")
 CREATION_VERBS = re.compile(
     r"\b(create|new|add|write)\b", re.IGNORECASE
 )
+# A Contract line: optional Markdown heading prefix, then the word "contract" on
+# a word boundary. The `\b` stops "contractor"/"contractual" from counting.
+CONTRACT_LINE = re.compile(r"^\s*#{0,6}\s*contract\b", re.IGNORECASE)
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,14 +43,12 @@ def parse_args() -> argparse.Namespace:
 def check_contract(lines: list[str]) -> bool:
     """Return True if a Contract line is present.
 
-    Case-insensitive and tolerant of a leading Markdown heading prefix
-    ("## Contract"), so a repaired or hand-edited description does not
-    false-positive to a missing_contract spec_gap.
+    Word-boundary match (case-insensitive), tolerant of a leading Markdown
+    heading prefix ("## Contract"), so a repaired or hand-edited description
+    does not false-positive to a missing_contract spec_gap. "Contractor" /
+    "contractual" do NOT count (the word boundary stops the over-broad match).
     """
-    for line in lines:
-        if line.lstrip("# ").lstrip().lower().startswith("contract"):
-            return True
-    return False
+    return any(CONTRACT_LINE.match(line) for line in lines)
 
 
 def check_acceptance(lines: list[str]) -> bool:
