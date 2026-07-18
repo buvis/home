@@ -146,7 +146,7 @@ Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from
 
 **In rework mode, each task's status is set to `in_progress` at start** via `TaskUpdate` (overwriting whatever the prior status was — `pending` after Phase 6's reset, or `completed` on a defensive re-entry) and to `completed` at end — same lifecycle as a default-mode pass, so the dashboard reflects rework progress.
 
-**In rework mode, the Attempt logging entry** (see "Attempt logging" above) sets `review_cycle` to the current `state.cycle` value (not null), `model` to the escalated tier read from `task.metadata.model` (set by `/run-autopilot` Phase 6), and `outcome` to `"completed"` or `"aborted"` as normal.
+**In rework mode, the Attempt logging entry** (see "Attempt logging" above) sets `review_cycle` to the current `state.cycle` value (not null), `model` to the escalated tier read from `task.metadata.model` (set by `/run-autopilot` Phase 6), and `outcome` to `"completed"` or `"aborted"` as normal. It also **copies `task.metadata.escalation_reason` and `task.metadata.escalated_from` onto the entry when present** — Phase 6 sets them (`escalation_reason: "review_flag"`, `escalated_from: <prev_tier>`) on the review-flag escalation path, and this copy is how `review_flag` actually reaches `attempts[]` (the PRD metric "every escalation records reason in attempts[]" depends on it). Absent (a non-escalated rework re-dispatch) → omit both.
 
 **`/work` does NOT modify `rework_task_ids` itself.** Clearing is `/run-autopilot` Phase 6's responsibility, after this `/work` invocation returns. **If `/work` aborts mid-rework** (context overrun, Subagent Dispatch Budget overrun, unrecoverable error), `rework_task_ids` survives in state — this is correct recovery behavior: the next `/run-autopilot` session resumes with the same rework batch and re-attempts the listed tasks at their already-escalated tier. Phase 6's clear runs only on the successful `/work` return.
 
@@ -257,6 +257,12 @@ git commit -m "test(<scope>): add tests for <feature>"
 ```
 
 Tests are committed separately before implementation, making the TDD boundary auditable in git history.
+
+**Capture this task's test-commit SHA** immediately — step 5.5's ESCALATE reset resets to exactly this commit (never a prior task's):
+```bash
+git rev-parse HEAD
+```
+Hold the returned SHA in-session as `<test_commit_sha>` for this task; step 5.5's ESCALATE path reads it.
 
 ### 3. Implement against tests (Ivan - implementor)
 
@@ -384,13 +390,21 @@ REPAIR (spec_gap, repair not yet used this task, current rung is a Claude rung):
   `repair_used:true` on that rung's attempt entry. A gate failure after the repair takes the
   solid_spec path below — repair is exhausted for this task.
 ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any qwen-rung spec_gap):
-  1. Clean-worktree guard: `git status --porcelain`.
-     - empty → `git reset --hard <test_commit_sha>` (this task's own test commit, captured
+  1. Reset guard — BOTH conditions must hold before `git reset --hard`:
+     - **uncommitted:** `git status --porcelain` is empty (no foreign/uncommitted working-tree files), AND
+     - **committed range:** `git rev-list <test_commit_sha>..HEAD` contains ONLY this task's own
+       implementation commit(s) (the commits step 5 made after the test commit). `git reset --hard
+       <test_commit_sha>` discards every commit in `<test_commit_sha>..HEAD`, so a concurrent FOREIGN
+       commit in that range would be silently lost (memory: project_autopilot_head_moves_midreview —
+       ~/.claude is a live worktree; HEAD can move under this task between step 2.9 and here).
+     - both guards pass → `git reset --hard <test_commit_sha>` (this task's own test commit, captured
        in-session right after step 2.9 — never a prior task's commit)
-     - non-empty (foreign/uncommitted files present) → do NOT reset; escalate fix-forward instead
-       (dispatch the higher rung against the current tree + failing tests, no reset) and log the
-       deviation on the attempt. Never discard files this task did not create (memory:
-       feedback_subagents_vs_live_worktree — ~/.claude is a live worktree the user edits).
+     - either guard fails (foreign uncommitted files OR a foreign commit in `<test_commit_sha>..HEAD`)
+       → do NOT reset; escalate fix-forward instead (dispatch the higher rung against the current tree
+       + failing tests, no reset) and log the deviation on the attempt. Never discard commits or files
+       this task did not create (memory: feedback_subagents_vs_live_worktree,
+       project_autopilot_head_moves_midreview). The guards are check-then-act; the fix-forward branch
+       is the safe default whenever the range is not provably this-task-only.
   2. Stamp the LOWER rung's entry: `outcome:"escalated"`, `diagnosis:<verdict>` (+
      `qwen_gate_failed:true` if that rung's implementor was qwen, + `repair_used:true` if a repair
      ran at that rung).
@@ -488,7 +502,7 @@ Skip for documentation-only or configuration-only tasks.
 ### 6. Mark complete and sync
 
 1. Use `TaskUpdate` to set `status: completed`
-2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass.
+2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
 3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
 4. **Sync state file** (see Dashboard State Sync) — mandatory
 5. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
