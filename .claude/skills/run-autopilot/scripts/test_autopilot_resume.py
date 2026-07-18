@@ -463,7 +463,18 @@ class ResumeReviewCascadeTests(unittest.TestCase):
     def test_resume_review_not_completed_runs_review(self) -> None:
         self.assertEqual(
             resume_target({"phase": "review", "phases_completed": []}),
-            "run review loop",
+            "run review loop at cycle 1",
+        )
+
+    def test_resume_review_handoff_runs_next_cycle(self) -> None:
+        # review->review handoff: cycle incremented to 2, phases_completed still
+        # lacks "review" (only convergence adds it) — resume runs Phase 4 for
+        # cycle 2, no re-review of cycle 1, no skip to done.
+        self.assertEqual(
+            resume_target(
+                {"phase": "review", "phases_completed": [], "cycle": 2}
+            ),
+            "run review loop at cycle 2",
         )
 
     def test_resume_review_completed_skips_to_done(self) -> None:
@@ -482,7 +493,7 @@ class ResumeReviewCascadeTests(unittest.TestCase):
             resume_target(
                 {"phase": "blind", "phases_completed": ["review"]}
             ),
-            "run review loop",
+            "run review loop at cycle 1",
         )
 
     def test_resume_legacy_doubt_phase_runs_review_loop(self) -> None:
@@ -493,7 +504,7 @@ class ResumeReviewCascadeTests(unittest.TestCase):
                     "phases_completed": ["review", "blind"],
                 }
             ),
-            "run review loop",
+            "run review loop at cycle 1",
         )
 
 
