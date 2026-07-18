@@ -5,7 +5,7 @@
 # sysctl, python3 helpers, session cap), runs loop iterations against fake
 # state.json files, and asserts exactly one valid JSONL metrics line per
 # session with all eight keys and the branch-derived signal
-# (continue|paused|done|died). Hermetic: no network, no real claude, temp
+# (continue|paused|done|died|park). Hermetic: no network, no real claude, temp
 # dirs only. The usage-limit branch sleeps ≥60s by design and is covered by
 # test_detect_usage_limit.py instead. Scenarios 5-7 cover the network-outage
 # branch (connection-level API failure -> bounded relaunch; curl stubbed).
