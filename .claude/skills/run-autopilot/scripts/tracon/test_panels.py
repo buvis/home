@@ -789,6 +789,107 @@ def test_agents_row_background_task_missing_status_renders_running_not_dangling_
     assert not plain.rstrip().endswith("▷")  # no dangling marker at the end of the row
 
 
+# --- agents_head / agents_body: the on-demand agent detail screen -----------
+
+
+def _feed_agent_with_progress(tracker: AgentTracker) -> None:
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "a1",
+            "tool_use_id": "toolu_a1",
+            "description": "Alice reviews work vs PRD and design doc",
+            "subagent_type": "general-purpose",
+            "task_type": "local_agent",
+        }
+    )
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_progress",
+            "task_id": "a1",
+            "description": "Reading review-prd-00067c1.md",
+            "last_tool_name": "Read",
+            "usage": {"tool_uses": 3, "total_tokens": 36316, "duration_ms": 125000},
+        }
+    )
+
+
+def test_agents_head_carries_root_name_and_agents_suffix() -> None:
+    panel = panels.agents_head(_state(), "myrepo")
+    assert panel.title == "myrepo · agents"
+
+
+def test_agents_body_empty_tracker_names_the_absence() -> None:
+    body = panels.agents_body(AgentTracker())
+    assert "no subagent or background-task activity" in body.plain
+
+
+def test_agents_body_live_agent_shows_full_description_type_activity_and_stats() -> None:
+    """The detail view exists to show what the header row cannot: the FULL
+    description (not the 20-char label), the subagent type, the live activity
+    line, and the tool/token/duration counters off task_progress."""
+    tracker = AgentTracker()
+    _feed_agent_with_progress(tracker)
+
+    plain = panels.agents_body(tracker).plain
+    assert "running (1)" in plain
+    assert "● Alice reviews work vs PRD and design doc" in plain  # untrimmed
+    assert "[agent · general-purpose]" in plain
+    assert "↳ Reading review-prd-00067c1.md" in plain
+    assert "⚒ Read×3" in plain
+    assert "36.3k tok" in plain
+    assert "2m05s" in plain
+
+
+def test_agents_body_finished_lane_moves_to_finished_and_drops_activity() -> None:
+    tracker = AgentTracker()
+    _feed_agent_with_progress(tracker)
+    tracker.feed(
+        {"type": "system", "subtype": "task_notification", "task_id": "a1", "status": "completed"}
+    )
+
+    plain = panels.agents_body(tracker).plain
+    assert "running (0)" in plain
+    assert "finished (1)" in plain
+    assert "✓ Alice reviews work vs PRD and design doc" in plain
+    assert "↳" not in plain  # stale activity line dropped once done
+    assert "⚒ Read×3" in plain  # final counters stay
+
+
+def test_agents_body_bash_lane_shows_kind_and_status_not_agent_fields() -> None:
+    tracker = AgentTracker()
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "b1",
+            "tool_use_id": "toolu_b1",
+            "description": "Bob (codex) doubt-lens review, background",
+            "task_type": "local_bash",
+        }
+    )
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "b1",
+                    "task_type": "local_bash",
+                    "description": "Bob (codex) doubt-lens review, background",
+                    "status": "running",
+                }
+            ],
+        }
+    )
+
+    plain = panels.agents_body(tracker).plain
+    assert "● Bob (codex) doubt-lens review, background" in plain
+    assert "[bash · running]" in plain
+
+
 # --- fleet_table --------------------------------------------------------------
 
 

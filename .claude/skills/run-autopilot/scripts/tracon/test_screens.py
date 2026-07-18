@@ -1351,6 +1351,87 @@ def test_t_toggles_the_tasks_screen_with_kanban_lanes(
 
 
 @pytest.mark.ui
+def test_a_toggles_the_agents_screen_with_lane_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """a on the detail screen flips to the on-demand agent detail: full
+    descriptions, kind/type, live activity and counters — fed by the
+    detail screen's collector, INCLUDING an agent whose background dispatch
+    already acked its tool_use (the launch ack must not hide it); esc flips
+    back to the log."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import RichLog
+
+    from tracon import screens
+
+    log_lines = [
+        _init_event(),
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "task_id": "a1",
+                "tool_use_id": "toolu_a1",
+                "description": "Alice reviews work vs PRD",
+                "subagent_type": "general-purpose",
+                "task_type": "local_agent",
+            }
+        ),
+        json.dumps(  # the immediate background-dispatch ack for toolu_a1
+            {
+                "type": "user",
+                "parent_tool_use_id": None,
+                "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_a1"}]},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "task_progress",
+                "task_id": "a1",
+                "description": "Reading review-prd.md",
+                "last_tool_name": "Read",
+                "usage": {"tool_uses": 3, "total_tokens": 36316, "duration_ms": 5792},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "task_id": "b1",
+                "tool_use_id": "toolu_b1",
+                "description": "Bob (codex) doubt review",
+                "task_type": "local_bash",
+            }
+        ),
+    ]
+    root = _make_loop(tmp_path / "loop-a", log_lines=log_lines)
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+
+            visible = _dashboard_visible_text(app.screen)
+            assert "running (2)" in visible
+            assert "Alice reviews work vs PRD" in visible
+            assert "agent · general-purpose" in visible
+            assert "↳ Reading review-prd.md" in visible
+            assert "⚒ Read×3" in visible
+            assert "Bob (codex) doubt review" in visible
+            assert "bash · running" in visible
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen.query_one(RichLog) is not None  # back at the log
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
 def test_p_success_confirms_with_a_toast(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

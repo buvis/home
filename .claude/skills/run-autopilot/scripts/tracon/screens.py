@@ -80,6 +80,10 @@ class Collector:
         self._usage = SessionUsage()
         self._tracker = AgentTracker()
 
+    @property
+    def tracker(self) -> AgentTracker:
+        return self._tracker
+
     def poll(self) -> tuple[list[str], bool]:
         return self._tail.read_new()
 
@@ -191,8 +195,9 @@ tracon — autoclaude loop observer
 
 UI keys (never touch a loop)
   enter     open the highlighted loop
-  esc       back (detail → all loops; help/tasks → close)
+  esc       back (detail → all loops; help/tasks/agents → close)
   t         task board: kanban lanes over the loop's task plan
+  a         agent board: subagent and background-CLI lanes with live activity
   f         follow — log auto-scrolls to the newest lines
   q         quit tracon; every loop keeps running (ctrl+c does the same)
   ctrl+p    command palette (themes — the choice persists)
@@ -268,10 +273,47 @@ esc or ? closes this help.
                     panels.lane_body(lane, lanes[lane])
                 )
 
+    class AgentsScreen(Screen):
+        """On-demand agent detail: this session's subagent and background-CLI
+        lanes with live activity, fed by the detail screen's collector (whose
+        tick keeps running beneath — textual does not pause a background
+        screen's timers)."""
+
+        BINDINGS = [
+            Binding("escape", "app.pop_screen", "Back to log"),
+            Binding("a", "app.pop_screen", "Back to log"),
+        ]
+
+        def __init__(self, root: Path, collector: Collector) -> None:
+            super().__init__()
+            self.root = root
+            self.collector = collector
+
+        def compose(self) -> ComposeResult:
+            yield Static(id="agents-head")
+            yield VerticalScroll(Static(id="agents-body"))
+            yield Footer()
+
+        def on_mount(self) -> None:
+            self.refresh_agents()
+            self.set_interval(DETAIL_TICK, self.refresh_agents)
+
+        def refresh_agents(self) -> None:
+            state = model.read_state(
+                self.root / "dev" / "local" / "autopilot" / "state.json"
+            )
+            self.query_one("#agents-head", Static).update(
+                panels.agents_head(state, self.root.name)
+            )
+            self.query_one("#agents-body", Static).update(
+                panels.agents_body(self.collector.tracker)
+            )
+
     class DetailScreen(Screen):
         BINDINGS = [
             Binding("escape", "app.pop_screen", "All loops"),
             Binding("t", "show_tasks", "Tasks"),
+            Binding("a", "show_agents", "Agents"),
             Binding("f", "toggle_follow", "Follow"),
             Binding("q", "app.detach", "Quit UI (loop runs)"),
             Binding("p", "pause_loop", "Pause loop"),
@@ -331,6 +373,9 @@ esc or ? closes this help.
 
         def action_show_tasks(self) -> None:
             self.app.push_screen(TasksScreen(self.root))
+
+        def action_show_agents(self) -> None:
+            self.app.push_screen(AgentsScreen(self.root, self.collector))
 
         def action_stop_loop(self) -> None:
             _stop_loop(self, self.root)

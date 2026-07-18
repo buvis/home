@@ -132,13 +132,26 @@ def _task_started(
     return event
 
 
-def _task_progress(task_id: str, last_tool_name: str, tool_uses: int) -> dict[str, Any]:
+def _task_progress(
+    task_id: str,
+    last_tool_name: str,
+    tool_uses: int,
+    *,
+    description: str = "",
+    total_tokens: int = 0,
+    duration_ms: int = 0,
+) -> dict[str, Any]:
     return {
         "type": "system",
         "subtype": "task_progress",
         "task_id": task_id,
+        "description": description,
         "last_tool_name": last_tool_name,
-        "usage": {"tool_uses": tool_uses},
+        "usage": {
+            "tool_uses": tool_uses,
+            "total_tokens": total_tokens,
+            "duration_ms": duration_ms,
+        },
     }
 
 
@@ -487,6 +500,39 @@ def test_task_progress_updates_last_tool_name_and_tool_use_count() -> None:
     assert lane.n == 4
 
 
+def test_task_progress_updates_activity_tokens_and_duration() -> None:
+    """task_progress carries the live activity line and usage counters the
+    agents detail screen shows; real captured shape has description plus
+    usage.total_tokens / duration_ms alongside tool_uses."""
+    tracker = stream.AgentTracker()
+    tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
+    tracker.feed(
+        _task_progress(
+            "t1",
+            "Read",
+            2,
+            description="Reading review-prd-00067c1.md",
+            total_tokens=36316,
+            duration_ms=5792,
+        )
+    )
+    lane = tracker.live_lanes()[0]
+    assert lane.activity == "Reading review-prd-00067c1.md"
+    assert lane.tokens == 36316
+    assert lane.dur_ms == 5792
+
+
+def test_task_started_stores_full_description_and_agent_type() -> None:
+    tracker = stream.AgentTracker()
+    description = "Alice reviews work vs PRD and the design doc in detail"
+    tracker.feed(
+        _task_started("t1", "tool_1", description, "local_agent", subagent_type="general-purpose")
+    )
+    lane = tracker.live_lanes()[0]
+    assert lane.desc == description  # untrimmed, unlike the 20-char label
+    assert lane.agent_type == "general-purpose"
+
+
 # --- AgentTracker: local_bash background tasks -------------------------------
 
 
@@ -605,12 +651,77 @@ def test_terminal_status_via_task_notification_retires_lane(status: str) -> None
     assert tracker.live_lanes() == []
 
 
-def test_user_event_real_capture_shape_retires_matching_lane() -> None:
+def test_launch_ack_tool_result_does_not_retire_task_started_agent_lane() -> None:
+    """Background dispatch (parallel reviewers) acks the Agent tool_use
+    IMMEDIATELY while the subagent keeps running. Captured sequence from a
+    live review phase: background_tasks_changed listing the task, then
+    task_started, then the user tool_result ack two lines later — followed by
+    minutes of task_progress. The lane must survive the ack and retire only
+    on a terminal task event, or the header never shows a running agent."""
     tracker = stream.AgentTracker()
-    real_tool_use_id = "toolu_01QdpjgEiiyhe78B28venMV2"
-    tracker.feed(_task_started("t1", real_tool_use_id, "desc", "local_agent"))
+    task_id = "a06358339df251993"
+    tool_use_id = "toolu_018MmRop1BLEQ7stuTiX8U2c"
+    tracker.feed(
+        _background_tasks_changed(
+            [
+                {
+                    "task_id": task_id,
+                    "task_type": "local_agent",
+                    "description": "Alice reviews work vs PRD",
+                }
+            ]
+        )
+    )
+    tracker.feed(
+        _task_started(
+            task_id,
+            tool_use_id,
+            "Alice reviews work vs PRD",
+            "local_agent",
+            subagent_type="general-purpose",
+        )
+    )
+    tracker.feed(_user_tool_result_event(tool_use_id))  # launch ack, not completion
     assert len(tracker.live_lanes()) == 1
-    tracker.feed(_user_tool_result_event(real_tool_use_id))
+    tracker.feed(_task_progress(task_id, "Read", 3))
+    assert len(tracker.live_lanes()) == 1
+    tracker.feed(_task_notification(task_id, "completed"))
+    assert tracker.live_lanes() == []
+
+
+def test_launch_ack_tool_result_does_not_retire_background_bash_lane() -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(
+        _task_started(
+            "b5pzlnyg5",
+            "toolu_01GBXQkKxznMREg9spEUAbq9",
+            "Bob (codex) doubt-lens review, background",
+            "local_bash",
+        )
+    )
+    tracker.feed(_user_tool_result_event("toolu_01GBXQkKxznMREg9spEUAbq9"))
+    assert len(tracker.live_tasks()) == 1
+    tracker.feed(_task_notification("b5pzlnyg5", "completed"))
+    assert tracker.live_tasks() == []
+
+
+def test_tool_result_still_retires_fallback_lane_registered_from_parent_id() -> None:
+    """A lane known only from parent_tool_use_id attribution (no task
+    lifecycle events — the synchronous-agent path) ends with its tool_result;
+    that is the only completion signal such a lane will ever get."""
+    tracker = stream.AgentTracker()
+    tracker.feed(
+        _assistant_event(
+            "msg_a",
+            input_tokens=1,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            output_tokens=1,
+            parent_tool_use_id="toolu_sync_agent",
+        )
+    )
+    assert len(tracker.live_lanes()) == 1
+    tracker.feed(_user_tool_result_event("toolu_sync_agent"))
     assert tracker.live_lanes() == []
 
 
