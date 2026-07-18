@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import time
 from collections.abc import Sequence
 
@@ -95,6 +96,8 @@ def head_rows(agents: Text | None) -> int:
 
 
 def _row_head(state: model.LoopState) -> Text:
+    # Phase lives on the phase strip (row 2) only — repeating it here made
+    # the two rows read as two different facts.
     row1 = Text(no_wrap=True, overflow="ellipsis")
     task = (
         f"{state.tasks_completed}/{state.tasks_total}"
@@ -106,8 +109,7 @@ def _row_head(state: model.LoopState) -> Text:
         if state.cycle is not None and state.rework_cap is not None
         else "—"
     )
-    phase = state.phase or state.next_phase or "—"
-    row1.append(f"{phase} · {state.prd_name} · task {task} · {cycle}")
+    row1.append(f"{state.prd_name} · task {task} · cycle {cycle}")
 
     gs = model.guards(state)
     if gs:
@@ -116,6 +118,10 @@ def _row_head(state: model.LoopState) -> Text:
 
     if state.needs_attention:
         row1.append(" · ⚠ needs attention")
+
+    task_name = model.current_task_name(state)
+    if task_name:
+        row1.append(f" ▸ {task_name}", style="dim")
     return row1
 
 
@@ -147,7 +153,17 @@ def _row_progress(
 
     cost = sum(r.cost_usd for r in rows)
 
-    row3.append(f"{backlog} backlog · {wip} wip · {sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
+    # "batch <stamp>" scopes everything after it: sessions, elapsed, active
+    # and cost all cover the current batch, surviving interrupts/resumes.
+    batch_stamp = (
+        f"batch {dt.datetime.fromtimestamp(b_start).strftime('%m-%d %H:%M')} · "
+        if b_start is not None
+        else ""
+    )
+    row3.append(f"{backlog} backlog · {wip} wip · {batch_stamp}{sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
+
+    if cost > 0 and active_secs >= 600:
+        row3.append(f" · ${cost / active_secs * 3600:.2f}/h")
 
     if status.in_flight and usage.session_cost > 0:
         row3.append(f" +${usage.session_cost:.2f} live")
@@ -158,7 +174,13 @@ def _row_progress(
 def _row_usage(usage: SessionUsage, status: Status) -> Text:
     row4 = Text(no_wrap=True, overflow="ellipsis")
     up, cached, out = usage.totals()
-    row4.append(f"session {usage.model} · tok ↑{fmt_tok(up)} ⤓{fmt_tok(cached)} ↓{fmt_tok(out)} · ctx {fmt_tok(usage.context_size())} · ")
+    row4.append(f"session {usage.model} · in ↑{fmt_tok(up)} · cache ⤓{fmt_tok(cached)} · out ↓{fmt_tok(out)} · ")
+    ctx = usage.context_size()
+    row4.append(f"ctx {fmt_tok(ctx)}/{fmt_tok(model.USAGE_CAP)}")
+    pct = ctx * 100 // model.USAGE_CAP
+    pct_style = "bold red" if pct >= 95 else "yellow" if pct >= 80 else "dim"
+    row4.append(f" {pct}%", style=pct_style)
+    row4.append(" · ")
     row4.append(status.label, style=status.style)
     return row4
 

@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -796,6 +797,124 @@ def test_loop_status_wrapper_false_when_registry_entry_pid_is_dead(
     row = discovery.loop_status(tmp_path, now=1000.0)
 
     assert row.wrapper is False
+
+
+# --- limit-wait: wrapper sleeping until the usage-limit reset ----------------
+
+
+def _idle_status() -> discovery.Status:
+    return discovery.Status(label="○ idle 5m00s", style="dim", rank=3, in_flight=False)
+
+
+def test_limit_wait_status_upgrades_idle_with_countdown_and_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
+    out = discovery.limit_wait_status(
+        _idle_status(), tmp_path / "log", 100.0, True, 1000.0
+    )
+    assert out.label.startswith("⏳ limit-wait 10m00s")
+    assert out.style == "yellow"
+    assert out.in_flight is False
+    assert out.rank == 1
+
+
+def test_limit_wait_status_keeps_original_without_a_live_wrapper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
+    idle = _idle_status()
+    out = discovery.limit_wait_status(idle, tmp_path / "log", 100.0, False, 1000.0)
+    assert out is idle
+
+
+def test_limit_wait_status_keeps_original_when_in_flight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
+    live = discovery.Status(label="● live", style="green", rank=2, in_flight=True)
+    out = discovery.limit_wait_status(live, tmp_path / "log", 100.0, True, 1000.0)
+    assert out is live
+
+
+def test_limit_wait_status_never_overrides_needs_attention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
+    attention = discovery.Status(
+        label="⚠ attention", style="bold red", rank=0, in_flight=False
+    )
+    out = discovery.limit_wait_status(
+        attention, tmp_path / "log", 100.0, True, 1000.0
+    )
+    assert out is attention
+
+
+def test_limit_wait_status_ignores_a_reset_already_in_the_past(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 900)
+    idle = _idle_status()
+    out = discovery.limit_wait_status(idle, tmp_path / "log", 100.0, True, 1000.0)
+    assert out is idle
+
+
+def test_limit_reset_caches_per_mtime_and_rescans_on_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tick loop calls this every 0.5s against a static log; the tail
+    scan must run once per mtime, not once per tick."""
+    import detect_usage_limit
+
+    calls: list[Path] = []
+
+    def fake_detect(path: Path) -> int:
+        calls.append(path)
+        return 1600
+
+    monkeypatch.setattr(detect_usage_limit, "detect_from_log", fake_detect)
+    log = tmp_path / "last-session.log"
+    log.write_text("banner")
+
+    assert discovery.limit_reset(log, 100.0) == 1600
+    assert discovery.limit_reset(log, 100.0) == 1600
+    assert len(calls) == 1
+    assert discovery.limit_reset(log, 200.0) == 1600
+    assert len(calls) == 2
+    assert discovery.limit_reset(log, None) is None
+
+
+def test_loop_status_shows_limit_wait_instead_of_died_while_wrapper_sleeps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A limit-hit session exits with the banner in its log; the wrapper
+    sleeps until the reset, appending no metrics row. classify() alone reads
+    that gap as died/idle — a live wrapper plus a future reset must render
+    the loop as waiting, not dead."""
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    _write_json(
+        autopilot_dir / "state.json", {"phase": "build", "batch": {"id": "B1"}}
+    )
+    log = autopilot_dir / "last-session.log"
+    log.write_text("claude: usage limit reached — try again later\n")
+    now = time.time()
+    _write_lines(
+        autopilot_dir / "loop-metrics.jsonl",
+        [_metrics_line(batch="B1", ts_start=now - 100, ts_end=now, signal="died")],
+    )
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(tmp_path), "started_at": ""},
+    )
+    monkeypatch.setattr(discovery, "LOOPS_DIR", loops_dir)
+
+    row = discovery.loop_status(tmp_path, now=now + 10)
+
+    assert row.status.label.startswith("⏳ limit-wait")
+    assert row.status.style == "yellow"
 
 
 # --- discover_loops: union of ~/.claude, gita CSV rows, live registry roots -

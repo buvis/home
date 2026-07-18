@@ -16,6 +16,7 @@ from typing import Any
 
 SIGNALS = ("continue", "paused", "done", "died")
 TAIL_BYTES = 512 * 1024
+USAGE_CAP = 500_000  # ctx gauge denominator; mirrors autopilot_context_cap_hook.USAGE_CAP
 
 
 @dataclass(frozen=True)
@@ -236,6 +237,18 @@ def guards(state: LoopState) -> list[tuple[str, str]]:
         result.append(("cycle", f"{state.cycle}/{state.rework_cap}"))
 
     return result
+
+
+def current_task_name(state: LoopState) -> str:
+    """Name of the task being worked: first in_progress, else first pending."""
+    tasks = state.raw.get("tasks")
+    if not isinstance(tasks, list):
+        return ""
+    for wanted in ("in_progress", "pending"):
+        for item in tasks:
+            if isinstance(item, dict) and item.get("status") == wanted:
+                return _str(item.get("name"))
+    return ""
 
 
 def prd_counts(root: Path) -> tuple[int, int]:

@@ -170,6 +170,40 @@ def test_collector_feed_fails_open_on_non_json_line(tmp_path: Path) -> None:
     assert [t.plain for t in texts] == ["not json at all"]
 
 
+def test_collector_feed_does_not_prepend_a_second_lane_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """render_stream already lane-tags subagent lines with ⟨label⟩; feed
+    prepending its own tag doubled it (two truncated labels per line)."""
+    from tracon import screens
+
+    collector = screens.Collector(_make_loop(tmp_path))
+    started = json.dumps(
+        {
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "T1",
+            "tool_use_id": "tu_1",
+            "description": "Tess: write is_valid_shape tests",
+            "task_type": "local_agent",
+        }
+    )
+    collector.feed(started)
+
+    monkeypatch.setattr(
+        screens,
+        "render_line",
+        lambda raw, event: [Text("⟨Tess: write is_valid_sh…⟩ ↳ Read · /x")],
+    )
+    sub = json.dumps(
+        {"type": "assistant", "parent_tool_use_id": "tu_1", "message": {"id": "m1"}}
+    )
+
+    _, texts = collector.feed(sub)
+
+    assert texts[0].plain.count("⟨") == 1
+
+
 def test_collector_poll_returns_lines_appended_since_the_last_call(
     tmp_path: Path,
 ) -> None:
@@ -216,6 +250,30 @@ def test_detail_head_shows_wrapper_chip_when_wrapper_alive(tmp_path: Path) -> No
     assert "⟳ wrapper" in _render(panel)
 
 
+def test_detail_head_shows_limit_wait_when_wrapper_sleeps_on_a_limit(
+    tmp_path: Path,
+) -> None:
+    """During the wrapper's usage-limit sleep no session runs and no metrics
+    row is appended; the head must render the countdown, not died/idle."""
+    from tracon import discovery, screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    (autopilot_dir / "last-session.log").write_text("usage limit reached\n")
+    now = time.time()
+    _write_lines(
+        autopilot_dir / "loop-metrics.jsonl",
+        [_metrics_line(batch="B1", ts_start=now - 60, ts_end=now + 5, signal="died")],
+    )
+    registry_entry = {"pid": os.getpid(), "root": str(root.resolve())}
+    (discovery.LOOPS_DIR / "wrapper.json").write_text(json.dumps(registry_entry))
+
+    collector = screens.Collector(root)
+    panel, _ = collector.head()
+
+    assert "⏳ limit-wait" in _render(panel)
+
+
 def test_detail_head_omits_wrapper_chip_when_no_wrapper_registered(tmp_path: Path) -> None:
     """Mirror of the above: with no live registry entry for this root, the
     detail head must not show the wrapper chip."""
@@ -248,7 +306,7 @@ def test_run_once_header_shows_the_session_model_from_the_log(
 
     out = capsys.readouterr().out
     assert "session claude-opus-4-8" in out
-    assert "session  · tok" not in out
+    assert "session  · in" not in out
 
 
 # --- run_once picks the loop root CONTAINING the cwd --------------------------
@@ -564,6 +622,43 @@ def test_dashboard_pilot_lists_loops_then_enter_and_f_drive_detail_screen(
             assert log.auto_scroll is not before
 
     asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_detail_log_wraps_lines_instead_of_horizontal_scrolling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long tool lines must fold to the pane width (split terminals), not
+    push a horizontal scrollbar; RichLog defaults (wrap=False, min_width=78)
+    did the latter."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import RichLog
+
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            log = app.screen.query_one(RichLog)
+            assert log.wrap is True
+            assert log.min_width == 1
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_app_css_gives_scrollbars_explicit_contrast_colors() -> None:
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    app = screens.build_app([])
+    assert "scrollbar-color" in app.CSS
+    assert "scrollbar-background" in app.CSS
 
 
 @pytest.mark.ui
