@@ -124,6 +124,16 @@ def test_module_constants_match_the_spec() -> None:
     assert screens.FLEET_TICK == 2.0
 
 
+def test_next_steps_runbook_covers_every_exit_label() -> None:
+    """Every label the wrapper-dead banner can show must carry a next-step
+    line — an exit with no guidance is how 'what do I do now?' happens."""
+    from tracon import screens
+
+    labels = set(screens._SIGNAL_LABELS.values()) | {"stopped"}
+    assert set(screens._NEXT_STEPS) == labels
+    assert all(screens._NEXT_STEPS[label] for label in labels)
+
+
 # --- Collector: the only per-tick I/O, runs under bare python3 --------------
 
 
@@ -1295,15 +1305,18 @@ def test_wrapper_pid_dead_transition_shows_banner_and_exits_three(
             wrapper.terminate()
             wrapper.wait(timeout=5)  # reaped: the pid is now genuinely dead
 
-            banner_seen = False
-            deadline = time.monotonic() + 10.0
+            banner_seen = hint_seen = False
+            deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline and app.return_code is None:
                 await asyncio.sleep(0.2)
                 await pilot.pause()
-                if "drained" in _dashboard_visible_text(app.screen).lower():
+                visible = _dashboard_visible_text(app.screen).lower()
+                if "drained" in visible:
                     banner_seen = True
+                    hint_seen = hint_seen or "backlog empty" in visible
 
             assert banner_seen
+            assert hint_seen  # the banner carries its next-steps runbook line
             assert app.return_code == 3
 
     try:
