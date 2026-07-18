@@ -39,7 +39,7 @@ Qwen-specific deltas on error handling:
 
 Before the helper will work:
 
-1. **A llama.cpp server running** with the model loaded and `--jinja` enabled (e.g. via LlamaBarn). Note its port.
+1. **A llama.cpp server running** with the model loaded and `--jinja` enabled (e.g. via LlamaBarn). Note its port. **Never pass `--alias`**: the served id must stay the quant-exact `-hf` spec (`org/repo-GGUF:quant`). An alias forks the id namespace - the approved registry holds the real id, so `--approved-only` silently skips the aliased server and dispatches fall through to another port (2026-07-19 incident).
 2. **pi installed** (mise-managed) and reshimmed so it is on PATH.
 3. **`~/.pi/agent/models.json`** defines the `llamacpp` provider and the model. Minimal entry (adjust the port to your server):
    ```json
@@ -55,7 +55,7 @@ Before the helper will work:
      }
    }
    ```
-   The model `id` must match the alias the llama.cpp server reports at `/v1/models`.
+   The model `id` must match the id the llama.cpp server reports at `/v1/models` (use `--register-model` below rather than typing it).
 
 ## Model Selection
 
@@ -110,7 +110,7 @@ It rolls back automatically if the regression suite fails afterward. Promotion a
    - `-f, --file FILE` to read the prompt from a file
    - `-o, --output FILE` to capture output
    - `-c, --continue` / `-r, --resume [ID]` to continue a session
-   - `--approved-only` to restrict provider/model resolution to ids in `scripts/approved-models.txt`: auto-detect skips an unapproved live engine and keeps probing; a forced `-m`/`-P` that resolves to an unapproved id is refused (`model_id_missing`)
+   - `--approved-only` to restrict provider/model resolution to ids in `scripts/approved-models.txt`: auto-detect skips an unapproved live engine and keeps probing (warning on stderr naming the skipped provider and its live ids - a silent skip hid the 2026-07-19 `--alias` incident for days); a forced `-m`/`-P` that resolves to an unapproved id is refused (`model_id_missing`)
    - `--preflight` to probe health only: requires a real 1-token completion (a `/v1/models` listing alone never passes - the false-healthy class); exit 0 = healthy, nonzero names the failing check (`pi_missing`/`endpoint_unreachable`/`model_id_missing`/`completion_failed`). `model_id_missing` fires only under `--approved-only`: no approved id is live, or the registry file itself is missing (the message says which). Every dispatch runs the same probe internally before spawning `pi`.
    - `--register-model` (with `-P/--provider`, plus optional `--name`) to onboard a brand-new model id into `~/.pi/agent/models.json` without hand-editing JSON: probes that provider's live `/v1/models` for the real id + context window and upserts it (never guesses from a filename/convention - see `references/onboarding-walkthrough.md` for the real story). Only adds to an already-configured provider; does not touch the approved registry. Full onboarding procedure (register -> eval -> promote to default): "Onboarding a New Model" above.
 3. Run the helper, capture output.

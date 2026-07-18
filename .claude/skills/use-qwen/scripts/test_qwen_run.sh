@@ -27,6 +27,7 @@ SERVER_PIN_LOW_PID=""
 SERVER_PIN_HIGH_PID=""
 SERVER_REG_PID=""
 SERVER_REG2_PID=""
+SERVER_REG3_PID=""
 SERVER_DEF_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
@@ -39,6 +40,7 @@ cleanup() {
     [ -n "$SERVER_PIN_HIGH_PID" ] && kill "$SERVER_PIN_HIGH_PID" 2>/dev/null
     [ -n "$SERVER_REG_PID" ] && kill "$SERVER_REG_PID" 2>/dev/null
     [ -n "$SERVER_REG2_PID" ] && kill "$SERVER_REG2_PID" 2>/dev/null
+    [ -n "$SERVER_REG3_PID" ] && kill "$SERVER_REG3_PID" 2>/dev/null
     [ -n "$SERVER_DEF_PID" ] && kill "$SERVER_DEF_PID" 2>/dev/null
     local d
     for d in "${_DIRS[@]+"${_DIRS[@]}"}"; do
@@ -375,11 +377,15 @@ esac
 # Both providers would pass a probe, so "healthy" alone proves nothing — the
 # verdict must name the APPROVED candidate to prove the probe ran against it.
 run_qwen2 t12 --preflight --approved-only
+# The unapproved id may appear in the (loud, T37) skip WARNING; the intent
+# here is that the VERDICT line proves the probe ran against the approved
+# candidate, so assert on the "healthy" line alone.
 T12_OK=no
+T12_HEALTHY_LINE="$(grep "healthy" <<< "$OUT")"
 if [ "$RC" -eq 0 ]; then
-    case "$OUT" in
+    case "$T12_HEALTHY_LINE" in
         *"mock-unapproved"*) ;;
-        *healthy*"mock-approved"* | *"mock-approved"*healthy*) T12_OK=yes ;;
+        *"mock-approved"*) T12_OK=yes ;;
     esac
 fi
 if [ "$T12_OK" = yes ]; then
@@ -1085,6 +1091,75 @@ if [ -f "$SHIPPED_DEFAULT_FILE" ] && grep -qFx -- "$SHIPPED_DEFAULT_ID" "$SHIPPE
     PASS "shipped default-model.txt exists and pins the documented default id"
 else
     FAIL "shipped default-model.txt exists and pins the documented default id" "file: $SHIPPED_DEFAULT_FILE; content: $(cat "$SHIPPED_DEFAULT_FILE" 2>/dev/null || echo MISSING)"
+fi
+
+# ══ T37: the approved-only skip of a live-but-unapproved provider is LOUD ════
+# 2026-07-19 incident: a server launched with --alias served an id without its
+# quant tag, --approved-only silently skipped it, and every dispatch fell
+# through to the next port for days with zero trace. Same fixture as T8 (low
+# port live+unapproved, high port live+approved): dispatch must still land on
+# the approved lane, AND stderr must name the skipped provider and its ids.
+run_qwen2 t37 --approved-only -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/t37.argv" ] && grep -q "mock-approved" "$WORK/t37.argv"; then
+    PASS "loud skip does not change resolution (approved higher port still dispatches)"
+else
+    FAIL "loud skip does not change resolution (approved higher port still dispatches)" "rc=$RC; argv: $(tr '\n' ' ' < "$WORK/t37.argv" 2>/dev/null || echo MISSING); output: $OUT"
+fi
+if grep -q "WARNING" <<< "$OUT" && grep -q "llamacpp_low" <<< "$OUT" && grep -q "mock-unapproved" <<< "$OUT"; then
+    PASS "skipping a live unapproved provider warns on stderr, naming the skipped provider and its live ids"
+else
+    FAIL "skipping a live unapproved provider warns on stderr, naming the skipped provider and its live ids" "output: $OUT"
+fi
+
+# T37b: the flagless path on the same fixture stays silent - the warning
+# belongs to the approved-only gate, not to ordinary ascending-port probing.
+run_qwen2 t37b -f "$PROMPT_FILE_T"
+if [ "$RC" -eq 0 ] && ! grep -q "WARNING" <<< "$OUT"; then
+    PASS "flagless dispatch on the same fixture emits no skip warning"
+else
+    FAIL "flagless dispatch on the same fixture emits no skip warning" "rc=$RC; output: $OUT"
+fi
+
+# ══ T38: --register-model warns when the served id carries no ':<quant>' tag ═
+# The signature of a llama-server --alias: the id registers and evals fine but
+# can never match the quant-exact approved registry, so --approved-only later
+# skips the provider. Registration still succeeds (warning, not refusal - a
+# local-file-served model may legitimately report a plain id). Reuses the T31
+# multi-model server (decoy-first-id has no colon).
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG2" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov2 -m decoy-first-id < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && grep -q "no ':<quant>' tag" <<< "$OUT" && grep -q -- "--alias" <<< "$OUT"; then
+    PASS "registering an id without a ':<quant>' tag still succeeds but warns, naming --alias as the likely cause"
+else
+    FAIL "registering an id without a ':<quant>' tag still succeeds but warns, naming --alias as the likely cause" "rc=$RC; output: $OUT"
+fi
+
+# ══ T39: a quant-tagged id registers with NO alias warning ═══════════════════
+MODE_FILE_REG3="$WORK/mode_reg3"
+echo "ok" > "$MODE_FILE_REG3"
+PORT_REG3=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$WORK/server.py" "$PORT_REG3" "$MODE_FILE_REG3" "org/Mock-GGUF:Q6_K" &
+SERVER_REG3_PID=$!
+i=0
+until curl -sf --max-time 1 "http://127.0.0.1:$PORT_REG3/v1/models" > /dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "FATAL: quant-id register mock server did not start on port $PORT_REG3"
+        exit 1
+    fi
+    sleep 0.1
+done
+CFGDIR_REG3="$WORK/agent_reg3"
+mkdir -p "$CFGDIR_REG3"
+cat > "$CFGDIR_REG3/models.json" <<EOF
+{"providers": {"regprov3": {"baseUrl": "http://127.0.0.1:$PORT_REG3/v1", "api": "openai-completions", "apiKey": "llamacpp", "models": []}}}
+EOF
+OUT=$(PI_CODING_AGENT_DIR="$CFGDIR_REG3" PATH="$STUBDIR:$PATH" bash "$QWEN_RUN_SH" --register-model -P regprov3 < /dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && ! grep -q "no ':<quant>' tag" <<< "$OUT"; then
+    PASS "registering a quant-tagged id emits no alias warning"
+else
+    FAIL "registering a quant-tagged id emits no alias warning" "rc=$RC; output: $OUT"
 fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
