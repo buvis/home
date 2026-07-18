@@ -108,12 +108,11 @@ Execute the research protocol. If verdict is "proceed", treat as auto-fix. If ve
 - Requirements ambiguity (PRD says X, code does Y)
 - Research-failed items (verdict "escalate" from research protocols)
 
-**PAUSE** (present to user, block progress):
-- >10 follow-up tasks from review (scope alarm)
+**PAUSE** (present to user, block progress) — these are blocking escalations; resolve via Outcomes "Has blocking escalation" below:
 - Decision blocks subsequent tasks (e.g. API shape needed before frontend can proceed)
 - Data model choice that all remaining work depends on
 
-(Loop mode: these PAUSE classifications must not call `AskUserQuestion` — pause by state per the Error Handling table's closing rule in core `SKILL.md`.)
+(**Interactive:** present via `AskUserQuestion`. **Loop mode (`$_AUTOPILOT_LOOP` set):** never call `AskUserQuestion` and never pause the batch — the Outcomes "Has blocking escalation" row routes these to the **Loop-mode stall procedure** with `site: "blocking_escalation"` and continues. Scope alarm — >10 follow-ups — is deliberately NOT in this list: the Safety Checks table above already defers-and-continues it in loop mode as a `scope-overflow` record, so it never pauses AND never stalls.)
 
 Log every decision in the state file (`autonomous_decisions` or `deferred_decisions`); note the review cycle (`state.cycle`) in the entry's Decision text. The Phase 9 audit render reads these arrays — do not write `audit.md` here.
 
@@ -121,7 +120,9 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 
 - **All auto-fixable, no deferrals, no blockers** → proceed to Phase 6
 - **Has deferrals but no blockers** → log deferred items to `dev/local/autopilot/deferred/{batch_id}-deferred.json`, proceed to Phase 6 with auto-fixable items only
-- **Has blocking escalation** → PAUSE. Present only the blocking issue(s) to user. Wait for decision. After user responds, proceed to Phase 6.
+- **Has blocking escalation** →
+  - **Interactive:** PAUSE. Present only the blocking issue(s) to user via `AskUserQuestion`. Wait for decision. After user responds, proceed to Phase 6.
+  - **Loop mode (`$_AUTOPILOT_LOOP` set):** there is no human to answer — do NOT pause the batch. Follow the **Loop-mode stall procedure** (`references/recovery.md`) with `site: "blocking_escalation"`, recording the blocking issue(s) in the deferred JSON `detail`, and continue the batch. The parked PRD, on un-park, re-enters the build gate and the decision resurfaces interactively.
 - **No issues found** → the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Hand off to the finalize session (see below).
 
 ### Hand off to the finalize session
