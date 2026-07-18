@@ -314,6 +314,14 @@ if [ "$MODE" = "register" ]; then
                 cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}}])
     ' "$MODELS_JSON" > "$TMP_JSON" && mv "$TMP_JSON" "$MODELS_JSON"
     echo "Registered '$NEW_ID' (contextWindow=$CTX) into provider '$PROVIDER' in $MODELS_JSON." >&2
+    # Alias tripwire (2026-07-19 incident): the approved registry is quant-exact
+    # (org/repo-GGUF:quant), so a served id with no ':<quant>' tag - the
+    # signature of a llama-server --alias - can be registered and evaled but
+    # will never match a registry entry approved under the real -hf id.
+    case "$NEW_ID" in
+        *:*) ;;
+        *) echo "WARNING: '$NEW_ID' carries no ':<quant>' tag. If this server was started with --alias, drop the alias and re-register: an aliased id forks the id namespace and --approved-only will silently skip this provider." >&2 ;;
+    esac
     if probe_completion "$BASE_URL" "$NEW_ID"; then
         echo "Verified: 1-token completion succeeded. Not yet approved - run references/eval-runbook.md before using --approved-only." >&2
         exit 0
@@ -372,7 +380,15 @@ else
                 fi
             fi
             if [ -z "$served" ]; then
-                [ -n "$ids" ] && SAW_UNAPPROVED_LIVE="1"
+                if [ -n "$ids" ]; then
+                    SAW_UNAPPROVED_LIVE="1"
+                    # Loud skip (2026-07-19 incident): a server launched with
+                    # --alias served an unapproved id and every dispatch fell
+                    # through to the next port for days with zero trace. Only
+                    # the all-ids-unapproved case warns; a forced -m simply not
+                    # being served here is normal probing, not an anomaly.
+                    [ -z "$MODEL" ] && echo "WARNING: provider '$name' ($base_url) is live but serves no approved id ($(tr '\n' ' ' <<< "$ids")); skipping it. The registry ($REGISTRY) is quant-exact - if this server was started with --alias, drop the alias so it serves its real -hf id." >&2
+                fi
                 continue
             fi
         else
