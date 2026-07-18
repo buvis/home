@@ -232,7 +232,7 @@ def _render(panel: Any) -> str:
 
 
 def test_detail_head_shows_wrapper_chip_when_wrapper_alive(tmp_path: Path) -> None:
-    """The detail screen's head must carry the same ⟳ wrapper chip as the
+    """The detail screen's head must carry the same ⟳ autoclaude chip as the
     fleet dashboard row (panels.fleet_cells) when a live wrapper is
     registered for this root. panels.build_head only renders the chip when
     called with wrapper=True, but Collector.head() calls build_head without
@@ -247,7 +247,7 @@ def test_detail_head_shows_wrapper_chip_when_wrapper_alive(tmp_path: Path) -> No
     collector = screens.Collector(root)
     panel, _ = collector.head()
 
-    assert "⟳ wrapper" in _render(panel)
+    assert "⟳ autoclaude" in _render(panel)
 
 
 def test_detail_head_shows_limit_wait_when_wrapper_sleeps_on_a_limit(
@@ -283,7 +283,7 @@ def test_detail_head_omits_wrapper_chip_when_no_wrapper_registered(tmp_path: Pat
     collector = screens.Collector(root)
     panel, _ = collector.head()
 
-    assert "⟳ wrapper" not in _render(panel)
+    assert "⟳ autoclaude" not in _render(panel)
 
 
 # --- run_once: the rich-only smoke path (no textual) -------------------------
