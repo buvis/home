@@ -368,16 +368,6 @@ autoclaude() {
       return 0
     fi
 
-    # Session cap: the only kill path in the headless loop.
-    # _AUTOPILOT_LOOP (exported at function entry via a plain `=$BASHPID`
-    # assignment in the loop's own process) is passed here, NOT a bare
-    # $BASHPID: for a backgrounded simple command bash forks first and
-    # expands words inside the new async subshell, so a bare "$BASHPID" at
-    # this call site would evaluate to the SIDECAR's own pid, not the
-    # loop's — breaking pgrep -P and silently disarming the wall-clock cap.
-    _autopilot_session_cap "$_AUTOPILOT_LOOP" "${_AUTOPILOT_SESSION_MAX:-7200}" 30 60 &
-    _cap_pid=$!
-
     # Headless launch (PRD 00014): one session = one -p turn = one process
     # that exits at turn end. No signal file, no Stop-hook choreography — the
     # decision table below reads state.json after exit. stream-json+verbose
@@ -407,25 +397,39 @@ autoclaude() {
     # classifies findings); finalize (done) is mechanical rendering —
     # Sonnet at medium. Unknown or absent phase (including the first-ever
     # launch) → Opus xhigh: fail expensive, never fail dumb.
-    local _model _effort
+    local _model _effort _cap
     case "$_phase_launched" in
     build)
       _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}"
       _effort="${_AUTOPILOT_EFFORT_BUILD:-xhigh}"
+      _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     review)
       _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}"
       _effort="${_AUTOPILOT_EFFORT_REVIEW:-xhigh}"
+      _cap="${_AUTOPILOT_SESSION_MAX_REVIEW:-10800}"
       ;;
     done)
       _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}"
       _effort="${_AUTOPILOT_EFFORT_DONE:-medium}"
+      _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     *)
       _model="claude-opus-4-8"
       _effort="xhigh"
+      _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     esac
+
+    # Session cap: the only kill path in the headless loop.
+    # _AUTOPILOT_LOOP (exported at function entry via a plain `=$BASHPID`
+    # assignment in the loop's own process) is passed here, NOT a bare
+    # $BASHPID: for a backgrounded simple command bash forks first and
+    # expands words inside the new async subshell, so a bare "$BASHPID" at
+    # this call site would evaluate to the SIDECAR's own pid, not the
+    # loop's — breaking pgrep -P and silently disarming the wall-clock cap.
+    _autopilot_session_cap "$_AUTOPILOT_LOOP" "$_cap" 30 60 &
+    _cap_pid=$!
 
     # --fallback-model rides out primary-model brownouts (a ConnectionRefused
     # relaunch storm killed a batch silently, 2026-07); skipped when it equals
