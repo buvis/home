@@ -1131,6 +1131,20 @@ def test_ctrl_c_stops_the_loop_with_return_code_130(
 
 
 @pytest.mark.ui
+def test_ctrl_c_footer_label_matches_what_it_actually_does() -> None:
+    """Standalone, ctrl+c only exits the UI; claiming 'Stop loop' there (and
+    next to the dashboard's own s key) showed the same command twice."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    standalone = screens.build_app([])
+    assert standalone.BINDINGS[0].description == "Exit"
+
+    wrapped = screens.build_app([], wrapper_pid=os.getpid())
+    assert wrapped.BINDINGS[0].description == "Stop loop & exit"
+
+
+@pytest.mark.ui
 def test_ctrl_c_with_live_wrapper_requires_a_confirming_second_press(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
