@@ -235,6 +235,49 @@ def guards(state: LoopState) -> list[tuple[str, str]]:
     return result
 
 
+BUILD_STEPS = ("catchup", "design", "plan", "work")
+LANES = ("in_progress", "pending", "completed")
+
+
+def build_steps_done(state: LoopState) -> dict[str, bool]:
+    """Which build sub-steps have finished, inferred from state artifacts:
+    catchup by its batch stamp (or a skip mode), design by its doc (or a
+    skip mode), plan by a task snapshot existing, work by all tasks done."""
+    raw = state.raw
+    batch = raw.get("batch") if isinstance(raw.get("batch"), dict) else {}
+    tasks = raw.get("tasks") if isinstance(raw.get("tasks"), list) else []
+    all_done = (
+        bool(tasks)
+        and state.tasks_total is not None
+        and state.tasks_total > 0
+        and state.tasks_completed is not None
+        and state.tasks_completed >= state.tasks_total
+    )
+    return {
+        "catchup": bool(batch.get("catchup_completed_at"))
+        or raw.get("catchup_mode") in ("skip", "skipped"),
+        "design": bool(raw.get("design_doc"))
+        or raw.get("design_mode") in ("skip", "skipped"),
+        "plan": bool(tasks),
+        "work": all_done,
+    }
+
+
+def tasks_by_lane(state: LoopState) -> dict[str, list[dict[str, Any]]]:
+    """Group the state.tasks snapshot into kanban lanes; unknown or missing
+    statuses land in pending, junk entries are dropped."""
+    lanes: dict[str, list[dict[str, Any]]] = {lane: [] for lane in LANES}
+    tasks = state.raw.get("tasks")
+    if not isinstance(tasks, list):
+        return lanes
+    for item in tasks:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status")
+        lanes[status if status in lanes else "pending"].append(item)
+    return lanes
+
+
 def current_task_name(state: LoopState) -> str:
     """Name of the task being worked: first in_progress, else first pending."""
     tasks = state.raw.get("tasks")

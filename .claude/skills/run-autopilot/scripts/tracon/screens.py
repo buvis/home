@@ -146,6 +146,7 @@ class Collector:
 
 def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> App:
     from textual.app import App, ComposeResult
+    from textual.containers import Horizontal, VerticalScroll
     from textual.widgets import DataTable, RichLog, Static, Footer
     from textual.screen import Screen
     from textual.binding import Binding
@@ -160,9 +161,46 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             return
         app.notify("pause requested — pauses when the current session ends; resume with `autoclaude`")
 
+    class TasksScreen(Screen):
+        """On-demand task detail: kanban lanes over the state.tasks snapshot."""
+
+        BINDINGS = [
+            Binding("escape", "app.pop_screen", "Back to log"),
+            Binding("t", "app.pop_screen", "Back to log"),
+        ]
+
+        def __init__(self, root: Path) -> None:
+            super().__init__()
+            self.root = root
+
+        def compose(self) -> ComposeResult:
+            yield Static(id="tasks-head")
+            with Horizontal():
+                for lane in model.LANES:
+                    yield VerticalScroll(Static(id=f"lane-{lane}"))
+            yield Footer()
+
+        def on_mount(self) -> None:
+            self.refresh_tasks()
+            self.set_interval(FLEET_TICK, self.refresh_tasks)
+
+        def refresh_tasks(self) -> None:
+            state = model.read_state(
+                self.root / "dev" / "local" / "autopilot" / "state.json"
+            )
+            self.query_one("#tasks-head", Static).update(
+                panels.tasks_head(state, self.root.name)
+            )
+            lanes = model.tasks_by_lane(state)
+            for lane in model.LANES:
+                self.query_one(f"#lane-{lane}", Static).update(
+                    panels.lane_body(lane, lanes[lane])
+                )
+
     class DetailScreen(Screen):
         BINDINGS = [
             Binding("escape", "app.pop_screen", "All loops"),
+            Binding("t", "show_tasks", "Tasks"),
             Binding("f", "toggle_follow", "Follow"),
             Binding("q", "app.detach", "Quit UI (loop runs)"),
             Binding("p", "pause_loop", "Pause loop"),
@@ -217,6 +255,9 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
                     log.write(t)
 
             self.update_head()
+
+        def action_show_tasks(self) -> None:
+            self.app.push_screen(TasksScreen(self.root))
 
         def action_toggle_follow(self) -> None:
             log = self.query_one("#log", RichLog)

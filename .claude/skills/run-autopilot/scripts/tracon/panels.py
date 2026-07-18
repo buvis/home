@@ -25,6 +25,20 @@ def fmt_tok(n: int) -> str:
     return f"{n / 1000000:.1f}M"
 
 
+def _strip_nodes(nodes: list[tuple[str, str]]) -> Text:
+    parts: list = []
+    for name, phase_state in nodes:
+        if parts:
+            parts.append(" ─ ")
+        if phase_state == "done":
+            parts.append(f"✓ {name}")
+        elif phase_state == "current":
+            parts.append((f"● {name}", "bold cyan"))
+        else:
+            parts.append(("○ " + name, "dim"))
+    return Text.assemble(*parts)
+
+
 def phase_strip(state: model.LoopState) -> Text:
     current = state.phase or state.next_phase or "—"
 
@@ -41,28 +55,29 @@ def phase_strip(state: model.LoopState) -> Text:
         else:
             t.stylize("dim")
         t.append(f" · {current}")
+    elif current == "build":
+        # Expand build into its sub-steps; the first unfinished one is live.
+        steps = model.build_steps_done(state)
+        sub_current = next((s for s in model.BUILD_STEPS if not steps[s]), "work")
+        nodes = [
+            (s, "done" if steps[s] else ("current" if s == sub_current else "pending"))
+            for s in model.BUILD_STEPS
+        ]
+        nodes += [("review", "pending"), ("done", "pending")]
+        t = _strip_nodes(nodes)
     else:
-        parts = []
-        for p in PHASES:
-            if parts:
-                parts.append(" ─ ")
-
-            if p in state.phases_completed:
-                mark = "✓"
-                style = ""
+        # Collapsed strip; phases before the current gate are positionally
+        # done (phases_completed only ever records "review").
+        idx = PHASES.index(current)
+        nodes = []
+        for i, p in enumerate(PHASES):
+            if p in state.phases_completed or i < idx:
+                nodes.append((p, "done"))
             elif p == current:
-                mark = "●"
-                style = "bold cyan"
+                nodes.append((p, "current"))
             else:
-                mark = "○"
-                style = "dim"
-
-            if style:
-                parts.append((f"{mark} {p}", style))
-            else:
-                parts.append(f"{mark} {p}")
-
-        t = Text.assemble(*parts)
+                nodes.append((p, "pending"))
+        t = _strip_nodes(nodes)
 
     if state.needs_attention:
         t.stylize("bold red")
@@ -216,6 +231,50 @@ def build_head(
         lines.insert(2, agents)
 
     return Panel(Group(*lines), title=root_name)
+
+
+LANE_TITLES = {
+    "in_progress": ("in progress", "bold cyan"),
+    "pending": ("pending", "bold"),
+    "completed": ("completed", "bold green"),
+}
+
+
+def lane_body(lane: str, tasks: Sequence[dict]) -> Text:
+    title, style = LANE_TITLES[lane]
+    t = Text()
+    t.append(f"{title} ({len(tasks)})\n", style=style)
+    for task in tasks:
+        name = str(task.get("name") or task.get("id") or "?")
+        t.append(f"\n• {name}")
+        meta = []
+        tier = task.get("model")
+        if isinstance(tier, str) and tier:
+            meta.append(tier)
+        attempts = task.get("attempts")
+        if isinstance(attempts, list) and attempts:
+            meta.append(f"×{len(attempts)}")
+            last = attempts[-1] if isinstance(attempts[-1], dict) else {}
+            impl = last.get("implementor")
+            if isinstance(impl, str) and impl and impl != "claude":
+                meta.append(impl)
+        if meta:
+            t.append(f"  [{' · '.join(meta)}]", style="dim")
+    return t
+
+
+def tasks_head(state: model.LoopState, root_name: str) -> Panel:
+    lines = [_row_head(state), phase_strip(state)]
+    rc = state.raw.get("review_cycles")
+    if isinstance(rc, list) and rc and isinstance(rc[-1], dict):
+        last = rc[-1]
+        t = Text(no_wrap=True, overflow="ellipsis")
+        t.append(
+            f"review cycle {last.get('cycle', '?')}: {last.get('issues_found', '?')} issues"
+            f" · {last.get('follow_up_tasks', '?')} follow-ups · {last.get('deferred', '?')} deferred"
+        )
+        lines.append(t)
+    return Panel(Group(*lines), title=f"{root_name} · tasks")
 
 
 def fleet_cells(row: LoopRow) -> tuple:
