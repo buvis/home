@@ -9,6 +9,7 @@ writes a file, never signals a loop, never mutates state.
 
 from __future__ import annotations
 
+import shlex
 import sys
 import time
 from dataclasses import dataclass
@@ -25,6 +26,18 @@ import render_stream
 render_stream._color_enabled = True  # module-level ANSI switch; output re-parsed via Text.from_ansi
 
 LANE_COLORS = ("magenta", "blue", "green", "yellow", "red", "bright_cyan")
+
+
+def _out_path(command: str) -> str:
+    """The token after -o/--output in a runner command, or "" when absent."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return ""
+    for i, tok in enumerate(tokens[:-1]):
+        if tok in ("-o", "--output"):
+            return tokens[i + 1]
+    return ""
 
 
 @dataclass
@@ -44,6 +57,8 @@ class Lane:
     activity: str = ""  # last task_progress.description — what the agent is doing now
     tokens: int = 0  # task_progress usage.total_tokens
     dur_ms: int = 0  # task_progress usage.duration_ms
+    out_path: str = ""  # -o/--output file parsed from the launching Bash command (bash only)
+    started: float = 0.0  # wall clock at registration; attach time for tail-replayed lanes
 
 
 class LogTail:
@@ -226,10 +241,12 @@ class AgentTracker:
     def __init__(self) -> None:
         self._by_task: dict[str, Lane] = {}
         self._by_tool: dict[str, Lane] = {}
+        self._cmd_by_tool: dict[str, str] = {}  # backgrounded Bash tool_use id -> command
 
     def reset(self) -> None:
         self._by_task.clear()
         self._by_tool.clear()
+        self._cmd_by_tool.clear()
 
     def _register(
         self,
@@ -241,6 +258,7 @@ class AgentTracker:
         desc: str = "",
         agent_type: str = "",
         tracked: bool = False,
+        out_path: str = "",
     ) -> Lane:
         color = LANE_COLORS[len(self._by_task) % len(LANE_COLORS)]
         lane = Lane(
@@ -252,6 +270,8 @@ class AgentTracker:
             desc=desc,
             agent_type=agent_type,
             tracked=tracked,
+            out_path=out_path,
+            started=time.time(),
         )
         self._by_task[task_id] = lane
         self._by_tool[tool_use_id] = lane
@@ -313,6 +333,7 @@ class AgentTracker:
                 desc=desc,
                 agent_type=str(subagent_type or ""),
                 tracked=True,
+                out_path=_out_path(self._cmd_by_tool.pop(tool_use_id, "")),
             )
         elif sub == "task_progress":
             lane = self._by_task.get(str(event.get("task_id")))
@@ -331,6 +352,19 @@ class AgentTracker:
             self._apply_background_tasks(event.get("tasks"))
 
     def _feed_assistant(self, event: dict[str, Any]) -> None:
+        # Backgrounded Bash tool_use blocks carry the command whose -o file is
+        # the only progress signal a bash lane will get; remember them until
+        # their task_started arrives (which carries the same tool_use_id).
+        for block in (event.get("message") or {}).get("content") or []:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_use"
+                and block.get("name") == "Bash"
+                and isinstance(block.get("input"), dict)
+                and block["input"].get("run_in_background")
+            ):
+                self._cmd_by_tool[str(block.get("id"))] = str(block["input"].get("command") or "")
+
         parent = event.get("parent_tool_use_id")
         if not parent:
             return

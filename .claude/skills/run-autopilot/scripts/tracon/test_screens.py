@@ -234,6 +234,71 @@ def test_collector_poll_returns_lines_appended_since_the_last_call(
     assert second_lines == [second_event]
 
 
+def _bash_launch_lines(tool_use_id: str, command: str, task_id: str, desc: str) -> list[str]:
+    """The stream pair a backgrounded runner produces: the assistant Bash
+    tool_use block, then the matching task_started."""
+    return [
+        json.dumps(
+            {
+                "type": "assistant",
+                "parent_tool_use_id": None,
+                "message": {
+                    "id": "msg_launch",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": tool_use_id,
+                            "name": "Bash",
+                            "input": {"command": command, "run_in_background": True},
+                        }
+                    ],
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "task_id": task_id,
+                "tool_use_id": tool_use_id,
+                "description": desc,
+                "task_type": "local_bash",
+            }
+        ),
+    ]
+
+
+def test_collector_bash_output_notes_stat_the_runner_out_file(tmp_path: Path) -> None:
+    """A live bash lane whose -o file exists gets `out <size> · <age> ago`;
+    one whose file has not appeared yet gets `no output yet · <waited>`;
+    a lane without a parsed -o path gets no note at all."""
+    from tracon import screens
+
+    out_file = tmp_path / "carl-output.txt"
+    out_file.write_text("x" * 4200)
+    log_lines = (
+        [_init_event()]
+        + _bash_launch_lines(
+            "toolu_carl", f'gemini-run.sh -o "{out_file}"', "c1", "Carl (gemini) review"
+        )
+        + _bash_launch_lines(
+            "toolu_bob", f'codex-run.sh -o "{tmp_path}/bob-output.txt"', "b1", "Bob (codex) review"
+        )
+        + _bash_launch_lines("toolu_q", "qwen-run.sh --preflight", "q1", "Qwen preflight")
+    )
+    root = _make_loop(tmp_path / "loop-a", log_lines=log_lines)
+    collector = screens.Collector(root)
+    lines, _ = collector.poll()
+    for line in lines:
+        collector.feed(line)
+
+    notes = collector.bash_output_notes()
+    assert notes["c1"].startswith("out 4.2k · ")
+    assert notes["c1"].endswith(" ago")
+    assert notes["b1"].startswith("no output yet · ")
+    assert "q1" not in notes
+
+
 def _render(panel: Any) -> str:
     """Render a rich Panel to plain text (mirrors test_panels.py's _render)."""
     console = Console(width=200, record=True)
@@ -1394,17 +1459,12 @@ def test_a_toggles_the_agents_screen_with_lane_detail(
                 "usage": {"tool_uses": 3, "total_tokens": 36316, "duration_ms": 5792},
             }
         ),
-        json.dumps(
-            {
-                "type": "system",
-                "subtype": "task_started",
-                "task_id": "b1",
-                "tool_use_id": "toolu_b1",
-                "description": "Bob (codex) doubt review",
-                "task_type": "local_bash",
-            }
-        ),
     ]
+    out_file = tmp_path / "bob-output.txt"
+    out_file.write_text("x" * 4200)
+    log_lines += _bash_launch_lines(
+        "toolu_b1", f'codex-run.sh -o "{out_file}"', "b1", "Bob (codex) doubt review"
+    )
     root = _make_loop(tmp_path / "loop-a", log_lines=log_lines)
     monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
 
@@ -1423,6 +1483,7 @@ def test_a_toggles_the_agents_screen_with_lane_detail(
             assert "⚒ Read×3" in visible
             assert "Bob (codex) doubt review" in visible
             assert "bash · running" in visible
+            assert "out 4.2k · " in visible  # -o file stat note flows through
 
             await pilot.press("escape")
             await pilot.pause()
