@@ -752,7 +752,6 @@ autoclaude() {
 start_qwen() {
   llama-server \
     -hf unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL \
-    --alias "unsloth/Qwen3.6-27B-MTP" \
     --spec-type draft-mtp \
     --spec-draft-n-max 2 \
     --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.00 \
