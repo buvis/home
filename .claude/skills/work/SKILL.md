@@ -390,28 +390,44 @@ REPAIR (spec_gap, repair not yet used this task, current rung is a Claude rung):
   `repair_used:true` on that rung's attempt entry. A gate failure after the repair takes the
   solid_spec path below — repair is exhausted for this task.
 ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any qwen-rung spec_gap):
-  1. Reset guard — BOTH conditions must hold before `git reset --hard`:
+  1. Reset guard — capture `<candidate_head>` = `git rev-parse HEAD` first, then require BOTH:
      - **uncommitted:** `git status --porcelain` is empty (no foreign/uncommitted working-tree files), AND
-     - **committed range:** `git rev-list <test_commit_sha>..HEAD` contains ONLY this task's own
-       implementation commit(s) (the commits step 5 made after the test commit). `git reset --hard
-       <test_commit_sha>` discards every commit in `<test_commit_sha>..HEAD`, so a concurrent FOREIGN
-       commit in that range would be silently lost (memory: project_autopilot_head_moves_midreview —
-       ~/.claude is a live worktree; HEAD can move under this task between step 2.9 and here).
-     - both guards pass → `git reset --hard <test_commit_sha>` (this task's own test commit, captured
-       in-session right after step 2.9 — never a prior task's commit)
-     - either guard fails (foreign uncommitted files OR a foreign commit in `<test_commit_sha>..HEAD`)
-       → do NOT reset; escalate fix-forward instead (dispatch the higher rung against the current tree
-       + failing tests, no reset) and log the deviation on the attempt. Never discard commits or files
+     - **committed range:** `git rev-list <test_commit_sha>..<candidate_head>` contains ONLY this
+       task's own implementation commit(s) (the commits step 5 made after the test commit).
+     Passing the guards is necessary but NOT sufficient — a foreign commit can still land between the
+     check and the reset (a live worktree; project_autopilot_head_moves_midreview), and `git reset
+     --hard <test_commit_sha>` would silently discard it. So move the ref ATOMICALLY, never with a
+     bare `git reset --hard` off a stale check:
+     - both guards pass → compare-and-swap the branch ref to the test commit, succeeding ONLY if HEAD
+       is still `<candidate_head>`: `git update-ref refs/heads/<current-branch> <test_commit_sha>
+       <candidate_head>` (the third arg is git's old-value guard — the CAS; `<current-branch>` from
+       `git rev-parse --abbrev-ref HEAD`). Then `git reset --hard` (the ref already points at the test
+       commit, so this only cleans the worktree). `<test_commit_sha>` is this task's own test commit,
+       captured in-session right after step 2.9 — never a prior task's commit.
+     - the CAS fails (HEAD moved — a foreign commit raced in), OR either guard failed (foreign
+       uncommitted files, or a foreign commit already in `<test_commit_sha>..<candidate_head>`) → do
+       NOT reset; escalate fix-forward instead (dispatch the higher rung against the current tree +
+       failing tests, no reset) and log the deviation on the attempt. Never discard commits or files
        this task did not create (memory: feedback_subagents_vs_live_worktree,
-       project_autopilot_head_moves_midreview). The guards are check-then-act; the fix-forward branch
-       is the safe default whenever the range is not provably this-task-only.
+       project_autopilot_head_moves_midreview). Fix-forward is the safe default whenever the reset is
+       not provably this-task-only AND atomic.
   2. Stamp the LOWER rung's entry: `outcome:"escalated"`, `diagnosis:<verdict>` (+
      `qwen_gate_failed:true` if that rung's implementor was qwen, + `repair_used:true` if a repair
-     ran at that rung).
+     ran at that rung). **If `task.metadata` carries a review-flag escalation
+     (`escalation_reason:"review_flag"` + `escalated_from`, set by /run-autopilot Phase 6 when this
+     rung IS the review-flagged rework rung), copy both onto THIS lower-rung entry now** — Phase 6
+     escalated INTO this rung, so the `review_flag` reason belongs here; capturing it before step 3
+     clears it is what keeps the review-flag source recorded when a review-flagged task ALSO escalates
+     in-loop (otherwise the reason would be lost on this entry and mis-stamped on the higher rung).
   3. `TaskUpdate(taskId, metadata={model: <new tier>})` (mirrors the state-schema.md tasks[].model
      Phase-6 pattern), mirrored into `state.tasks[i].model` per Dashboard State Sync — BEFORE the
      dispatch below, so the **Per-task model dispatch** rule picks up the escalated tier for Ivan
-     and every downstream read this task (step 5.6, step 5.7's tier gate).
+     and every downstream read this task (step 5.6, step 5.7's tier gate). **Also clear any
+     `escalation_reason`/`escalated_from` from `task.metadata` here** — point 2 already copied a
+     review-flag reason onto the lower-rung entry, and the higher in-loop rung records its OWN
+     `escalation_reason:"gate_failure"` at point 5. Leaving the sticky `review_flag` in `task.metadata`
+     (which `TaskUpdate` merges, not replaces) would make step 6's metadata→entry copy mis-stamp
+     `review_flag` onto this `gate_failure` rung.
   4. Dispatch ONE rung up (per `model-ladder.md` § Capability ladders — qwen -> sonnet skipping
      haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY: failing test names, the last
      gate-output excerpt, the diagnosis verdict, and the prior implementor + tier.
@@ -431,7 +447,8 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
 | `qwen_gate_failed` | the qwen (lower) rung's entry |
 | `repair_used` | the entry of the same-tier attempt that ran after a repair (that rung's entry) |
 | `escalation_reason:"gate_failure"` | the rung escalated **INTO** (higher)'s entry |
-| `escalated_from` | the rung escalated **INTO** (higher)'s entry |
+| `escalation_reason:"review_flag"` | the review-flagged rework rung's OWN entry (Phase 6 escalated INTO it): copied from `task.metadata` at step 6 if that rung exits there, or at ESCALATE point 2 (then cleared at point 3) if it escalates in-loop |
+| `escalated_from` | the rung escalated **INTO** (higher)'s entry (both `gate_failure` and `review_flag` paths) |
 
 **Pipeline stamping on escalation.** An in-loop escalation re-dispatches the implementor at the higher rung and re-runs the tier-appropriate post-implementor gates (step 5.7 reviewer for sonnet+, and this step-5.5 gate) — it does NOT re-run Devon (2.85; the tests are already committed). Stamp the escalated-into entry `pipeline:"lean"` (implementor + reviewer), never `"full"` — `"full"` stays reserved for a from-scratch opus task/rework that actually ran Devon.
 
