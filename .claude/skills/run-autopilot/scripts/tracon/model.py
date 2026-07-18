@@ -263,6 +263,21 @@ def build_steps_done(state: LoopState) -> dict[str, bool]:
     }
 
 
+REVIEW_LENSES = ("consensus", "blind", "doubt", "ui", "qwen", "fable")
+
+
+def review_lenses(state: LoopState) -> list[tuple[str, str]]:
+    """Active review lenses stamped by review-work-completion at dispatch:
+    state.review_lenses maps lens -> "running"|"done"|"failed". Canonical
+    order first, unknown lens keys appended as-is."""
+    raw = state.raw.get("review_lenses")
+    if not isinstance(raw, dict):
+        return []
+    ordered = [k for k in REVIEW_LENSES if k in raw]
+    ordered += [k for k in raw if k not in REVIEW_LENSES]
+    return [(k, str(raw[k])) for k in ordered]
+
+
 def tasks_by_lane(state: LoopState) -> dict[str, list[dict[str, Any]]]:
     """Group the state.tasks snapshot into kanban lanes; unknown or missing
     statuses land in pending, junk entries are dropped."""

@@ -143,12 +143,16 @@ class SessionUsage:
         self._last: dict[str, Any] = {}
         self.model = ""
         self.session_cost = 0.0
+        self._result_out = 0
+        self._est_chars = 0
 
     def reset(self) -> None:
         self._by_msg.clear()
         self._last = {}
         self.model = ""
         self.session_cost = 0.0
+        self._result_out = 0
+        self._est_chars = 0
 
     def feed(self, event: dict[str, Any]) -> None:
         etype = event.get("type")
@@ -161,6 +165,13 @@ class SessionUsage:
             cost = event.get("total_cost_usd")
             if isinstance(cost, (int, float)) and not isinstance(cost, bool):
                 self.session_cost = float(cost)
+            usage = event.get("usage")
+            out = usage.get("output_tokens") if isinstance(usage, dict) else None
+            if isinstance(out, int) and not isinstance(out, bool):
+                # exact cumulative output — latest wins; it covers everything
+                # emitted so far, so the char estimate restarts from here
+                self._result_out = out
+                self._est_chars = 0
             return
         if etype != "assistant":
             return
@@ -169,14 +180,30 @@ class SessionUsage:
         if isinstance(usage, dict) and isinstance(mid, str):
             self._by_msg[mid] = usage
             self._last = usage
+        # assistant usage.output_tokens is a per-block snapshot (~1-70 tokens),
+        # never the final per-message count — estimate live output from emitted
+        # chars instead; each assistant event carries exactly one content block
+        for block in msg.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            text = block.get("text") or block.get("thinking")
+            if isinstance(text, str):
+                self._est_chars += len(text)
+            elif block.get("type") == "tool_use":
+                self._est_chars += len(str(block.get("input") or ""))
 
     def totals(self) -> tuple[int, int, int]:
-        up = cached = out = 0
+        up = cached = 0
         for u in self._by_msg.values():
             up += (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
             cached += u.get("cache_read_input_tokens") or 0
-            out += u.get("output_tokens") or 0
-        return up, cached, out
+        # ponytail: ~4 chars/token estimate for the in-flight invoke; exact
+        # totals land with each result event and re-anchor _result_out
+        return up, cached, self._result_out + self._est_chars // 4
+
+    @property
+    def out_estimated(self) -> bool:
+        return self._est_chars > 0
 
     def context_size(self) -> int:
         u = self._last
