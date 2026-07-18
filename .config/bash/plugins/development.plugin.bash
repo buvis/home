@@ -347,7 +347,7 @@ autoclaude() {
     # The marker is consumed so a later autoclaude run starts normally.
     if [ -f "$_ap_dir/pause-requested" ]; then
       rm -f "$_ap_dir/pause-requested"
-      printf '\nautoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.\n'
+      printf '\n\033[1;33m⏸ autoclaude: paused by operator ON PURPOSE.\033[0m State intact; take over with an interactive /run-autopilot, then re-run autoclaude.\n'
       python3 ~/.claude/hooks/notify.py --send "autopilot ⏸ ${PWD##*/}" "Paused by operator at a session boundary. State intact." 2>/dev/null
       trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
@@ -470,7 +470,10 @@ autoclaude() {
       _batch=$(jq -r '.batch.id // ""' "$_state" 2>/dev/null)
       _phase_end=$(jq -r '.next_phase // ""' "$_state" 2>/dev/null)
       _next="$_phase_end"
-      _detail=$(jq -r 'if .phase == "paused" or ((.pause_reason // "") != "") then ((.pause_reason.detail? // .pause_reason? // .cap_pause_reason? // "paused") | tostring) else empty end' "$_state" 2>/dev/null)
+      # cap_pause_reason is summarized to one line — dumping its raw findings
+      # JSON at the operator buried the resume runbook (2026-07-19). The full
+      # findings stay in state.json; the paused branch prints short bullets.
+      _detail=$(jq -r 'if .phase == "paused" or ((.pause_reason // "") != "") then ((.pause_reason.detail? // .pause_reason? // (.cap_pause_reason? | if type == "object" and has("cycle") then "review cap hit: cycle \(.cycle)/\(.cap) · \((.unresolved_findings // []) | length) unresolved findings" else . end) // "paused") | tostring) else empty end' "$_state" 2>/dev/null)
       local _stalled
       _stalled=$(jq -r '.stall_reason.stalled? // empty' "$_state" 2>/dev/null)
       if [ -n "$_detail" ]; then
@@ -634,8 +637,12 @@ autoclaude() {
       fi
       ;;
     paused)
-      printf '\nautoclaude: session paused — %s.\n' "$_detail" >&2
-      printf 'To resume (re-running autoclaude now would just pause again):\n' >&2
+      # Unconditional ANSI: in tracon mode this lands in wrapper.log and is
+      # tailed back to the tty, where a `[ -t 2 ]` gate would have already
+      # stripped the colors.
+      printf '\n\033[1;33m⏸ autoclaude: session paused ON PURPOSE — %s\033[0m\n' "$_detail" >&2
+      jq -r '(.cap_pause_reason.unresolved_findings // [])[] | "  · [\(.severity // "?")] \(.issue // "" | .[0:90])"' "$_state" 2>/dev/null >&2
+      printf '\n\n\033[1;36mTo resume (re-running autoclaude now would just pause again):\033[0m\n\n' >&2
       printf '  1. claude            # interactive session in this repo\n' >&2
       printf '  2. /run-autopilot    # resumes from state.json; blockers become questions\n' >&2
       printf '  3. autoclaude        # after the decision, to continue unattended\n' >&2
