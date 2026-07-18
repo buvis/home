@@ -11,12 +11,13 @@
 #                                (a build-phase launch must IGNORE
 #                                _AUTOPILOT_SESSION_MAX_REVIEW entirely)
 #
-# Today the wrapper arms the sidecar (line ~378) BEFORE it even reads
-# next_phase from state.json (line ~396) — a single hardcoded
-# ${_AUTOPILOT_SESSION_MAX:-7200} regardless of phase. This suite is RED by
-# design until the wrapper selects the cap per phase; scenarios 1/2/4 below
-# fail against today's code (scenario 3 happens to pass, since build's
-# expected default equals today's only cap).
+# Regression guard (PRD 00067): before the fix the wrapper armed the sidecar
+# BEFORE it read next_phase from state.json — a single hardcoded
+# ${_AUTOPILOT_SESSION_MAX:-7200} regardless of phase. The fix declares _cap in
+# the per-phase `case "$_phase_launched"` block and arms the sidecar with it
+# AFTER the `esac`. This suite locks that in: scenarios 1/2/4 would fail against
+# the pre-fix wrapper (scenario 3 passed either way, since build's expected
+# default equals the old single cap); all four pass against the fixed wrapper.
 #
 # Technique: override _autopilot_session_cap so it RECORDS its 2nd arg
 # instead of running a real sidecar, drive the wrapper for exactly one loop
@@ -67,6 +68,13 @@ python3() {
   esac
 }
 _autopilot_session_cap() { echo "$2" >> "$AP_DIR/.cap-args"; }  # record the cap instead of arming a real sidecar
+
+# Hermetic default scenarios: clear any cap knobs inherited from the caller's
+# environment so scenarios 1 (review->10800) and 3 (build->7200) assert the true
+# built-in defaults. Scenarios 2 and 4 set their own values via a per-invocation
+# command prefix (`_AUTOPILOT_SESSION_MAX_REVIEW=9999 run_with_timeout ...`),
+# which overrides this unset for that call only.
+unset _AUTOPILOT_SESSION_MAX _AUTOPILOT_SESSION_MAX_REVIEW
 
 # ── run_with_timeout <sandbox_dir> <timeout_secs> ──────────────────────────────
 # Runs `autoclaude` inside <sandbox_dir> (cwd + PATH pointed at its bin/ stub),
