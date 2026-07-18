@@ -367,11 +367,10 @@ def test_guards_reports_every_present_field_in_declared_order(
     state = model.read_state(path)
     assert model.guards(state) == [
         ("stall", "no runnable prd"),
-        ("cap-pause", "cycle 3/3"),
+        ("cap-pause", "at cap"),
         ("paused", "review: waiting on doubt"),
         ("thrash", "halted"),
         ("guard", "phase"),
-        ("cycle", "4/3"),
     ]
 
 
@@ -394,26 +393,12 @@ def test_guards_reports_present_when_guard_field_is_malformed(
     ]
 
 
-def test_guards_cycle_guard_absent_when_cycle_below_cap(tmp_path: Path) -> None:
-    path = _write_json(tmp_path / "state.json", {"cycle": 1, "rework_cap": 3})
-    state = model.read_state(path)
-    assert model.guards(state) == []
-
-
-def test_guards_cycle_guard_triggers_when_cycle_equals_cap(
+def test_guards_emit_no_standalone_cycle_guard_even_at_cap(
     tmp_path: Path,
 ) -> None:
+    """Row 1 always renders `cycle x/y`; a bare at-cap counter here would
+    print the same fact twice, and the acted-on case is cap-pause."""
     path = _write_json(tmp_path / "state.json", {"cycle": 3, "rework_cap": 3})
-    state = model.read_state(path)
-    assert model.guards(state) == [("cycle", "3/3")]
-
-
-def test_guards_cycle_guard_absent_when_cycle_not_int_coercible(
-    tmp_path: Path,
-) -> None:
-    path = _write_json(
-        tmp_path / "state.json", {"cycle": "three", "rework_cap": 3}
-    )
     state = model.read_state(path)
     assert model.guards(state) == []
 

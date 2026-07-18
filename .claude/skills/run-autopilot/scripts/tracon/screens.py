@@ -128,7 +128,7 @@ class Collector:
         status = discovery.orphan_status(
             status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
         )
-        status = discovery.pause_pending_status(status, self.root)
+        status = discovery.pause_pending_status(status, self.root, wrapper)
         agents = panels.agents_row(self._tracker)
         panel = panels.build_head(
             state=state,
@@ -163,9 +163,9 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
     class DetailScreen(Screen):
         BINDINGS = [
             Binding("escape", "app.pop_screen", "All loops"),
-            Binding("f", "toggle_follow", "Toggle Follow"),
-            Binding("q", "app.detach", "Detach"),
-            Binding("p", "pause_loop", "Pause"),
+            Binding("f", "toggle_follow", "Follow"),
+            Binding("q", "app.detach", "Quit UI (loop runs)"),
+            Binding("p", "pause_loop", "Pause loop"),
         ]
 
         def __init__(self, root: Path) -> None:
@@ -221,14 +221,18 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
         def action_toggle_follow(self) -> None:
             log = self.query_one("#log", RichLog)
             log.auto_scroll = not log.auto_scroll
+            if log.auto_scroll:
+                self.app.notify("follow on — log sticks to the newest lines")
+            else:
+                self.app.notify("follow off — scroll freely; f to re-enable")
 
         def action_pause_loop(self) -> None:
             _touch_pause_marker(self.app, self.root)
 
     class DashboardScreen(Screen):
         BINDINGS = [
-            Binding("q", "app.detach", "Detach"),
-            Binding("p", "pause_loop", "Pause"),
+            Binding("q", "app.detach", "Quit UI (loop runs)"),
+            Binding("p", "pause_loop", "Pause loop"),
         ]
 
         def compose(self) -> ComposeResult:
@@ -302,6 +306,8 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
         """
         BINDINGS = [Binding("ctrl+c", "quit", "Stop loop", priority=True)]
 
+        _confirm_stop_until = 0.0
+
         def on_mount(self) -> None:
             try:
                 saved_theme = THEME_FILE.read_text().strip()
@@ -329,7 +335,21 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
                 pass  # persistence is best-effort; never break the app
 
         def action_quit(self) -> None:
-            self.exit(return_code=130)
+            # Only a wrapper-launched tracon can stop a loop (the wrapper
+            # acts on exit code 130) — guard that path behind a double
+            # press. Standalone, ctrl+c just closes the UI.
+            if wrapper_pid is None:
+                self.exit(return_code=130)
+                return
+            now = time.monotonic()
+            if now < self._confirm_stop_until:
+                self.exit(return_code=130)
+                return
+            self._confirm_stop_until = now + 3.0
+            self.notify(
+                "ctrl+c stops the WHOLE loop — press again to confirm (q quits the UI only)",
+                severity="warning",
+            )
 
         def action_detach(self) -> None:
             self.exit(return_code=0)

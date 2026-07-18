@@ -150,11 +150,15 @@ def limit_wait_status(
 ORPHAN_FRESH_SECS = 86400.0
 
 
-def pause_pending_status(status: Status, root: Path) -> Status:
-    """Suffix the status while a pause-requested marker awaits the wrapper.
+def pause_pending_status(status: Status, root: Path, wrapper: bool) -> Status:
+    """Suffix the status while a pause-requested marker awaits a live wrapper.
 
     Pressing p only touches the marker; the wrapper acts on it at session
-    end. Without the chip the keypress looks like it did nothing."""
+    end. Without the chip the keypress looks like it did nothing. With no
+    wrapper alive the marker is inert — showing it would just pile onto the
+    paused/orphaned indicators."""
+    if not wrapper:
+        return status
     if not (root / "dev" / "local" / "autopilot" / "pause-requested").exists():
         return status
     return Status(
@@ -247,7 +251,7 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
     status = orphan_status(
         status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
     )
-    status = pause_pending_status(status, root)
+    status = pause_pending_status(status, root, wrapper)
     live_cost = model.scan_session_cost(log_path) if status.in_flight else 0.0
 
     if state.tasks_completed is not None and state.tasks_total is not None:
