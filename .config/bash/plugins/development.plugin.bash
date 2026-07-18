@@ -462,7 +462,7 @@ autoclaude() {
     # ── Decide (PRD 00014 decision table) — pure reads, no side effects
     # (the network-outage branch may block on a bounded connectivity poll,
     # but mutates nothing) ──
-    # signal ∈ continue|paused|done|died; the metrics line records the branch.
+    # signal ∈ continue|paused|done|died|park; the metrics line records the branch.
     # state_touched guards branches (4)/(5): a healthy session ALWAYS writes
     # state at its hand-off, so an untouched state.json means this session
     # made no progress (limit-hit at start, crash, cap-kill) — without the
@@ -725,7 +725,18 @@ autoclaude() {
         # fall through → relaunch, marker preserved
       else
         _park_relaunches=0
-        jq -nc --arg prd "$_prd" --arg reason "$_detail" '{prd:$prd,reason:$reason}' > "$_ap_dir/park-requested"
+        # A failed/empty marker write is unrecoverable: Phase 0 would read the
+        # empty file as "malformed", delete it, and re-select the still-sick PRD
+        # — an unbounded silent reselect loop that NEITHER systemic backstop
+        # catches (parks_consecutive never increments on the malformed path, and
+        # the deleted-each-cycle marker resets the park-loop guard). Guard it:
+        # cannot hand off → halt loud, exactly the systemic case this PRD bounds.
+        if ! jq -nc --arg prd "$_prd" --arg reason "$_detail" '{prd:$prd,reason:$reason}' > "$_ap_dir/park-requested" \
+           || [ ! -s "$_ap_dir/park-requested" ]; then
+          printf '\nautoclaude: park-requested write failed for %s — halting (cannot hand off).\n' "$_prd" >&2
+          python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Park marker write failed; halting."
+          trap - INT TERM HUP; rm -f "$_ap_dir/park-requested"; [ -n "$_reg" ] && rm -f "$_reg"; unset _AUTOPILOT_LOOP; return 1
+        fi
         printf '\nautoclaude: parking %s (%s); continuing batch.\n' "$_prd" "$_detail"
         python3 ~/.claude/hooks/notify.py --send "autopilot ⏭ ${PWD##*/}" "Parking $_prd."
       fi
