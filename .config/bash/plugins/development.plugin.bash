@@ -259,7 +259,7 @@ autoclaude() {
   local _cap_pid=""    # session-cap sidecar pid; referenced by the INT/TERM traps
   local _reg=""         # loop-registry file path; referenced by every exit path and both traps
   local _net_retries=0 # consecutive network-death relaunches (decide branch 5)
-  local _died_retries=0 _died_retry_prd="" # consecutive died-session relaunches, PRD-keyed (decide branch 5)
+  local _died_retries=0 # consecutive died-session relaunches (decide branch 5)
   local _park_relaunches=0 # consecutive relaunches guarded on an unconsumed park-requested marker
   local _fp_prev=""    # progress fingerprint of the previous continue-branch session
   local _fp_repeats=0  # consecutive sessions with an identical fingerprint
@@ -556,12 +556,6 @@ autoclaude() {
             _detail="repeated API connection failures (${_AUTOPILOT_NET_RETRIES_MAX:-3} relaunches)"
           fi
         else
-          # PRD-keyed retry budget: a new PRD (or the bootstrap empty-prd
-          # case) starts its own died_retries count from zero.
-          if [ "$_prd" != "$_died_retry_prd" ]; then
-            _died_retries=0
-            _died_retry_prd="$_prd"
-          fi
           local _died_next
           _died_next=$(_autopilot_died_next "$_prd" "$_died_retries" "${_AUTOPILOT_DIED_RETRIES_MAX:-1}")
           case "$_died_next" in
