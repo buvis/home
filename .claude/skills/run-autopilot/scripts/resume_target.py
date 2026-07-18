@@ -26,9 +26,10 @@ def _first_non_completed_task(tasks: list[dict]) -> dict | None:
 def _review_resume_target(state: dict) -> str:
     """Resume target for the review gate, driven by phases_completed."""
     completed = state.get("phases_completed", [])
-    if "review" not in completed:
-        return "run review loop"
-    return "skip review -> done"
+    if "review" in completed:
+        return "skip review -> done"
+    cycle = state.get("cycle", 1)
+    return f"run review loop at cycle {cycle}"
 
 
 def resume_target(state: dict) -> str:
@@ -63,7 +64,7 @@ def resume_target(state: dict) -> str:
     if phase in ("blind", "doubt"):
         # Legacy pre-00015 values: the standalone legs are gone; run one full
         # review cycle (all lenses) rather than skipping their scrutiny.
-        return "run review loop"
+        return f"run review loop at cycle {state.get('cycle', 1)}"
 
     if phase == "review":
         return _review_resume_target(state)

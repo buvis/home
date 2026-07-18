@@ -191,10 +191,19 @@ The work skill may parallelize independent rework tasks when `superpowers:dispat
 
 ### After /work returns
 
+Land steps 1-3 as ONE merged `state.json` write, immediately before the banner and turn-end, so the durable `cycle` increment and the `phase`/`next_phase` re-affirmation land atomically (belt-and-suspenders — `phase`/`next_phase` are already `"review"` throughout the review gate, so no partial write can misroute the phase or mis-apply the cap):
+
 1. Clear `state.rework_task_ids` (set to `[]`).
 2. **Increment `state.cycle` and persist it to `state.json` in this step** (a durable write, not an in-memory bump). The Phase 5 cap gate (`state.cycle >= state.rework_cap`) reads `state.cycle`; skipping the persisted increment blinds it — that exact miss let a loop run past its cap once (`references/design-rationale.md` § Persisted cycle increment). This write is not optional.
-3. Update state: set `phase: "review"` and `next_phase: "review"`. Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current.
-4. Loop back to Phase 4.
+3. Re-affirm `phase: "review"` and `next_phase: "review"` (both are already `"review"` throughout the review gate — this re-affirms, it does not first-set). Do NOT rewrite `state.tasks` here — `/work` already wrote `attempts[]` entries directly to `state.tasks` during rework, and a bare TaskList snapshot would strip them; the sync hook keeps `tasks_total`/`tasks_completed` current.
+4. **Hand off to a fresh session for the next cycle.** The loop does NOT continue in-session — a multi-cycle review session outlives the wall-clock cap and is SIGTERMed mid-cycle, discarding in-flight external-CLI reviewer work. Run the **Session handoff procedure** (core `SKILL.md` § Session Loop) with the **review → review** site row — steps 1-3 already wrote its state (`phase`/`next_phase: "review"`, incremented `cycle`, `phases_completed` untouched) — print the cycle-handoff banner below, and **STOP** (do not re-enter Phase 4 in this session). The wrapper's continue branch relaunches; the fresh session routes `phase: "review"` → Phase 4, which runs `state.cycle` (the incremented cycle; no review file exists for it yet) with no re-review of the prior cycle and no skip-to-done (`phases_completed` lacks `"review"` until convergence).
+
+Cycle-handoff banner (`{prd-name}` = `state.prd` minus `.md`). **Cycle derivation (avoid the off-by-one):** step 4 runs AFTER step 2's durable increment, so `state.cycle` at print time is ALREADY the next cycle — `{n}` (the just-completed cycle) = `state.cycle - 1`, `{n+1}` (the cycle handed off to) = `state.cycle`:
+
+```
+── AUTOPILOT ── PRD: {prd-name} ── Cycle {n} rework complete ───────
+── AUTOPILOT ── handing off to fresh session for cycle {n+1} ───────
+```
 
 Cross-references: `references/state-schema.md` (`rework_task_ids`, `tasks[].model`, `tasks[].attempts`, `stall_reason` shapes); `work/SKILL.md` Per-task model dispatch, Attempt logging, Rework-mode task filter.
 
