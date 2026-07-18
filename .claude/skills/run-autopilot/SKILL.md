@@ -261,7 +261,7 @@ The check is deterministic (the pinned `awk` above), NOT a model judgment.
 7. **Operator pause** — the `pause-requested` marker (wrapper stop).
 8. **Died bootstrap session** — a session died before any PRD was selected, so there is nothing to park (wrapper `died`).
 9. **Systemic-park breaker** — 2 consecutive `wrapper_died` parks with nothing healthy between (skill PAUSE, `systemic_park`; Phase 0 park handler, `references/phase-build.md`).
-10. **Unconsumed park marker** — the wrapper's park-loop guard fires when a `park-requested` marker is never consumed (wrapper loud halt).
+10. **Unwritable or unconsumed park marker** — the park hand-off itself is broken: the wrapper cannot write the `park-requested` marker (the write-failure guard in the `park)` else branch, so it never hands off an empty marker) OR a written marker is never consumed (the park-loop guard). Either is a wrapper loud halt.
 
 Rows 1–8 are the PRD 00066 Success-Metrics list; rows 9–10 are the two systemic backstops the PRD Risks section mandates (adopted at the design gate, 2026-07-18). Nothing outside these ten stops the batch — Success Metric 2 is read as "no UNSANCTIONED halts".
 

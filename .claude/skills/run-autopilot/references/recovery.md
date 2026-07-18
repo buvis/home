@@ -41,9 +41,8 @@ pausing. Interactive (non-loop) sites keep their PAUSE semantics.
 
 The `site` slug in step 2's deferred record names why the PRD stalled. The
 slugs most relevant to the park machinery are below; this is NOT the exhaustive
-enumeration — `references/state-schema.md` is the authoritative slug list (it
-also carries `clarification`, `cap_critical`, `reviewer_fail`, `sub_skill_fail`,
-and the others):
+enumeration — `references/state-schema.md` is the authoritative list (it also
+carries `clarification`, `reviewer_fail`, `sub_skill_fail`, and the others):
 
 - `wrapper_died` — the wrapper parked a PRD after a died-session retry budget
   (or a fingerprint-thrash bound) exhausted; consumed by the Phase 0 "Handle
@@ -56,8 +55,8 @@ and the others):
 - `oversized_task`, `escalation_exhausted`, `replan_exhausted`, `clarification` —
   the pre-existing stall sites (plan-tasks oversize, rework tier-exhaustion,
   replan-loop exhaustion, and a loop-mode Phase 2 ambiguity under
-  `pause_on_ambiguity`) documented in their own handlers below and in
-  `references/state-schema.md`.
+  `pause_on_ambiguity`) documented in their own handlers (here and in
+  `references/phase-build.md`) and in `references/state-schema.md`.
 
 `scope_alarm` is NOT a stall slug: a loop-mode Phase 5 scope alarm defers the
 overflow (a deferred `scope-overflow` record) and continues; it never stalls the
