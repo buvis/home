@@ -594,6 +594,32 @@ def test_build_steps_done_work_requires_every_task_completed(
     assert model.build_steps_done(model.read_state(path))["work"] is True
 
 
+def test_review_lenses_orders_canonically_and_appends_unknown_keys(
+    tmp_path: Path,
+) -> None:
+    path = _write_json(
+        tmp_path / "state.json",
+        {"review_lenses": {"doubt": "running", "mystery": "running", "consensus": "done"}},
+    )
+    assert model.review_lenses(model.read_state(path)) == [
+        ("consensus", "done"),
+        ("doubt", "running"),
+        ("mystery", "running"),
+    ]
+
+
+def test_review_lenses_malformed_or_absent_field_returns_empty(
+    tmp_path: Path,
+) -> None:
+    assert model.review_lenses(model.read_state(_write_json(tmp_path / "a.json", {}))) == []
+    assert (
+        model.review_lenses(
+            model.read_state(_write_json(tmp_path / "b.json", {"review_lenses": ["doubt"]}))
+        )
+        == []
+    )
+
+
 def test_tasks_by_lane_groups_by_status_and_defaults_junk_to_pending(
     tmp_path: Path,
 ) -> None:

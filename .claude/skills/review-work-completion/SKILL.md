@@ -153,6 +153,8 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
+**Stamp the lens roster (autopilot runs).** When `dev/local/autopilot/state.json` exists, REPLACE `state.review_lenses` (merge into state.json, do NOT replace sibling fields) with one key per active lens set to `"running"`: `consensus` (Alice), `blind` (Blake), `doubt` (Bob), plus `ui` (Carl), `qwen` (Quinn), and `fable` (Eve) only when active. tracon renders these as the review phase's sub-steps; step 6 flips them to `"done"`/`"failed"`. Skip entirely on standalone (non-autopilot) runs.
+
 **Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Quinn are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/qwen) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls, the Watcher (below, if `$_AUTOPILOT_LOOP` is set), and the background Bash calls in the one message - if any CLI reviewer is in the dispatch, the Watcher goes in the same message or nothing holds the session open to see it finish.
 
 **Watcher (headless keep-alive — dispatch only when `$_AUTOPILOT_LOOP` is set).** Headless `claude -p` kills background Bash tasks ~5s after the final result; only a live subagent holds the session open (2026-07-12 loop death: every Claude subagent reviewer finished first, the CLI exited at turn end and killed codex mid-review, the loop halted). So in the SAME dispatch message, launch one extra Task subagent named Watcher (general-purpose) whose entire prompt is:
@@ -206,6 +208,8 @@ Read these before proceeding:
 - `references/retry-policy.md` - retry and format compliance rules
 
 ### 6. Consolidate findings
+
+**Close out the lens roster (autopilot runs).** When `state.review_lenses` was stamped in step 5, set each lens to `"done"`, or `"failed"` for a reviewer that failed per `references/retry-policy.md` (a lens rescued by a fallback — e.g. Bob's Claude fallback — is `"done"`). Skip on standalone runs.
 
 Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Quinn's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `quinn-output-{id}.txt` in step 5. Then run:
 

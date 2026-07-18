@@ -85,11 +85,13 @@ class _Usage:
         session_cost: float = 0.0,
         totals: tuple[int, int, int] = (0, 0, 0),
         context: int = 0,
+        out_estimated: bool = False,
     ) -> None:
         self.model = model
         self.session_cost = session_cost
         self._totals = totals
         self._context = context
+        self.out_estimated = out_estimated
 
     def totals(self) -> tuple[int, int, int]:
         return self._totals
@@ -438,6 +440,11 @@ def test_row4_labels_each_token_counter_and_shows_ctx_percent() -> None:
     assert "98%" in rendered
 
 
+def test_row4_marks_out_with_tilde_while_estimating() -> None:
+    usage = _Usage(totals=(100, 200, 2_500), out_estimated=True)
+    assert "out ↓~2.5k" in _render(_head(usage=usage))
+
+
 def test_row4_ctx_percent_turns_red_near_the_rotation_cap() -> None:
     panel = _head(usage=_Usage(context=491_700))
     row4 = list(_iter_texts(panel))[3]
@@ -599,6 +606,23 @@ def test_phase_strip_collapses_build_once_review_is_current() -> None:
     state = _state(phase="review", phases_completed=())
     plain = panels.phase_strip(state).plain
     assert plain == "✓ build ─ ● review ─ ○ done"
+
+
+def test_phase_strip_expands_review_into_lens_sub_steps() -> None:
+    # Lenses run in parallel — several can be current at once; done/failed
+    # both render as finished. Canonical order, optional lenses included
+    # only when stamped.
+    raw = {"review_lenses": {"consensus": "done", "blind": "running", "doubt": "failed"}}
+    state = _state(phase="review", phases_completed=(), raw=raw)
+    plain = panels.phase_strip(state).plain
+    assert plain == "✓ build ─ ✓ consensus ─ ● blind ─ ✓ doubt ─ ○ done"
+
+
+def test_phase_strip_review_stays_collapsed_without_lens_stamp() -> None:
+    # Standalone runs and pre-field state files carry no review_lenses.
+    raw = {"review_lenses": "junk"}
+    state = _state(phase="review", phases_completed=(), raw=raw)
+    assert panels.phase_strip(state).plain == "✓ build ─ ● review ─ ○ done"
 
 
 def test_lane_body_lists_name_tier_attempts_and_foreign_implementor() -> None:

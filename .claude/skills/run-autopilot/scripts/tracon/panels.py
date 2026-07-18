@@ -65,6 +65,13 @@ def phase_strip(state: model.LoopState) -> Text:
         ]
         nodes += [("review", "pending"), ("done", "pending")]
         t = _strip_nodes(nodes)
+    elif current == "review" and (lenses := model.review_lenses(state)):
+        # Expand review into its lens sub-steps (stamped by the review skill
+        # at dispatch); lenses run in parallel, so several can be current.
+        nodes = [("build", "done")]
+        nodes += [(n, "current" if s == "running" else "done") for n, s in lenses]
+        nodes.append(("done", "pending"))
+        t = _strip_nodes(nodes)
     else:
         # Collapsed strip; phases before the current gate are positionally
         # done (phases_completed only ever records "review").
@@ -189,7 +196,8 @@ def _row_progress(
 def _row_usage(usage: SessionUsage, status: Status) -> Text:
     row4 = Text(no_wrap=True, overflow="ellipsis")
     up, cached, out = usage.totals()
-    row4.append(f"session {usage.model} · in ↑{fmt_tok(up)} · cache ⤓{fmt_tok(cached)} · out ↓{fmt_tok(out)} · ")
+    tilde = "~" if usage.out_estimated else ""
+    row4.append(f"session {usage.model} · in ↑{fmt_tok(up)} · cache ⤓{fmt_tok(cached)} · out ↓{tilde}{fmt_tok(out)} · ")
     ctx = usage.context_size()
     row4.append(f"ctx {fmt_tok(ctx)}/{fmt_tok(model.USAGE_CAP)}")
     pct = ctx * 100 // model.USAGE_CAP

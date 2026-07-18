@@ -298,12 +298,14 @@ def test_log_tail_partial_trailing_line_buffered_until_completed(tmp_path: Path)
 def test_totals_dedupe_uses_real_captured_assistant_event_shape() -> None:
     # Header contract: tokens up(input + cache-creation) cached(cache-read) out(output).
     # cache_creation_input_tokens belongs in the "up" bucket, not "cached" -- it is new
-    # context being written to the cache, not context served from it.
+    # context being written to the cache, not context served from it. The usage
+    # snapshot's output_tokens (1 here) is a per-block placeholder and must NOT
+    # surface as out — a content-less event contributes zero output.
     usage = stream.SessionUsage()
     event = _real_assistant_event()
     usage.feed(event)
     usage.feed(event)  # same message.id fed twice must count once
-    assert usage.totals() == (2 + 42117, 17592, 1)
+    assert usage.totals() == (2 + 42117, 17592, 0)
 
 
 def test_totals_up_bucket_includes_cache_creation_not_cache_read() -> None:
@@ -322,7 +324,7 @@ def test_totals_up_bucket_includes_cache_creation_not_cache_read() -> None:
     up, cached, out = usage.totals()
     assert up == 100 + 7  # input_tokens + cache_creation_input_tokens
     assert cached == 20  # cache_read_input_tokens only
-    assert out == 3
+    assert out == 0  # snapshot output_tokens is a placeholder, never counted
 
 
 def test_totals_sums_tokens_across_distinct_message_ids() -> None:
@@ -345,8 +347,8 @@ def test_totals_sums_tokens_across_distinct_message_ids() -> None:
             output_tokens=7,
         )
     )
-    # up = (10+0) + (1+4) = 15; cached = 5 + 2 = 7; out = 3 + 7 = 10
-    assert usage.totals() == (15, 7, 10)
+    # up = (10+0) + (1+4) = 15; cached = 5 + 2 = 7; out = 0 (no content blocks)
+    assert usage.totals() == (15, 7, 0)
 
 
 def test_context_size_reflects_only_the_last_fed_message() -> None:
@@ -370,6 +372,50 @@ def test_context_size_reflects_only_the_last_fed_message() -> None:
         )
     )
     assert usage.context_size() == 2 + 3 + 4
+
+
+# --- SessionUsage: output estimate anchored by result events ------------------
+
+
+def _content_event(mid: str, block: dict[str, Any]) -> dict[str, Any]:
+    event = _assistant_event(
+        mid,
+        input_tokens=1,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+        output_tokens=2,  # per-block snapshot placeholder — must be ignored
+    )
+    event["message"]["content"] = [block]
+    return event
+
+
+def test_out_estimates_from_emitted_chars_not_usage_snapshots() -> None:
+    # Regression (out ↓145 bug): assistant usage.output_tokens is a per-block
+    # snapshot; live out must come from emitted chars (~4 chars/token) instead.
+    usage = stream.SessionUsage()
+    usage.feed(_content_event("msg_1", {"type": "thinking", "thinking": "x" * 200}))
+    usage.feed(_content_event("msg_1", {"type": "text", "text": "y" * 200}))
+    _, _, out = usage.totals()
+    assert out == 400 // 4
+    assert usage.out_estimated is True
+
+
+def test_out_counts_tool_use_input_chars() -> None:
+    usage = stream.SessionUsage()
+    usage.feed(_content_event("msg_1", {"type": "tool_use", "input": {"cmd": "a" * 78}}))
+    _, _, out = usage.totals()
+    assert out > 0
+
+
+def test_result_event_anchors_exact_out_and_clears_estimate() -> None:
+    usage = stream.SessionUsage()
+    usage.feed(_content_event("msg_1", {"type": "text", "text": "x" * 400}))
+    usage.feed({"type": "result", "subtype": "success", "usage": {"output_tokens": 5000}})
+    assert usage.totals()[2] == 5000  # exact, estimate absorbed
+    assert usage.out_estimated is False
+    usage.feed(_content_event("msg_2", {"type": "text", "text": "y" * 400}))
+    assert usage.totals()[2] == 5000 + 100  # estimating again past the anchor
+    assert usage.out_estimated is True
 
 
 # --- SessionUsage: cost and model --------------------------------------------
@@ -399,11 +445,14 @@ def test_session_usage_reset_clears_totals_cost_and_model() -> None:
     usage = stream.SessionUsage()
     usage.feed(_system_init_event())
     usage.feed(_real_assistant_event())
-    usage.feed({"type": "result", "subtype": "success", "total_cost_usd": 9.99})
+    usage.feed(
+        {"type": "result", "subtype": "success", "total_cost_usd": 9.99, "usage": {"output_tokens": 321}}
+    )
     usage.reset()
     assert usage.totals() == (0, 0, 0)
     assert usage.session_cost == 0.0
     assert usage.model == ""
+    assert usage.out_estimated is False
 
 
 # --- AgentTracker: task_started / task_progress ------------------------------
