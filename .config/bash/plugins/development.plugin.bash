@@ -218,6 +218,17 @@ _autopilot_present() {   # the pipeline's last stage; tracon owns the screen in 
   fi
 }
 
+# _autopilot_died_next <state.prd> <died_retries> <died_retries_max>
+# Pure decision for a genuine-death session (branch 5's final else): echoes
+# exactly one of retry|park|die. Empty prd (bootstrap — nothing selected yet)
+# always halts loud; otherwise retry until the budget is exhausted, then park.
+_autopilot_died_next() {
+  local _prd="$1" _retries="$2" _max="$3"
+  if [ -z "$_prd" ]; then printf 'die'; return; fi        # bootstrap → halt loud
+  if [ "$_retries" -lt "$_max" ]; then printf 'retry'; return; fi
+  printf 'park'
+}
+
 autoclaude() {
   local _tracon=0
   case "${_AUTOPILOT_TRACON:-auto}" in
@@ -248,6 +259,8 @@ autoclaude() {
   local _cap_pid=""    # session-cap sidecar pid; referenced by the INT/TERM traps
   local _reg=""         # loop-registry file path; referenced by every exit path and both traps
   local _net_retries=0 # consecutive network-death relaunches (decide branch 5)
+  local _died_retries=0 _died_retry_prd="" # consecutive died-session relaunches, PRD-keyed (decide branch 5)
+  local _park_relaunches=0 # consecutive relaunches guarded on an unconsumed park-requested marker
   local _fp_prev=""    # progress fingerprint of the previous continue-branch session
   local _fp_repeats=0  # consecutive sessions with an identical fingerprint
 
@@ -464,7 +477,7 @@ autoclaude() {
       _mtime=$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$_state" 2>/dev/null)
       [ -n "$_mtime" ] && [ "$_mtime" -ge "$_ts_start" ] 2>/dev/null && _state_touched=1
     fi
-    [ "$_state_touched" -eq 1 ] && _net_retries=0 # any productive session resets the cap
+    [ "$_state_touched" -eq 1 ] && { _net_retries=0; _died_retries=0; } # any productive session resets the retry counters
     if [ -f "$_state" ] && jq -e . "$_state" >/dev/null 2>&1; then
       _prd=$(jq -r '.prd // ""' "$_state" 2>/dev/null)
       _batch=$(jq -r '.batch.id // ""' "$_state" 2>/dev/null)
@@ -543,14 +556,35 @@ autoclaude() {
             _detail="repeated API connection failures (${_AUTOPILOT_NET_RETRIES_MAX:-3} relaunches)"
           fi
         else
-          _signal="died"
-          if [ ! -f "$_state" ]; then
-            _detail="no state.json"
-          elif jq -e . "$_state" >/dev/null 2>&1; then
-            _detail="session made no progress (state.json untouched)"
-          else
-            _detail="state.json unreadable"
+          # PRD-keyed retry budget: a new PRD (or the bootstrap empty-prd
+          # case) starts its own died_retries count from zero.
+          if [ "$_prd" != "$_died_retry_prd" ]; then
+            _died_retries=0
+            _died_retry_prd="$_prd"
           fi
+          local _died_next
+          _died_next=$(_autopilot_died_next "$_prd" "$_died_retries" "${_AUTOPILOT_DIED_RETRIES_MAX:-1}")
+          case "$_died_next" in
+          retry)
+            _died_retries=$((_died_retries + 1))
+            _signal="continue"
+            _detail="session died; retry ${_died_retries}/${_AUTOPILOT_DIED_RETRIES_MAX:-1}"
+            ;;
+          park)
+            _signal="park"
+            _detail="died after ${_died_retries} retries; parking $_prd"
+            ;;
+          die)
+            _signal="died"
+            if [ ! -f "$_state" ]; then
+              _detail="no state.json"
+            elif jq -e . "$_state" >/dev/null 2>&1; then
+              _detail="session made no progress (state.json untouched)"
+            else
+              _detail="state.json unreadable"
+            fi
+            ;;
+          esac
         fi
       fi
     fi
@@ -569,8 +603,13 @@ autoclaude() {
       if [ -n "$_fp" ] && [ "$_fp" = "$_fp_prev" ]; then
         _fp_repeats=$((_fp_repeats + 1))
         if [ "$_fp_repeats" -ge "${_AUTOPILOT_PHASE_REPEATS_MAX:-5}" ]; then
-          _signal="paused"
-          _detail="no measurable progress across ${_fp_repeats} consecutive sessions (fingerprint ${_fp}); inspect state.json"
+          if [ -n "$_prd" ]; then
+            _signal="park"
+            _detail="no progress across ${_fp_repeats} sessions; parking $_prd"
+          else
+            _signal="paused"
+            _detail="no measurable progress across ${_fp_repeats} consecutive sessions (fingerprint ${_fp}); inspect state.json"
+          fi
         fi
       else
         _fp_repeats=0
@@ -671,6 +710,32 @@ autoclaude() {
       unset _AUTOPILOT_LOOP
       return 1
       ;;
+    park)
+      # Park-loop guard: an existing marker means the previous park's consuming
+      # session hasn't parked yet. Bound BOTH the relaunch COUNT (age alone lets a
+      # fast-crashing consumer spin thousands of times inside one session cycle)
+      # AND the total AGE (a marker older than one session cycle = a genuinely
+      # broken handler). Either bound → loud halt.
+      if [ -f "$_ap_dir/park-requested" ]; then
+        _park_relaunches=$((_park_relaunches + 1))
+        local _marker_mtime _marker_age
+        _marker_mtime=$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$_ap_dir/park-requested" 2>/dev/null)
+        case "$_marker_mtime" in ''|*[!0-9]*) _marker_age=0 ;; *) _marker_age=$(( $(date +%s) - _marker_mtime )) ;; esac   # stat glitch → age 0, rely on the count bound
+        if [ "$_park_relaunches" -gt "${_AUTOPILOT_DIED_RETRIES_MAX:-1}" ] || [ "$_marker_age" -ge "${_AUTOPILOT_SESSION_MAX:-7200}" ]; then
+          printf '\nautoclaude: park-requested unconsumed (%s relaunches, %ss) — halting (systemic).\n' "$_park_relaunches" "$_marker_age" >&2
+          python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Park marker unconsumed; halting."
+          trap - INT TERM HUP; [ -n "$_reg" ] && rm -f "$_reg"; unset _AUTOPILOT_LOOP; return 1
+        fi
+        printf '\nautoclaude: park-requested pending (relaunch %s); backing off then relaunching.\n' "$_park_relaunches" >&2
+        sleep "${_AUTOPILOT_PARK_BACKOFF:-30}"   # bound the relaunch RATE
+        # fall through → relaunch, marker preserved
+      else
+        _park_relaunches=0
+        jq -nc --arg prd "$_prd" --arg reason "$_detail" '{prd:$prd,reason:$reason}' > "$_ap_dir/park-requested"
+        printf '\nautoclaude: parking %s (%s); continuing batch.\n' "$_prd" "$_detail"
+        python3 ~/.claude/hooks/notify.py --send "autopilot ⏭ ${PWD##*/}" "Parking $_prd."
+      fi
+      ;;   # falls through → while-loop relaunches a fresh session
     esac
   done
 }

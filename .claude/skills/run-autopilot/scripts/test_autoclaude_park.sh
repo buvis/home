@@ -85,6 +85,10 @@ run_with_timeout() {
     AP_DIR="$dir/dev/local/autopilot"
     _AUTOPILOT_LOOPS_DIR="$dir/loops"
     PATH="$dir/bin:$PATH"
+    # The wrapper targets a normal interactive shell (no set -u); the suite's
+    # own `set -u` would trip pre-existing unguarded expansions inside
+    # autoclaude (e.g. _AUTOPILOT_TRACON_CHILD) before any session launches.
+    set +u
     autoclaude
   ) >"$dir/stdout.log" 2>"$dir/stderr.log" &
   local run_pid=$!
