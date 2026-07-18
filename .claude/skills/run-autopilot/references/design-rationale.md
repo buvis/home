@@ -36,6 +36,16 @@ fired — no cap-pause after cap cycles) and the wrapper-era thrash guard (the
 progress key froze). Hence the rule in `phase-review.md` § After `/work`
 returns: the increment is a durable write to `state.json`, not optional.
 
+## Per-cycle review handoff (00067) — extra boots are cheap
+
+Splitting the review loop into one cycle per session adds at most 2 extra
+session boots per PRD (cap 3). Each boot re-reads the ~57K-token boot prefix,
+but that is a prompt-cache READ within Claude Code's 1h cache TTL (verified
+against the Claude Code docs, 2026-07-18), not a re-computation; PRD 00072
+shrinks the re-read prefix further. The measured alternative — 2h review
+sessions redone after a cap-kill — costs far more in both wall-clock and
+dollars.
+
 ## No mid-turn questions in loop mode (2026-06-15)
 
 An unattended session asked a mid-turn `AskUserQuestion` with no human present;

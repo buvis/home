@@ -96,7 +96,7 @@ All interaction with a running `autoclaude` batch happens at session boundaries 
 - **Un-park a sidelined PRD**: a PRD the loop parked (a `wrapper_died` death-park, or a loop-mode `design_gate` / `blocking_escalation` stall) sits in `dev/local/prds/hold/` with its stall recorded in the batch deferred JSON; the batch kept draining without it. To resume it, `mv dev/local/prds/hold/<00XXX-…>.md dev/local/prds/backlog/` (keep the `00XXX-` prefix). Autopilot never reads `hold/`, so the next `/run-autopilot` (or `autoclaude` relaunch) re-selects it from `backlog/` and re-enters the build gate, reusing its existing design doc via the Phase 1.5 artifact skip (a `design_gate` park then re-fires the gate interactively). Batch-end review lists every parked PRD (`{m} stalled`), so none is silently forgotten.
 - **Forensics**: `claude --resume <session-id>` (the id is in the init event at the top of `last-session.log`) reopens a finished headless conversation for questioning. Harmless by construction: sessions are disposable; `state.json` plus the artifacts are the only orchestration contract, so a resumed chat cannot fork the loop.
 
-A running headless turn is never interrupted except by the wrapper's wall-clock cap (`_AUTOPILOT_SESSION_MAX`, default 7200s).
+A running headless turn is never interrupted except by the wrapper's wall-clock cap (`_AUTOPILOT_SESSION_MAX`, default 7200s); review-phase launches use `_AUTOPILOT_SESSION_MAX_REVIEW` (default 10800s).
 
 ### Task Counts
 
@@ -123,6 +123,8 @@ Print a banner at each phase transition:
 ```
 ── AUTOPILOT ── PRD: {prd-name} ── Phase: {PHASE} ──────────────────
 ── AUTOPILOT ── PRD: {prd-name} ── Phase: REVIEW ── Cycle {n} ─────
+── AUTOPILOT ── PRD: {prd-name} ── Cycle {n} rework complete ───────
+── AUTOPILOT ── handing off to fresh session for cycle {n+1} ───────
 ── AUTOPILOT ── PAUSED ── {n} issue(s) need your decision ──────────
 ── AUTOPILOT ── PRD: {prd-name} ── DONE ── {n} cycles ─────────────
 ```
@@ -162,6 +164,7 @@ Every session handoff is the same three steps:
 | site | state writes | `phases_completed` |
 |------|--------------|--------------------|
 | **build → review** (`phase-build.md`, after Phase 3) | `phase: "review"`, `next_phase: "review"`, updated `tasks` snapshot | unchanged — the build gate leaves no membership marker |
+| **review → review** (`phase-review.md` Phase 6, after rework when the loop continues) | `phase: "review"`, `next_phase: "review"` (Phase 6 steps 1-3 already wrote these plus the incremented `cycle`); do NOT rewrite `state.tasks` | unchanged — only convergence (review → done) adds `"review"` |
 | **review → done** (`phase-review.md`, on loop convergence) | `phase: "done"`, `next_phase: "done"` | add `"review"` — the convergence marker the review gate's loop-level skip reads |
 | **PRD → PRD** (`phase-done.md`, step 10 more-PRDs branch) | `phase: "build"`, `next_phase: "build"`, plus the per-PRD reset list (`phase-done.md` § Continuation); preserve `batch` in full | reset to `[]` |
 
