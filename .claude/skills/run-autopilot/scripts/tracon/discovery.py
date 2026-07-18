@@ -147,6 +147,51 @@ def limit_wait_status(
     return Status(label=label, style="yellow", rank=1, in_flight=False)
 
 
+ORPHAN_FRESH_SECS = 86400.0
+
+
+def pause_pending_status(status: Status, root: Path) -> Status:
+    """Suffix the status while a pause-requested marker awaits the wrapper.
+
+    Pressing p only touches the marker; the wrapper acts on it at session
+    end. Without the chip the keypress looks like it did nothing."""
+    if not (root / "dev" / "local" / "autopilot" / "pause-requested").exists():
+        return status
+    return Status(
+        label=f"{status.label} · ⏸ pause requested",
+        style=status.style,
+        rank=status.rank,
+        in_flight=status.in_flight,
+    )
+
+
+def orphan_status(
+    status: Status,
+    state: LoopState,
+    wrapper: bool,
+    last_end: float | None,
+    log_mtime: float | None,
+    now: float,
+) -> Status:
+    """Loud warning when work is queued but nothing will relaunch it.
+
+    A wrapper that dies mid-batch (closed terminal, crash, breaker) leaves
+    next_phase set with no autoclaude to act on it — classify() renders
+    that as a dim idle/no-log row, which reads as fine. Only the dim
+    non-terminal statuses (rank >= 3) are upgraded: died/paused keep their
+    own deliberate labels, drained batches have next_phase == "". Fresh
+    orphans (< 24h) are bold; long-parked ones keep their age visible."""
+    if wrapper or status.in_flight or status.rank < 3:
+        return status
+    if state.next_phase not in ("build", "review", "done"):
+        return status
+    anchor = last_end if last_end is not None else log_mtime
+    age = f" {model.fmt_dur(now - anchor)}" if anchor is not None else ""
+    fresh = anchor is not None and now - anchor < ORPHAN_FRESH_SECS
+    style = "bold red" if fresh else "red"
+    return Status(label=f"⚠ orphaned{age} · run autoclaude", style=style, rank=1, in_flight=False)
+
+
 def classify(
     state: LoopState, rows: Sequence[MetricsRow], log_mtime: float | None, now: float
 ) -> Status:
@@ -198,6 +243,11 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
     wrapper = wrapper_alive(root)
     status = classify(state, rows, log_mtime, now)
     status = limit_wait_status(status, log_path, log_mtime, wrapper, now)
+    last = model.last_row(rows)
+    status = orphan_status(
+        status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
+    )
+    status = pause_pending_status(status, root)
     live_cost = model.scan_session_cost(log_path) if status.in_flight else 0.0
 
     if state.tasks_completed is not None and state.tasks_total is not None:
