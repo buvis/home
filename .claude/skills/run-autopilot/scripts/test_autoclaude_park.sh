@@ -653,6 +653,102 @@ stall_count_i=$(jq -s '[.[] | select(.type=="stall")] | length' "$DEFERRED_I" 2>
 PASS "a healthy session between two wrapper_died parks resets batch.parks_consecutive; the systemic breaker never trips and the batch drains"
 
 # =============================================================================
+# Coverage 12 — fingerprint-thrash → park ROUTING: a session that TOUCHES state
+# but never advances the fingerprint (no death) is routed to `park` (marker
+# written) when a PRD is selected — NOT to `paused`. This is the PRD's third
+# named Critical Scenario ("fingerprint bound fires (thrash without death) →
+# park marker path, not a batch halt"). The distinct marker `.reason` ("no
+# progress across N sessions") is what proves the thrash branch fired rather
+# than the death branch.
+# =============================================================================
+
+SBOX_J=$(mktemp -d); _DIRS+=("$SBOX_J")
+mkdir -p "$SBOX_J/dev/local/autopilot" "$SBOX_J/bin"
+printf '%s\n' '{"prd":"00006-t.md","next_phase":"build","tasks_completed":0,"batch":{"id":"j1"}}' \
+  >"$SBOX_J/dev/local/autopilot/state.json"
+touch -t 202601010000 "$SBOX_J/dev/local/autopilot/state.json"
+
+# Every session TOUCHES state (fresh mtime → state_touched=1 → signal=continue)
+# with an IDENTICAL fingerprint and never converges (next_phase stays "build").
+# The wrapper's fingerprint bound must, after _AUTOPILOT_PHASE_REPEATS_MAX
+# identical fingerprints, route to `park` because _prd is non-empty. This stub
+# does NOT consume the marker, so the park-loop guard then halts loud — which is
+# fine: the assertion is that a park MARKER (thrash reason) was written at all.
+cat >"$SBOX_J/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+printf '%s\n' '{"prd":"00006-t.md","next_phase":"build","tasks_completed":0,"batch":{"id":"j1"}}' \
+  >"$DIR/dev/local/autopilot/state.json"
+echo '{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"output_tokens":5}}'
+exit 0
+EOF
+chmod +x "$SBOX_J/bin/claude"
+
+_AUTOPILOT_PHASE_REPEATS_MAX=2 _AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 \
+  _AUTOPILOT_SESSION_MAX=999999 run_with_timeout "$SBOX_J" 20
+rc_j=$RUN_RC
+[ -f "$SBOX_J/.timeout-fired" ] && FAIL "scenario thrash-park: safety timeout" "loop did not converge within 20s"
+[ "$rc_j" -eq 1 ] || FAIL "scenario thrash-park: unconsumed park guard halts loud" "rc=$rc_j"
+
+MARKER_J="$SBOX_J/dev/local/autopilot/park-requested"
+[ -f "$MARKER_J" ] || FAIL "scenario thrash-park: park marker written (thrash routed to park, not paused)" "no marker file — fingerprint bound routed to paused instead of park"
+jq -e '.prd == "00006-t.md"' "$MARKER_J" >/dev/null \
+  || FAIL "scenario thrash-park: marker names state.prd" "$(cat "$MARKER_J")"
+jq -e '(.reason // "") | test("no progress across")' "$MARKER_J" >/dev/null \
+  || FAIL "scenario thrash-park: marker reason names the fingerprint-thrash cause (not a death)" "$(cat "$MARKER_J")"
+
+grep -qi "unconsumed" "$SBOX_J/stderr.log" \
+  || FAIL "scenario thrash-park: halts on the unconsumed-marker guard" "$(cat "$SBOX_J/stderr.log")"
+
+PASS "fingerprint thrash (state touched, no progress, PRD selected) routes to park — a thrash-reason marker naming state.prd is written, NOT a batch pause"
+
+# =============================================================================
+# Coverage 13 — marker-write failure halts loud: if the park marker cannot be
+# written (or lands empty), the wrapper must halt loud rather than fall through
+# to relaunch. An empty/absent marker would be re-read by Phase 0 as
+# "malformed", deleted, and the sick PRD re-selected — an unbounded silent
+# reselect loop that neither systemic backstop catches. Forcing the failure: a
+# pre-existing `park-requested` DIRECTORY makes `[ -f ]` false (→ the write
+# branch) while `> park-requested` cannot write to a directory.
+# =============================================================================
+
+SBOX_K=$(mktemp -d); _DIRS+=("$SBOX_K")
+mkdir -p "$SBOX_K/dev/local/autopilot" "$SBOX_K/bin"
+printf '%s\n' '{"prd":"00007-u.md","next_phase":"build","batch":{"id":"k1"}}' \
+  >"$SBOX_K/dev/local/autopilot/state.json"
+touch -t 202601010000 "$SBOX_K/dev/local/autopilot/state.json"
+mkdir -p "$SBOX_K/dev/local/autopilot/park-requested"   # a directory → the marker write fails
+
+cat >"$SBOX_K/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+COUNTER="$DIR/claude-calls.count"
+N=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 ))
+printf '%s\n' "$N" >"$COUNTER"
+echo '{"type":"result","subtype":"success","result":"stub death (always dies)"}'
+exit 0
+EOF
+chmod +x "$SBOX_K/bin/claude"
+
+_AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 _AUTOPILOT_SESSION_MAX=999999 \
+  run_with_timeout "$SBOX_K" 15
+rc_k=$RUN_RC
+[ -f "$SBOX_K/.timeout-fired" ] && FAIL "scenario write-fail: safety timeout" "loop did not converge within 15s"
+[ "$rc_k" -eq 1 ] || FAIL "scenario write-fail: unwritable marker halts loud" "rc=$rc_k"
+
+grep -qi "write failed" "$SBOX_K/stderr.log" \
+  || FAIL "scenario write-fail: halts with a marker-write-failed message" "$(cat "$SBOX_K/stderr.log")"
+
+calls_k=$(cat "$SBOX_K/claude-calls.count" 2>/dev/null || echo 0)
+[ "$calls_k" -le 4 ] \
+  || FAIL "scenario write-fail: halts promptly (no unbounded reselect loop)" "got $calls_k calls"
+
+[ -d "$SBOX_K/dev/local/autopilot/park-requested" ] \
+  || FAIL "scenario write-fail: no malformed marker file left in place of the directory" "park-requested is no longer the pre-existing directory"
+
+PASS "an unwritable park-requested (marker write fails) halts the loop loud instead of falling through to an unbounded silent reselect"
+
+# =============================================================================
 echo ""
 echo "All checks passed."
 exit 0
