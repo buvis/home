@@ -230,6 +230,42 @@ def test_creation_verb_proximity_target_not_flagged(tmp_path: Path) -> None:
     assert "dangling_file:skills/work/scripts/new_thing.py" not in data["gaps"]
 
 
+def test_location_creation_target_deep_in_file_not_flagged(tmp_path: Path) -> None:
+    # Regression (precision invariant): a token must map to its OWN line, not to a
+    # line found by char-offset arithmetic over newline-stripped splitlines(). A
+    # Location: creation-target token placed past line 40 was falsely flagged
+    # dangling_file because the offset drifted and defeated is_creation_target. A
+    # false spec_gap forces a wasted task-description repair on a good task, which
+    # the design forbids ("false positives unacceptable").
+    filler = "".join(f"Note line {i} with some context text here.\n" for i in range(60))
+    body = _good_preamble() + "\n" + filler + (
+        "Location: `skills/work/scripts/deep_target.py`\n"
+    )
+    task_file = _write_task(tmp_path, body)
+
+    result = _run([str(task_file), "--repo-root", str(tmp_path)], cwd=tmp_path)
+
+    data = json.loads(result.stdout)
+    assert "dangling_file:skills/work/scripts/deep_target.py" not in data["gaps"]
+
+
+def test_creation_verb_target_deep_in_file_not_flagged(tmp_path: Path) -> None:
+    # Same precision regression via the creation-verb proximity exclusion, deep
+    # in the file (past line 40) where the old offset drift misfired.
+    filler = "".join(
+        f"Background paragraph {i} describing prior context.\n" for i in range(60)
+    )
+    body = _good_preamble() + "\n" + filler + (
+        "Please create `skills/work/scripts/deep_new.py` for this.\n"
+    )
+    task_file = _write_task(tmp_path, body)
+
+    result = _run([str(task_file), "--repo-root", str(tmp_path)], cwd=tmp_path)
+
+    data = json.loads(result.stdout)
+    assert "dangling_file:skills/work/scripts/deep_new.py" not in data["gaps"]
+
+
 # --- extension / glob exclusions ---------------------------------------------------
 
 

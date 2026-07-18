@@ -38,17 +38,26 @@ def parse_args() -> argparse.Namespace:
 
 
 def check_contract(lines: list[str]) -> bool:
-    """Return True if a Contract line is present."""
+    """Return True if a Contract line is present.
+
+    Case-insensitive and tolerant of a leading Markdown heading prefix
+    ("## Contract"), so a repaired or hand-edited description does not
+    false-positive to a missing_contract spec_gap.
+    """
     for line in lines:
-        if line.lstrip().startswith("Contract"):
+        if line.lstrip("# ").lstrip().lower().startswith("contract"):
             return True
     return False
 
 
 def check_acceptance(lines: list[str]) -> bool:
-    """Return True if 'Acceptance criteria' substring appears on any line."""
+    """Return True if an 'acceptance criteria' substring appears on any line.
+
+    Case-insensitive so "Acceptance Criteria" does not false-positive to a
+    missing_acceptance spec_gap.
+    """
     for line in lines:
-        if "Acceptance criteria" in line:
+        if "acceptance criteria" in line.lower():
             return True
     return False
 
@@ -80,45 +89,41 @@ def is_creation_target(path_str: str, line: str, all_lines: list[str]) -> bool:
     return False
 
 
-def find_dangling_files(text: str, lines: list[str], repo_root: Path) -> list[str]:
-    """Find backtick-quoted code paths that don't exist under repo_root."""
+def find_dangling_files(lines: list[str], repo_root: Path) -> list[str]:
+    """Find backtick-quoted code paths that don't exist under repo_root.
+
+    Scans each line independently so every backtick token is checked against
+    its own containing line. Mapping match offsets from the full text back onto
+    ``splitlines()`` output drifts (the separator is stripped), so the per-line
+    scan is the correct-by-construction form.
+    """
     gaps: list[str] = []
 
-    # Find all backtick-quoted tokens
-    for match in re.finditer(r"`([^`]+)`", text):
-        token = match.group(1)
+    for line in lines:
+        for match in re.finditer(r"`([^`]+)`", line):
+            token = match.group(1)
 
-        # Must contain "/"
-        if "/" not in token:
-            continue
+            # Must contain "/"
+            if "/" not in token:
+                continue
 
-        # Must end in a code extension
-        _, ext = os.path.splitext(token)
-        if ext not in CODE_EXTENSIONS:
-            continue
+            # Must end in a code extension
+            _, ext = os.path.splitext(token)
+            if ext not in CODE_EXTENSIONS:
+                continue
 
-        # Must not contain glob characters
-        if any(c in token for c in GLOB_CHARS):
-            continue
+            # Must not contain glob characters
+            if any(c in token for c in GLOB_CHARS):
+                continue
 
-        # Find the line containing this token
-        line = ""
-        start_pos = match.start()
-        char_count = 0
-        for l in lines:
-            if char_count + len(l) > start_pos:
-                line = l
-                break
-            char_count += len(l)  # accounts for newline
+            # Skip creation targets
+            if is_creation_target(token, line, lines):
+                continue
 
-        # Skip creation targets
-        if is_creation_target(token, line, lines):
-            continue
-
-        # Check if file exists under repo_root
-        full_path = repo_root / token
-        if not full_path.exists():
-            gaps.append(f"dangling_file:{token}")
+            # Check if file exists under repo_root
+            full_path = repo_root / token
+            if not full_path.exists():
+                gaps.append(f"dangling_file:{token}")
 
     return gaps
 
@@ -135,7 +140,7 @@ def main() -> None:
         sys.exit(2)
 
     try:
-        text = task_path.read_text()
+        text = task_path.read_text(encoding="utf-8")
     except Exception as e:
         json.dump({"error": str(e)}, sys.stderr)
         sys.exit(2)
@@ -152,7 +157,7 @@ def main() -> None:
         gaps.append("missing_acceptance")
 
     # Check dangling files
-    gaps.extend(find_dangling_files(text, lines, repo_root))
+    gaps.extend(find_dangling_files(lines, repo_root))
 
     verdict = "spec_gap" if gaps else "pass"
     result = {"verdict": verdict, "gaps": gaps}
