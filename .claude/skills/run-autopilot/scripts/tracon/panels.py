@@ -196,15 +196,11 @@ def build_head(
     session_start: float | None,
     agents: Text | None = None,
     now: float | None = None,
-    wrapper: bool = False,
 ) -> Panel:
     if now is None:
         now = time.time()
 
     row1 = _row_head(state)
-    if wrapper:
-        # the autoclaude relaunch wrapper is alive: sessions auto-continue
-        row1.append(" · ⟳ autoclaude")
 
     row2 = phase_strip(state)
     row2.no_wrap = True
@@ -228,10 +224,8 @@ def fleet_cells(row: LoopRow) -> tuple:
     if row.live_cost > 0:
         cost_t.append(f" +${row.live_cost:.2f}", style="dim")
 
-    name = f"⟳ {row.name}" if row.wrapper else row.name
-
     return (
-        name,
+        row.name,
         Text(row.status.label, style=row.status.style),
         row.phase,
         prd,

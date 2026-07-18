@@ -863,30 +863,14 @@ def test_fleet_table_delegates_row_construction_to_fleet_cells(
     assert {r.name for r in calls} == {"alpha", "beta"}
 
 
-# --- fleet_cells: wrapper-alive badge on the project cell -------------------
+# --- fleet_cells: supervision renders via status, never a project badge ------
 
 
-def test_fleet_cells_project_cell_carries_wrapper_marker_when_wrapper_alive() -> None:
+def test_fleet_cells_project_cell_is_the_plain_name_even_when_wrapper_alive() -> None:
+    """Supervision is signaled by the ⚠ orphaned status when it is MISSING
+    (discovery.orphan_status), not by a ⟳ badge the operator must notice the
+    absence of."""
     row = _loop_row(name="myrepo", wrapper=True)
     cells = panels.fleet_cells(row)
-    assert cells[0] == "⟳ myrepo"
-    assert isinstance(cells[0], str) and not isinstance(cells[0], Text)
-
-
-def test_fleet_cells_project_cell_plain_when_wrapper_not_alive() -> None:
-    row = _loop_row(name="myrepo", wrapper=False)
-    cells = panels.fleet_cells(row)
     assert cells[0] == "myrepo"
-
-
-# --- build_head: wrapper-alive chip ------------------------------------------
-
-
-def test_build_head_shows_wrapper_chip_when_wrapper_alive() -> None:
-    rendered = _render(_head(wrapper=True))
-    assert "⟳ autoclaude" in rendered
-
-
-def test_build_head_omits_wrapper_chip_when_wrapper_not_alive() -> None:
-    rendered = _render(_head(wrapper=False))
-    assert "⟳ autoclaude" not in rendered
+    assert isinstance(cells[0], str) and not isinstance(cells[0], Text)

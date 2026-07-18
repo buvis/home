@@ -231,23 +231,25 @@ def _render(panel: Any) -> str:
     return console.export_text()
 
 
-def test_detail_head_shows_wrapper_chip_when_wrapper_alive(tmp_path: Path) -> None:
-    """The detail screen's head must carry the same ⟳ autoclaude chip as the
-    fleet dashboard row (panels.fleet_cells) when a live wrapper is
-    registered for this root. panels.build_head only renders the chip when
-    called with wrapper=True, but Collector.head() calls build_head without
-    ever passing wrapper= -- so the detail screen can never show it today,
-    even though discovery.wrapper_alive(self.root) is available to it."""
+def test_detail_head_suppresses_orphan_warning_when_wrapper_alive(tmp_path: Path) -> None:
+    """Queued work + idle loop is fine while a live autoclaude supervises it:
+    the orphan warning must stay quiet."""
     from tracon import discovery, screens
 
     root = _make_loop(tmp_path / "loop-a")
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    now = time.time()
+    _write_lines(
+        autopilot_dir / "loop-metrics.jsonl",
+        [_metrics_line(batch="B1", ts_start=now - 60, ts_end=now + 5, signal="continue")],
+    )
     registry_entry = {"pid": os.getpid(), "root": str(root.resolve())}
     (discovery.LOOPS_DIR / "wrapper.json").write_text(json.dumps(registry_entry))
 
     collector = screens.Collector(root)
     panel, _ = collector.head()
 
-    assert "⟳ autoclaude" in _render(panel)
+    assert "⚠ orphaned" not in _render(panel)
 
 
 def test_detail_head_shows_limit_wait_when_wrapper_sleeps_on_a_limit(
@@ -274,16 +276,26 @@ def test_detail_head_shows_limit_wait_when_wrapper_sleeps_on_a_limit(
     assert "⏳ limit-wait" in _render(panel)
 
 
-def test_detail_head_omits_wrapper_chip_when_no_wrapper_registered(tmp_path: Path) -> None:
-    """Mirror of the above: with no live registry entry for this root, the
-    detail head must not show the wrapper chip."""
+def test_detail_head_shows_orphan_warning_when_work_queued_and_no_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Mirror of the above: next_phase queues work, no session in flight and
+    no live registry entry — nothing will relaunch, and the head must say so
+    loudly instead of rendering a dim idle row."""
     from tracon import screens
 
     root = _make_loop(tmp_path / "loop-a")
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    now = time.time()
+    _write_lines(
+        autopilot_dir / "loop-metrics.jsonl",
+        [_metrics_line(batch="B1", ts_start=now - 60, ts_end=now + 5, signal="continue")],
+    )
+
     collector = screens.Collector(root)
     panel, _ = collector.head()
 
-    assert "⟳ autoclaude" not in _render(panel)
+    assert "⚠ orphaned" in _render(panel)
 
 
 # --- run_once: the rich-only smoke path (no textual) -------------------------
@@ -659,6 +671,54 @@ def test_app_css_gives_scrollbars_explicit_contrast_colors() -> None:
     app = screens.build_app([])
     assert "scrollbar-color" in app.CSS
     assert "scrollbar-background" in app.CSS
+
+
+@pytest.mark.ui
+def test_theme_choice_persists_across_app_launches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    theme_file = tmp_path / "tracon-theme"
+    monkeypatch.setattr(screens, "THEME_FILE", theme_file)
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    async def _drive() -> None:
+        app = screens.build_app([])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.theme = "textual-light"
+            await pilot.pause()
+        assert theme_file.read_text().strip() == "textual-light"
+
+        relaunched = screens.build_app([])
+        async with relaunched.run_test() as pilot:
+            await pilot.pause()
+            assert relaunched.theme == "textual-light"
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_unknown_saved_theme_is_ignored_not_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    theme_file = tmp_path / "tracon-theme"
+    theme_file.write_text("no-such-theme\n")
+    monkeypatch.setattr(screens, "THEME_FILE", theme_file)
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    async def _drive() -> None:
+        app = screens.build_app([])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.theme != "no-such-theme"  # booted on the default
+
+    asyncio.run(_drive())
 
 
 @pytest.mark.ui
@@ -1090,6 +1150,47 @@ def test_p_on_detail_screen_writes_only_the_pause_requested_marker(
     after = {p.name for p in autopilot_dir.iterdir()}
     assert after - before == {"pause-requested"}
     assert (autopilot_dir / "pause-requested").is_file()
+
+
+@pytest.mark.ui
+def test_p_success_confirms_with_a_toast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Touching the marker is invisible by itself — the wrapper only acts on
+    it at session end. p must confirm immediately."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            notifications: list[Any] = []
+            app.notify = lambda *a, **kw: notifications.append((a, kw))
+
+            await pilot.pause()
+            await pilot.press("p")
+            await pilot.pause()
+
+            assert any("pause requested" in str(a) for a, _ in notifications)
+
+    asyncio.run(_drive())
+
+
+def test_detail_head_shows_pending_chip_while_pause_marker_exists(
+    tmp_path: Path,
+) -> None:
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    (root / "dev" / "local" / "autopilot" / "pause-requested").touch()
+
+    collector = screens.Collector(root)
+    panel, _ = collector.head()
+
+    assert "⏸ pause requested" in _render(panel)
 
 
 @pytest.mark.ui

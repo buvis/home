@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 LOG_KEEP = 5000
 DETAIL_TICK = 0.5
 FLEET_TICK = 2.0
+THEME_FILE = Path.home() / ".claude" / "tracon-theme"
 
 # Rendered label discovery.classify() uses for each terminal loop-metrics
 # signal -- reused verbatim for the wrapper-dead loop-exit banner. A signal
@@ -111,7 +112,13 @@ class Collector:
         except OSError:
             log_mtime = None
         wrapper = discovery.wrapper_alive(self.root)
-        status = discovery.limit_wait_status(status, log_path, log_mtime, wrapper, time.time())
+        now = time.time()
+        status = discovery.limit_wait_status(status, log_path, log_mtime, wrapper, now)
+        last = model.last_row(rows)
+        status = discovery.orphan_status(
+            status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
+        )
+        status = discovery.pause_pending_status(status, self.root)
         agents = panels.agents_row(self._tracker)
         panel = panels.build_head(
             state=state,
@@ -123,7 +130,6 @@ class Collector:
             root_name=self.root.name,
             session_start=self._tail.session_start,
             agents=agents,
-            wrapper=wrapper,
         )
         return panel, panels.head_rows(agents)
 
@@ -141,6 +147,8 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             (root / "dev" / "local" / "autopilot" / "pause-requested").touch()
         except OSError as exc:
             app.notify(f"pause-requested write failed: {exc}", severity="error")
+            return
+        app.notify("pause requested — pauses when the current session ends")
 
     class DetailScreen(Screen):
         BINDINGS = [
@@ -284,6 +292,16 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
         BINDINGS = [Binding("ctrl+c", "quit", "Stop loop", priority=True)]
 
         def on_mount(self) -> None:
+            try:
+                saved_theme = THEME_FILE.read_text().strip()
+            except OSError:
+                saved_theme = ""
+            if saved_theme:
+                try:
+                    self.theme = saved_theme
+                except Exception:
+                    pass  # saved name unknown to this textual version
+            self.theme_changed_signal.subscribe(self, self._save_theme)
             self.push_screen(DashboardScreen())
             if forced is not None:
                 self.push_screen(DetailScreen(forced))
@@ -292,6 +310,12 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             if wrapper_pid is not None:
                 self._wrapper_alive = True
                 self.set_interval(2.0, self._poll_wrapper)
+
+        def _save_theme(self, theme: Any) -> None:
+            try:
+                THEME_FILE.write_text(f"{theme.name}\n")
+            except OSError:
+                pass  # persistence is best-effort; never break the app
 
         def action_quit(self) -> None:
             self.exit(return_code=130)

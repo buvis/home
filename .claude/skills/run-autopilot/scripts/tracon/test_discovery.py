@@ -917,6 +917,109 @@ def test_loop_status_shows_limit_wait_instead_of_died_while_wrapper_sleeps(
     assert row.status.style == "yellow"
 
 
+# --- orphaned: queued work with nothing alive to relaunch it -----------------
+
+
+def test_orphan_status_upgrades_idle_to_loud_warning_with_age() -> None:
+    out = discovery.orphan_status(
+        _idle_status(), _state(next_phase="build"), False, 900.0, None, 1000.0
+    )
+    assert out.label == "⚠ orphaned 1m40s · run autoclaude"
+    assert out.style == "bold red"
+    assert out.rank == 1
+
+
+def test_orphan_status_dims_to_plain_red_after_a_day() -> None:
+    out = discovery.orphan_status(
+        _idle_status(), _state(next_phase="review"), False, 1000.0, None, 1000.0 + 200000
+    )
+    assert out.style == "red"
+    assert "55h33m" in out.label
+
+
+def test_orphan_status_falls_back_to_log_mtime_for_the_age_anchor() -> None:
+    out = discovery.orphan_status(
+        _idle_status(), _state(next_phase="build"), False, None, 940.0, 1000.0
+    )
+    assert "1m00s" in out.label
+
+
+def test_orphan_status_keeps_original_when_wrapper_alive() -> None:
+    idle = _idle_status()
+    out = discovery.orphan_status(
+        idle, _state(next_phase="build"), True, 900.0, None, 1000.0
+    )
+    assert out is idle
+
+
+@pytest.mark.parametrize("next_phase", ["", "paused"])
+def test_orphan_status_keeps_original_when_no_work_is_queued(
+    next_phase: str,
+) -> None:
+    """Drained batches (next_phase == "") and deliberate pauses are not
+    orphans — warning on every parked loop would drown the real incident."""
+    idle = _idle_status()
+    out = discovery.orphan_status(
+        idle, _state(next_phase=next_phase), False, 900.0, None, 1000.0
+    )
+    assert out is idle
+
+
+def test_orphan_status_keeps_terminal_statuses_like_died() -> None:
+    died = discovery.Status(label="■ died 10:00", style="bold red", rank=1, in_flight=False)
+    out = discovery.orphan_status(
+        died, _state(next_phase="build"), False, 900.0, None, 1000.0
+    )
+    assert out is died
+
+
+def test_loop_status_marks_orphaned_when_wrapper_died_mid_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wrapper killed mid-batch (closed terminal, crash) leaves next_phase
+    set and the last metrics signal non-terminal; without the warning that
+    renders as a dim idle row that reads as fine."""
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    _write_json(
+        autopilot_dir / "state.json",
+        {"phase": "build", "next_phase": "build", "batch": {"id": "B1"}},
+    )
+    (autopilot_dir / "last-session.log").write_text("{}\n")
+    now = time.time()
+    _write_lines(
+        autopilot_dir / "loop-metrics.jsonl",
+        [_metrics_line(batch="B1", ts_start=now - 100, ts_end=now + 5, signal="continue")],
+    )
+
+    row = discovery.loop_status(tmp_path, now=now + 10)
+
+    assert row.status.label.startswith("⚠ orphaned")
+    assert row.status.style == "bold red"
+
+
+# --- pause-requested: pending marker must be visible -------------------------
+
+
+def test_pause_pending_status_suffixes_the_label_while_marker_exists(
+    tmp_path: Path,
+) -> None:
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    (autopilot_dir / "pause-requested").touch()
+    idle = _idle_status()
+
+    out = discovery.pause_pending_status(idle, tmp_path)
+
+    assert out.label == "○ idle 5m00s · ⏸ pause requested"
+    assert (out.style, out.rank, out.in_flight) == (idle.style, idle.rank, idle.in_flight)
+
+
+def test_pause_pending_status_identity_without_marker(tmp_path: Path) -> None:
+    idle = _idle_status()
+    assert discovery.pause_pending_status(idle, tmp_path) is idle
+
+
 # --- discover_loops: union of ~/.claude, gita CSV rows, live registry roots -
 
 
