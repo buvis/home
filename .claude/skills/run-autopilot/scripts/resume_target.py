@@ -93,6 +93,11 @@ def park_decision(marker: dict | None, wip_filenames: list[str],
       "stale marker -> ignore"            -> named PRD not in wip/
       "park <prd> -> systemic halt"       -> park, but this is the 2nd+ consecutive park
       "park <prd> -> continue batch"      -> park and pick the next PRD
+
+    `parks_consecutive` is the PRE-increment count (the value before this park is
+    counted). `>= 1` here therefore means this park makes it the 2nd+ consecutive
+    — equivalent to the Phase 0 handler's post-increment `>= 2` systemic-halt
+    check. A caller must pass the pre-increment value.
     """
     if marker is None:
         return "no marker"
