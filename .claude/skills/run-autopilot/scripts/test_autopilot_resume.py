@@ -401,6 +401,7 @@ class CoverageMapRekeyTests(unittest.TestCase):
 # vocabulary and never uses the old eleven phase names.
 
 from resume_target import resume_target
+from resume_target import park_decision
 
 
 class ResumeBuildReentryTests(unittest.TestCase):
@@ -562,6 +563,56 @@ class ResumeEscalationExhaustedTests(unittest.TestCase):
             }
         )
         self.assertEqual(target, "crash-recovery at selection")
+
+
+class ParkDecisionTests(unittest.TestCase):
+    """park_decision(marker, wip_filenames, parks_consecutive) classifies a
+    park-requested marker against the live WIP set and the consecutive-park
+    counter (pre-increment)."""
+
+    def test_no_marker_file_returns_no_marker(self) -> None:
+        self.assertEqual(
+            park_decision(None, ["00066-foo-v1.md"], 0),
+            "no marker",
+        )
+
+    def test_malformed_marker_missing_prd_key_is_ignored(self) -> None:
+        self.assertEqual(
+            park_decision({"reason": "died"}, ["00066-foo-v1.md"], 0),
+            "malformed marker -> ignore",
+        )
+
+    def test_malformed_marker_empty_prd_is_ignored(self) -> None:
+        self.assertEqual(
+            park_decision(
+                {"prd": "", "reason": "x"}, ["00066-foo-v1.md"], 0
+            ),
+            "malformed marker -> ignore",
+        )
+
+    def test_stale_marker_prd_not_in_wip_is_ignored(self) -> None:
+        self.assertEqual(
+            park_decision(
+                {"prd": "00099-gone.md"}, ["00066-foo-v1.md"], 0
+            ),
+            "stale marker -> ignore",
+        )
+
+    def test_first_park_continues_batch(self) -> None:
+        self.assertEqual(
+            park_decision(
+                {"prd": "00066-foo-v1.md"}, ["00066-foo-v1.md"], 0
+            ),
+            "park 00066-foo-v1.md -> continue batch",
+        )
+
+    def test_second_consecutive_park_is_systemic_halt(self) -> None:
+        self.assertEqual(
+            park_decision(
+                {"prd": "00066-foo-v1.md"}, ["00066-foo-v1.md"], 1
+            ),
+            "park 00066-foo-v1.md -> systemic halt",
+        )
 
 
 if __name__ == "__main__":
