@@ -1224,6 +1224,48 @@ def test_f_toggle_confirms_follow_state_with_a_toast(
 
 
 @pytest.mark.ui
+def test_t_toggles_the_tasks_screen_with_kanban_lanes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """t on the detail screen flips to the on-demand task detail (kanban
+    lanes over state.tasks); esc flips back to the log, the main view."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import RichLog
+
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    state_path = root / "dev" / "local" / "autopilot" / "state.json"
+    state = json.loads(state_path.read_text())
+    state["tasks"] = [
+        {"id": "t1", "name": "Add endpoint", "status": "completed"},
+        {"id": "t2", "name": "Write tests", "status": "in_progress"},
+        {"id": "t3", "name": "Update docs", "status": "pending"},
+    ]
+    state_path.write_text(json.dumps(state))
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("t")
+            await pilot.pause()
+
+            visible = _dashboard_visible_text(app.screen)
+            assert "in progress (1)" in visible
+            assert "Write tests" in visible
+            assert "pending (1)" in visible
+            assert "completed (1)" in visible
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen.query_one(RichLog) is not None  # back at the log
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
 def test_p_success_confirms_with_a_toast(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

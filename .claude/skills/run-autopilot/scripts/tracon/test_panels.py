@@ -582,6 +582,50 @@ def test_phase_strip_unknown_phase_legacy_stopped_does_not_crash_or_mark_current
     assert not _styles_containing(text, "yellow")
 
 
+def test_phase_strip_expands_build_into_sub_steps() -> None:
+    raw = {
+        "batch": {"id": "B1", "catchup_completed_at": "2026-07-18T08:00:00Z"},
+        "design_doc": "dev/local/designs/x-design.md",
+        "tasks": [{"id": "t1", "status": "in_progress"}],
+    }
+    state = _state(phase="build", raw=raw, tasks_total=6, tasks_completed=2)
+    plain = panels.phase_strip(state).plain
+    assert plain == "✓ catchup ─ ✓ design ─ ✓ plan ─ ● work ─ ○ review ─ ○ done"
+
+
+def test_phase_strip_collapses_build_once_review_is_current() -> None:
+    """Positional completion: reaching review proves build finished, even
+    though phases_completed only ever records "review"."""
+    state = _state(phase="review", phases_completed=())
+    plain = panels.phase_strip(state).plain
+    assert plain == "✓ build ─ ● review ─ ○ done"
+
+
+def test_lane_body_lists_name_tier_attempts_and_foreign_implementor() -> None:
+    tasks = [
+        {
+            "name": "Wire orphan status",
+            "model": "sonnet",
+            "attempts": [{"implementor": "qwen"}, {"implementor": "qwen"}],
+        }
+    ]
+    plain = panels.lane_body("pending", tasks).plain
+    assert "pending (1)" in plain
+    assert "• Wire orphan status" in plain
+    assert "[sonnet · ×2 · qwen]" in plain
+
+
+def test_tasks_head_includes_last_review_cycle_summary() -> None:
+    raw = {
+        "review_cycles": [
+            {"cycle": 1, "issues_found": 2, "follow_up_tasks": 1, "deferred": 0},
+            {"cycle": 2, "issues_found": 5, "follow_up_tasks": 3, "deferred": 1},
+        ]
+    }
+    rendered = _render(panels.tasks_head(_state(raw=raw), "myrepo"))
+    assert "review cycle 2: 5 issues · 3 follow-ups · 1 deferred" in rendered
+
+
 def test_phase_strip_attention_forces_bold_red_style() -> None:
     state = _state(phase="build", next_phase="", phases_completed=(), needs_attention=True)
     text = panels.phase_strip(state)

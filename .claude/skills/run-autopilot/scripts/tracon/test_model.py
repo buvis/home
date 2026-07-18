@@ -543,6 +543,84 @@ def test_current_task_name_falls_back_to_first_pending(tmp_path: Path) -> None:
     assert model.current_task_name(state) == "Queued thing"
 
 
+def test_build_steps_done_infers_each_step_from_its_artifact(
+    tmp_path: Path,
+) -> None:
+    path = _write_json(
+        tmp_path / "state.json",
+        {
+            "phase": "build",
+            "batch": {"id": "B1", "catchup_completed_at": "2026-07-18T08:00:00Z"},
+            "design_doc": "dev/local/designs/x-design.md",
+            "tasks_total": 2,
+            "tasks_completed": 1,
+            "tasks": [
+                {"id": "t1", "name": "A", "status": "completed"},
+                {"id": "t2", "name": "B", "status": "in_progress"},
+            ],
+        },
+    )
+    state = model.read_state(path)
+    assert model.build_steps_done(state) == {
+        "catchup": True,
+        "design": True,
+        "plan": True,
+        "work": False,
+    }
+
+
+def test_build_steps_done_counts_skip_modes_as_done(tmp_path: Path) -> None:
+    path = _write_json(
+        tmp_path / "state.json", {"catchup_mode": "skipped", "design_mode": "skip"}
+    )
+    steps = model.build_steps_done(model.read_state(path))
+    assert steps == {"catchup": True, "design": True, "plan": False, "work": False}
+
+
+def test_build_steps_done_work_requires_every_task_completed(
+    tmp_path: Path,
+) -> None:
+    path = _write_json(
+        tmp_path / "state.json",
+        {
+            "tasks_total": 2,
+            "tasks_completed": 2,
+            "tasks": [
+                {"id": "t1", "status": "completed"},
+                {"id": "t2", "status": "completed"},
+            ],
+        },
+    )
+    assert model.build_steps_done(model.read_state(path))["work"] is True
+
+
+def test_tasks_by_lane_groups_by_status_and_defaults_junk_to_pending(
+    tmp_path: Path,
+) -> None:
+    path = _write_json(
+        tmp_path / "state.json",
+        {
+            "tasks": [
+                {"id": "t1", "name": "A", "status": "completed"},
+                {"id": "t2", "name": "B", "status": "in_progress"},
+                {"id": "t3", "name": "C", "status": "pending"},
+                {"id": "t4", "name": "D", "status": "cancelled"},
+                "junk",
+            ]
+        },
+    )
+    lanes = model.tasks_by_lane(model.read_state(path))
+    assert [t["id"] for t in lanes["completed"]] == ["t1"]
+    assert [t["id"] for t in lanes["in_progress"]] == ["t2"]
+    assert [t["id"] for t in lanes["pending"]] == ["t3", "t4"]
+
+
+def test_tasks_by_lane_empty_lanes_when_tasks_missing(tmp_path: Path) -> None:
+    path = _write_json(tmp_path / "state.json", {"phase": "build"})
+    lanes = model.tasks_by_lane(model.read_state(path))
+    assert lanes == {"in_progress": [], "pending": [], "completed": []}
+
+
 def test_current_task_name_empty_when_tasks_absent_or_malformed(
     tmp_path: Path,
 ) -> None:
