@@ -6,6 +6,8 @@ Implements the Collector for per-tick I/O and Textual screens for the app.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import time
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -153,6 +155,29 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
 
     wrapper_root = forced if forced is not None else (roots[0] if roots else None)
 
+    def _stop_loop(screen: Any, root: Path) -> None:
+        """Interrupt the registered wrapper's process group — the same
+        `kill -INT -pid` the wrapper's own ctrl+c handler sends. Guarded by
+        a double press (screen-local arm window)."""
+        pid = discovery.live_wrapper_pid(root)
+        if pid is None:
+            screen.app.notify(f"no live autoclaude for {root.name} — nothing to stop")
+            return
+        now = time.monotonic()
+        if now >= getattr(screen, "_confirm_kill_until", 0.0):
+            screen._confirm_kill_until = now + 3.0
+            screen.app.notify(
+                f"s stops the {root.name} loop NOW — press s again to confirm",
+                severity="warning",
+            )
+            return
+        try:
+            os.killpg(pid, signal.SIGINT)
+        except OSError as exc:
+            screen.app.notify(f"stop failed: {exc}", severity="error")
+            return
+        screen.app.notify(f"interrupt sent — {root.name} loop tearing down")
+
     def _touch_pause_marker(app: App, root: Path) -> None:
         try:
             (root / "dev" / "local" / "autopilot" / "pause-requested").touch()
@@ -160,6 +185,54 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             app.notify(f"pause-requested write failed: {exc}", severity="error")
             return
         app.notify("pause requested — pauses when the current session ends; resume with `autoclaude`")
+
+    HELP_TEXT = """\
+tracon — autoclaude loop observer
+
+UI keys (never touch a loop)
+  enter     open the highlighted loop
+  esc       back (detail → all loops; help/tasks → close)
+  t         task board: kanban lanes over the loop's task plan
+  f         follow — log auto-scrolls to the newest lines
+  q         quit tracon; every loop keeps running
+  ctrl+p    command palette (themes — the choice persists)
+
+Loop keys (act on the attached / highlighted loop)
+  p         request pause — honored at the session boundary; resume: autoclaude
+  s         stop NOW — interrupts the loop like ctrl+c in its terminal (press twice)
+  ctrl+c    wrapper-launched tracon: stop that loop and exit (press twice);
+            standalone: just exits the UI
+
+Status legend
+  ● live         session writing within the last 20s
+  ◐ quiet        session running but output has stalled
+  ⏳ limit-wait  usage limit hit; the wrapper sleeps until the reset
+  ⏸ paused       loop stopped for a decision — claude → /run-autopilot → autoclaude
+  ⚠ orphaned    work queued but no autoclaude alive — run autoclaude
+  ⚠ attention   needs_attention set (usually a cap-pause)
+  ■ died         session died; check dev/local/autopilot/last-session.log
+  ✔ drained      backlog empty; batch archived
+  ○ idle/no log  nothing running
+
+Numbers
+  task 4/8        4 of 8 tasks completed; ▸ names the one in flight
+  cycle 1/3       review-rework cycle vs its cap
+  batch <stamp>   sessions/elapsed/active/cost all cover this batch
+  ctx x/500.0k    last turn's context vs the session-rotation cap
+  in/cache/out    input, cache-read and output tokens this session
+
+esc or ? closes this help.
+"""
+
+    class HelpScreen(Screen):
+        BINDINGS = [
+            Binding("escape", "app.pop_screen", "Close"),
+            Binding("question_mark", "app.pop_screen", "Close"),
+        ]
+
+        def compose(self) -> ComposeResult:
+            yield VerticalScroll(Static(HELP_TEXT))
+            yield Footer()
 
     class TasksScreen(Screen):
         """On-demand task detail: kanban lanes over the state.tasks snapshot."""
@@ -204,6 +277,8 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             Binding("f", "toggle_follow", "Follow"),
             Binding("q", "app.detach", "Quit UI (loop runs)"),
             Binding("p", "pause_loop", "Pause loop"),
+            Binding("s", "stop_loop", "Stop loop"),
+            Binding("question_mark", "show_help", "Help", key_display="?"),
         ]
 
         def __init__(self, root: Path) -> None:
@@ -259,6 +334,12 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
         def action_show_tasks(self) -> None:
             self.app.push_screen(TasksScreen(self.root))
 
+        def action_stop_loop(self) -> None:
+            _stop_loop(self, self.root)
+
+        def action_show_help(self) -> None:
+            self.app.push_screen(HelpScreen())
+
         def action_toggle_follow(self) -> None:
             log = self.query_one("#log", RichLog)
             log.auto_scroll = not log.auto_scroll
@@ -273,7 +354,10 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
     class DashboardScreen(Screen):
         BINDINGS = [
             Binding("q", "app.detach", "Quit UI (loop runs)"),
+            Binding("t", "show_tasks", "Tasks"),
             Binding("p", "pause_loop", "Pause loop"),
+            Binding("s", "stop_loop", "Stop loop"),
+            Binding("question_mark", "show_help", "Help", key_display="?"),
         ]
 
         def compose(self) -> ComposeResult:
@@ -320,11 +404,29 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             root = self._roots[event.cursor_row]
             self.app.push_screen(DetailScreen(root))
 
-        def action_pause_loop(self) -> None:
+        def _selected_root(self) -> Path | None:
             cursor_row = self.table.cursor_row
             if cursor_row is None or cursor_row >= len(self._roots):
-                return
-            _touch_pause_marker(self.app, self._roots[cursor_row])
+                return None
+            return self._roots[cursor_row]
+
+        def action_pause_loop(self) -> None:
+            root = self._selected_root()
+            if root is not None:
+                _touch_pause_marker(self.app, root)
+
+        def action_stop_loop(self) -> None:
+            root = self._selected_root()
+            if root is not None:
+                _stop_loop(self, root)
+
+        def action_show_tasks(self) -> None:
+            root = self._selected_root()
+            if root is not None:
+                self.app.push_screen(TasksScreen(root))
+
+        def action_show_help(self) -> None:
+            self.app.push_screen(HelpScreen())
 
     class _WrapperDeadScreen(Screen):
         def __init__(self, label: str) -> None:
