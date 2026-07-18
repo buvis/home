@@ -356,7 +356,7 @@ esc or ? closes this help.
             Binding("q", "app.detach", "Quit UI (loop runs)"),
             Binding("t", "show_tasks", "Tasks"),
             Binding("p", "pause_loop", "Pause loop"),
-            Binding("s", "stop_loop", "Stop loop"),
+            Binding("s", "stop_loop", "Stop selected"),
             Binding("question_mark", "show_help", "Help", key_display="?"),
         ]
 
@@ -447,7 +447,16 @@ esc or ? closes this help.
             scrollbar-background: #21252e;
         }
         """
-        BINDINGS = [Binding("ctrl+c", "quit", "Stop loop", priority=True)]
+        # Standalone, nothing watches the exit code — ctrl+c only exits the
+        # UI, and its footer label must not claim otherwise.
+        BINDINGS = [
+            Binding(
+                "ctrl+c",
+                "quit",
+                "Stop loop & exit" if wrapper_pid is not None else "Exit",
+                priority=True,
+            )
+        ]
 
         _confirm_stop_until = 0.0
 
