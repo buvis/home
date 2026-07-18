@@ -101,6 +101,12 @@ class Collector:
                 waited = model.fmt_dur(max(0.0, now - lane.started))
                 notes[lane.task_id] = f"no output yet · {waited}"
                 continue
+            if st.st_size == 0:
+                # tee creates the file at launch; empty means nothing landed
+                # yet (or the CLI buffers stdout), not "stalled since launch"
+                waited = model.fmt_dur(max(0.0, now - st.st_mtime))
+                notes[lane.task_id] = f"no output yet · {waited}"
+                continue
             age = model.fmt_dur(max(0.0, now - st.st_mtime))
             notes[lane.task_id] = f"out {panels.fmt_tok(st.st_size)} · {age} ago"
         return notes
