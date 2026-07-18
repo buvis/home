@@ -269,13 +269,16 @@ def _bash_launch_lines(tool_use_id: str, command: str, task_id: str, desc: str) 
 
 
 def test_collector_bash_output_notes_stat_the_runner_out_file(tmp_path: Path) -> None:
-    """A live bash lane whose -o file exists gets `out <size> · <age> ago`;
-    one whose file has not appeared yet gets `no output yet · <waited>`;
+    """A live bash lane whose -o file has content gets `out <size> · <age> ago`;
+    a missing file AND an empty file both read `no output yet · <waited>` (tee
+    creates the file at launch, so size 0 means nothing landed, not stalled);
     a lane without a parsed -o path gets no note at all."""
     from tracon import screens
 
     out_file = tmp_path / "carl-output.txt"
     out_file.write_text("x" * 4200)
+    empty_file = tmp_path / "dana-output.txt"
+    empty_file.touch()
     log_lines = (
         [_init_event()]
         + _bash_launch_lines(
@@ -283,6 +286,9 @@ def test_collector_bash_output_notes_stat_the_runner_out_file(tmp_path: Path) ->
         )
         + _bash_launch_lines(
             "toolu_bob", f'codex-run.sh -o "{tmp_path}/bob-output.txt"', "b1", "Bob (codex) review"
+        )
+        + _bash_launch_lines(
+            "toolu_dana", f'gemini-run.sh -o "{empty_file}"', "d1", "Dana teed but empty"
         )
         + _bash_launch_lines("toolu_q", "qwen-run.sh --preflight", "q1", "Qwen preflight")
     )
@@ -296,6 +302,7 @@ def test_collector_bash_output_notes_stat_the_runner_out_file(tmp_path: Path) ->
     assert notes["c1"].startswith("out 4.2k · ")
     assert notes["c1"].endswith(" ago")
     assert notes["b1"].startswith("no output yet · ")
+    assert notes["d1"].startswith("no output yet · ")
     assert "q1" not in notes
 
 

@@ -45,11 +45,11 @@ UI (never touch a loop):
 
 | key | action |
 |-----|--------|
-| enter | open the highlighted loop's detail screen |
+| enter | open the highlighted loop's detail screen (fleet only) |
 | esc | back (detail -> fleet; help/tasks/agents -> close) |
 | t | task board: kanban lanes over the state.tasks snapshot |
-| a | agent board: subagent and background-CLI lanes, live activity |
-| f | toggle follow (log sticks to newest lines) |
+| a | agent board: subagent and background-CLI lanes (detail only) |
+| f | toggle follow (log sticks to newest lines; detail only) |
 | ? | help |
 | ctrl+p | command palette (theme persists in `~/.claude/tracon-theme`) |
 | q / ctrl+c | detach; every loop keeps running |
@@ -107,9 +107,12 @@ live lanes, `finished` the retired ones, registration order.
   task_progress events.
 - Bash lanes (CLI reviewers, backgrounded runners): description plus status,
   and a liveness note from statting the runner's `-o` file:
-  `out 4.2k · 8s ago` where the runner tees stdout (gemini/copilot, mtime
-  advancing means the CLI is alive) or `no output yet · 3m` where the CLI
-  writes only at completion (native codex).
+  `out 4.2k · 8s ago` once bytes land (mtime advancing means the CLI is
+  alive), `no output yet · 3m` while the file is missing or still empty.
+  Fidelity varies by runner: native codex writes the file only at
+  completion, and even tee'd runners (gemini/copilot) may look empty for a
+  while because a piped CLI block-buffers stdout. Treat the note as "alive
+  and producing" evidence, not as a progress bar.
 
 Semantics worth remembering (they bit once, see git log):
 
