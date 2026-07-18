@@ -81,3 +81,29 @@ def resume_target(state: dict) -> str:
         return "build: catchup then planning"
 
     return f"unknown phase: {phase}"
+
+
+def park_decision(marker: dict | None, wip_filenames: list[str],
+                  parks_consecutive: int) -> str:
+    """Decide what Phase 0 does with a park-requested marker.
+
+    Returns one of:
+      "no marker"                         -> fall through to normal selection
+      "malformed marker -> ignore"        -> marker present, no usable .prd
+      "stale marker -> ignore"            -> named PRD not in wip/
+      "park <prd> -> systemic halt"       -> park, but this is the 2nd+ consecutive park
+      "park <prd> -> continue batch"      -> park and pick the next PRD
+    """
+    if marker is None:
+        return "no marker"
+
+    prd = marker.get("prd")
+    if not prd:
+        return "malformed marker -> ignore"
+
+    if prd not in wip_filenames:
+        return "stale marker -> ignore"
+
+    if parks_consecutive >= 1:
+        return f"park {prd} -> systemic halt"
+    return f"park {prd} -> continue batch"
