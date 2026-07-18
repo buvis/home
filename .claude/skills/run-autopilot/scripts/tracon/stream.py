@@ -37,7 +37,13 @@ class Lane:
     status: str = ""  # background task status
     last: str = ""  # last_tool_name, straight off task_progress (agents only)
     n: int = 0  # usage.tool_uses, straight off task_progress (agents only)
-    done: bool = False  # retired by task_updated/task_notification status, or by its tool_result
+    done: bool = False  # retired by a terminal task event, or (untracked only) its tool_result
+    tracked: bool = False  # registered off task lifecycle events, which own its retirement
+    desc: str = ""  # full untrimmed description (agents detail screen)
+    agent_type: str = ""  # task_started.subagent_type (agents only)
+    activity: str = ""  # last task_progress.description — what the agent is doing now
+    tokens: int = 0  # task_progress usage.total_tokens
+    dur_ms: int = 0  # task_progress usage.duration_ms
 
 
 class LogTail:
@@ -225,9 +231,28 @@ class AgentTracker:
         self._by_task.clear()
         self._by_tool.clear()
 
-    def _register(self, *, task_id: str, tool_use_id: str, label: str, kind: str) -> Lane:
+    def _register(
+        self,
+        *,
+        task_id: str,
+        tool_use_id: str,
+        label: str,
+        kind: str,
+        desc: str = "",
+        agent_type: str = "",
+        tracked: bool = False,
+    ) -> Lane:
         color = LANE_COLORS[len(self._by_task) % len(LANE_COLORS)]
-        lane = Lane(task_id=task_id, tool_use_id=tool_use_id, label=label, color=color, kind=kind)
+        lane = Lane(
+            task_id=task_id,
+            tool_use_id=tool_use_id,
+            label=label,
+            color=color,
+            kind=kind,
+            desc=desc,
+            agent_type=agent_type,
+            tracked=tracked,
+        )
         self._by_task[task_id] = lane
         self._by_tool[tool_use_id] = lane
         return lane
@@ -254,8 +279,15 @@ class AgentTracker:
             alive.add(task_id)
             if task_id not in self._by_task:
                 kind = str(item.get("task_type") or "local_bash")
-                label = str(item.get("description") or task_id)[:20]
-                lane = self._register(task_id=task_id, tool_use_id=task_id, label=label, kind=kind)
+                desc = str(item.get("description") or task_id)
+                lane = self._register(
+                    task_id=task_id,
+                    tool_use_id=task_id,
+                    label=desc[:20],
+                    kind=kind,
+                    desc=desc,
+                    tracked=True,
+                )
             else:
                 lane = self._by_task[task_id]
             if lane.kind == "local_bash":
@@ -271,14 +303,26 @@ class AgentTracker:
             tool_use_id = str(event.get("tool_use_id"))
             description = event.get("description")
             subagent_type = event.get("subagent_type")
-            label = str(description or subagent_type or f"agent{len(self._by_task) + 1}")[:20]
+            desc = str(description or subagent_type or f"agent{len(self._by_task) + 1}")
             kind = str(event.get("task_type") or "")
-            self._register(task_id=task_id, tool_use_id=tool_use_id, label=label, kind=kind)
+            self._register(
+                task_id=task_id,
+                tool_use_id=tool_use_id,
+                label=desc[:20],
+                kind=kind,
+                desc=desc,
+                agent_type=str(subagent_type or ""),
+                tracked=True,
+            )
         elif sub == "task_progress":
             lane = self._by_task.get(str(event.get("task_id")))
             if lane is not None:
+                usage = event.get("usage") or {}
                 lane.last = str(event.get("last_tool_name") or "")
-                lane.n = int((event.get("usage") or {}).get("tool_uses") or 0)
+                lane.n = int(usage.get("tool_uses") or 0)
+                lane.activity = str(event.get("description") or "")
+                lane.tokens = int(usage.get("total_tokens") or 0)
+                lane.dur_ms = int(usage.get("duration_ms") or 0)
         elif sub == "task_updated":
             self._retire_by_task_id(event.get("task_id"), (event.get("patch") or {}).get("status"))
         elif sub == "task_notification":
@@ -302,7 +346,13 @@ class AgentTracker:
         for block in content:
             if isinstance(block, dict) and block.get("type") == "tool_result":
                 lane = self._by_tool.get(str(block.get("tool_use_id")))
-                if lane is not None:
+                # Background dispatch acks its tool_use IMMEDIATELY while the
+                # task keeps running — for task-lifecycle-tracked lanes the
+                # tool_result is a launch ack, and retirement belongs to
+                # task_updated / task_notification / background-set absence.
+                # Only fallback lanes (parent_tool_use_id attribution, no task
+                # events) end with their tool_result.
+                if lane is not None and not lane.tracked:
                     lane.done = True
 
     def feed(self, event: dict[str, Any]) -> None:
@@ -330,6 +380,10 @@ class AgentTracker:
 
     def live_tasks(self) -> list[Lane]:
         return [lane for lane in self._by_task.values() if lane.kind == "local_bash" and not lane.done]
+
+    def lanes(self) -> list[Lane]:
+        """Every lane this session, live and retired, in registration order."""
+        return list(self._by_task.values())
 
 
 def render_line(raw: str, event: dict[str, Any] | None) -> list[Text]:

@@ -12,7 +12,7 @@ from rich.console import Group
 from . import model
 from .discovery import LoopRow, Status
 from .model import fmt_dur
-from .stream import AgentTracker, SessionUsage
+from .stream import AgentTracker, Lane, SessionUsage
 
 PHASES = ("build", "review", "done")
 
@@ -268,6 +268,54 @@ def lane_body(lane: str, tasks: Sequence[dict]) -> Text:
                 meta.append(impl)
         if meta:
             t.append(f"  [{' · '.join(meta)}]", style="dim")
+    return t
+
+
+def agents_head(state: model.LoopState, root_name: str) -> Panel:
+    return Panel(
+        Group(_row_head(state), phase_strip(state)), title=f"{root_name} · agents"
+    )
+
+
+def _lane_detail(t: Text, lane: Lane) -> None:
+    head_style = "dim" if lane.done else lane.color
+    t.append("\n✓ " if lane.done else "\n● ", style=head_style)
+    t.append(lane.desc or lane.label, style=head_style)
+
+    meta = ["agent" if lane.kind == "local_agent" else "bash"]
+    if lane.agent_type:
+        meta.append(lane.agent_type)
+    if lane.kind == "local_bash":
+        meta.append("done" if lane.done else (lane.status or "running"))
+    t.append(f"  [{' · '.join(meta)}]", style="dim")
+
+    if lane.activity and not lane.done:
+        t.append(f"\n    ↳ {lane.activity}")
+    stats = []
+    if lane.last:
+        stats.append(f"⚒ {lane.last}×{lane.n}")
+    if lane.tokens:
+        stats.append(f"{fmt_tok(lane.tokens)} tok")
+    if lane.dur_ms:
+        stats.append(fmt_dur(lane.dur_ms / 1000))
+    if stats:
+        t.append(f"\n    {' · '.join(stats)}", style="dim")
+
+
+def agents_body(tracker: AgentTracker) -> Text:
+    lanes = tracker.lanes()
+    if not lanes:
+        return Text("no subagent or background-task activity this session", style="dim")
+    live = [lane for lane in lanes if not lane.done]
+    done = [lane for lane in lanes if lane.done]
+    t = Text()
+    t.append(f"running ({len(live)})\n", style="bold cyan")
+    for lane in live:
+        _lane_detail(t, lane)
+    if done:
+        t.append(f"\n\nfinished ({len(done)})\n", style="bold")
+        for lane in done:
+            _lane_detail(t, lane)
     return t
 
 
