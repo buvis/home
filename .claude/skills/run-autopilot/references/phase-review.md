@@ -1,11 +1,13 @@
 # Review Gate (`phase: "review"`)
 
 Routed here when `state.phase` is `"review"` — or a legacy `"blind"`/`"doubt"`
-value from a pre-00015 state file, which maps to `review` on resume. The review
-surface runs in its own fresh session and loops: review (Phase 4) → decision
-gate (Phase 5) → rework (Phase 6) → back to Phase 4, until convergence or the
-cap. Blind and doubt scrutiny are LENSES inside every review cycle, not
-separate phases. Core `SKILL.md` (always loaded) carries the shared mechanics.
+value from a pre-00015 state file, which maps to `review` on resume. Each review
+cycle runs in its own fresh session: review (Phase 4) → decision gate (Phase 5)
+→ rework (Phase 6); Phase 6 then hands off to a fresh session for the next cycle
+(**review → review**), or to the finalize session on convergence
+(**review → done**), until convergence or the cap. Blind and doubt scrutiny are
+LENSES inside every review cycle, not separate phases. Core `SKILL.md` (always
+loaded) carries the shared mechanics.
 
 ## Phase 4: Review
 
@@ -138,7 +140,7 @@ The next session runs Phase 9 (`references/phase-done.md`), skipping Phases 4-6 
 
 ## Phase 6: Rework
 
-**Session model:** Phase 6 runs in the same session as Phase 4 (the `review` surface). The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate rework handoff is needed: the review session handles review quality; per-task dispatch handles implementation correctness.
+**Session model:** Phase 6 runs in the same session as Phase 4 (the `review` surface) — one review cycle (Phase 4 → 5 → 6) per session. The per-task tier escalation in `/work` step 3 (dispatching each task as a separate Agent call at `metadata.model`) means the actual rework implementation runs at the escalated tier (haiku/sonnet/opus) regardless of the outer session. No separate *within-cycle* rework handoff is needed: the review session handles review quality; per-task dispatch handles implementation correctness. (The **review → review** handoff to the *next* cycle's session happens after `/work` returns — see "After /work returns" below.)
 
 Two task kinds enter this phase:
 
