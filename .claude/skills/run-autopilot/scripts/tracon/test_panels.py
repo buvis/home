@@ -884,9 +884,9 @@ def test_fleet_cells_project_cell_plain_when_wrapper_not_alive() -> None:
 
 def test_build_head_shows_wrapper_chip_when_wrapper_alive() -> None:
     rendered = _render(_head(wrapper=True))
-    assert "⟳ wrapper" in rendered
+    assert "⟳ autoclaude" in rendered
 
 
 def test_build_head_omits_wrapper_chip_when_wrapper_not_alive() -> None:
     rendered = _render(_head(wrapper=False))
-    assert "⟳ wrapper" not in rendered
+    assert "⟳ autoclaude" not in rendered

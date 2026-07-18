@@ -203,7 +203,8 @@ def build_head(
 
     row1 = _row_head(state)
     if wrapper:
-        row1.append(" · ⟳ wrapper")
+        # the autoclaude relaunch wrapper is alive: sessions auto-continue
+        row1.append(" · ⟳ autoclaude")
 
     row2 = phase_strip(state)
     row2.no_wrap = True

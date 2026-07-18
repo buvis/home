@@ -144,7 +144,7 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
 
     class DetailScreen(Screen):
         BINDINGS = [
-            Binding("escape", "app.pop_screen", "Back"),
+            Binding("escape", "app.pop_screen", "All loops"),
             Binding("f", "toggle_follow", "Toggle Follow"),
             Binding("q", "app.detach", "Detach"),
             Binding("p", "pause_loop", "Pause"),
