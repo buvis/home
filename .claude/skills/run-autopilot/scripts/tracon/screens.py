@@ -31,6 +31,16 @@ THEME_FILE = Path.home() / ".claude" / "tracon-theme"
 # prior session) falls back to "stopped" rather than being echoed verbatim.
 _SIGNAL_LABELS = {"done": "drained", "died": "died", "paused": "paused"}
 
+# Operator runbook per exit label. "stopped" covers both an operator pause
+# (marker consumed, no row written) and a killed wrapper — state is intact
+# either way, so the same next step holds.
+_NEXT_STEPS = {
+    "drained": "backlog empty — nothing queued.",
+    "paused": "needs a decision: `claude` → /run-autopilot answers the blocker, then `autoclaude`.",
+    "died": "check dev/local/autopilot/last-session.log, then rerun `autoclaude`.",
+    "stopped": "state intact — rerun `autoclaude` to continue the batch.",
+}
+
 
 def _final_signal_label(root: Path | None) -> str:
     """Classify a wrapper-dead loop exit, state.json first.
@@ -148,7 +158,7 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
         except OSError as exc:
             app.notify(f"pause-requested write failed: {exc}", severity="error")
             return
-        app.notify("pause requested — pauses when the current session ends")
+        app.notify("pause requested — pauses when the current session ends; resume with `autoclaude`")
 
     class DetailScreen(Screen):
         BINDINGS = [
@@ -277,7 +287,8 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             self._label = label
 
         def compose(self) -> ComposeResult:
-            yield Static(f"loop exited: {self._label}")
+            hint = _NEXT_STEPS.get(self._label, "")
+            yield Static(f"loop exited: {self._label}" + (f"\n{hint}" if hint else ""))
 
     class TraconApp(App):
         # Stock scrollbar colors vanish against dark terminal palettes.
@@ -329,7 +340,8 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
                 self._wrapper_alive = False
                 label = _final_signal_label(wrapper_root)
                 self.push_screen(_WrapperDeadScreen(label))
-                self.set_timer(2.0, lambda: self.exit(return_code=3))
+                # long enough to read the next-steps line before the exit
+                self.set_timer(5.0, lambda: self.exit(return_code=3))
 
     return TraconApp()
 
