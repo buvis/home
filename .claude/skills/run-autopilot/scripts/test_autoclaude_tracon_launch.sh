@@ -1401,12 +1401,15 @@ grep -qF -- "--repo $REPO26" "$PURGE_CALLS26" || fail "scenario 26: recorded pur
 echo "PASS: the drained branch's real dev/local GC call is intercepted by the python3() stub, never the real purge_devlocal.py — sandbox repo untouched, call recorded (scenario 26)"
 
 # ── Scenario 27: registry removal on the memory-pressure circuit-breaker
-#    exit (plugin's sysctl check, top of the loop) — untested by scenarios
-#    1-26. `_reg` is only assigned after the FIRST session's registry write
-#    (later in the same loop body), so a pressure trip on the very first
-#    pass never has a registry file to remove; drive one normal "continue"
-#    session first, then trip sysctl to >=2 on the SECOND pass so the
-#    removal actually exercises a live registry entry ────────────────────
+#    exit AFTER exhausting the wait budget (plugin's sysctl check, top of the
+#    loop) — untested by scenarios 1-26. `_reg` is only assigned after the
+#    FIRST session's registry write (later in the same loop body), so a
+#    pressure trip on the very first pass never has a registry file to
+#    remove; drive one normal "continue" session first, then trip sysctl to
+#    >=2 on the SECOND pass. _AUTOPILOT_MEM_WAIT_MAX=0 forces the wait-poll
+#    deadline to be already past on its first check (matching scenario 7's
+#    network-retry pattern), so the loop gives up after exactly one elevated
+#    reading with no real sleep ─────────────────────────────────────────────
 AP27="$TMP1/s27/dev/local/autopilot"
 mkdir -p "$AP27"
 printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010027"}}' >"$AP27/state.json"
@@ -1422,15 +1425,17 @@ claude() {
 }
 sysctl() { [ -s "$CLAUDE_COUNT27" ] && echo 2 || echo 1; } # pressure only AFTER the first session ran
 
+export _AUTOPILOT_MEM_WAIT_MAX=0
 run_loop "$AP27"
 rc27=$?
+unset _AUTOPILOT_MEM_WAIT_MAX
 sysctl() { echo 1; } # restore the shared no-pressure stub for later scenarios
 
 [ "$rc27" -eq 1 ] || fail "scenario 27: memory-pressure exit did not return 1 (rc=$rc27)"
 [ "$(wc -l <"$CLAUDE_COUNT27")" -eq 1 ] || fail "scenario 27: expected exactly 1 claude invocation before the memory-pressure trip stopped the loop, got $(wc -l <"$CLAUDE_COUNT27")"
 [ -z "$(command ls -A "$LOOPS27" 2>/dev/null)" ] || fail "scenario 27: registry dir $LOOPS27 not empty after the memory-pressure exit: $(command ls "$LOOPS27")"
 
-echo "PASS: registry removal on the memory-pressure circuit-breaker exit (scenario 27)"
+echo "PASS: registry removal on the memory-pressure circuit-breaker exit after the wait budget is exhausted (scenario 27)"
 
 # ── Scenario 28: registry removal on the operator pause-requested exit
 #    (`<ap_dir>/pause-requested`, checked after the registry write) —
@@ -2091,6 +2096,46 @@ grep -qF '1. claude' "$ERR39" ||
 [ -z "$(command ls -A "$LOOPS39" 2>/dev/null)" ] || fail "scenario 39: registry dir $LOOPS39 not empty after the paused exit: $(command ls "$LOOPS39")"
 
 echo "PASS: a paused loop's resume-runbook diagnostics reach the PARENT autoclaude call's own stderr via _autoclaude_tracon_surface, driven end-to-end through its live wiring (scenario 39)"
+
+# ── Scenario 40: memory pressure that CLEARS mid-wait lets the loop resume
+#    and launch the next session normally, instead of hard-stopping (the old
+#    behavior, still covered by scenario 27's exhausted-budget case). sysctl
+#    reports elevated for the first two checks (the pre-loop check + one
+#    poll), then clears on the third; sleep is stubbed to a no-op so the
+#    poll loop's `date +%s` deadline math runs with no real wall-clock wait ─
+AP40="$TMP1/s40/dev/local/autopilot"
+mkdir -p "$AP40"
+printf '%s\n' '{"prd":"tracon-test.md","next_phase":"build","batch":{"id":"209901010040"}}' >"$AP40/state.json"
+LOOPS40="$TMP1/s40-registry"
+export _AUTOPILOT_LOOPS_DIR="$LOOPS40"
+
+CLAUDE_COUNT40="$TMP1/s40-claude-count"
+: >"$CLAUDE_COUNT40"
+claude() {
+  printf 'x\n' >>"$CLAUDE_COUNT40"
+  printf '%s\n' '{"prd":"tracon-test.md","next_phase":"","batch":{"id":"209901010040"}}' >"$AP_DIR/state.json"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{"output_tokens":1}}'
+}
+
+POLL_COUNT40="$TMP1/s40-poll-count"
+: >"$POLL_COUNT40"
+sysctl() {
+  printf 'x\n' >>"$POLL_COUNT40"
+  [ "$(wc -l <"$POLL_COUNT40")" -le 2 ] && echo 2 || echo 1 # pressure clears on the 3rd check
+}
+sleep() { :; } # no real wall-clock wait; the deadline math still uses date +%s
+
+run_loop "$AP40"
+rc40=$?
+sleep() { command sleep "$@"; } # restore real sleep for any scenario appended after this one
+sysctl() { echo 1; }            # restore the shared no-pressure stub for later scenarios
+
+[ "$rc40" -eq 0 ] || fail "scenario 40: loop did not resume and drain after memory pressure cleared (rc=$rc40)"
+[ "$(wc -l <"$CLAUDE_COUNT40")" -eq 1 ] || fail "scenario 40: expected exactly 1 claude invocation once pressure cleared, got $(wc -l <"$CLAUDE_COUNT40")"
+[ "$(wc -l <"$POLL_COUNT40")" -ge 3 ] || fail "scenario 40: expected at least 3 sysctl polls (2 elevated + 1 clear) before the session launched, got $(wc -l <"$POLL_COUNT40")"
+[ -z "$(command ls -A "$LOOPS40" 2>/dev/null)" ] || fail "scenario 40: registry dir $LOOPS40 not empty after the drained exit: $(command ls "$LOOPS40")"
+
+echo "PASS: memory pressure clearing mid-wait lets the loop resume and launch the next session normally (scenario 40)"
 
 # G3: natural-completion cleanup for the $TMP1 scratch tree (~line 201) — see
 # that note for why this is a plain end-of-script `rm -rf`, not a trap.

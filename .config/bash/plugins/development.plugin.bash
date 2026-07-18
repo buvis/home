@@ -278,17 +278,34 @@ autoclaude() {
     # Memory circuit-breaker (2026-06-25): refuse to launch a session when the
     # machine is already under memory pressure. An overnight run fanned out
     # concurrent cargo/rustc builds and exhausted RAM (jetsam -> logout ->
-    # ENOMEM lockout). Stopping loud beats piling another build-heavy session
-    # onto a stressed box. Level: 1 normal, 2 warning, 4 critical.
+    # ENOMEM lockout). Level: 1 normal, 2 warning, 4 critical.
+    # Wait-and-retry (2026-07-18): a transient spike (another app, a build)
+    # used to hard-stop the whole loop and need a human to notice and re-run
+    # it. Poll instead, same check-then-sleep shape as the network-outage
+    # wait above: bounded by _AUTOPILOT_MEM_WAIT_MAX so sustained pressure
+    # still stops loud rather than polling forever.
     local _mem_pressure
     _mem_pressure=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null)
     if [ -n "$_mem_pressure" ] && [ "$_mem_pressure" -ge 2 ] 2>/dev/null; then
-      printf '\nautoclaude: memory pressure (level %s); stopping loop before launching next session. Free RAM, then re-run.\n' "$_mem_pressure" >&2
-      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: memory pressure (level $_mem_pressure). Free RAM, then re-run autoclaude." 2>/dev/null
-      trap - INT TERM HUP
-      [ -n "$_reg" ] && rm -f "$_reg"
-      unset _AUTOPILOT_LOOP
-      return 1
+      printf '\nautoclaude: memory pressure (level %s); waiting for it to clear before launching next session.\n' "$_mem_pressure" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⏳ ${PWD##*/}" "Waiting: memory pressure (level $_mem_pressure)." 2>/dev/null
+      local _mem_max="${_AUTOPILOT_MEM_WAIT_MAX:-3600}" _mem_deadline
+      _mem_deadline=$(($(date +%s) + _mem_max))
+      while :; do
+        [ "$(date +%s)" -ge "$_mem_deadline" ] && break
+        sleep "${_AUTOPILOT_MEM_POLL_SECS:-60}"
+        _mem_pressure=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null)
+        { [ -n "$_mem_pressure" ] && [ "$_mem_pressure" -ge 2 ] 2>/dev/null; } || break
+      done
+      if [ -n "$_mem_pressure" ] && [ "$_mem_pressure" -ge 2 ] 2>/dev/null; then
+        printf '\nautoclaude: memory pressure still elevated (level %s) after %ss; stopping loop. Free RAM, then re-run.\n' "$_mem_pressure" "$_mem_max" >&2
+        python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Stopped: memory pressure (level $_mem_pressure) did not clear within ${_mem_max}s. Free RAM, then re-run autoclaude." 2>/dev/null
+        trap - INT TERM HUP
+        [ -n "$_reg" ] && rm -f "$_reg"
+        unset _AUTOPILOT_LOOP
+        return 1
+      fi
+      printf '\nautoclaude: memory pressure cleared (level %s); resuming.\n' "$_mem_pressure" >&2
     fi
 
     # Resolve the autopilot dir once, BEFORE launch: the pause check, the
