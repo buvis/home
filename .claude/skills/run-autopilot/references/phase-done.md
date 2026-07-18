@@ -15,7 +15,11 @@ loaded) carries the shared mechanics and the test-pinned invariants.
 
 3. Move the PRD from `wip/` to `done/` (use `mv`, keep the `00XXX-` prefix) under the **verified-move invariant** (core `SKILL.md` § "Phase 9 invariants"): confirm arrival in `dev/local/prds/done/`, else pause with `site: "mv_verify"` — never append to `completed_prds` or advance with the PRD in the wrong folder.
 
-4. Append completed PRD to `batch.completed_prds` in state file
+4. Append completed PRD to `batch.completed_prds` in state file, and reset
+   `batch.parks_consecutive = 0` — a healthy PRD drain clears the systemic-park
+   breaker so a later `wrapper_died` park starts counting fresh (see
+   `references/recovery.md` § Systemic-park breaker interaction). `batch` is
+   preserved in full at step 10, so this reset value carries into the next PRD.
 
 5. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
 
