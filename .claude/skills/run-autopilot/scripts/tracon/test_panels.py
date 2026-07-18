@@ -455,14 +455,11 @@ def test_row4_ctx_percent_stays_dim_when_far_from_the_cap() -> None:
 # --- build_head: row 1 fields --------------------------------------------------
 
 
-def test_needs_attention_marker_shown_when_true() -> None:
+def test_row1_never_repeats_the_needs_attention_marker() -> None:
+    """Attention renders once: the row-4 status (classify rank 0) plus the
+    red phase strip. A third marker on row 1 was indicator overload."""
     rendered = _render(_head(state=_state(needs_attention=True)))
-    assert "⚠ needs attention" in rendered
-
-
-def test_needs_attention_marker_absent_when_false() -> None:
-    rendered = _render(_head(state=_state(needs_attention=False)))
-    assert "⚠ needs attention" not in rendered
+    assert "needs attention" not in rendered
 
 
 def test_guard_detail_shown_when_guards_present() -> None:

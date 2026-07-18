@@ -1009,7 +1009,7 @@ def test_pause_pending_status_suffixes_the_label_while_marker_exists(
     (autopilot_dir / "pause-requested").touch()
     idle = _idle_status()
 
-    out = discovery.pause_pending_status(idle, tmp_path)
+    out = discovery.pause_pending_status(idle, tmp_path, True)
 
     assert out.label == "○ idle 5m00s · ⏸ pause requested"
     assert (out.style, out.rank, out.in_flight) == (idle.style, idle.rank, idle.in_flight)
@@ -1017,7 +1017,20 @@ def test_pause_pending_status_suffixes_the_label_while_marker_exists(
 
 def test_pause_pending_status_identity_without_marker(tmp_path: Path) -> None:
     idle = _idle_status()
-    assert discovery.pause_pending_status(idle, tmp_path) is idle
+    assert discovery.pause_pending_status(idle, tmp_path, True) is idle
+
+
+def test_pause_pending_status_identity_when_no_wrapper_alive(
+    tmp_path: Path,
+) -> None:
+    """With no live wrapper the marker is inert; the chip would only pile
+    onto the paused/orphaned indicators."""
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    (autopilot_dir / "pause-requested").touch()
+    idle = _idle_status()
+
+    assert discovery.pause_pending_status(idle, tmp_path, False) is idle
 
 
 # --- discover_loops: union of ~/.claude, gita CSV rows, live registry roots -

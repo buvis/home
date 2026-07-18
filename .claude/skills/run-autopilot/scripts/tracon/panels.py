@@ -116,8 +116,8 @@ def _row_head(state: model.LoopState) -> Text:
         g_texts = [f"{label}: {detail}" for label, detail in gs]
         row1.append(" · " + ", ".join(g_texts))
 
-    if state.needs_attention:
-        row1.append(" · ⚠ needs attention")
+    # needs_attention renders once, as the row-4 status (classify rank 0)
+    # plus the red phase strip — not as a third marker here.
 
     task_name = model.current_task_name(state)
     if task_name:

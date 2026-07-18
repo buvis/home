@@ -212,7 +212,8 @@ def guards(state: LoopState) -> list[tuple[str, str]]:
     if "cap_pause_reason" in raw:
         v = raw["cap_pause_reason"]
         if isinstance(v, dict) and "cycle" in v and "cap" in v:
-            result.append(("cap-pause", f"cycle {v['cycle']}/{v['cap']}"))
+            # row 1's `cycle x/y` counter already carries the numbers
+            result.append(("cap-pause", "at cap"))
         else:
             result.append(("cap-pause", "present"))
 
@@ -229,13 +230,8 @@ def guards(state: LoopState) -> list[tuple[str, str]]:
     if "phase_guard" in raw:
         result.append(("guard", "phase"))
 
-    if (
-        state.cycle is not None
-        and state.rework_cap is not None
-        and state.cycle >= state.rework_cap
-    ):
-        result.append(("cycle", f"{state.cycle}/{state.rework_cap}"))
-
+    # No standalone cycle-at-cap guard: row 1 always renders `cycle x/y`,
+    # and the acted-on case surfaces as cap-pause above.
     return result
 
 

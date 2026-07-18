@@ -1130,6 +1130,37 @@ def test_ctrl_c_stops_the_loop_with_return_code_130(
     asyncio.run(_drive())
 
 
+@pytest.mark.ui
+def test_ctrl_c_with_live_wrapper_requires_a_confirming_second_press(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When exit 130 would stop a real loop, one stray ctrl+c must not kill
+    a days-long batch: first press warns, second press within the window
+    stops."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+
+    async def _drive() -> None:
+        app = screens.build_app([], wrapper_pid=os.getpid())
+        async with app.run_test() as pilot:
+            notifications: list[Any] = []
+            app.notify = lambda *a, **kw: notifications.append((a, kw))
+
+            await pilot.pause()
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+            assert app.return_code is None  # armed, not exited
+            assert any("press again" in str(a) for a, _ in notifications)
+
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+            assert app.return_code == 130
+
+    asyncio.run(_drive())
+
+
 # --- p: tracon's only write, anywhere ----------------------------------------
 
 
@@ -1163,6 +1194,36 @@ def test_p_on_detail_screen_writes_only_the_pause_requested_marker(
 
 
 @pytest.mark.ui
+def test_f_toggle_confirms_follow_state_with_a_toast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Toggling follow is invisible unless lines are streaming — f must say
+    what it just did."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            notifications: list[Any] = []
+            app.notify = lambda *a, **kw: notifications.append((a, kw))
+
+            await pilot.pause()
+            await pilot.press("f")
+            await pilot.pause()
+            assert any("follow off" in str(a) for a, _ in notifications)
+
+            await pilot.press("f")
+            await pilot.pause()
+            assert any("follow on" in str(a) for a, _ in notifications)
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
 def test_p_success_confirms_with_a_toast(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1189,9 +1250,27 @@ def test_p_success_confirms_with_a_toast(
     asyncio.run(_drive())
 
 
-def test_detail_head_shows_pending_chip_while_pause_marker_exists(
+def test_detail_head_shows_pending_chip_while_pause_marker_awaits_live_wrapper(
     tmp_path: Path,
 ) -> None:
+    from tracon import discovery, screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    (root / "dev" / "local" / "autopilot" / "pause-requested").touch()
+    registry_entry = {"pid": os.getpid(), "root": str(root.resolve())}
+    (discovery.LOOPS_DIR / "wrapper.json").write_text(json.dumps(registry_entry))
+
+    collector = screens.Collector(root)
+    panel, _ = collector.head()
+
+    assert "⏸ pause requested" in _render(panel)
+
+
+def test_detail_head_hides_pending_chip_when_no_wrapper_will_honor_it(
+    tmp_path: Path,
+) -> None:
+    """After the loop stops, a leftover marker is inert — piling the chip
+    onto the paused/orphaned indicators was overload."""
     from tracon import screens
 
     root = _make_loop(tmp_path / "loop-a")
@@ -1200,7 +1279,7 @@ def test_detail_head_shows_pending_chip_while_pause_marker_exists(
     collector = screens.Collector(root)
     panel, _ = collector.head()
 
-    assert "⏸ pause requested" in _render(panel)
+    assert "⏸ pause requested" not in _render(panel)
 
 
 @pytest.mark.ui
