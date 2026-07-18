@@ -85,6 +85,14 @@ run_with_timeout() {
     AP_DIR="$dir/dev/local/autopilot"
     _AUTOPILOT_LOOPS_DIR="$dir/loops"
     PATH="$dir/bin:$PATH"
+    # This suite may itself run from inside an autoclaude loop (a headless
+    # review session, or a nested batch), which exports _AUTOPILOT_TRACON_CHILD
+    # and _AUTOPILOT_LOOP into every subshell. The sandboxed autoclaude below is
+    # NOT a process-group leader, so an inherited _AUTOPILOT_TRACON_CHILD trips
+    # its pgrp self-guard and every scenario returns 1. Strip both so the
+    # sandbox runs a clean top-level loop; autoclaude re-exports its own
+    # _AUTOPILOT_LOOP. (_AUTOPILOT_LOOPS_DIR is already overridden above.)
+    unset _AUTOPILOT_TRACON_CHILD _AUTOPILOT_LOOP
     # The wrapper targets a normal interactive shell (no set -u); the suite's
     # own `set -u` would trip pre-existing unguarded expansions inside
     # autoclaude (e.g. _AUTOPILOT_TRACON_CHILD) before any session launches.
@@ -301,6 +309,348 @@ after_content=$(cat "$SBOX_D/dev/local/autopilot/park-requested")
           "before: $MARKER_CONTENT / after: $after_content"
 
 PASS "stale unconsumed marker (age >= _AUTOPILOT_SESSION_MAX) halts on the FIRST guarded encounter via age, content byte-identical"
+
+# =============================================================================
+# Coverage 7 — synthetic two-PRD batch: happy park (wrapper_died stall,
+# PRD moved to hold/, batch continues and drains the second PRD)
+# =============================================================================
+
+SBOX_E=$(mktemp -d); _DIRS+=("$SBOX_E")
+mkdir -p "$SBOX_E/dev/local/autopilot" "$SBOX_E/dev/local/prds/wip" "$SBOX_E/bin"
+printf '# PRD 00001-a\n' >"$SBOX_E/dev/local/prds/wip/00001-a.md"
+printf '# PRD 00002-b\n' >"$SBOX_E/dev/local/prds/wip/00002-b.md"
+printf '%s\n' '{"prd":"00001-a.md","next_phase":"build","batch":{"id":"e1"}}' \
+  >"$SBOX_E/dev/local/autopilot/state.json"
+touch -t 202601010000 "$SBOX_E/dev/local/autopilot/state.json"
+
+# Stub simulates the skill's Phase 0 park handler in-process: when it sees
+# park-requested at session start it moves the named wip PRD to hold/, records
+# a wrapper_died stall, bumps batch.parks_consecutive, then selects the next
+# wip PRD and continues. Absent a marker, PRD 00001-a.md always dies (state
+# untouched); PRD 00002-b.md is healthy and drains on its first session.
+cat >"$SBOX_E/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+STATE="$DIR/dev/local/autopilot/state.json"
+MARKER="$DIR/dev/local/autopilot/park-requested"
+DEFERRED="$DIR/dev/local/autopilot/deferred/e1-deferred.json"
+
+if [ -f "$MARKER" ]; then
+  prd=$(jq -r '.prd' "$MARKER")
+  reason=$(jq -r '.reason' "$MARKER")
+  if [ -f "$DIR/dev/local/prds/wip/$prd" ]; then
+    mkdir -p "$DIR/dev/local/prds/hold"
+    mv "$DIR/dev/local/prds/wip/$prd" "$DIR/dev/local/prds/hold/$prd"
+    mkdir -p "$(dirname "$DEFERRED")"
+    jq -nc --arg detail "$reason" --arg prd "$prd" \
+      '{type:"stall", site:"wrapper_died", detail:$detail, prd:$prd}' >>"$DEFERRED"
+    parks=$(jq -r '.batch.parks_consecutive // 0' "$STATE")
+    parks=$((parks + 1))
+    next=$(ls "$DIR/dev/local/prds/wip" 2>/dev/null | sort | head -n1)
+    jq --argjson parks "$parks" --arg prd "$next" \
+      '.prd=$prd | .next_phase="build" | .batch.parks_consecutive=$parks' \
+      "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+  fi
+  rm -f "$MARKER"
+  echo '{"type":"result","subtype":"success","result":"park handled"}'
+  exit 0
+fi
+
+prd=$(jq -r '.prd' "$STATE" 2>/dev/null)
+case "$prd" in
+00002-b.md)
+  mkdir -p "$DIR/dev/local/prds/done"
+  mv "$DIR/dev/local/prds/wip/00002-b.md" "$DIR/dev/local/prds/done/00002-b.md"
+  jq '.next_phase=""' "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"output_tokens":10}}'
+  ;;
+*)
+  echo '{"type":"result","subtype":"success","result":"stub death (state untouched)"}'
+  ;;
+esac
+exit 0
+EOF
+chmod +x "$SBOX_E/bin/claude"
+
+_AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 _AUTOPILOT_SESSION_MAX=999999 \
+  run_with_timeout "$SBOX_E" 20
+rc_e=$RUN_RC
+[ -f "$SBOX_E/.timeout-fired" ] && FAIL "scenario happy-park: safety timeout" "loop did not converge within 20s"
+[ "$rc_e" -eq 0 ] || FAIL "scenario happy-park: drained loop returns 0" "rc=$rc_e"
+grep -q "Backlog drained" "$SBOX_E/stdout.log" \
+  || FAIL "scenario happy-park: prints Backlog drained" "$(cat "$SBOX_E/stdout.log")"
+
+[ -f "$SBOX_E/dev/local/prds/hold/00001-a.md" ] \
+  || FAIL "scenario happy-park: parked PRD moved to hold/" "00001-a.md not in hold/"
+[ ! -f "$SBOX_E/dev/local/prds/wip/00001-a.md" ] \
+  || FAIL "scenario happy-park: parked PRD removed from wip/" "00001-a.md still in wip/"
+[ ! -f "$SBOX_E/dev/local/prds/wip/00002-b.md" ] \
+  || FAIL "scenario happy-park: drained PRD removed from wip/" "00002-b.md still in wip/"
+
+DEFERRED_E="$SBOX_E/dev/local/autopilot/deferred/e1-deferred.json"
+[ -f "$DEFERRED_E" ] || FAIL "scenario happy-park: deferred stall recorded" "no deferred file at $DEFERRED_E"
+stall_count_e=$(jq -s '[.[] | select(.type=="stall" and .site=="wrapper_died" and .prd=="00001-a.md")] | length' "$DEFERRED_E")
+[ "$stall_count_e" -eq 1 ] \
+  || FAIL "scenario happy-park: exactly one wrapper_died stall for 00001-a.md" "got $stall_count_e"
+
+[ ! -f "$SBOX_E/dev/local/autopilot/park-requested" ] \
+  || FAIL "scenario happy-park: marker consumed exactly once" "marker still present at end"
+
+PASS "synthetic two-PRD batch: died PRD parks to hold/ with a recorded wrapper_died stall, batch continues and drains the second PRD"
+
+# =============================================================================
+# Coverage 8 — all-die systemic breaker: two consecutive wrapper_died parks
+# trip the systemic halt before the batch's third PRD is ever selected
+# =============================================================================
+
+SBOX_F=$(mktemp -d); _DIRS+=("$SBOX_F")
+mkdir -p "$SBOX_F/dev/local/autopilot" "$SBOX_F/dev/local/prds/wip" "$SBOX_F/bin"
+printf '# PRD 00001-a\n' >"$SBOX_F/dev/local/prds/wip/00001-a.md"
+printf '# PRD 00002-b\n' >"$SBOX_F/dev/local/prds/wip/00002-b.md"
+printf '# PRD 00003-c\n' >"$SBOX_F/dev/local/prds/wip/00003-c.md"
+printf '%s\n' '{"prd":"00001-a.md","next_phase":"build","batch":{"id":"f1"}}' \
+  >"$SBOX_F/dev/local/autopilot/state.json"
+touch -t 202601010000 "$SBOX_F/dev/local/autopilot/state.json"
+
+# Every PRD always dies; the marker-consuming session is the only source of
+# progress. It parks the dying PRD and bumps batch.parks_consecutive; at 2 it
+# halts systemically instead of selecting a next PRD.
+cat >"$SBOX_F/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+STATE="$DIR/dev/local/autopilot/state.json"
+MARKER="$DIR/dev/local/autopilot/park-requested"
+DEFERRED="$DIR/dev/local/autopilot/deferred/f1-deferred.json"
+
+if [ -f "$MARKER" ]; then
+  prd=$(jq -r '.prd' "$MARKER")
+  reason=$(jq -r '.reason' "$MARKER")
+  if [ -f "$DIR/dev/local/prds/wip/$prd" ]; then
+    mkdir -p "$DIR/dev/local/prds/hold"
+    mv "$DIR/dev/local/prds/wip/$prd" "$DIR/dev/local/prds/hold/$prd"
+    mkdir -p "$(dirname "$DEFERRED")"
+    jq -nc --arg detail "$reason" --arg prd "$prd" \
+      '{type:"stall", site:"wrapper_died", detail:$detail, prd:$prd}' >>"$DEFERRED"
+    parks=$(jq -r '.batch.parks_consecutive // 0' "$STATE")
+    parks=$((parks + 1))
+    if [ "$parks" -ge 2 ]; then
+      jq --argjson parks "$parks" \
+        '.phase="paused" | .batch.parks_consecutive=$parks
+         | .pause_reason={site:"systemic_park",detail:"two consecutive parks"}
+         | .next_phase="paused"' \
+        "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+    else
+      next=$(ls "$DIR/dev/local/prds/wip" 2>/dev/null | sort | head -n1)
+      jq --argjson parks "$parks" --arg prd "$next" \
+        '.prd=$prd | .next_phase="build" | .batch.parks_consecutive=$parks' \
+        "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+    fi
+  fi
+  rm -f "$MARKER"
+  echo '{"type":"result","subtype":"success","result":"park handled"}'
+  exit 0
+fi
+
+echo '{"type":"result","subtype":"success","result":"stub death (always dies)"}'
+exit 0
+EOF
+chmod +x "$SBOX_F/bin/claude"
+
+_AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 _AUTOPILOT_SESSION_MAX=999999 \
+  run_with_timeout "$SBOX_F" 25
+rc_f=$RUN_RC
+[ -f "$SBOX_F/.timeout-fired" ] && FAIL "scenario systemic: safety timeout" "loop did not converge within 25s"
+
+paused_ok=0
+[ "$rc_f" -eq 1 ] && paused_ok=1
+if [ "$paused_ok" -eq 0 ]; then
+  phase_f=$(jq -r '.phase // ""' "$SBOX_F/dev/local/autopilot/state.json" 2>/dev/null)
+  site_f=$(jq -r '.pause_reason.site // ""' "$SBOX_F/dev/local/autopilot/state.json" 2>/dev/null)
+  [ "$phase_f" = "paused" ] && [ "$site_f" = "systemic_park" ] && paused_ok=1
+fi
+[ "$paused_ok" -eq 1 ] \
+  || FAIL "scenario systemic: two consecutive wrapper_died parks halt loud (systemic_park)" "rc=$rc_f, state=$(cat "$SBOX_F/dev/local/autopilot/state.json" 2>/dev/null)"
+
+[ -f "$SBOX_F/dev/local/prds/wip/00003-c.md" ] \
+  || FAIL "scenario systemic: batch stops before the third PRD is ever selected" "00003-c.md missing from wip/"
+
+PASS "all-die batch trips the systemic breaker at 2 consecutive wrapper_died parks; the third PRD is never selected"
+
+# =============================================================================
+# Coverage 9 — park-loop guard, COUNT bound: a fresh (non-stale) unconsumed
+# marker is relaunched at most _AUTOPILOT_DIED_RETRIES_MAX times, then halts
+# loud — distinct from Coverage 6's AGE bound
+# =============================================================================
+
+SBOX_G=$(mktemp -d); _DIRS+=("$SBOX_G")
+mkdir -p "$SBOX_G/dev/local/autopilot" "$SBOX_G/bin"
+printf '%s\n' '{"prd":"00004-w.md","next_phase":"build","batch":{"id":"g1"}}' \
+  >"$SBOX_G/dev/local/autopilot/state.json"
+touch -t 202601010000 "$SBOX_G/dev/local/autopilot/state.json"
+
+MARKER_CONTENT_G='{"prd":"00099-old.md","reason":"pre-existing unconsumed marker"}'
+printf '%s\n' "$MARKER_CONTENT_G" >"$SBOX_G/dev/local/autopilot/park-requested"
+# Deliberately NOT backdated: mtime is "now", so the AGE bound cannot fire —
+# only the relaunch COUNT bound can halt this scenario.
+
+cat >"$SBOX_G/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+echo '{"type":"result","subtype":"success","result":"stub death (always dies)"}'
+exit 0
+EOF
+chmod +x "$SBOX_G/bin/claude"
+
+_AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 _AUTOPILOT_SESSION_MAX=999999 \
+  run_with_timeout "$SBOX_G" 20
+rc_g=$RUN_RC
+[ -f "$SBOX_G/.timeout-fired" ] && FAIL "scenario count-guard: safety timeout" "loop did not converge within 20s"
+[ "$rc_g" -eq 1 ] || FAIL "scenario count-guard: unconsumed marker halts loud on the count bound" "rc=$rc_g"
+
+grep -qi "unconsumed" "$SBOX_G/stderr.log" \
+  || FAIL "scenario count-guard: halts with an unconsumed-marker message" "$(cat "$SBOX_G/stderr.log")"
+
+after_content_g=$(cat "$SBOX_G/dev/local/autopilot/park-requested")
+[ "$after_content_g" = "$MARKER_CONTENT_G" ] \
+  || FAIL "scenario count-guard: marker content never overwritten" \
+          "before: $MARKER_CONTENT_G / after: $after_content_g"
+
+PASS "fresh unconsumed park-requested marker is relaunched at most _AUTOPILOT_DIED_RETRIES_MAX times then halts loud on the count bound, marker byte-unchanged"
+
+# =============================================================================
+# Coverage 10 — stale park-requested marker (names a PRD not in wip/) is
+# discarded without a hold/ move or a parks_consecutive bump; selection
+# continues normally and the batch drains
+# =============================================================================
+
+SBOX_H=$(mktemp -d); _DIRS+=("$SBOX_H")
+mkdir -p "$SBOX_H/dev/local/autopilot" "$SBOX_H/dev/local/prds/wip" "$SBOX_H/bin"
+printf '# PRD 00005-v\n' >"$SBOX_H/dev/local/prds/wip/00005-v.md"
+printf '%s\n' '{"prd":"00099-ghost.md","reason":"stale test marker"}' \
+  >"$SBOX_H/dev/local/autopilot/park-requested"
+
+cat >"$SBOX_H/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+STATE="$DIR/dev/local/autopilot/state.json"
+MARKER="$DIR/dev/local/autopilot/park-requested"
+
+if [ -f "$MARKER" ]; then
+  prd=$(jq -r '.prd' "$MARKER")
+  if [ -f "$DIR/dev/local/prds/wip/$prd" ]; then
+    mkdir -p "$DIR/dev/local/prds/hold"
+    mv "$DIR/dev/local/prds/wip/$prd" "$DIR/dev/local/prds/hold/$prd"
+  fi
+  rm -f "$MARKER"
+fi
+
+next=$(ls "$DIR/dev/local/prds/wip" 2>/dev/null | sort | head -n1)
+jq -n --arg prd "$next" '{prd:$prd, next_phase:""}' >"$STATE"
+echo '{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"output_tokens":5}}'
+exit 0
+EOF
+chmod +x "$SBOX_H/bin/claude"
+
+_AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 _AUTOPILOT_SESSION_MAX=999999 \
+  run_with_timeout "$SBOX_H" 15
+rc_h=$RUN_RC
+[ -f "$SBOX_H/.timeout-fired" ] && FAIL "scenario stale-park: safety timeout" "loop did not converge within 15s"
+[ "$rc_h" -eq 0 ] || FAIL "scenario stale-park: drained loop returns 0" "rc=$rc_h"
+grep -q "Backlog drained" "$SBOX_H/stdout.log" \
+  || FAIL "scenario stale-park: prints Backlog drained" "$(cat "$SBOX_H/stdout.log")"
+
+[ ! -e "$SBOX_H/dev/local/prds/hold/00099-ghost.md" ] \
+  || FAIL "scenario stale-park: absent PRD named by a stale marker never appears in hold/" "00099-ghost.md was moved to hold/"
+[ ! -f "$SBOX_H/dev/local/autopilot/park-requested" ] \
+  || FAIL "scenario stale-park: marker consumed (deleted)" "marker still present"
+
+PASS "stale park-requested marker (PRD absent from wip/) is discarded without a hold/ move; selection continues and the batch drains"
+
+# =============================================================================
+# Coverage 11 — breaker reset on a healthy outcome: a healthy session resets
+# batch.parks_consecutive to 0, so a LATER wrapper_died park only reaches 1
+# and never trips the systemic breaker
+# =============================================================================
+
+SBOX_I=$(mktemp -d); _DIRS+=("$SBOX_I")
+mkdir -p "$SBOX_I/dev/local/autopilot" "$SBOX_I/dev/local/prds/wip" "$SBOX_I/bin"
+printf '# PRD 00001-a\n' >"$SBOX_I/dev/local/prds/wip/00001-a.md"
+printf '# PRD 00002-b\n' >"$SBOX_I/dev/local/prds/wip/00002-b.md"
+printf '# PRD 00003-c\n' >"$SBOX_I/dev/local/prds/wip/00003-c.md"
+printf '%s\n' '{"prd":"00001-a.md","next_phase":"build","batch":{"id":"i1"}}' \
+  >"$SBOX_I/dev/local/autopilot/state.json"
+touch -t 202601010000 "$SBOX_I/dev/local/autopilot/state.json"
+
+# 00001-a.md and 00003-c.md always die and park; 00002-b.md is healthy and,
+# mirroring the skill's Phase 9 reset, zeroes batch.parks_consecutive when it
+# completes — so the second wrapper_died park (00003-c.md) starts from 0.
+cat >"$SBOX_I/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+STATE="$DIR/dev/local/autopilot/state.json"
+MARKER="$DIR/dev/local/autopilot/park-requested"
+DEFERRED="$DIR/dev/local/autopilot/deferred/i1-deferred.json"
+
+if [ -f "$MARKER" ]; then
+  prd=$(jq -r '.prd' "$MARKER")
+  reason=$(jq -r '.reason' "$MARKER")
+  if [ -f "$DIR/dev/local/prds/wip/$prd" ]; then
+    mkdir -p "$DIR/dev/local/prds/hold"
+    mv "$DIR/dev/local/prds/wip/$prd" "$DIR/dev/local/prds/hold/$prd"
+    mkdir -p "$(dirname "$DEFERRED")"
+    jq -nc --arg detail "$reason" --arg prd "$prd" \
+      '{type:"stall", site:"wrapper_died", detail:$detail, prd:$prd}' >>"$DEFERRED"
+    parks=$(jq -r '.batch.parks_consecutive // 0' "$STATE")
+    parks=$((parks + 1))
+    next=$(ls "$DIR/dev/local/prds/wip" 2>/dev/null | sort | head -n1)
+    if [ -n "$next" ]; then
+      jq --argjson parks "$parks" --arg prd "$next" \
+        '.prd=$prd | .next_phase="build" | .batch.parks_consecutive=$parks' \
+        "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+    else
+      jq --argjson parks "$parks" \
+        '.next_phase="" | .batch.parks_consecutive=$parks' \
+        "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+    fi
+  fi
+  rm -f "$MARKER"
+  echo '{"type":"result","subtype":"success","result":"park handled"}'
+  exit 0
+fi
+
+prd=$(jq -r '.prd' "$STATE" 2>/dev/null)
+case "$prd" in
+00002-b.md)
+  mkdir -p "$DIR/dev/local/prds/done"
+  mv "$DIR/dev/local/prds/wip/00002-b.md" "$DIR/dev/local/prds/done/00002-b.md"
+  next=$(ls "$DIR/dev/local/prds/wip" 2>/dev/null | sort | head -n1)
+  jq --arg prd "$next" \
+    '.prd=$prd | .next_phase="build" | .batch.parks_consecutive=0' \
+    "$STATE" >"$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+  echo '{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"output_tokens":10}}'
+  ;;
+*)
+  echo '{"type":"result","subtype":"success","result":"stub death (state untouched)"}'
+  ;;
+esac
+exit 0
+EOF
+chmod +x "$SBOX_I/bin/claude"
+
+_AUTOPILOT_DIED_RETRIES_MAX=1 _AUTOPILOT_PARK_BACKOFF=0 _AUTOPILOT_SESSION_MAX=999999 \
+  run_with_timeout "$SBOX_I" 25
+rc_i=$RUN_RC
+[ -f "$SBOX_I/.timeout-fired" ] && FAIL "scenario breaker-reset: safety timeout" "loop did not converge within 25s"
+[ "$rc_i" -eq 0 ] \
+  || FAIL "scenario breaker-reset: drains without tripping the systemic breaker" "rc=$rc_i"
+grep -q "Backlog drained" "$SBOX_I/stdout.log" \
+  || FAIL "scenario breaker-reset: prints Backlog drained" "$(cat "$SBOX_I/stdout.log")"
+
+DEFERRED_I="$SBOX_I/dev/local/autopilot/deferred/i1-deferred.json"
+stall_count_i=$(jq -s '[.[] | select(.type=="stall")] | length' "$DEFERRED_I" 2>/dev/null)
+[ "$stall_count_i" -eq 2 ] \
+  || FAIL "scenario breaker-reset: two non-consecutive wrapper_died parks recorded" "got $stall_count_i"
+
+PASS "a healthy session between two wrapper_died parks resets batch.parks_consecutive; the systemic breaker never trips and the batch drains"
 
 # =============================================================================
 echo ""
