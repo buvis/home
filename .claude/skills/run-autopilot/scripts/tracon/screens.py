@@ -82,18 +82,9 @@ class Collector:
         self._usage.feed(event)
         self._tracker.feed(event)
 
-        texts = render_line(raw, event)
-        tag = self._tracker.tag_for(event)
-        if tag is not None:
-            label, color = tag
-            res = []
-            for t in texts:
-                p = Text(f"⟨{label}⟩ ", style=color)
-                p.append_text(t)
-                res.append(p)
-            texts = res
-
-        return event, texts
+        # render_stream already lane-tags subagent events with ⟨label⟩;
+        # prefixing our own tag doubled it (two truncated labels per line).
+        return event, render_line(raw, event)
 
     def reset_session(self) -> None:
         self._usage.reset()
@@ -114,6 +105,13 @@ class Collector:
 
     def head(self) -> tuple[Panel, int]:
         state, rows, status, counts = self.snapshot()
+        log_path = self._autopilot / "last-session.log"
+        try:
+            log_mtime: float | None = log_path.stat().st_mtime
+        except OSError:
+            log_mtime = None
+        wrapper = discovery.wrapper_alive(self.root)
+        status = discovery.limit_wait_status(status, log_path, log_mtime, wrapper, time.time())
         agents = panels.agents_row(self._tracker)
         panel = panels.build_head(
             state=state,
@@ -125,7 +123,7 @@ class Collector:
             root_name=self.root.name,
             session_start=self._tail.session_start,
             agents=agents,
-            wrapper=discovery.wrapper_alive(self.root),
+            wrapper=wrapper,
         )
         return panel, panels.head_rows(agents)
 
@@ -160,7 +158,9 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
 
         def compose(self) -> ComposeResult:
             yield Static(id="head")
-            yield RichLog(id="log", max_lines=LOG_KEEP, markup=False, auto_scroll=True)
+            # wrap=True + min_width=1: lines fold to the pane width (split
+            # terminals) instead of forcing a horizontal scrollbar.
+            yield RichLog(id="log", max_lines=LOG_KEEP, markup=False, auto_scroll=True, wrap=True, min_width=1)
             yield Footer()
 
         def on_mount(self) -> None:
@@ -272,6 +272,15 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
             yield Static(f"loop exited: {self._label}")
 
     class TraconApp(App):
+        # Stock scrollbar colors vanish against dark terminal palettes.
+        CSS = """
+        * {
+            scrollbar-color: #5ea8ff;
+            scrollbar-color-hover: #8cc4ff;
+            scrollbar-color-active: #b3d9ff;
+            scrollbar-background: #21252e;
+        }
+        """
         BINDINGS = [Binding("ctrl+c", "quit", "Stop loop", priority=True)]
 
         def on_mount(self) -> None:

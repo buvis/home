@@ -358,14 +358,12 @@ def test_row1_renders_em_dash_for_unknown_task_and_cycle_counts() -> None:
     assert "None" not in rendered
 
 
-def test_row1_phase_field_falls_back_to_em_dash_with_no_dangling_separator() -> None:
-    """The phase field follows the same precedence rule as
-    discovery.loop_status: `state.phase or state.next_phase or "—"`. With an
-    empty/absent LoopState (a missing or malformed state.json leaves both
-    phase and next_phase blank), row 1 must render a "—" placeholder rather
-    than an empty leading field before the prd separator, and phase_strip's
-    own trailing `" · " + current` suffix (row 2) must not dangle with
-    nothing after it."""
+def test_row1_renders_labeled_em_dash_placeholders_on_empty_state() -> None:
+    """With an empty/absent LoopState (a missing or malformed state.json),
+    row 1 must render labeled "—" placeholders rather than empty fields or
+    dangling separators, and phase_strip's own trailing `" · " + current`
+    suffix (row 2) must not dangle with nothing after it. Phase itself is
+    row 2's job — row 1 must not repeat it."""
     state = _state(
         prd="",
         phase="",
@@ -382,7 +380,7 @@ def test_row1_phase_field_falls_back_to_em_dash_with_no_dangling_separator() -> 
     texts = list(_iter_texts(panel))
 
     row1 = texts[0]
-    assert row1.plain == "— · — · task — · —"
+    assert row1.plain == "— · task — · cycle —"
 
     row2 = texts[1]
     assert row2.plain.endswith(" · —")
@@ -395,6 +393,63 @@ def test_backlog_and_wip_render_from_injected_prd_counts() -> None:
     rendered = _render(_head(prd_counts=(42, 17)))
     assert "42" in rendered
     assert "17" in rendered
+
+
+# --- build_head: row 3 batch stamp and burn rate ------------------------------
+
+
+def test_row3_names_the_batch_scope_with_its_start_stamp() -> None:
+    """sessions/elapsed/active/cost are batch totals that survive interrupts;
+    the `batch <stamp>` prefix is what tells the operator when they reset."""
+    import datetime as _dt
+
+    stamp = _dt.datetime.fromtimestamp(1000.0).strftime("%m-%d %H:%M")
+    rendered = _render(_head(rows=[_mrow(ts_start=1000.0)]))
+    assert f"batch {stamp}" in rendered
+
+
+def test_row3_omits_batch_stamp_when_start_unknown() -> None:
+    rendered = _render(_head(rows=[], batch_id="not-a-timestamp"))
+    assert "batch " not in rendered
+
+
+def test_row3_shows_hourly_burn_rate_once_active_time_is_meaningful() -> None:
+    rendered = _render(_head(rows=[_mrow(wall_secs=3600.0, cost_usd=36.0)]))
+    assert "$36.00/h" in rendered
+
+
+def test_row3_omits_burn_rate_under_ten_active_minutes() -> None:
+    rendered = _render(_head(rows=[_mrow(wall_secs=100.0, cost_usd=2.5)]))
+    assert "/h" not in rendered
+
+
+# --- build_head: row 4 labeled token counters and ctx gauge -------------------
+
+
+def test_row4_labels_each_token_counter_and_shows_ctx_percent() -> None:
+    """`tok ↑x ⤓y ↓z` read as three unnamed arrows (⤓ and ↓ are near-identical
+    glyphs); each counter now carries a word, and ctx shows the cap + percent."""
+    usage = _Usage(totals=(1_300_000, 44_100_000, 2_500), context=491_700)
+    rendered = _render(_head(usage=usage))
+    assert "in ↑1.3M" in rendered
+    assert "cache ⤓44.1M" in rendered
+    assert "out ↓2.5k" in rendered
+    assert "ctx 491.7k/500.0k" in rendered
+    assert "98%" in rendered
+
+
+def test_row4_ctx_percent_turns_red_near_the_rotation_cap() -> None:
+    panel = _head(usage=_Usage(context=491_700))
+    row4 = list(_iter_texts(panel))[3]
+    assert _styles_containing(row4, "bold red")
+
+
+def test_row4_ctx_percent_stays_dim_when_far_from_the_cap() -> None:
+    idle = Status(label="○ idle", style="dim", rank=3, in_flight=False)
+    panel = _head(usage=_Usage(context=100_000), status=idle)
+    row4 = list(_iter_texts(panel))[3]
+    assert not _styles_containing(row4, "red")
+    assert not _styles_containing(row4, "yellow")
 
 
 # --- build_head: row 1 fields --------------------------------------------------
@@ -420,12 +475,38 @@ def test_no_guard_text_when_guards_absent() -> None:
     assert "thrash" not in rendered
 
 
-def test_row1_shows_task_progress_and_cycle_fraction() -> None:
+def test_row1_shows_task_progress_and_labeled_cycle_fraction() -> None:
     rendered = _render(
         _head(state=_state(tasks_completed=2, tasks_total=6, cycle=1, rework_cap=3))
     )
     assert "task 2/6" in rendered
-    assert "1/3" in rendered
+    assert "cycle 1/3" in rendered
+
+
+def test_row1_does_not_repeat_the_phase_shown_on_the_phase_strip() -> None:
+    """Phase is rendered exactly once, on row 2's phase strip. The old row-1
+    `build · <prd>` prefix read as a separate fact from the strip below it."""
+    panel = _head(state=_state(phase="review"))
+    texts = list(_iter_texts(panel))
+    assert "review" not in texts[0].plain
+    assert "review" in texts[1].plain
+
+
+def test_row1_appends_current_task_name_from_state_tasks() -> None:
+    raw = {
+        "tasks": [
+            {"id": "t-1", "name": "Add validation endpoint", "status": "completed"},
+            {"id": "t-2", "name": "Write integration tests", "status": "in_progress"},
+            {"id": "t-3", "name": "Update docs", "status": "pending"},
+        ]
+    }
+    rendered = _render(_head(state=_state(raw=raw)))
+    assert "▸ Write integration tests" in rendered
+
+
+def test_row1_omits_task_name_marker_when_state_has_no_tasks() -> None:
+    rendered = _render(_head(state=_state(raw={})))
+    assert "▸" not in rendered
 
 
 def test_status_label_rendered_verbatim_without_recomputation() -> None:

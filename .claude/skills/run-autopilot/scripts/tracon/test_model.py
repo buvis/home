@@ -516,3 +516,56 @@ def test_signals_tuple_matches_spec() -> None:
 
 def test_tail_bytes_constant_matches_spec() -> None:
     assert model.TAIL_BYTES == 512 * 1024
+
+
+def test_usage_cap_mirrors_the_context_cap_hook() -> None:
+    """model.USAGE_CAP is a display copy of the rotation threshold; if the
+    hook's cap moves, the ctx gauge must move with it."""
+    import autopilot_context_cap_hook
+
+    assert model.USAGE_CAP == autopilot_context_cap_hook.USAGE_CAP
+
+
+# --- current_task_name -------------------------------------------------------
+
+
+def _state_with_tasks(tmp_path: Path, tasks: Any) -> model.LoopState:
+    return model.read_state(
+        _write_json(tmp_path / "state.json", {"phase": "build", "tasks": tasks})
+    )
+
+
+def test_current_task_name_prefers_in_progress_over_pending(tmp_path: Path) -> None:
+    state = _state_with_tasks(
+        tmp_path,
+        [
+            {"id": "t-1", "name": "Done thing", "status": "completed"},
+            {"id": "t-2", "name": "Queued thing", "status": "pending"},
+            {"id": "t-3", "name": "Running thing", "status": "in_progress"},
+        ],
+    )
+    assert model.current_task_name(state) == "Running thing"
+
+
+def test_current_task_name_falls_back_to_first_pending(tmp_path: Path) -> None:
+    state = _state_with_tasks(
+        tmp_path,
+        [
+            {"id": "t-1", "name": "Done thing", "status": "completed"},
+            {"id": "t-2", "name": "Queued thing", "status": "pending"},
+        ],
+    )
+    assert model.current_task_name(state) == "Queued thing"
+
+
+def test_current_task_name_empty_when_tasks_absent_or_malformed(
+    tmp_path: Path,
+) -> None:
+    assert model.current_task_name(_state_with_tasks(tmp_path, None)) == ""
+    assert model.current_task_name(_state_with_tasks(tmp_path, "not-a-list")) == ""
+    assert (
+        model.current_task_name(
+            _state_with_tasks(tmp_path, [{"status": "in_progress", "name": 7}, "junk"])
+        )
+        == ""
+    )

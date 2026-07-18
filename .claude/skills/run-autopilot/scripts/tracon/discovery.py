@@ -11,6 +11,7 @@ import csv
 import datetime as dt
 import json
 import os
+import sys
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -105,6 +106,47 @@ def _fmt_clock(ts: float | None) -> str:
     return dt.datetime.fromtimestamp(ts or 0.0).strftime("%H:%M")
 
 
+_LIMIT_CACHE: dict[Path, tuple[float, int | None]] = {}
+
+
+def limit_reset(log_path: Path, log_mtime: float | None) -> int | None:
+    """Reset epoch when the log tail ends in a usage-limit banner, else None.
+
+    Cached per (path, mtime): during the wrapper's limit sleep the log is
+    static, so the tick loop must not rescan it every 0.5s."""
+    if log_mtime is None:
+        return None
+    hit = _LIMIT_CACHE.get(log_path)
+    if hit is not None and hit[0] == log_mtime:
+        return hit[1]
+    scripts_dir = str(Path(__file__).resolve().parents[1])
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import detect_usage_limit
+
+    reset = detect_usage_limit.detect_from_log(log_path)
+    _LIMIT_CACHE[log_path] = (log_mtime, reset)
+    return reset
+
+
+def limit_wait_status(
+    status: Status, log_path: Path, log_mtime: float | None, wrapper: bool, now: float
+) -> Status:
+    """Upgrade idle-under-a-live-wrapper to a limit-wait countdown.
+
+    The wrapper sleeps inline until the usage-limit reset, appending no
+    metrics row, so classify() reads the gap as idle/died. A live wrapper
+    plus a future reset in the log tail proves the loop is waiting, not
+    dead. needs_attention (rank 0) stays on top."""
+    if not wrapper or status.in_flight or status.rank == 0:
+        return status
+    reset = limit_reset(log_path, log_mtime)
+    if reset is None or reset <= now:
+        return status
+    label = f"⏳ limit-wait {model.fmt_dur(reset - now)} → {_fmt_clock(float(reset))}"
+    return Status(label=label, style="yellow", rank=1, in_flight=False)
+
+
 def classify(
     state: LoopState, rows: Sequence[MetricsRow], log_mtime: float | None, now: float
 ) -> Status:
@@ -153,7 +195,9 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
     except OSError:
         log_mtime = None
 
+    wrapper = wrapper_alive(root)
     status = classify(state, rows, log_mtime, now)
+    status = limit_wait_status(status, log_path, log_mtime, wrapper, now)
     live_cost = model.scan_session_cost(log_path) if status.in_flight else 0.0
 
     if state.tasks_completed is not None and state.tasks_total is not None:
@@ -177,7 +221,7 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
         cost=sum(row.cost_usd for row in rows),
         live_cost=live_cost,
         sessions=len(rows),
-        wrapper=wrapper_alive(root),
+        wrapper=wrapper,
     )
 
 
