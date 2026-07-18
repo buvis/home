@@ -15,6 +15,64 @@ Before anything else — before the abort handlers and before PRD selection — 
 the lifecycle `mkdir -p` block from core `SKILL.md` § "Phase 0 invariants" as
 its own Bash call (idempotent; mandatory before any move can run).
 
+### Handle park request (FIRST abort-handler check)
+
+The wrapper parks a sick PRD by writing `dev/local/autopilot/park-requested` (a
+one-line JSON `{"prd": "<basename>", "reason": "<one-line cause>"}`) and
+relaunching — never by editing `state.json` (state surgery stays in-skill). This
+handler consumes the marker and parks the named PRD through the existing
+**Loop-mode stall procedure** (`references/recovery.md`), then continues
+selection. It runs BEFORE the `stall_reason` checks below. The pure decision core
+`park_decision(marker, wip_filenames, parks_consecutive)` in
+`scripts/resume_target.py` encodes the classification (no marker / malformed /
+stale / park→continue / park→systemic-halt); the steps below execute its verdict.
+
+**Marker delete is LAST — only after the park move succeeds.** Delete-before-park
+would, on a crash between consume and move, lose the marker with the PRD still in
+`wip/` and `parks_consecutive` un-incremented → an unbounded relaunch that defeats
+both the systemic breaker and the wrapper's park-loop guard. Delete-after-park is
+crash-safe: a mid-handler death leaves the marker intact → re-consumed next
+session, and the step-3 wip/ check makes re-consume idempotent (the PRD already
+reached `hold/`, so it is now "not in wip/" → stale → dropped).
+
+1. If `dev/local/autopilot/park-requested` is absent → fall through to the
+   existing abort handlers / Normal PRD selection.
+2. Read it. If `.prd` is absent/empty (malformed) → delete the marker, log
+   `autopilot: park-requested malformed; ignoring`, fall through.
+3. If `.prd` (bare basename) is NOT among the basenames of
+   `dev/local/prds/wip/*.md` → delete the marker, log `autopilot:
+   park-requested named <prd> not in wip/; ignoring`, fall through (stale or
+   duplicate marker — a between-PRD transient death, or a re-consume after a
+   mid-handler crash where the PRD already reached `hold/`). Do NOT touch
+   `parks_consecutive`.
+4. Else park it: run the **Loop-mode stall procedure** (`references/recovery.md`)
+   for `<prd>` with `site: "wrapper_died"`, `detail: <marker reason>`. That
+   performs the verified `wip/`→`hold/` move, the deferred-JSON
+   `{"type":"stall","site":"wrapper_died",...}` record, the per-PRD reset
+   (preserving `batch`), and `next_phase: "build"`.
+5. **Systemic-park breaker:** increment `state.batch.parks_consecutive` (default
+   0) by 1 **as part of the SAME state write the stall procedure (step 4) already
+   makes for the per-PRD reset** — one write, not a second, so there is no
+   move→increment→separate-write gap beyond the single move→write the stall
+   procedure already has.
+6. **Delete the marker now** (the PRD is safely in `hold/`).
+7. If `state.batch.parks_consecutive >= 2` → this is the 2nd+ consecutive
+   `wrapper_died` park with nothing healthy between: set `phase: "paused"`,
+   `next_phase: "paused"`,
+   `pause_reason: {"site": "systemic_park", "detail": "N consecutive PRDs parked via wrapper_died; batch halted"}`,
+   print the PAUSE banner, end the turn (sanctioned batch halt — the batch stops
+   before draining every PRD into `hold/`). Else print the STALLED banner (from
+   the stall procedure) and continue to Normal PRD selection, which picks the
+   next PRD.
+
+**Crash between the move (step 4) and its reset+increment write:** the marker is
+intact and the PRD is in `hold/`. Next session, step 3 sees the PRD not in `wip/`
+→ stale → delete + fall through: NO re-park, NO re-increment. That loses exactly
+ONE increment, which does not MISS the systemic halt — it DELAYS it by one PRD
+(the next `wrapper_died` park re-increments and the batch halts at PRD-(N+1)
+instead of PRD-N). Acceptable: the systemic case is already catastrophic and the
+halt is only postponed, never defeated.
+
 ### Handle Work-phase abort (from a prior session)
 
 Before anything else, read `dev/local/autopilot/state.json` and check `stall_reason`:

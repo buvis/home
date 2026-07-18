@@ -37,6 +37,39 @@ pausing. Interactive (non-loop) sites keep their PAUSE semantics.
    review lists every stall first, with resume instructions ("move back to
    wip/ and re-run").
 
+### Stall `site` slugs
+
+The `site` slug in step 2's deferred record names why the PRD stalled. Current
+slugs and their originating sites:
+
+- `wrapper_died` — the wrapper parked a PRD after a died-session retry budget
+  (or a fingerprint-thrash bound) exhausted; consumed by the Phase 0 "Handle
+  park request" handler (`references/phase-build.md`). The `detail` disambiguates
+  death vs thrash.
+- `design_gate` — a loop-mode Phase 1.5 design gate (`design_gate: user`) that
+  cannot ask a human; records the design doc path in the deferred `detail`.
+- `blocking_escalation` — a loop-mode Phase 5 blocking escalation; records the
+  blocking issue(s) in the deferred `detail`.
+- `oversized_task`, `escalation_exhausted`, `replan_exhausted` — the pre-existing
+  stall sites (plan-tasks oversize, rework tier-exhaustion, replan-loop
+  exhaustion) documented in their own handlers below.
+
+`scope_alarm` is NOT a stall slug: a loop-mode Phase 5 scope alarm defers the
+overflow (a deferred `scope-overflow` record) and continues; it never stalls the
+PRD (`references/phase-review.md` Safety Checks).
+
+### Systemic-park breaker interaction (`batch.parks_consecutive`)
+
+`batch.parks_consecutive` counts consecutive `wrapper_died` parks with no healthy
+PRD outcome between them; the Phase 0 park handler halts the batch at 2
+(`systemic_park`). To keep the count meaning "N death-parks in a row", this stall
+procedure **resets `batch.parks_consecutive = 0` in the SAME per-PRD reset write
+of step 3 whenever `site != "wrapper_died"`** — any non-`wrapper_died` stall
+proves in-skill code ran and made a decision, so the infrastructure is healthy.
+The one exception is `site == "wrapper_died"`: that stall does NOT reset the
+counter (the Phase 0 park handler increments it by 1 in its own reset write,
+step 5) — otherwise the breaker could never reach 2.
+
 ## Cap rotation
 
 Reached from **Phase 0** when `state.cap_rotations` gained an entry but no `stall_reason` is set. A Work turn during `build` exceeded the context cap; `autopilot_context_cap_hook.py` appended `{task_id, cycle}` to `state.cap_rotations`, reset the in-flight task's status to `pending`, and set `next_phase: "build"` — a ROTATION, not a replan. The session then ends its turn and the loop wrapper relaunches on the non-empty `next_phase`. There is nothing to do here: the rotation is lossless and needs no handler.
