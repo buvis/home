@@ -9,12 +9,15 @@ the `render_stream.py` pipe below with zero behavior change.
 
 ## Operator keys (foreground tracon)
 
-- `q` — detach: tracon exits, the loop keeps running, and the wrapper prints
-  the reattach command (`uv run --no-project scripts/tracon.py --root <root>`).
+- `q` / `Ctrl-C` — detach: tracon exits, the loop keeps running, and the
+  wrapper prints the reattach command
+  (`uv run --no-project scripts/tracon.py --root <root>`).
 - `p` — pause: writes `<ap_dir>/pause-requested` (the sanctioned signal); the
   loop pauses at the next session boundary, exactly like `touch pause-requested`.
-- `Ctrl-C` — stop: ends tracon and the loop with today's cleanup (traps fire,
-  orphans reaped, registry entry removed, `_AUTOPILOT_LOOP` unset).
+- `s` (twice) — stop NOW: interrupts the loop's process group with today's
+  cleanup (traps fire, orphans reaped, registry entry removed).
+
+Full key reference, status legend, and operational notes: `scripts/README.md`.
 
 On a non-drained exit (paused, died, memory pressure) the wrapper surfaces the
 tail of `<ap_dir>/wrapper.log` to the terminal, so the loop's own resume runbook
