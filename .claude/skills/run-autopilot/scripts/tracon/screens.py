@@ -84,6 +84,27 @@ class Collector:
     def tracker(self) -> AgentTracker:
         return self._tracker
 
+    def bash_output_notes(self, now: float | None = None) -> dict[str, str]:
+        """Liveness note per live bash lane, from statting its -o file: the
+        runners tee CLI stdout there (gemini/copilot, grows live) or write it
+        at completion (native codex), so size+age is the best available
+        signal. Keyed by task_id; lanes without a parsed -o path get none."""
+        if now is None:
+            now = time.time()
+        notes: dict[str, str] = {}
+        for lane in self._tracker.live_tasks():
+            if not lane.out_path:
+                continue
+            try:
+                st = Path(lane.out_path).stat()
+            except OSError:
+                waited = model.fmt_dur(max(0.0, now - lane.started))
+                notes[lane.task_id] = f"no output yet · {waited}"
+                continue
+            age = model.fmt_dur(max(0.0, now - st.st_mtime))
+            notes[lane.task_id] = f"out {panels.fmt_tok(st.st_size)} · {age} ago"
+        return notes
+
     def poll(self) -> tuple[list[str], bool]:
         return self._tail.read_new()
 
@@ -306,7 +327,9 @@ esc or ? closes this help.
                 panels.agents_head(state, self.root.name)
             )
             self.query_one("#agents-body", Static).update(
-                panels.agents_body(self.collector.tracker)
+                panels.agents_body(
+                    self.collector.tracker, self.collector.bash_output_notes()
+                )
             )
 
     class DetailScreen(Screen):

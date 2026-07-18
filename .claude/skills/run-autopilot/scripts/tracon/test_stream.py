@@ -181,6 +181,26 @@ def _background_tasks_changed(tasks: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
+def _bg_bash_tool_use_event(tool_use_id: str, command: str) -> dict[str, Any]:
+    """The assistant event carrying a backgrounded Bash tool_use block, as the
+    stream emits it right before the matching task_started."""
+    return {
+        "type": "assistant",
+        "parent_tool_use_id": None,
+        "message": {
+            "id": "msg_bash_launch",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": tool_use_id,
+                    "name": "Bash",
+                    "input": {"command": command, "run_in_background": True},
+                }
+            ],
+        },
+    }
+
+
 # --- LogTail: bounded first attach -------------------------------------------
 
 
@@ -520,6 +540,37 @@ def test_task_progress_updates_activity_tokens_and_duration() -> None:
     assert lane.activity == "Reading review-prd-00067c1.md"
     assert lane.tokens == 36316
     assert lane.dur_ms == 5792
+
+
+def test_bash_lane_captures_out_path_from_backgrounded_launch_command() -> None:
+    """The launching Bash tool_use block is the only place the runner's -o
+    output file appears; the lane must pick it up when task_started arrives
+    with the same tool_use_id (real runner shape, quoted path)."""
+    tracker = stream.AgentTracker()
+    tracker.feed(
+        _bg_bash_tool_use_event(
+            "toolu_bob",
+            'codex-run.sh -f "/tmp/bob prompt.md" -o "/tmp/bob output.txt" --emit-thread-id x',
+        )
+    )
+    tracker.feed(_task_started("b1", "toolu_bob", "Bob (codex) review", "local_bash"))
+    lane = tracker.live_tasks()[0]
+    assert lane.out_path == "/tmp/bob output.txt"
+    assert lane.started > 0
+
+
+def test_bash_lane_without_output_flag_gets_empty_out_path() -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_bg_bash_tool_use_event("toolu_q", "qwen-run.sh --preflight --approved-only"))
+    tracker.feed(_task_started("q1", "toolu_q", "Qwen preflight probe", "local_bash"))
+    assert tracker.live_tasks()[0].out_path == ""
+
+
+def test_unparseable_launch_command_fails_open_to_empty_out_path() -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_bg_bash_tool_use_event("toolu_x", 'runner.sh -o "/tmp/unbalanced'))
+    tracker.feed(_task_started("x1", "toolu_x", "broken quoting", "local_bash"))
+    assert tracker.live_tasks()[0].out_path == ""
 
 
 def test_task_started_stores_full_description_and_agent_type() -> None:

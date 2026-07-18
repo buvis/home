@@ -277,7 +277,7 @@ def agents_head(state: model.LoopState, root_name: str) -> Panel:
     )
 
 
-def _lane_detail(t: Text, lane: Lane) -> None:
+def _lane_detail(t: Text, lane: Lane, note: str = "") -> None:
     head_style = "dim" if lane.done else lane.color
     t.append("\n✓ " if lane.done else "\n● ", style=head_style)
     t.append(lane.desc or lane.label, style=head_style)
@@ -298,24 +298,29 @@ def _lane_detail(t: Text, lane: Lane) -> None:
         stats.append(f"{fmt_tok(lane.tokens)} tok")
     if lane.dur_ms:
         stats.append(fmt_dur(lane.dur_ms / 1000))
+    if note:
+        stats.append(note)
     if stats:
         t.append(f"\n    {' · '.join(stats)}", style="dim")
 
 
-def agents_body(tracker: AgentTracker) -> Text:
+def agents_body(tracker: AgentTracker, notes: dict[str, str] | None = None) -> Text:
+    """notes: display-ready liveness note per task_id (bash -o file stat),
+    built by the caller — panels stays free of file I/O."""
     lanes = tracker.lanes()
     if not lanes:
         return Text("no subagent or background-task activity this session", style="dim")
+    notes = notes or {}
     live = [lane for lane in lanes if not lane.done]
     done = [lane for lane in lanes if lane.done]
     t = Text()
     t.append(f"running ({len(live)})\n", style="bold cyan")
     for lane in live:
-        _lane_detail(t, lane)
+        _lane_detail(t, lane, notes.get(lane.task_id, ""))
     if done:
         t.append(f"\n\nfinished ({len(done)})\n", style="bold")
         for lane in done:
-            _lane_detail(t, lane)
+            _lane_detail(t, lane, notes.get(lane.task_id, ""))
     return t
 
 

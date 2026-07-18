@@ -858,6 +858,25 @@ def test_agents_body_finished_lane_moves_to_finished_and_drops_activity() -> Non
     assert "⚒ Read×3" in plain  # final counters stay
 
 
+def test_agents_body_appends_caller_built_note_to_the_lane_stats() -> None:
+    """Bash lanes get no task_progress; the caller stats the runner's -o file
+    and hands display-ready notes keyed by task_id — panels only renders."""
+    tracker = AgentTracker()
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "b1",
+            "tool_use_id": "toolu_b1",
+            "description": "Carl (gemini) review",
+            "task_type": "local_bash",
+        }
+    )
+
+    plain = panels.agents_body(tracker, {"b1": "out 4.2k · 8s ago"}).plain
+    assert "out 4.2k · 8s ago" in plain
+
+
 def test_agents_body_bash_lane_shows_kind_and_status_not_agent_fields() -> None:
     tracker = AgentTracker()
     tracker.feed(
