@@ -3,11 +3,11 @@
 Routed here when `state.phase` is `"review"` — or a legacy `"blind"`/`"doubt"`
 value from a pre-00015 state file, which maps to `review` on resume. Each review
 cycle runs in its own fresh session: review (Phase 4) → decision gate (Phase 5)
-→ rework (Phase 6); Phase 6 then hands off to a fresh session for the next cycle
-(**review → review**), or to the finalize session on convergence
-(**review → done**), until convergence or the cap. Blind and doubt scrutiny are
-LENSES inside every review cycle, not separate phases. Core `SKILL.md` (always
-loaded) carries the shared mechanics.
+→ rework (Phase 6). On convergence, Phase 5 hands off to the finalize session
+(**review → done**), skipping rework; otherwise Phase 6, after rework, hands off
+to a fresh session for the next cycle (**review → review**) — until convergence
+or the cap. Blind and doubt scrutiny are LENSES inside every review cycle, not
+separate phases. Core `SKILL.md` (always loaded) carries the shared mechanics.
 
 ## Phase 4: Review
 
