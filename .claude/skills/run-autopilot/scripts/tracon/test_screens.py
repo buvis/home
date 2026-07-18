@@ -1108,12 +1108,12 @@ def test_q_detaches_the_detail_screen_with_return_code_zero(
 
 
 @pytest.mark.ui
-def test_ctrl_c_stops_the_loop_with_return_code_130(
+def test_ctrl_c_standalone_exits_the_ui_with_130(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Ctrl+C arrives as a key event in Textual's raw mode, not a
-    KeyboardInterrupt: TraconApp.action_quit is overridden to exit 130 so
-    the wrapper stops the loop instead of treating it as a clean detach."""
+    KeyboardInterrupt. Standalone, nothing watches the exit code — it exits
+    the UI with the SIGINT convention and stops no loop."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
@@ -1131,26 +1131,14 @@ def test_ctrl_c_stops_the_loop_with_return_code_130(
 
 
 @pytest.mark.ui
-def test_ctrl_c_footer_label_matches_what_it_actually_does() -> None:
-    """Standalone, ctrl+c only exits the UI; claiming 'Stop loop' there (and
-    next to the dashboard's own s key) showed the same command twice."""
-    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
-    from tracon import screens
-
-    standalone = screens.build_app([])
-    assert standalone.BINDINGS[0].description == "Exit"
-
-    wrapped = screens.build_app([], wrapper_pid=os.getpid())
-    assert wrapped.BINDINGS[0].description == "Stop loop & exit"
-
-
-@pytest.mark.ui
-def test_ctrl_c_with_live_wrapper_requires_a_confirming_second_press(
+def test_ctrl_c_wrapper_launched_detaches_instead_of_stopping_the_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When exit 130 would stop a real loop, one stray ctrl+c must not kill
-    a days-long batch: first press warns, second press within the window
-    stops."""
+    """ctrl+c must never stop a loop: exit 0 lands on the wrapper's detach
+    branch (loop keeps running, reattach hint printed). Stopping is s, which
+    acts on the loop being looked at — a ctrl+c that killed the LAUNCHING
+    loop while the cursor highlighted a different row was a footgun. The
+    binding is hidden from the footer (a q synonym, not a second command)."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
@@ -1158,19 +1146,12 @@ def test_ctrl_c_with_live_wrapper_requires_a_confirming_second_press(
 
     async def _drive() -> None:
         app = screens.build_app([], wrapper_pid=os.getpid())
+        assert app.BINDINGS[0].show is False
         async with app.run_test() as pilot:
-            notifications: list[Any] = []
-            app.notify = lambda *a, **kw: notifications.append((a, kw))
-
             await pilot.pause()
             await pilot.press("ctrl+c")
             await pilot.pause()
-            assert app.return_code is None  # armed, not exited
-            assert any("press again" in str(a) for a, _ in notifications)
-
-            await pilot.press("ctrl+c")
-            await pilot.pause()
-            assert app.return_code == 130
+            assert app.return_code == 0
 
     asyncio.run(_drive())
 

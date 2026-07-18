@@ -194,14 +194,12 @@ UI keys (never touch a loop)
   esc       back (detail → all loops; help/tasks → close)
   t         task board: kanban lanes over the loop's task plan
   f         follow — log auto-scrolls to the newest lines
-  q         quit tracon; every loop keeps running
+  q         quit tracon; every loop keeps running (ctrl+c does the same)
   ctrl+p    command palette (themes — the choice persists)
 
 Loop keys (act on the attached / highlighted loop)
   p         request pause — honored at the session boundary; resume: autoclaude
-  s         stop NOW — interrupts the loop like ctrl+c in its terminal (press twice)
-  ctrl+c    wrapper-launched tracon: stop that loop and exit (press twice);
-            standalone: just exits the UI
+  s         stop NOW — interrupts that loop's process group (press twice)
 
 Status legend
   ● live         session writing within the last 20s
@@ -447,18 +445,13 @@ esc or ? closes this help.
             scrollbar-background: #21252e;
         }
         """
-        # Standalone, nothing watches the exit code — ctrl+c only exits the
-        # UI, and its footer label must not claim otherwise.
-        BINDINGS = [
-            Binding(
-                "ctrl+c",
-                "quit",
-                "Stop loop & exit" if wrapper_pid is not None else "Exit",
-                priority=True,
-            )
-        ]
-
-        _confirm_stop_until = 0.0
+        # ctrl+c is a hidden synonym for q: exit the UI, never stop a loop.
+        # Stopping is s, which acts on the loop you are looking at — a
+        # ctrl+c that killed the LAUNCHING loop while the cursor highlighted
+        # a different row was a footgun. Wrapper-launched, exit 0 lands on
+        # the wrapper's detach branch (prints the reattach hint); standalone
+        # keeps the SIGINT convention.
+        BINDINGS = [Binding("ctrl+c", "quit", "Exit", show=False, priority=True)]
 
         def on_mount(self) -> None:
             try:
@@ -487,21 +480,7 @@ esc or ? closes this help.
                 pass  # persistence is best-effort; never break the app
 
         def action_quit(self) -> None:
-            # Only a wrapper-launched tracon can stop a loop (the wrapper
-            # acts on exit code 130) — guard that path behind a double
-            # press. Standalone, ctrl+c just closes the UI.
-            if wrapper_pid is None:
-                self.exit(return_code=130)
-                return
-            now = time.monotonic()
-            if now < self._confirm_stop_until:
-                self.exit(return_code=130)
-                return
-            self._confirm_stop_until = now + 3.0
-            self.notify(
-                "ctrl+c stops the WHOLE loop — press again to confirm (q quits the UI only)",
-                severity="warning",
-            )
+            self.exit(return_code=130 if wrapper_pid is None else 0)
 
         def action_detach(self) -> None:
             self.exit(return_code=0)
