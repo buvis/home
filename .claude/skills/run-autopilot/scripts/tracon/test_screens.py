@@ -1224,6 +1224,96 @@ def test_f_toggle_confirms_follow_state_with_a_toast(
 
 
 @pytest.mark.ui
+def test_question_mark_opens_help_and_escape_closes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from textual.widgets import RichLog
+
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("question_mark")
+            await pilot.pause()
+            visible = _dashboard_visible_text(app.screen)
+            assert "Loop keys" in visible
+            assert "Status legend" in visible
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen.query_one(RichLog) is not None  # back at the log
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_s_with_no_wrapper_toasts_nothing_to_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            notifications: list[Any] = []
+            app.notify = lambda *a, **kw: notifications.append((a, kw))
+
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            assert any("nothing to stop" in str(a) for a, _ in notifications)
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
+def test_s_double_press_interrupts_the_registered_wrappers_process_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """s must send the sanctioned stop — SIGINT to the wrapper's process
+    GROUP (kill -INT -pid, the wrapper's own ctrl+c path) — and only on a
+    confirming second press."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import discovery, screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    registry_entry = {"pid": os.getpid(), "root": str(root.resolve())}
+    (discovery.LOOPS_DIR / "wrapper.json").write_text(json.dumps(registry_entry))
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+
+    kills: list[tuple[int, int]] = []
+    monkeypatch.setattr(screens.os, "killpg", lambda pid, sig: kills.append((pid, sig)))
+
+    async def _drive() -> None:
+        app = screens.build_app([root])
+        async with app.run_test() as pilot:
+            notifications: list[Any] = []
+            app.notify = lambda *a, **kw: notifications.append((a, kw))
+
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            assert kills == []  # armed, not fired
+            assert any("press s again" in str(a) for a, _ in notifications)
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert kills == [(os.getpid(), screens.signal.SIGINT)]
+
+    asyncio.run(_drive())
+
+
+@pytest.mark.ui
 def test_t_toggles_the_tasks_screen_with_kanban_lanes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

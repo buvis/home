@@ -94,12 +94,17 @@ def read_registry(loops_dir: Path | None = None) -> list[Wrapper]:
     return wrappers
 
 
-def wrapper_alive(root: Path, loops_dir: Path | None = None) -> bool:
+def live_wrapper_pid(root: Path, loops_dir: Path | None = None) -> int | None:
+    """PID of the live registered wrapper for this root, else None."""
     resolved_root = root.resolve()
-    return any(
-        wrapper.root.resolve() == resolved_root and pid_alive(wrapper.pid)
-        for wrapper in read_registry(loops_dir=loops_dir)
-    )
+    for wrapper in read_registry(loops_dir=loops_dir):
+        if wrapper.root.resolve() == resolved_root and pid_alive(wrapper.pid):
+            return wrapper.pid
+    return None
+
+
+def wrapper_alive(root: Path, loops_dir: Path | None = None) -> bool:
+    return live_wrapper_pid(root, loops_dir=loops_dir) is not None
 
 
 def _fmt_clock(ts: float | None) -> str:

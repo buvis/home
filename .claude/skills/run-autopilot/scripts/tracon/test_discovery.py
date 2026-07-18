@@ -998,6 +998,30 @@ def test_loop_status_marks_orphaned_when_wrapper_died_mid_batch(
     assert row.status.style == "bold red"
 
 
+def test_live_wrapper_pid_returns_registered_live_pid(tmp_path: Path) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(loops_dir / "1.json", {"pid": os.getpid(), "root": str(tmp_path)})
+
+    assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) == os.getpid()
+
+
+def test_live_wrapper_pid_none_when_pid_dead_or_unregistered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) is None
+
+    _write_json(loops_dir / "1.json", {"pid": 999999, "root": str(tmp_path)})
+
+    def raise_lookup(pid: int, sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(discovery.os, "kill", raise_lookup)
+    assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) is None
+
+
 # --- pause-requested: pending marker must be visible -------------------------
 
 
