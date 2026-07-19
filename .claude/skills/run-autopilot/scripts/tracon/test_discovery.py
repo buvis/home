@@ -924,7 +924,7 @@ def test_orphan_status_upgrades_idle_to_loud_warning_with_age() -> None:
     out = discovery.orphan_status(
         _idle_status(), _state(next_phase="build"), False, 900.0, None, 1000.0
     )
-    assert out.label == "⚠ orphaned 1m40s · run autoclaude"
+    assert out.label == "⚠ orphaned 1m40s => run autoclaude"
     assert out.style == "bold red"
     assert out.rank == 1
 
