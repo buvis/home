@@ -198,7 +198,7 @@ def orphan_status(
     age = f" {model.fmt_dur(now - anchor)}" if anchor is not None else ""
     fresh = anchor is not None and now - anchor < ORPHAN_FRESH_SECS
     style = "bold red" if fresh else "red"
-    return Status(label=f"⚠ orphaned{age} · run autoclaude", style=style, rank=1, in_flight=False)
+    return Status(label=f"⚠ orphaned{age} => run autoclaude", style=style, rank=1, in_flight=False)
 
 
 def classify(
