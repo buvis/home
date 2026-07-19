@@ -511,5 +511,66 @@ class TestNotifyQuiet(unittest.TestCase):
         self._show.assert_called_once()
 
 
+class TestIdlePromptWithLiveAgents(unittest.TestCase):
+    """Regression (2026-07-19): after the Stop fix, the ~60s-later idle_prompt
+    still pinged "waiting" while background agents ran. idle_prompt payloads
+    carry no background_tasks; the disk proxy is a subagents/agent-*.jsonl
+    written within the last <60s — only a live background agent writes after
+    the turn ends (foreground agents finish before it)."""
+
+    def _run_main(self, payload: dict) -> list[str]:
+        logs: list[str] = []
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("notify.read_input", return_value=payload):
+                with patch("notify.log_line", side_effect=logs.append):
+                    with patch("notify.send_ntfy") as send:
+                        with patch("notify.show_desktop_notification") as show:
+                            with patch("notify.read_idle_seconds", return_value=0):
+                                with patch("notify.screensaver_active", return_value=False):
+                                    with patch("notify.lid_closed", return_value=False):
+                                        notify.main()
+                            self._send = send
+                            self._show = show
+        return logs
+
+    @staticmethod
+    def _session(td: str, agent_age_sec: float | None) -> dict:
+        transcript = Path(td) / "abc123.jsonl"
+        transcript.write_text("{}\n", encoding="utf-8")
+        if agent_age_sec is not None:
+            subagents = Path(td) / "abc123" / "subagents"
+            subagents.mkdir(parents=True)
+            agent = subagents / "agent-deadbeef.jsonl"
+            agent.write_text("{}\n", encoding="utf-8")
+            mtime = time.time() - agent_age_sec
+            os.utime(agent, (mtime, mtime))
+        return {
+            "hook_event_name": "Notification",
+            "cwd": "/x/proj",
+            "message": "Claude is waiting for your input",
+            "notification_type": "idle_prompt",
+            "transcript_path": str(transcript),
+        }
+
+    def test_suppressed_when_agent_wrote_recently(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            logs = self._run_main(self._session(td, agent_age_sec=5))
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._show.assert_not_called()
+        self._send.assert_not_called()
+
+    def test_fires_when_agent_files_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            logs = self._run_main(self._session(td, agent_age_sec=120))
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+    def test_fires_when_no_subagents_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            logs = self._run_main(self._session(td, agent_age_sec=None))
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
