@@ -1,6 +1,6 @@
 ---
 name: review-work-completion
-description: Use after all tasks are completed to validate implementation against PRD requirements via multi-agent consensus review. Triggers on "review work", "check completed work", "validate implementation", "are we done".
+description: Use after all tasks are completed to validate implementation against PRD requirements via multi-agent consensus review; for a spec-only blind lens use review-blindly. Triggers on "review work", "check completed work", "are we done".
 ---
 
 # Review Work Completion
@@ -135,6 +135,8 @@ Incremental review (rework cycle) — prepend `--since <prior-cycle-head-sha>`:
 
 Both positional args are optional — omit if no tasks/PRD available. Outputs context file and diff file paths to `dev/local/tmp/`.
 
+**Bare-repo homes (e.g. `~/.buvis`: `git --git-dir=~/.buvis --work-tree=~`):** `gather-context.sh` assumes a normal checkout and fails here — do not fight it. Build the review inputs yourself: generate the diff with `git --git-dir=<bare-dir> --work-tree=<tree> diff <COVERAGE_DIFF_RANGE>` (the range captured above), write it plus the tasks/PRD/context files to `/tmp/` with the Write tool, and pass those absolute `/tmp` paths to the reviewer prompts. The script path stays primary for normal repos.
+
 ### 4. Prepare agent prompts
 
 Create prompt files in `dev/local/tmp/`:
@@ -165,7 +167,7 @@ The Watcher is scaffolding, not a reviewer: its return is never saved, consolida
 
 **Do not Write or Edit ANY reviewer output (Alice's and Blake's included) until ALL reviewers have reported.** The CLIs self-write via `-o`; subagent-returned text is saved only in step 6, after every reviewer has completed - even if a subagent returns first.
 
-**Bob fallback (the doubt lens never drops).** If `codex-run.sh` exits non-zero with exit 3 (codex unavailable) or 4 (codex ran but failed, e.g. quota), dispatch a Claude Task subagent with Bob's exact assembled prompt (doubt lens + rubric included) and use its output as Bob's. Only if the fallback also fails does Bob count as a failed reviewer per `references/retry-policy.md`.
+**Bob fallback (the doubt lens never drops).** If `codex-run.sh` exits non-zero with exit 3 (codex unavailable), dispatch a Claude Task subagent with Bob's exact assembled prompt (doubt lens + rubric included) and use its output as Bob's. On exit 4 (codex ran but failed, e.g. quota), FIRST check the wrapper's `codex-review-last.jsonl` sidecar: exit 4 has a documented false-positive mode (quota markers matched in codex's own command args or gateguard noise) where codex actually finished — if the sidecar holds a complete review (findings plus all `R{n}:` verdict lines), salvage it as Bob's output and skip the fallback entirely. Only when no complete review is salvageable dispatch the Claude fallback; only if that also fails does Bob count as a failed reviewer per `references/retry-policy.md`.
 
 **Alice on the workflow engine** (`CONSENSUS_ENGINE` is `workflow` or `shadow`; skip this whole block on `legacy`). The workflow call goes in the SAME single dispatch message as the other reviewers — it is a foreground tool call whose inner agents are live subagents, so it holds a headless session open exactly as a Task subagent does. The Watcher rule above is unchanged: it exists for the background-Bash CLI reviewers.
 
@@ -185,7 +187,7 @@ Build `args` from the context already gathered in step 3:
 | `diff` | The diff file's text, **truncated by you to at most 400000 bytes** (`MAX_DIFF_BYTES`). The payload crosses the tool boundary as JSON, so the cap is the caller's job. |
 | `diff_bytes` | The diff file's **real** byte size before truncation (`wc -c`). |
 | `diff_path` | Absolute path to the full diff file. Mandatory whenever `diff_bytes` exceeds 400000; the dimension agents are told to read it. |
-| `rubric_text` | `references/rubric.md`, verbatim. Alice's `R{n}: pass\|fail` verdict lines are generated from it, and `references/retry-policy.md` fails a reviewer that omits them. |
+| `rubric_text` | `~/.claude/skills/review-work-completion/references/rubric.md`, verbatim — THIS skill's 12-rule file, not review-blindly's same-named R1–R19 rubric (the workflow's verdict-line schema expects exactly these rules). Alice's `R{n}: pass\|fail` verdict lines are generated from it, and `references/retry-policy.md` fails a reviewer that omits them. |
 | `prd_text`, `prd_path`, `changed_files`, `context_path` | From step 3's gathered context. |
 | `head_sha`, `date`, `cycle`, `agent_name` | `head_sha` from step 3; `date` as `YYYY-MM-DD` (the sandbox cannot call `Date()`); `cycle` = this review cycle; `agent_name` = `ALICE`. |
 | `tests_line` | Omit on the live path — test counts do not exist until step 6. Shadow runs substitute it at step 8. |

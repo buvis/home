@@ -22,7 +22,8 @@ Implement pending tasks one-by-one, committing after each completion.
     `## What to remove` section is inlined into the step-5.6 deslop dispatch
 - CLIs: `git`, `python3`
 - Optional (explicit fallback exists): `use-gemini` skill (UI tasks), `use-qwen`
-  skill, `superpowers:*` plugin skills
+  skill, `use-sonnet` skill (its `scripts/sonnet-run.sh` drives the step-5.7
+  reviewer lane), `superpowers:*` plugin skills
 
 ## CRITICAL: Never Ask the User to Run Commands
 
@@ -31,7 +32,7 @@ This skill runs inside an **automated autopilot loop**. The user is not watching
 1. A genuinely irreversible action that requires explicit confirmation (e.g. force-pushing a shared branch).
 2. More than two consecutive failed attempts at the same automated step with no remaining fallback.
 
-**When test verification is blocked** (e.g. all cargo processes were backgrounded and the build lock was contended): if the code compiles cleanly and the logic change is correct by inspection, commit and proceed. The full-suite verification run at the end of the phase will catch regressions. Do not stop and ask the user to run anything.
+**When test verification is blocked** (e.g. all cargo processes were backgrounded and the build lock was contended): if the code compiles cleanly and the logic change is correct by inspection, commit and proceed — and record `verification: skipped:<cause>` in the task's attempt entry and the phase report (fail loud; a skipped check must never read as a passed one). The full-suite verification run at the end of the phase will catch regressions. Do not stop and ask the user to run anything.
 
 **When cargo commands get backgrounded by the session**: the Bash tool may background long-running commands regardless of the `run_in_background` flag. Wait for background completions via Monitor (up to 20 minutes for full test suites). Never launch a second cargo command while one is still running — they contend on the build lock and jam the shell. If a Monitor times out, read the output file directly; if the file is empty the build lock was still held, wait longer before retrying.
 
@@ -70,7 +71,7 @@ See **Subagent Dispatch Budget and Watchdog** below — every Agent dispatch mus
 
 ## Subagent Dispatch Budget and Watchdog
 
-**Budget:** every prompt passed to the Agent tool (Tess, Ivan, Devon, or the code reviewer) must be **≤ 50 000 bytes**, with the abort-instruction line prepended. Measure before every dispatch; trim the lowest-priority context once, and if still oversized abort the task with cause `subagent_prompt_overrun`.
+**Budget:** every prompt passed to the Agent tool (Tess, Ivan, or Devon) must be **≤ 50 000 bytes**, with the abort-instruction line prepended. Measure before every dispatch; trim the lowest-priority context once, and if still oversized abort the task with cause `subagent_prompt_overrun`.
 
 **Watchdog:** every Agent dispatch must be wrapped in a watchdog: dispatch with `run_in_background: true`, wait with `Monitor` (15-minute timeout), and on timeout `TaskStop` the agent and handle it as the **Result lost / hung** row of step 4's table (which routes to the infrastructure-failure circuit breaker, step 4.2). A foreground `Agent` call that hangs blocks this session indefinitely — never dispatch one unwatched.
 
@@ -80,7 +81,7 @@ See `references/subagent-dispatch.md` for the measurement procedure, the verbati
 
 Before any Agent call for a task, read `task.metadata.model` (or equivalently `state.tasks[i].model` — `/run-autopilot` keeps the two in sync) and pass it as the Agent tool's `model` parameter.
 
-Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps: Tess and her quality-gate/adversarial-round re-dispatches (steps 2.7-2.85), Devon (2.85), Ivan and every Ivan re-dispatch (3, 5.5, 5.7 fix, 7 regression fix), and the code reviewer (5.7). If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
+Applies to **every** Agent call this skill dispatches, including follow-up dispatches inside compound steps: Tess and her quality-gate/adversarial-round re-dispatches (steps 2.7-2.85), Devon (2.85), and Ivan and every Ivan re-dispatch (3, 5.5, 5.7 fix, 7 regression fix). (The step-5.7 reviewer is a fixed-model helper-script dispatch via `use-sonnet`, not an Agent call — the `model` parameter does not apply to it.) If you add a new Agent call to this skill, pass `model` from `task.metadata.model` — no exceptions.
 
 **Qwen one-shot-budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again. This is the one-shot qwen attempt budget — the ladder's `qwen -> sonnet` capability edge (`run-autopilot/references/model-ladder.md` § Capability ladders and § Per-rung budgets; why: `references/design-rationale.md` § one shot): qwen gets exactly 1 dispatch, a qwen gate failure escalates to Sonnet immediately with zero qwen retries, and step 5.5's Claude-rung budget then runs entirely on Claude Sonnet — see step 5.5 below for the full diagnose/repair/escalate flow this now drives. Applies unchanged under `_AUTOPILOT_ESCALATION=legacy` (model-ladder.md § Kill-switches). All non-step-5.5 Agent calls continue to obey `task.metadata.model` with no exceptions.
 
@@ -95,6 +96,12 @@ The **Subagent Dispatch Budget** applies regardless of tier. Haiku doesn't earn 
 Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism (Agent, `use-gemini`, `use-qwen`) - must end with this instruction verbatim:
 
 > End your report with `ASSUMPTIONS:` - one line per assumption you made where the task, tests, or listed files were silent (guessed interface, data shape, resolved ambiguity, unstated behavior). Write `ASSUMPTIONS: none` if you made none.
+
+**Ivan** dispatch prompts (initial and retry, all mechanisms) must additionally end with this instruction verbatim:
+
+> Also end your report with `FILES_TOUCHED:` - one line per file you created or modified, path relative to the repo root. Write `FILES_TOUCHED: none` if you changed no files.
+
+Step 5 stages exactly the reported paths - an unreported file stays uncommitted and is surfaced by step 5's foreign-path rule, so an implementor that omits the footer fails loudly, not silently.
 
 Collect the returned lines: step 6 appends non-`none` entries to `dev/local/assumptions.md` under a `## <task-id>: <task subject>` heading (Write/Edit tool, never shell redirects). On the first completed task of a full-plan pass, replace the file instead of appending - the ledger is per-plan. Step 7's phase report includes the ledger so the user and the review phase can examine what the implementors guessed in a 30-second read.
 
@@ -267,6 +274,16 @@ git rev-parse HEAD
 ```
 Hold the returned SHA in-session as `<test_commit_sha>` for this task; step 5.5's ESCALATE path reads it.
 
+### 2.95. Red-check — watch the tests fail
+
+Run the newly committed tests once, before any Ivan dispatch, at the narrowest scope (the same commands step 5.5 uses). Red is the point: a failure proves the tests bind behavior that does not exist yet (rules/testing.md fail-first). Implicitly skipped when step 2.7 was skipped (no new tests).
+
+| Outcome | Action |
+|---------|--------|
+| ≥1 test fails | Expected red. Proceed to step 3. |
+| All pass | Accidentally-green tests bind nothing. Send the run output back to Tess ("these tests pass with no implementation — strengthen them to fail against the current tree"); this consumes the **Total Tess budget** (step 2.8; on exhaustion flag and proceed per that step). Commit the strengthened tests (`test(<scope>): strengthen tests for <feature>`), re-capture `<test_commit_sha>` per step 2.9, and re-run this check. |
+| Tests cannot run standalone (they import the not-yet-built feature, or the runner cannot execute them) | Record `red_check: skipped:<cause>` in the task's attempt entry and the phase report (fail loud; a skipped check must never read as a passed one), then proceed to step 3. |
+
 ### 3. Implement against tests (Ivan - implementor)
 
 Ivan's job: make the failing tests pass. Tests ARE the spec.
@@ -319,7 +336,7 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 | Success | Continue to step 5. |
 | Timeout | Append attempt-log entry (`outcome: "aborted"`, `cause: "timeout"`). Split task per `references/task-splitting.md`, mark original as blocked. |
 | Context exceeded | Append attempt-log entry (`outcome: "aborted"`, `cause: "context_overrun"`). Split task per `references/task-splitting.md`, mark original as blocked. |
-| Error | Invoke systematic-debugging if available (step 4.5). On unrecoverable error, append attempt-log entry (`outcome: "aborted"`, `cause: "error"`). Report to user. |
+| Error | Invoke `debug-stuck-agent` (step 4.5). On unrecoverable error, append attempt-log entry (`outcome: "aborted"`, `cause: "error"`). Report to user. |
 | Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — apply the **infrastructure-failure circuit breaker** (step 4.2). |
 
 ### 4.2. Infrastructure-failure circuit breaker
@@ -330,21 +347,29 @@ A lost/empty Agent result or a watchdog-killed hang is an infrastructure failure
 2. Re-dispatch the **same** task at most **once**. Track infrastructure re-dispatches per task — this cap is separate from the test-failure retry cap (step 5.5) and the review-cycle cap (step 5.7).
 3. On the **second** infrastructure failure for the same task: stop. Append an attempt-log entry (`outcome: "aborted"`, `cause: "subagent_infra_failure"`), set `state.stall_reason` to `{"stalled": "subagent_infra_failure", "task": "<id>"}`. Escalate to the user. Do **not** advance to the next task.
 
-### 4.5. Debug on error (if superpowers available)
+### 4.5. Debug on error
 
-If the tool returned an error and `superpowers:systematic-debugging` is in the available skills list, invoke it to diagnose the root cause before reporting to the user. If debugging resolves the issue, continue to step 5. If not, report to user and keep task in_progress.
+If the tool returned an error, invoke the `debug-stuck-agent` skill to diagnose the root cause before reporting to the user. If debugging resolves the issue, continue to step 5. If not, report to user and keep task in_progress.
 
 ### 5. Commit changes
 
-Stage changed files, then commit in a separate Bash call:
+Stage exactly this task's files, then commit in a separate Bash call. **Never `git add -A` or `git add .`** — the worktree is live (the user edits files during dispatches), and a bulk add sweeps foreign uncommitted work into the task commit (memory: feedback_subagents_vs_live_worktree).
+
+1. Build the stage list: the paths from Ivan's `FILES_TOUCHED:` footer (see **Assumptions footer**), plus any build-generated files this task's changes legitimately produced (lockfiles, snapshots, generated bindings) — identified from `git status --porcelain` output, never guessed.
+2. Fallback when the footer is absent or `none` while the tree is dirty (legacy retry prompts, malformed report): stage the intersection of dirty paths with the exact files the plan task names; treat every other dirty path as foreign.
+
 ```bash
-git add -A
+git add <path> [<path> ...]
 ```
 ```bash
 git commit -m "<type>(<scope>): <description>"
 ```
 
+Any other dirty path is **foreign**: leave it unstaged and untouched, and name it in the phase report (fail loud) — the same never-commit-foreign-work rule the step-5.5 ESCALATE reset guard enforces.
+
 Never chain these with `&&` in a single Bash call. Commit message rules: conventional commit format, one line, no period, reference the task ID if available.
+
+Before committing a `feat`/`fix` (or breaking) change, verify CHANGELOG.md is staged in the same commit per rules/changelog.md — repos with a declared no-changelog exception (e.g. the buvis home repo) skip this check.
 
 ### 5.5. Verify THIS task's tests pass
 
@@ -497,7 +522,7 @@ Compute `net_lines = insertions - deletions` (from `--shortstat`) and `file_coun
 
 In every non-committed outcome, the implementor's original commit stands and step 5.7 reviews it directly. **Do not retry self-deslop on failure** — best-effort means single attempt only.
 
-### 5.7. Per-task code review (if superpowers available)
+### 5.7. Per-task code review
 
 **Tier gate — per-task review is skipped only on haiku.** Read `task.metadata.model`:
 
@@ -506,16 +531,21 @@ In every non-committed outcome, the implementor's original commit stands and ste
 | `haiku` | skip per-task review |
 | anything else — `opus`, `sonnet`, absent/legacy or unknown (both treated as `sonnet`) | review (below) |
 
-A `haiku`-tier task commits after per-task test verification (step 5.5) with **no** review dispatch and proceeds straight to step 6 — it relies on per-task test verification plus the mandated PRD-level review lenses (consensus, blind, doubt — every review cycle reviews every task's diff regardless of tier). When the review dispatch runs, it obeys the **Per-task model dispatch** rule. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
+A `haiku`-tier task commits after per-task test verification (step 5.5) with **no** review dispatch and proceeds straight to step 6 — it relies on per-task test verification plus the mandated PRD-level review lenses (consensus, blind, doubt — every review cycle reviews every task's diff regardless of tier). The reviewer is a fixed-model helper-script lane (Sonnet via `use-sonnet`) — reviewer capability is deliberately independent of the task's implementor tier. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
 
-If `superpowers:requesting-code-review` is in the available skills list, dispatch a code review after commit and verification:
+Dispatch the reviewer after commit and verification — a native lane, no plugin dependency:
 
-1. Get SHAs: `BASE_SHA` = commit before this task, `HEAD_SHA` = HEAD after commit
-2. Dispatch code-reviewer subagent with task subject, description, and SHA range. Append the **Simplification mandate** to the reviewer's prompt verbatim — the block lives in `references/simplification-mandate.md`; copy it whole.
-3. Handle result:
-   - **Critical/Important issues**: if `superpowers:receiving-code-review` is available, invoke it to evaluate feedback before acting - verify suggestions technically, push back if wrong. Then fix confirmed issues (dispatch Ivan with the code-quality rules block from `references/code-quality-principles.md` plus: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."), re-commit, re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
-   - **Minor issues only or approved**: note minors, proceed to step 6.
-   - **Reviewer failed/timed out**: log warning, proceed - the PRD-level review lenses catch remaining issues.
+1. Get SHAs: `BASE_SHA` = the parent of this task's test commit (`<test_commit_sha>` from step 2.9), `HEAD_SHA` = current HEAD (includes the step-5.6 deslop commit when one landed).
+2. Assemble the review prompt in `dev/local/tmp/review-task-<id>-prompt.md` (Write tool, never shell redirects): task subject, description, and acceptance criteria; the output of `git diff BASE_SHA..HEAD_SHA`; the **Simplification mandate** block from `references/simplification-mandate.md` verbatim; and the reporting contract — one finding per line as `SEVERITY | file:line | issue | fix` (severities CRITICAL/HIGH/MEDIUM/LOW), or the literal line `NO FINDINGS`. State that the review is read-only: report findings, change nothing. The assembled prompt must satisfy the **Subagent Dispatch Budget**.
+3. Dispatch via the sonnet runner (helper-script dispatch — the **Subagent Watchdog** applies):
+   ```bash
+   bash ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -f dev/local/tmp/review-task-<id>-prompt.md -o dev/local/tmp/review-task-<id>.md
+   ```
+   No `-a`/`-y` — the reviewer needs no write access, and a read-only dispatch must never run with bypassed permissions.
+4. Read the output file and handle the result:
+   - **CRITICAL or HIGH findings** — treat like a failed verification: verify each finding against the code first and discard wrong ones (the reviewer can be wrong), then dispatch Ivan with the confirmed findings, the code-quality rules block from `references/code-quality-principles.md`, and: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice." Re-commit (step 5), re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
+   - **MEDIUM/LOW only, or `NO FINDINGS`** — note them in the task output, proceed to step 6.
+   - **Runner unavailable, exit nonzero, or output file missing/empty** — retry ONCE. On the second failure: record `review: failed:<cause>` in the task's attempt entry and the phase report (fail loud), then proceed to step 6 — the reviewer lane never blocks the batch; the PRD-level review lenses catch what it missed.
 
 Skip for documentation-only or configuration-only tasks.
 

@@ -30,8 +30,8 @@ Background dispatch and waiting (TaskOutput-only waiting), following up, error h
    - `-m, --model MODEL` to override the default (`sonnet`); ask the user first if the override is a costlier tier (e.g. `opus`)
    - `-f, --file FILE` to read the prompt from a file (preferred - avoids shell escaping)
    - `-i, --interactive <prompt>` for interactive mode with initial prompt
-   - `-a, --allow-tools` to auto-approve tool use (maps to `--permission-mode bypassPermissions`)
-   - `-y, --yolo` for full permissions
+   - `-a, --allow-edits` to auto-approve file edits only (maps to `--permission-mode acceptEdits`; Bash and other tools stay gated, so an unattended agentic child can stall on a prompt)
+   - `-y, --yolo` for full permissions (`--permission-mode bypassPermissions`); REQUIRED for unattended agentic dispatches that must run commands. Note: a `-y` child runs with no warden or hook filtering
    - `-d, --dir <DIR>` to allow access to specific directories (maps to `--add-dir`)
    - `-s, --silent` accepted for compatibility (claude `-p` output is already clean)
 3. When continuing a previous session, use `-c`/`--continue` or `-r`/`--resume [sessionId]`.
@@ -44,8 +44,8 @@ Background dispatch and waiting (TaskOutput-only waiting), following up, error h
 | --- | --- |
 | Read-only analysis | `-f prompt.txt` |
 | Interactive with initial prompt | `-i "prompt"` |
-| Auto-approve tools | `-a -f prompt.txt` |
-| Full auto (edits + tools) | `-y -f prompt.txt` |
+| Auto-approve edits only | `-a -f prompt.txt` |
+| Full auto, unattended agentic (edits + commands) | `-y -f prompt.txt` |
 | Allow specific directory | `-d <DIR> -f prompt.txt` |
 | Resume recent session | `--continue` |
 | Resume specific session | `--resume [sessionId]` |
@@ -57,7 +57,7 @@ Background dispatch and waiting (TaskOutput-only waiting), following up, error h
 # Write prompt to temp file (see the shared dispatch contract), then run
 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -f /tmp/sonnet-prompt.txt
 
-# With auto-approve tools
+# With auto-approve edits (Bash still gated)
 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -a -f /tmp/sonnet-prompt.txt
 
 # Override model (only after user approval - costlier tier)

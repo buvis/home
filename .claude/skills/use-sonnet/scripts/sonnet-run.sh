@@ -27,7 +27,7 @@ DEFAULT_MODEL="sonnet"
 MODEL="$DEFAULT_MODEL"
 
 MODE="prompt"  # prompt, interactive, resume, continue
-PERM=""        # set by -a/-y to bypass headless permission prompts
+PERM=""        # -a = acceptEdits (edits auto-approved, Bash still gated); -y = full bypass
 ADD_DIRS=()
 PROMPT=""
 PROMPT_FILE=""
@@ -41,8 +41,8 @@ usage() {
     echo "Options:"
     echo "  -m, --model MODEL      Override model (default: $DEFAULT_MODEL; e.g. opus, claude-sonnet-5)"
     echo "  -i, --interactive      Interactive mode with initial prompt"
-    echo "  -a, --allow-tools      Auto-approve tool use (--permission-mode bypassPermissions)"
-    echo "  -y, --yolo             Full permissions (alias for -a)"
+    echo "  -a, --allow-edits      Auto-approve file edits (--permission-mode acceptEdits; other tools stay gated)"
+    echo "  -y, --yolo             Full permissions (--permission-mode bypassPermissions); required for unattended agentic runs"
     echo "  -s, --silent           Accepted for compatibility (claude -p output is already clean)"
     echo "  -d, --dir DIR          Allow access to directory (can repeat)"
     echo "  -f, --file FILE        Read prompt from file"
@@ -69,8 +69,10 @@ while [[ $# -gt 0 ]]; do
             MODE="interactive"
             shift
             ;;
-        -a|--allow-tools)
-            PERM="--permission-mode bypassPermissions"
+        -a|--allow-edits|--allow-tools)
+            # --allow-tools kept as a deprecated spelling of -a; it now grants
+            # acceptEdits, NOT bypass (the old mapping made -a a silent -y).
+            PERM="--permission-mode acceptEdits"
             shift
             ;;
         -y|--yolo)

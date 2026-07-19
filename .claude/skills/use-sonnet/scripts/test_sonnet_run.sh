@@ -120,14 +120,26 @@ else
          "argv: $(tr '\n' ' ' < "$CLAUDE_ARGV_FILE" 2>/dev/null || echo '<no claude invocation>')"
 fi
 
-# ══ T3: -a maps to --permission-mode bypassPermissions ════════════════════════
+# ══ T3: -a maps to --permission-mode acceptEdits (NOT bypass) ═════════════════
 run_sonnet t3 -a -f "$PROMPT_FILE_T"
 
-# 5. -a: argv carries the two-token pair --permission-mode bypassPermissions.
-if argv_has_pair "$CLAUDE_ARGV_FILE" "--permission-mode" "bypassPermissions"; then
-    PASS "-a: argv carries --permission-mode bypassPermissions"
+# 5. -a: argv carries the two-token pair --permission-mode acceptEdits. The old
+# mapping sent bypassPermissions, making the documented weaker flag a silent -y.
+if argv_has_pair "$CLAUDE_ARGV_FILE" "--permission-mode" "acceptEdits"; then
+    PASS "-a: argv carries --permission-mode acceptEdits"
 else
-    FAIL "-a: argv carries --permission-mode bypassPermissions" \
+    FAIL "-a: argv carries --permission-mode acceptEdits" \
+         "argv: $(tr '\n' ' ' < "$CLAUDE_ARGV_FILE" 2>/dev/null || echo '<no claude invocation>')"
+fi
+
+# ══ T3b: -y maps to --permission-mode bypassPermissions ═══════════════════════
+run_sonnet t3b -y -f "$PROMPT_FILE_T"
+
+# 5b. -y: argv carries the two-token pair --permission-mode bypassPermissions.
+if argv_has_pair "$CLAUDE_ARGV_FILE" "--permission-mode" "bypassPermissions"; then
+    PASS "-y: argv carries --permission-mode bypassPermissions"
+else
+    FAIL "-y: argv carries --permission-mode bypassPermissions" \
          "argv: $(tr '\n' ' ' < "$CLAUDE_ARGV_FILE" 2>/dev/null || echo '<no claude invocation>')"
 fi
 

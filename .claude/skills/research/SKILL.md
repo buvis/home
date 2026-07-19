@@ -1,6 +1,6 @@
 ---
 name: research
-description: Use when researching a topic via multi-source synthesis (literature review, competitive analysis, technology comparison). Triggers on "research this", "investigate", "literature review", "survey the landscape", "compare technologies".
+description: Use when researching a topic via multi-source synthesis (literature review, competitive analysis, tech comparison); for a fact-checked cited web report use deep-research. Triggers on "research this", "investigate", "survey the landscape".
 ---
 
 # Research
@@ -9,7 +9,7 @@ Dispatch a subagent to do multi-source research. Keeps intermediate search noise
 
 ## When This Skill Triggers
 
-1. Clarify intent if the request is vague (1-2 questions max).
+1. Clarify intent if the request is vague (1-2 questions max). Unattended (`CLAUDE_UNATTENDED=1`): skip questions — research the request as stated and note assumptions in the report, per `~/.claude/skills/run-autopilot/references/unattended-contract.md`.
 2. Launch a general-purpose Agent (model: `sonnet`) with the prompt template below.
 3. Report the synthesized result to the user.
 
@@ -80,4 +80,4 @@ Queries run, date range of sources, domain restrictions, known blind spots.
 ## Delivery
 
 - Short results (< 2000 words): the agent returns directly, relay to user.
-- Long reports: instruct the agent to save to `dev/local/research-[topic-slug]-[YYYY-MM-DD].md` using the Write tool. Tell the user where it was saved.
+- Long reports: instruct the agent to save to `dev/local/discovery/research-[topic-slug]-[YYYY-MM-DD].md` using the Write tool (curated dir per the GC contract; never dev/local root). Tell the user where it was saved.
