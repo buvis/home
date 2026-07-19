@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -101,6 +102,41 @@ def running_background_tasks(payload: dict[str, Any]) -> int:
     if not isinstance(tasks, list):
         return 0
     return sum(1 for t in tasks if isinstance(t, dict) and t.get("status") == "running")
+
+
+# Just under the 60s idle_prompt delay: a subagent write inside this window
+# postdates the turn end, which only a live background agent can produce
+# (foreground agents finish writing before the turn ends).
+IDLE_BG_WINDOW_SEC = 55
+
+
+def background_agents_active(payload: dict[str, Any]) -> bool:
+    """True when a subagent transcript for this session was written in the
+    last IDLE_BG_WINDOW_SEC — background work is live, so an idle_prompt is
+    parked-on-tasks noise, not a real "waiting for you".
+
+    idle_prompt payloads carry no background_tasks field; the session's
+    subagents/agent-*.jsonl mtimes are the disk proxy.
+    ponytail: mtime heuristic — an agent silent >55s inside one long tool
+    call lets a ping through; parse task lifecycle from the transcript if
+    that ever matters.
+    """
+    transcript = str(payload.get("transcript_path") or "")
+    if not transcript.endswith(".jsonl"):
+        return False
+    subagents = Path(transcript[: -len(".jsonl")]) / "subagents"
+    now = time.time()
+    try:
+        agent_files = list(subagents.glob("agent-*.jsonl"))
+    except OSError:
+        return False
+    for agent_file in agent_files:
+        try:
+            if now - agent_file.stat().st_mtime < IDLE_BG_WINDOW_SEC:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 ROTATE_THRESHOLD_BYTES = 5 * 1024 * 1024
@@ -347,6 +383,13 @@ def main() -> None:
     running = running_background_tasks(payload)
     if event == "Stop" and running:
         log_line(f"[{now_local()}] Suppressed: {running} background task(s) still running")
+        log_line("---")
+        return
+
+    # The ~60s-later idle_prompt after such a Stop is the same noise; its
+    # payload lacks background_tasks, so fall back to subagent file activity.
+    if event == "Notification" and notif_type == "idle_prompt" and background_agents_active(payload):
+        log_line(f"[{now_local()}] Suppressed: idle_prompt with live subagent activity")
         log_line("---")
         return
 
