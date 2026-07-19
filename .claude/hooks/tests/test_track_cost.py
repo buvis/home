@@ -39,8 +39,13 @@ def assistant_entry(*, mid: str, model: str, in_tok: int = 0, cw: int = 0, cr: i
     }
 
 
-def run_hook(payload: dict, home: Path) -> subprocess.CompletedProcess[str]:
+def run_hook(
+    payload: dict, home: Path, extra_env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "HOME": str(home)}
+    env.pop("CLAUDE_NESTED", None)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, str(HOOK)],
         input=json.dumps(payload),
@@ -259,6 +264,28 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(rows[0]["tier"], "unknown")
         self.assertIsNone(rows[0]["cost_usd"])
         self.assertIn("no pricing tier", proc.stderr)
+
+    def test_nested_dispatch_row_is_tagged(self) -> None:
+        transcript = self.home / "t.jsonl"
+        write_transcript(transcript, [
+            assistant_entry(mid="m", model="claude-sonnet-4-6", in_tok=1000, out=500),
+        ])
+        run_hook(
+            {"session_id": "s", "transcript_path": str(transcript)},
+            self.home,
+            extra_env={"CLAUDE_NESTED": "1"},
+        )
+        rows = read_costs(self.home)
+        self.assertIs(rows[0]["nested"], True)
+
+    def test_top_level_row_has_no_nested_field(self) -> None:
+        transcript = self.home / "t.jsonl"
+        write_transcript(transcript, [
+            assistant_entry(mid="m", model="claude-sonnet-4-6", in_tok=1000, out=500),
+        ])
+        run_hook({"session_id": "s", "transcript_path": str(transcript)}, self.home)
+        rows = read_costs(self.home)
+        self.assertNotIn("nested", rows[0])
 
     def test_two_invocations_append_rows(self) -> None:
         t1 = self.home / "t1.jsonl"

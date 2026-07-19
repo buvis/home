@@ -135,7 +135,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "claude-fable-5[1m]",
+  "model": "sonnet",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -162,16 +162,6 @@
             "command": "python3 ~/.claude/hooks/cartographer-echo.py",
             "timeout": 5
           },
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/strunk-ruling-inject.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/strunk-ruling-inject.py",
@@ -265,25 +255,6 @@
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/design-quality-check.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/observe_tool.py",
-            "timeout": 5
-          }
-        ]
-      },
       {
         "matcher": "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*",
         "hooks": [
