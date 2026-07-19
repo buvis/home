@@ -213,6 +213,29 @@ class StatectlTest(unittest.TestCase):
         result = self.run_cli("get", "tasks[x]")
         self.assertEqual(result.returncode, 1)
 
+    # 9. negative indices target from the end (Python-style) -------------------
+
+    def test_negative_index_targets_last_element(self) -> None:
+        # The skill prose targets state.tasks[i].attempts[-1] directly (the most
+        # recent attempt); statectl must resolve [-1] to the last list element
+        # for get and set, or the sole-writer mandate is impossible on that path.
+        self.write_state({"tasks": [{"attempts": [{"n": 1}, {"n": 2}]}]})
+        getr = self.run_cli("get", "tasks[0].attempts[-1]")
+        self.assertEqual(getr.returncode, 0)
+        self.assertEqual(json.loads(getr.stdout), {"n": 2})
+        setr = self.run_cli("set", "tasks[0].attempts[-1].done", json.dumps(True))
+        self.assertEqual(setr.returncode, 0)
+        state = self.load_state()
+        self.assertEqual(state["tasks"][0]["attempts"][-1], {"n": 2, "done": True})
+        self.assertEqual(state["tasks"][0]["attempts"][0], {"n": 1})
+
+    def test_malformed_negative_index_exits_1(self) -> None:
+        # A lone '-' or a double '--1' is outside the integer grammar.
+        self.write_state({"tasks": [{"attempts": []}]})
+        for bad in ("tasks[0].attempts[-]", "tasks[0].attempts[--1]"):
+            result = self.run_cli("get", bad)
+            self.assertEqual(result.returncode, 1, f"{bad!r} should exit 1")
+
 
 if __name__ == "__main__":
     unittest.main()

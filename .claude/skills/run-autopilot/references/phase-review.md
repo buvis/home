@@ -53,9 +53,9 @@ Executed only when the Cap check above fired on the INTERACTIVE branch (`state.c
 
 1. **Collect unresolved findings.** Read the current review-cycle output (the same review file Phase 4 produced) and gather every finding that has not yet been resolved by an earlier cycle. Format each finding minimally — at least `{"issue": <description>, "severity": <"critical"|"high"|"medium"|"low">, "consensus": <"N/M">}` — additional fields are allowed.
 
-2. **Set `cap_pause_reason`** with `statectl set <state.json> cap_pause_reason '<json>'` (statectl merges — sibling fields are preserved), where `<json>` is:
+2. **Set `cap_pause_reason`** with `statectl set <state.json> cap_pause_reason '<json>'` (statectl merges — sibling fields are preserved), where `<json>` is the bare object value (NOT a `"cap_pause_reason": {...}` key/value fragment — that is invalid JSON for the value arg):
    ```json
-   "cap_pause_reason": {
+   {
      "cycle": <state.cycle>,
      "cap": <state.rework_cap>,
      "unresolved_findings": [ ... ]
@@ -193,7 +193,7 @@ The work skill may parallelize independent rework tasks when `superpowers:dispat
 
 ### After /work returns
 
-Land steps 1-3 as ONE merged `state.json` write, immediately before the banner and turn-end, so the durable `cycle` increment and the `phase`/`next_phase` re-affirmation land atomically (belt-and-suspenders — `phase`/`next_phase` are already `"review"` throughout the review gate, so no partial write can misroute the phase or mis-apply the cap):
+Apply steps 1-3 with `statectl set` (one call per field; each write is individually atomic), immediately before the banner and turn-end. The load-bearing durable write is the `cycle` increment — a single atomic `statectl set`; the `phase`/`next_phase` re-affirmations are belt-and-suspenders (both are already `"review"` throughout the review gate, so even a partial application across the three calls cannot misroute the phase or mis-apply the cap). A batch/patch verb landing all three in one write is out of scope here (owned by PRD 00051's writer boundary):
 
 1. Clear `state.rework_task_ids` (set to `[]`).
 2. **Increment `state.cycle` and persist it to `state.json` in this step** (a durable write, not an in-memory bump). The Phase 5 cap gate (`state.cycle >= state.rework_cap`) reads `state.cycle`; skipping the persisted increment blinds it — that exact miss let a loop run past its cap once (`references/design-rationale.md` § Persisted cycle increment). This write is not optional.
