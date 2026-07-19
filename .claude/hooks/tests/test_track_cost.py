@@ -68,19 +68,31 @@ class TestDetectTier(unittest.TestCase):
     def test_sonnet_default(self) -> None:
         self.assertEqual(track_cost.detect_tier("claude-sonnet-4-6"), "sonnet")
 
-    def test_unknown_falls_back_to_sonnet(self) -> None:
-        self.assertEqual(track_cost.detect_tier("mystery-model"), "sonnet")
+    def test_fable(self) -> None:
+        self.assertEqual(track_cost.detect_tier("claude-fable-5"), "fable")
+
+    def test_mythos_prices_as_fable(self) -> None:
+        self.assertEqual(track_cost.detect_tier("claude-mythos-5"), "fable")
+
+    def test_unknown_returns_unknown(self) -> None:
+        self.assertEqual(track_cost.detect_tier("mystery-model"), "unknown")
 
 
 class TestCostUsd(unittest.TestCase):
     def test_opus_cost(self) -> None:
-        self.assertEqual(track_cost.cost_usd(600, 200, 3000, 150, "opus"), "0.02850")
+        self.assertEqual(track_cost.cost_usd(600, 200, 3000, 150, "opus"), "0.00950")
 
     def test_sonnet_cost(self) -> None:
         self.assertEqual(track_cost.cost_usd(1000, 0, 0, 500, "sonnet"), "0.01050")
 
     def test_haiku_cost(self) -> None:
-        self.assertEqual(track_cost.cost_usd(2000, 500, 10000, 1000, "haiku"), "0.00690")
+        self.assertEqual(track_cost.cost_usd(2000, 400, 10000, 1000, "haiku"), "0.00850")
+
+    def test_fable_cost(self) -> None:
+        self.assertEqual(track_cost.cost_usd(1000, 0, 0, 500, "fable"), "0.03500")
+
+    def test_unknown_cost_is_null(self) -> None:
+        self.assertEqual(track_cost.cost_usd(1000, 0, 0, 500, "unknown"), "null")
 
     def test_zero(self) -> None:
         self.assertEqual(track_cost.cost_usd(0, 0, 0, 0, "sonnet"), "0.00000")
@@ -189,7 +201,7 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(row["cache_write"], 200)
         self.assertEqual(row["cache_read"], 3000)
         self.assertEqual(row["out"], 150)
-        self.assertEqual(row["cost_usd"], 0.02850)
+        self.assertEqual(row["cost_usd"], 0.00950)
 
     def test_empty_transcript_path_writes_nothing(self) -> None:
         proc = run_hook(
@@ -220,12 +232,33 @@ class TestEndToEnd(unittest.TestCase):
     def test_haiku_detection(self) -> None:
         transcript = self.home / "t.jsonl"
         write_transcript(transcript, [
-            assistant_entry(mid="m", model="claude-haiku-4-5-20251001", in_tok=2000, cw=500, cr=10000, out=1000),
+            assistant_entry(mid="m", model="claude-haiku-4-5-20251001", in_tok=2000, cw=400, cr=10000, out=1000),
         ])
         run_hook({"session_id": "s", "transcript_path": str(transcript)}, self.home)
         rows = read_costs(self.home)
         self.assertEqual(rows[0]["tier"], "haiku")
-        self.assertEqual(rows[0]["cost_usd"], 0.00690)
+        self.assertEqual(rows[0]["cost_usd"], 0.00850)
+
+    def test_fable_detection(self) -> None:
+        transcript = self.home / "t.jsonl"
+        write_transcript(transcript, [
+            assistant_entry(mid="m", model="claude-fable-5", in_tok=1000, out=500),
+        ])
+        run_hook({"session_id": "s", "transcript_path": str(transcript)}, self.home)
+        rows = read_costs(self.home)
+        self.assertEqual(rows[0]["tier"], "fable")
+        self.assertEqual(rows[0]["cost_usd"], 0.03500)
+
+    def test_unknown_model_writes_null_cost(self) -> None:
+        transcript = self.home / "t.jsonl"
+        write_transcript(transcript, [
+            assistant_entry(mid="m", model="mystery-model", in_tok=1000, out=500),
+        ])
+        proc = run_hook({"session_id": "s", "transcript_path": str(transcript)}, self.home)
+        rows = read_costs(self.home)
+        self.assertEqual(rows[0]["tier"], "unknown")
+        self.assertIsNone(rows[0]["cost_usd"])
+        self.assertIn("no pricing tier", proc.stderr)
 
     def test_two_invocations_append_rows(self) -> None:
         t1 = self.home / "t1.jsonl"
@@ -234,14 +267,14 @@ class TestEndToEnd(unittest.TestCase):
             assistant_entry(mid="a", model="claude-sonnet-4-6", in_tok=1000, out=500),
         ])
         write_transcript(t2, [
-            assistant_entry(mid="b", model="claude-haiku-4-5-20251001", in_tok=2000, cw=500, cr=10000, out=1000),
+            assistant_entry(mid="b", model="claude-haiku-4-5-20251001", in_tok=2000, cw=400, cr=10000, out=1000),
         ])
         run_hook({"session_id": "s1", "transcript_path": str(t1)}, self.home)
         run_hook({"session_id": "s2", "transcript_path": str(t2)}, self.home)
         rows = read_costs(self.home)
         self.assertEqual(len(rows), 2)
         total = sum(r["cost_usd"] for r in rows)
-        self.assertAlmostEqual(total, 0.01740, places=5)
+        self.assertAlmostEqual(total, 0.01900, places=5)
 
 
 if __name__ == "__main__":

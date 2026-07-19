@@ -19,6 +19,16 @@ from pathlib import Path
 HOOK = Path(__file__).parent / "autopilot_context_cap_hook.py"
 
 
+def _loop_env() -> dict[str, str]:
+    """Env for a loop-wrapped session. The hook is guarded on
+    $_AUTOPILOT_LOOP (2026-07-19: interactive sessions sharing a cwd tree
+    with parked autopilot state must never rotate/stall it), so tests that
+    exercise the firing paths must run inside a simulated loop env."""
+    env = dict(os.environ)
+    env["_AUTOPILOT_LOOP"] = "test-loop"
+    return env
+
+
 def _load_hook_module():
     """Load the hook as an importable module so its `main()` can be called
     in-process. Used by the perf test to time only the hook's work,
@@ -86,12 +96,17 @@ class HookFixture:
             },
         }
 
-    def run_hook(self, stdin_payload: dict | None = None) -> subprocess.CompletedProcess:
+    def run_hook(
+        self, stdin_payload: dict | None = None, *, in_loop: bool = True
+    ) -> subprocess.CompletedProcess:
         if stdin_payload is None:
             stdin_payload = {
                 "session_id": "test-session",
                 "transcript_path": str(self.transcript),
             }
+        env = _loop_env()
+        if not in_loop:
+            env.pop("_AUTOPILOT_LOOP", None)
         return subprocess.run(
             [sys.executable, str(HOOK)],
             input=json.dumps(stdin_payload),
@@ -99,6 +114,7 @@ class HookFixture:
             text=True,
             cwd=str(self.cwd),
             timeout=5,
+            env=env,
         )
 
     def cleanup(self) -> None:
@@ -176,6 +192,30 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
+    # Loop guard -------------------------------------------------------------
+
+    def test_interactive_session_is_noop_even_over_cap(self) -> None:
+        """2026-07-19 regression: without $_AUTOPILOT_LOOP the hook must not
+        touch parked autopilot state, even far over the cap. An interactive
+        session sharing the cwd tree with a parked batch wrote rotations and
+        a bogus oversized-task stall into that batch's state.json."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=600_000)])
+        before = (self.fx.autopilot_dir / "state.json").read_text()
+        result = self.fx.run_hook(in_loop=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertEqual(
+            (self.fx.autopilot_dir / "state.json").read_text(), before
+        )
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+        self.assertFalse(
+            (self.fx.autopilot_dir / ".handoff-requested").exists()
+        )
+
     # Single hard cap --------------------------------------------------------
 
     def test_does_not_fire_below_cap(self) -> None:
@@ -224,6 +264,7 @@ class ContextCapHookTests(unittest.TestCase):
             text=True,
             cwd=str(deep),
             timeout=5,
+            env=_loop_env(),
         )
         self.assertEqual(result.returncode, 0)
         self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
@@ -243,6 +284,7 @@ class ContextCapHookTests(unittest.TestCase):
                 text=True,
                 cwd=plain,
                 timeout=5,
+                env=_loop_env(),
             )
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout.strip(), "")
@@ -269,6 +311,7 @@ class ContextCapHookTests(unittest.TestCase):
                 text=True,
                 cwd=str(plain_path),
                 timeout=5,
+                env=_loop_env(),
             )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
@@ -348,6 +391,8 @@ class ContextCapHookTests(unittest.TestCase):
         module = _load_hook_module()
         payload = json.dumps({"transcript_path": str(self.fx.transcript)})
         prev_stdin, prev_stdout, prev_cwd = sys.stdin, sys.stdout, os.getcwd()
+        prev_loop = os.environ.get("_AUTOPILOT_LOOP")
+        os.environ["_AUTOPILOT_LOOP"] = "test-loop"
         sys.stdin = io.StringIO(payload)
         captured_stdout = io.StringIO()
         sys.stdout = captured_stdout
@@ -360,6 +405,10 @@ class ContextCapHookTests(unittest.TestCase):
             sys.stdin = prev_stdin
             sys.stdout = prev_stdout
             os.chdir(prev_cwd)
+            if prev_loop is None:
+                os.environ.pop("_AUTOPILOT_LOOP", None)
+            else:
+                os.environ["_AUTOPILOT_LOOP"] = prev_loop
 
         self.assertLess(elapsed_ms, 100, f"hook took {elapsed_ms:.0f}ms")
         # Proves the tail-read + parse code path actually ran. A regression
@@ -454,6 +503,8 @@ class ContextCapHookTests(unittest.TestCase):
         module = _load_hook_module()
         payload = json.dumps({"transcript_path": str(self.fx.transcript)})
         prev_stdin, prev_stdout, prev_cwd = sys.stdin, sys.stdout, os.getcwd()
+        prev_loop = os.environ.get("_AUTOPILOT_LOOP")
+        os.environ["_AUTOPILOT_LOOP"] = "test-loop"
         sys.stdin = io.StringIO(payload)
         captured = io.StringIO()
         sys.stdout = captured
@@ -466,6 +517,10 @@ class ContextCapHookTests(unittest.TestCase):
             sys.stdin = prev_stdin
             sys.stdout = prev_stdout
             os.chdir(prev_cwd)
+            if prev_loop is None:
+                os.environ.pop("_AUTOPILOT_LOOP", None)
+            else:
+                os.environ["_AUTOPILOT_LOOP"] = prev_loop
 
         # No abort emitted — the usage line is beyond the MAX_TAIL_BYTES
         # window, so the hook treats this turn as "no recent usage info"
