@@ -47,6 +47,8 @@ alwaysAllow:
   - pi
   - claude
   - mise
+  # Autopilot wrapper (bash function in development.plugin.bash)
+  - autoclaude
   - curl
   - mempalace
   - htpasswd
@@ -101,6 +103,16 @@ alwaysAllow:
   - ":"
 
 rules:
+  # Autopilot entry chain: sourcing the dev plugin is how autoclaude loads
+  - command: source
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ['^~/\.config/bash/plugins/development\.plugin\.bash$', '^/Users/bob/\.config/bash/plugins/development\.plugin\.bash$']
+        decision: allow
+        description: Allow sourcing the development bash plugin
+  - command: development.plugin.bash
+    default: allow
   # Git: allow most ops, ask for dangerous ones
   - command: git
     default: allow
@@ -123,7 +135,7 @@ rules:
       - match:
           argsMatch: ["-r[f ].*/tmp/"]
         decision: allow
-        description: Recursive delete in /tmp
+        description: Recursive delete under any tmp/ path segment (repo tmp/ dirs are ephemeral by the dev/local GC contract)
       - match:
           argsMatch: ["-rf ", "-rf$", "-r "]
         decision: ask

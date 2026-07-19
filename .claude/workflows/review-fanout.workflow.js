@@ -1,6 +1,7 @@
 export const meta = {
   name: 'review-fanout',
   description: 'Consensus review fan-out: dimensions in parallel, dedup, adversarial verify',
+  whenToUse: 'Use when a multi-dimension consensus review of a diff or PRD implementation should run as one orchestrated fan-out. Triggers on "review fanout", "fan out the review", "consensus review workflow".',
   phases: [
     { title: 'Review', detail: 'dimension agents in parallel' },
     { title: 'Verify', detail: 'adversarial verification of CRITICAL/HIGH findings' },
