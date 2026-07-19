@@ -10,6 +10,7 @@ bash awk template byte-for-byte on shared fixtures.
 """
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -155,16 +156,22 @@ def build_row(
     cr: int,
     out: int,
     cost: str,
+    nested: bool = False,
 ) -> str:
     """Emit JSONL row matching the bash printf template byte-for-byte.
 
     cost_usd is unquoted in the bash output (raw JSON number), so we build the
     string literally rather than going through json.dumps which would force
-    fixed-width float formatting.
+    fixed-width float formatting. Nested dispatches (CLAUDE_NESTED children,
+    e.g. sonnet-run.sh reviewers) are tagged so cost analyses can split
+    reviewer spend from interactive spend; the rows are real API spend, never
+    duplicates, so they are tagged rather than dropped.
     """
     return (
         '{"ts":"' + ts + '","sid":"' + sid + '","model":"' + model + '",'
-        '"tier":"' + tier + '","in":' + str(in_tok) + ','
+        '"tier":"' + tier + '",'
+        + ('"nested":true,' if nested else '')
+        + '"in":' + str(in_tok) + ','
         '"cache_write":' + str(cw) + ','
         '"cache_read":' + str(cr) + ','
         '"out":' + str(out) + ','
@@ -202,6 +209,7 @@ def main() -> None:
     row = build_row(
         ts=ts, sid=sid, model=model, tier=tier,
         in_tok=in_tok, cw=cw, cr=cr, out=out_tok, cost=cost,
+        nested=bool(os.environ.get("CLAUDE_NESTED")),
     )
     with COSTS_FILE.open("a", encoding="utf-8") as fh:
         fh.write(row + "\n")

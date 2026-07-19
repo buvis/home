@@ -20,6 +20,12 @@ fi
 # ponytail: single env guard, not a wrapper.
 unset _AUTOPILOT_LOOP
 
+# Mark the child as a nested dispatch so the parent's hooks stay useful:
+# track_cost tags the row nested:true (real spend, attributed), while notify /
+# strunk-ruling-inject / observe_tool early-exit (no pings, injections, or
+# per-call observations for reviewer children). Warden and aegis stay active.
+export CLAUDE_NESTED=1
+
 # The unset above also re-enables the nested claude's notify.py hook (it gates
 # on _AUTOPILOT_LOOP), so every reviewer dispatch pinged "done" mid-batch.
 # Mark the nested session quiet instead: notify.py silences Stop/idle_prompt

@@ -59,15 +59,17 @@ from typing import Any
 from _walk_up import find_autopilot_dir
 
 # Per-task context cap as a single hard ceiling, applied regardless of the
-# model's window (no window classification). The dispatch triangle is gone:
-# every autopilot session — build included — now launches on Opus 1M, so the
-# cap is sized for cost (cost scales linearly with context: every turn
-# re-sends the whole window as input), not to dodge a small-window model's
-# native auto-compact. 500K is the chosen ceiling: it bounds per-task spend
-# while sitting well below the 1M-window compaction trigger, so the clean
-# rotation handoff always runs. (The earlier 150K value misfired — the audit
-# recorded every cap fire at ~163K inside Opus-1M sessions, aborting good
-# plans the cap was meant to protect.)
+# model's window (no window classification). Every autopilot session — build
+# included — launches on the session default (claude-fable-5[1m] since
+# 2026-07-19; previously Opus 1M), so the cap is sized for cost (cost scales
+# linearly with context: every turn re-sends the whole window as input), not
+# to dodge a small-window model's native auto-compact. 500K is the chosen
+# ceiling: it bounds per-task spend while sitting well below the 1M-window
+# compaction trigger, so the clean rotation handoff always runs. If a future
+# default has a window below the cap, native auto-compact fires first and the
+# rotation path never runs — re-derive the caps as a window fraction then.
+# (The earlier 150K value misfired — the audit recorded every cap fire at
+# ~163K inside 1M sessions, aborting good plans the cap was meant to protect.)
 USAGE_CAP = 500_000
 # The soft cap sits below the hard cap. Crossing it writes the
 # `.handoff-requested` marker so `/work` hands off at the next task boundary

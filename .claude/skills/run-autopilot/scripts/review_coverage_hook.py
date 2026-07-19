@@ -18,6 +18,13 @@ from pathlib import Path
 
 from _walk_up import find_autopilot_dir
 
+# Liveness valve: block session exit at most this many times per handoff.
+# Without it, a review file that stays missing/malformed (reviewer died,
+# content lost) blocks every exit until the context cap kills the session.
+# On the cap-th+1 block the hook fails loud instead: stderr verdict, a
+# `.review-gate-failed` marker for the wrapper/next session, exit 0.
+BLOCK_CAP = 3
+
 _PHASE_TO_SURFACE: dict[str, str] = {
     # At session exit `phase` is the NEXT phase, so the surface that JUST
     # finished is the previous one: done → the review-rework loop converged,
@@ -129,11 +136,39 @@ def main() -> int:
         return 0
 
     should_block, message = gate_blocks(autopilot_dir, state)
+    counter = autopilot_dir / ".review-gate-blocks"
     if not should_block:
         if message:
             sys.stderr.write(message + "\n")
+        # Gate passed: clear the liveness bookkeeping for the next handoff.
+        for stale in (counter, autopilot_dir / ".review-gate-failed"):
+            try:
+                stale.unlink(missing_ok=True)
+            except OSError:
+                pass
         return 0
 
+    try:
+        blocks = int(counter.read_text().strip() or "0")
+    except (OSError, ValueError):
+        blocks = 0
+    blocks += 1
+    if blocks > BLOCK_CAP:
+        sys.stderr.write(
+            message
+            + f"; review_gate: failed - giving up after {BLOCK_CAP} blocked "
+            "exits to preserve session liveness\n"
+        )
+        try:
+            (autopilot_dir / ".review-gate-failed").write_text(message + "\n")
+            counter.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return 0
+    try:
+        counter.write_text(str(blocks))
+    except OSError:
+        pass
     sys.stderr.write(message + "\n")
     return 2
 
