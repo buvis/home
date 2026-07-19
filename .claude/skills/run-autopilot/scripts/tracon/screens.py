@@ -518,6 +518,9 @@ esc or ? closes this help.
             scrollbar-color-active: #b3d9ff;
             scrollbar-background: #21252e;
         }
+        TasksScreen Horizontal > VerticalScroll {
+            margin-right: 3;
+        }
         """
         # ctrl+c is a hidden synonym for q: exit the UI, never stop a loop.
         # Stopping is s, which acts on the loop you are looking at — a

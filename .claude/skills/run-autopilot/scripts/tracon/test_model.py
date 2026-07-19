@@ -647,6 +647,13 @@ def test_tasks_by_lane_empty_lanes_when_tasks_missing(tmp_path: Path) -> None:
     assert lanes == {"in_progress": [], "pending": [], "completed": []}
 
 
+def test_lanes_render_in_workflow_order(tmp_path: Path) -> None:
+    """Kanban columns read left→right as the task lifecycle."""
+    assert model.LANES == ("pending", "in_progress", "completed")
+    path = _write_json(tmp_path / "state.json", {"phase": "build"})
+    assert list(model.tasks_by_lane(model.read_state(path))) == list(model.LANES)
+
+
 def test_current_task_name_empty_when_tasks_absent_or_malformed(
     tmp_path: Path,
 ) -> None:
