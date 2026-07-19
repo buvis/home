@@ -20,6 +20,12 @@ fi
 # ponytail: single env guard, not a wrapper.
 unset _AUTOPILOT_LOOP
 
+# The unset above also re-enables the nested claude's notify.py hook (it gates
+# on _AUTOPILOT_LOOP), so every reviewer dispatch pinged "done" mid-batch.
+# Mark the nested session quiet instead: notify.py silences Stop/idle_prompt
+# when this is set; permission_prompt still pages.
+export _CLAUDE_NOTIFY_QUIET=1
+
 # `sonnet` alias always resolves to the latest base Sonnet. No Copilot
 # multiplier to dodge anymore - override with -m only when you need a specific
 # model id or a different tier.
