@@ -58,6 +58,18 @@ function dedupKey(f) {
 const rank = (severity) => (severity in SEVERITY_RANK ? SEVERITY_RANK[severity] : 4);
 const textLen = (s) => (typeof s === "string" ? s.trim().length : 0);
 
+/** UTF-8 byte count in pure ECMAScript — the workflow sandbox guarantees only
+ *  language built-ins (no Buffer, no TextEncoder). for..of walks code points;
+ *  a lone surrogate counts 3, matching TextEncoder's U+FFFD replacement. */
+function utf8ByteLength(s) {
+  let bytes = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0);
+    bytes += cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4;
+  }
+  return bytes;
+}
+
 /** The tool hands `args` through as a JSON string when the caller stringified it. */
 function coerceArgs(a) {
   if (typeof a !== "string") return a;
@@ -74,7 +86,7 @@ function validateArgs(a) {
   };
   if (a === null || typeof a !== "object") bad("args must be an object");
   if (typeof a.diff !== "string" || a.diff.trim() === "") bad("diff is required and must be a non-empty unified diff");
-  if (Buffer.byteLength(a.diff, "utf8") > MAX_DIFF_BYTES) bad(`diff is longer than MAX_DIFF_BYTES (${MAX_DIFF_BYTES}); the caller must truncate it`);
+  if (utf8ByteLength(a.diff) > MAX_DIFF_BYTES) bad(`diff is longer than MAX_DIFF_BYTES (${MAX_DIFF_BYTES}); the caller must truncate it`);
   if (typeof a.rubric_text !== "string" || a.rubric_text.trim() === "") bad("rubric_text is required");
   if (typeof a.diff_bytes !== "number") bad("diff_bytes is required");
   if (!Number.isFinite(a.diff_bytes) || a.diff_bytes < 0) bad("diff_bytes must be a finite non-negative number");
@@ -84,7 +96,7 @@ function validateArgs(a) {
 /** `diff_bytes` is a real byte count (from `wc -c`); `.length` counts UTF-16 code
  *  units, so a non-ASCII diff needs the real byte count to avoid a false positive. */
 function isTruncated(diffBytes, diffText) {
-  return diffBytes > Buffer.byteLength(diffText, "utf8");
+  return diffBytes > utf8ByteLength(diffText);
 }
 
 /** Split camelCase so `authToken` yields both words, then lowercase. */

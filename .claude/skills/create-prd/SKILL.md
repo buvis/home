@@ -74,7 +74,7 @@ While drafting, mark every contract detail you invented rather than sourced from
 
 ### Optional frontmatter fields
 
-PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Six optional fields are recognized by `/run-autopilot` Phase 0:
+PRD frontmatter is a YAML block at the top of the file delimited by `---` lines. Seven optional fields are recognized by the autopilot pipeline (six parsed by `/run-autopilot` Phase 0; `default_model` is owned and re-read by `/plan-tasks`):
 
 - `catchup: run | skip | force` — controls Phase 1 (Catchup) behavior. `run` (default) honors the batch cache; `skip` bypasses catchup entirely; `force` ignores the batch cache and re-runs full catchup. Use `skip` for PRDs that need no fresh project context (e.g. small docs-only changes). Use `force` after a major structural change you want catchup to pick up.
 - `rework_cap: <int>` — caps how many review-rework cycles Phase 5 will run before pausing. Default `3`. `rework_cap: 5` allows five review cycles before pause; `rework_cap: 3` (the default) allows three. Raise this for genuinely hard PRDs that need more cycles; the default suits most work.
@@ -82,6 +82,7 @@ PRD frontmatter is a YAML block at the top of the file delimited by `---` lines.
 - `design_gate: user` — when set, Phase 1.5 PAUSEs for your review of the design doc (summary + unresolved non-blockers) before planning. Absent by default (design runs autonomously, no pause). Set it on PRDs where you want to vet the design before tasks are planned.
 - `doubt_reviewer: codex | fable` — selects the doubt-review (Phase 8) reviewer set for this PRD. `codex` (default) uses the standard codex doubt reviewer; `fable` opts into the Eve (Claude Fable 5) doubt-review leg. Absent by default. (Only adds/parses the flag today; the Phase 8 consumer lands in a follow-on PRD.)
 - `consensus_engine: legacy | shadow | workflow` — selects the engine behind Alice's consensus leg in the review phase. `legacy` (default) runs today's single review subagent. `workflow` runs the `review-fanout` workflow instead: review dimensions in parallel with schema-forced findings, dedup, and adversarial verification of every CRITICAL/HIGH before it can block. `shadow` runs both — legacy Alice gates the cycle and the workflow runs beside her, non-gating, so you can compare before opting in. Absent by default.
+- `default_model: <tier>` — floor for the per-task model tier. Owned by `/plan-tasks` step 4.7 (the single source of truth): `final_tier = max(classifier_tier, default_model)`, re-read from this frontmatter at Phase 6 runtime, never persisted to state. Absent by default (classifier tier passes through).
 
 Example combining several:
 
@@ -96,7 +97,7 @@ consensus_engine: shadow
 ---
 ```
 
-All six fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
+All seven fields are optional. Invalid values fall back to defaults (a one-line warning is logged).
 
 ### 4. Split if needed
 
@@ -121,8 +122,8 @@ Count unresolved contract markers in the draft: `(guess)`, `TBD`, `TODO`, plus O
 mkdir -p dev/local/prds/backlog
 
 # Determine next sequence number
-# Scan ALL prds in dev/local/prds (backlog, wip, done) for highest existing sequence
-# Extract 5-digit prefix from filenames matching pattern NNNNN-*.txt
+# Scan ALL prds in dev/local/prds (backlog, wip, done, hold) AND dev/local/discovery for highest existing sequence
+# Extract 5-digit prefix from filenames matching pattern NNNNN-*.md
 # Increment by 1, pad to 5 digits
 
 # Save PRD with sequence prefix
@@ -156,6 +157,7 @@ Examples:
 dev/local/prds/
 ├── backlog/    # Planned but not started
 ├── wip/        # Currently being implemented
+├── hold/       # Parked (human HOLD verdicts + machine stalls); autopilot never reads it
 └── done/       # Completed PRDs (for reference)
 ```
 
@@ -163,7 +165,10 @@ dev/local/prds/
 
 1. **Create**: Save to `backlog/`
 2. **Start work**: Move to `wip/`
-3. **Complete**: Move to `done/`
+3. **Park** (optional): Move to `hold/`; a human moves it back to `backlog/` or `wip/` to resume
+4. **Complete**: Move to `done/`
+
+A parked PRD keeps its number — that is why the sequence scan MUST include `hold/`, or a new PRD can duplicate a parked one's number.
 
 ## Assets
 

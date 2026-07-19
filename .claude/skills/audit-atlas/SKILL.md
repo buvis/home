@@ -23,7 +23,7 @@ script computes it (PRD 00046) — never scan the atlas files in-model.
 ## Step 1: Run the report script
 
 ```bash
-python3 ~/.claude/skills/audit-atlas/scripts/report.py
+python3 ${CLAUDE_SKILL_DIR}/scripts/report.py
 ```
 
 It scans every `projects/<hash>/atlas.json` (cross-referencing
@@ -58,5 +58,5 @@ fresh/stale, active_fresh_pct, degraded count, and the median sizes.
   `head_sha` (absent for non-git dirs), `surveyed_at` (ISO-8601 UTC),
   `layers`, `forbidden_imports`, `naming`, `error_style`,
   `dependency_edges`; optional `staleness`, `truncated`, `degraded`.
-- To refresh a specific atlas: `cd <repo_path>` then `/survey --refresh`.
+- To refresh a specific atlas: run `/survey --refresh` from a session opened in that repo (`/survey` is cwd-scoped; never `cd` in this session).
 - Read-only: neither the script nor this skill modifies atlas files.

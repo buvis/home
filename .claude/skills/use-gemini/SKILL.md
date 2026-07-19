@@ -69,6 +69,8 @@ Pass `-m MODEL` only when the user asks for a specific model.
 | Resume recent session | `-c` |
 | Resume specific session | `-r <ID>` |
 
+Gotcha: in repos where `dev/local` is a symlink outside the workspace (buvis convention: `-> ~/.local/tmp/claude-dev`), gemini cannot read through it - pass `-d /Users/bob/.local/tmp/claude-dev` so those files resolve (verified fix).
+
 ## Helper Script
 
 ```bash

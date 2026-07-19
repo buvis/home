@@ -94,7 +94,7 @@ Delete `state.pause_reason` from `state.json` if present — unconditional, on e
 
 ### Operator runbook (unattended batches)
 
-All interaction with a running `autoclaude` batch happens at session boundaries — the only safe point:
+All interaction with a running `autoclaude` batch happens at session boundaries — the only safe point. (Operator-shell commands for the human's own terminal, not for the model's Bash tool — `tail -f` would hang a session and pipes are hook-blocked.)
 
 - **Watch**: `tail -f dev/local/autopilot/last-session.log` — the wrapper tees the live event log of the running headless turn there.
 - **Pause**: `touch dev/local/autopilot/pause-requested` — the wrapper consumes the marker at the next session boundary, notifies "paused by operator", and stops the loop with state intact.
@@ -224,10 +224,10 @@ Idempotent, safe on every invocation. `mkdir` before any move is mandatory: a mo
 
 ## Design-gate invariant: empty-review-log gate (Phase 1.5 — full procedure: `references/phase-build.md`)
 
-Phase 1.5 must verify the design doc's `## Review log` actually holds at least one reviewer dispatch summary line — a silently-skipped review leaves it empty, and nothing else checks that the review ran. Run the gate on this success path (after a successful `/design-solution` run) AND on this artifact-reuse path (when an existing design doc is reused); `design_mode == "skip"` bypasses the empty-review-log gate entirely (no doc exists by design). Bind `DESIGN_DOC` to `state.design_doc` and run this exact section-scoped check (one `awk`, no pipe, exit-code based — it counts only pinned dispatch-summary lines that appear inside the `## Review log` section, so the design doc's own example lines in `## Interfaces & contracts` cannot false-pass it):
+Phase 1.5 must verify the design doc's `## Review log` actually holds at least one reviewer dispatch summary line — a silently-skipped review leaves it empty, and nothing else checks that the review ran. Run the gate on this success path (after a successful `/design-solution` run) AND on this artifact-reuse path (when an existing design doc is reused); `design_mode == "skip"` bypasses the empty-review-log gate entirely (no doc exists by design). Inline the design-doc path from `state.design_doc` directly into this exact section-scoped check (one `awk`, no pipe, no shell variable — assignments break permission-prefix matching; exit-code based — it counts only pinned dispatch-summary lines that appear inside the `## Review log` section, so the design doc's own example lines in `## Interfaces & contracts` cannot false-pass it):
 
 ```
-awk '/^## Review log/{f=1;next} /^## /{f=0} f && /dispatch [0-9]+ \((claude|codex|claude-fallback)\): cardinal-sin [0-9]+, blocker [0-9]+, non-blocker [0-9]+, question [0-9]+/{hit=1} END{exit !hit}' "$DESIGN_DOC"
+awk '/^## Review log/{f=1;next} /^## /{f=0} f && /dispatch [0-9]+ \((claude|codex|claude-fallback)\): cardinal-sin [0-9]+, blocker [0-9]+, non-blocker [0-9]+, question [0-9]+/{hit=1} END{exit !hit}' <path-from-state.design_doc>
 ```
 
 - **exit 0** (≥1 in-section dispatch summary line) → proceed to Phase 2 (planning).

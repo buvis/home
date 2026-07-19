@@ -58,7 +58,7 @@ Then **verify the load-bearing claims yourself** — read the exact cited code f
 ## 3. Commit-history pain-point method (lens 7)
 
 Deterministic extraction (code), then judgment (model):
-- **Churn**: files changed most often (`git log --format= --name-only | sort | uniq -c | sort -rn`) — high churn on non-generated code often means a design that resists change.
+- **Churn**: files changed most often — run `git log --since=12.months --format= --name-only` bare (no pipes; pipes break permission-prefix matching) and tally the top-churn files from the output yourself. High churn on non-generated code often means a design that resists change.
 - **Fix clustering**: commits whose messages say fix/hotfix/revert/regression, grouped by the files they touch — a module that attracts repeated fixes has a structural flaw, not bad luck.
 - **Fix-of-fix chains**: a fix commit shortly followed by another fix to the same lines — the first fix treated a symptom.
 - **Co-change coupling**: files that keep changing together but live apart — a missing seam or a leaked abstraction.

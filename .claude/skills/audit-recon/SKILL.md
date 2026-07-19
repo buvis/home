@@ -20,7 +20,7 @@ computes it (PRD 00046) — never parse `audit.jsonl` in-model.
 ## Step 1: Run the report script
 
 ```bash
-python3 ~/.claude/skills/audit-recon/scripts/report.py
+python3 ${CLAUDE_SKILL_DIR}/scripts/report.py
 ```
 
 It reads `~/.claude/cartographer/audit.jsonl` (`phase == "recon"` events) and

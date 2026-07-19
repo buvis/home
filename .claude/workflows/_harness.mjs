@@ -94,7 +94,10 @@ export function pure() {
   }
 
   const region = src.slice(start + START.length, end);
-  const sandbox = { console, Buffer };
+  // console only — the real Workflow sandbox guarantees ECMAScript built-ins,
+  // not Node globals; injecting Buffer here once masked a sandbox-fatal
+  // Buffer.byteLength call in the workflow (found 2026-07-19).
+  const sandbox = { console };
   vm.createContext(sandbox);
   // The exporter runs in the same script, so it sees the region's top-level
   // `const`/`function` lexical bindings (which never land on globalThis).
