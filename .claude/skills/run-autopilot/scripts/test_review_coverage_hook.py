@@ -174,6 +174,57 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result, 0)
 
 
+class BlockCapTests(unittest.TestCase):
+    """Liveness valve (2026-07-19): the gate blocks at most BLOCK_CAP exits
+    per handoff, then fails loud (exit 0 + .review-gate-failed marker) so a
+    never-converging review file cannot burn the session to the context cap."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        loop_env = mock.patch.dict(os.environ, {"_AUTOPILOT_LOOP": "1"})
+        loop_env.start()
+        self.addCleanup(loop_env.stop)
+
+    def _reviews_dir(self) -> Path:
+        reviews = self.repo / "dev" / "local" / "reviews"
+        reviews.mkdir(parents=True, exist_ok=True)
+        return reviews
+
+    def test_main_stops_blocking_after_block_cap(self) -> None:
+        autopilot_dir = _make_autopilot_dir(
+            self.repo, phase="done", prd="X.md", work_start_sha="abc"
+        )
+        (self._reviews_dir() / "X-review-1.md").write_text("review content")
+
+        with mock.patch.object(
+            hook, "find_autopilot_dir", return_value=autopilot_dir
+        ), mock.patch.object(
+            hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")
+        ):
+            for _ in range(hook.BLOCK_CAP):
+                self.assertEqual(hook.main(), 2)
+            self.assertEqual(hook.main(), 0)
+
+        self.assertTrue((autopilot_dir / ".review-gate-failed").exists())
+        self.assertFalse((autopilot_dir / ".review-gate-blocks").exists())
+
+    def test_main_pass_clears_block_counter(self) -> None:
+        autopilot_dir = _make_autopilot_dir(self.repo, phase="done", prd="Y.md")
+        (self._reviews_dir() / "Y-review-1.md").write_text("review content")
+        (autopilot_dir / ".review-gate-blocks").write_text("2")
+        (autopilot_dir / ".review-gate-failed").write_text("stale")
+
+        with mock.patch.object(
+            hook, "find_autopilot_dir", return_value=autopilot_dir
+        ), mock.patch.object(hook, "run_gate", return_value=(0, "")):
+            self.assertEqual(hook.main(), 0)
+
+        self.assertFalse((autopilot_dir / ".review-gate-blocks").exists())
+        self.assertFalse((autopilot_dir / ".review-gate-failed").exists())
+
+
 class RunGateTests(unittest.TestCase):
     def test_run_gate_invokes_subprocess_and_returns_code(self) -> None:
         import types

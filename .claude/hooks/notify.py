@@ -32,7 +32,7 @@ SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 PYBOOKLID = Path.home() / ".local" / "share" / "uv" / "tools" / "pybooklid" / "bin" / "python"
 IDLE_THRESHOLD_SEC = 300
 LID_CLOSED_BELOW = 70
-NTFY_TIMEOUT_SEC = 8
+NTFY_TIMEOUT_SEC = 3
 PRESENCE_TIMEOUT_SEC = 5
 def project_name(cwd: str) -> str:
     """Last path segment of cwd, or empty string if cwd is empty."""
@@ -88,7 +88,12 @@ def notify_quiet() -> bool:
     larger job, not a user-facing "done". Same suppression scope as
     autopilot_loop_active (Stop + idle_prompt); permission_prompt still pages.
     """
-    return os.environ.get("_CLAUDE_NOTIFY_QUIET", "") == "1"
+    # CLAUDE_NESTED is the unified nested-dispatch marker (2026-07-19, audit
+    # decision 3) covering the same children; _CLAUDE_NOTIFY_QUIET stays for
+    # back-compat with call sites that predate it.
+    return os.environ.get("_CLAUDE_NOTIFY_QUIET", "") == "1" or bool(
+        os.environ.get("CLAUDE_NESTED")
+    )
 
 
 def running_background_tasks(payload: dict[str, Any]) -> int:
