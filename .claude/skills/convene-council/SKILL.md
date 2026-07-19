@@ -48,7 +48,7 @@ Reduce the decision to one explicit prompt:
 - what constraints matter?
 - what counts as success?
 
-If the question is vague, ask one clarifying question before convening the council.
+If the question is vague, ask one clarifying question before convening the council. Unattended (`CLAUDE_UNATTENDED=1`): skip the question — take the stated defaults, log `defaulted:<decision>` in the verdict, per `~/.claude/skills/run-autopilot/references/unattended-contract.md`.
 
 ### 2. Gather only the necessary context
 
@@ -136,7 +136,7 @@ Do **not** write ad-hoc notes to shadow paths from this skill.
 
 If the council materially changes the recommendation:
 - update the relevant GitHub / Linear issue directly if the decision changes active execution truth
-- save a memory file under `~/.claude/projects/-Users-bob--claude/memory/` only if the outcome is durable guidance for future sessions
+- save a memory file under the current project's auto-memory directory (`~/.claude/projects/<project-hash>/memory/`) only if the outcome is durable guidance for future sessions
 
 Only persist a decision when it changes something real. Never persist every
 verdict regardless of importance.

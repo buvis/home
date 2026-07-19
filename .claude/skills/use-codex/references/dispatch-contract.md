@@ -36,12 +36,13 @@ A run-script call can run for many minutes. When you need to do other work while
 
 ## Following Up
 
-- After every run-script command, use `AskUserQuestion` to confirm next steps.
+- Attended sessions: after every run-script command, use `AskUserQuestion` to confirm next steps.
+- Unattended sessions (`CLAUDE_UNATTENDED=1`): never call `AskUserQuestion`; take the documented default, log it as `defaulted:<decision>` in the run report, and follow `/Users/bob/.claude/skills/run-autopilot/references/unattended-contract.md`.
 - By default each run is independent - a follow-up task is a new run with a new prompt, so restate the relevant context. Where the backend supports resuming, the resumed session carries the original run's model and context over (see each SKILL.md for its resume flags).
-- Restate the permission mode when proposing follow-up actions.
+- Restate the permission mode when proposing follow-up actions (attended sessions).
 
 ## Error Handling
 
-- Stop and report failures whenever a run-script command exits non-zero; request direction before retrying.
-- Before using high-impact permission flags (`-y`/`--yolo` and backend equivalents) ask user permission via AskUserQuestion unless already given.
-- When output includes warnings or partial results, summarize them and ask how to adjust.
+- Stop and report failures whenever a run-script command exits non-zero. Attended: request direction before retrying. Unattended (`CLAUDE_UNATTENDED=1`): retry at most 2 times, then mark the step FAILED with the captured stderr, per the unattended contract cited above.
+- Before using high-impact permission flags (`-y`/`--yolo` and backend equivalents) ask user permission via AskUserQuestion unless already given; unattended, use them only where the calling skill's documented defaults already grant them.
+- When output includes warnings or partial results, summarize them and ask how to adjust (attended) or log them in the run report and proceed (unattended).
