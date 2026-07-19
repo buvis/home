@@ -5,6 +5,12 @@ PreToolUse hook. Reads one JSON payload from stdin; when the tool's target file
 has a mapped extension, injects the matching strunk `SKILL.md` bodies (verbatim,
 under an attribution header) as `additionalContext`.
 
+`.ts`/`.tsx`/`.jsx` are web-gated (2026-07-19): plain TypeScript is often CLI or
+backend code, so those extensions deliver the web bundle only when the path
+shows web evidence (a `routes/`/`components/` segment, or a web framework in the
+nearest `package.json`). The probe runs only on the would-deliver path, after
+the throttle, keeping the suppressed-path latency contract.
+
 Never blocks a tool call: exit 0 on every path, diagnostics to stderr only.
 Shape follows cartographer-recon-brief.py, with the (repo x UTC-day) throttle
 key swapped for a per-context (session_id:agent_id x skill) key: subagent tool
@@ -17,6 +23,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -39,7 +46,8 @@ _WEB_SKILLS: tuple[str, ...] = (
     "web-patterns", "apply-design-system", "web-security", "web-performance",
 )
 
-# ext -> skills injected on ANY touch of that file type
+# ext -> skills injected on ANY touch of that file type (except the web-gated
+# TS/JSX trio below, which additionally require web evidence at delivery time)
 _SKILLS_BY_EXT: dict[str, tuple[str, ...]] = {
     ".py": ("python-patterns",),
     ".pyi": ("python-patterns",),
@@ -74,6 +82,20 @@ _TEST_FILE_SUFFIXES: tuple[str, ...] = (
     "_test.py", "_test.rs", ".test.ts", ".test.tsx", ".test.js", ".test.jsx",
     ".spec.ts", ".spec.tsx", ".spec.js",
 )
+
+# Extensions whose web-bundle mapping needs web evidence before delivery; the
+# rest of the web family (.svelte/.css/.html/.vue) stays unconditional.
+_WEB_GATED_EXTS: tuple[str, ...] = (".ts", ".tsx", ".jsx")
+
+_WEB_PATH_SEGMENTS: tuple[str, ...] = ("/routes/", "/components/")
+
+# A dependency name marks web when it is the marker exactly, a `marker-`/
+# `marker.`/`marker/`-prefixed package, or anything in the @sveltejs scope.
+_WEB_DEP_RE = re.compile(
+    r"^(@sveltejs/|(svelte|react|vue|next|nuxt|astro|solid-js)([-./@]|$))"
+)
+
+_PKG_WALK_CAP = 8
 
 # The Phase-0-PROVEN string, verbatim. It is the ONLY attribution value with a
 # measured 3/3 obedience result. Do NOT add an authority claim, a version, or any
@@ -129,6 +151,57 @@ def skills_for_path(file_path: str) -> tuple[str, ...]:
     if is_test_file_path(file_path):
         return base + _TEST_SKILLS_BY_EXT[ext]
     return base
+
+
+def _nearest_package_json(file_path: str) -> Path | None:
+    """First package.json walking up from the file; stops at $HOME or the
+    filesystem root, probing at most _PKG_WALK_CAP directories."""
+    home = Path.home()
+    try:
+        cur = Path(file_path).parent
+        if not cur.is_absolute():
+            cur = cur.resolve()
+    except OSError:
+        return None
+    for _ in range(_PKG_WALK_CAP):
+        candidate = cur / "package.json"
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            return None
+        if cur == home or cur.parent == cur:
+            return None
+        cur = cur.parent
+    return None
+
+
+def _package_json_marks_web(pkg_path: Path) -> bool:
+    """True when any dependencies/devDependencies name matches _WEB_DEP_RE."""
+    try:
+        data = json.loads(pkg_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    for section in ("dependencies", "devDependencies"):
+        deps = data.get(section)
+        if not isinstance(deps, dict):
+            continue
+        for name in deps:
+            if isinstance(name, str) and _WEB_DEP_RE.match(name.lower()):
+                return True
+    return False
+
+
+def is_web_context(file_path: str) -> bool:
+    """Web evidence for a gated path: a routes/ or components/ segment in the
+    path, else a web framework in the nearest package.json."""
+    norm = file_path.replace("\\", "/")
+    if any(seg in norm for seg in _WEB_PATH_SEGMENTS):
+        return True
+    pkg = _nearest_package_json(file_path)
+    return pkg is not None and _package_json_marks_web(pkg)
 
 
 # --- strunk cache resolution ---
@@ -291,6 +364,11 @@ def _deliver(context_key: str, session_id: str, agent_id: str,
         pending = tuple(skill for skill in skills if skill not in seen)
         if not pending:
             return  # steady state; auditing it would flood the log
+        if file_extension(file_path) in _WEB_GATED_EXTS and not is_web_context(file_path):
+            # Gated TS/JSX outside a web project: deliver nothing. No store
+            # write (the same session may touch a real web repo next) and no
+            # audit line (every touch in a non-web TS repo would flood it).
+            return
 
         resolved = resolve_strunk_skills_dir()
         if resolved is None:

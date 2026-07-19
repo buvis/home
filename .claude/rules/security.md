@@ -2,6 +2,9 @@
 
 ## Pre-Commit Checklist
 
+The full checklist applies to network-facing services. Local CLIs and tools
+apply the relevant subset: secrets, plus input validation at trust boundaries.
+
 Before ANY commit:
 - [ ] No hardcoded secrets (API keys, passwords, tokens)
 - [ ] All user inputs validated
