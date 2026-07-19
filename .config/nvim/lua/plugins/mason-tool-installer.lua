@@ -22,6 +22,9 @@ return {
         "lua_ls",
         "marksman",
         "pyright",
+        -- ruff is LSP and formatter but must be listed once: duplicate entries
+        -- hang MasonToolsUpdateSync (second entry's on_close never fires while
+        -- the first is still installing, so the completion count never adds up)
         "ruff",
         "svelte",
         "taplo",
@@ -33,7 +36,6 @@ return {
         -- Formatters/Linters
         "ast_grep",
         "black",
-        "ruff",
         "rumdl",
         "shellcheck",
         "shfmt",
