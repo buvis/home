@@ -80,7 +80,6 @@
       "Bash(bash -n:*)",
       "Bash(pwd:*)",
       "Bash(cat:*)",
-
       "Bash(echo:*)",
       "Bash(rg:*)",
       "Bash(wc:*)",
@@ -112,7 +111,6 @@
       "Bash(docker:*)",
       "Bash(kubectl:*)",
       "Bash(sqlite3:*)",
-
       "Bash(jq:*)",
       "Bash(stat:*)",
       "Bash(du:*)"
