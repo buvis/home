@@ -36,8 +36,10 @@ def parse_path(path: str) -> list[Token]:
     """Parse `a.b[0].c` into keys (str) and indices (int).
 
     Grammar: dot-separated keys, each optionally followed by `[int]` indices.
-    A non-numeric index, malformed brackets, or an empty/misplaced segment
-    raises UsageError - the grammar is reported unsupported, never guessed past.
+    Indices may be negative (`[-1]` = last element, Python-style) so the skill
+    prose can target `tasks[i].attempts[-1]` directly. A non-integer index,
+    malformed brackets, or an empty/misplaced segment raises UsageError - the
+    grammar is reported unsupported, never guessed past.
     """
     if not path:
         raise UsageError("empty json-path")
@@ -49,7 +51,8 @@ def parse_path(path: str) -> list[Token]:
             if close == -1:
                 raise UsageError(f"unclosed '[' in json-path: {path!r}")
             inner = path[i + 1 : close]
-            if not inner.isdigit():
+            digits = inner[1:] if inner.startswith("-") else inner
+            if not digits.isdigit():
                 raise UsageError(f"non-numeric index in json-path: {path!r}")
             tokens.append(int(inner))
             i = close + 1
