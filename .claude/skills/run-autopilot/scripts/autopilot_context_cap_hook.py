@@ -30,8 +30,13 @@ pair: cost scales linearly with context (every turn re-sends the whole window
 as input), so the cap bounds per-task spend rather than tracking the model's
 window. There is no window classification.
 
-Active only when `dev/local/autopilot/state.json` exists with
-`phase == "build"`. The autopilot directory is located by walking up from
+Active only inside the autopilot shell loop (`$_AUTOPILOT_LOOP`, same guard
+as review_coverage_hook.py) AND when `dev/local/autopilot/state.json` exists
+with `phase == "build"`. The env guard is load-bearing: parked batch state
+lingers in dev/local/autopilot/ between relaunches, and without the guard a
+long INTERACTIVE session sharing the cwd tree gets treated as a build session
+at the cap and writes rotations/stalls into the parked batch's state
+(observed 2026-07-19). The autopilot directory is located by walking up from
 cwd (the agent may have cd'd into a subdirectory during build; same fix as
 a0c5b8e09 for the stop hook). One-shot per task via `.cap-fired` marker,
 which carries the in-progress task id; when the in-progress task changes
@@ -468,6 +473,12 @@ def _handle_rotation(
 
 
 def main() -> None:
+    # Loop guard first: interactive sessions that merely share a cwd tree with
+    # parked autopilot state must never rotate or stall it. Per SKILL.md "Loop
+    # Detection", $_AUTOPILOT_LOOP marks a loop-wrapped session.
+    if not os.environ.get("_AUTOPILOT_LOOP"):
+        return
+
     stdin = _read_stdin()
     transcript_path_str = stdin.get("transcript_path")
     if not isinstance(transcript_path_str, str) or not transcript_path_str:

@@ -23,24 +23,34 @@ from _common import read_input  # noqa: E402
 METRICS_DIR = Path.home() / ".claude" / "metrics"
 COSTS_FILE = METRICS_DIR / "costs.jsonl"
 
+# $/Mtok, verified 2026-07-19 against current docs (haiku 4.5 = 1/5,
+# opus 4.6+ = 5/25, sonnet = 3/15, fable/mythos 5 = 10/50). cw is the
+# 5-minute-TTL cache-write rate (1.25x input); 1h-TTL writes bill 2x, so cw
+# underestimates sessions pinned to the long TTL.
 PRICING: dict[str, dict[str, Decimal]] = {
     "haiku": {
-        "in": Decimal("0.80"),
-        "cw": Decimal("1.00"),
-        "cr": Decimal("0.08"),
-        "out": Decimal("4.00"),
+        "in": Decimal("1.00"),
+        "cw": Decimal("1.25"),
+        "cr": Decimal("0.10"),
+        "out": Decimal("5.00"),
     },
     "opus": {
-        "in": Decimal("15.00"),
-        "cw": Decimal("18.75"),
-        "cr": Decimal("1.50"),
-        "out": Decimal("75.00"),
+        "in": Decimal("5.00"),
+        "cw": Decimal("6.25"),
+        "cr": Decimal("0.50"),
+        "out": Decimal("25.00"),
     },
     "sonnet": {
         "in": Decimal("3.00"),
         "cw": Decimal("3.75"),
         "cr": Decimal("0.30"),
         "out": Decimal("15.00"),
+    },
+    "fable": {
+        "in": Decimal("10.00"),
+        "cw": Decimal("12.50"),
+        "cr": Decimal("1.00"),
+        "out": Decimal("50.00"),
     },
 }
 
@@ -52,7 +62,11 @@ def detect_tier(model: str) -> str:
         return "haiku"
     if "opus" in model:
         return "opus"
-    return "sonnet"
+    if "fable" in model or "mythos" in model:
+        return "fable"
+    if "sonnet" in model:
+        return "sonnet"
+    return "unknown"
 
 
 def deduplicate(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -118,7 +132,9 @@ def parse_transcript(path: Path) -> list[dict[str, Any]]:
 
 
 def cost_usd(in_tok: int, cw: int, cr: int, out: int, tier: str) -> str:
-    rates = PRICING[tier]
+    rates = PRICING.get(tier)
+    if rates is None:
+        return "null"
     total = (
         Decimal(in_tok) * rates["in"]
         + Decimal(cw) * rates["cw"]
@@ -177,6 +193,8 @@ def main() -> None:
         return
 
     tier = detect_tier(model)
+    if tier == "unknown":
+        sys.stderr.write(f"track_cost: no pricing tier for model {model!r}; cost_usd=null\n")
     cost = cost_usd(in_tok, cw, cr, out_tok, tier)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
