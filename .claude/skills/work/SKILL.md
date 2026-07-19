@@ -13,6 +13,9 @@ Implement pending tasks one-by-one, committing after each completion.
   shares its state contract, `dev/local/autopilot/state.json` (see run-autopilot's
   state-schema and phase-review references).
 - Files read from other skill dirs:
+  - `~/.claude/skills/run-autopilot/scripts/statectl.py` - the sole `state.json`
+    mutator; `/work` invokes it to append attempt entries and sync task status
+    (never the Edit/Write tools)
   - `~/.claude/skills/run-autopilot/scripts/_walk_up.py` - run at every task
     start and at the handoff check
   - `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` - its
@@ -123,7 +126,7 @@ Codex (`use-codex`) is **not** an implementor. It appears only in the review pat
 
 ## Dashboard State Sync
 
-The dashboard (tracon; `render_stream.py` fallback) reads `dev/local/autopilot/state.json` directly. Keep `state.tasks[].status` accurate (updated in step 2 at task start and in step 6 at task end) and recompute `tasks_total`/`tasks_completed` in the same write — the pidash sync hooks are retired (PRD 00063) — and the dashboard reflects progress in real time.
+The dashboard (tracon; `render_stream.py` fallback) reads `dev/local/autopilot/state.json` directly. Keep `state.tasks[].status` accurate (updated in step 2 at task start and in step 6 at task end) and recompute `tasks_total`/`tasks_completed` alongside it — the pidash sync hooks are retired (PRD 00063) — and the dashboard reflects progress in real time. Apply every such change with `statectl` (`python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set|append|del ...`), not the editing tools — the sole-writer rule in `run-autopilot` SKILL.md § State Management, which also documents the one human fallback.
 
 ## Workflow
 

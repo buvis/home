@@ -21,6 +21,9 @@ Makes autonomous decisions backed by research (dependencies, recurring issues, A
 - Hooks outside the skill dir: `~/.claude/hooks/notify.py`
 - Shell wrapper outside `~/.claude`: `autoclaude` in
   `~/.config/bash/plugins/development.plugin.bash` - the unattended session loop
+- Scripts (own dir, model-invoked as a CLI): `scripts/statectl.py` — the sole
+  `state.json` mutator (`get`/`set`/`append`/`del`; atomic, advisory-locked,
+  one rotating `.bak`)
 - CLIs: `claude` (headless `-p`), `python3`, `git`, `awk`
 - Optional: `tracon` (`scripts/tracon/`; the default `autoclaude` front-end since PRD 00062, `_AUTOPILOT_TRACON=0` or no tty/`uv` falls back to `render_stream.py`) - dashboard only, absence changes nothing
 
@@ -66,6 +69,10 @@ dev/local/autopilot/
 
 State file: `dev/local/autopilot/state.json` — see `references/state-schema.md` for schema.
 
+**`statectl` is the sole writer of `state.json`.** Apply every field mutation with `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set|append|del <json-path> <json-value>` (read one field with `get`); it takes an advisory lock, backs up to `<state.json>.bak`, changes only the named path while preserving all siblings, and replaces the file atomically — so it cannot leave a half-written or unparseable state, and it never trips the "not read yet" / "modified since read" errors the editing tools hit. Resolve `<state.json>` by walking up from the resolved physical cwd to the autopilot dir (the `_walk_up.py` pattern in `/work` step 2). The terse `set X` / `write field Y` / per-PRD-reset instructions throughout these skills and the gate files name the fields to change; each is applied with `statectl`, never by hand-editing the file.
+
+Documented human fallback: outside the loop a person may still Edit or Write `state.json` by hand (for forensics or recovery); `validate_state_json_hook.py` catches a hand-edit that leaves the file unparseable, and `statectl` reads whatever valid JSON it finds on its next mutation.
+
 Create `dev/local/autopilot/` and subdirectories if missing. Initialize state file at PRD selection. Update state at every phase transition. Autopilot also keeps a per-PRD **decision audit log** at `dev/local/reviews/<prd-base>-audit.md`, **rendered once at Phase 9 finalize from the `state.json` decision arrays** (`autonomous_decisions`, `deferred_decisions`, `doubts`). `state.json` is the single in-run source of truth — decisions are NOT mirrored to `audit.md` incrementally per decision. Each rendered entry carries a **source** label (`autonomous`, `deferred`, or `doubt`); cycle/phase context goes in the entry body so the Phase 9 `decisions.md` projection can filter autonomous entries by label. Entry format, the Phase 9 render procedure, and the projection live in `references/audit-log-format.md`.
 
 **Invariant:** every state mutation that advances `phase` SHOULD also set `next_phase` to the same value. The three gates are `build` | `review` | `done` (plus `paused`). `build` is ONE session: selection, catchup, design, planning, and work all run under `phase: "build"` with no mid-build handoff. The review surface runs in its own fresh session; blind and doubt scrutiny are LENSES inside every review cycle (Blake and Bob in `review-work-completion`'s roster), not separate phases — reviewers get isolated contexts by construction (subagent prompts, external CLIs). Legacy `blind`/`doubt` phase values in pre-00015 state files map to `review` on resume. Per-task implementor tiering inside `/work` is unchanged. The authoritative resume signal is `phase` + `phases_completed`; build sub-step skipping is by ARTIFACT (capsule freshness, design-doc-exists, tasks-exist, all-done), not by `phases_completed` membership. This resume decision (phase + phases_completed + artifact checks → next step) is encoded canonically in `scripts/resume_target.py`, which `scripts/test_autopilot_resume.py` imports — editing the resume logic there flips a test red rather than silently drifting from this prose.
@@ -100,7 +107,7 @@ A running headless turn is never interrupted except by the wrapper's wall-clock 
 
 ### Task Counts
 
-`tasks_total` and `tasks_completed` are maintained by whoever writes the `state.tasks` snapshot: recompute both in the same write — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` (the pidash-era PostToolUse sync hook is retired, PRD 00063). The model does NOT query `TaskList` to mirror counts at each state update; the arithmetic runs on the snapshot already in hand. Keep `state.tasks` accurate at phase transitions and recompute the counts with each snapshot write, keeping the dashboard progress bar live.
+`tasks_total` and `tasks_completed` are maintained by whoever writes the `state.tasks` snapshot: recompute both in the same write — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` (the pidash-era PostToolUse sync hook is retired, PRD 00063). The model does NOT query `TaskList` to mirror counts at each state update; the arithmetic runs on the snapshot already in hand. Keep `state.tasks` accurate at phase transitions and recompute the counts alongside each `tasks` snapshot, applying all three with `statectl set` (§ State Management), keeping the dashboard progress bar live.
 
 ### Hydrate TaskList from state.tasks (shared sub-step)
 
@@ -157,7 +164,7 @@ For long **Bash** (builds, tests), still prefer the FOREGROUND with an explicit 
 
 Every session handoff is the same three steps:
 
-1. **Write the site's state fields** (table below) to `dev/local/autopilot/state.json` — merge; do NOT replace sibling fields.
+1. **Apply the site's state fields** (table below) to `dev/local/autopilot/state.json` with `statectl set` (one `set` per field; statectl merges — it never replaces sibling fields).
 2. **Print the site's banner** (shown at the invoking site in the gate file).
 3. **End the turn.** In loop mode the wrapper reads `state.json` and relaunches per its decision table above; outside the loop the user re-invokes `/run-autopilot` and the same resume logic applies. Do NOT continue into the next gate's phases in this session, even if context budget appears sufficient.
 
@@ -176,7 +183,7 @@ The `autoclaude` wrapper exports `_AUTOPILOT_LOOP=$$` before launching each head
 
 **Review-file gate (in-session quality gate).** `review_coverage_hook.py` stays registered on Stop: at the done hand-off, when the saved review file is missing or fails the `check_review_file.py` shape check (missing reviewer section, verdict, or tests line — PRD 00016), it exit-2-blocks the turn's end and feeds the gap back to the model so the review can be finished before the turn ends. Exit-2 Stop-hook blocking works in `-p` mode (`references/design-rationale.md` § Review-file gate). This is a completeness gate on review artifacts, not loop orchestration.
 
-**State-write gate (in-session integrity gate).** `validate_state_json_hook.py` is registered on PostToolUse for `Edit|Write|MultiEdit`: any write that leaves `dev/local/autopilot/state.json` unparseable exit-2-feeds the parse error back to the model immediately, while the session can still rewrite it. Without it, the corruption surfaces only at session exit, where the wrapper's `jq` check misreads a healthy PAUSE as `died (state.json unreadable)` and halts the loop (harness-tag bleed appended `</content>` to a state write, ddb 2026-07-16).
+**State-write gate (in-session integrity gate).** `statectl` is the normal writer and cannot produce an invalid `state.json`, but a stray hand-edit still can, so `validate_state_json_hook.py` stays registered on PostToolUse for the `Edit`/`Write`/`MultiEdit` matchers: any such mutation that leaves the file unparseable exit-2-feeds the parse error back to the model immediately, while the session can still rewrite it. Without it, the corruption surfaces only at session exit, where the wrapper's `jq` check misreads a healthy PAUSE as `died` (state file unreadable) and halts the loop (harness-tag bleed appended `</content>` to a hand-edited write, ddb 2026-07-16).
 
 **Wrapper sketch** (the real `autoclaude` adds the memory circuit-breaker, the session wall-clock cap, orphan cleanup, metrics, notifications, and the operator-view renderer — `scripts/render_stream.py` turns the stream-json terminal output into one-line summaries while `last-session.log` keeps the raw events):
 
