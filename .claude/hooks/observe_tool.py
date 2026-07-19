@@ -35,6 +35,10 @@ ERROR_PATTERN = re.compile(
 
 
 def is_automated_session() -> bool:
+    if os.environ.get("CLAUDE_NESTED"):
+        # Nested dispatch children (sonnet-run.sh reviewers) are automated by
+        # definition; their tool calls are not user-habit signal.
+        return True
     name = os.environ.get("CLAUDE_SESSION_NAME") or ""
     return "autopilot" in name or "de-sloppify" in name
 

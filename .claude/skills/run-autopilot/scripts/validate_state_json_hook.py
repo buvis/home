@@ -34,7 +34,12 @@ def main() -> int:
             json.load(fh)
     except FileNotFoundError:
         return 0
-    except Exception as err:
+    except OSError:
+        # Infra hiccup reading the just-written file (permissions, IO): not
+        # evidence of corruption — never block the write for it. The wrapper's
+        # jq check remains the backstop.
+        return 0
+    except (json.JSONDecodeError, UnicodeDecodeError) as err:
         print(
             f"state.json is not valid JSON after this write: {err}. "
             "At session exit the autoclaude wrapper will misread this as "

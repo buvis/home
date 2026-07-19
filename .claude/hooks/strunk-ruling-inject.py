@@ -355,6 +355,11 @@ def _deliver(context_key: str, session_id: str, agent_id: str,
              skills: tuple[str, ...], file_path: str) -> None:
     """Resolve the cache, build the payload, emit it, and record the throttle +
     audit — the whole store transaction, serialized by the file mutex."""
+    if os.environ.get("CLAUDE_NESTED"):
+        # Nested dispatch children (sonnet-run.sh reviewers) get no injections:
+        # their context budget belongs to the review, and the parent already
+        # carries the rulings where edits are decided.
+        return
     with _file_mutex(_STORE_PATH.with_suffix(".lock")):
         today = datetime.now(timezone.utc).date().isoformat()
         store = _prune_store(_load_store(_STORE_PATH), today)
