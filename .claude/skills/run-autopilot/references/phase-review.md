@@ -53,7 +53,7 @@ Executed only when the Cap check above fired on the INTERACTIVE branch (`state.c
 
 1. **Collect unresolved findings.** Read the current review-cycle output (the same review file Phase 4 produced) and gather every finding that has not yet been resolved by an earlier cycle. Format each finding minimally — at least `{"issue": <description>, "severity": <"critical"|"high"|"medium"|"low">, "consensus": <"N/M">}` — additional fields are allowed.
 
-2. **Write `cap_pause_reason` to `state.json`.** Merge (do NOT replace siblings) the field:
+2. **Set `cap_pause_reason`** with `statectl set <state.json> cap_pause_reason '<json>'` (statectl merges — sibling fields are preserved), where `<json>` is:
    ```json
    "cap_pause_reason": {
      "cycle": <state.cycle>,

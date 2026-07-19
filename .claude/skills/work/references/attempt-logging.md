@@ -50,7 +50,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
 | `escalation_reason:"gate_failure"` | the rung escalated INTO (higher)'s entry |
 | `escalated_from` | the rung escalated INTO (higher)'s entry |
 
-**Write procedure**: read `state.json`, append to `tasks[i].attempts[]` (create the array if absent), write back atomically. Merge — do not replace siblings. Walk up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in `SKILL.md` step 2.
+**Append procedure**: append the entry with `statectl` — `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> append tasks[i].attempts '<entry-json>'` — where `i` is this task's index in `state.tasks` and `<entry-json>` is the object above. `statectl append` creates the array if absent, appends under an advisory lock, and replaces the file atomically while preserving every sibling field, so the manual read-modify-write is gone (`run-autopilot` SKILL.md § State Management). Resolve `<state.json>` by walking up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in `SKILL.md` step 2.
 
 Two top-level fields, `qwen_gate_failures_consecutive` and `qwen_breaker`, track the qwen capability breaker across the batch (PRD 00065); see `run-autopilot/references/state-schema.md` Field Descriptions for their canonical shape.
 
