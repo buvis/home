@@ -236,7 +236,7 @@ def guards(state: LoopState) -> list[tuple[str, str]]:
 
 
 BUILD_STEPS = ("catchup", "design", "plan", "work")
-LANES = ("in_progress", "pending", "completed")
+LANES = ("pending", "in_progress", "completed")
 
 
 def build_steps_done(state: LoopState) -> dict[str, bool]:
