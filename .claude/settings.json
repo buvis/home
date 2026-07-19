@@ -80,11 +80,9 @@
       "Bash(bash -n:*)",
       "Bash(pwd:*)",
       "Bash(cat:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
+
       "Bash(echo:*)",
       "Bash(rg:*)",
-      "Bash(grep:*)",
       "Bash(wc:*)",
       "Bash(sort:*)",
       "Bash(diff:*)",
@@ -114,7 +112,7 @@
       "Bash(docker:*)",
       "Bash(kubectl:*)",
       "Bash(sqlite3:*)",
-      "Bash(find:*)",
+
       "Bash(jq:*)",
       "Bash(stat:*)",
       "Bash(du:*)"
@@ -124,6 +122,7 @@
       "Read(**/.env.*)",
       "Read(**/secrets/**)",
       "Read(**/credentials.json)",
+      "Read(**/.ntfy-secret*)",
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)",
       "Read(**/id_ecdsa)",

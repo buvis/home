@@ -938,10 +938,10 @@ def test_first_touch_of_a_mapped_file_injects_and_records_the_skill(hook, monkey
     [
         (".py", ("python-patterns",)),
         (".rs", ("rust-patterns",)),
-        (".ts", _WEB),
+        (".css", _WEB),
         (".svelte", _WEB + ("frontend-patterns",)),
     ],
-    ids=["py", "rs", "ts", "svelte"],
+    ids=["py", "rs", "css", "svelte"],
 )
 def test_an_arbitrary_real_world_path_injects_end_to_end(
     hook, monkeypatch, capsys, fake_home, ext: str, expected: tuple[str, ...]
@@ -1031,6 +1031,176 @@ def test_lock_file_is_a_sidecar_and_never_the_store_file(hook, monkeypatch, caps
     assert _lock_path(fake_home).name == "injected.lock"
     assert _lock_path(fake_home).exists()
     assert _read_store(fake_home) == {"sess-1": {"day": _TODAY, "skills": ["python-patterns"]}}
+
+
+# ---------------------------------------------------------------------------
+# Web-context gate: .ts/.tsx/.jsx deliver only with web evidence (2026-07-19)
+# ---------------------------------------------------------------------------
+#
+# Plain TypeScript is often CLI or backend code (a Node tool's src/*.ts);
+# injecting CSP and design-system rulings there is misdirected guidance. The
+# gate lives at DELIVERY time: skills_for_path still maps the extensions (the
+# table tests above stay authoritative), but _deliver ships nothing for a gated
+# extension without a routes/-or-components/ segment or a web framework in the
+# nearest package.json. .svelte/.css/.html/.vue stay unconditional.
+
+def test_web_gated_extensions_match_the_agreed_contract(hook) -> None:
+    assert hook._WEB_GATED_EXTS == (".ts", ".tsx", ".jsx")
+
+
+@pytest.mark.parametrize("ext", [".ts", ".tsx", ".jsx"], ids=["ts", "tsx", "jsx"])
+def test_a_gated_file_with_no_web_evidence_injects_nothing(
+    hook, monkeypatch, capsys, fake_home, ext: str
+) -> None:
+    _write_cache(fake_home)
+    file_path = str(fake_home / uuid4().hex / f"{_novel_stem()}{ext}")
+
+    out = _run(hook, monkeypatch, capsys, _payload(file_path=file_path))
+
+    assert out == ""
+    assert _read_store(fake_home) == {}
+    assert _read_audit_events(fake_home) == []
+
+
+def test_suppression_leaves_the_context_eligible_for_a_later_web_touch(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    """The gate must NOT record the web skills as delivered: the same session can
+    move from a CLI repo to a web repo and still deserves the bundle there."""
+    _write_cache(fake_home)
+    cli_file = str(fake_home / uuid4().hex / f"{_novel_stem()}.ts")
+    assert _run(hook, monkeypatch, capsys, _payload(file_path=cli_file)) == ""
+
+    web_repo = fake_home / uuid4().hex
+    web_repo.mkdir(parents=True)
+    (web_repo / "package.json").write_text(
+        json.dumps({"dependencies": {"react": "^19.0.0"}}), encoding="utf-8"
+    )
+    out = _run(
+        hook, monkeypatch, capsys,
+        _payload(file_path=str(web_repo / "src" / f"{_novel_stem()}.ts")),
+    )
+
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == _expected_payload(_WEB)
+
+
+def test_a_ts_file_in_a_react_project_injects_the_web_bundle(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    repo = fake_home / uuid4().hex
+    repo.mkdir(parents=True)
+    (repo / "package.json").write_text(
+        json.dumps({"devDependencies": {"react-dom": "^19.0.0"}}), encoding="utf-8"
+    )
+
+    out = _run(hook, monkeypatch, capsys, _payload(file_path=str(repo / f"{_novel_stem()}.ts")))
+
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == _expected_payload(_WEB)
+
+
+def test_a_routes_segment_marks_web_without_any_package_json(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    file_path = f"{_novel_dir()}/routes/{_novel_stem()}.ts"
+
+    out = _run(hook, monkeypatch, capsys, _payload(file_path=file_path))
+
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == _expected_payload(_WEB)
+
+
+def test_a_components_segment_marks_web_without_any_package_json(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+    file_path = f"{_novel_dir()}/components/{_novel_stem()}.tsx"
+
+    out = _run(hook, monkeypatch, capsys, _payload(file_path=file_path))
+
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == _expected_payload(_WEB)
+
+
+def test_a_gated_test_file_without_web_evidence_gets_no_overlay_either(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    """The e2e-testing overlay rides the same delivery: gating the base bundle
+    gates the overlay with it."""
+    _write_cache(fake_home)
+    file_path = str(fake_home / uuid4().hex / "tests" / f"{_novel_stem()}.test.ts")
+
+    assert _run(hook, monkeypatch, capsys, _payload(file_path=file_path)) == ""
+
+
+def test_the_unconditional_web_family_needs_no_evidence(
+    hook, monkeypatch, capsys, fake_home
+) -> None:
+    _write_cache(fake_home)
+
+    out = _run(hook, monkeypatch, capsys, _payload(file_path=f"{_novel_dir()}/{_novel_stem()}.css"))
+
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == _expected_payload(_WEB)
+
+
+@pytest.mark.parametrize(
+    "dep",
+    [
+        "svelte", "react", "vue", "next", "nuxt", "astro", "solid-js",
+        "@sveltejs/kit", "react-dom", "vue-router", "Next",
+    ],
+    ids=[
+        "svelte", "react", "vue", "next", "nuxt", "astro", "solid-js",
+        "sveltejs-scope", "react-dash", "vue-dash", "case-insensitive",
+    ],
+)
+def test_web_marker_dependencies_mark_web(hook, fake_home, dep: str) -> None:
+    repo = fake_home / uuid4().hex
+    repo.mkdir(parents=True)
+    (repo / "package.json").write_text(
+        json.dumps({"dependencies": {dep: "^1.0.0"}}), encoding="utf-8"
+    )
+
+    assert hook.is_web_context(str(repo / f"{_novel_stem()}.ts")) is True
+
+
+@pytest.mark.parametrize(
+    "dep",
+    ["express", "typescript", "vitest", "nextcloud", "preact", "commander"],
+    ids=["express", "typescript", "vitest", "nextcloud-prefix", "preact-substring", "commander"],
+)
+def test_non_marker_dependencies_do_not_mark_web(hook, fake_home, dep: str) -> None:
+    """Substring hits must not count: `nextcloud` is not `next`, and `preact` is
+    deliberately outside the agreed marker set."""
+    repo = fake_home / uuid4().hex
+    repo.mkdir(parents=True)
+    (repo / "package.json").write_text(
+        json.dumps({"dependencies": {dep: "^1.0.0"}}), encoding="utf-8"
+    )
+
+    assert hook.is_web_context(str(repo / f"{_novel_stem()}.ts")) is False
+
+
+def test_malformed_package_json_does_not_mark_web(hook, fake_home) -> None:
+    repo = fake_home / uuid4().hex
+    repo.mkdir(parents=True)
+    (repo / "package.json").write_text("{not valid json", encoding="utf-8")
+
+    assert hook.is_web_context(str(repo / f"{_novel_stem()}.ts")) is False
+
+
+def test_package_json_beyond_the_walk_cap_is_not_found(hook, fake_home) -> None:
+    """The walk probes at most _PKG_WALK_CAP directories: a marker further up
+    than the cap must not be reached."""
+    root = fake_home / uuid4().hex
+    deep = root
+    for _ in range(hook._PKG_WALK_CAP + 1):
+        deep = deep / uuid4().hex
+    deep.mkdir(parents=True)
+    (root / "package.json").write_text(
+        json.dumps({"dependencies": {"react": "^19.0.0"}}), encoding="utf-8"
+    )
+
+    assert hook.is_web_context(str(deep / f"{_novel_stem()}.ts")) is False
 
 
 # ---------------------------------------------------------------------------
