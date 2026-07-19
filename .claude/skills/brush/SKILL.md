@@ -1,6 +1,6 @@
 ---
 name: brush
-description: Use when running a project hygiene pass on a repo - git cleanup, leftover triage, evolution check, backlog review, AGENTS.md refresh. Triggers on "brush", "brush the project", "project hygiene", "tidy repo", "clean up this repo".
+description: Use when running a project hygiene pass on a repo - git cleanup, leftover triage, evolution check, backlog review, AGENTS.md refresh. Triggers on "brush", "brush the project", "project hygiene", "git hygiene", "apply git hygiene", "tidy repo", "clean up this repo".
 argument-hint: "[quick|dry|apply]"
 ---
 

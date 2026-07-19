@@ -9,6 +9,8 @@ Prefer immutable data to prevent hidden side effects, simplify debugging, and en
 
 ## File Organization
 
+Precedence: while ponytail mode is active, its minimalism wins on file count and size; the targets below govern normal mode.
+
 Many small files over few large files:
 - High cohesion, low coupling
 - 200-400 lines typical, 800 max
