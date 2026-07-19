@@ -279,6 +279,50 @@ class DetectFromLogTests(unittest.TestCase):
         )
         self.assertIsNone(helper.detect_from_log(p))
 
+    # ── weekly limit (observed 2026-07-19): seven_day 429 kills the session ──
+
+    def test_weekly_banner_in_log_tail_returns_reset_epoch(self) -> None:
+        p = self._log(
+            '{"type":"result","is_error":true,"result":'
+            '"You\'ve hit your weekly limit · resets 11am (Europe/Prague)"}\n'
+        )
+        self.assertIsNotNone(helper.detect_from_log(p))
+
+    def test_rejected_rate_limit_event_resets_at_wins_over_prose(self) -> None:
+        """The stream-json rate_limit_event carries the exact reset epoch;
+        it must win over the ambiguous clock-time prose parse."""
+        resets_at = int(time.time()) + 4 * 3600
+        p = self._log(
+            '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected",'
+            f'"resetsAt":{resets_at},"rateLimitType":"seven_day"}}}}\n'
+            '{"type":"result","is_error":true,"result":'
+            '"You\'ve hit your weekly limit · resets 11am (Europe/Prague)"}\n'
+        )
+        self.assertEqual(helper.detect_from_log(p), resets_at)
+
+    def test_stale_rejected_rate_limit_event_is_not_limited(self) -> None:
+        """A rejected event whose reset already passed is history, not a
+        live limit — the loop must not sleep over it."""
+        old = time.time() - 9 * 3600
+        resets_at = int(old) + 3600
+        p = self._log(
+            '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected",'
+            f'"resetsAt":{resets_at}}}}}\n'
+            "HANDOFF: done\n",
+            mtime=old,
+        )
+        self.assertIsNone(helper.detect_from_log(p))
+
+    def test_allowed_rate_limit_event_is_not_limited(self) -> None:
+        """Warning-status events during a healthy run must not trigger."""
+        resets_at = int(time.time()) + 3600
+        p = self._log(
+            '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning",'
+            f'"resetsAt":{resets_at}}}}}\n'
+            "HANDOFF: build -> review\n"
+        )
+        self.assertIsNone(helper.detect_from_log(p))
+
 
 if __name__ == "__main__":
     unittest.main()

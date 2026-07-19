@@ -29,7 +29,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-LIMIT_TEXT = re.compile(r"hit your (?:session|usage) limit|usage limit reached", re.I)
+LIMIT_TEXT = re.compile(
+    r"hit your (?:session|usage|weekly) limit|usage limit reached", re.I
+)
 RESET_TIME = re.compile(
     r"resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([^)]+)\))?", re.I
 )
@@ -136,14 +138,38 @@ def detect(cwd: str, projects_root: Path = DEFAULT_PROJECTS_ROOT) -> int | None:
     return _reset_epoch(text, _entry_ts(entry))
 
 
+def _rejected_reset(tail: str) -> int | None:
+    """Reset epoch from the tail's last rejected rate_limit_event, else None.
+
+    The stream-json log carries the exact reset time as machine-readable
+    JSON (`resetsAt`), so this beats the prose parse: the banner's clock
+    time is ambiguous for a seven_day limit whose reset can be >24h out
+    (observed 2026-07-19: "hit your weekly limit" killed both loops)."""
+    epoch = None
+    for line in tail.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") != "rate_limit_event":
+            continue
+        info = entry.get("rate_limit_info", {})
+        if info.get("status") == "rejected" and isinstance(info.get("resetsAt"), int):
+            epoch = info["resetsAt"]
+    if epoch is not None and time.time() > epoch + GRACE_SECS:
+        return None  # reset already passed -> stale record, not a live limit
+    return epoch
+
+
 def detect_from_log(path: Path) -> int | None:
-    """Reset epoch if the session log's tail shows the limit banner, else None.
+    """Reset epoch if the session log's tail shows a live limit, else None.
 
     Only the tail is consulted: a limit-hit `-p` run ENDS with the banner,
     while a healthy run ends with its hand-off text — an early, historical
-    mention of limits in a long log must not read as a live limit. The
-    file's mtime anchors the reset parse (the log stops being written the
-    moment the session exits).
+    mention of limits in a long log must not read as a live limit. A
+    rejected rate_limit_event's `resetsAt` epoch wins; the prose banner is
+    the fallback, with the file's mtime anchoring the reset parse (the log
+    stops being written the moment the session exits).
     """
     try:
         stat = path.stat()
@@ -153,6 +179,9 @@ def detect_from_log(path: Path) -> int | None:
             tail = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return None
+    epoch = _rejected_reset(tail)
+    if epoch is not None:
+        return epoch
     if not LIMIT_TEXT.search(tail):
         return None
     anchor = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
