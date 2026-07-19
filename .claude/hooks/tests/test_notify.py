@@ -393,5 +393,123 @@ class TestMainSuppression(unittest.TestCase):
         self._show.assert_called_once()
 
 
+class TestBackgroundTaskSuppression(unittest.TestCase):
+    """Regression (2026-07-19): Stop fires per-turn, and a fan-out job's turn
+    ends while its subagents keep running — notify.py sent "done" 4 times in
+    one job. The Stop payload's background_tasks array is the authoritative
+    "still working" signal; only a Stop with none running is a real done."""
+
+    def _run_main(self, payload: dict, env: dict) -> list[str]:
+        logs: list[str] = []
+        with patch.dict("os.environ", env, clear=True):
+            with patch("notify.read_input", return_value=payload):
+                with patch("notify.log_line", side_effect=logs.append):
+                    with patch("notify.send_ntfy") as send:
+                        with patch("notify.show_desktop_notification") as show:
+                            with patch("notify.read_idle_seconds", return_value=0):
+                                with patch("notify.screensaver_active", return_value=False):
+                                    with patch("notify.lid_closed", return_value=False):
+                                        notify.main()
+                            self._send = send
+                            self._show = show
+        return logs
+
+    def test_stop_suppressed_while_tasks_running(self) -> None:
+        logs = self._run_main(
+            {
+                "hook_event_name": "Stop",
+                "cwd": "/x/proj",
+                "background_tasks": [
+                    {"id": "a1", "type": "subagent", "status": "running"},
+                    {"id": "a2", "type": "subagent", "status": "completed"},
+                ],
+            },
+            {},
+        )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._send.assert_not_called()
+        self._show.assert_not_called()
+
+    def test_stop_notifies_when_tasks_empty(self) -> None:
+        logs = self._run_main(
+            {"hook_event_name": "Stop", "cwd": "/x/proj", "background_tasks": []},
+            {},
+        )
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+    def test_stop_notifies_when_all_tasks_terminal(self) -> None:
+        self._run_main(
+            {
+                "hook_event_name": "Stop",
+                "cwd": "/x/proj",
+                "background_tasks": [
+                    {"id": "a1", "type": "subagent", "status": "completed"},
+                    {"id": "b1", "type": "shell", "status": "failed"},
+                ],
+            },
+            {},
+        )
+        self._show.assert_called_once()
+
+
+class TestNotifyQuiet(unittest.TestCase):
+    """Regression (2026-07-19): sonnet-run.sh unsets _AUTOPILOT_LOOP for nested
+    claude reviewers (the coverage hook gates on it), which re-enabled their
+    Stop "done" pings mid-batch. The runner now exports _CLAUDE_NOTIFY_QUIET=1;
+    notify.py must treat it like loop noise: silence Stop and idle_prompt,
+    still page permission_prompt."""
+
+    def _run_main(self, payload: dict, env: dict) -> list[str]:
+        logs: list[str] = []
+        with patch.dict("os.environ", env, clear=True):
+            with patch("notify.read_input", return_value=payload):
+                with patch("notify.log_line", side_effect=logs.append):
+                    with patch("notify.send_ntfy") as send:
+                        with patch("notify.show_desktop_notification") as show:
+                            with patch("notify.read_idle_seconds", return_value=0):
+                                with patch("notify.screensaver_active", return_value=False):
+                                    with patch("notify.lid_closed", return_value=False):
+                                        notify.main()
+                            self._send = send
+                            self._show = show
+        return logs
+
+    def test_stop_suppressed_when_quiet(self) -> None:
+        logs = self._run_main(
+            {"hook_event_name": "Stop", "cwd": "/x/proj"},
+            {"_CLAUDE_NOTIFY_QUIET": "1"},
+        )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._send.assert_not_called()
+        self._show.assert_not_called()
+
+    def test_idle_prompt_suppressed_when_quiet(self) -> None:
+        logs = self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/proj",
+                "message": "Claude is waiting for your input",
+                "notification_type": "idle_prompt",
+            },
+            {"_CLAUDE_NOTIFY_QUIET": "1"},
+        )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._show.assert_not_called()
+
+    def test_permission_prompt_fires_when_quiet(self) -> None:
+        logs = self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/proj",
+                "message": "Claude needs your permission",
+                "notification_type": "permission_prompt",
+            },
+            {"_CLAUDE_NOTIFY_QUIET": "1"},
+        )
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

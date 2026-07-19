@@ -79,6 +79,30 @@ def autopilot_loop_active() -> bool:
     return True
 
 
+def notify_quiet() -> bool:
+    """True when the parent dispatcher marked this session's noise as its own.
+
+    sonnet-run.sh exports _CLAUDE_NOTIFY_QUIET=1 for nested claude reviewers:
+    they load the full hook stack, but their Stop is a dispatch step inside a
+    larger job, not a user-facing "done". Same suppression scope as
+    autopilot_loop_active (Stop + idle_prompt); permission_prompt still pages.
+    """
+    return os.environ.get("_CLAUDE_NOTIFY_QUIET", "") == "1"
+
+
+def running_background_tasks(payload: dict[str, Any]) -> int:
+    """Count background_tasks entries the harness reports as still running.
+
+    A Stop with running tasks is a mid-job turn boundary, not completion —
+    the session re-invokes when a task lands and the final Stop arrives with
+    an empty list (2026-07-19: one fan-out job pinged "done" 4 times).
+    """
+    tasks = payload.get("background_tasks")
+    if not isinstance(tasks, list):
+        return 0
+    return sum(1 for t in tasks if isinstance(t, dict) and t.get("status") == "running")
+
+
 ROTATE_THRESHOLD_BYTES = 5 * 1024 * 1024
 
 
@@ -302,7 +326,8 @@ def main() -> None:
     # Inside a live loop, a `Stop` is a phase/PRD hand-off and an `idle_prompt`
     # Notification just means the session is parked while a background task runs
     # (the wrapper re-invokes Claude when it finishes). Both are loop noise the
-    # wrapper summarizes at real exit. A `permission_prompt` is a genuine "needs
+    # wrapper summarizes at real exit. Nested reviewer CLIs (_CLAUDE_NOTIFY_QUIET)
+    # are the same class of noise. A `permission_prompt` is a genuine "needs
     # you", so it must still page even mid-loop.
     notif_type = str(payload.get("notification_type") or "")
     loop_noise = event == "Stop" or (
@@ -310,6 +335,18 @@ def main() -> None:
     )
     if loop_noise and autopilot_loop_active():
         log_line(f"[{now_local()}] Suppressed: autopilot loop active ({notif_type or event})")
+        log_line("---")
+        return
+    if loop_noise and notify_quiet():
+        log_line(f"[{now_local()}] Suppressed: _CLAUDE_NOTIFY_QUIET ({notif_type or event})")
+        log_line("---")
+        return
+
+    # A Stop while background tasks run is a turn boundary, not "done" — the
+    # final Stop (empty/terminal background_tasks) carries the real ping.
+    running = running_background_tasks(payload)
+    if event == "Stop" and running:
+        log_line(f"[{now_local()}] Suppressed: {running} background task(s) still running")
         log_line("---")
         return
 
