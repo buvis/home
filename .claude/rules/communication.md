@@ -4,15 +4,15 @@ The user disengages from long text and thinks in options. Keep talk short and st
 
 ## Default shape for discussions and decisions
 
-1. Lead with AT MOST 3 sentences of context, densely packed — no throat-clearing. If it needs more, it's a deliverable: put it in a file, not the chat.
+1. Lead with AT MOST 3 sentences of context, densely packed, no throat-clearing. If it needs more, it's a deliverable: put it in a file, not the chat.
 2. Then give 3-5 options (never fewer than 3, never more than 5).
-3. Each option states BOTH a benefit and a drawback — never a tradeoff-free option.
+3. Each option states BOTH a benefit and a drawback - never a tradeoff-free option.
 4. Use the AskUserQuestion tool to render them; put the benefit/drawback in each option's description; put any recommendation first.
 
 ## Decision points (asking the user to decide)
 
 - ONE question per message: a single AskUserQuestion call carrying a single question. Wait for the answer before raising the next decision.
-- Context: each question ships with AT LEAST one full paragraph of background — enough to decide without re-reading the conversation. For decision points this overrides the 3-sentence cap above.
+- Context: each question ships with AT LEAST one full paragraph of background - enough to decide without re-reading the conversation. For decision points this overrides the 3-sentence cap above.
 - Options keep the default shape: 3-5, recommendation first and marked "(Recommended)", every option's description states both a benefit and a drawback.
 
 ## Findings walkthrough (reviews, audits, health checks)
@@ -48,4 +48,4 @@ A skill that defines its own stricter walkthrough keeps it; this protocol is the
 ## Nuances (apply this well, not mechanically)
 
 - A simple factual answer or a confirmation is ONE line. Don't manufacture options for a yes/no or a "done."
-- Scope: this governs conversation and decision-framing, NOT requested artifacts. When the user asks for a full report, plan, PRD, code, or walkthrough, deliver it in full — but write it to a file and keep the chat about it in the 3-sentences-then-options shape. Brevity is how you talk, never an excuse to under-deliver the work.
+- Scope: this governs conversation and decision-framing, NOT requested artifacts. When the user asks for a full report, plan, PRD, code, or walkthrough, deliver it in full, but write it to a file and keep the chat about it in the 3-sentences-then-options shape. Brevity is how you talk, never an excuse to under-deliver the work.

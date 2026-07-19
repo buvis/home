@@ -70,9 +70,9 @@ Full conditions, reasoning, and signals per tier: `references/triage.md`. Pick m
 
 Standalone tools in `scripts/`. Run during the analysis phase (Workflow step 6) and cite their output as evidence in findings.
 
-- `section_weight_audit.py <doc>` — flags sections >3x or <1/3 median weight; handles container sections and code blocks
-- `claim_ladder_scan.py <doc>` — finds compressed qualifiers ("scalable", "robust", "fast", etc.) with their locations
-- `adversarial_signal_scan.py <doc>` — finds imperatives, role-changes, framing language; distinguishes adversarial from framing per the calibration heuristic
+- `python3 ${CLAUDE_SKILL_DIR}/scripts/section_weight_audit.py <doc>` — flags sections >3x or <1/3 median weight; handles container sections and code blocks
+- `python3 ${CLAUDE_SKILL_DIR}/scripts/claim_ladder_scan.py <doc>` — finds compressed qualifiers ("scalable", "robust", "fast", etc.) with their locations
+- `python3 ${CLAUDE_SKILL_DIR}/scripts/adversarial_signal_scan.py <doc>` — finds imperatives, role-changes, framing language; distinguishes adversarial from framing per the calibration heuristic
 
 Scripts are advisory; the reviewer makes the judgment call on whether a flagged item becomes a finding.
 

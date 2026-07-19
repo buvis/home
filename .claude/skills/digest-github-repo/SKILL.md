@@ -78,7 +78,7 @@ Find all files that track this repo by grepping for the `repo` frontmatter field
 locations:
 
 ```bash
-grep -rl "^repo: OWNER/REPO" ~/bim/zettelkasten/ ~/bim/inbox/ 2>/dev/null
+rg -l "^repo: OWNER/REPO" ~/bim/zettelkasten/ ~/bim/inbox/
 ```
 
 1. `~/bim/zettelkasten/` — the main zettelkasten (tracker files live here after triage)

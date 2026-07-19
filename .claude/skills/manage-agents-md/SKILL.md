@@ -9,7 +9,7 @@ Build and maintain high-quality AGENTS.md files that maximize AI coding agent ef
 
 ## Core Principle
 
-AI coding agents are stateless. AGENTS.md is the **only file** that goes into every conversation. It must onboard the agent to your codebase efficiently without bloating the context window.
+AI coding agents are stateless. AGENTS.md goes into every conversation - and in this setup it is not alone: every `~/.claude/rules/*.md` file is always-loaded too and shares the same context budget. It must onboard the agent to your codebase efficiently without bloating the context window.
 
 **Critical insight**: AI agents may ignore AGENTS.md contents if deemed irrelevant. Overstuffed files with non-universal instructions get ignored entirely.
 

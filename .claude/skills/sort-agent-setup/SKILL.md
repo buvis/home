@@ -71,12 +71,9 @@ Useful commands include:
 ```bash
 rg --files
 rg -n "typescript|react|next|supabase|django|spring|flutter|swift"
-cat package.json
-cat pyproject.toml
-cat Cargo.toml
-cat pubspec.yaml
-cat go.mod
 ```
+
+Then open the manifests that exist (`package.json`, `pyproject.toml`, `Cargo.toml`, `pubspec.yaml`, `go.mod`) with the Read tool, not `cat`.
 
 ## Parallel Review Passes
 
@@ -139,7 +136,7 @@ Demote to `LIBRARY` when:
 
 Translate the classification into action:
 
-- DAILY skills → keep enabled in `~/.claude/skills/`, or symlink/copy into the project's `.claude/skills/`
+- DAILY skills → keep enabled in `~/.claude/skills/`, or symlink into the project's `.claude/skills/` (prefer symlink over copy - a copy sharing the global skill's name creates the name-collision failure extract-plugin documents, and drifts)
 - DAILY rules → reference only matching language/framework rule sets in CLAUDE.md
 - DAILY hooks/scripts → keep only compatible ones in `settings.json`
 - LIBRARY surfaces → keep accessible through search, on-demand invocation, or a `skill-library` router

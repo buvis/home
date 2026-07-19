@@ -205,22 +205,17 @@ The existing context-budget split mechanics, the one-split-attempt rule, and the
 
 **Stall behavior:**
 
-When unable to split below the threshold (150K standard, 75K in replan mode), **merge** a `stall_reason` key into the existing `dev/local/autopilot/state.json` (do NOT replace the file — the existing `phase`, `phases_completed`, `tasks`, `batch`, etc. must be preserved). Read the file, set the new key, write it back atomically:
+When unable to split below the threshold (150K standard, 75K in replan mode), **merge** a `stall_reason` key into the existing `dev/local/autopilot/state.json` via statectl — the sole writer for state.json (never hand-edit with Read/Write/Edit; see `/run-autopilot`):
 
-```json
-{
-  ...all existing state...,
-  "stall_reason": {
-    "stalled": "oversized_task",
-    "task": "<task-id>",
-    "estimated_tokens": <int>
-  }
-}
+```bash
+python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json set stall_reason '{"stalled": "oversized_task", "task": "<task-id>", "estimated_tokens": <int>}'
 ```
+
+statectl merges the key and preserves the existing `phase`, `phases_completed`, `tasks`, `batch`, etc.
 
 **Then delete every task you already created** via `TaskCreate` for this PRD: query `TaskList`, call `TaskUpdate(status: "deleted")` on each. `/plan-tasks` calls `TaskCreate` before the per-task budget check, so by the time the stall fires there are orphan tasks in the tracker. Cleaning up here makes the stall self-contained: any caller (not just `/run-autopilot`) gets the same post-stall state. `/run-autopilot` Phase 2 also performs this cleanup as a backstop.
 
-After both writes succeed, exit non-zero so `/run-autopilot` Phase 2 detects the stall, moves the PRD from `dev/local/prds/wip/` to `dev/local/prds/hold/` (creating the directory if missing), clears the stall key from state, and proceeds to the next backlog item without user prompt. See `/run-autopilot` Phase 2 for the consumer-side contract.
+After both writes succeed, end the session's work with the stall recorded (the `stall_reason` key in state.json IS the observable stall signal — a model-followed skill has no exit code); `/run-autopilot` Phase 2 reads it, detects the stall, moves the PRD from `dev/local/prds/wip/` to `dev/local/prds/hold/` (creating the directory if missing), clears the stall key from state, and proceeds to the next backlog item without user prompt. See `/run-autopilot` Phase 2 for the consumer-side contract.
 
 ### Estimator caveats
 

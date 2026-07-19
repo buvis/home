@@ -23,7 +23,7 @@ When the skill is first triggered and the user hasn't specified a codebase yet, 
 >
 > I'll read through the code, figure out how everything fits together, and generate a beautiful single-page HTML course with animated diagrams, plain-English code explanations, and interactive quizzes. The whole thing runs in your browser — no setup needed.
 
-If the user provides a GitHub link, clone the repo first (`git clone <url> /tmp/<repo-name>`) before starting the analysis. If they say "this codebase" or similar, use the current working directory.
+If the user provides a GitHub link, clone the repo first into the session scratchpad directory (`git clone <url> <scratchpad>/<repo-name>`) before starting the analysis. If they say "this codebase" or similar, use the current working directory.
 
 ## Who This Is For
 
@@ -188,10 +188,10 @@ Each agent writes its module file(s) to `course-name/modules/`. Short modules (3
 
 After all agents finish, do a quick consistency check in the main context: nav dots match modules, transitions between modules are coherent, no obvious tone shifts.
 
-**Step 4 (both paths): Assemble** — Run `build.sh` from the course directory:
+**Step 4 (both paths): Assemble** — Run `build.sh`, passing the course directory as its argument (build.sh resolves all paths from `$1`; never `cd`):
 
 ```bash
-cd course-name && bash build.sh
+bash <abs-path>/course-name/build.sh <abs-path>/course-name
 ```
 
 This produces `index.html`. Open it in the browser.

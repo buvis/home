@@ -13,8 +13,9 @@ handing it to `/plan-tasks`.
 
 This skill runs **unattended** inside the autopilot build gate. It never asks the
 user anything. It is **state-agnostic**: it prints the design doc path on success
-and exits non-zero when unresolved cardinal sins or blockers remain; the caller
-records the path.
+and, when unresolved cardinal sins or blockers remain, ends with an explicit
+FAILED report naming them (a model-followed skill has no exit code - the report
+is the observable signal the caller checks); the caller records the path.
 
 It **never edits the PRD**. The design refines the PRD; acceptance criteria stay
 PRD-owned.

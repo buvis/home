@@ -88,5 +88,5 @@ plan only if the check supports it.
 
 - `review-work-completion` after recovery if code was changed
 - `convene-council` when the issue is decision ambiguity, not technical failure
-- `resolve-git-conflicts` when the failure came from conflicting local state
-- `catchup` if the failure came from missing project context
+- `git-ferry:resolve-git-conflicts` when the failure came from conflicting local state
+- `git-ferry:catchup` if the failure came from missing project context

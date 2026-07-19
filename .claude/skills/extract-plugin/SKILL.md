@@ -26,7 +26,7 @@ End-to-end playbook for turning a cluster of personal `~/.claude/` items into a 
 
 Confirm the cluster. The user will name a target (often from `project_next_plugins_to_ship.md` memory). Resolve it to a concrete list of skills, commands, hooks, and agents in `~/.claude/`.
 
-Output of this phase: `$CLUSTER` = space-separated list of skill names (e.g. `"python-patterns python-testing rust-patterns"`).
+Output of this phase: the **cluster list** — concrete skill names (e.g. `python-patterns python-testing rust-patterns`). Substitute them for `<skill1> <skill2> ...` in every command below as you dispatch it.
 
 If the user named hooks or commands directly, list those too. The cluster can include any of:
 - Skills at `~/.claude/skills/<name>/`
@@ -39,7 +39,7 @@ If the user named hooks or commands directly, list those too. The cluster can in
 Run the completeness audit:
 
 ```bash
-~/.claude/skills/extract-plugin/scripts/check-readiness.sh <skill1> <skill2> ...
+bash ~/.claude/skills/extract-plugin/scripts/check-readiness.sh <skill1> <skill2> ...
 ```
 
 The script greps **seven surfaces** for inbound references to each cluster item, then runs the inverse check (what each cluster item references outward), plus two ambient probes:
@@ -58,7 +58,7 @@ The script greps **seven surfaces** for inbound references to each cluster item,
 
 - Other skill paths (`~/.claude/skills/<other>/...`)
 - Slash commands (`/other-command`) — find these by grepping for the leading slash followed by a known command name
-- Hardcoded state-file or sentinel paths shared with other subsystems (e.g. `dev/local/autopilot/state.json` read by pidash hooks)
+- Hardcoded state-file or sentinel paths shared with other subsystems (e.g. `dev/local/autopilot/state.json` read by the autoclaude wrapper and tracon)
 
 **Ambient probes** (run by the script, no per-item argument):
 
@@ -72,7 +72,7 @@ Classify each finding:
 | **Same cluster** | Already covered — no action |
 | **Different cluster, already a plugin** | Use namespaced reference (`<otherplugin>:<skill>`); document as runtime dep in README |
 | **Different cluster, not yet a plugin** | Decide extraction order: ship the dependency plugin first, OR accept and document the dep, OR vendor the script (per Phase 5b) |
-| **Personal-only** (pidash, hardcoded buvis paths) | Exclude — won't ship |
+| **Personal-only** (observe_tool/instincts hooks, hardcoded buvis paths) | Exclude — won't ship |
 | **Built-in** (`/doctor`, superpowers, etc.) | Ignore |
 | **Soft coupling in non-cluster hooks** | Document as a stability contract in the plugin README (e.g. "session names must contain `<keyword>` for X to observe Y") |
 | **Shell-function hit** | Make an explicit distribution decision before proceeding — see Phase 5d |
@@ -83,7 +83,7 @@ Classify each finding:
 
 ## Phase 3: Naming (CHECKPOINT 2)
 
-Per `feedback_prefer_catchy_names.md`: propose 3-4 distinct evocative names with one-line rationale each. Avoid `<adjective>-<noun>-suite` patterns. Look for:
+Per the AGENTS.md naming convention (evocative single words over descriptive concatenations): propose 3-4 distinct evocative names with one-line rationale each. Avoid `<adjective>-<noun>-suite` patterns. Look for:
 
 - Concrete objects (whetstone, anvil, lighthouse)
 - Mythological figures (warden, sentinel, hermes, aegis)
@@ -91,29 +91,31 @@ Per `feedback_prefer_catchy_names.md`: propose 3-4 distinct evocative names with
 - Insider jokes / homages (strunk for style guides)
 - Single-word and pronounceable
 
-Use `AskUserQuestion` with options. Capture the choice as `$PLUGIN_NAME` (lowercase, no spaces).
+Use `AskUserQuestion` with options. Capture the choice as the **plugin name** (lowercase, no spaces) and substitute it for `<plugin-name>` in every command below as you dispatch it. Commands in this playbook never rely on shell variables: each Bash call starts a fresh shell, so a variable set in one call is empty in the next.
 
 ## Phase 4: Scaffolding
+
+The repo path is `~/git/src/github.com/buvis/claude-<plugin-name>` (e.g. `/Users/bob/git/src/github.com/buvis/claude-warden`). **Substitute the concrete absolute path for `<repo>` in every command from here on as you dispatch it** — never assign it to a shell variable. Shell state does not survive between Bash calls, and an unset variable silently turns a path like `$REPO/skills` into the root-anchored `/skills`.
 
 Create the repo skeleton:
 
 ```bash
-REPO=~/git/src/github.com/buvis/claude-$PLUGIN_NAME
-mkdir -p $REPO/.claude-plugin $REPO/skills $REPO/dev/bin
-# Optionally also: $REPO/commands $REPO/hooks $REPO/agents (only if cluster includes them)
+mkdir -p <repo>/.claude-plugin <repo>/skills <repo>/dev/bin
 ```
+
+If the cluster includes commands, hooks, or agents, run one more `mkdir -p` naming exactly the extra dirs (`<repo>/commands`, `<repo>/hooks`, `<repo>/agents`).
 
 ## Phase 5: Port components
 
 For each item in the cluster:
 
-**Skills**: `cp -r ~/.claude/skills/<name> $REPO/skills/`
+**Skills**: `cp -r ~/.claude/skills/<name> <repo>/skills/`
 
-**Commands**: `cp ~/.claude/commands/<name>.md $REPO/commands/`
+**Commands**: `cp ~/.claude/commands/<name>.md <repo>/commands/`
 
-**Agents**: `cp ~/.claude/agents/<name>.md $REPO/agents/`
+**Agents**: `cp ~/.claude/agents/<name>.md <repo>/agents/`
 
-**Hooks**: copy the script to `$REPO/hooks/<name>.py`, then create `$REPO/hooks/hooks.json` referencing it via `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.py`. Cross-check `~/.claude/settings.json` to mirror the hook event/matcher.
+**Hooks**: copy the script to `<repo>/hooks/<name>.py`, then create `<repo>/hooks/hooks.json` referencing it via `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.py`. Cross-check `~/.claude/settings.json` to mirror the hook event/matcher.
 
 Then apply three transforms:
 
@@ -122,13 +124,10 @@ Then apply three transforms:
 Skills with helper scripts must use `${CLAUDE_SKILL_DIR}` instead of `~/.claude/skills/<name>/scripts/...`:
 
 ```bash
-grep -rln 'python3 ~/.claude/skills' $REPO/skills/ | while read f; do
-  # For each hit, the model rewrites: ~/.claude/skills/<this-skill>/scripts/foo.py
-  #                              -> ${CLAUDE_SKILL_DIR}/scripts/foo.py
-  # (the model handles per-file because the skill name in the path varies)
-  echo "FIX: $f"
-done
+rg -ln 'python3 ~/.claude/skills' <repo>/skills/
 ```
+
+For each listed file, rewrite with the Edit tool: `~/.claude/skills/<this-skill>/scripts/foo.py` → `${CLAUDE_SKILL_DIR}/scripts/foo.py` (per-file, because the skill name in the path varies).
 
 ### 5b. Vendor cross-skill dependencies
 
@@ -137,14 +136,20 @@ If a skill in the cluster references scripts from a skill outside the cluster (e
 ### 5c. Sanitize personal references
 
 ```bash
-grep -rln '/Users/bob\|buvis-plugins\|~/bim/\|/dev/local/' $REPO/skills/ $REPO/commands/ $REPO/agents/ $REPO/hooks/ 2>/dev/null
+rg -ln '/Users/bob|buvis-plugins|~/bim/|/dev/local/' <repo>/skills/ <repo>/commands/ <repo>/agents/ <repo>/hooks/
 ```
+
+Name only the directories that actually exist (rg errors on missing paths). Note rg alternation is `|`, not grep's `\|`.
 
 Each hit is one of:
 - **Cosmetic example output** in SKILL.md (e.g., `/Users/bob/.claude` in sample tables): replace with `/Users/alice/.claude` or similar synthetic.
 - **Real production reference** in code: stop and ask the user.
 
-Also clean caches: `rm -rf $REPO/skills/*/scripts/__pycache__` (note the fact-forcing gate may ask for confirmation).
+Also clean caches **repo-wide**, not just under `skills/*/scripts/`:
+
+1. List them: `rg --files <repo> -g '*.pyc'` (a hit inside any `__pycache__/` marks that directory for removal; shipped plugins have carried stray `.pyc` under `lib/` before).
+2. Delete each with an explicit concrete path, e.g. `rm -rf <repo>/lib/__pycache__` — before any `rm -rf`, verify the path exists and sits inside `<repo>`; never run it with an empty or unsubstituted prefix (the fact-forcing gate may ask for confirmation).
+3. Verify ignores: `rg -n '__pycache__|\.pyc' <repo>/.gitignore` — add both patterns if missing.
 
 ### 5d. Shell-rc and user-instructions residue
 
@@ -159,7 +164,7 @@ If Phase 2 surfaced any shell-function or user-instructions hits, resolve them n
 
 **User instructions** (paragraphs in `~/.claude/{AGENTS,CLAUDE,GEMINI}.md`):
 
-- Copy the relevant paragraphs into `$REPO/AGENTS.md` so plugin installers inherit them automatically.
+- Copy the relevant paragraphs into `<repo>/AGENTS.md` so plugin installers inherit them automatically.
 - Leave a short pointer in the user's own CLAUDE.md (e.g. "see `<plugin>` plugin AGENTS.md") and queue the full-paragraph removal for Phase 11 cleanup.
 
 ## Phase 6: Plugin metadata
@@ -243,51 +248,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Copy the release script template:
 
 ```bash
-cp ~/.claude/skills/extract-plugin/references/release-script.sh.template $REPO/dev/bin/release
+cp ~/.claude/skills/extract-plugin/references/release-script.sh.template <repo>/dev/bin/release
 ```
 
-Edit `$REPO/dev/bin/release` and set `PLUGIN_NAME="<plugin-name>"` near the top.
+Edit `<repo>/dev/bin/release` and set `PLUGIN_NAME="<plugin-name>"` near the top (this variable lives inside the release script file, where it is fine — the ban is on variables spanning the playbook's own Bash calls).
 
 ```bash
-chmod +x $REPO/dev/bin/release
-bash -n $REPO/dev/bin/release   # syntax check
+chmod +x <repo>/dev/bin/release
+```
+
+```bash
+bash -n <repo>/dev/bin/release
 ```
 
 ## Phase 8: Verification
 
-For every skill in the new repo, validate its frontmatter:
+For every skill in the new repo, validate its frontmatter — one validator run per skill directory, one command per Bash call (no shell loops; a `for` prefix breaks permission matching):
 
 ```bash
-for skill in $REPO/skills/*/; do
-  python3 ~/.claude/skills/create-skill/scripts/validate_skill.py "$skill"
-done
+python3 ~/.claude/skills/create-skill/scripts/validate_skill.py <repo>/skills/<skill1>
 ```
 
-If any skill has helper scripts with tests, run them:
+If any skill has helper scripts with tests, locate them:
 
 ```bash
-find $REPO/skills -name 'test_*.py' | head -5
-# For each test file's parent dir:
-cd <parent-dir> && uv run --with pytest python -m pytest -q
+rg --files <repo>/skills -g 'test_*.py'
+```
+
+Then run each test file's parent directory without `cd`:
+
+```bash
+uv run --directory <parent-dir> --with pytest python -m pytest -q
 ```
 
 ## Phase 9: Git + GitHub remote (CHECKPOINT 3)
 
+One command per Bash call, `<repo>` spelled concrete in each:
+
 ```bash
-git -C $REPO init -b master
-git -C $REPO add -A
-git -C $REPO status --short   # show user
-git -C $REPO commit -m "feat: initial release with N skills [and commands/hooks]"
-git -C $REPO tag -a v0.1.0 -m "v0.1.0 - initial release"
-gh repo create buvis/claude-$PLUGIN_NAME --public --source $REPO --remote origin \
+git -C <repo> init -b master
+git -C <repo> add -A
+git -C <repo> status --short   # show user
+git -C <repo> commit -m "feat: initial release with N skills [and commands/hooks]"
+git -C <repo> tag -a v0.1.0 -m "v0.1.0 - initial release"
+gh repo create buvis/claude-<plugin-name> --public --source <repo> --remote origin \
   --description "<short description>"
 ```
 
 **Stop here and confirm with the user before pushing.** Show the commit and the GitHub URL. After confirmation:
 
 ```bash
-git -C $REPO push -u origin master
-git -C $REPO push origin v0.1.0
+git -C <repo> push -u origin master
+git -C <repo> push origin v0.1.0
 ```
 
 ## Phase 10: Marketplace registration

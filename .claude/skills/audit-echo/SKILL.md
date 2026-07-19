@@ -16,8 +16,6 @@ Read `~/.claude/cartographer/audit.jsonl`, filter to `phase: "echo"`, and produc
 
 ## Step 1: Load events
 
-Read the audit log line-by-line, parse each JSON, retain entries with `phase == "echo"` (ignore `tree_sitter_missing` and other non-Echo warnings).
-
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/report.py"
 ```

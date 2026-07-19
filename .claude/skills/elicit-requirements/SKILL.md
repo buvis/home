@@ -23,7 +23,7 @@ Turn a rough idea into a validated discovery document that `/create-prd` can con
 Find source material in this order:
 
 1. **Argument** - user passed a rough idea or file path
-2. **Brainstorming output** - check `docs/superpowers/specs/` for recent design docs. If found, read it and extract existing requirements, constraints, and decisions. Skip questions that the brainstorming output already answers.
+2. **Brainstorming output** - check for recent prior work: plan-mode output in the conversation, `dev/local/spikes/` findings, `dev/local/discovery/` docs. If found, read it and extract existing requirements, constraints, and decisions. Skip questions that the prior work already answers.
 3. **Conversation context** - idea discussed in current conversation
 
 If the input is a file path, read the file. Extract whatever is available: problem statement, requirements, constraints, success criteria, open questions.

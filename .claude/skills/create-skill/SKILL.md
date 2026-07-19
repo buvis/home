@@ -149,14 +149,14 @@ Examples:
 Run the init script to generate a template:
 
 ```bash
-~/.claude/skills/create-skill/scripts/init_skill.py <skill-name> --path <output-directory> [--resources scripts,references,assets]
+python3 ~/.claude/skills/create-skill/scripts/init_skill.py <skill-name> --path <output-directory> [--resources scripts,references,assets]
 ```
 
 Examples:
 
 ```bash
-~/.claude/skills/create-skill/scripts/init_skill.py my-skill --path ~/.claude/skills
-~/.claude/skills/create-skill/scripts/init_skill.py my-skill --path .claude/skills --resources scripts,references
+python3 ~/.claude/skills/create-skill/scripts/init_skill.py my-skill --path ~/.claude/skills
+python3 ~/.claude/skills/create-skill/scripts/init_skill.py my-skill --path .claude/skills --resources scripts,references
 ```
 
 Skip this step if the skill already exists and you are iterating.
@@ -173,7 +173,7 @@ Implement `scripts/`, `references/`, and `assets/` files first. This may require
 
 **Frontmatter:**
 - `name`: the skill name (lowercase, hyphens, max 64 chars)
-- `description`: the primary trigger mechanism. Keep under 250 characters (truncated beyond that). All "when to use" info goes here - the body is only loaded after triggering.
+- `description`: the primary trigger mechanism. Keep under 250 characters (the validator warns above 250). All "when to use" info goes here - the body is only loaded after triggering.
 
 See [references/frontmatter.md](references/frontmatter.md) for additional frontmatter fields (invocation control, subagent execution, tool permissions, etc.).
 
@@ -212,7 +212,7 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 Run the validator to check structure and frontmatter:
 
 ```bash
-~/.claude/skills/create-skill/scripts/validate_skill.py <path/to/skill-folder>
+python3 ~/.claude/skills/create-skill/scripts/validate_skill.py <path/to/skill-folder>
 ```
 
 Fix any reported errors and re-run.

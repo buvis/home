@@ -28,7 +28,7 @@ and a pickable cross-repo todo list for every repo in the gita registry
 ### 1. Collect (deterministic)
 
 ```bash
-python3 ~/.claude/skills/brief-portfolio/scripts/collect.py
+python3 ${CLAUDE_SKILL_DIR}/scripts/collect.py
 ```
 
 Options: `--days N` (window, default 60), `--no-fetch` (skip `git fetch`, much
@@ -94,7 +94,7 @@ Todo rules:
 ### 3. Build and open
 
 ```bash
-python3 ~/.claude/skills/brief-portfolio/scripts/build.py
+python3 ${CLAUDE_SKILL_DIR}/scripts/build.py
 open ~/.claude/portfolio-brief/portfolio-brief.html
 ```
 
