@@ -204,9 +204,15 @@ def test_placeholder_fields_present_with_empty_defaults(tmp_path: Path) -> None:
     assert atlas.get("forbidden_imports") == [], (
         f"forbidden_imports should be [], got: {atlas.get('forbidden_imports')!r}"
     )
-    assert atlas.get("naming") == {}, (
-        f"naming should be {{}}, got: {atlas.get('naming')!r}"
-    )
+    # `naming` is no longer an empty placeholder — run.py computes per-layer
+    # case-style counts (`{layer: {camelCase, snake_case, PascalCase}}`), all
+    # zero for a symbol-less repo. Bind that real contract, not the stale `{}`.
+    naming = atlas.get("naming")
+    assert isinstance(naming, dict), f"naming should be a dict of per-layer counts, got: {naming!r}"
+    for layer, counts in naming.items():
+        assert set(counts) == {"camelCase", "snake_case", "PascalCase"}, (
+            f"naming[{layer!r}] should carry the three case-style counts, got: {counts!r}"
+        )
     assert atlas.get("error_style") == "unknown", (
         f"error_style should be 'unknown', got: {atlas.get('error_style')!r}"
     )
