@@ -13,6 +13,7 @@ export function loadPayload() {
 const FAILING = new Set(['failure', 'timed_out', 'startup_failure'])
 const DAY = 86400000
 const BRUSH_DUE_DAYS = 30
+const MAINT_DUE_DAYS = 30
 
 export const slug = (r) => `${r.owner}/${r.name}`
 
@@ -286,7 +287,9 @@ export function quadrant(t) {
   return t.agent ? 'delegate' : 'drop'
 }
 
-// PRs outside the gita portfolio that involve the user (collect.py `external`).
+// PRs outside the gita portfolio that involve the user (collect.py `external`),
+// plus the ~/.claude maintenance-cadence nag (PRD 00081) — it rides this
+// channel because ~/.claude is not a gita repo row.
 export function externalTodos(external) {
   const out = []
   for (const p of external?.review_requested ?? [])
@@ -297,6 +300,18 @@ export function externalTodos(external) {
     out.push({ id: `ext:mine:${p.repo}#${p.number}`, repo: p.repo, kind: 'external', urgency: 'soon',
       importance: 'high', effort: 'quick', agent: null, url: p.url, external: true,
       action: `Nudge your PR ${p.repo}#${p.number}: ${p.title}`, why: `your PR outside the portfolio, open since ${p.created}` })
+  if (external) {
+    const last = external.claude_maintenance_last
+    const aged = daysAgo(last)
+    if (aged === null || aged >= MAINT_DUE_DAYS)
+      out.push({ id: `claude:maintenance:${last ?? 'never'}`, repo: '~/.claude', kind: 'maintenance',
+        urgency: 'soon', importance: 'low', effort: 'medium', url: null, external: true,
+        agent: '/claude-checkup:audit-filesystem',
+        action: 'Run /claude-checkup:audit-filesystem + check-links maintenance pass',
+        why: (aged === null ? 'no audit-results artifact found'
+          : `newest audit-results artifact ${aged}d old`) +
+          ` — target: one pass per ${MAINT_DUE_DAYS}d (newest-mtime proxy, imprecise)` })
+  }
   return out
 }
 

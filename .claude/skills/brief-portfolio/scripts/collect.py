@@ -221,6 +221,20 @@ def collect_brush(path):
     return None
 
 
+def collect_claude_maintenance(base=None):
+    """ISO day of the newest entry under ~/.claude/dev/local/audit-results/;
+    None = never. mtime proxy: audit-filesystem writes no report file, so any
+    audit-results artifact counts (the UI row states the imprecision)."""
+    d = Path(base) if base else Path.home() / ".claude/dev/local/audit-results"
+    try:
+        times = [e.stat().st_mtime for e in d.iterdir()]
+    except OSError:
+        return None
+    if not times:
+        return None
+    return datetime.fromtimestamp(max(times), timezone.utc).strftime("%Y-%m-%d")
+
+
 def collect_external(known_slugs):
     """Open PRs involving the user outside the gita portfolio (review requests + own PRs)."""
     def search(flag):
@@ -357,6 +371,7 @@ def main():
     except Exception as e:
         print(f"WARN external: {e}", file=sys.stderr)
         data["external"] = {"review_requested": [], "authored": []}
+    data["external"]["claude_maintenance_last"] = collect_claude_maintenance()
 
     # keep the previous snapshot for the "since last brief" diff
     data_file = outdir / "data.json"
