@@ -12,11 +12,22 @@ Sonnet is accessed via the native `claude` CLI (headless `-p`). The helper scrip
 - Files read from other skill dirs:
   `~/.claude/skills/use-codex/references/dispatch-contract.md` - mandatory,
   applies verbatim (see below)
+  - `~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py` - optional,
+    for a deterministic reset-epoch parse of a usage-limit banner (see
+    "Usage-limit banner" below)
 - CLIs: `claude` (native, headless `-p`); `mise` for resolution
 
 ## Dispatch Contract (shared)
 
 Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill.
+
+## Usage-limit banner (claude backend only)
+
+`claude -p` is the one backend that can hit the **Claude usage limit** mid-run: instead of a normal result it returns a banner like `You've hit your session limit · resets 8:10pm (Europe/Prague)` (also `weekly`/`usage` limit; a stream-json run additionally carries a rejected `rate_limit_event` with a machine-readable `resetsAt` epoch). This is neither a task failure nor retryable — the quota is spent until the reset.
+
+**Detect** it by scanning the run's output / `-o` file for the same markers `detect_usage_limit.py` uses: `hit your (session|usage|weekly) limit` or `usage limit reached`, and `resets <HH[:MM]> <am|pm> (<tz>)` for the reset time. For a deterministic reset epoch, run `python3 ~/.claude/skills/run-autopilot/scripts/detect_usage_limit.py --log <the -o output file>` — exit 0 prints the reset epoch (it parses both the prose banner and a stream-json `resetsAt`); exit 1 means no live limit.
+
+**On a hit:** mark the run **FAILED**, report the reset time in the run report (`usage limit; resets <time>`), and do NOT retry before the reset — a retry re-fails identically. Under autopilot the `autoclaude` wrapper already sleeps-until-reset at the loop boundary; a standalone `use-sonnet` run cannot wait, so it stops and surfaces the reset for the user.
 
 ## Model Policy
 

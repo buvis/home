@@ -92,6 +92,12 @@ function validateArgs(a) {
   if (typeof a.diff_bytes !== "number") bad("diff_bytes is required");
   if (!Number.isFinite(a.diff_bytes) || a.diff_bytes < 0) bad("diff_bytes must be a finite non-negative number");
   if (a.diff_bytes > MAX_DIFF_BYTES && !a.diff_path) bad("diff_bytes is over MAX_DIFF_BYTES but no diff_path was supplied");
+  // changed_files is optional, but a STRING silently iterates characters in
+  // securityTriggered's `for (const path of changedFiles)` — every char fails
+  // securityish(), so the path-based security signal disappears with no error.
+  // Reject a non-array up front rather than under-arm the security dimension.
+  if (a.changed_files != null && !Array.isArray(a.changed_files))
+    bad("changed_files must be an array of paths (a string iterates characters and silently under-arms the security dimension)");
 }
 
 /** `diff_bytes` is a real byte count (from `wc -c`); `.length` counts UTF-16 code

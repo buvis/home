@@ -32,6 +32,19 @@ manifest, and trash batches older than 30 days are emptied on later runs.
    lines are kept files whose PRD vanished; surface them to the user instead
    of acting.
 
+   **Consumed-spike prompt (spike deletion's owner).** A FLAG line under
+   `spikes/<slug>/` whose PRD number resolves to `prds/done/` (check with `ls
+   dev/local/prds/done/` for the 5-digit token) is a **consumed** spike — the
+   spike did its job (it elicited requirements by building) and its PRD
+   shipped, so the throwaway can go. In an **attended** run, PROMPT the user to
+   trash it (offer it explicitly — this is the point where a consumed spike
+   finally gets an owner instead of lingering forever); on yes, move it through
+   the normal trash path with a manifest row `<today>\tspike-consumed\t<path>`.
+   **Unattended** (`CLAUDE_UNATTENDED=1`): never auto-trash a curated spike —
+   leave it flagged for the next attended run. A spike whose PRD is **missing**
+   (in neither `done/` nor backlog/wip) is NOT consumed — it stays flagged-keep
+   (it may be an orphan worth investigating, not a shipped one).
+
 3. Pre-trash reference check (PRD 00081): before applying, verify nothing
    still points at a trash candidate. For each candidate path from the `-v`
    dry-run, search the store's markdown plus the project auto-memory for

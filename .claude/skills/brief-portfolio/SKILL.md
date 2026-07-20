@@ -95,8 +95,10 @@ Todo rules:
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/build.py
-open ~/.claude/portfolio-brief/portfolio-brief.html
+open ~/.claude/portfolio-brief/portfolio-brief.html   # attended only
 ```
+
+`open` needs a desktop session — run it **only in an attended run**. In an unattended/headless run (`CLAUDE_UNATTENDED=1`) skip it and just report the written path (`~/.claude/portfolio-brief/portfolio-brief.html`).
 
 `build.py` injects `{data, epics}` into `assets/template.html` (pre-built
 Svelte 5 single-file app) and writes `~/.claude/portfolio-brief/portfolio-brief.html`.
@@ -105,8 +107,8 @@ It works without epics.json but say so if you skipped step 2.
 ## Tests
 
 ```bash
-python3 -m pytest ~/.claude/skills/brief-portfolio/scripts/test_collect.py -q
-npm --prefix ~/.claude/skills/brief-portfolio/app test
+python3 -m pytest ${CLAUDE_SKILL_DIR}/scripts/test_collect.py -q
+npm --prefix ${CLAUDE_SKILL_DIR}/app test
 ```
 
 ## Rebuilding the SPA template (maintenance only)
@@ -114,8 +116,8 @@ npm --prefix ~/.claude/skills/brief-portfolio/app test
 Only needed after changing `app/` sources:
 
 ```bash
-npm --prefix ~/.claude/skills/brief-portfolio/app install
-npm --prefix ~/.claude/skills/brief-portfolio/app test
-npm --prefix ~/.claude/skills/brief-portfolio/app run build
-cp ~/.claude/skills/brief-portfolio/app/dist/index.html ~/.claude/skills/brief-portfolio/assets/template.html
+npm --prefix ${CLAUDE_SKILL_DIR}/app install
+npm --prefix ${CLAUDE_SKILL_DIR}/app test
+npm --prefix ${CLAUDE_SKILL_DIR}/app run build
+cp ${CLAUDE_SKILL_DIR}/app/dist/index.html ${CLAUDE_SKILL_DIR}/assets/template.html
 ```

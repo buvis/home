@@ -34,6 +34,7 @@ Qwen-specific deltas on error handling:
 
 - **Output that narrates actions instead of showing real tool calls** (a `thought`/`<channel|>` block, a fabricated `$ pytest` run) means the model did not actually do the work. Verify on disk; do not relay the claim.
 - If the model fails the task twice, escalate - do not loop. A weaker model that cannot converge is a capability limit, not a prompt bug.
+- **Server died after a passing preflight** — the `--preflight` probe passed, but the real dispatch then hangs past the watchdog, or the server refuses/500s mid-run: the llama.cpp process crashed or OOM'd under the real load a 1-token probe never exercises. The shared contract's watchdog `TaskStop`s the hung dispatch (never let it hang unbounded). Then mark the step **FAILED** and name the restart: re-serve the model (LlamaBarn on the port in `~/.pi/agent/models.json`, or the `start_qwen` helper in `~/.config/bash/plugins/development.plugin.bash` — match that port), then re-run. Do NOT silently re-dispatch against a dead server (it hangs again). Under autopilot the `/work` router already falls back to Claude at the task's tier on a qwen failure, so a dead server degrades to Claude — it never stalls the task.
 
 ## Prerequisites
 

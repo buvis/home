@@ -184,14 +184,16 @@ The fallback rule applies to every codex dispatch (2 and 3).
 
 **Minimum-engagement check (mirrors review-with-doubt's "fewer than 3 doubts = look harder").** A rubber-stamp review is worse than none — it reads as coverage that never happened. After a substantive dispatch (1, 2, or a dispatch-3 that ran), test it for engagement: it is **under-engaged** when it returns **fewer than 3 total findings** OR **not one finding anchors to a specific design-doc section or `file:symbol`** (real design review cites where — e.g. "`## Interfaces & contracts` declares `foo(x: int)` but the PRD says `str`"). On under-engagement, **re-dispatch that same reviewer ONCE** with a sharper prompt: name the specific sections/interfaces/modules it must inspect and require every finding — and every "checked, correct" note — to cite a doc section or `file:symbol`. This engagement re-run is a per-dispatch quality retry (capped at one per dispatch); it does **not** consume the 3-dispatch cross-model ceiling, so the mandatory codex dispatch still runs. If the re-run **still** shows no section-anchored evidence (it could not show it engaged), mark that dispatch **WEAK**: append ` weak` to its `## Review log` line and list it in the exit report. WEAK is advisory — it flags low confidence, it does not by itself fail the review. A thorough zero-blocker review that cites the sections it verified is NOT weak; engagement, not raw finding count, is the test after the re-run.
 
-Bound each codex dispatch with a concrete **timed wait**, not an open-ended one.
-After the `run_in_background: true` launch, wait with `TaskOutput(task_id,
-block=true, timeout=600000)` (10 min, the max per call); on a still-running
-return, re-issue the wait once; a second still-running return is the **timed
-wait ceiling** tripping - treat it as a codex outage and take the Claude
-fallback above. This is the 10-min×2 `TaskOutput` deadline for helper-script
-Bash dispatches (`work/references/subagent-dispatch.md`). A hung reviewer must
-never block an unattended run.
+Bound each codex dispatch with a concrete deadline, not an open-ended wait.
+After the `run_in_background: true` launch the harness re-invokes you with a
+`<task-notification>` carrying the codex `-o` output path the moment it
+finishes — `Read` that file for the findings (background Bash tasks return
+their output path in the tool result and notify on completion; the old
+blocking-wait tool is deprecated). If no completion notification has arrived within the ~10-min×2
+deadline for helper-script Bash dispatches (`work/references/subagent-dispatch.md`),
+treat the dispatch as a codex outage and take the Claude fallback above. A hung
+reviewer must never block an unattended run (the autopilot session wall-clock
+cap is the backstop).
 
 ### 5. Terminate
 
