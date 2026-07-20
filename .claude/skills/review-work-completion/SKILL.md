@@ -282,3 +282,5 @@ Include all findings even if zero issues. Give each reviewer that ran a `## <Nam
 ```bash
 python3 ~/.claude/skills/review-work-completion/scripts/check_review_file.py --review-file $PWD/dev/local/reviews/<review-file>
 ```
+
+**Write the contract card** at this cycle transition (run-autopilot § Contract card): the current step, the active invariants, and the next gate (rework at cycle N+1, or converge → done) — via statectl `set contract_card` (autopilot) or the scratch `dev/local/autopilot/contract-card.md` (interactive), so a session compacted mid-review re-anchors to where the cycle stands.
