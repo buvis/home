@@ -241,6 +241,28 @@ def test_non_git_dir_omits_head_sha(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_survey_skips_data_and_build_dirs(tmp_path: Path) -> None:
+    """Build/dependency and meta-repo data dirs never become layers, so a survey
+    of ~/.claude does not make noise out of projects/, and a JS repo does not out
+    of node_modules (PRD 00088 R2)."""
+    repo = tmp_path / "repo"
+    _make_git_repo(repo)
+    (repo / "services").mkdir()
+    (repo / "services" / "user_service.py").touch()
+    for skip in ("node_modules", "projects", "cache"):
+        (repo / skip).mkdir()
+        (repo / skip / "junk.py").touch()
+
+    proc = _run_survey(repo, home=tmp_path)
+    assert proc.returncode == 0, f"run.py exited {proc.returncode}:\n{proc.stderr}"
+
+    layers = _read_atlas(tmp_path, repo)["layers"]
+    assert "services" in layers, "real source dir must be surveyed"
+    for skip in ("node_modules", "projects", "cache"):
+        assert skip not in layers, f"{skip} must be excluded from survey layers"
+
+
+@pytest.mark.integration
 def test_layers_contains_file_paths_not_just_dir_names(tmp_path: Path) -> None:
     """Each layer value is a list of file paths, not just directory names."""
     repo = tmp_path / "repo"
