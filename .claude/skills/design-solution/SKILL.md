@@ -177,7 +177,12 @@ The fallback rule applies to every codex dispatch (2 and 3).
   `<n>` is the dispatch number; `<c>/<b>/<nb>/<q>` are per-severity integer
   counts; the reviewer identity token is exactly one of `claude`, `codex`,
   `claude-fallback` (dispatch 1 -> `claude`; dispatch 2 -> `codex` or
-  `claude-fallback`; dispatch 3 -> `codex` or `claude-fallback`).
+  `claude-fallback`; dispatch 3 -> `codex` or `claude-fallback`). A dispatch
+  marked WEAK by the minimum-engagement check below appends ` weak` to the end
+  of this line (after `question <q>`) — the Phase 1.5 gate pattern still matches,
+  it is not `$`-anchored.
+
+**Minimum-engagement check (mirrors review-with-doubt's "fewer than 3 doubts = look harder").** A rubber-stamp review is worse than none — it reads as coverage that never happened. After a substantive dispatch (1, 2, or a dispatch-3 that ran), test it for engagement: it is **under-engaged** when it returns **fewer than 3 total findings** OR **not one finding anchors to a specific design-doc section or `file:symbol`** (real design review cites where — e.g. "`## Interfaces & contracts` declares `foo(x: int)` but the PRD says `str`"). On under-engagement, **re-dispatch that same reviewer ONCE** with a sharper prompt: name the specific sections/interfaces/modules it must inspect and require every finding — and every "checked, correct" note — to cite a doc section or `file:symbol`. This engagement re-run is a per-dispatch quality retry (capped at one per dispatch); it does **not** consume the 3-dispatch cross-model ceiling, so the mandatory codex dispatch still runs. If the re-run **still** shows no section-anchored evidence (it could not show it engaged), mark that dispatch **WEAK**: append ` weak` to its `## Review log` line and list it in the exit report. WEAK is advisory — it flags low confidence, it does not by itself fail the review. A thorough zero-blocker review that cites the sections it verified is NOT weak; engagement, not raw finding count, is the test after the re-run.
 
 Bound each codex dispatch with a concrete **timed wait**, not an open-ended one.
 After the `run_in_background: true` launch, wait with `TaskOutput(task_id,
@@ -206,6 +211,7 @@ design-solution: <prd-stem>
   reviewer dispatches: <n>/3
   findings: cardinal-sin <c>, blocker <b>, non-blocker <nb>, question <q>
   open cardinal sins/blockers: <none, or a list>
+  weak dispatches: <none, or a list of dispatch numbers flagged by the minimum-engagement check>
   result: ok | failed (open cardinal sins/blockers)
 ```
 

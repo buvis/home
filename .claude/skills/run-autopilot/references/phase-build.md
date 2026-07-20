@@ -240,7 +240,6 @@ While `/work` runs (Phases 3 and 6), it uses these superpowers when available (a
 |-----------|------|---------|
 | `test-driven-development` | 2.7 | Write failing tests before implementation |
 | `systematic-debugging` | 4.5 | Root-cause analysis on errors |
-| `verification-before-completion` | 5.5 | Run test suite before marking done |
 | `requesting-code-review` | 5.7 | Per-task code review after commit |
 | `receiving-code-review` | 5.7 | Evaluate review feedback before acting on it |
 

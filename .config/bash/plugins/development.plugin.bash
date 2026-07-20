@@ -97,10 +97,14 @@ _autoclaude_tracon() {
   # loop.
   _autopilot_prune_registry "$_AUTOPILOT_LOOPS_DIR"
 
-  # (1) Duplicate-loop guard FIRST (cheap; before any uv cost).
-  if python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root"; then
-    printf 'autoclaude: a loop is already running for %s (registry: %s).\n' \
-      "$_root" "${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}" >&2
+  # (1) Duplicate-loop guard FIRST (cheap; before any uv cost). The guard
+  # prints the incumbent loop's pid on stdout when one is alive, so the
+  # refusal can name it (a second loop on one repo double-drains the batch).
+  local _live_pid
+  _live_pid=$(python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root" 2>/dev/null)
+  if [ -n "$_live_pid" ]; then
+    printf 'autoclaude: a loop is already running for %s (pid %s; registry: %s). Refusing to start a second loop on the same repo.\n' \
+      "$_root" "$_live_pid" "${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}" >&2
     printf 'Attach:  uv run --no-project %s --root %s\n' "$_tracon_py" "$_root" >&2
     return 1
   fi
@@ -350,6 +354,20 @@ autoclaude() {
       export _AUTOPILOT_LOOPS_DIR="$_loops_dir" # so any child (guard, tracon) resolves the SAME dir
       mkdir -p "$_loops_dir" 2>/dev/null
       _autopilot_prune_registry "$_loops_dir"
+      # Duplicate-loop guard on the plain/headless path: the tracon front-end
+      # runs its own guard before forking, but a no-tty or _AUTOPILOT_TRACON=0
+      # loop bypasses that front-end and would otherwise start a SECOND drainer
+      # on this repo (double commits, racing state writes). Prune ran just
+      # above, so any hit is a genuinely live loop. Safe under
+      # _AUTOPILOT_TRACON_CHILD too: we have not registered yet (that happens
+      # below), so a hit can only be another loop, never ourselves.
+      local _root_guard="${_ap_dir%/dev/local/autopilot}" _live_pid
+      _live_pid=$(python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root_guard" 2>/dev/null)
+      if [ -n "$_live_pid" ]; then
+        printf 'autoclaude: a loop is already running for %s (pid %s). Refusing to start a second loop on the same repo.\n' "$_root_guard" "$_live_pid" >&2
+        _autopilot_loop_teardown
+        return 1
+      fi
       _reg="$_loops_dir/$BASHPID.json"
       local _reg_tmp="$_reg.tmp.$BASHPID"
       if jq -n --argjson pid "$BASHPID" \

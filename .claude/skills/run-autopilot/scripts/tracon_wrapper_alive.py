@@ -11,7 +11,11 @@ def main() -> int:
         print("usage: tracon_wrapper_alive.py <root>", file=sys.stderr)
         return 2
     root = Path(sys.argv[1])
-    return 0 if discovery.wrapper_alive(root) else 1
+    pid = discovery.live_wrapper_pid(root)
+    if pid is None:
+        return 1
+    print(pid)  # so a refusing caller can name the incumbent loop's pid
+    return 0
 
 
 if __name__ == "__main__":

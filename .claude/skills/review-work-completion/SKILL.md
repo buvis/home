@@ -54,6 +54,13 @@ Check these exist:
 
 (Alice is a native Claude subagent - no CLI prerequisite.)
 
+**Ambiguous-target guard (standalone runs).** This skill reviews **one** PRD's work per run. When NO autopilot state names the PRD — `dev/local/autopilot/state.json` is absent or carries no `prd` field (a manual/standalone `/review-work-completion`) — AND `dev/local/prds/wip/` holds **2+** PRDs, the target is ambiguous. Do NOT merge them into one review:
+
+- **Interactive:** name every wip PRD and ask which to review via `AskUserQuestion`; scope the run to the chosen one (its path is the "review-target PRD" step 3 reads).
+- **Unattended (`CLAUDE_UNATTENDED` set, or otherwise no human to ask):** STOP and report the ambiguity, naming all wip PRDs — never guess which one (`rules/communication.md` unattended rule).
+
+Under autopilot, `state.prd` names the PRD, so this guard does not apply — review that PRD's work. A single wip PRD is unambiguous and passes straight through.
+
 **Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND a backend CLI resolves - `copilot` (preferred; serves `gemini-3.1-pro-preview`) OR native `gemini` (`mise which`/`command -v` succeeds for either). If both pass, Carl is active. If neither CLI resolves, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran. (Carl on the copilot backend spends Copilot AI credits; a "monthly quota exceeded" error from the helper is a runtime skip, not a prerequisite failure.)
 
 **Optional - Quinn (local qwen):** run `~/.claude/skills/use-qwen/scripts/qwen-run.sh --preflight --approved-only` (foreground). It passes ONLY when a real 1-token completion succeeds against the served model — a `/v1/models` listing alone never passes (the false-healthy class). Exit 0 → Quinn is active. Any failure (`pi_missing`, `endpoint_unreachable`, `model_id_missing` — no approved model is live — `completion_failed`, or the script missing/non-executable) → skip Quinn and proceed with the remaining reviewers - graceful degradation, not a failure; llama-server down degrades to today's roster. Note in the final review file which reviewers ran and Quinn's skip reason when he was skipped. (The probe can take up to ~2 min on a cold backend — it doubles as the model warm-up for step 5.)
@@ -99,7 +106,7 @@ Cannot review: no completed tasks found. Complete tasks first.
 
 ### 3. Gather context
 
-Read all PRDs from `dev/local/prds/wip/`. Extract success criteria, acceptance criteria, required features.
+Read the **review-target PRD** from `dev/local/prds/wip/` — `state.prd`'s PRD under autopilot, the PRD step 1's ambiguous-target guard resolved on a standalone multi-PRD run, else the single wip PRD. Extract success criteria, acceptance criteria, required features. (Only when the target is genuinely one PRD and wip legitimately holds several — an autopilot batch mid-flight — read the others for cross-PRD context, but scope the review to the target.)
 
 Load architecture docs: AGENTS.md, agent_docs/, and any `dev/local/` architecture notes. Reviewers benefit from seeing invariants and boundaries.
 
@@ -225,6 +232,8 @@ Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to
 ```
 
 Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `QUINN:` pair when Quinn was skipped; append an `EVE:` pair when Eve ran). The script computes consensus dynamically from the number of agent pairs provided.
+
+**If `consolidate-findings.sh` exits nonzero, or warden denies it:** do not skip consolidation (that would silently drop every finding). Read the deny/error reason from the tool result; a fixable invocation problem (a passed path that does not exist for a reviewer that did run) → fix and retry ONCE. Otherwise **fall back to model-side consolidation**: read each reviewer's `*-output-{id}.txt`, group the findings that name the same issue at the same `File:` across reviewers, set each finding's consensus to the count of distinct reviewers that flagged it, and sort by consensus then severity — the same shape the script emits. **Note in the review file that consolidation was model-side** (fail loud — a hand-rolled consolidation must not read as the script's). The Quinn advisory-weighting rule and the `Verdict:`/`Tests:` composition below apply unchanged to the model-side result.
 
 **Advisory weighting for Quinn (local model).** After consolidation, split the findings: any finding whose only finder is Quinn is ADVISORY — list it in the review file under an `### Advisory (local model, unconfirmed)` heading (same line format, no consensus score) and create NO follow-up tasks from it in step 7. Findings where Quinn concurs with at least one other reviewer stay in the consolidated table and count toward consensus normally — his concurrence raises the score like any other reviewer's. Local-model noise must never create rework tasks alone. See `references/output-formats.md` "Advisory bucket (Quinn)".
 

@@ -23,7 +23,7 @@ Implement pending tasks one-by-one, committing after each completion.
 - CLIs: `git`, `python3`
 - Optional (explicit fallback exists): `use-gemini` skill (UI tasks), `use-qwen`
   skill, `use-sonnet` skill (its `scripts/sonnet-run.sh` drives the step-5.7
-  reviewer lane), `superpowers:*` plugin skills
+  reviewer lane)
 
 ## CRITICAL: Never Ask the User to Run Commands
 
@@ -371,6 +371,8 @@ Never chain these with `&&` in a single Bash call. Commit message rules: convent
 
 Before committing a `feat`/`fix` (or breaking) change, verify CHANGELOG.md is staged in the same commit per rules/changelog.md — repos with a declared no-changelog exception (e.g. the buvis home repo) skip this check.
 
+**If a commit (or its `git add`) is rejected** — `aegis`'s `validate_commit_msg.py` blocks a non-conventional message (boilerplate trailer, HEREDOC, bad format — `rules/development-workflow.md`), or warden denies the `git add`/`git commit` command: read the deny reason from the blocked tool result (aegis names the format violation; warden's reason usually names the preferred command form), fix the message or the command accordingly, and **retry the commit ONCE**. Still rejected after the one repair → ESCALATE: append an attempt-log entry (`outcome: "aborted"`, `cause: "commit_rejected"`), then report to the user (interactive) or take the loop-mode stall path (`run-autopilot/references/recovery.md`, `site: "sub_skill_fail"`, `detail` = the deny reason) — never leave the task's work uncommitted-and-unrecorded, and never reach for `--no-verify` to bypass the hook. This branch applies to every commit this skill makes (step 2.9 tests, step 5 implementation, the step-5.5/5.7 re-commits, the step-5.6 deslop commit).
+
 ### 5.5. Verify THIS task's tests pass
 
 Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full project test suite, smoke tests, integration tests, or lint here — those run once at the end of the phase (step 7).
@@ -381,7 +383,6 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - Never dispatch Tess to weaken tests.
 - **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) **must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
-- If `superpowers:verification-before-completion` is available, invoke it for additional verification beyond tests — but keep its scope to this task's files, not the full workspace.
 
 **Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
 
@@ -593,6 +594,8 @@ After all tasks in the phase are marked completed, run the project's full verifi
 - Smoke tests if the project defines them (e.g., `./tests/smoke.sh`)
 - Integration / e2e tests if the project defines them (e.g., `./tests/integration.sh`, `cargo test -p <crate>-e2e`)
 - Any project-specific "definition of done" checks
+
+**When the repo documents no verification commands** (no test/lint/build commands in `AGENTS.md`/`CLAUDE.md`/README): do NOT silently skip verification. Detect the stack from its manifest and improvise the standard suite — `Cargo.toml` → `cargo test --workspace` (+ `cargo clippy --workspace`); `pyproject.toml`/`setup.py` → `pytest` (+ `ruff check` if configured); `package.json` → `npm test` (only if a `test` script exists). Run the improvised set, and **state the exact improvised command set in the phase report** (fail loud — an improvised suite must not read as the project's own documented one). If no stack manifest is detectable and nothing runs, record `verification: none (no suite found)` in the phase report and surface it as a gap for the review phase — never report the phase green on an unverified tree.
 
 Run each as a separate Bash call. Do not chain with `&&`.
 
