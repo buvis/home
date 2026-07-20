@@ -49,6 +49,133 @@ ALLOWED_FIELDS = {
 EFFORT_VALUES = {"low", "medium", "high", "max"}
 SHELL_VALUES = {"bash", "powershell"}
 
+# --- Live-profile lints (PRD 00083) ---------------------------------------
+# Every fenced bash command a SKILL.md tells the agent to run is checked
+# against the environment it will actually run in: the aegis prefer_tools deny
+# set, warden/permission conventions, and the no-persistent-shell contract.
+# These are ERRORs (not model judgment) because each one is a command our own
+# hooks deny or a pattern that cannot work in a fresh Bash call.
+
+# aegis prefer_tools.py DENY binaries, mirrored (the hook blocks these even
+# though the permission allowlist lists some of them).
+AEGIS_DENY = {
+    "grep": "use `rg -n`",
+    "find": "use `rg --files` (add `-g <glob>`) or the Explore agent",
+    "cat": "use the Read tool, or pass the filename straight to the next tool",
+    "head": "run the command bare (Bash truncates) or redirect to a file and Read it",
+    "tail": "run the command bare (Bash truncates) or redirect to a file and Read it",
+}
+# Binaries the settings.json permission allowlist recognizes as a prefix. A
+# bare path first-token whose basename is not one of these relies on the exec
+# bit + shebang and trips the permission gate; invoke via an interpreter.
+PERMISSION_BINARIES = {
+    "git", "rm", "gh", "cargo", "node", "python", "python3", "pip", "npm",
+    "pnpm", "npx", "yarn", "uv", "uvx", "ruff", "mypy", "pytest", "showboat",
+    "zdb", "ast-grep", "mdbook", "codex", "copilot", "claude", "mise", "curl",
+    "ls", "bash", "pwd", "cat", "echo", "rg", "wc", "sort", "diff", "tree",
+    "which", "xxd", "test", "timeout", "lsof", "dig", "ffmpeg", "ffprobe",
+    "mkdocs", "rmdir", "shellcheck", "rustc", "gpgconf", "ddb", "cp", "mv",
+    "mkdir", "touch", "sed", "awk", "kill", "pkill", "docker", "kubectl",
+    "sqlite3", "jq", "stat", "du",
+}
+# $VAR names that ARE a documented substitution or an always-set env var; every
+# other $NAME in a fenced block is an author variable that a fresh Bash call
+# leaves unset (shell state never persists between calls).
+ALLOWED_SUBST = {
+    "CLAUDE_SKILL_DIR", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR",
+    "CLAUDE_CONFIG_DIR", "ARGUMENTS", "HOME", "PWD", "USER", "PATH", "SHELL",
+    "TMPDIR",
+}
+
+_QUOTED_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+_SEGMENT_RE = re.compile(r"\|\|?|&&|;|\$\(|`")
+_SUBSHELL_OPEN_RE = re.compile(r"^\s*(\$\(|`)\s*")
+_WRAPPERS = {"xargs", "time", "nice", "sudo", "command", "env"}
+_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_VAR_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
+_BASH_FENCE_RE = re.compile(r"```(?:bash|sh|shell)\n(.*?)```", re.DOTALL)
+
+
+def _first_token(segment: str) -> str:
+    """First real token of a segment, peeling subshell openers, env-assignment
+    prefixes, and wrappers (mirrors aegis prefer_tools.first_meaningful_token)."""
+    seg = segment.strip()
+    while True:
+        m = _SUBSHELL_OPEN_RE.match(seg)
+        if not m:
+            break
+        seg = seg[m.end():].lstrip()
+    tokens = re.split(r"\s+", seg) if seg else []
+    i = 0
+    while i < len(tokens) and _ASSIGN_RE.match(tokens[i]):
+        i += 1
+    while i < len(tokens) and tokens[i] in _WRAPPERS:
+        i += 1
+        while i < len(tokens) and tokens[i].startswith("-"):
+            i += 1
+    return tokens[i] if i < len(tokens) else ""
+
+
+def _iter_bash_commands(content: str):
+    """Yield (command_line) for each executable line in a ```bash fenced block,
+    joining backslash-continued lines and dropping comments/blank lines."""
+    for block in _BASH_FENCE_RE.findall(content):
+        buf = ""
+        for raw in block.splitlines():
+            line = raw.rstrip()
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                if not buf:
+                    continue
+            if buf:
+                line = buf + " " + line.strip()
+                buf = ""
+            if line.rstrip().endswith("\\"):
+                buf = line.rstrip()[:-1].rstrip()
+                continue
+            cmd = line.strip()
+            if cmd and not cmd.startswith("#"):
+                yield cmd
+
+
+def lint_bash_commands(content: str) -> list[str]:
+    """Return ERROR strings for fenced bash commands the live profile rejects."""
+    errors: list[str] = []
+    for cmd in _iter_bash_commands(content):
+        scan = _QUOTED_RE.sub("", cmd)
+        segments = _SEGMENT_RE.split(scan)
+        # (a) aegis-denied binaries in any segment (incl. pipes/subshells)
+        for seg in segments:
+            tok = _first_token(seg)
+            if tok in AEGIS_DENY:
+                errors.append(f"bash `{cmd}`: `{tok}` is denied by aegis prefer_tools - {AEGIS_DENY[tok]}")
+                break
+        first = _first_token(segments[0]) if segments else ""
+        # (b) STANDALONE shell-variable assignment (whole command is NAME=value).
+        # A self-contained env-prefix (`FOO=bar cmd`) is left alone - it does not
+        # rely on shell state surviving to the next call, which is the anti-pattern.
+        if _ASSIGN_RE.match(scan.strip()) and len(scan.strip().split()) == 1:
+            errors.append(f"bash `{cmd}`: standalone shell-variable assignment - shell state does not persist between Bash calls; inline the value at each use site")
+        # (c) cd chain
+        for seg in segments:
+            if _first_token(seg) == "cd" and len(segments) > 1:
+                errors.append(f"bash `{cmd}`: `cd` chain - cwd persists across Bash calls and breaks hooks; use absolute paths, no `cd`")
+                break
+        # (d) bare unallowlisted script path invoked directly. A skill invoking a
+        # helper under a skills dir is the documented pattern (warden allows
+        # ~/.claude/skills/**), so those are exempt; a stray path elsewhere is not.
+        if ("/" in first or first.startswith("./")) and Path(first).name not in PERMISSION_BINARIES:
+            skill_helper = any(m in first for m in (
+                "/.claude/skills/", "${CLAUDE_SKILL_DIR}", "${CLAUDE_PLUGIN_ROOT}", "${CLAUDE_CONFIG_DIR}"))
+            if not skill_helper and re.search(r"\.(py|sh|mjs|js|rb|pl)$", first):
+                errors.append(f"bash `{cmd}`: bare script path `{first}` relies on the exec bit; invoke via its interpreter (e.g. `python3 {first}`)")
+        # (e) undocumented $VAR
+        for name in _VAR_RE.findall(scan):
+            if name not in ALLOWED_SUBST and not name.isdigit():
+                errors.append(f"bash `{cmd}`: `${name}` is an author shell variable a fresh Bash call leaves unset; inline the path or use ${{CLAUDE_SKILL_DIR}}")
+                break
+    return errors
+
 
 def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
     """Validate a skill directory. Returns (errors, warnings)."""
@@ -209,6 +336,10 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
         dir_path = skill_path / resource_dir
         if dir_path.is_dir() and not any(dir_path.iterdir()):
             warnings.append(f"{resource_dir}/ is empty - add content or remove it")
+
+    # Live-profile lints: fenced bash commands must survive the environment
+    # they will run in (aegis deny set, permission allowlist, no shell state).
+    errors.extend(lint_bash_commands(content))
 
     return errors, warnings
 

@@ -263,11 +263,26 @@ bash -n <repo>/dev/bin/release
 
 ## Phase 8: Verification
 
-For every skill in the new repo, validate its frontmatter — one validator run per skill directory, one command per Bash call (no shell loops; a `for` prefix breaks permission matching):
+For every skill in the new repo, validate its frontmatter AND its fenced
+bash commands (the live-profile lints, PRD 00083) — one validator run per
+skill directory, one command per Bash call (no shell loops; a `for` prefix
+breaks permission matching):
 
 ```bash
 python3 ~/.claude/skills/create-skill/scripts/validate_skill.py <repo>/skills/<skill1>
 ```
+
+The bash lints are ERRORs: a skill that ships commands the live profile
+denies (bare `grep`/`find`/`cat`/`head`/`tail`, standalone shell-variable
+assignments, `cd` chains, bare stray script paths, author `$VAR`s) fails
+here. Fix the SKILL.md, never weaken the validator to admit it.
+
+**Vendored-validator re-sync rule.** When the cluster vendors
+`validate_skill.py` into a dependent skill's own `scripts/` (Phase 5b), that
+copy is a snapshot: re-vendor it from `create-skill/scripts/validate_skill.py`
+at every extraction, and NEVER edit the vendored copy in place. The canonical
+copy under `create-skill` is the only one that gets new lints; an edited
+vendored copy silently drifts and stops catching what the canonical one does.
 
 If any skill has helper scripts with tests, locate them:
 

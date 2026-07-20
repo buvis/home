@@ -209,13 +209,22 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 
 ### Step 5: Validate the Skill
 
-Run the validator to check structure and frontmatter:
+Run the validator to check structure, frontmatter, AND every fenced `bash`
+command against the environment it will actually run in (aegis prefer_tools
+deny set, the permission allowlist, and the no-persistent-shell contract):
 
 ```bash
 python3 ~/.claude/skills/create-skill/scripts/validate_skill.py <path/to/skill-folder>
 ```
 
-Fix any reported errors and re-run.
+Fix any reported errors and re-run. The live-profile lints are ERRORs, each
+naming its replacement: `grep`/`find`/`cat`/`head`/`tail` (even inside pipes)
+→ `rg`/Read/bare-run; a standalone `NAME=value` assignment → inline the value
+(shell state never survives to the next Bash call); a `cd x && y` chain → use
+absolute paths; a bare script path outside a skills dir → invoke via its
+interpreter; an author `$VAR` → inline it or use `${CLAUDE_SKILL_DIR}`. A
+skill that ships commands its own hooks would deny is self-sabotage; this gate
+is where it stops (PRD 00083).
 
 ### Step 6: Iterate
 
