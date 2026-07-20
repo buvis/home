@@ -63,24 +63,22 @@ from _walk_up import find_autopilot_dir
 # scales linearly with context: every turn re-sends the whole window as
 # input), not to dodge a small-window model's native auto-compact.
 #
-# 150K is COUPLED to the `[1m]` strip on the default model (PRD 00073). Do NOT
-# raise it back to 500K on the theory that "150K misfired": that earlier
-# misfire (every fire at ~163K inside 1M-window Opus sessions, aborting good
-# plans) happened *because* the default carried a 1M window, so a sub-200K cap
-# preempted healthy long sessions. With the `[1m]` suffix stripped, the
-# default runs a 200K window and native auto-compact would otherwise preempt
-# the clean rotation just above 150K; the pin is what keeps the rotation
-# handoff the thing that fires first. The pin and the strip must live or die
-# together — if the default model ever regains a `[1m]` suffix, this value has
-# to move with it (see the Phase 2 coupling guard in the PRD).
-USAGE_CAP = 150_000
+# 500K is coupled to the `[1m]` (1M-window) default model. Do NOT drop it to
+# 150K while the default carries `[1m]`: the audit recorded every 150K fire
+# landing at ~163K inside 1M-window sessions, aborting good plans the cap was
+# meant to protect. 500K bounds per-task spend while sitting well below the
+# 1M-window compaction trigger, so the clean rotation handoff always runs.
+# (PRD 00073 pinned this to 150K coupled to stripping `[1m]`; the operator
+# restored the `[1m]` default on 2026-07-20, so the pin was reverted to keep
+# the pairing safe — re-pin only together with a sub-200K-window default.)
+USAGE_CAP = 500_000
 # The soft cap sits below the hard cap. Crossing it writes the
 # `.handoff-requested` marker so `/work` hands off at the next task boundary
-# — a lossless alternative to the hard-cap rotation. The 30K gap to the hard
-# cap covers roughly one more build task (the old 180K gap was sized against
-# the 500K ceiling). A task that still overruns the hard cap before `/work`
-# reaches its boundary falls through to the rotation path.
-SOFT_CAP = 120_000
+# — a lossless alternative to the hard-cap rotation. The gap to the hard cap
+# is sized to cover roughly one more build task. A task that still overruns
+# the hard cap before `/work` reaches its boundary falls through to the
+# rotation path.
+SOFT_CAP = 320_000
 # Session-level tool-call tripwire (PRD 00073). Independent of context size:
 # the hook counts its own PostToolUse invocations per session id and forces
 # the same hand-off as a hard-cap breach at this many calls, bounding the fat
