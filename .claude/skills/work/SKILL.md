@@ -579,7 +579,7 @@ The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.hand
       ── {completed} tasks done, {pending} pending — context near soft cap
       ── fresh session resumes the remaining tasks ───────────────────
       ```
-   d. Ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP — end the turn. In loop mode the wrapper reads the non-empty `next_phase: "build"` and relaunches a fresh session (the headless hand-off contract in `run-autopilot/SKILL.md` § Session Loop); the model writes no signal.
+   d. **Write the contract card** (run-autopilot § Contract card): the current step, the active invariants, and the next gate — via statectl `set contract_card` (autopilot) or the scratch `dev/local/autopilot/contract-card.md` (interactive), so a session compacted after this boundary re-anchors instead of drifting. Then ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP — end the turn. In loop mode the wrapper reads the non-empty `next_phase: "build"` and relaunches a fresh session (the headless hand-off contract in `run-autopilot/SKILL.md` § Session Loop); the model writes no signal.
 
    **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3, hydrates TaskList from `state.tasks`, and re-invokes `/work` for the pending tasks.
 

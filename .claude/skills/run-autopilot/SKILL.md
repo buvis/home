@@ -181,6 +181,15 @@ Every session handoff is the same three steps:
 
 Batch end is NOT a handoff: it writes `phase: "done"` + `next_phase: ""` (the wrapper's drained branch) and stops — see `references/phase-done.md`.
 
+### Contract card (compaction re-anchor)
+
+Within-session compaction can drop this skill's text mid-procedure, after which the session drifts off-contract with nothing to re-anchor it. To survive that, **at each gate transition write a compact contract card** — the current step, the active invariants, and the next gate:
+
+- **Autopilot (state.json world):** write it via statectl to `state.contract_card` (one `set`), in the same handoff write that advances `phase`/`next_phase`. Keep it a few lines: `step: <phase/step> | invariants: <the 2-3 that bind right now> | next: <the next gate + its precondition>`.
+- **Interactive (no state.json):** write the same card to the scratch file `dev/local/autopilot/contract-card.md` (Write tool).
+
+`reinject_contract_card.py` is a SessionStart hook **matched to `compact` only** (startup/resume/clear stay unmatched, so there is no standing token cost); after a compaction it reads the card back and re-injects it as additionalContext. `/work` (task-boundary transitions) and `/review-work-completion` (cycle transitions) write their own cards the same way — `contract_card` in `references/state-schema.md`.
+
 ### Loop Detection
 
 The `autoclaude` wrapper exports `_AUTOPILOT_LOOP=$$` before launching each headless session. Skills branch on it for loop-mode behavior only — the `AskUserQuestion` ban (Error Handling), git-push deferral, notify suppression in `~/.claude/hooks/notify.py`. Hand-off sites do NOT check it: the state writes are the same in and out of the loop.

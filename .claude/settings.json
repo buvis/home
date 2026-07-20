@@ -137,6 +137,18 @@
   },
   "model": "claude-fable-5[1m]",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/reinject_contract_card.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

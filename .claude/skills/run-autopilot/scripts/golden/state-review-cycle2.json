@@ -1,0 +1,14 @@
+{
+  "prd": "00099-example.md",
+  "phase": "review",
+  "next_phase": "review",
+  "cycle": 2,
+  "rework_cap": 3,
+  "phases_completed": [],
+  "tasks": [
+    {"id": "task-1", "name": "First task", "status": "completed"}
+  ],
+  "tasks_total": 1,
+  "tasks_completed": 1,
+  "batch": {"id": "202607201200", "mode": "autopilot", "completed_prds": []}
+}
