@@ -287,6 +287,16 @@ autoclaude() {
   trap '_autopilot_loop_teardown; return 143' TERM
   trap '_autopilot_loop_teardown; return 129' HUP
 
+  # Interpreter preflight (PRD 00086 R1): every enforcement hook is
+  # `python3 <script>` and fails OPEN, so a broken python3 (mise upgrade, PATH
+  # drift) would silently disable warden/aegis/cartographer for the whole
+  # unattended batch. Refuse to launch onto a broken interpreter.
+  if ! python3 -c 'print("")' >/dev/null 2>&1; then
+    _autopilot_loop_teardown
+    printf 'autoclaude: python3 preflight failed - hooks would fail open. Fix the interpreter (try `mise reshim`), then relaunch. See skills/run-autopilot/references/hook-recovery.md\n' >&2
+    return 1
+  fi
+
   while true; do
     # Memory circuit-breaker (2026-06-25): refuse to launch a session when the
     # machine is already under memory pressure. An overnight run fanned out

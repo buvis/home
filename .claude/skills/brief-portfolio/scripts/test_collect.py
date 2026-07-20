@@ -1,10 +1,12 @@
 """Regression tests for collect.py's local parsers. Run: python3 -m pytest test_collect.py -q"""
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from collect import collect_brush, collect_claude_maintenance
+from collect import (collect_brush, collect_claude_maintenance,
+                     collect_claude_skill_adherence)
 
 
 def write_report(tmp_path: Path, body: str) -> None:
@@ -48,3 +50,35 @@ def test_maintenance_returns_newest_mtime_day(tmp_path):
     os.utime(new, (newest, newest))
     expected = datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%d")
     assert collect_claude_maintenance(d) == expected
+
+
+def test_skill_adherence_none_when_no_file(tmp_path):
+    assert collect_claude_skill_adherence(tmp_path / "skills.jsonl") is None
+
+
+def test_skill_adherence_counts_last_30d_and_ranks_top(tmp_path):
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    recent = now.isoformat()
+    old = (now - timedelta(days=45)).isoformat()
+    f = tmp_path / "skills.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in [
+        {"skill": "work", "ts": recent},
+        {"skill": "work", "ts": recent},
+        {"skill": "brush", "ts": recent},
+        {"skill": "survey", "ts": old},  # outside the 30d window
+        "not json",
+    ]) + "\n")
+    got = collect_claude_skill_adherence(f)
+    assert got["count"] == 3
+    assert got["distinct"] == 2
+    assert got["top"][0] == {"skill": "work", "n": 2}
+    assert not any(t["skill"] == "survey" for t in got["top"])
+
+
+def test_skill_adherence_empty_when_all_stale(tmp_path):
+    from datetime import timedelta
+    old = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+    f = tmp_path / "skills.jsonl"
+    f.write_text(json.dumps({"skill": "work", "ts": old}) + "\n")
+    assert collect_claude_skill_adherence(f) == {"count": 0, "distinct": 0, "top": []}

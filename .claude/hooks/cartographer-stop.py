@@ -89,6 +89,7 @@ def main() -> None:
             cwd=cwd,
             capture_output=True,
             text=True,
+            timeout=5,  # a hung git must not stall the Stop hook (PRD 00086 R4)
         )
         if result.returncode != 0:
             append_audit({"event": "cartographer-stop", "reason": "git-error"})

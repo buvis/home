@@ -52,7 +52,7 @@ PostToolUse hooks do not fire inside subagents (see `SKILL.md` "CRITICAL: One Ta
    Abort and report if you read more than 100K of total input. Return the partial result and an abort_reason: context_overrun field.
    ```
 
-**Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under the work-tier model's standard 200K context ceiling.
+**Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under any work-tier model's window (200K for the base tiers; the `claude-fable-5[1m]` default carries 1M).
 
 ## Subagent Watchdog
 
