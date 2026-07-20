@@ -16,7 +16,7 @@ from typing import Any
 
 SIGNALS = ("continue", "paused", "done", "died")
 TAIL_BYTES = 512 * 1024
-USAGE_CAP = 500_000  # ctx gauge denominator; mirrors autopilot_context_cap_hook.USAGE_CAP
+USAGE_CAP = 150_000  # ctx gauge denominator; mirrors autopilot_context_cap_hook.USAGE_CAP
 
 
 @dataclass(frozen=True)

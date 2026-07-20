@@ -431,12 +431,12 @@ def test_row3_omits_burn_rate_under_ten_active_minutes() -> None:
 def test_row4_labels_each_token_counter_and_shows_ctx_percent() -> None:
     """`tok ↑x ⤓y ↓z` read as three unnamed arrows (⤓ and ↓ are near-identical
     glyphs); each counter now carries a word, and ctx shows the cap + percent."""
-    usage = _Usage(totals=(1_300_000, 44_100_000, 2_500), context=491_700)
+    usage = _Usage(totals=(1_300_000, 44_100_000, 2_500), context=147_000)
     rendered = _render(_head(usage=usage))
     assert "in ↑1.3M" in rendered
     assert "cache ⤓44.1M" in rendered
     assert "out ↓2.5k" in rendered
-    assert "ctx 491.7k/500.0k" in rendered
+    assert "ctx 147.0k/150.0k" in rendered
     assert "98%" in rendered
 
 
