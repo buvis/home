@@ -15,9 +15,17 @@ Relevance rules (first match wins, `live` always wins):
 |                 | dir whose PRD exists nowhere                          |        |
 | stale-tmp       | tmp/** older than --tmp-age-days                      | trash  |
 | ledger          | autopilot/ledger/** (durable outcome ledger)          | keep   |
-| stale-autopilot | autopilot/** older than --autopilot-age-days          | trash  |
+| stale-autopilot | autopilot/** (incl. deferred/, reports/) > age-days   | trash  |
 | stale-log       | root *.log/*.bak/*.tmp older than --tmp-age-days      | trash  |
+| root-stray      | un-numbered root file outside KEEP_NAMES              | flag   |
 | unclassified    | everything else                                       | keep   |
+
+autopilot/deferred/** and autopilot/reports/** are NOT special-cased: they age
+out under the same stale-autopilot rule as the rest of autopilot/** (only
+ledger/** is exempt). Same for numbered root debris of a DONE prd - it reaches
+done-linked->trash. When such files nonetheless survive a run, the cause is the
+--min-age-days guard (a same-day sweep leaves them fresher than the floor) or a
+live PRD token, never a classifier gap (verified 2026-07-20, PRD 00082).
 
 Trashed reviews/*.md leave their Verdict: lines in
 autopilot/ledger/review-verdicts.jsonl before the move, so review outcomes
@@ -25,9 +33,13 @@ outlive the satellite GC (2026-07-14: the quarter's eval found zero surviving
 metrics or verdicts).
 
 Nothing is unlinked: trash moves files to <store>/.trash/<date>/<relpath> and
-appends to .trash/manifest.tsv. With --apply, trash batches older than
---empty-trash-days are deleted for good. A --min-age-days guard vetoes any
-trash of freshly touched files so live batches are never disturbed.
+appends to .trash/manifest.tsv. A name collision inside the day's batch (a
+pre-existing dest, or a dir blocked by a same-named file from an earlier sweep)
+gets a -N suffix on the shallowest colliding component, never a failed move.
+Manifest readers tolerate unknown rule tags (e.g. manual-sweep rows). With
+--apply, trash batches older than --empty-trash-days are deleted for good. A
+--min-age-days guard vetoes any trash of freshly touched files so live batches
+are never disturbed.
 """
 
 import argparse
@@ -158,6 +170,11 @@ def classify_artifact(rel: Path, mtime: float, live: set[str], done: set[str],
         if age < args.min_age_days:
             return "keep", f"fresh:{rule}"
         return action, rule
+    # Root holds named keepers only (working-documents contract): an un-numbered
+    # root file outside KEEP_NAMES is a stray. Flag, never auto-trash - a new
+    # keeper often lands before anyone updates KEEP_NAMES.
+    if top == "(root)" and not toks:
+        return "flag", "root-stray"
     return "keep", "unclassified"
 
 
@@ -192,14 +209,32 @@ def harvest_review_verdicts(store: Path, rel: Path, now: float) -> None:
         print(f"  WARN verdict harvest failed for {rel.as_posix()}: {exc}")
 
 
+def _dedup_dest(batch_root: Path, rel: Path) -> Path:
+    """A trash destination that collides with nothing: not a pre-existing dest,
+    and no intermediate directory blocked by an existing file. Suffixes the
+    shallowest colliding path component with -2, -3, ... (e.g. a same-day
+    manual-sweep file at `<batch>/00017-drain-repo` forces `00017-drain-repo-2/`
+    for a later dir of that name)."""
+    parts = list(rel.parts)
+    for depth, base in enumerate(rel.parts):
+        is_leaf = depth == len(parts) - 1
+        n = 1
+        while True:
+            candidate = batch_root.joinpath(*parts[: depth + 1])
+            # a leaf collides if anything is there; an intermediate collides only
+            # when a NON-directory blocks the nest (an existing dir is reusable).
+            collides = candidate.exists() if is_leaf else (
+                candidate.exists() and not candidate.is_dir())
+            if not collides:
+                break
+            n += 1
+            parts[depth] = f"{base}-{n}"
+    return batch_root.joinpath(*parts)
+
+
 def trash_file(store: Path, rel: Path, rule: str, batch: str) -> None:
-    dest = store / TRASH_DIR / batch / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    final = dest
-    n = 0
-    while final.exists():
-        n += 1
-        final = dest.with_name(f"{dest.name}.{n}")
+    final = _dedup_dest(store / TRASH_DIR / batch, rel)
+    final.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(store / rel), str(final))
     manifest = store / TRASH_DIR / "manifest.tsv"
     with manifest.open("a") as fh:
@@ -254,7 +289,7 @@ def process_store(label: str, store: Path, args, now: float) -> dict:
                     harvest_review_verdicts(store, rel, now)
                 trash_file(store, rel, rule, batch)
         elif action == "flag":
-            flags.append(rel.as_posix())
+            flags.append((rule, rel.as_posix()))
         elif rule.startswith("fresh:"):
             kept_fresh[rule[6:]] += 1
         elif rule == "unclassified":
@@ -273,8 +308,9 @@ def process_store(label: str, store: Path, args, now: float) -> dict:
         uncl = f" unclassified={sum(unclassified.values())}" if unclassified else ""
         emp = f" trash-batches-emptied={emptied}" if emptied else ""
         print(f"{label}: trash={total} ({detail}){fresh}{uncl}{emp}")
-        for f in flags[:20]:
-            print(f"  FLAG (prd gone, kept): {f}")
+        for rule, f in flags[:20]:
+            label_txt = "prd gone" if rule == "prd-gone" else rule
+            print(f"  FLAG ({label_txt}, kept): {f}")
         if args.verbose:
             for rule, rel in trashed:
                 print(f"  {rule}: {rel}")

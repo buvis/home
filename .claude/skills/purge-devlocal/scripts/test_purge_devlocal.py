@@ -176,6 +176,100 @@ def test_review_without_verdict_trashes_without_ledger_row(tmp_path):
     assert not (store / "autopilot" / "ledger" / "review-verdicts.jsonl").exists()
 
 
+# --- PRD 00082: four blind spots the 2026-07-14 manual audit caught ---
+
+def test_root_stray_unnumbered_is_flagged_not_kept_silently(tmp_path, capsys):
+    """Class 1: un-numbered root files (blake-*.md, probe scripts, test-run.log)
+    must FLAG, not classify unclassified->keep. Root holds named keepers only."""
+    store = make_store(tmp_path)
+    touch(store / "blake-notes.md", days_old=10)
+    touch(store / "probe.py", days_old=10)
+    touch(store / "test-run.log", days_old=1)  # fresh: not yet stale-log
+    touch(store / "project-capsule.md", days_old=200)  # keeper: never flagged
+    run(store, "--apply")
+    out = capsys.readouterr().out
+    assert "FLAG (root-stray, kept): blake-notes.md" in out
+    assert "FLAG (root-stray, kept): probe.py" in out
+    assert "FLAG (root-stray, kept): test-run.log" in out
+    assert "project-capsule.md" not in out  # keeper stays silent
+    # flagged, never trashed
+    assert (store / "blake-notes.md").exists()
+    assert (store / "test-run.log").exists()
+
+
+def test_done_linked_root_debris_trashes_when_past_min_age(tmp_path):
+    """Class 2: numbered root debris tied to a DONE prd trashes once older than
+    --min-age-days. The 2026-07-14 survivors survived only because the same-day
+    manual sweep left them fresher than the guard (documented, not a bug)."""
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00054-x.md", days_old=30)
+    touch(store / "alice_00054_gate.py", days_old=20)  # old: trashes
+    touch(store / "beta_00054_gate.py", days_old=1)    # fresh: guarded
+    run(store, "--apply")
+    assert not (store / "alice_00054_gate.py").exists()
+    assert "done-linked\talice_00054_gate.py" in manifest(store)
+    assert (store / "beta_00054_gate.py").exists()  # min-age guard, the July cause
+
+
+def test_colliding_trash_names_get_dedupe_suffix(tmp_path):
+    """Class 3: a name collision inside the day's batch gets a -N suffix, never a
+    failed move. Two shapes: (A) the dest file already exists, (B) a parent
+    component already exists as a FILE (the 2026-07-14 00017-drain-repo failure)."""
+    store = make_store(tmp_path)
+    batch = time.strftime("%Y-%m-%d")
+    # Case A: dest file pre-exists in the batch
+    pre = store / gc.TRASH_DIR / batch / "designs" / "00054-a-v1-design.md"
+    pre.parent.mkdir(parents=True)
+    pre.write_text("earlier")
+    touch(store / "prds" / "done" / "00054-a.md")
+    touch(store / "designs" / "00054-a-v1-design.md", days_old=10)
+    # Case B: a parent path exists as a file, blocking the dir nest
+    (store / gc.TRASH_DIR / batch / "00017-drain-repo").write_text("was a root file")
+    touch(store / "prds" / "done" / "00017-x.md")
+    touch(store / "00017-drain-repo" / "inner.py", days_old=10)
+    run(store, "--apply")
+    # A: original + suffixed sibling both present, source gone
+    dests = sorted(p.name for p in (store / gc.TRASH_DIR / batch / "designs").iterdir())
+    assert dests == ["00054-a-v1-design.md", "00054-a-v1-design.md-2"]
+    assert not (store / "designs" / "00054-a-v1-design.md").exists()
+    # B: the file-parent survives, the dir member lands under a suffixed dir
+    assert (store / gc.TRASH_DIR / batch / "00017-drain-repo").is_file()
+    assert (store / gc.TRASH_DIR / batch / "00017-drain-repo-2" / "inner.py").is_file()
+    assert not (store / "00017-drain-repo").exists()
+    mani = manifest(store)
+    assert "00054-a-v1-design.md-2" in mani and "00017-drain-repo-2/inner.py" in mani
+
+
+def test_autopilot_deferred_and_reports_age_out(tmp_path):
+    """Class 4: autopilot/deferred/** and autopilot/reports/** age out under
+    --autopilot-age-days like the rest of autopilot/**; ledger/** stays exempt."""
+    store = make_store(tmp_path)
+    touch(store / "autopilot" / "deferred" / "00099-old.json", days_old=15)
+    touch(store / "autopilot" / "reports" / "old-report.md", days_old=15)
+    touch(store / "autopilot" / "deferred" / "fresh.json", days_old=2)
+    touch(store / "autopilot" / "ledger" / "loop-metrics.jsonl", days_old=200)
+    run(store, "--apply")
+    assert not (store / "autopilot" / "deferred" / "00099-old.json").exists()
+    assert not (store / "autopilot" / "reports" / "old-report.md").exists()
+    assert (store / "autopilot" / "deferred" / "fresh.json").exists()  # min-age
+    assert (store / "autopilot" / "ledger" / "loop-metrics.jsonl").exists()  # exempt
+
+
+def test_manifest_readers_tolerate_unknown_rule_tags(tmp_path):
+    """A manual-sweep row (rule tag the script never emits) must not break the
+    idempotent second run or empty_old_trash."""
+    store = make_store(tmp_path)
+    mani = store / gc.TRASH_DIR / "manifest.tsv"
+    mani.parent.mkdir(parents=True)
+    mani.write_text("2026-07-14\tmanual-sweep\tblake-x.md\t2026-07-14/blake-x.md\n")
+    # a normal run appends without choking on the pre-existing unknown-tag row
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "designs" / "00042-foo-v1-design.md", days_old=10)
+    assert run(store, "--apply") == 0
+    assert "manual-sweep" in manifest(store)
+    assert "done-linked" in manifest(store)
+
+
 def test_empty_trash_ages_out_old_batches_only(tmp_path):
     store = make_store(tmp_path)
     old = store / gc.TRASH_DIR / "2020-01-01" / "x.md"
