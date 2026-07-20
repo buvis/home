@@ -372,77 +372,106 @@ def decide(
 
 _RG_TIMEOUT_SEC: float = 1.0
 _RG_MAX_HITS_PER_SYMBOL: int = 5  # hits handed to scoring
-_RG_SCAN_LIMIT: int = 50  # hits collected before definition-first ranking
+_RG_SCAN_LIMIT: int = 50  # hits collected per symbol before definition-first ranking
+_RG_BATCH_SCAN_LIMIT: int = 500  # total rg output lines parsed per batch (bounds attribution)
 _RG_EXCLUDE_GLOBS: tuple[str, ...] = (
     "!.git", "!node_modules", "!vendor", "!dist", "!build",
     "!__pycache__", "!target", "!.venv",
 )
 
 
-def search_candidates(symbol: str, root: Path, target_file: Path) -> list[dict]:
-    """ripgrep for `symbol` under `root`, excluding `target_file` and build dirs.
+def _parse_rg_line(line: str) -> tuple[str, int, str] | None:
+    """Split an `rg -n` line `<file>:<lineno>:<snippet>` -> (file, lineno, snippet)."""
+    first = line.find(":")
+    if first <= 0:
+        return None
+    second = line.find(":", first + 1)
+    if second <= 0:
+        return None
+    try:
+        lineno = int(line[first + 1 : second])
+    except ValueError:
+        return None
+    return line[:first], lineno, line[second + 1 :].strip()
 
-    Returns up to 5 hits as `[{"file": str, "line": int, "snippet": str}]`.
+
+def search_candidates_batch(
+    symbols: list[str], root: Path, target_file: Path
+) -> dict[str, list[dict]]:
+    """One rg over an alternation of ALL symbols -> `{sym: hits}` (PRD 00088 R3).
+
+    Replaces one rg spawn per symbol (which blew the 5s hook budget on
+    symbol-dense files) with a single subprocess. Each group holds up to 5 hits
+    `{"file", "line", "snippet"}`, excluding `target_file` and build dirs.
+    Attribution is by literal substring, mirroring the per-symbol regex's
+    unanchored substring match for identifiers: a line carrying two searched
+    symbols lands in both groups, exactly as two separate rg runs would find it.
     On timeout, missing binary, or non-zero rg exit other than 1 (no match):
-    returns [] and appends a `ripgrep_*` audit-warn event.
+    returns empty groups and appends a `ripgrep_*` audit-warn event.
     """
-    if not symbol or not root.exists():
-        return []
-    args = [
-        "rg", "-n", "--max-count", str(_RG_MAX_HITS_PER_SYMBOL),
-    ]
+    uniq = [s for s in dict.fromkeys(symbols) if s]
+    groups: dict[str, list[dict]] = {s: [] for s in uniq}
+    if not uniq or not root.exists():
+        return groups
+    pattern = "|".join(re.escape(s) for s in uniq)
+    args = ["rg", "-n", "--max-count", str(_RG_MAX_HITS_PER_SYMBOL * len(uniq))]
     for g in _RG_EXCLUDE_GLOBS:
         args.extend(["--glob", g])
-    args.extend(["--", symbol, str(root)])
+    args.extend(["-e", pattern, "--", str(root)])
     try:
         proc = subprocess.run(
             args, capture_output=True, text=True, timeout=_RG_TIMEOUT_SEC,
         )
     except subprocess.TimeoutExpired:
-        lib.append_audit({"event": "ripgrep_timeout", "symbol": symbol})
-        return []
+        lib.append_audit({"event": "ripgrep_timeout", "symbols": len(uniq)})
+        return groups
     except FileNotFoundError:
         lib.append_audit({"event": "ripgrep_missing"})
-        return []
+        return groups
 
     if proc.returncode not in (0, 1):
         lib.append_audit({"event": "ripgrep_error", "code": proc.returncode, "stderr": proc.stderr[:200]})
-        return []
+        return groups
 
     try:
         target_abs = str(target_file.resolve())
     except OSError:
         target_abs = str(target_file)
 
-    out: list[dict] = []
+    scanned = 0
     for line in proc.stdout.splitlines():
-        # Format: <file>:<lineno>:<snippet>
-        first = line.find(":")
-        if first <= 0:
+        if scanned >= _RG_BATCH_SCAN_LIMIT:
+            break
+        parsed = _parse_rg_line(line)
+        if parsed is None:
             continue
-        second = line.find(":", first + 1)
-        if second <= 0:
-            continue
-        file_part = line[:first]
-        try:
-            lineno = int(line[first + 1 : second])
-        except ValueError:
-            continue
-        snippet = line[second + 1 :].strip()
+        file_part, lineno, snippet = parsed
         try:
             cand_abs = str(Path(file_part).resolve())
         except OSError:
             cand_abs = file_part
         if cand_abs == target_abs:
             continue
-        out.append({"file": file_part, "line": lineno, "snippet": snippet})
-        if len(out) >= _RG_SCAN_LIMIT:
-            break
+        scanned += 1
+        hit = {"file": file_part, "line": lineno, "snippet": snippet}
+        for s in uniq:
+            if s in snippet and len(groups[s]) < _RG_SCAN_LIMIT:
+                groups[s].append(hit)
+
     # Only definition lines can block, so rank them ahead of usage sites before
-    # truncating: a stable sort keeps rg's order within each group, ensuring the
-    # hit cap never drops the duplicate definition behind unrelated call sites.
-    out.sort(key=lambda c: _defined_name(c["snippet"]) is None)
-    return out[:_RG_MAX_HITS_PER_SYMBOL]
+    # truncating: a stable sort keeps rg's order within each group, so the hit
+    # cap never drops the duplicate definition behind unrelated call sites.
+    for s in uniq:
+        groups[s].sort(key=lambda c: _defined_name(c["snippet"]) is None)
+        groups[s] = groups[s][:_RG_MAX_HITS_PER_SYMBOL]
+    return groups
+
+
+def search_candidates(symbol: str, root: Path, target_file: Path) -> list[dict]:
+    """ripgrep for a single `symbol` — the one-symbol case of
+    `search_candidates_batch` (kept for its focused tests and any single-symbol
+    caller). Returns up to 5 hits, or [] on rg failure."""
+    return search_candidates_batch([symbol], root, target_file).get(symbol, [])
 
 
 def filter_stopwords(symbols: list[str], file_path: str) -> list[str]:
@@ -853,10 +882,9 @@ def handle(data: dict) -> None:
         # — the remote_url, not a usable path. Use git toplevel when in a
         # repo; otherwise fall back to the target file's parent directory.
         project_root = _resolve_project_root(file_path)
-        candidate_groups: dict[str, list[dict]] = {
-            sym: search_candidates(sym, project_root, Path(file_path))
-            for sym in symbols
-        }
+        # One rg over an alternation of all symbols (PRD 00088 R3) — not one
+        # spawn per symbol, which blew the 5s hook budget on symbol-dense files.
+        candidate_groups = search_candidates_batch(symbols, project_root, Path(file_path))
 
         decision, matches = decide(symbols, candidate_groups)
 
