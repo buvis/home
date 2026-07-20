@@ -283,6 +283,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/observe_tool.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },
