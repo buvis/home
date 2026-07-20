@@ -95,6 +95,30 @@ def test_project_hash_strips_embedded_credentials(lib, tmp_path: Path) -> None:
     assert h == hashlib.sha256(cleaned.encode()).hexdigest()[:12]
 
 
+def test_meta_worktree_root_resolves_claude_dir(lib, fake_home: Path) -> None:
+    """~/.claude is a bare-repo work-tree (no own .git): PRD 00088 R1 gives it a
+    stable path-keyed identity, not 'global', and a subdir resolves the SAME hash
+    as the root (survey<->hook consistency)."""
+    claude = fake_home / ".claude"
+    (claude / "skills").mkdir(parents=True, exist_ok=True)
+    expected = hashlib.sha256(str(claude.resolve()).encode()).hexdigest()[:12]
+
+    for target in (claude, claude / "skills"):
+        h, name, remote = lib.project_hash(str(target))
+        assert h == expected, f"{target} should hash to the ~/.claude root, got {h}"
+        assert h != "global"
+        assert name == "claude"
+        assert remote == ""
+
+
+def test_non_git_dir_outside_claude_stays_global(lib, fake_home: Path) -> None:
+    """The meta-repo carve-out is scoped: a non-git dir NOT under ~/.claude keeps
+    the 'global' fallback (PRD 00088 R1)."""
+    scratch = fake_home / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    assert lib.project_hash(str(scratch)) == ("global", "global", "")
+
+
 def test_project_hash_no_remote_falls_back_to_path(lib, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _make_repo(repo, remote=None)
