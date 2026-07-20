@@ -16,6 +16,24 @@ from _lib_cartographer import project_hash, try_import_tree_sitter, append_audit
 _FILE_CAP = 50
 _ATLAS_MD_BUDGET = 5120
 
+# Top-level dirs that are not source and must never become survey layers
+# (PRD 00088 R2). Without this, `/survey ~/.claude` makes noisy layers out of
+# projects/ (thousands of transcripts), plugins/, and cache/, and any JS/Rust
+# repo gets one out of node_modules/target. Build/dep names mirror
+# cartographer-echo's rg excludes; the rest are the ~/.claude meta-repo's
+# runtime/data dirs. (Dot-dirs like .venv/.git are already skipped separately.)
+_SKIP_DIRS = frozenset({
+    # build / dependency output (mirrors cartographer-echo's rg excludes)
+    "node_modules", "vendor", "dist", "build", "target", "__pycache__", "venv",
+    # ~/.claude meta-repo runtime/data dirs (observed from the R2 survey) — not
+    # source, would otherwise become noise layers. A repo-local .cartographerignore
+    # would generalize this; hardcoded here for now (harmless names in other repos).
+    "projects", "cache", "plugins", "cartographer", "instincts", "todos",
+    "statsig", "shell-snapshots", "portfolio-brief", "autopilot-loops",
+    "backups", "chrome", "daemon", "file-history", "jobs", "logs", "metrics",
+    "paste-cache", "session-data", "session-env", "sessions", "tasks",
+})
+
 
 def _get_head_sha(repo_path: Path) -> Optional[str]:
     r = subprocess.run(
@@ -28,7 +46,7 @@ def _get_head_sha(repo_path: Path) -> Optional[str]:
 def _scan_layers(repo_path: Path) -> tuple[dict[str, list[Path]], bool]:
     top_dirs = [
         p for p in repo_path.iterdir()
-        if p.is_dir() and not p.name.startswith(".")
+        if p.is_dir() and not p.name.startswith(".") and p.name not in _SKIP_DIRS
     ]
     truncated = False
     layers: dict[str, list[Path]] = {}
