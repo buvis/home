@@ -102,3 +102,40 @@ def test_stale_rotated_archive_is_deleted_fresh_kept(mod, tmp_path: Path) -> Non
     os.utime(rotated, (old, old))
     mod.prune_observations("proj", last_analysis=_ts(0))
     assert not rotated.exists()
+
+
+# --- error-fix trigger classification (PRD 00085 R5) -------------------------
+
+
+def test_classify_error_maps_markers_to_stable_classes(mod) -> None:
+    assert mod._classify_error("bash: foo: command not found") == "command_not_found"
+    assert mod._classify_error("open x: Permission denied") == "permission_denied"
+    assert mod._classify_error("ModuleNotFoundError: No module named 'x'") == "module_not_found"
+    assert mod._classify_error("cat: y: No such file or directory") == "file_not_found"
+    assert mod._classify_error("process exited with exit code 2") == "non_zero_exit"
+    # a matched-but-unrecognized error is a class, never a raw blob
+    assert mod._classify_error("something went wrong: error happened") == "generic_error"
+
+
+def test_error_fix_trigger_is_a_class_not_a_raw_blob(mod) -> None:
+    """The trigger names the error CLASS (matchable across sessions), never the
+    truncated raw error text that produced the pre-R5 junk instincts."""
+    obs: list[dict] = []
+    for i in range(3):
+        obs.append(
+            {"ts": _ts(1), "tool": "Bash", "out": f"bash: tool{i}: command not found",
+             "in": "{}", "sid": "s"}
+        )
+        obs.append(
+            {"ts": _ts(1), "tool": "Bash", "in": json.dumps({"command": "mise install"}),
+             "out": "ok", "sid": "s"}
+        )
+
+    cands = mod.detect_error_fixes(obs)
+
+    assert len(cands) == 1
+    c = cands[0]
+    assert "command_not_found" in c["id"]
+    assert "command_not_found" in c["description"]
+    assert "tool0" not in c["description"]  # no raw error text leaks into the trigger
+    assert "command_not_found" in mod._build_trigger(c)

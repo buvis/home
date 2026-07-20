@@ -4,6 +4,16 @@
 Runs at session end. Reads observations since last analysis, applies pattern
 detectors, creates or updates instinct files, and rebuilds project CLAUDE.md.
 
+Delete-and-regenerate (after junk, PRD 00085 R5): an instinct .md whose trigger
+embeds a truncated raw payload dict (the pre-R5 error-fix bug — three such files
+were deleted 2026-07-19) is regenerated cleanly by (1) deleting the bad
+`instincts/<id>.md` files under `~/.claude/instincts/projects/<hash>/`, AND
+(2) deleting that project's `last_analysis` marker so the next run re-reads the
+observations from scratch and rebuilds triggers with the fixed `_classify_error`
+classifier. Only observations still inside the retention window
+(`INSTINCTS_RETENTION_DAYS`, default 14) survive to be re-distilled; older ones
+were already pruned, so regeneration covers the window, not all history.
+
 Python 3, stdlib only.
 """
 
@@ -239,16 +249,30 @@ _ERROR_PATTERNS = re.compile(
     r"exit code [1-9]|returned non-zero|ENOENT|EACCES)",
 )
 
-_NOISE_RE = re.compile(
-    r"(/[^\s:]+)|(\bline \d+\b)|(\b0x[0-9a-f]+\b)|(\"[^\"]{20,}\")",
-    re.IGNORECASE,
+# Error classes, most-specific first — the first match wins (PRD 00085 R5).
+_ERROR_CLASSES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("command_not_found", re.compile(r"command not found")),
+    ("permission_denied", re.compile(r"Permission denied|EACCES")),
+    ("module_not_found", re.compile(r"ModuleNotFoundError|ImportError")),
+    ("file_not_found", re.compile(r"No such file|FileNotFoundError|ENOENT")),
+    ("non_zero_exit", re.compile(r"exit code [1-9]|returned non-zero")),
 )
 
 
-def _normalize_error(output: str) -> str:
-    """Normalize error message by stripping paths, line numbers, hex values."""
-    output = output[:500]
-    return _NOISE_RE.sub("_", output).strip()
+def _classify_error(output: str) -> str:
+    """Classify error output into a stable, matchable class label.
+
+    Returns a coarse class (e.g. "command_not_found") rather than the raw,
+    truncated error text. A class groups the same failure across sessions and
+    reads cleanly in a trigger; embedding a truncated raw payload dict never
+    did (PRD 00085 R5 — the three junk instincts deleted 2026-07-19 were exactly
+    that). A matched-but-unrecognized error falls back to "generic_error".
+    """
+    text = output[:500]
+    for label, pat in _ERROR_CLASSES:
+        if pat.search(text):
+            return label
+    return "generic_error"
 
 
 def _normalize_fix(tool: str, tool_input: dict | str) -> str:
@@ -286,7 +310,7 @@ def detect_error_fixes(observations: list[dict]) -> list[dict]:
         if not _ERROR_PATTERNS.search(output):
             continue
 
-        error_class = _normalize_error(output)
+        error_class = _classify_error(output)
 
         # Look at next 3 tool calls for a fix
         for j in range(i + 1, min(i + 4, len(observations))):
@@ -310,12 +334,12 @@ def detect_error_fixes(observations: list[dict]) -> list[dict]:
     for key, evidence in error_fix_pairs.items():
         if len(evidence) < 3:
             continue
-        error_part = key.split("||")[0][:80]
+        error_class = key.split("||")[0]
         fix_part = key.split("||")[1] if "||" in key else "unknown"
         candidates.append({
             "type": "error_fix",
-            "id": f"error-fix-{fix_part.replace(':', '-').lower()}",
-            "description": f"Error '{error_part}' consistently fixed with {fix_part}",
+            "id": f"error-fix-{error_class}-{fix_part.replace(':', '-').lower()}",
+            "description": f"{error_class} errors consistently fixed with {fix_part}",
             "observation_count": len(evidence),
             "evidence": evidence,
         })
