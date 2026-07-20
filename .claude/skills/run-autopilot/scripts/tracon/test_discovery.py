@@ -1238,6 +1238,25 @@ def test_exits_zero_when_live_wrapper_owns_root(tmp_path: Path) -> None:
     assert result.returncode == 0
 
 
+def test_prints_incumbent_pid_on_stdout_when_alive(tmp_path: Path) -> None:
+    """A refusing caller names the incumbent loop's pid, so the guard prints it
+    on stdout (exit 0) — the plain/headless autoclaude path reads it to refuse a
+    second loop by pid. PRD 00084 R1."""
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    loops_dir = tmp_path / "loops"
+    loops_dir.mkdir()
+    _write_json(
+        loops_dir / "1.json",
+        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+    )
+
+    result = _run_wrapper_alive_guard(root, loops_dir)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == str(os.getpid()).encode()
+
+
 def test_exits_one_when_no_registry_entry_for_root(tmp_path: Path) -> None:
     root = tmp_path / "myrepo"
     root.mkdir()
@@ -1247,6 +1266,7 @@ def test_exits_one_when_no_registry_entry_for_root(tmp_path: Path) -> None:
     result = _run_wrapper_alive_guard(root, loops_dir)
 
     assert result.returncode == 1
+    assert result.stdout.strip() == b""  # empty stdout → bash `[ -n "$pid" ]` reads absent
 
 
 def test_exits_one_when_registry_entry_pid_is_dead(tmp_path: Path) -> None:

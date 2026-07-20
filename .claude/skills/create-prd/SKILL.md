@@ -129,6 +129,8 @@ mkdir -p dev/local/prds/backlog
 # Save PRD with sequence prefix
 ```
 
+**Concurrent-creation collision rule.** The scan-then-write is not atomic — a second `/create-prd` (or a machine PRD writer) running in parallel can claim the same `NNNNN` between your scan above and your save. So **after writing, re-run the sequence scan**: if your `NNNNN` now appears on a file you did NOT just write (a collision), renumber yours to the next free number, save under the new name, delete your original, and re-scan once more to confirm uniqueness. Best-effort, not a lock — two writers who re-scan at the exact same instant can still both pick the next number; `/review-prd-backlog` catches that residual case (it flags colliding prefixes).
+
 ## File Naming Convention
 
 ```text
@@ -150,6 +152,16 @@ Examples:
 2. Extract leading 5-digit prefixes matching `^[0-9]{5}-`
 3. Find max sequence number (default 0 if none exist)
 4. New sequence = max + 1, zero-padded to 5 digits
+
+## Versioning (bump `-vN` vs allocate a new number)
+
+The `NNNNN` sequence identifies a **unit of work**; the `-vN` suffix identifies a **spec revision** of that same unit. Decide with:
+
+- **Editing a backlog PRD** (not yet worked) → **no version bump**. It is a working document; revise it in place. Bump to `-v2` (same `NNNNN`) only when you deliberately want to PRESERVE the superseded spec beside the new one — rename the old to keep it, then write the `-v2`.
+- **A done PRD that needs re-work** (the shipped design was wrong, or a follow-up materially re-specs the *same* feature) → write a new `-v2` under the **SAME `NNNNN`**, and reference the v1 it supersedes in the PRD body. Same feature identity → same number, new version.
+- **A genuinely separate capability** — even one closely related → allocate a **NEW sequence number** with a shared slug prefix (`00001-auth-login-v1`, `00002-auth-session-v1`), NOT a version bump. Different work → different number.
+
+The version suffix never changes the sequence scan (it keys on `NNNNN`), so a `-v2` alongside a `-v1` under one number is fine — both are found, neither collides.
 
 ## Directory Structure
 

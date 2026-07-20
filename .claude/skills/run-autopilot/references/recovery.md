@@ -52,6 +52,10 @@ carries `clarification`, `reviewer_fail`, `sub_skill_fail`, and the others):
   cannot ask a human; records the design doc path in the deferred `detail`.
 - `blocking_escalation` — a loop-mode Phase 5 blocking escalation; records the
   blocking issue(s) in the deferred `detail`.
+- `statectl_fail` — a loop-mode `statectl` state-write that failed twice (lock
+  contention, python error, unreadable state); the model records the stall via
+  the hand-edit fallback (core `SKILL.md` § State Management) with the raw
+  stderr in `detail`.
 - `oversized_task`, `escalation_exhausted`, `replan_exhausted`, `clarification` —
   the pre-existing stall sites (plan-tasks oversize, rework tier-exhaustion,
   replan-loop exhaustion, and a loop-mode Phase 2 ambiguity under

@@ -62,6 +62,8 @@ Extract:
 - Implementation phases
 - Existing patterns/utilities that implementers should reuse
 
+**When the PRD has no Functional Decomposition or Dependency Graph section** (many PRDs state only `## Requirements` + `## Acceptance`): do NOT treat the split (step 4.6) and dependency (step 5) inputs as undefined. **Derive** both from the Requirements — treat each requirement (R1, R2, …) as a decomposition unit, and infer ordering from explicit `depends on`/`after`/`blocked by` wording and from data-flow (a requirement that consumes another's output sequences after it); default to no dependency when none is stated. Steps 4.6 and 5 then use this derived structure exactly as they would a stated one. **Note the derivation in the step-6 planning summary** so the reviewer knows the sequencing is inferred, not PRD-pinned.
+
 ### 4. Create tasks
 
 Use `TaskCreate` for each task. Follow these rules:
@@ -133,6 +135,10 @@ conflict, the design doc wins** (it refines the PRD): use the design doc's
 contract and log the conflict in the step-6 planning summary. This rule works
 unchanged in replan mode.
 
+**If a `TaskCreate` call fails mid-plan** (harness error, task tool unavailable — NOT the oversize stall handled in step 4.6): stop creating tasks and **roll back cleanly**. Query `TaskList` and `TaskUpdate(status: "deleted")` every task created this invocation (same cleanup as the oversize stall below) so no orphan tasks survive to make the next PRD's Phase 2 skip planning. Then record the cause via statectl — `set stall_reason '{"stalled": "taskcreate_failed", "detail": "<the TaskCreate error>"}'` — and report the failure. `/run-autopilot` Phase 2 reads a non-`oversized_task` stall as a plan-tasks failure (PAUSE interactive; loop mode re-invokes once, then stalls the PRD `sub_skill_fail`); the rollback guarantees the retry starts from a clean tracker. Do NOT move the PRD to `hold/` — a transient `TaskCreate` failure is not an un-splittable PRD.
+
+**On successful completion of all `TaskCreate` calls, clear a stale failure marker:** `statectl get stall_reason` → if it reads `"taskcreate_failed"` (a prior attempt failed and this retry succeeded), `statectl del stall_reason`. Otherwise leave it untouched — an `oversized_task` marker is owned by step 4.6, and a fresh plan usually has no marker (do NOT blind-`del`; statectl errors on an absent key).
+
 ### 4.5. Estimate per-task context budget
 
 For each task, compute an estimate so `/work` stays under the work-tier model's standard context ceiling (200K on the current tiers).
@@ -200,7 +206,7 @@ This check is a **plain text scan** of the task title + description against Rule
 The existing context-budget split mechanics, the one-split-attempt rule, and the stall behavior below are **unchanged** by the eligibility trigger — both triggers share them:
 
 1. **File boundary first.** Split into one task per file. The PRD slice prorates equally; the 55K overhead applies once per task. Re-estimate each subtask.
-2. **Capability boundary second.** If a task touches only one file and still exceeds the threshold, split along capability boundaries inside the PRD's Functional Decomposition section.
+2. **Capability boundary second.** If a task touches only one file and still exceeds the threshold, split along capability boundaries inside the PRD's Functional Decomposition section (or the decomposition derived from the Requirements in step 3 when the PRD states none).
 3. **One split attempt only.** If a task still exceeds the threshold after splitting, mark the PRD as stalled (use the threshold value in the stall_reason).
 
 **Stall behavior:**
@@ -222,6 +228,8 @@ After both writes succeed, end the session's work with the stall recorded (the `
 The bytes/4 heuristic is accurate within ±20% for source code, less accurate for prose-heavy markdown. When the largest input is markdown (PRD prose, docs), round up. When estimates land within 10% of the threshold (150K standard / 75K replan), prefer splitting — the runtime context cap hook (Phase 2 of PRD 00024) will abort tasks that overrun anyway, and a planned split is cheaper than a runtime abort.
 
 **Overhead re-derivation:** The constant is measured by reading `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` from the first `message.usage` line in a fresh Work-phase transcript on the current work-tier model (zero task context loaded — just the system prompt, tool defs, and active skills). Re-derive when upgrading the model or adding/removing skills: start an empty `/work` session, read the first usage line from `~/.claude/projects/<hash>/<session>.jsonl`, sum the three token fields. Update the constant and the worked example if the new value differs by more than 5K. Provenance of the current 55K (2026-07-11): five fresh headless opus-4.8 work-phase transcripts measured 74,560-74,809 (~74.7K), minus PRD 00043's measured always-loaded reduction (run-autopilot SKILL.md 33.0K → 7.3K core, +5.4K gate file read back in ≈ −20K net) ≈ 55K, rounded. Those transcripts predate the 00043 restructure; re-measure directly at the next batch and correct if the fresh number moves more than 5K.
+
+**Pending re-derivation (PRD 00084 R3, BLOCKED):** the 55K/150K constants are measured on `opus-4.8` — still the autopilot **build**-phase model (`autoclaude` hardcodes `_AUTOPILOT_MODEL_BUILD=claude-opus-4-8`), so they remain current. If the build phase moves to Fable 5, re-derive per the mandate above on real Fable build transcripts. This is deliberately deferred until a few Fable build batches exist — do NOT re-derive from a single ad-hoc session or a non-build transcript.
 
 ### 4.7. Assign per-task model tier
 
@@ -321,6 +329,7 @@ Output:
 - Total tasks created
 - Execution order (phases)
 - Any PRD ambiguities needing clarification
+- **Derived-structure note**: when step 3 derived the Functional Decomposition or Dependency Graph from the Requirements (the PRD stated neither), say so — one line naming what was derived, so the reviewer treats the sequencing as inferred rather than PRD-pinned.
 - **Irreducible-coupling reports**: for every `>=4`-file backend task kept whole because step 4.6's eligibility trigger judged it not cleanly separable, report the task and the coupling. The task will route to Claude (not qwen) at its tier — surface why so the planner sees the routing consequence rather than the task being silently kept whole.
 - **PRD-vs-design contract conflicts**: when a design doc was consumed (step 3) and any task's `Contract` was taken from the design doc over a conflicting PRD statement, list each conflict (the PRD's version vs the design doc's, and which task). The design doc won; surface the divergence so the planner can confirm the design's refinement was intended.
 
