@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -493,6 +494,59 @@ def test_search_candidates_timeout_returns_empty(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(_sp, "run", fake_run)
     out = mod.search_candidates("formatPrice", root, target)
     assert out == []
+
+
+def test_search_candidates_batch_groups_by_symbol(tmp_path: Path) -> None:
+    """One rg over an alternation attributes each hit to the right symbol group,
+    and the single-symbol group matches the search_candidates wrapper (PRD 00088 R3)."""
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "a.py").write_text("def format_price(p):\n    return p\n")
+    (root / "b.py").write_text("class Widget:\n    def parse(self):\n        pass\n")
+    target = root / "new.py"
+    target.write_text("# target\n")
+
+    groups = mod.search_candidates_batch(
+        ["format_price", "Widget", "parse", "absent_sym"], root, target
+    )
+
+    assert any(h["file"].endswith("a.py") for h in groups["format_price"])
+    assert any(h["file"].endswith("b.py") for h in groups["Widget"])
+    assert any(h["file"].endswith("b.py") for h in groups["parse"])
+    assert groups["absent_sym"] == []
+    # one rg over the batch matches what a per-symbol search would find
+    assert groups["format_price"] == mod.search_candidates("format_price", root, target)
+
+
+@pytest.mark.integration
+def test_search_candidates_batch_p95_under_hook_budget(tmp_path: Path) -> None:
+    """30 symbols resolve in ONE rg spawn well under the 5s hook budget — the
+    per-symbol version spawned 30 subprocesses and could blow it (PRD 00088 R3)."""
+    mod = _import_hook_module()
+    root = tmp_path / "proj"
+    root.mkdir()
+    symbols = [f"sym_{i}" for i in range(30)]
+    for f in range(6):
+        parts = []
+        for i in range(f * 5, f * 5 + 5):
+            parts.append(f"def sym_{i}(x):\n    return x\n")
+            parts.extend(f"    y = sym_{i}(z)\n" for _ in range(3))  # usage sites
+        (root / f"mod_{f}.py").write_text("".join(parts))
+    target = root / "new.py"
+    target.write_text("# target\n")
+
+    durations: list[float] = []
+    groups: dict[str, list[dict]] = {}
+    for _ in range(20):
+        start = time.perf_counter()
+        groups = mod.search_candidates_batch(symbols, root, target)
+        durations.append(time.perf_counter() - start)
+
+    assert all(groups[s] for s in symbols), "every symbol must have at least one hit"
+    durations.sort()
+    p95 = durations[int(len(durations) * 0.95) - 1]  # 19th of 20 runs
+    assert p95 < 2.0, f"p95 {p95:.3f}s exceeded the budget (the hook cap is 5s)"
 
 
 # --- Direct-call coverage (handle / main bypass subprocess for line coverage) ---
