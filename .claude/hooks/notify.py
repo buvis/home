@@ -18,6 +18,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -336,9 +337,14 @@ def show_desktop_notification(title: str, msg: str) -> None:
 
 def dispatch(title: str, msg: str) -> None:
     """Push to ntfy when the user is away, else show a desktop notification."""
-    idle_sec = read_idle_seconds()
-    screensaver = screensaver_active()
-    lid = lid_closed()
+    # The three presence probes are independent subprocess spawns (ioreg,
+    # screensaver query, lid angle); run them concurrently so a Stop hook pays
+    # one probe's latency, not three in series (PRD 00086 R4).
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_idle = ex.submit(read_idle_seconds)
+        f_screen = ex.submit(screensaver_active)
+        f_lid = ex.submit(lid_closed)
+        idle_sec, screensaver, lid = f_idle.result(), f_screen.result(), f_lid.result()
 
     if should_notify(idle_sec, screensaver, lid):
         send_ntfy(title, msg)
@@ -361,8 +367,10 @@ def main() -> None:
     payload = read_input()
     event, title, msg = build_event_strings(payload)
 
-    log_line(f"[{now_local()}] Hook triggered: {event}")
-    log_line(json.dumps(payload, ensure_ascii=False))
+    # Log a one-line summary, never the raw payload: dumping the whole payload
+    # bloats notify.log and can spill transcript paths / message text into a
+    # plain log file (PRD 00086 R4). The event + title is enough to trace a ping.
+    log_line(f"[{now_local()}] Hook triggered: {event} — {title}")
 
     # Inside a live loop, a `Stop` is a phase/PRD hand-off and an `idle_prompt`
     # Notification just means the session is parked while a background task runs

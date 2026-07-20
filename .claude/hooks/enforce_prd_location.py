@@ -149,12 +149,19 @@ def _validate_bash_mode(data: dict) -> None:
 
 
 def main() -> None:
-    data = read_input()
-    tool = data.get("tool_name", "")
-    if tool in {"Edit", "Write", "MultiEdit"}:
-        _validate_file_mode(data)
-    elif tool == "Bash":
-        _validate_bash_mode(data)
+    try:
+        data = read_input()
+        tool = data.get("tool_name", "")
+        if tool in {"Edit", "Write", "MultiEdit"}:
+            _validate_file_mode(data)
+        elif tool == "Bash":
+            _validate_bash_mode(data)
+    except Exception as exc:
+        # block()/allow() raise SystemExit (BaseException), so a real block
+        # still fires; only an UNEXPECTED error lands here. Fail open but LOUD
+        # — a policy hook that crashes silently disables the gate with no
+        # signal (PRD 00086 R4).
+        print(f"policy hook degraded: enforce_prd_location: {exc}", file=sys.stderr)
     allow()
 
 

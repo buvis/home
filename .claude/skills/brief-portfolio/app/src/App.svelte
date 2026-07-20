@@ -17,6 +17,7 @@
   const epics = payload?.epics ?? { summary: '', repos: {} }
   const sinceDays = payload?.data.since_days ?? 60
   const external = payload?.data.external ?? null
+  const skillAdherence = payload?.data.skill_adherence ?? null
   const prev = payload?.prev ?? null
   const history = payload?.history ?? []
   const slots = orgSlots(repos)
@@ -111,7 +112,7 @@
   </header>
   <main class:full={tab === 'brief'}>
     {#if tab === 'brief'}
-      <Brief repos={visible} {agg} {epics} {sinceDays} {prev} {history} external={ext} onselect={(r) => (selected = r)} gototab={(t) => (tab = t)} />
+      <Brief repos={visible} {agg} {epics} {sinceDays} {prev} {history} external={ext} {skillAdherence} onselect={(r) => (selected = r)} gototab={(t) => (tab = t)} />
     {:else if tab === 'todo'}
       <Todos repos={visible} {epics} external={ext} onselect={(r) => (selected = r)} />
     {:else if tab === 'matrix'}

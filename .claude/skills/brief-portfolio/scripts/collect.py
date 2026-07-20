@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 GITA_CSV = Path.home() / ".config/gita/repos.csv"
@@ -221,6 +221,38 @@ def collect_brush(path):
     return None
 
 
+def collect_claude_skill_adherence(base=None):
+    """Last-30-day skill-invocation summary from ~/.claude/metrics/skills.jsonl
+    (PRD 00086 R2, numerator-only). Returns {count, distinct, top} or None when
+    there is no metrics file yet. `ts` rows are ISO-8601 UTC (track_skills.py)."""
+    f = Path(base) if base else Path.home() / ".claude/metrics/skills.jsonl"
+    if not f.is_file():
+        return None
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    per_skill = {}
+    try:
+        for line in f.read_text(errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict) or row.get("ts", "") < cutoff:
+                continue
+            skill = row.get("skill")
+            if skill:
+                per_skill[skill] = per_skill.get(skill, 0) + 1
+    except OSError:
+        return None
+    if not per_skill:
+        return {"count": 0, "distinct": 0, "top": []}
+    top = sorted(per_skill.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    return {"count": sum(per_skill.values()), "distinct": len(per_skill),
+            "top": [{"skill": s, "n": n} for s, n in top]}
+
+
 def collect_claude_maintenance(base=None):
     """ISO day of the newest entry under ~/.claude/dev/local/audit-results/;
     None = never. mtime proxy: audit-filesystem writes no report file, so any
@@ -372,6 +404,7 @@ def main():
         print(f"WARN external: {e}", file=sys.stderr)
         data["external"] = {"review_requested": [], "authored": []}
     data["external"]["claude_maintenance_last"] = collect_claude_maintenance()
+    data["skill_adherence"] = collect_claude_skill_adherence()
 
     # keep the previous snapshot for the "since last brief" diff
     data_file = outdir / "data.json"

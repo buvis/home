@@ -7,7 +7,7 @@
   import Strip from './Strip.svelte'
   import Icon from './Icon.svelte'
 
-  let { repos, agg, epics, sinceDays, prev, history, external, onselect, gototab } = $props()
+  let { repos, agg, epics, sinceDays, prev, history, external, skillAdherence, onselect, gototab } = $props()
   const scored = getContext('scored')
   const slots = getContext('slots')
 
@@ -41,6 +41,10 @@
     <p class="head">
       <b>{repos.length}</b> repos ·
       <b class:hot={fires.length}>{fires.length}</b> burning
+      {#if skillAdherence}
+        · <b>{skillAdherence.count}</b> skill runs/30d
+        ({skillAdherence.distinct} distinct{#if skillAdherence.top?.length}, top {skillAdherence.top[0].skill}{/if})
+      {/if}
     </p>
     <div class="mini">
       {#each STATS as [icon, v, label, tab, bad, warn] (label)}

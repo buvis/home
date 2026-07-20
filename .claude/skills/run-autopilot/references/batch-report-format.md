@@ -82,10 +82,10 @@ A per-reviewer `fail` still surfaces (as shown for R3). When no entry carries `s
 
 | Launch phase | Sessions | Wall secs | Model | Cost USD |
 |--------------|----------|-----------|-------|----------|
-| build | 1 | 412 | claude-opus-4-8 | 6.95 |
-| review | 2 | 337 | claude-opus-4-8 | 6.63 |
+| build | 1 | 412 | claude-fable-5[1m] | 13.90 |
+| review | 2 | 337 | claude-fable-5[1m] | 13.26 |
 | done | 1 | 120 | claude-sonnet-5 | 0.84 |
-| **Total** | 4 | 869 | | 14.42 |
+| **Total** | 4 | 869 | | 28.00 |
 
 Source: `dev/local/autopilot/loop-metrics.jsonl` lines where `prd` matches the PRD and `batch` matches `state.batch.id` (PRD 00013). One row per distinct `phase_launched` value, plus a **Total** row (session count and summed `wall_secs`/`cost_usd`). The `Model` and `Cost USD` columns (PRD 00018) render from the lines' `model` and `cost_usd` fields; when a line lacks `cost_usd` leave that cell blank (the wrapper omits the key when the session output carried no usage payload — never fake zeros). Legacy lines without `model` render a blank Model cell. When the metrics file is missing or has no matching lines (a manual run outside the loop), render `no loop metrics (manual run)` instead of the table — never fail the report.
 

@@ -135,7 +135,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "opus",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -231,6 +231,15 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/track_cost.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/track_skills.py",
             "timeout": 10
           }
         ]
