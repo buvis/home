@@ -135,7 +135,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "sonnet",
+  "model": "opus",
   "hooks": {
     "UserPromptSubmit": [
       {

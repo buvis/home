@@ -59,25 +59,34 @@ from typing import Any
 from _walk_up import find_autopilot_dir
 
 # Per-task context cap as a single hard ceiling, applied regardless of the
-# model's window (no window classification). Every autopilot session — build
-# included — launches on the session default (claude-fable-5[1m] since
-# 2026-07-19; previously Opus 1M), so the cap is sized for cost (cost scales
-# linearly with context: every turn re-sends the whole window as input), not
-# to dodge a small-window model's native auto-compact. 500K is the chosen
-# ceiling: it bounds per-task spend while sitting well below the 1M-window
-# compaction trigger, so the clean rotation handoff always runs. If a future
-# default has a window below the cap, native auto-compact fires first and the
-# rotation path never runs — re-derive the caps as a window fraction then.
-# (The earlier 150K value misfired — the audit recorded every cap fire at
-# ~163K inside 1M sessions, aborting good plans the cap was meant to protect.)
-USAGE_CAP = 500_000
+# model's window (no window classification). The cap is sized for cost (cost
+# scales linearly with context: every turn re-sends the whole window as
+# input), not to dodge a small-window model's native auto-compact.
+#
+# 150K is COUPLED to the `[1m]` strip on the default model (PRD 00073). Do NOT
+# raise it back to 500K on the theory that "150K misfired": that earlier
+# misfire (every fire at ~163K inside 1M-window Opus sessions, aborting good
+# plans) happened *because* the default carried a 1M window, so a sub-200K cap
+# preempted healthy long sessions. With the `[1m]` suffix stripped, the
+# default runs a 200K window and native auto-compact would otherwise preempt
+# the clean rotation just above 150K; the pin is what keeps the rotation
+# handoff the thing that fires first. The pin and the strip must live or die
+# together — if the default model ever regains a `[1m]` suffix, this value has
+# to move with it (see the Phase 2 coupling guard in the PRD).
+USAGE_CAP = 150_000
 # The soft cap sits below the hard cap. Crossing it writes the
 # `.handoff-requested` marker so `/work` hands off at the next task boundary
-# — a lossless alternative to the hard-cap rotation. The gap to the hard cap
-# is sized to cover roughly one more build task. A task that still overruns
-# the hard cap before `/work` reaches its boundary falls through to the
-# rotation path.
-SOFT_CAP = 320_000
+# — a lossless alternative to the hard-cap rotation. The 30K gap to the hard
+# cap covers roughly one more build task (the old 180K gap was sized against
+# the 500K ceiling). A task that still overruns the hard cap before `/work`
+# reaches its boundary falls through to the rotation path.
+SOFT_CAP = 120_000
+# Session-level tool-call tripwire (PRD 00073). Independent of context size:
+# the hook counts its own PostToolUse invocations per session id and forces
+# the same hand-off as a hard-cap breach at this many calls, bounding the fat
+# tail of long low-context sessions. Deliberately above the healthy-session
+# norm — it only clips runaways.
+TURN_TRIPWIRE = 300
 # Walk the transcript backwards in 64KB chunks until a `message.usage`
 # line is found or MAX_TAIL_BYTES is read. A fixed 64KB tail risked
 # missing the latest usage line when a single large tool result (Bash
@@ -376,6 +385,74 @@ def _emit_envelope(context: str) -> None:
     print(json.dumps(payload))
 
 
+TURN_COUNTS_FILE = ".turn-counts.json"
+
+
+def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
+    """Increment this session's tool-call counter and return True exactly once,
+    the call on which it reaches TURN_TRIPWIRE. Fires at most once per session
+    (the session id is recorded under "fired"). A missing or corrupt counter
+    file resets to zero and logs; it never raises. Interactive sessions never
+    reach here — main()'s $_AUTOPILOT_LOOP + build-phase guards run first.
+    """
+    counts_file = autopilot_dir / TURN_COUNTS_FILE
+    data: dict[str, Any] = {"counts": {}, "fired": []}
+    if counts_file.exists():
+        reset_reason: str | None = None
+        try:
+            loaded: Any = json.loads(counts_file.read_text())
+        except (OSError, ValueError):
+            loaded = None
+            reset_reason = "unreadable"
+        if isinstance(loaded, dict) and isinstance(loaded.get("counts"), dict):
+            data = {"counts": dict(loaded["counts"]),
+                    "fired": list(loaded.get("fired", []))}
+        elif loaded is not None:
+            reset_reason = "wrong shape"
+        # A present-but-broken file is corruption and logs; a missing file is
+        # the normal first-call state and must stay silent (else every session
+        # logs on its first tool call).
+        if reset_reason:
+            print(f"autopilot_context_cap_hook: turn-counts reset ({reset_reason})",
+                  file=sys.stderr)
+    # Coerce this session's prior count defensively: a valid-JSON file with a
+    # non-int value (null, "x") must reset that entry, never raise (the hook's
+    # never-crash contract; PRD error case).
+    try:
+        prior = int(data["counts"].get(session_id, 0))
+    except (TypeError, ValueError):
+        prior = 0
+        print("autopilot_context_cap_hook: turn-counts reset (bad count value)",
+              file=sys.stderr)
+    count = prior + 1
+    data["counts"][session_id] = count
+    already_fired = session_id in data["fired"]
+    fires = count >= TURN_TRIPWIRE and not already_fired
+    if fires:
+        data["fired"].append(session_id)
+    try:
+        tmp = counts_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data))
+        os.replace(tmp, counts_file)
+    except OSError:
+        # A counter we cannot persist must not fire (it would re-fire forever).
+        return False
+    return fires
+
+
+def _fire_breach(
+    autopilot_dir: Path, marker_file: Path, task_id: str,
+    last_rotation_task: str | None, limit: int, total: int,
+) -> None:
+    """Shared hard-breach action for both the context cap and the turn
+    tripwire: livelock-stall when this task already rotated once, else rotate.
+    """
+    if last_rotation_task == task_id:
+        _handle_livelock(autopilot_dir, marker_file, task_id, total)
+    else:
+        _handle_rotation(autopilot_dir, marker_file, task_id, limit)
+
+
 def _marker_dedup_blocks(
     marker_file: Path, task_id: str, last_rotation_task: str | None
 ) -> bool:
@@ -503,23 +580,28 @@ def main() -> None:
     limit = _usage_limit()
     transcript_path = Path(transcript_path_str)
     total = _latest_usage_total(transcript_path)
+
+    # Turn tripwire: bound the session's tool-call count independently of
+    # context size. Counted once per qualifying (build, in-loop, past-dedup)
+    # invocation; on the crossing call it forces the same hand-off as a cap
+    # breach. Runs before the usage check so a low-context runaway is still
+    # bounded (and so a missing usage line does not skip the count).
+    session_id = stdin.get("session_id")
+    if isinstance(session_id, str) and session_id and \
+            _bump_and_check_tripwire(autopilot_dir, session_id):
+        _fire_breach(autopilot_dir, marker_file, task_id, last_rotation_task,
+                     limit, total if total is not None else limit)
+        return
+
     if total is None:
         return
     if total <= limit:
         _handle_below_cap(autopilot_dir, task_id, total)
         return
 
-    # Livelock guard FIRST: if the last cap_rotations entry already names the
-    # in-flight task, this is the second consecutive rotation for the same
-    # task — it is genuinely oversized. Record the oversized-task stall
-    # instead of appending another rotation.
-    if last_rotation_task == task_id:
-        _handle_livelock(
-            autopilot_dir, marker_file, task_id, total
-        )
-        return
-
-    _handle_rotation(autopilot_dir, marker_file, task_id, limit)
+    # Hard-cap breach: livelock-stall if this task already rotated, else rotate.
+    _fire_breach(autopilot_dir, marker_file, task_id, last_rotation_task,
+                 limit, total)
 
 
 if __name__ == "__main__":

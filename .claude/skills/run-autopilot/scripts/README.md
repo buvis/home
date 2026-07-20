@@ -94,7 +94,7 @@ in-flight session's cost, not yet in loop-metrics.
 
 Row 5, usage: `in ↑` input + cache-creation tokens, `cache ⤓` cache reads,
 `out ↓` output (`~` marks a live estimate until the session's result event
-anchors the exact count), `ctx x/500.0k` last turn's context vs USAGE_CAP
+anchors the exact count), `ctx x/150.0k` last turn's context vs USAGE_CAP
 (the session-rotation cap; tracon mirrors `autopilot_context_cap_hook`).
 
 ## Agent board (`a`)

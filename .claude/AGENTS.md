@@ -31,6 +31,7 @@ With 1M context, research stays in-flight through implementation.
 - CLI tools and language runtimes are managed with **mise**. Installs live under `~/.local/share/mise/installs/<tool>/<version>/`; shims at `~/.local/share/mise/shims/`.
 - Global `npm ls -g`, `/opt/homebrew/bin`, `/usr/local/bin` will NOT list mise-managed tools - don't conclude a tool is missing from those. Locate one with `mise which <tool>`; run one not on PATH via `mise exec -- <tool>`.
 - Not every install gets a shim - `mise which` can resolve a tool even when `command -v` fails. If a tool is missing from PATH, suggest `mise reshim`.
+- The default model carries no `[1m]` suffix (200K window): the 1M window is per-session opt-in via `/model <model>[1m]`. Coupled to the 150K autopilot context cap - re-adding `[1m]` to the default re-creates the ~163K cap-misfire, so move the cap with it (PRD 00073).
 
 ## Conventions
 

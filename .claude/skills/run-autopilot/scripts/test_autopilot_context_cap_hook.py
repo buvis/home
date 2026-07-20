@@ -219,17 +219,17 @@ class ContextCapHookTests(unittest.TestCase):
     # Single hard cap --------------------------------------------------------
 
     def test_does_not_fire_below_cap(self) -> None:
-        """The single hard cap is 500K; usage below it does not fire (no
+        """The single hard cap is 150K; usage below it does not fire (no
         window classification — the same cap applies regardless of model)."""
         self.fx.write_state(phase="build")
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=200_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=100_000)])
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
     def test_fires_above_cap(self) -> None:
-        """Usage above the single 500K hard cap fires the rotation."""
+        """Usage above the single 150K hard cap fires the rotation."""
         self.fx.write_state(
             phase="build",
             tasks=[{"id": "task-big", "name": "y", "status": "in_progress"}],
@@ -534,7 +534,7 @@ class ContextCapHookTests(unittest.TestCase):
     # Soft-threshold handoff ------------------------------------------------
 
     def test_soft_threshold_writes_handoff_marker(self) -> None:
-        """Usage between the single soft (320K) and hard (500K) caps writes
+        """Usage between the single soft (120K) and hard (150K) caps writes
         `.handoff-requested` carrying the in-progress task id. The path is
         non-destructive — no `.cap-fired`, no rotation, no state mutation.
         No `context_window` is set: the threshold is a single constant."""
@@ -542,7 +542,7 @@ class ContextCapHookTests(unittest.TestCase):
             phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=130_000)])
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
@@ -590,7 +590,7 @@ class ContextCapHookTests(unittest.TestCase):
             phase="build",
             tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=130_000)])
         (self.fx.autopilot_dir / ".handoff-requested").write_text("task-x")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
@@ -608,7 +608,7 @@ class ContextCapHookTests(unittest.TestCase):
             phase="build",
             tasks=[{"id": "task-new", "name": "y", "status": "in_progress"}],
         )
-        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=400_000)])
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=130_000)])
         (self.fx.autopilot_dir / ".handoff-requested").write_text("task-old")
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
@@ -806,6 +806,124 @@ class MarkerStateAtomicityTests(unittest.TestCase):
             "",
             "no stall envelope may be emitted when the state write fails",
         )
+
+
+class PinnedCapAndTripwireTests(unittest.TestCase):
+    """PRD 00073: 150K/120K pin + 300-tool-call turn tripwire."""
+
+    def setUp(self) -> None:
+        self.fx = HookFixture()
+        self.addCleanup(self.fx.cleanup)
+        self.module = _load_hook_module()
+
+    def test_constants_pinned_to_new_values(self) -> None:
+        self.assertEqual(self.module.USAGE_CAP, 150_000)
+        self.assertEqual(self.module.SOFT_CAP, 120_000)
+        self.assertEqual(self.module.TURN_TRIPWIRE, 300)
+        self.assertLess(self.module.SOFT_CAP, self.module.USAGE_CAP)
+
+    def test_cap_fires_above_150k(self) -> None:
+        """160K is over the new hard cap (was under the old 500K). Rotation."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=160_000)])
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["cap_rotations"][-1]["task_id"], "task-x")
+
+    def test_130k_is_soft_not_hard(self) -> None:
+        """130K sits between the new soft (120K) and hard (150K): handoff, no rotation."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=130_000)])
+        self.fx.run_hook()
+        self.assertTrue((self.fx.autopilot_dir / ".handoff-requested").exists())
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def _seed_counter(self, session_id: str, count: int) -> None:
+        (self.fx.autopilot_dir / ".turn-counts.json").write_text(
+            json.dumps({"counts": {session_id: count}, "fired": []})
+        )
+
+    def test_tripwire_fires_at_300(self) -> None:
+        """A session at 299 counted calls that takes its 300th (with usage well
+        under the cap) is force-handed-off via the rotation path."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=40_000)])
+        self._seed_counter("test-session", 299)
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.fx.autopilot_dir / ".cap-fired").exists())
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["cap_rotations"][-1]["task_id"], "task-x")
+
+    def test_tripwire_does_not_fire_at_299(self) -> None:
+        """At the 299th call (seeded 298), no forced hand-off; usage is under cap."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=40_000)])
+        self._seed_counter("test-session", 298)
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+        state = json.loads((self.fx.autopilot_dir / "state.json").read_text())
+        self.assertEqual(state["cap_rotations"], [])
+
+    def test_tripwire_counter_corruption_resets_without_crashing(self) -> None:
+        """A corrupt counter file resets to 0 and the hook still exits 0."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=40_000)])
+        (self.fx.autopilot_dir / ".turn-counts.json").write_text("{not json")
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+    def test_tripwire_valid_json_bad_count_value_does_not_crash(self) -> None:
+        """A valid-JSON counter file with a non-int count (null / string) must
+        reset that entry and exit 0, never raise (never-crash contract)."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=40_000)])
+        (self.fx.autopilot_dir / ".turn-counts.json").write_text(
+            json.dumps({"counts": {"test-session": None}, "fired": []})
+        )
+        result = self.fx.run_hook()
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+        # a wrong-shape file (counts not a dict) also resets cleanly
+        (self.fx.autopilot_dir / ".turn-counts.json").write_text(
+            json.dumps({"counts": "nope"})
+        )
+        result2 = self.fx.run_hook()
+        self.assertEqual(result2.returncode, 0)
+
+    def test_tripwire_exempt_for_interactive_session(self) -> None:
+        """No $_AUTOPILOT_LOOP: even a seeded 299 counter must not fire."""
+        self.fx.write_state(
+            phase="build",
+            tasks=[{"id": "task-x", "name": "y", "status": "in_progress"}],
+        )
+        self.fx.write_transcript_lines([self.fx.usage_line(input_tokens=40_000)])
+        self._seed_counter("test-session", 299)
+        result = self.fx.run_hook(in_loop=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
 
 
 if __name__ == "__main__":
