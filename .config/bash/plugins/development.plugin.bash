@@ -233,6 +233,29 @@ _autopilot_died_next() {
   printf 'park'
 }
 
+# _autopilot_plugin_drift <state.json> <installed_plugins.json>
+# Exit 1 (+ prints "<name> pinned=<v> now=<v>") when a plugin pinned in
+# state.batch.plugin_versions at batch selection differs from the version
+# installed now — enforcement code (aegis/warden) auto-updated mid-batch, which
+# must never be run silently (PRD 00086 R3). Exit 0 when every pin still matches,
+# OR when no pin was recorded (a pre-R3 batch, or before Phase 0 pinned) —
+# backward-compatible: an unpinned batch is never blocked.
+_autopilot_plugin_drift() {
+  local _state="$1" _installed="$2" _names _name _pin _cur
+  _names=$(jq -r '(.batch.plugin_versions // {}) | keys[]' "$_state" 2>/dev/null)
+  [ -n "$_names" ] || return 0
+  while IFS= read -r _name; do
+    [ -n "$_name" ] || continue
+    _pin=$(jq -r --arg n "$_name" '.batch.plugin_versions[$n]' "$_state" 2>/dev/null)
+    _cur=$(jq -r --arg n "$_name" '(.plugins[$n][0].version) // "MISSING"' "$_installed" 2>/dev/null)
+    if [ "$_pin" != "$_cur" ]; then
+      printf '%s pinned=%s now=%s' "$_name" "$_pin" "$_cur"
+      return 1
+    fi
+  done <<< "$_names"
+  return 0
+}
+
 autoclaude() {
   local _tracon=0
   case "${_AUTOPILOT_TRACON:-auto}" in
@@ -394,6 +417,25 @@ autoclaude() {
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
       return 0
+    fi
+
+    # Plugin-pin preflight (PRD 00086 R3): refuse to run a batch session on
+    # enforcement code (aegis/warden) that auto-updated mid-batch. Compares the
+    # versions state.batch.plugin_versions pinned at batch selection against what
+    # is installed now; on drift, halt loud with state intact so a human re-pins
+    # or investigates rather than silently proceeding on rotated enforcement code.
+    # Unpinned batch (pre-R3, or before Phase 0 pinned) → no-op.
+    local _plugins_json="${_AUTOPILOT_PLUGINS_JSON:-$HOME/.claude/plugins/installed_plugins.json}"
+    if [ -f "$_ap_dir/state.json" ] && [ -f "$_plugins_json" ]; then
+      local _drift
+      if ! _drift=$(_autopilot_plugin_drift "$_ap_dir/state.json" "$_plugins_json"); then
+        printf '\nautoclaude: plugin version drift (%s) — enforcement code rotated mid-batch. Stopping so the batch never runs on unpinned enforcement code. Re-pin state.batch.plugin_versions or investigate, then relaunch.\n' "$_drift" >&2
+        python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Plugin drift ($_drift); halted." 2>/dev/null
+        trap - INT TERM HUP
+        [ -n "$_reg" ] && rm -f "$_reg"
+        unset _AUTOPILOT_LOOP
+        return 1
+      fi
     fi
 
     # Headless launch (PRD 00014): one session = one -p turn = one process
