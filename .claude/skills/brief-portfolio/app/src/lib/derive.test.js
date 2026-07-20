@@ -103,6 +103,18 @@ assert.equal(ext[0].urgency, 'now')
 assert.equal(quadrant(ext[0]), 'do')
 assert.equal(ext[1].effort, 'quick')
 
+// --- ~/.claude maintenance nag (PRD 00081): fires at >=30d or never, silent when fresh ---
+// (`day(n)` is defined below in the brush-cadence block; both blocks share it.)
+const maintNever = externalTodos({ review_requested: [], authored: [] }).find((t) => t.kind === 'maintenance')
+assert.equal(maintNever.id, 'claude:maintenance:never')
+assert.match(maintNever.action, /audit-filesystem/)
+const maint45 = externalTodos({ claude_maintenance_last: day(45) }).find((t) => t.kind === 'maintenance')
+assert.match(maint45.why, /45d old/)
+assert.equal(maint45.id, `claude:maintenance:${day(45)}`)
+assert(externalTodos({ claude_maintenance_last: day(30) }).some((t) => t.kind === 'maintenance')) // due at 30
+assert.equal(externalTodos({ claude_maintenance_last: day(10) }).find((t) => t.kind === 'maintenance'), undefined)
+assert.equal(externalTodos(null).length, 0) // no external payload -> no nag, no crash
+
 // --- merged list + quick wins ---
 const all = allTodos([repo], { todos: [{ id: 'o/r:judgment:x', repo: 'o/r', kind: 'judgment', urgency: 'now', action: 'A', why: 'w' }] }, null)
 assert.equal(all.find((t) => t.id === 'o/r:judgment:x').importance, 'high') // judgment defaults

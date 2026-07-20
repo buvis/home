@@ -5,6 +5,11 @@ description: Use when purging stale dev/local artifacts across repos (review deb
 
 # Purge dev/local
 
+## Dependencies
+
+- Cross-skill script: `~/.claude/skills/review-prd-backlog/scripts/check_links.py`
+  (post-apply dangling-reference verification, PRD 00081)
+
 Deterministic garbage collector for `dev/local` artifact stores. Relevance is
 decided by code, not judgment: a 5-digit PRD token links artifacts to
 `prds/{backlog,wip,done}`, and type + age covers the unlinkable rest. Nothing
@@ -27,7 +32,21 @@ manifest, and trash batches older than 30 days are emptied on later runs.
    lines are kept files whose PRD vanished; surface them to the user instead
    of acting.
 
-3. Apply:
+3. Pre-trash reference check (PRD 00081): before applying, verify nothing
+   still points at a trash candidate. For each candidate path from the `-v`
+   dry-run, search the store's markdown plus the project auto-memory for
+   references to it (`rg -F "<candidate basename>"` over `dev/local`
+   excluding `.trash/`, and `~/.claude/projects/<hash>/memory/` when purging
+   `~/.claude`). A referenced candidate is NOT trashed this run: `touch` it
+   (the `--min-age-days` guard then keeps it) and append a manifest row
+   `<today>\tkept-referenced\t<path>\tstill referenced by <file:line>`.
+   There is no force override - a referenced path stays until the reference
+   is fixed or waived with `link-ok:` on the citing line.
+   `${CLAUDE_SKILL_DIR}/../review-prd-backlog/scripts/check_links.py --json`
+   finds the inverse direction (references whose target is already gone) -
+   run it after apply to confirm the sweep created no new dangling refs.
+
+4. Apply:
 
    ```
    python3 $CLAUDE_SKILL_DIR/scripts/purge_devlocal.py --all --apply

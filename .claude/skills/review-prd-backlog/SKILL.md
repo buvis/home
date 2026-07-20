@@ -15,6 +15,7 @@ Review the PRD backlog before `/run-autopilot` drains it unattended. Two levels:
 ## Dependencies
 
 - Personal skills (files read at runtime): `create-prd` (`SKILL.md` plus its `assets/` templates, the law for lens A), `plan-tasks` (`SKILL.md` steps 4-4.7, the budget and tier questions)
+- Scripts: `scripts/check_links.py` (step 1 citation-resolution check; tests in `scripts/test_check_links.py`)
 - CLI: `rg` (lens D verifies grounding claims against the repo, never trusts them)
 - Optional: `assess-evolution` (recommended in the report, never invoked)
 
@@ -37,6 +38,7 @@ Default target: `dev/local/prds/backlog/` in the current repo. An argument may o
 1. **Inventory.** List `backlog/` (the target) plus `wip/`, `hold/`, `done/` (recent), and `dev/local/discovery/` for context. Hygiene checks - each is Blocking because it breaks autopilot Phase 0 selection or lifecycle moves:
    - Only `NNNNN-{slug}-v{n}.md` PRD files in `backlog/`. A stray file mis-sorts the lowest-prefix pick (selection break). This review's own report NEVER goes inside `backlog/`.
    - Sequence numbers unique across backlog/, wip/, done/, hold/, AND `dev/local/discovery/` (create-prd allocates across all of them).
+   - **Citation resolution** (mechanical, PRD 00081): run `python3 ${CLAUDE_SKILL_DIR}/scripts/check_links.py --root . --json` and keep only findings whose `file` is under `prds/backlog/` or `prds/wip/`. Each dangling citation is **Blocking** (fails as: stall - an implementor premise check trips on the dangling pointer) UNLESS the target is an output the PRD itself declares it will create (listed in its Repository Structure or a task) - those are normal forward references, not findings. A `link-ok:` token on the citing line waives it.
 2. **Load the law.** Read `~/.claude/skills/create-prd/SKILL.md` and its `assets/` templates (`minimal.md`, `standard.md`, `example_prd_rpg.md`). Lens A's checklist comes from these files as they are today. When budget or tier questions arise, consult `~/.claude/skills/plan-tasks/SKILL.md` steps 4-4.7.
 3. **Comprehension pass.** Read every PRD fully. Build the backlog map: number, title, template used, line count, subsystems/files touched, dependencies (stated and inferred), frontmatter fields. Keep confusion notes: where, what is unclear, and why a planner or test author could misread it - these become Question findings.
 4. **Per-PRD lenses A-D** (below). Scale note: with more than ~8 PRDs, dispatch lens D (grounding) per PRD to parallel subagents that return finding-shaped results; lenses A-C and E-H stay inline - the set lenses need every PRD in one context.
