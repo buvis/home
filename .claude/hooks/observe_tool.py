@@ -13,7 +13,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
@@ -25,8 +25,11 @@ from _common import read_input  # noqa: E402
 INSTINCTS_DIR = Path.home() / ".claude" / "instincts"
 PROJECTS_DIR = INSTINCTS_DIR / "projects"
 REGISTRY_FILE = INSTINCTS_DIR / "projects.json"
+CWD_CACHE_FILE = INSTINCTS_DIR / ".cwd-cache.json"
+CWD_CACHE_MAX = 512
 ROTATE_THRESHOLD_BYTES = 5 * 1024 * 1024
 GIT_TIMEOUT_SEC = 2
+RETENTION_DAYS_DEFAULT = 14
 
 ERROR_PATTERN = re.compile(
     r"error|Error|ERROR|failed|FAILED|exception|Exception|"
@@ -103,6 +106,62 @@ def detect_project() -> tuple[str, str, str]:
     return "global", "global", ""
 
 
+def _resolve_cwd(payload: dict[str, Any]) -> str:
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd:
+        return cwd
+    try:
+        return os.getcwd()
+    except OSError:
+        return ""
+
+
+def _read_cwd_cache() -> dict[str, list[str]]:
+    if not CWD_CACHE_FILE.is_file():
+        return {}
+    try:
+        data = json.loads(CWD_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_cwd_cache(cache: dict[str, list[str]]) -> None:
+    INSTINCTS_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = NamedTemporaryFile("w", encoding="utf-8", dir=str(INSTINCTS_DIR), delete=False)
+    try:
+        json.dump(cache, tmp)
+        tmp_path = Path(tmp.name)
+    finally:
+        tmp.close()
+    tmp_path.replace(CWD_CACHE_FILE)
+
+
+def detect_project_cached(cwd: str) -> tuple[str, str, str]:
+    """Resolve project identity, caching cwd->identity ACROSS hook processes.
+
+    Each PostToolUse hook run is a fresh process, so an in-process memo saves
+    nothing; a small on-disk cache keyed by cwd lets a session's many tool-call
+    hooks skip the per-call `git` spawn after the first (PRD 00085 R5). A
+    cwd->repo identity is effectively immutable, so there is no TTL; the one
+    accepted staleness is a dir that later becomes a git repo (self-heals when
+    the cache file is cleared). Cache is capped at CWD_CACHE_MAX entries — on
+    overflow it resets to just this cwd rather than growing unbounded.
+    """
+    if not cwd:
+        return detect_project()
+    cache = _read_cwd_cache()
+    hit = cache.get(cwd)
+    if isinstance(hit, list) and len(hit) == 3 and all(isinstance(x, str) for x in hit):
+        return hit[0], hit[1], hit[2]
+    result = detect_project()
+    if len(cache) >= CWD_CACHE_MAX:
+        cache = {}
+    cache[cwd] = list(result)
+    _write_cwd_cache(cache)
+    return result
+
+
 def rotate_if_needed(obs_file: Path) -> None:
     if not obs_file.is_file():
         return
@@ -116,6 +175,25 @@ def rotate_if_needed(obs_file: Path) -> None:
             obs_file.replace(rotated)
         except OSError:
             pass
+
+
+def _prune_registry(registry: dict[str, Any], keep_hash: str) -> dict[str, Any]:
+    """Drop registry entries whose last_seen is older than the retention window
+    (INSTINCTS_RETENTION_DAYS, default 14; <=0 disables pruning), always keeping
+    the current project (PRD 00085 R5). last_seen is a %Y-%m-%d string, so a
+    lexicographic compare against the cutoff date is a correct date compare."""
+    try:
+        days = int(os.environ.get("INSTINCTS_RETENTION_DAYS", RETENTION_DAYS_DEFAULT))
+    except ValueError:
+        days = RETENTION_DAYS_DEFAULT
+    if days <= 0:
+        return registry
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    return {
+        h: e
+        for h, e in registry.items()
+        if h == keep_hash or (isinstance(e, dict) and str(e.get("last_seen", "")) >= cutoff)
+    }
 
 
 def update_registry(proj_hash: str, proj_name: str, proj_remote: str) -> None:
@@ -135,6 +213,7 @@ def update_registry(proj_hash: str, proj_name: str, proj_remote: str) -> None:
         "remote": proj_remote,
         "last_seen": today,
     }
+    registry = _prune_registry(registry, proj_hash)
     tmp = NamedTemporaryFile(
         "w", encoding="utf-8", dir=str(INSTINCTS_DIR), delete=False
     )
@@ -159,7 +238,7 @@ def main() -> None:
     tool_response = payload.get("tool_response", "")
     sid = str(payload.get("session_id") or "")
 
-    proj_hash, proj_name, proj_remote = detect_project()
+    proj_hash, proj_name, proj_remote = detect_project_cached(_resolve_cwd(payload))
     proj_dir = PROJECTS_DIR / proj_hash
     proj_dir.mkdir(parents=True, exist_ok=True)
     obs_file = proj_dir / "observations.jsonl"

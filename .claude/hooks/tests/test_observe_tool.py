@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -196,6 +197,78 @@ class TestEndToEnd(unittest.TestCase):
         run_hook(payload, self.home, self.cwd)
         rows = read_observations(self.home, "global")
         self.assertEqual(rows[0]["out"], "ERROR: command failed")
+
+
+class TestCwdCache(unittest.TestCase):
+    """Cross-process cwd->identity cache skips the per-tool-call git spawn (R5)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp)
+
+    def test_cache_hit_skips_detect_on_repeat_cwd(self) -> None:
+        calls: list[int] = []
+
+        def fake_detect() -> tuple[str, str, str]:
+            calls.append(1)
+            return ("abc123def456", "repo", "https://github.com/o/repo.git")
+
+        with patch.object(observe_tool, "INSTINCTS_DIR", self.tmp), \
+             patch.object(observe_tool, "CWD_CACHE_FILE", self.tmp / ".cwd-cache.json"), \
+             patch.object(observe_tool, "detect_project", fake_detect):
+            r1 = observe_tool.detect_project_cached("/some/cwd")
+            r2 = observe_tool.detect_project_cached("/some/cwd")
+
+        self.assertEqual(r1, ("abc123def456", "repo", "https://github.com/o/repo.git"))
+        self.assertEqual(r2, r1)
+        self.assertEqual(len(calls), 1)  # git-backed detect ran once, not per call
+
+    def test_different_cwd_detects_again(self) -> None:
+        calls: list[int] = []
+
+        def fake_detect() -> tuple[str, str, str]:
+            calls.append(1)
+            return ("h", "n", "")
+
+        with patch.object(observe_tool, "INSTINCTS_DIR", self.tmp), \
+             patch.object(observe_tool, "CWD_CACHE_FILE", self.tmp / ".cwd-cache.json"), \
+             patch.object(observe_tool, "detect_project", fake_detect):
+            observe_tool.detect_project_cached("/a")
+            observe_tool.detect_project_cached("/b")
+
+        self.assertEqual(len(calls), 2)
+
+
+class TestRegistryPruning(unittest.TestCase):
+    """update_registry drops entries older than INSTINCTS_RETENTION_DAYS (R5)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp)
+
+    def test_prunes_stale_keeps_current_and_recent(self) -> None:
+        old = (datetime.now(timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d")
+        recent = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")
+        registry_file = self.tmp / "projects.json"
+        registry_file.write_text(json.dumps({
+            "stalehash": {"name": "old", "remote": "", "last_seen": old},
+            "recenthash": {"name": "rec", "remote": "", "last_seen": recent},
+        }))
+
+        with patch.object(observe_tool, "INSTINCTS_DIR", self.tmp), \
+             patch.object(observe_tool, "REGISTRY_FILE", registry_file), \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("INSTINCTS_RETENTION_DAYS", None)
+            observe_tool.update_registry("newhash", "new", "")
+
+        result = json.loads(registry_file.read_text())
+        self.assertIn("newhash", result)       # current project always kept
+        self.assertIn("recenthash", result)    # within the 14d window, kept
+        self.assertNotIn("stalehash", result)  # 40d > 14d, pruned
 
 
 if __name__ == "__main__":
