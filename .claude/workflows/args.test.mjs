@@ -52,6 +52,27 @@ test("invalid arguments fail closed with an INVALID_ARGS error", () => {
   assert.doesNotThrow(() =>
     p.validateArgs({ ...ok, diff_bytes: p.MAX_DIFF_BYTES + 1, diff_path: "/tmp/diff.patch" }),
   );
+
+  // changed_files must be an array: a string would iterate CHARACTERS in
+  // securityTriggered and silently drop the path-based security signal (PRD 00085 R3).
+  assert.throws(
+    () => p.validateArgs({ ...ok, changed_files: "src/auth.js\nsrc/db.js" }),
+    invalidArgs,
+    "a string changed_files iterates characters and under-arms the security dimension",
+  );
+  assert.throws(
+    () => p.validateArgs({ ...ok, changed_files: "src/token.js" }),
+    invalidArgs,
+    "even a single-path string is rejected — it is still iterated char-by-char",
+  );
+  assert.doesNotThrow(
+    () => p.validateArgs({ ...ok, changed_files: ["src/auth.js", "src/db.js"] }),
+    "an array of paths is the required shape",
+  );
+  assert.doesNotThrow(
+    () => p.validateArgs({ ...ok, changed_files: undefined }),
+    "changed_files is optional — absent is fine",
+  );
 });
 
 test("args handed over as a JSON string are parsed, not rejected as an empty diff", () => {

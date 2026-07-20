@@ -10,7 +10,7 @@ Dispatch a subagent to do multi-source research. Keeps intermediate search noise
 ## When This Skill Triggers
 
 1. Clarify intent if the request is vague (1-2 questions max). Unattended (`CLAUDE_UNATTENDED=1`): skip questions — research the request as stated and note assumptions in the report, per `~/.claude/skills/run-autopilot/references/unattended-contract.md`.
-2. Launch a general-purpose Agent (model: `sonnet`) with the prompt template below.
+2. Launch a general-purpose Agent (model: `sonnet`) with the prompt template below. (`sonnet` is a deliberate cost pin: research is web search + synthesis, not deep reasoning — Sonnet handles the fuzzy-boundary summarization well at a fraction of Opus's cost, and the subagent already isolates the search noise. Override to `opus` only for a genuinely hard synthesis.)
 3. Report the synthesized result to the user.
 
 For broad topics with 3+ independent angles, dispatch multiple agents in parallel (one per sub-question), then synthesize their results yourself.
