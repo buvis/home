@@ -25,7 +25,6 @@ import importlib
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import threading
@@ -34,6 +33,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import Iterator
+
+# project_hash split into a sibling module for the PRD-00009 400-line cap when
+# the ~/.claude work-tree fallback landed (PRD 00088); re-exported so
+# `lib.project_hash` is unchanged for every caller and test.
+from _cartographer_identity import project_hash as project_hash
 
 
 def _home() -> Path:
@@ -54,47 +58,7 @@ def _audit_log() -> Path:
 
 
 # --- per-repo addressing ---
-
-
-def project_hash(path: str | None = None) -> tuple[str, str, str]:
-    """Determine project identity from git remote or toplevel path.
-
-    Behavioral copy of `analyze-instincts.py:detect_project` (parity test
-    guards drift); adds a `path` parameter the original lacks. Returns
-    `(hash, name, remote_url)`. Prefers the `origin` remote (with embedded
-    credentials stripped), then the toplevel path; falls back to
-    `("global", "global", "")` when not a git repo.
-    """
-    cwd = path  # subprocess.run accepts None to mean "inherit cwd"
-    try:
-        remote = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=cwd,
-            capture_output=True, text=True, timeout=5,
-        )
-        if remote.returncode == 0 and remote.stdout.strip():
-            url = remote.stdout.strip()
-            clean = re.sub(r"://[^@]+@", "://", url)
-            h = hashlib.sha256(clean.encode()).hexdigest()[:12]
-            name = Path(url.rstrip("/")).stem
-            return h, name, clean
-    except (subprocess.TimeoutExpired, FileNotFoundError, NotADirectoryError):
-        pass
-
-    try:
-        toplevel = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=cwd,
-            capture_output=True, text=True, timeout=5,
-        )
-        if toplevel.returncode == 0 and toplevel.stdout.strip():
-            top = toplevel.stdout.strip()
-            h = hashlib.sha256(top.encode()).hexdigest()[:12]
-            return h, Path(top).name, ""
-    except (subprocess.TimeoutExpired, FileNotFoundError, NotADirectoryError):
-        pass
-
-    return "global", "global", ""
+# `project_hash` is re-exported from `_cartographer_identity` (imported above).
 
 
 def atlas_dir(project_hash: str) -> Path:
