@@ -379,7 +379,10 @@ autoclaude() {
     # unanswerable `ask` into a fast `deny` instead of a forever-hang. NOT
     # exported to the shell, so interactive `claude` outside the loop still
     # prompts normally. (A subagent `chmod +x` ask deadlocked the loop 1h51m,
-    # 2026-06-30.)
+    # 2026-06-30.) CLAUDE_UNATTENDED rides alongside it as the generic
+    # no-human-present signal for the shared unattended contract
+    # (skills/run-autopilot/references/unattended-contract.md); any future
+    # headless launcher (cron, /schedule) must set it too (PRD 00083 R5).
     local _ts_start _phase_launched _prd_launched
     _ts_start=$(date +%s)
     if [ -f "$_ap_dir/state.json" ]; then
@@ -453,7 +456,7 @@ autoclaude() {
     # (background Bash — killed ~5s after the result by design) still run;
     # codex doubt reviews routinely exceed 10 min. The session cap above
     # stays the backstop. (2026-07-12: codex killed at turn end, loop died.)
-    WARDEN_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+    WARDEN_UNATTENDED=1 CLAUDE_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
       claude -p --permission-mode auto --model "$_model" --effort "$_effort" \
       "${_fallback_args[@]}" \
       --output-format stream-json --verbose "/run-autopilot" \

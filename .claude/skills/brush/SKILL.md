@@ -64,7 +64,15 @@ cleanup for a missing skill (especially purge-devlocal).
 3. **Evolution** (full only): run the `assess-evolution` skill; tell it
    catchup already ran this session.
 4. **Backlog** (full only): run the `review-prd-backlog` skill.
-5. **Instructions** (full only): run the `manage-agents-md` skill.
+5. **Instructions** (full only): run the `manage-agents-md` skill, then
+   **promote load-bearing memories**: scan this project's auto-memory
+   (`~/.claude/projects/<hash>/memory/`) for `feedback`/`project` entries whose
+   body names a skill or one of its scripts and states an operational fact the
+   skill body itself does not carry (e.g. a CLI fallback, an error-salvage
+   step, a required flag). For each, propose promoting the fact into that
+   skill's body as a queued BR-item (never auto-edit a skill); a memory that
+   only mirrors what the skill already says is left alone. Steady state on a
+   well-tended install is zero proposals (PRD 00083 R4).
 6. **Atlas** (full only): run the `survey` skill so the Cartographer atlas
    is refreshed while repo context is loaded.
 7. **Report + handoff**: write `dev/local/audit-results/brush-report.md`
