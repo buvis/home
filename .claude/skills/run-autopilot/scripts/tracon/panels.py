@@ -68,12 +68,13 @@ def phase_strip(state: model.LoopState) -> Text:
     elif current == "review" and (lenses := model.review_lenses(state)):
         # Expand review into its lens sub-steps (stamped by the review skill
         # at dispatch); lenses run in parallel, so several can be current.
-        nodes = [("build", "done")]
-        nodes += [(n, "current" if s == "running" else "done") for n, s in lenses]
+        # The "● review:" label keeps the lens names readable as reviews.
+        nodes = [(n, "current" if s == "running" else "done") for n, s in lenses]
         if model.rework_active(state):
             nodes.append(("rework", "current"))
         nodes.append(("done", "pending"))
-        t = _strip_nodes(nodes)
+        t = Text.assemble("✓ build ─ ", ("● review:", "bold cyan"), " ")
+        t.append_text(_strip_nodes(nodes))
     else:
         # Collapsed strip; phases before the current gate are positionally
         # done (phases_completed only ever records "review").
@@ -94,29 +95,11 @@ def phase_strip(state: model.LoopState) -> Text:
     return t
 
 
-def agents_row(tracker: AgentTracker) -> Text | None:
-    lanes = tracker.live_lanes()
-    tasks = tracker.live_tasks()
-    combined = lanes + tasks
-    if not combined:
-        return None
-
-    t = Text("agents ")
-    for i, lane in enumerate(combined):
-        if i > 0:
-            t.append(" · ")
-        if lane.kind == "local_agent":
-            t.append(f"⟨{lane.label}⟩", style=lane.color)
-            if lane.n > 0 or lane.last:
-                t.append(f" ⚒{lane.last}×{lane.n}")
-        else:
-            t.append(f"{lane.label} ▷{lane.status}", style=lane.color)
-
-    return t
-
-
-def head_rows(agents: Text | None) -> int:
-    return 5 if agents is not None else 4
+def agents_summary(tracker: AgentTracker) -> tuple[int, int]:
+    """(running, total) lanes this session. The header carries only the count;
+    the A-key agent board renders the full detail (agents_head/agents_body)."""
+    all_lanes = tracker.lanes()
+    return sum(1 for lane in all_lanes if not lane.done), len(all_lanes)
 
 
 def _row_head(state: model.LoopState) -> Text:
@@ -196,7 +179,9 @@ def _row_progress(
     return row3
 
 
-def _row_usage(usage: SessionUsage, status: Status) -> Text:
+def _row_usage(
+    usage: SessionUsage, status: Status, agent_counts: tuple[int, int] | None = None
+) -> Text:
     row4 = Text(no_wrap=True, overflow="ellipsis")
     up, cached, out = usage.totals()
     tilde = "~" if usage.out_estimated else ""
@@ -207,6 +192,10 @@ def _row_usage(usage: SessionUsage, status: Status) -> Text:
     pct_style = "bold red" if pct >= 95 else "yellow" if pct >= 80 else "dim"
     row4.append(f" {pct}%", style=pct_style)
     row4.append(" · ")
+    if agent_counts is not None and agent_counts[1] > 0:
+        running, total = agent_counts
+        row4.append(f"agents {running}/{total}", style="bold cyan" if running else "dim")
+        row4.append(" · ")
     row4.append(status.label, style=status.style)
     return row4
 
@@ -220,7 +209,7 @@ def build_head(
     batch_id: str,
     root_name: str,
     session_start: float | None,
-    agents: Text | None = None,
+    agent_counts: tuple[int, int] | None = None,
     now: float | None = None,
 ) -> Panel:
     if now is None:
@@ -235,15 +224,9 @@ def build_head(
     row3 = _row_progress(
         rows, status, prd_counts, model.batch_completed_count(state), batch_id, session_start, now, usage
     )
-    row4 = _row_usage(usage, status)
+    row4 = _row_usage(usage, status, agent_counts)
 
-    lines = [row1, row2, row3, row4]
-    if agents is not None:
-        agents.no_wrap = True
-        agents.overflow = "ellipsis"
-        lines.insert(2, agents)
-
-    return Panel(Group(*lines), title=root_name)
+    return Panel(Group(row1, row2, row3, row4), title=root_name)
 
 
 LANE_TITLES = {
