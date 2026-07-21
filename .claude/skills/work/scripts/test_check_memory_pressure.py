@@ -282,3 +282,20 @@ def test_unknown_reason_is_non_empty_after_prefix_for_bad_argv(
     assert captured.out.startswith("unknown:")
     reason = captured.out[len("unknown:") :].strip()
     assert reason != ""
+
+
+# --- --help path ---------------------------------------------------
+
+
+def test_help_flag_exits_successfully(capsys: pytest.CaptureFixture[str]) -> None:
+    # --help is success, not an argument error: it must exit 0 and print
+    # argparse's usage text, never fall into the unknown: exit-2 path that
+    # every other bad-argv case takes.
+    with pytest.raises(SystemExit) as exc_info:
+        check_memory_pressure.main(["--help"])
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "usage" in captured.out.lower()
+    assert "--max-level" in captured.out
+    assert not captured.out.startswith("unknown:")
