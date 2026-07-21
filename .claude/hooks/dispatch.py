@@ -335,6 +335,8 @@ def main(event: str) -> None:
         sys.exit(0)
     payload = _parse_stdin()
     tool = payload.get("tool_name", "")
+    if not isinstance(tool, str):
+        tool = ""
     selected = [
         r
         for r in ROUTES
