@@ -193,35 +193,28 @@ class Collector:
 
 def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> App:
     from textual.app import App, ComposeResult
-    from textual.containers import Horizontal, VerticalScroll
-    from textual.widgets import DataTable, RichLog, Static, Footer
-    from textual.screen import Screen
+    from textual.containers import Horizontal, Vertical, VerticalScroll
+    from textual.widgets import Button, DataTable, RichLog, Static, Footer
+    from textual.screen import ModalScreen, Screen
     from textual.binding import Binding
 
     wrapper_root = forced if forced is not None else (roots[0] if roots else None)
 
-    def _stop_loop(screen: Any, root: Path) -> None:
+    def _interrupt_loop(app: App, root: Path) -> bool:
         """Interrupt the registered wrapper's process group — the same
-        `kill -INT -pid` the wrapper's own ctrl+c handler sends. Guarded by
-        a double press (screen-local arm window)."""
+        `kill -INT -pid` the wrapper's own ctrl+c handler sends. Confirmation
+        is the quit dialog that calls this; True when the interrupt was sent."""
         pid = discovery.live_wrapper_pid(root)
         if pid is None:
-            screen.app.notify(f"no live autoclaude for {root.name} — nothing to stop")
-            return
-        now = time.monotonic()
-        if now >= getattr(screen, "_confirm_kill_until", 0.0):
-            screen._confirm_kill_until = now + 3.0
-            screen.app.notify(
-                f"s stops the {root.name} loop NOW — press s again to confirm",
-                severity="warning",
-            )
-            return
+            app.notify(f"no live autoclaude for {root.name} — nothing to stop")
+            return False
         try:
             os.killpg(pid, signal.SIGINT)
         except OSError as exc:
-            screen.app.notify(f"stop failed: {exc}", severity="error")
-            return
-        screen.app.notify(f"interrupt sent — {root.name} loop tearing down")
+            app.notify(f"stop failed: {exc}", severity="error")
+            return False
+        app.notify(f"interrupt sent — {root.name} loop tearing down")
+        return True
 
     def _touch_pause_marker(app: App, root: Path) -> None:
         try:
@@ -241,12 +234,14 @@ UI keys (never touch a loop)
   a         agent board: subagent and background-CLI lanes with live activity
   f         follow — log auto-scrolls to the newest lines
   y         copy the last 100 rendered log lines to the clipboard
-  q         quit tracon; every loop keeps running (ctrl+c does the same)
+  q         quit dialog: quit UI (loop runs) / stop loop + quit / cancel
+            — answers to q / s / esc directly, so qq = instant quit
+            (ctrl+c is a hidden synonym for quit-UI-only)
   ctrl+p    command palette (themes — the choice persists)
 
 Loop keys (act on the attached / highlighted loop)
   p         request pause — honored at the session boundary; resume: autoclaude
-  s         stop NOW — interrupts that loop's process group (press twice)
+  q → s     stop NOW — interrupts that loop's process group and quits the UI
 
 Status legend
   ● live         session writing within the last 20s
@@ -353,6 +348,52 @@ esc or ? closes this help.
                 )
             )
 
+    class QuitScreen(ModalScreen):
+        """The q dialog: quit the UI (loop keeps running), stop the loop and
+        quit, or cancel. Answers to its keys directly — qq reproduces the old
+        instant detach; the dialog itself is the stop confirmation."""
+
+        BINDINGS = [
+            Binding("q", "quit_ui", "Quit UI"),
+            Binding("s", "stop_and_quit", "Stop loop + quit"),
+            Binding("escape", "app.pop_screen", "Cancel"),
+        ]
+
+        def __init__(self, root: Path | None) -> None:
+            super().__init__()
+            self.root = root
+
+        def compose(self) -> ComposeResult:
+            stop_label = (
+                f"Stop the {self.root.name} loop, then quit  (s)"
+                if self.root is not None
+                else "Stop loop — no loop selected"
+            )
+            with Vertical(id="quit-dialog"):
+                yield Static("Quit tracon?", id="quit-title")
+                yield Button("Quit UI — loop keeps running  (q)", id="quit-ui", variant="primary")
+                yield Button(stop_label, id="stop-quit", variant="error", disabled=self.root is None)
+                yield Button("Cancel  (esc)", id="cancel")
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            if event.button.id == "quit-ui":
+                self.action_quit_ui()
+            elif event.button.id == "stop-quit":
+                self.action_stop_and_quit()
+            else:
+                self.app.pop_screen()
+
+        def action_quit_ui(self) -> None:
+            self.app.exit(return_code=0)
+
+        def action_stop_and_quit(self) -> None:
+            if self.root is None:
+                return
+            if _interrupt_loop(self.app, self.root):
+                self.app.exit(return_code=0)
+            else:
+                self.app.pop_screen()
+
     class DetailScreen(Screen):
         BINDINGS = [
             Binding("escape", "app.pop_screen", "All loops"),
@@ -360,9 +401,8 @@ esc or ? closes this help.
             Binding("a", "show_agents", "Agents"),
             Binding("f", "toggle_follow", "Follow"),
             Binding("y", "copy_tail", "Copy tail"),
-            Binding("q", "app.detach", "Quit UI (loop runs)"),
+            Binding("q", "quit_dialog", "Quit"),
             Binding("p", "pause_loop", "Pause loop"),
-            Binding("s", "stop_loop", "Stop loop"),
             Binding("question_mark", "show_help", "Help", key_display="?"),
         ]
 
@@ -424,8 +464,8 @@ esc or ? closes this help.
         def action_show_agents(self) -> None:
             self.app.push_screen(AgentsScreen(self.root, self.collector))
 
-        def action_stop_loop(self) -> None:
-            _stop_loop(self, self.root)
+        def action_quit_dialog(self) -> None:
+            self.app.push_screen(QuitScreen(self.root))
 
         def action_show_help(self) -> None:
             self.app.push_screen(HelpScreen())
@@ -452,10 +492,9 @@ esc or ? closes this help.
 
     class DashboardScreen(Screen):
         BINDINGS = [
-            Binding("q", "app.detach", "Quit UI (loop runs)"),
+            Binding("q", "quit_dialog", "Quit"),
             Binding("t", "show_tasks", "Tasks"),
             Binding("p", "pause_loop", "Pause loop"),
-            Binding("s", "stop_loop", "Stop selected"),
             Binding("question_mark", "show_help", "Help", key_display="?"),
         ]
 
@@ -514,10 +553,8 @@ esc or ? closes this help.
             if root is not None:
                 _touch_pause_marker(self.app, root)
 
-        def action_stop_loop(self) -> None:
-            root = self._selected_root()
-            if root is not None:
-                _stop_loop(self, root)
+        def action_quit_dialog(self) -> None:
+            self.app.push_screen(QuitScreen(self._selected_root()))
 
         def action_show_tasks(self) -> None:
             root = self._selected_root()
@@ -548,13 +585,27 @@ esc or ? closes this help.
         TasksScreen Horizontal > VerticalScroll {
             margin-right: 3;
         }
+        QuitScreen {
+            align: center middle;
+        }
+        #quit-dialog {
+            width: 46;
+            height: auto;
+            padding: 1 2;
+            background: $surface;
+            border: round $primary;
+        }
+        #quit-dialog Button {
+            width: 100%;
+            margin-top: 1;
+        }
         """
-        # ctrl+c is a hidden synonym for q: exit the UI, never stop a loop.
-        # Stopping is s, which acts on the loop you are looking at — a
-        # ctrl+c that killed the LAUNCHING loop while the cursor highlighted
-        # a different row was a footgun. Wrapper-launched, exit 0 lands on
-        # the wrapper's detach branch (prints the reattach hint); standalone
-        # keeps the SIGINT convention.
+        # ctrl+c is a hidden synonym for quit-UI-only: exit, never stop a
+        # loop. Stopping lives in the q dialog (q → s), which acts on the
+        # loop you are looking at — a ctrl+c that killed the LAUNCHING loop
+        # while the cursor highlighted a different row was a footgun.
+        # Wrapper-launched, exit 0 lands on the wrapper's detach branch
+        # (prints the reattach hint); standalone keeps the SIGINT convention.
         BINDINGS = [Binding("ctrl+c", "quit", "Exit", show=False, priority=True)]
 
         def on_mount(self) -> None:
