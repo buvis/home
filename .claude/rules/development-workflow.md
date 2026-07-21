@@ -8,7 +8,7 @@
 
 2. **Tests ship with the change** (see `rules/testing.md`)
 
-3. **Code review**: immediately after writing code; address CRITICAL and HIGH issues, fix MEDIUM when possible.
+3. **Code review**: mandatory after writing or modifying code, before commits to shared branches, on security-sensitive changes (auth, payments, user data), and on architectural changes. Address CRITICAL and HIGH issues, fix MEDIUM when possible. Watch for N+1 queries.
 
 4. **Commit and push**: conventional commits format, automated checks passing, merge conflicts resolved, branch up to date with target.
 
