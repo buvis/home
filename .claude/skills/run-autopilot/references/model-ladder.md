@@ -83,6 +83,15 @@ probe failed. A non-zero exit reroutes the task and stamps the attempt
 `qwen_excluded_reason` — `memory_pressure` on exit 1, `memory_probe_failed` on
 exit 2 (`state-schema.md` `tasks[].attempts`).
 
+**Unmeasured under load:** `1` was set by symmetry with the autoclaude
+wrapper's memory circuit breaker, not by measurement with a qwen server
+resident. If a loaded server holds the pressure level at 2, routing row 4
+fires on every qwen-eligible task forever, a silent permanent qwen-off
+switch, the opposite of this gate's intent. To close this, next time a
+llama-server is up, run `sysctl -n kern.memorystatus_vm_pressure_level`: a
+reading of 1 confirms the threshold, 2 or higher means it must be raised or
+the gate rethought.
+
 **Revert needs no new env knob:** raise this threshold to `4` (the maximum
 level macOS reports) and the gate's exit 1 verdict, the pressure check, can
 never fire, since the comparison is `<=`. Raising the threshold does not
