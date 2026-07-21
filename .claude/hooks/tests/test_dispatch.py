@@ -1868,6 +1868,57 @@ def test_main_propagates_tuple_handler_block_and_envelope(
     assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "BLOCK-CTX"
 
 
+@pytest.mark.integration
+def test_main_runs_all_handlers_even_after_a_blocker(
+    dispatch, monkeypatch, tmp_path, capsys
+):
+    """PRD 00071: 'Run ALL matching handlers in settings order, never
+    short-circuit on a block (parity with Claude running sibling hooks
+    independently).' Two routes are registered with the BLOCKING handler
+    first, so a short-circuit implementation (e.g. `results = []; for r in
+    selected: ...; if code == 2: break`) would stop before ever invoking the
+    second handler. That second handler's envelope would then be absent from
+    merged stdout, and this test would fail against such an implementation -
+    a single-route test cannot distinguish "stopped after the blocker" from
+    "ran the only handler there was"."""
+    blocker = make_route(
+        tmp_path,
+        "blocker",
+        """
+        def run(payload):
+            return (
+                2,
+                "",
+                "SHORT-CIRCUIT-BLOCK: dangerous command\\n",
+            )
+        """,
+    )
+    second = make_route(
+        tmp_path,
+        "second",
+        """
+        import json
+        def run(payload):
+            return (
+                0,
+                json.dumps(
+                    {"hookSpecificOutput": {"additionalContext": "SECOND-HANDLER-RAN"}}
+                ),
+                "",
+            )
+        """,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [blocker, second])
+    code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
+
+    assert code == 2, "the blocker's exit 2 must still propagate to the process exit code"
+    assert "SHORT-CIRCUIT-BLOCK: dangerous command" in err
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "SECOND-HANDLER-RAN", (
+        "the second handler must run even after the first handler blocked - its "
+        "envelope must reach the merged stdout"
+    )
+
+
 # Vocabulary that identifies the FAULT in a malformed-return report. A line that
 # merely names the handler ("[dispatch] JUNK returned NoneType") carries no
 # detection: an impl can print it on EVERY invocation, success included, and
