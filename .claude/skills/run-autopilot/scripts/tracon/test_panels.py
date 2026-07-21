@@ -631,6 +631,28 @@ def test_phase_strip_expands_review_into_lens_sub_steps() -> None:
     assert plain == "✓ build ─ ✓ consensus ─ ● blind ─ ✓ doubt ─ ○ done"
 
 
+def test_phase_strip_marks_rework_when_lenses_done_but_tasks_reopened() -> None:
+    """Regression (2026-07-21): rework appends tasks while phase stays
+    "review" — the strip showed every lens ✓ and done pending, hiding that a
+    rework cycle was in flight."""
+    raw = {"review_lenses": {"consensus": "done", "blind": "done", "doubt": "done"}}
+    state = _state(phase="review", phases_completed=(), raw=raw, tasks_total=14, tasks_completed=5)
+    plain = panels.phase_strip(state).plain
+    assert plain == "✓ build ─ ✓ consensus ─ ✓ blind ─ ✓ doubt ─ ● rework ─ ○ done"
+
+
+def test_phase_strip_no_rework_node_while_a_lens_still_runs() -> None:
+    raw = {"review_lenses": {"consensus": "done", "blind": "running"}}
+    state = _state(phase="review", phases_completed=(), raw=raw, tasks_total=14, tasks_completed=5)
+    assert "rework" not in panels.phase_strip(state).plain
+
+
+def test_phase_strip_no_rework_node_when_all_tasks_complete() -> None:
+    raw = {"review_lenses": {"consensus": "done", "blind": "done"}}
+    state = _state(phase="review", phases_completed=(), raw=raw, tasks_total=5, tasks_completed=5)
+    assert "rework" not in panels.phase_strip(state).plain
+
+
 def test_phase_strip_review_stays_collapsed_without_lens_stamp() -> None:
     # Standalone runs and pre-field state files carry no review_lenses.
     raw = {"review_lenses": "junk"}

@@ -278,6 +278,21 @@ def review_lenses(state: LoopState) -> list[tuple[str, str]]:
     return [(k, str(raw[k])) for k in ordered]
 
 
+def rework_active(state: LoopState) -> bool:
+    """Rework in flight during the review phase: every stamped lens finished
+    but the task list has grown past the completed count (the review verdict
+    appended rework tasks). phase stays "review" through rework, so this is
+    the only on-disk tell."""
+    lenses = review_lenses(state)
+    if not lenses or any(s == "running" for _, s in lenses):
+        return False
+    return (
+        state.tasks_total is not None
+        and state.tasks_completed is not None
+        and state.tasks_completed < state.tasks_total
+    )
+
+
 def tasks_by_lane(state: LoopState) -> dict[str, list[dict[str, Any]]]:
     """Group the state.tasks snapshot into kanban lanes; unknown or missing
     statuses land in pending, junk entries are dropped."""

@@ -70,6 +70,8 @@ def phase_strip(state: model.LoopState) -> Text:
         # at dispatch); lenses run in parallel, so several can be current.
         nodes = [("build", "done")]
         nodes += [(n, "current" if s == "running" else "done") for n, s in lenses]
+        if model.rework_active(state):
+            nodes.append(("rework", "current"))
         nodes.append(("done", "pending"))
         t = _strip_nodes(nodes)
     else:
