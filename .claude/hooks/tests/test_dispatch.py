@@ -672,6 +672,46 @@ def test_aggregate_all_non_json_yields_empty_stdout(dispatch, capsys):
 
 
 @pytest.mark.unit
+def test_aggregate_logs_dict_stdout_with_no_hookspecificoutput_key(dispatch, capsys):
+    """PRD 00071: a handler emitting valid JSON that IS a dict but carries no
+    hookSpecificOutput key must not vanish with zero trace. The two adjacent
+    failure paths just above it - non-JSON stdout, non-object stdout - both
+    call log(...); today this third path (dict, but no hookSpecificOutput key)
+    falls through `if not isinstance(hso, dict): continue` with no log call at
+    all. Its stdout must still contribute nothing to the merged envelope."""
+    results = [
+        (0, json.dumps({"decision": "block", "reason": "no envelope here"}), ""),
+        (0, env(additionalContext="OK"), ""),
+    ]
+    names = ["NOENV", "PLAIN"]
+    code, out = dispatch._aggregate(results, names)
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso == {"additionalContext": "OK"}  # NOENV's payload contributes nothing
+
+    log_text = dispatch_log_text()
+    assert "noenv" in log_text.lower(), log_text
+
+
+@pytest.mark.unit
+def test_aggregate_well_formed_envelope_logs_nothing(dispatch, capsys):
+    """NEGATIVE CONTROL for the missing-hookSpecificOutput log line above,
+    sharing its detection surface. A handler whose stdout IS a well-formed
+    hookSpecificOutput envelope must not be reported as dropped/faulty.
+    Without this, an impl that logs unconditionally for every dict stdout
+    (well-formed envelopes included) would pass the test above for the wrong
+    reason."""
+    results = [(0, env(additionalContext="FINE"), "")]
+    names = ["FINE"]
+    code, out = dispatch._aggregate(results, names)
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["additionalContext"] == "FINE"
+
+    log_text = dispatch_log_text()
+    assert "fine" not in log_text.lower(), log_text
+
+
+@pytest.mark.unit
 def test_aggregate_unknown_permission_decision_survives(dispatch, capsys):
     """An unrecognized permissionDecision must NOT silently vanish - it passes
     through (parity with the separate hooks) instead of being dropped with no
@@ -889,6 +929,74 @@ def test_no_conflict_emits_no_conflict_warning(dispatch, monkeypatch, tmp_path, 
     surface = err + dispatch_log_text()
     # Neither handler may surface in a conflict/dropped/losing line - there was
     # no conflict to warn about.
+    assert conflict_context_lines(surface, "SOLO") == [], surface
+    assert conflict_context_lines(surface, "PLAIN") == [], surface
+
+
+# --------------------------------------------------------------------------- #
+# Merge-conflict warning generalizes beyond permissionDecision (PRD 00071)
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_aggregate_non_special_key_conflict_earlier_wins_and_warns(dispatch, capsys):
+    """PRD 00071: on ANY hookSpecificOutput key conflict - not just
+    permissionDecision - the earlier handler's value wins AND a warning names
+    both the losing handler and the dropped key. Today's
+    `other.setdefault(key, value)` keeps the earlier value (right) but never
+    reports the drop (wrong): SECOND's "customField" value vanishes with no
+    stderr line and no dispatch.log entry."""
+    results = [
+        (0, env(customField="FIRST"), ""),
+        (0, env(customField="SECOND"), ""),
+    ]
+    names = ["WINNER", "LOSER"]
+    code, out = dispatch._aggregate(results, names)
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["customField"] == "FIRST"  # earlier handler's value still wins
+
+    surface = capsys.readouterr().err + dispatch_log_text()
+    loser_lines = conflict_context_lines(surface, "LOSER")
+    assert loser_lines, surface  # names the losing handler
+    assert any("customField" in ln for ln in loser_lines), surface  # names the dropped key
+    assert conflict_context_lines(surface, "WINNER") == [], surface
+
+
+@pytest.mark.unit
+def test_aggregate_same_key_same_value_no_conflict_warning(dispatch, capsys):
+    """NEGATIVE CONTROL for the key-conflict warning above: two handlers
+    agreeing on the same non-special key's value is not a conflict, so no
+    drop/conflict line may name either. Without this, an impl that warns on
+    every repeated key - agreement included - would pass the conflict test
+    above for the wrong reason."""
+    results = [
+        (0, env(customField="SAME"), ""),
+        (0, env(customField="SAME"), ""),
+    ]
+    names = ["FIRST", "SECOND"]
+    code, out = dispatch._aggregate(results, names)
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["customField"] == "SAME"
+
+    surface = capsys.readouterr().err + dispatch_log_text()
+    assert conflict_context_lines(surface, "FIRST") == [], surface
+    assert conflict_context_lines(surface, "SECOND") == [], surface
+
+
+@pytest.mark.unit
+def test_aggregate_single_handler_setting_key_no_conflict_warning(dispatch, capsys):
+    """NEGATIVE CONTROL: only ONE handler sets a given non-special key (the
+    other only sets additionalContext) - there is no second value to drop, so
+    no conflict/drop line may name either handler."""
+    results = [
+        (0, env(customField="ONLY"), ""),
+        (0, env(additionalContext="CTX"), ""),
+    ]
+    names = ["SOLO", "PLAIN"]
+    code, out = dispatch._aggregate(results, names)
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["customField"] == "ONLY"
+
+    surface = capsys.readouterr().err + dispatch_log_text()
     assert conflict_context_lines(surface, "SOLO") == [], surface
     assert conflict_context_lines(surface, "PLAIN") == [], surface
 
