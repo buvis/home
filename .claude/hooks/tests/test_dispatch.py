@@ -226,18 +226,6 @@ def conflict_context_lines(surface: str, name: str) -> list[str]:
     return out
 
 
-def named_as_dropped(surface: str, name: str) -> bool:
-    """True when `name` is flagged as the dropped/losing handler - it follows a
-    drop verb within a few non-word chars. Distinguishes 'dropping LOSER'
-    (flagged) from 'keeping WINNER, dropping LOSER' (WINNER not flagged)."""
-    pat = re.compile(
-        r"(?:drop\w*|losing|discard\w*|supersed\w*|overrid\w*|ignor\w*)"
-        r"[^\w]{1,4}(?:the |handler ){0,2}" + re.escape(name),
-        re.IGNORECASE,
-    )
-    return bool(pat.search(surface))
-
-
 # --------------------------------------------------------------------------- #
 # capture_main + HandlerTimeout (contract 14)
 # --------------------------------------------------------------------------- #
@@ -712,6 +700,100 @@ def test_aggregate_well_formed_envelope_logs_nothing(dispatch, capsys):
 
 
 @pytest.mark.unit
+def test_aggregate_logs_missing_hookspecificoutput_key_as_missing(dispatch, capsys):
+    """Reviewer finding: the missing-key shape (dict stdout, no
+    hookSpecificOutput key at all) and the non-dict-value shape (key present
+    but not a dict) used to share one log message ("dict stdout with no
+    hookSpecificOutput"), which is factually wrong for the second shape. The
+    missing-key line must say MISSING, name the handler, and must NOT claim a
+    non-dict type (there is no offending value/type to report here)."""
+    results = [
+        (0, json.dumps({"decision": "block", "reason": "no envelope here"}), ""),
+        (0, env(additionalContext="OK"), ""),
+    ]
+    names = ["NOENV", "PLAIN"]
+    code, out = dispatch._aggregate(results, names)
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso == {"additionalContext": "OK"}  # NOENV's payload contributes nothing
+
+    log_text = dispatch_log_text()
+    noenv_lines = [ln for ln in log_text.splitlines() if "noenv" in ln.lower()]
+    assert noenv_lines, log_text
+    assert any("missing" in ln.lower() for ln in noenv_lines), log_text
+    assert not any("non-dict" in ln.lower() for ln in noenv_lines), log_text
+
+
+@pytest.mark.unit
+def test_aggregate_logs_non_dict_hookspecificoutput_names_str_type(dispatch, capsys):
+    """The non-dict-value shape (hookSpecificOutput key present but its value
+    is not a dict - here a string) must be logged as NON-DICT, name the
+    handler, and name the actual Python type (str), distinct from the
+    missing-key shape above."""
+    results = [
+        (0, json.dumps({"hookSpecificOutput": "oops"}), ""),
+        (0, env(additionalContext="OK"), ""),
+    ]
+    names = ["BADSTR", "PLAIN"]
+    code, out = dispatch._aggregate(results, names)
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso == {"additionalContext": "OK"}  # BADSTR's payload contributes nothing
+
+    log_text = dispatch_log_text()
+    badstr_lines = [ln for ln in log_text.splitlines() if "badstr" in ln.lower()]
+    assert badstr_lines, log_text
+    assert any("non-dict" in ln.lower() for ln in badstr_lines), log_text
+    assert any(re.search(r"\bstr\b", ln) for ln in badstr_lines), log_text
+
+
+@pytest.mark.unit
+def test_aggregate_logs_non_dict_hookspecificoutput_names_list_type(dispatch, capsys):
+    """Same non-dict shape but with a list value: the type name in the log
+    line must track the actual offending type (list), not a hardcoded 'str',
+    proving the message reports the real type rather than one fixed string."""
+    results = [(0, json.dumps({"hookSpecificOutput": [1, 2, 3]}), "")]
+    names = ["BADLIST"]
+    code, out = dispatch._aggregate(results, names)
+
+    assert out.strip() == ""  # no well-formed envelope in this batch to merge
+
+    log_text = dispatch_log_text()
+    badlist_lines = [ln for ln in log_text.splitlines() if "badlist" in ln.lower()]
+    assert badlist_lines, log_text
+    assert any("non-dict" in ln.lower() for ln in badlist_lines), log_text
+    assert any(re.search(r"\blist\b", ln) for ln in badlist_lines), log_text
+
+
+@pytest.mark.unit
+def test_aggregate_missing_and_non_dict_shapes_both_drop_well_formed_still_merges(
+    dispatch, capsys
+):
+    """Both failure shapes together in one batch: each must contribute nothing
+    to the merged envelope, logged with their own distinct message, while a
+    well-formed envelope in the same batch still merges normally. Guards
+    against a fix that only distinguishes the two shapes in isolation."""
+    results = [
+        (0, json.dumps({"decision": "block"}), ""),
+        (0, json.dumps({"hookSpecificOutput": "oops"}), ""),
+        (0, env(additionalContext="OK"), ""),
+    ]
+    names = ["NOENV", "BADSTR", "PLAIN"]
+    code, out = dispatch._aggregate(results, names)
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso == {"additionalContext": "OK"}
+
+    log_text = dispatch_log_text()
+    noenv_lines = [ln for ln in log_text.splitlines() if "noenv" in ln.lower()]
+    badstr_lines = [ln for ln in log_text.splitlines() if "badstr" in ln.lower()]
+    assert any("missing" in ln.lower() for ln in noenv_lines), log_text
+    assert not any("non-dict" in ln.lower() for ln in noenv_lines), log_text
+    assert any("non-dict" in ln.lower() for ln in badstr_lines), log_text
+    assert any(re.search(r"\bstr\b", ln) for ln in badstr_lines), log_text
+
+
+@pytest.mark.unit
 def test_aggregate_unknown_permission_decision_survives(dispatch, capsys):
     """An unrecognized permissionDecision must NOT silently vanish - it passes
     through (parity with the separate hooks) instead of being dropped with no
@@ -889,7 +971,7 @@ def test_merge_conflict_warns_naming_losing_handler(dispatch, monkeypatch, tmp_p
     # A real conflict names only the LOSER as dropped, never the WINNER. This
     # kills the "dump every handler name as dropped" impl that never actually
     # detects which one lost.
-    assert not named_as_dropped(surface, "WINNER"), surface
+    assert conflict_context_lines(surface, "WINNER") == [], surface
 
 
 @pytest.mark.integration
@@ -1289,12 +1371,19 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
         """,
         timeout=1,
     )
+    modname = f"_hook_{Path(quick.path).stem}"
+    observed = []
     for _ in range(20):
         code, out, err = dispatch._invoke(quick, {"tool_name": "Bash"})
         assert code == 0
         assert "QUICK-DONE" in out  # completed, never mislabeled timed-out
+        # `_load_handler` re-imports the handler fresh on every call (no
+        # module cache) and leaves the just-executed module under this name
+        # in `sys.modules` without popping it on success, so this is the
+        # exact module instance `_invoke` just ran - read its probe result
+        # before the next iteration's `_invoke` reloads (and replaces) it.
+        observed.extend(sys.modules[modname]._observed)
 
-    observed = dispatch._load_handler(quick.path)._observed
     assert observed == [0] * 20, (
         f"the cap must already be cancelled by the time _invoke validates "
         f"the handler's return; leftover armed seconds per call: {observed!r}"
