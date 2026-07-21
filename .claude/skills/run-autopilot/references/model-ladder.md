@@ -83,6 +83,15 @@ probe failed. A non-zero exit reroutes the task and stamps the attempt
 `qwen_excluded_reason` — `memory_pressure` on exit 1, `memory_probe_failed` on
 exit 2 (`state-schema.md` `tasks[].attempts`).
 
+**Reads pressure level, not headroom:** PRD 00075 says the gate reads RAM
+headroom from host memory stats. The script actually reads
+`kern.memorystatus_vm_pressure_level`, the kernel's pressure notification
+level (1 normal, 2 warning, 4 critical), not computed free RAM. Deliberate:
+it reuses the signal the autoclaude wrapper's memory circuit breaker already
+trusts (`~/.config/bash/plugins/development.plugin.bash`), one definition of
+pressure on this host instead of two. Tradeoff: it lags true headroom, only
+rising once the kernel is already compressing and swapping, a coarse stop.
+
 **Unmeasured under load:** `1` was set by symmetry with the autoclaude
 wrapper's memory circuit breaker, not by measurement with a qwen server
 resident. If a loaded server holds the pressure level at 2, routing row 4
