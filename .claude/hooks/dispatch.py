@@ -205,6 +205,75 @@ def _warn(msg: str) -> None:
     log(msg)
 
 
+def _envelope_of(name, out) -> dict | None:
+    """Parse one handler's stdout as a hookSpecificOutput envelope.
+
+    Returns the inner hookSpecificOutput dict, or None if out is not
+    parseable JSON, not a JSON object, missing hookSpecificOutput, or
+    hookSpecificOutput is not itself an object. Each failure path logs why.
+    """
+    try:
+        obj = json.loads(out)
+    except (ValueError, TypeError):
+        log(f"[dispatch] non-JSON stdout from {name}")
+        return None
+    if not isinstance(obj, dict):
+        log(f"[dispatch] non-object stdout from {name}")
+        return None
+    if "hookSpecificOutput" not in obj:
+        log(f"[dispatch] missing hookSpecificOutput from {name}")
+        return None
+    hso = obj["hookSpecificOutput"]
+    if not isinstance(hso, dict):
+        log(f"[dispatch] non-dict hookSpecificOutput "
+            f"({type(hso).__name__}) from {name}")
+        return None
+    return hso
+
+
+def _pick_decision(envelopes, blocking) -> tuple:
+    """Select the winning permissionDecision from parsed envelopes.
+
+    envelopes is [(name, hso), ...] for handlers whose stdout was a valid
+    envelope, in dispatch order. Returns (decision, reason, losers) where
+    losers is the list of handler names whose permissionDecision was
+    dropped. blocking routes the loser warnings to the log (blocking run)
+    or real stderr (non-blocking run), same rule as _aggregate's stderr.
+    """
+    win_decision = None
+    win_reason = None
+    win_rank = -1
+    win_idx = -1
+    losers: list[str] = []
+
+    for idx, (name, hso) in enumerate(envelopes):
+        if "permissionDecision" not in hso:
+            continue
+        rank = _RANK.get(hso["permissionDecision"], -1)
+        if rank < 0:
+            log(f"[dispatch] unrecognized permissionDecision "
+                f"{hso['permissionDecision']!r} from {name}")
+        # win_idx < 0 registers the FIRST decision even when unranked, so an
+        # unrecognized value passes through (as the separate hooks would) and
+        # never silently vanishes; a known decision still wins on rank.
+        if win_idx < 0 or rank > win_rank:
+            if win_idx >= 0:
+                losers.append(envelopes[win_idx][0])
+            win_decision = hso["permissionDecision"]
+            win_reason = hso.get("permissionDecisionReason")
+            win_rank = rank
+            win_idx = idx
+        else:
+            losers.append(name)
+
+    for loser in losers:
+        msg = (f"[dispatch] permission conflict: dropped permissionDecision "
+               f"from {loser}")
+        (log if blocking else _warn)(msg)
+
+    return win_decision, win_reason, losers
+
+
 def _merge_envelopes(named) -> str:
     """Parse each handler's stdout as a hookSpecificOutput envelope and merge
     additionalContext, the most-restrictive permissionDecision, and any other
@@ -218,55 +287,22 @@ def _merge_envelopes(named) -> str:
     """
     contexts: list[str] = []
     other: dict = {}
-    win_decision = None
-    win_reason = None
-    win_rank = -1
-    win_idx = -1
-    losers: list[str] = []
+    envelopes: list[tuple[str, dict]] = []
     blocking = any(c == 2 for (_n, c, _o, _e) in named)
 
-    for idx, (name, _c, out, _e) in enumerate(named):
+    for name, _c, out, _e in named:
         if not out or not out.strip():
             continue
-        try:
-            obj = json.loads(out)
-        except (ValueError, TypeError):
-            log(f"[dispatch] non-JSON stdout from {name}")
+        hso = _envelope_of(name, out)
+        if hso is None:
             continue
-        if not isinstance(obj, dict):
-            log(f"[dispatch] non-object stdout from {name}")
-            continue
-        if "hookSpecificOutput" not in obj:
-            log(f"[dispatch] missing hookSpecificOutput from {name}")
-            continue
-        hso = obj["hookSpecificOutput"]
-        if not isinstance(hso, dict):
-            log(f"[dispatch] non-dict hookSpecificOutput "
-                f"({type(hso).__name__}) from {name}")
-            continue
+        envelopes.append((name, hso))
         if "additionalContext" in hso:
             ctx = hso["additionalContext"]
             if isinstance(ctx, str):
                 contexts.append(ctx)
             else:
                 log(f"[dispatch] non-str additionalContext from {name}")
-        if "permissionDecision" in hso:
-            rank = _RANK.get(hso["permissionDecision"], -1)
-            if rank < 0:
-                log(f"[dispatch] unrecognized permissionDecision "
-                    f"{hso['permissionDecision']!r} from {name}")
-            # win_idx < 0 registers the FIRST decision even when unranked, so an
-            # unrecognized value passes through (as the separate hooks would) and
-            # never silently vanishes; a known decision still wins on rank.
-            if win_idx < 0 or rank > win_rank:
-                if win_idx >= 0:
-                    losers.append(named[win_idx][0])
-                win_decision = hso["permissionDecision"]
-                win_reason = hso.get("permissionDecisionReason")
-                win_rank = rank
-                win_idx = idx
-            else:
-                losers.append(name)
         for key, value in hso.items():
             if key in ("additionalContext", "permissionDecision",
                        "permissionDecisionReason"):
@@ -278,10 +314,7 @@ def _merge_envelopes(named) -> str:
             else:
                 other[key] = value
 
-    for loser in losers:
-        msg = (f"[dispatch] permission conflict: dropped permissionDecision "
-               f"from {loser}")
-        (log if blocking else _warn)(msg)
+    win_decision, win_reason, _losers = _pick_decision(envelopes, blocking)
 
     inner: dict = {}
     if contexts:
