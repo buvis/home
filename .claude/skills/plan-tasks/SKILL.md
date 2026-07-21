@@ -242,8 +242,18 @@ For each task, classify a model tier and persist it as `metadata.model: "haiku"|
 | Rule | Tier | Trigger |
 |------|------|---------|
 | 1 | `opus` | PRD or task text contains any of: `design`, `architect`, `introduce`, `novel algorithm`, `concurrency`, `migrate`, `refactor across` — OR `files_touched > 8` — OR `estimated_tokens > 120000` |
-| 2 | `haiku` | `files_touched ≤ 2` AND est. lines-changed `≤ 50` AND task text matches a mechanical-pattern signal (`add log`, `rename`, `add test for`, `port`, `mirror`, `inline`, `extract constant`, `update import`, `bump version`) AND no Rule 1 keywords present |
+| 2 | `haiku` | `files_touched ≤ 2` AND est. lines-changed `≤ 50` AND task text matches a mechanical-pattern signal (`add log`, `rename`, `add test for`, `port`, `mirror`, `inline`, `extract constant`, `update import`, `bump version`, `wire`, `disable`, `permission`, `restore`, `pin the`) AND no Rule 1 keywords present |
 | 3 | default | `sonnet`, unless PRD frontmatter `default_model:` is set (see override below) |
+
+**Rule 2 signal-widening rationale (PRD 00075 evidence pass, `dev/local/audit-results/00075-task-mix-evidence.md`).** `wire`, `disable`, `permission`, and `restore` are kept as bare words: their only substring collisions are same-meaning inflections (`disabled`/`disability`, `permissions`/`permissioning`, `restored`/`restoration`; `wire` has no meaningful unrelated collision), so the over-match risk is negligible. `pin` is bound to the phrase `pin the` because the bare word collides with unrelated common words (`mapping`, `opinion`, `spinning`) that share no mechanical-edit meaning. The evidence pass also proposed `complete`, but it is dropped: `complete the <X>` is generic English for "finish X" and does not specifically denote a small mechanical edit (e.g. "complete the retry branch in auth.py" reads identically for trivial and substantive work), and no contiguous-phrase binding removes that ambiguity without becoming too narrow to generalize.
+
+**Row selection (`_PLAN_TASKS_FLOOR`).** An optional `_PLAN_TASKS_FLOOR` value selects which Rule 2 row the classifier applies for this run. It does not compose into the `final_tier = max(...)` formula in "PRD frontmatter override" below — that formula and section are unchanged.
+
+| `_PLAN_TASKS_FLOOR` | Rule 2 row applied |
+|---|---|
+| `legacy` | The pre-00075 row verbatim: `files_touched ≤ 2` AND est. lines-changed `≤ 50` AND task text matches one of exactly these nine signals — `add log`, `rename`, `add test for`, `port`, `mirror`, `inline`, `extract constant`, `update import`, `bump version` — AND no Rule 1 keywords present |
+| `sonnet` | Alias for `legacy` |
+| absent, empty, or any other value | The widened row above. An invalid non-empty value logs one warning line before falling back to the widened row |
 
 **Keyword matching is case-insensitive** for both Rule 1's novelty signals and Rule 2's mechanical-pattern signals — match `Rename module X` the same as `rename module x`, `DESIGN cache layer` the same as `design cache layer`. The signal phrases are stored lowercase; lowercase the task/PRD text before scanning.
 
