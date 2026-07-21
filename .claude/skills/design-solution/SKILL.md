@@ -25,7 +25,7 @@ PRD-owned.
 - Personal skills (files read at runtime): `review-design-doc`
   (`references/cardinal-sins.md`, the single source of truth, inlined into every
   reviewer prompt), `use-codex` (`scripts/codex-run.sh`)
-- Rules: `~/.claude/rules/rationalizations.md` (drives the mandatory reuse sweep)
+- Rules: `~/.claude/rules-library/rationalizations.md` (drives the mandatory reuse sweep)
 - CLI: `codex` (review dispatch). Unavailable: fall back to the Claude subagent
   reviewer documented in the review step
 - Optional: cartographer atlas `~/.claude/cartographer/projects/<hash>/atlas.md`
@@ -60,7 +60,7 @@ context files that exist. Identify the capabilities and features the PRD asks fo
 
 Search the codebase (Bash `rg`; the native Grep tool is absent in this build,
 see rules/tools.md) for existing helpers and patterns that already do what the PRD
-needs, per the synonym sets in `~/.claude/rules/rationalizations.md`
+needs, per the synonym sets in `~/.claude/rules-library/rationalizations.md`
 ("Synonyms-to-grep"). For each capability:
 
 - Search **both** the verb and the noun synonyms (e.g. `format` / `render` /

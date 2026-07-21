@@ -623,7 +623,7 @@ def deny_key(file_path: str, symbols: list[str]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
-_RATIONALIZATIONS_PATH: Path = Path.home() / ".claude" / "rules" / "rationalizations.md"
+_RATIONALIZATIONS_PATH: Path = Path.home() / ".claude" / "rules-library" / "rationalizations.md"
 
 # Verbs whose presence in a symbol name triggers the "Couldn't find existing
 # helper" rationalization (Echo's highest-leverage scenario per PRD).
@@ -636,7 +636,7 @@ _RATIONALIZATIONS_CACHE: dict[str, tuple[str, str]] | None = None
 
 
 def _load_rationalizations() -> dict[str, tuple[str, str]]:
-    """Parse rules/rationalizations.md into {excuse: (why, counter)} once per process."""
+    """Parse rules-library/rationalizations.md into {excuse: (why, counter)} once per process."""
     global _RATIONALIZATIONS_CACHE
     if _RATIONALIZATIONS_CACHE is not None:
         return _RATIONALIZATIONS_CACHE
@@ -729,7 +729,7 @@ def build_deny_envelope(matches: list[dict]) -> dict:
         parts.extend(
             [
                 "",
-                "Rationalization (`rules/rationalizations.md`):",
+                "Rationalization (`rules-library/rationalizations.md`):",
                 "> " + excerpt,
             ]
         )
