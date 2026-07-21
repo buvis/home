@@ -1,4 +1,4 @@
-"""Tests for check_memory_pressure.py — macOS memory pressure headroom check."""
+"""Tests for check_memory_pressure.py — macOS memory pressure notification level check."""
 
 from __future__ import annotations
 

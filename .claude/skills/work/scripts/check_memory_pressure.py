@@ -1,9 +1,10 @@
-"""macOS memory pressure headroom check.
+"""macOS memory pressure notification level check.
 
-Reads ``kern.memorystatus_vm_pressure_level`` via ``sysctl`` and reports whether
-the host currently has memory headroom. Called by the ``/work`` step-3 routing
-table's memory gate to decide whether dispatching qwen (a local, memory-hungry
-model) is safe right now.
+Reads ``kern.memorystatus_vm_pressure_level`` via ``sysctl`` and reports the
+host's current memory pressure notification level (1 normal, 2 warning, 4
+critical). Called by the ``/work`` step-3 routing table's memory gate to
+decide whether dispatching qwen (a local, memory-hungry model) is safe right
+now.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ def _collapse_to_one_line(text: str) -> str:
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check macOS memory pressure headroom.", exit_on_error=False
+        description="Check macOS memory pressure notification level.", exit_on_error=False
     )
     parser.add_argument(
         "--max-level",
