@@ -124,12 +124,14 @@ def main() -> None:
 
 
 def run(payload):
-    """Dispatcher entry point (hooks/dispatch.py). dispatch._invoke already wraps
-    this in _common.capture_main, which feeds `payload` via stdin and traps the
-    exit, so run() is RAW: call main() and return its result. `return` preserves
-    an int exit code; `payload` is unused here (main() reads it from the stdin
-    capture)."""
-    return main()
+    """Dispatcher entry point (hooks/dispatch.py). The handler owns its own
+    capture: `capture_main` feeds `payload` as stdin, captures stdout/stderr and
+    maps main()'s exit, so run() RETURNS the (exit_code, stdout, stderr) triple
+    the dispatcher surfaces unchanged. `_common` is imported here, not at module
+    scope, so the standalone `__main__` path is unaffected."""
+    from _common import capture_main
+
+    return capture_main(main, payload)
 
 
 if __name__ == "__main__":

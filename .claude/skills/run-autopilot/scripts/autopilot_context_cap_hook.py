@@ -44,7 +44,8 @@ between PostToolUse fires, the hook clears the stale marker itself rather
 than relying on the `/work` step-2 Bash clear (which is a backstop). This
 keeps the cap functional even if the model skips step 2 on a subsequent task.
 
-Stdlib only. Self-contained — no `_common` import (this script lives outside
+Stdlib only. The standalone path is self-contained: `_common` is imported only
+inside `run()`, the dispatcher entry point (this script lives outside
 ~/.claude/hooks/).
 """
 
@@ -603,12 +604,14 @@ def main() -> None:
 
 
 def run(payload):
-    """Dispatcher entry point (hooks/dispatch.py). dispatch._invoke already wraps
-    this in _common.capture_main, which feeds `payload` via stdin and traps the
-    exit, so run() is RAW: call main() and return its result. `return` preserves
-    an int exit code; `payload` is unused here (main() reads it from the stdin
-    capture)."""
-    return main()
+    """Dispatcher entry point (hooks/dispatch.py). The handler owns its own
+    capture: `capture_main` feeds `payload` as stdin, captures stdout/stderr and
+    maps main()'s exit, so run() RETURNS the (exit_code, stdout, stderr) triple
+    the dispatcher surfaces unchanged. `_common` is imported here, not at module
+    scope, so the standalone `__main__` path is unaffected."""
+    from _common import capture_main
+
+    return capture_main(main, payload)
 
 
 if __name__ == "__main__":
