@@ -329,6 +329,41 @@ def test_capture_main_systemexit_non_int_is_one(common):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "code_arg",
+    [
+        pytest.param(True, id="bool-true-not-mapped"),
+        pytest.param(False, id="bool-false-not-mapped"),
+    ],
+)
+def test_capture_main_systemexit_bool_code_is_not_mapped(common, code_arg):
+    """`if isinstance(exc.code, int): code = exc.code` lets a bool
+    SystemExit code (sys.exit(True) / sys.exit(False)) pass straight through
+    unmapped, because isinstance(True, int) is True in Python (bool is an int
+    subclass) - worse than the sibling return-value bug, since it assigns the
+    bare True/False object through with no normalization at all. A bool
+    exc.code must instead fall to the same non-int, non-None path that
+    sys.exit("boom") already takes per test_capture_main_systemexit_non_int_is_one
+    above, landing on exit code 1. Asserting the TYPE (not just the value) is
+    what makes this test bite for both parameters: True == 1 and False == 0,
+    so a value-only assertion would pass by coincidence in either branch even
+    if the old bug (letting the bare bool object flow through as code) were
+    still present; the type check is what actually catches it."""
+    def fn():
+        sys.exit(code_arg)
+
+    code, out, err = common.capture_main(fn, {})
+    assert code == 1, (
+        f"main() calling sys.exit({code_arg!r}) must map to exit code 1, "
+        f"got {code!r}"
+    )
+    assert not isinstance(code, bool), (
+        f"capture_main's returned exit code must be a real int, never a bool "
+        f"(got {code!r} of type {type(code).__name__})"
+    )
+
+
+@pytest.mark.unit
 def test_capture_main_isolates_exception_to_zero_with_traceback(common):
     def fn():
         print("before-crash")

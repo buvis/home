@@ -95,7 +95,7 @@ def capture_main(fn: Callable[[], Any], payload: dict) -> tuple[int, str, str]:
             ret = fn()
             code = ret if isinstance(ret, int) and not isinstance(ret, bool) else 0
         except SystemExit as exc:
-            if isinstance(exc.code, int):
+            if isinstance(exc.code, int) and not isinstance(exc.code, bool):
                 code = exc.code
             elif exc.code is None:
                 code = 0
