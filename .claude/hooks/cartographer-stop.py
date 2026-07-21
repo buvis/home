@@ -123,5 +123,14 @@ def main() -> None:
             pass
 
 
+def run(payload):
+    """Dispatcher entry point (hooks/dispatch.py). dispatch._invoke already wraps
+    this in _common.capture_main, which feeds `payload` via stdin and traps the
+    exit, so run() is RAW: call main() and return its result. `return` preserves
+    an int exit code; `payload` is unused here (main() reads it from the stdin
+    capture)."""
+    return main()
+
+
 if __name__ == "__main__":
     main()
