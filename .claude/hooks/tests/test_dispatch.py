@@ -26,14 +26,18 @@ Conventions
 from __future__ import annotations
 
 import collections
+import contextlib
+import functools
 import io
 import json
+import os
 import re
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+import types
 from pathlib import Path
 from uuid import uuid4
 
@@ -819,9 +823,8 @@ def test_merge_conflict_warns_naming_losing_handler(dispatch, monkeypatch, tmp_p
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {
-                "permissionDecision": "deny", "permissionDecisionReason": "FIRST"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {
+                "permissionDecision": "deny", "permissionDecisionReason": "FIRST"}}), "")
         """,
     )
     loser = make_route(
@@ -830,9 +833,8 @@ def test_merge_conflict_warns_naming_losing_handler(dispatch, monkeypatch, tmp_p
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {
-                "permissionDecision": "deny", "permissionDecisionReason": "SECOND"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {
+                "permissionDecision": "deny", "permissionDecisionReason": "SECOND"}}), "")
         """,
     )
     monkeypatch.setattr(dispatch, "ROUTES", [winner, loser])
@@ -864,9 +866,8 @@ def test_no_conflict_emits_no_conflict_warning(dispatch, monkeypatch, tmp_path, 
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {
-                "permissionDecision": "deny", "permissionDecisionReason": "ONLY"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {
+                "permissionDecision": "deny", "permissionDecisionReason": "ONLY"}}), "")
         """,
     )
     plain = make_route(
@@ -875,8 +876,7 @@ def test_no_conflict_emits_no_conflict_warning(dispatch, monkeypatch, tmp_path, 
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {"additionalContext": "CTX"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "CTX"}}), "")
         """,
     )
     monkeypatch.setattr(dispatch, "ROUTES", [solo, plain])
@@ -912,8 +912,7 @@ def test_raising_handler_is_isolated_siblings_run(dispatch, monkeypatch, tmp_pat
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {"additionalContext": "SURVIVED"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "SURVIVED"}}), "")
         """,
     )
     monkeypatch.setattr(dispatch, "ROUTES", [raiser, ok])
@@ -940,8 +939,7 @@ def test_import_error_handler_is_isolated_siblings_run(dispatch, monkeypatch, tm
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {"additionalContext": "AFTERBAD"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "AFTERBAD"}}), "")
         """,
     )
     monkeypatch.setattr(dispatch, "ROUTES", [bad, ok])
@@ -963,8 +961,7 @@ def test_noisy_stdout_does_not_corrupt_merged_json(dispatch, monkeypatch, tmp_pa
         "noisy",
         """
         def run(payload):
-            print("this is raw text, definitely not json")
-            return 0
+            return (0, "this is raw text, definitely not json\\n", "")
         """,
     )
     envelope = make_route(
@@ -973,8 +970,7 @@ def test_noisy_stdout_does_not_corrupt_merged_json(dispatch, monkeypatch, tmp_pa
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {"additionalContext": "CLEAN"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "CLEAN"}}), "")
         """,
     )
     monkeypatch.setattr(dispatch, "ROUTES", [noisy, envelope])
@@ -1031,8 +1027,7 @@ def test_sigalrm_caps_slow_handler(dispatch, tmp_path):
                 time.sleep(3)
             except Exception:
                 pass
-            print("SLOW-FINISHED")
-            return 0
+            return (0, "SLOW-FINISHED", "")
         """,
         timeout=1,
     )
@@ -1060,7 +1055,7 @@ def test_sigalrm_next_handler_still_runs(dispatch, monkeypatch, tmp_path, capsys
                 time.sleep(3)
             except Exception:
                 pass
-            return 0
+            return (0, "", "")
         """,
         timeout=1,
     )
@@ -1070,8 +1065,7 @@ def test_sigalrm_next_handler_still_runs(dispatch, monkeypatch, tmp_path, capsys
         """
         import json
         def run(payload):
-            print(json.dumps({"hookSpecificOutput": {"additionalContext": "FAST"}}))
-            return 0
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "FAST"}}), "")
         """,
     )
     monkeypatch.setattr(dispatch, "ROUTES", [slow, fast])
@@ -1094,8 +1088,7 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
         import time
         def run(payload):
             time.sleep(0.02)
-            print("QUICK-DONE")
-            return 0
+            return (0, "QUICK-DONE", "")
         """,
         timeout=1,
     )
@@ -1103,3 +1096,392 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
         code, out, err = dispatch._invoke(quick, {"tool_name": "Bash"})
         assert code == 0
         assert "QUICK-DONE" in out  # completed, never mislabeled timed-out
+
+
+# --------------------------------------------------------------------------- #
+# run(payload) -> tuple[int, str, str]: the DOCUMENTED handler contract
+# (PRD 00071, feature "run() interface").
+#
+# The handler OWNS its capture and RETURNS (exit_code, stdout, stderr).
+# `_invoke` calls `mod.run(payload)` directly and surfaces that triple as-is.
+#
+# The failure mode these tests exist to make unshippable: if `_invoke` keeps an
+# OUTER `capture_main(lambda: mod.run(payload), payload)` around a handler that
+# now returns a real triple, `capture_main` maps the non-int return to code 0
+# with empty captured streams - every block (exit 2) and every stdout envelope
+# vanishes silently, with no error and no log line.
+# --------------------------------------------------------------------------- #
+SCRIPTS_DIR = HOOKS_DIR.parent / "skills" / "run-autopilot" / "scripts"
+
+# Handlers whose benign path is hermetic (no fs writes, no git, no network) and
+# so is safe to exercise in-process here. Broad per-handler behavior parity for
+# all twelve lives in test_handler_run_parity.py.
+_ENFORCE_PRD_LOCATION = HOOKS_DIR / "enforce_prd_location.py"
+_OBSERVE_TOOL = HOOKS_DIR / "observe_tool.py"
+_REVIEW_COVERAGE_HOOK = SCRIPTS_DIR / "review_coverage_hook.py"
+
+# Markers that flip autopilot/nested handlers off their benign early-return
+# path; cleared so these runs observe quiescent state whatever pytest inherited.
+_QUIESCENT_ENV = ("_AUTOPILOT_LOOP", "CLAUDE_NESTED", "CLAUDE_SESSION_NAME")
+
+
+@contextlib.contextmanager
+def require_in_process_work(mod, who: str):
+    """Witness that `mod.run(payload)` did the handler's real work IN THIS PROCESS.
+
+    PRD 00071 exists to REMOVE the per-hook fork/exec, so `run(payload)` must do
+    its work IN-PROCESS. A `run()` that just re-execs its own script -
+    `subprocess.run([sys.executable, __file__], input=json.dumps(payload), ...)`
+    - reproduces the exit code, stdout, stderr and every side-effect file BY
+    CONSTRUCTION (it is literally the same program), so it satisfies every
+    parity and side-effect assertion in this suite while paying the fork/exec
+    twice. No output-based oracle can tell it apart from a real implementation.
+
+    Denying spawns BY NAME cannot tell it apart either: a one-line `/bin/sh` shim
+    (or a renamed interpreter) hides the interpreter inside the file body, where
+    argv inspection cannot see it. So this oracle is POSITIVE instead - the
+    handler module's own entry point is wrapped with a recorder, and `run()` must
+    make it fire. A child process cannot see a patch applied to the parent's
+    module object, so EVERY subprocess-shaped run() leaves the recorder unfired
+    however the child is launched; so does a no-op `return (0, "", "")`.
+
+    Because it witnesses work instead of policing spawns, a handler's own
+    legitimate child processes still run: review_coverage_hook delegates to
+    check_review_file.py via `python3`, enforce_prd_location shells out to
+    `git rev-parse`. That is pre-existing handler work, not the dispatcher
+    overhead this PRD removes.
+    """
+    own = {
+        name: obj
+        for name, obj in vars(mod).items()
+        if isinstance(obj, types.FunctionType) and name != "run"
+    }
+    # `main` is the documented entry point of every handler script; when a module
+    # has one, only IT counts as the work witness (a trivial helper must not
+    # stand in for the handler's real work). Otherwise fall back to any of the
+    # module's own functions.
+    targets = {"main": own["main"]} if "main" in own else own
+    assert targets, f"{who}: module exposes no work function to witness"
+    fired: list[str] = []
+
+    def recorder(name, real):
+        @functools.wraps(real)
+        def wrapper(*args, **kwargs):
+            fired.append(name)
+            return real(*args, **kwargs)
+
+        return wrapper
+
+    for name, real in targets.items():
+        setattr(mod, name, recorder(name, real))
+    try:
+        yield fired
+    finally:
+        for name, real in targets.items():
+            setattr(mod, name, real)
+
+
+def direct_run(mod, payload):
+    """Call `mod.run(payload)` with NO outer capture_main - the real contract.
+
+    A handler that EXITS or RAISES instead of RETURNING is a contract violation;
+    reporting it as a plain failure (not a stray SystemExit/OSError error) keeps
+    the red message pointed at the missing contract. The call is witnessed so a
+    `run()` that re-execs its own script (or does nothing at all) fails instead
+    of faking the contract.
+    """
+    try:
+        with require_in_process_work(mod, f"{mod.__name__}.run(payload)") as fired:
+            result = mod.run(payload)
+    except SystemExit as exc:
+        pytest.fail(
+            f"{mod.__name__}.run(payload) exited (SystemExit {exc.code!r}) instead of "
+            f"returning (exit_code, stdout, stderr)"
+        )
+    except Exception as exc:
+        pytest.fail(
+            f"{mod.__name__}.run(payload) raised {type(exc).__name__}: {exc}; it must "
+            f"return (exit_code, stdout, stderr)"
+        )
+    assert fired, (
+        f"{mod.__name__}.run(payload) returned without ever entering the module's "
+        f"own work function IN THIS PROCESS. A re-exec (any shape: "
+        f"[sys.executable, __file__], a renamed interpreter, a /bin/sh shim, "
+        f"os.posix_spawn) runs the work in a CHILD, which cannot touch this module "
+        f"object; a no-op never enters it at all."
+    )
+    return result
+
+
+def assert_triple(result, who: str):
+    """Assert `result` is a real (int, str, str) triple and unpack it."""
+    assert isinstance(result, tuple), (
+        f"{who}: run(payload) must return a tuple, got "
+        f"{type(result).__name__} ({result!r})"
+    )
+    assert len(result) == 3, f"{who}: run(payload) must return 3 items, got {result!r}"
+    code, out, err = result
+    assert isinstance(code, int) and not isinstance(code, bool), (
+        f"{who}: exit code must be an int, got {type(code).__name__} ({code!r})"
+    )
+    assert isinstance(out, str), f"{who}: stdout must be a str, got {type(out).__name__}"
+    assert isinstance(err, str), f"{who}: stderr must be a str, got {type(err).__name__}"
+    return code, out, err
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "handler,payload",
+    [
+        pytest.param(
+            _ENFORCE_PRD_LOCATION,
+            {"tool_name": "Bash", "tool_input": {"command": "ls /tmp"}},
+            id="enforce_prd_location",
+        ),
+        pytest.param(_OBSERVE_TOOL, {"tool_name": ""}, id="observe_tool"),
+        pytest.param(_REVIEW_COVERAGE_HOOK, {"session_id": "s"}, id="review_coverage_hook"),
+    ],
+)
+def test_handler_run_returns_triple_when_called_directly(
+    dispatch, monkeypatch, handler, payload
+):
+    """A real handler's `run(payload)` must RETURN (int, str, str) on its own -
+    no outer capture_main, no SystemExit, no reliance on the dispatcher to
+    manufacture the triple. Each payload rides a benign, hermetic path, so the
+    only thing under test is the shape of the return value."""
+    for name in _QUIESCENT_ENV:
+        monkeypatch.delenv(name, raising=False)
+    mod = dispatch._load_handler(str(handler))
+    code, out, err = assert_triple(direct_run(mod, payload), handler.name)
+    assert code == 0, f"{handler.name}: benign payload must not block (got {code})"
+    assert out == "", f"{handler.name}: benign payload must emit no envelope ({out!r})"
+
+
+@pytest.mark.integration
+def test_blocking_handler_run_returns_exit_2_and_reason_when_called_directly(
+    dispatch, monkeypatch
+):
+    """A BLOCK must survive a direct `run(payload)` call: exit code 2 in the
+    returned triple and the BLOCKED reason in the returned stderr. Today the
+    handler exits (SystemExit 2) and only `capture_main` turns that into a
+    triple; with the contract in place the block is the handler's own return
+    value, so the dispatcher cannot silently downgrade it to 0."""
+    for name in _QUIESCENT_ENV:
+        monkeypatch.delenv(name, raising=False)
+    payload = {"tool_name": "Bash", "tool_input": {"command": "ls backlog/"}}
+    mod = dispatch._load_handler(str(_ENFORCE_PRD_LOCATION))
+    code, out, err = assert_triple(direct_run(mod, payload), "enforce_prd_location.py")
+    assert code == 2, "a repo-root lifecycle path must block (exit 2) from run() itself"
+    assert "BLOCKED" in err, f"the block reason must ride the returned stderr: {err!r}"
+    assert out == ""
+
+
+@pytest.mark.integration
+def test_invoke_surfaces_handler_triple_unchanged(dispatch, tmp_path):
+    """THE regression guard for the double-wrap. `_invoke` must return the
+    handler's own (2, stdout, stderr) byte-for-byte. Wrapped in an outer
+    capture_main this collapses to (0, "", "") - block lost, envelope lost, no
+    error, no log line."""
+    route = make_route(
+        tmp_path,
+        "triple",
+        """
+        import json
+        def run(payload):
+            return (
+                2,
+                json.dumps({"hookSpecificOutput": {"additionalContext": "TRIPLE-CTX"}}),
+                "TRIPLE-STDERR\\n",
+            )
+        """,
+    )
+    result = dispatch._invoke(route, {"tool_name": "Bash"})
+    assert result == (2, env(additionalContext="TRIPLE-CTX"), "TRIPLE-STDERR\n"), (
+        f"_invoke must surface the handler's triple unchanged, got {result!r}"
+    )
+
+
+@pytest.mark.integration
+def test_main_propagates_tuple_handler_block_and_envelope(
+    dispatch, monkeypatch, tmp_path, capsys
+):
+    """End to end: a triple-returning handler's block reaches the process exit
+    code, its reason reaches real stderr, and its envelope reaches real stdout."""
+    blocker = make_route(
+        tmp_path,
+        "tupleblock",
+        """
+        import json
+        def run(payload):
+            return (
+                2,
+                json.dumps({"hookSpecificOutput": {"additionalContext": "BLOCK-CTX"}}),
+                "TUPLE-BLOCKED: dangerous command\\n",
+            )
+        """,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [blocker])
+    code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
+
+    assert code == 2, "a handler returning exit 2 must block the tool call"
+    assert "TUPLE-BLOCKED: dangerous command" in err
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "BLOCK-CTX"
+
+
+# Vocabulary that identifies the FAULT in a malformed-return report. A line that
+# merely names the handler ("[dispatch] JUNK returned NoneType") carries no
+# detection: an impl can print it on EVERY invocation, success included, and
+# never check anything. Requiring fault vocabulary forces the line to be the
+# CONSEQUENCE of a check. Deliberately excludes the bare type name and the bare
+# repr - "NoneType" contains "None", so accepting the offending repr would wave
+# that same unconditional spam through for the `none` case.
+_MALFORMED_MARKERS = (
+    "malformed",
+    "invalid",
+    "bad return",
+    "not a tuple",
+    "not a 3-tuple",
+    "3-tuple",
+    "three-tuple",
+    "int, str, str",
+    "must return",
+    "expected",
+)
+
+
+def malformed_report_lines(surface: str, name: str) -> list[str]:
+    """Lines of `surface` that name handler `name` AND identify the fault."""
+    low_name = name.lower()
+    out: list[str] = []
+    for line in surface.splitlines():
+        low = line.lower()
+        if low_name in low and any(m in low for m in _MALFORMED_MARKERS):
+            out.append(line)
+    return out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "returned",
+    [
+        "0",
+        "None",
+        "(2, 'x')",
+        "'nope'",
+        "(0, 'a', 'b', 'c')",
+        "(2, None, 3)",
+        '("0", "", "")',
+    ],
+    ids=[
+        "bare-int",
+        "none",
+        "two-tuple",
+        "string",
+        "four-tuple",
+        "right-arity-wrong-members",
+        "str-exit-code",
+    ],
+)
+def test_invoke_logs_malformed_handler_return_instead_of_reporting_success(
+    dispatch, tmp_path, returned
+):
+    """A handler that returns anything but a real (int, str, str) is a bug, and
+    the dispatcher must say so: no crash, no envelope built from the junk, and a
+    dispatch.log entry NAMING THE FAULT. Silently mapping it to a clean
+    (0, "", "") - what an outer capture_main does - is one forbidden failure;
+    surfacing the junk unchanged is the other. The last two params carry the
+    right ARITY with wrong MEMBER TYPES: `(2, None, 3)` and `("0", "", "")` are
+    3-tuples, so an `_invoke` that only counts members lets them reach
+    `_aggregate`, which writes the int 3 to stderr (TypeError, killing the whole
+    dispatch) and reads the str "0" as an unknown exit code."""
+    # Label "junk", NOT "malformed": the handler's own name must not hand the
+    # implementation a fault word for free, or `[dispatch] JUNK returned
+    # NoneType` would satisfy the fault check while detecting nothing.
+    route = make_route(
+        tmp_path,
+        "junk",
+        f"""
+        def run(payload):
+            return {returned}
+        """,
+    )
+    result = dispatch._invoke(route, {"tool_name": "Bash"})  # must not raise
+    # A real (int, str, str) even here: whatever the handler did, _invoke's own
+    # return value must stay inside the contract its caller (_aggregate) reads.
+    code, out, err = assert_triple(result, "_invoke")
+    assert out == "", f"a malformed return must contribute no stdout, got {out!r}"
+
+    log_text = dispatch_log_text()
+    assert log_text.strip(), (
+        f"a malformed handler return ({returned}) must be logged, not silently "
+        f"accepted as success"
+    )
+    surface = err + log_text
+    assert route.name.lower() in surface.lower(), (
+        f"the malformed return must name the handler {route.name!r}; "
+        f"stderr={err!r} log={log_text!r}"
+    )
+    assert malformed_report_lines(surface, route.name), (
+        f"the report for {returned} must NAME THE FAULT on the line that names "
+        f"{route.name!r}, not merely announce that the handler returned "
+        f"something: expected one of {_MALFORMED_MARKERS}. An unconditional "
+        f"per-invocation debug line detects nothing. stderr={err!r} "
+        f"log={log_text!r}"
+    )
+
+
+@pytest.mark.integration
+def test_invoke_reports_no_fault_for_well_formed_handler_return(dispatch, tmp_path):
+    """NEGATIVE CONTROL for the malformed-return test above, sharing its exact
+    matcher. A handler returning a proper (int, str, str) must produce NO fault
+    report. Without this, an `_invoke` that logs a fault-flavoured line on EVERY
+    invocation - success included - passes the malformed test with zero
+    detection logic; here that same spam names the handler alongside the fault
+    vocabulary and FAILS."""
+    route = make_route(
+        tmp_path,
+        "clean",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+    )
+    result = dispatch._invoke(route, {"tool_name": "Bash"})
+    assert result == (0, "", ""), f"_invoke must surface the triple, got {result!r}"
+
+    surface = result[2] + dispatch_log_text()
+    assert malformed_report_lines(surface, route.name) == [], (
+        f"a well-formed (int, str, str) return must NOT be reported as a fault; "
+        f"got {malformed_report_lines(surface, route.name)!r}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "command,expected_code,expect_blocked",
+    [
+        ("ls backlog/", 2, True),
+        ("ls /tmp", 0, False),
+    ],
+    ids=["blocks", "allows"],
+)
+def test_handler_script_standalone_behavior_unchanged(
+    tmp_path, command, expected_code, expect_blocked
+):
+    """The `__main__` path must keep working exactly as before: run the script
+    with a payload on stdin and it still exits 2 with a BLOCKED reason (or 0
+    with silence). Growing a triple-returning `run()` must not disturb it."""
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [sys.executable, str(_ENFORCE_PRD_LOCATION)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(home)},
+        cwd=str(tmp_path),
+        timeout=30,
+    )
+    assert proc.returncode == expected_code, f"{command!r}: stderr={proc.stderr!r}"
+    assert proc.stdout == ""
+    assert ("BLOCKED" in proc.stderr) is expect_blocked
