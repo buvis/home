@@ -26,8 +26,6 @@ Conventions
 from __future__ import annotations
 
 import collections
-import contextlib
-import functools
 import io
 import json
 import os
@@ -37,12 +35,13 @@ import subprocess
 import sys
 import textwrap
 import time
-import types
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+
+from .dispatch_test_helpers import require_in_process_work
 
 HOOKS_DIR = Path(__file__).resolve().parents[1]
 # PRD 00071 consolidated the per-handler PreToolUse/PostToolUse/Stop matchers
@@ -119,6 +118,29 @@ def make_route(tmp_path, label, src, *, event="PreToolUse", matcher=None, timeou
     path = tmp_path / f"{label}_{_uid()}.py"
     path.write_text(textwrap.dedent(src))
     return Route(event, matcher, label.upper(), str(path), timeout)
+
+
+def set_bash_and_match_all_routes(dispatch_mod, monkeypatch, tmp_path):
+    """Write a Bash-only route and a match-all route, install as dispatch.ROUTES."""
+    bash_route = make_route(
+        tmp_path,
+        "bashonly",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher="Bash",
+    )
+    match_all_route = make_route(
+        tmp_path,
+        "matchall",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher=None,
+    )
+    monkeypatch.setattr(dispatch_mod, "ROUTES", [bash_route, match_all_route])
 
 
 def env(**inner) -> str:
@@ -671,25 +693,7 @@ def test_malformed_tool_name_runs_match_all_but_not_specific_matcher(
     by defensively skipping ALL routing whenever `tool_name` is malformed
     (instead of only the specific-matcher check) would still fail the
     MATCHALL assertion below, since that is its own fail-open in disguise."""
-    bash_route = make_route(
-        tmp_path,
-        "bashonly",
-        """
-        def run(payload):
-            return (0, "", "")
-        """,
-        matcher="Bash",
-    )
-    match_all_route = make_route(
-        tmp_path,
-        "matchall",
-        """
-        def run(payload):
-            return (0, "", "")
-        """,
-        matcher=None,
-    )
-    monkeypatch.setattr(dispatch, "ROUTES", [bash_route, match_all_route])
+    set_bash_and_match_all_routes(dispatch, monkeypatch, tmp_path)
 
     recorded = []
     monkeypatch.setattr(
@@ -716,25 +720,7 @@ def test_missing_tool_name_key_routing_is_unchanged(dispatch, monkeypatch, tmp_p
     must PASS both before and after the tool_name-type guard lands; a guard
     that also changes the missing-key default (not just the wrong-type case)
     has overreached the fix, and this test would catch that regression."""
-    bash_route = make_route(
-        tmp_path,
-        "bashonly",
-        """
-        def run(payload):
-            return (0, "", "")
-        """,
-        matcher="Bash",
-    )
-    match_all_route = make_route(
-        tmp_path,
-        "matchall",
-        """
-        def run(payload):
-            return (0, "", "")
-        """,
-        matcher=None,
-    )
-    monkeypatch.setattr(dispatch, "ROUTES", [bash_route, match_all_route])
+    set_bash_and_match_all_routes(dispatch, monkeypatch, tmp_path)
 
     recorded = []
     monkeypatch.setattr(
@@ -998,14 +984,16 @@ def test_routes_point_at_real_files_with_settings_timeouts(dispatch):
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
 def test_aggregate_block_propagates_and_preserves_stderr(dispatch, capsys):
-    code, out = dispatch._aggregate([(0, "", ""), (2, "", "BLOCK-REASON"), (0, "", "")])
+    code, out = dispatch._aggregate(
+        [(0, "", ""), (2, "", "BLOCK-REASON"), (0, "", "")], ["A", "B", "C"]
+    )
     assert code == 2
     assert "BLOCK-REASON" in capsys.readouterr().err
 
 
 @pytest.mark.unit
 def test_aggregate_all_zero_is_zero(dispatch, capsys):
-    assert dispatch._aggregate([(0, "", ""), (0, "", "")])[0] == 0
+    assert dispatch._aggregate([(0, "", ""), (0, "", "")], ["A", "B"])[0] == 0
 
 
 @pytest.mark.unit
@@ -1015,13 +1003,14 @@ def test_aggregate_all_zero_is_zero(dispatch, capsys):
 )
 def test_aggregate_normalizes_non_0_2_codes(dispatch, capsys, codes, expected):
     results = [(c, "", "") for c in codes]
-    assert dispatch._aggregate(results)[0] == expected
+    names = [f"H{i}" for i in range(len(results))]
+    assert dispatch._aggregate(results, names)[0] == expected
 
 
 @pytest.mark.unit
 def test_aggregate_concatenates_additional_context(dispatch, capsys):
     results = [(0, env(additionalContext="AAA"), ""), (0, env(additionalContext="BBB"), "")]
-    code, out = dispatch._aggregate(results)
+    code, out = dispatch._aggregate(results, ["A", "B"])
     assert code == 0
     merged = json.loads(out)["hookSpecificOutput"]["additionalContext"]
     assert merged == "AAA\n---\nBBB"
@@ -1033,7 +1022,7 @@ def test_aggregate_keeps_context_when_blocked(dispatch, capsys):
         (2, env(additionalContext="AAA"), "blocked"),
         (0, env(additionalContext="BBB"), ""),
     ]
-    code, out = dispatch._aggregate(results)
+    code, out = dispatch._aggregate(results, ["A", "B"])
     assert code == 2
     assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "AAA\n---\nBBB"
 
@@ -1041,7 +1030,7 @@ def test_aggregate_keeps_context_when_blocked(dispatch, capsys):
 @pytest.mark.unit
 def test_aggregate_drops_non_json_stdout(dispatch, capsys):
     results = [(0, "raw non-JSON noise", ""), (0, env(additionalContext="ENV"), "")]
-    code, out = dispatch._aggregate(results)
+    code, out = dispatch._aggregate(results, ["NOISE", "ENV"])
     obj = json.loads(out)  # must be a single valid JSON object
     assert obj["hookSpecificOutput"]["additionalContext"] == "ENV"
     assert "raw non-JSON noise" not in out
@@ -1049,7 +1038,7 @@ def test_aggregate_drops_non_json_stdout(dispatch, capsys):
 
 @pytest.mark.unit
 def test_aggregate_all_non_json_yields_empty_stdout(dispatch, capsys):
-    code, out = dispatch._aggregate([(0, "foo", ""), (0, "bar baz", "")])
+    code, out = dispatch._aggregate([(0, "foo", ""), (0, "bar baz", "")], ["A", "B"])
     assert out.strip() == ""
 
 
@@ -1193,7 +1182,7 @@ def test_aggregate_unknown_permission_decision_survives(dispatch, capsys):
     through (parity with the separate hooks) instead of being dropped with no
     trace, which in a hook-enforcement system would be a silent bypass."""
     results = [(0, env(permissionDecision="block", permissionDecisionReason="RB"), "")]
-    code, out = dispatch._aggregate(results)
+    code, out = dispatch._aggregate(results, ["A"])
     hso = json.loads(out)["hookSpecificOutput"]
     assert hso["permissionDecision"] == "block"
     assert hso["permissionDecisionReason"] == "RB"
@@ -1208,7 +1197,8 @@ def test_aggregate_known_deny_beats_unknown_decision(dispatch, capsys, order):
         (0, env(permissionDecision=d, permissionDecisionReason=d.upper()), "")
         for d in order
     ]
-    hso = json.loads(dispatch._aggregate(results)[1])["hookSpecificOutput"]
+    names = [f"H{i}" for i in range(len(results))]
+    hso = json.loads(dispatch._aggregate(results, names)[1])["hookSpecificOutput"]
     assert hso["permissionDecision"] == "deny"
 
 
@@ -1221,7 +1211,7 @@ def test_aggregate_non_str_additional_context_is_isolated(dispatch, capsys):
         (0, json.dumps({"hookSpecificOutput": {"additionalContext": 123}}), ""),
         (0, env(additionalContext="OK"), ""),
     ]
-    code, out = dispatch._aggregate(results)  # must not raise
+    code, out = dispatch._aggregate(results, ["BAD", "OK"])  # must not raise
     hso = json.loads(out)["hookSpecificOutput"]
     assert hso["additionalContext"] == "OK"
 
@@ -1243,7 +1233,8 @@ def test_aggregate_permission_most_restrictive(dispatch, capsys, order, winner, 
     results = [
         (0, env(permissionDecision=d, permissionDecisionReason=reasons[d]), "") for d in order
     ]
-    hso = json.loads(dispatch._aggregate(results)[1])["hookSpecificOutput"]
+    names = [f"H{i}" for i in range(len(results))]
+    hso = json.loads(dispatch._aggregate(results, names)[1])["hookSpecificOutput"]
     assert hso["permissionDecision"] == winner
     assert hso["permissionDecisionReason"] == winner_reason  # atomic pair
 
@@ -1254,7 +1245,7 @@ def test_aggregate_merges_context_and_permission_into_one_envelope(dispatch, cap
         (0, env(additionalContext="A", permissionDecision="allow", permissionDecisionReason="ra"), ""),
         (0, env(additionalContext="B", permissionDecision="deny", permissionDecisionReason="rd"), ""),
     ]
-    hso = json.loads(dispatch._aggregate(results)[1])["hookSpecificOutput"]
+    hso = json.loads(dispatch._aggregate(results, ["A", "B"])[1])["hookSpecificOutput"]
     assert hso["additionalContext"] == "A\n---\nB"
     assert hso["permissionDecision"] == "deny"
     assert hso["permissionDecisionReason"] == "rd"
@@ -1953,21 +1944,17 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
         timeout=1,
     )
     modname = f"_hook_{Path(quick.path).stem}"
-    observed = []
-    for _ in range(20):
-        code, out, err = dispatch._invoke(quick, {"tool_name": "Bash"})
-        assert code == 0
-        assert "QUICK-DONE" in out  # completed, never mislabeled timed-out
-        # `_load_handler` re-imports the handler fresh on every call (no
-        # module cache) and leaves the just-executed module under this name
-        # in `sys.modules` without popping it on success, so this is the
-        # exact module instance `_invoke` just ran - read its probe result
-        # before the next iteration's `_invoke` reloads (and replaces) it.
-        observed.extend(sys.modules[modname]._observed)
+    code, out, err = dispatch._invoke(quick, {"tool_name": "Bash"})
+    assert code == 0
+    assert "QUICK-DONE" in out  # completed, never mislabeled timed-out
+    # `_load_handler` leaves the just-executed module under this name in
+    # `sys.modules` without popping it on success, so this is the exact
+    # module instance `_invoke` just ran.
+    observed = sys.modules[modname]._observed
 
-    assert observed == [0] * 20, (
+    assert observed == [0], (
         f"the cap must already be cancelled by the time _invoke validates "
-        f"the handler's return; leftover armed seconds per call: {observed!r}"
+        f"the handler's return; leftover armed seconds: {observed!r}"
     )
 
 
@@ -2049,62 +2036,6 @@ _REVIEW_COVERAGE_HOOK = SCRIPTS_DIR / "review_coverage_hook.py"
 # Markers that flip autopilot/nested handlers off their benign early-return
 # path; cleared so these runs observe quiescent state whatever pytest inherited.
 _QUIESCENT_ENV = ("_AUTOPILOT_LOOP", "CLAUDE_NESTED", "CLAUDE_SESSION_NAME")
-
-
-@contextlib.contextmanager
-def require_in_process_work(mod, who: str):
-    """Witness that `mod.run(payload)` did the handler's real work IN THIS PROCESS.
-
-    PRD 00071 exists to REMOVE the per-hook fork/exec, so `run(payload)` must do
-    its work IN-PROCESS. A `run()` that just re-execs its own script -
-    `subprocess.run([sys.executable, __file__], input=json.dumps(payload), ...)`
-    - reproduces the exit code, stdout, stderr and every side-effect file BY
-    CONSTRUCTION (it is literally the same program), so it satisfies every
-    parity and side-effect assertion in this suite while paying the fork/exec
-    twice. No output-based oracle can tell it apart from a real implementation.
-
-    Denying spawns BY NAME cannot tell it apart either: a one-line `/bin/sh` shim
-    (or a renamed interpreter) hides the interpreter inside the file body, where
-    argv inspection cannot see it. So this oracle is POSITIVE instead - the
-    handler module's own entry point is wrapped with a recorder, and `run()` must
-    make it fire. A child process cannot see a patch applied to the parent's
-    module object, so EVERY subprocess-shaped run() leaves the recorder unfired
-    however the child is launched; so does a no-op `return (0, "", "")`.
-
-    Because it witnesses work instead of policing spawns, a handler's own
-    legitimate child processes still run: review_coverage_hook delegates to
-    check_review_file.py via `python3`, enforce_prd_location shells out to
-    `git rev-parse`. That is pre-existing handler work, not the dispatcher
-    overhead this PRD removes.
-    """
-    own = {
-        name: obj
-        for name, obj in vars(mod).items()
-        if isinstance(obj, types.FunctionType) and name != "run"
-    }
-    # `main` is the documented entry point of every handler script; when a module
-    # has one, only IT counts as the work witness (a trivial helper must not
-    # stand in for the handler's real work). Otherwise fall back to any of the
-    # module's own functions.
-    targets = {"main": own["main"]} if "main" in own else own
-    assert targets, f"{who}: module exposes no work function to witness"
-    fired: list[str] = []
-
-    def recorder(name, real):
-        @functools.wraps(real)
-        def wrapper(*args, **kwargs):
-            fired.append(name)
-            return real(*args, **kwargs)
-
-        return wrapper
-
-    for name, real in targets.items():
-        setattr(mod, name, recorder(name, real))
-    try:
-        yield fired
-    finally:
-        for name, real in targets.items():
-            setattr(mod, name, real)
 
 
 def direct_run(mod, payload):
