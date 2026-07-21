@@ -311,8 +311,8 @@ Apply the rows in this order — the first match wins (in practice `qwen_eligibl
 | 2 | Backend `opus` tier | Claude Opus (Agent dispatch) | — |
 | 3 | Backend, `qwen_eligible == true`, `_AUTOPILOT_ESCALATION != "legacy"`, qwen capability breaker tripped (`qwen_breaker.tripped == true`, after the batch-scope check below) | Claude at the task's ORIGINAL tier (`haiku` → Haiku, `sonnet` → Sonnet) — **skip the preflight probe**, stamp the eventual attempt `breaker_skipped:true` | qwen capability breaker (below) |
 | 4 | Backend, `qwen_eligible == true`, row 3 did not fire, and `python3 ~/.claude/skills/work/scripts/check_memory_pressure.py --max-level <ladder § Memory gate value>` exits non-zero | Claude at the task's ORIGINAL tier (`haiku` → Haiku, `sonnet` → Sonnet) — **skip the preflight probe**; stamp the attempt `preflight_outcome: null` and `qwen_excluded_reason: "memory_pressure"` (exit 1) or `"memory_probe_failed"` (exit 2) | `scripts/check_memory_pressure.py` |
-| 5 | Backend, `qwen_eligible == true`, row 3 did not fire, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
-| 6 | Backend, `qwen_eligible == true`, row 3 did not fire, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
+| 5 | Backend, `qwen_eligible == true`, row 3 did not fire, row 4 did not fire, healthy qwen infra | Local qwen via `use-qwen` helper | `references/qwen-integration.md` |
+| 6 | Backend, `qwen_eligible == true`, row 3 did not fire, row 4 did not fire, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
 | 7 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
 
 The memory-pressure gate (row 4) runs only when the table would otherwise reach qwen (now row 5) — it never runs for UI, `opus`, `qwen_eligible == false`, or breaker-skipped tasks.
