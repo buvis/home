@@ -136,11 +136,13 @@ def _subprocess_fallback(path, payload, timeout):
         return 0, "", f"[dispatch] {Path(path).name}: {exc}\n"
 
 
+def _raise_timeout(signum, frame):
+    raise HandlerTimeout()
+
+
 def _invoke(route, payload) -> tuple[int, str, str]:
     """Run one handler under a SIGALRM cap with crash/timeout isolation."""
-    prev = signal.signal(
-        signal.SIGALRM, lambda s, f: (_ for _ in ()).throw(HandlerTimeout())
-    )
+    prev = signal.signal(signal.SIGALRM, _raise_timeout)
     signal.alarm(max(1, int(route.timeout)))
     try:
         mod = _load_handler(route.path)
@@ -208,11 +210,21 @@ def _aggregate(results, names=None) -> tuple[int, str]:
         if not isinstance(hso, dict):
             continue
         if "additionalContext" in hso:
-            contexts.append(hso["additionalContext"])
+            ctx = hso["additionalContext"]
+            if isinstance(ctx, str):
+                contexts.append(ctx)
+            else:
+                log(f"[dispatch] non-str additionalContext from {_name_at(names, idx)}")
         if "permissionDecision" in hso:
             decision_count += 1
             rank = _RANK.get(hso["permissionDecision"], -1)
-            if rank > win_rank:
+            if rank < 0:
+                log(f"[dispatch] unrecognized permissionDecision "
+                    f"{hso['permissionDecision']!r} from {_name_at(names, idx)}")
+            # win_idx < 0 registers the FIRST decision even when unranked, so an
+            # unrecognized value passes through (as the separate hooks would) and
+            # never silently vanishes; a known decision still wins on rank.
+            if win_idx < 0 or rank > win_rank:
                 if win_idx >= 0:
                     losers.append(_name_at(names, win_idx))
                 win_decision = hso["permissionDecision"]

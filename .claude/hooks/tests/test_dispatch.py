@@ -663,6 +663,45 @@ def test_aggregate_all_non_json_yields_empty_stdout(dispatch, capsys):
 
 
 @pytest.mark.unit
+def test_aggregate_unknown_permission_decision_survives(dispatch, capsys):
+    """An unrecognized permissionDecision must NOT silently vanish - it passes
+    through (parity with the separate hooks) instead of being dropped with no
+    trace, which in a hook-enforcement system would be a silent bypass."""
+    results = [(0, env(permissionDecision="block", permissionDecisionReason="RB"), "")]
+    code, out = dispatch._aggregate(results)
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["permissionDecision"] == "block"
+    assert hso["permissionDecisionReason"] == "RB"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("order", [["deny", "block"], ["block", "deny"]])
+def test_aggregate_known_deny_beats_unknown_decision(dispatch, capsys, order):
+    """A known most-restrictive decision still wins over an unranked unknown,
+    regardless of order."""
+    results = [
+        (0, env(permissionDecision=d, permissionDecisionReason=d.upper()), "")
+        for d in order
+    ]
+    hso = json.loads(dispatch._aggregate(results)[1])["hookSpecificOutput"]
+    assert hso["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_aggregate_non_str_additional_context_is_isolated(dispatch, capsys):
+    """A handler emitting a non-str additionalContext must not crash the whole
+    aggregation (per-handler isolation) - it is skipped while a co-running valid
+    envelope still merges."""
+    results = [
+        (0, json.dumps({"hookSpecificOutput": {"additionalContext": 123}}), ""),
+        (0, env(additionalContext="OK"), ""),
+    ]
+    code, out = dispatch._aggregate(results)  # must not raise
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["additionalContext"] == "OK"
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "order,winner,winner_reason",
     [
