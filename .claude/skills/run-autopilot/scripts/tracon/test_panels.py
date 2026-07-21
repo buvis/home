@@ -110,7 +110,6 @@ def _head(**overrides: Any):
         batch_id="B1",
         root_name="myrepo",
         session_start=None,
-        agents=None,
         now=2000.0,
     )
     kwargs.update(overrides)
@@ -544,15 +543,19 @@ def test_header_rows_are_no_wrap_with_ellipsis_overflow() -> None:
         assert text.overflow == "ellipsis"
 
 
-# --- head_rows: content-row count ---------------------------------------------
+# --- build_head row 4: agents running/total counter ---------------------------
 
 
-def test_head_rows_without_agents_is_four() -> None:
-    assert panels.head_rows(None) == 4
+def test_row4_renders_agents_running_over_total() -> None:
+    """The header shows only the count (the A-key agent board has the detail):
+    running lanes over every lane registered this session."""
+    rendered = _render(_head(agent_counts=(2, 9)))
+    assert "agents 2/9" in rendered
 
 
-def test_head_rows_with_agents_is_five() -> None:
-    assert panels.head_rows(Text("agents foo")) == 5
+def test_row4_omits_agents_counter_when_no_lanes_registered() -> None:
+    rendered = _render(_head(agent_counts=(0, 0)))
+    assert "agents" not in rendered
 
 
 # --- PHASES constant ------------------------------------------------------------
@@ -624,11 +627,12 @@ def test_phase_strip_collapses_build_once_review_is_current() -> None:
 def test_phase_strip_expands_review_into_lens_sub_steps() -> None:
     # Lenses run in parallel — several can be current at once; done/failed
     # both render as finished. Canonical order, optional lenses included
-    # only when stamped.
+    # only when stamped. The "● review:" label keeps bare lens names
+    # (consensus, blind, …) readable as review sub-steps.
     raw = {"review_lenses": {"consensus": "done", "blind": "running", "doubt": "failed"}}
     state = _state(phase="review", phases_completed=(), raw=raw)
     plain = panels.phase_strip(state).plain
-    assert plain == "✓ build ─ ✓ consensus ─ ● blind ─ ✓ doubt ─ ○ done"
+    assert plain == "✓ build ─ ● review: ✓ consensus ─ ● blind ─ ✓ doubt ─ ○ done"
 
 
 def test_phase_strip_marks_rework_when_lenses_done_but_tasks_reopened() -> None:
@@ -638,7 +642,7 @@ def test_phase_strip_marks_rework_when_lenses_done_but_tasks_reopened() -> None:
     raw = {"review_lenses": {"consensus": "done", "blind": "done", "doubt": "done"}}
     state = _state(phase="review", phases_completed=(), raw=raw, tasks_total=14, tasks_completed=5)
     plain = panels.phase_strip(state).plain
-    assert plain == "✓ build ─ ✓ consensus ─ ✓ blind ─ ✓ doubt ─ ● rework ─ ○ done"
+    assert plain == "✓ build ─ ● review: ✓ consensus ─ ✓ blind ─ ✓ doubt ─ ● rework ─ ○ done"
 
 
 def test_phase_strip_no_rework_node_while_a_lens_still_runs() -> None:
@@ -691,15 +695,14 @@ def test_phase_strip_attention_forces_bold_red_style() -> None:
     assert _styles_containing(text, "red")
 
 
-# --- agents_row -------------------------------------------------------------
+# --- agents_summary ----------------------------------------------------------
 
 
-def test_agents_row_returns_none_when_nothing_live() -> None:
-    tracker = AgentTracker()
-    assert panels.agents_row(tracker) is None
+def test_agents_summary_empty_tracker_is_zero_zero() -> None:
+    assert panels.agents_summary(AgentTracker()) == (0, 0)
 
 
-def test_agents_row_lists_background_bash_task_alongside_agent_lane() -> None:
+def test_agents_summary_counts_agent_and_bash_lanes_as_running() -> None:
     tracker = AgentTracker()
     tracker.feed(
         {
@@ -709,15 +712,6 @@ def test_agents_row_lists_background_bash_task_alongside_agent_lane() -> None:
             "tool_use_id": "tu1",
             "description": "build task",
             "task_type": "local_agent",
-        }
-    )
-    tracker.feed(
-        {
-            "type": "system",
-            "subtype": "task_progress",
-            "task_id": "t1",
-            "last_tool_name": "Read",
-            "usage": {"tool_uses": 12},
         }
     )
     tracker.feed(
@@ -729,27 +723,12 @@ def test_agents_row_lists_background_bash_task_alongside_agent_lane() -> None:
             ],
         }
     )
-
-    text = panels.agents_row(tracker)
-    assert text is not None
-    plain = text.plain
-
-    assert "agents" in plain
-    assert "build task" in plain
-    assert "⚒Read×12" in plain
-    assert "design review" in plain
+    assert panels.agents_summary(tracker) == (2, 2)
 
 
-def test_agents_row_renders_background_task_as_summary_and_status_glyph_not_agent_shape() -> None:
-    """Agent lanes (kind="local_agent") and background-task lanes
-    (kind="local_bash") are different kinds of live work and must render
-    differently, or a running background reviewer is indistinguishable from a
-    subagent lane. Agents keep the existing `⟨label⟩ ⚒tool×n` shape;
-    background tasks render as `summary ▷status` -- no angle brackets, the
-    task's summary followed by the ▷ glyph and its status. Background-task
-    lanes are registered by AgentTracker._apply_background_tasks from
-    background_tasks_changed events, whose entries carry a status; Lane must
-    expose that status for agents_row to read (natural field name: `status`)."""
+def test_agents_summary_retired_lane_leaves_total_but_drops_running() -> None:
+    """Total is every lane this session, running only the live ones — the
+    header's N/M must not shrink M when an agent finishes."""
     tracker = AgentTracker()
     tracker.feed(
         {
@@ -764,64 +743,22 @@ def test_agents_row_renders_background_task_as_summary_and_status_glyph_not_agen
     tracker.feed(
         {
             "type": "system",
-            "subtype": "task_progress",
+            "subtype": "task_started",
+            "task_id": "t2",
+            "tool_use_id": "tu2",
+            "description": "test task",
+            "task_type": "local_agent",
+        }
+    )
+    tracker.feed(
+        {
+            "type": "system",
+            "subtype": "task_updated",
             "task_id": "t1",
-            "last_tool_name": "Read",
-            "usage": {"tool_uses": 12},
+            "patch": {"status": "completed"},
         }
     )
-    tracker.feed(
-        {
-            "type": "system",
-            "subtype": "background_tasks_changed",
-            "tasks": [
-                {
-                    "task_id": "bg1",
-                    "task_type": "local_bash",
-                    "description": "design review",
-                    "status": "running",
-                }
-            ],
-        }
-    )
-
-    text = panels.agents_row(tracker)
-    assert text is not None
-    plain = text.plain
-
-    assert "⟨build task⟩ ⚒Read×12" in plain
-    assert "design review ▷running" in plain
-    assert "⟨design review⟩" not in plain
-
-
-def test_agents_row_background_task_missing_status_renders_running_not_dangling_marker() -> None:
-    """A background_tasks_changed entry with no "status" key must still fail
-    open to "running" and render `label ▷running` -- never a dangling `▷`
-    with nothing after it. Membership in the running set already means the
-    task is live, so a missing status is not the same as an unknown one."""
-    tracker = AgentTracker()
-    tracker.feed(
-        {
-            "type": "system",
-            "subtype": "background_tasks_changed",
-            "tasks": [
-                {
-                    "task_id": "bg1",
-                    "task_type": "local_bash",
-                    "description": "design review",
-                    # no "status" key
-                }
-            ],
-        }
-    )
-
-    text = panels.agents_row(tracker)
-    assert text is not None
-    plain = text.plain
-
-    assert "design review ▷running" in plain
-    assert "▷ " not in plain  # no dangling marker followed by the " · " separator
-    assert not plain.rstrip().endswith("▷")  # no dangling marker at the end of the row
+    assert panels.agents_summary(tracker) == (1, 2)
 
 
 # --- agents_head / agents_body: the on-demand agent detail screen -----------

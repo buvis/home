@@ -162,7 +162,6 @@ class Collector:
             status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
         )
         status = discovery.pause_pending_status(status, self.root, wrapper)
-        agents = panels.agents_row(self._tracker)
         panel = panels.build_head(
             state=state,
             rows=rows,
@@ -172,9 +171,9 @@ class Collector:
             batch_id=state.batch_id,
             root_name=self.root.name,
             session_start=self._tail.session_start,
-            agents=agents,
+            agent_counts=panels.agents_summary(self._tracker),
         )
-        return panel, panels.head_rows(agents)
+        return panel, 4
 
 
 def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> App:
