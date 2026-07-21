@@ -70,6 +70,33 @@ def _route_tokens(event: str) -> set[str]:
     return tokens
 
 
+def _worst_case_sequential_timeout(event: str) -> int:
+    """Worst-case sequential wall-clock sum, in seconds, of the
+    dispatch.ROUTES handlers dispatch.py can select for one event.
+
+    dispatch.py runs the selected handlers for an event one after another
+    under a single outer command timeout, so that timeout must cover the
+    worst tool name: the one whose matching routes sum to the largest
+    total. matcher=None routes (e.g. all Stop routes) run unconditionally
+    for every tool and are added to every candidate's sum.
+    """
+    dispatch = _load_dispatch()
+    routes = [r for r in dispatch.ROUTES if r.event == event]
+    always = [r for r in routes if r.matcher is None]
+    conditional = [r for r in routes if r.matcher is not None]
+    base = sum(r.timeout for r in always)
+    if not conditional:
+        return base
+    candidates: set[str] = set()
+    for r in conditional:
+        candidates.update(r.matcher.split("|"))
+    worst_conditional = max(
+        sum(r.timeout for r in conditional if dispatch._matches(r.matcher, tool))
+        for tool in candidates
+    )
+    return base + worst_conditional
+
+
 class SettingsWiringTests(unittest.TestCase):
     def test_settings_json_is_valid(self) -> None:
         # Must parse — a malformed settings.json breaks the harness.
@@ -99,13 +126,22 @@ class SettingsWiringTests(unittest.TestCase):
                 f"with the {arg!r} event argument",
             )
 
-    def test_each_dispatched_event_has_a_positive_timeout(self) -> None:
+    def test_each_dispatched_event_timeout_covers_worst_case_sequential_sum(self) -> None:
+        # Handlers for one event run SEQUENTIALLY inside dispatch.py under a
+        # single outer command timeout, so that timeout must cover the worst
+        # case (over every tool name the event can route for) of the SUMMED
+        # per-handler timeouts dispatch.ROUTES selects for that tool. A bare
+        # `> 0` check would pass with e.g. Stop: 1, silently reintroducing the
+        # truncation this sizing exists to prevent.
         for event in _EVENT_ARG:
             timeout = _entries(event)[0]["hooks"][0].get("timeout")
             self.assertIsInstance(timeout, (int, float))
-            self.assertGreater(
-                timeout, 0,
-                f"hooks.{event}[0].hooks[0].timeout must be positive",
+            minimum = _worst_case_sequential_timeout(event)
+            self.assertGreaterEqual(
+                timeout, minimum,
+                f"hooks.{event}[0].hooks[0].timeout ({timeout}) is less than "
+                f"the worst-case sequential sum of dispatch.ROUTES handler "
+                f"timeouts for {event} ({minimum})",
             )
 
     def test_pre_and_post_matchers_are_not_narrower_than_routes(self) -> None:
