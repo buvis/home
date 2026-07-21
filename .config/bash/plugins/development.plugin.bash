@@ -76,6 +76,13 @@ _autopilot_prune_registry() {
   done
 }
 
+# tracon [args...] — launch the autopilot TUI standalone (defaults to loop
+# discovery; pass --root <repo> to pin one). Temporary until tracon ships as
+# a buvis-gems tool; drop this function then.
+tracon() {
+  uv run --quiet --no-project "$HOME/.claude/skills/run-autopilot/scripts/tracon.py" "$@"
+}
+
 # _autoclaude_tracon <args...> — foreground the tracon TUI while the loop runs
 # backgrounded as a process-group leader. See autoclaude's presentation
 # branch (_AUTOPILOT_TRACON=0/1/auto) for the routing decision.
