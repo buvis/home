@@ -4,6 +4,12 @@ Archive of normative prose deleted from `~/.claude/rules/` by PRD 00072
 ("Slim the Always-Loaded Boot Prefix Content"), preserved here because
 `rules-library/` is git-tracked and is not loaded into the session boot prefix.
 
+This file covers 2 of the PRD's 4 deleting commits — `844b21d78` and
+`3f9478fc8`, detailed in the sections below. The other two deleting commits
+record their own drops in their commit bodies, not here: `8d5aea83b` (the
+`rules/testing.md` condense) and `5bb54f288` (the personality-rules merge
+into `rules/operating-principles.md`).
+
 - Source files: `rules/patterns.md`, `rules/security.md`, `rules/code-review.md`
 - Deleting commit: `844b21d78`
 - Date: 2026-07-21
@@ -26,6 +32,7 @@ Archive of normative prose deleted from `~/.claude/rules/` by PRD 00072
 
 ## rules/security.md (only the secret-rotation line was folded forward, into AGENTS.md)
 
+- "The full checklist applies to network-facing services. Local CLIs and tools apply the relevant subset: secrets, plus input validation at trust boundaries." (the section's scoping preamble; dropped outright — not folded forward; absent from `rules/`, `rules-library/`, and `AGENTS.md`)
 - "No hardcoded secrets (API keys, passwords, tokens)"
 - "All user inputs validated"
 - "SQL injection prevention (parameterized queries)"
@@ -71,6 +78,8 @@ nowhere until now.
 ### rules/coding-style.md
 
 - "Prefer immutable data to prevent hidden side effects, simplify debugging, and enable safe concurrency." → survives implicitly: the two bullets directly beneath it in the same Immutability section carry the actual per-language directive.
+- "(e.g. `review-deps-prs`, not `dep-updates`)" — the parenthetical example dropped from the Naming bullet ("Name commands, skills, functions, and anything that performs an action starting with an action verb"). Not recorded elsewhere in `rules/`.
+- The remaining hunks (the Production-Ready Code paragraph reflow, and the Warnings section's hook-filename correction `block-suppression-markers.py` → `block_suppression_markers.py`) are reword/correction-only — every fact present before the commit is still present after it.
 
 ### rules/tools.md
 
@@ -83,6 +92,8 @@ nowhere until now.
 ### rules/development-workflow.md
 
 - "(conventional commit format, no boilerplate trailers, no HEREDOC)" — the parenthetical detailing what "the full policy" covers, dropped from the sentence pointing at the `validate_commit_msg.py` hook. → survives: the **aegis** plugin's `rules/development-workflow.md` doc (lines 15-16, 22, 24) spells out the no-trailer/no-HEREDOC/conventional-format rules enforced by `validate_commit_msg.py`, and rules/development-workflow.md's pointer sentence already directs there.
+- "templates" — dropped from pipeline step 0's search list ("Search GitHub for existing implementations, templates, and patterns" → "search GitHub for existing implementations and patterns"). Not recorded elsewhere in `rules/`.
+- The remaining hunks (steps 1, 3, and 4 of the Feature Implementation Pipeline; the three Bug Fix Discipline bullets; the Commit Messages CRITICAL sentence) are reword/condense-only — every fact present before the commit is still present after it.
 
 ### rules/working-documents.md
 
