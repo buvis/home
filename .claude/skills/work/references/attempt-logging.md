@@ -17,6 +17,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
   "diagnosis": "spec_gap" | "solid_spec" | null,
   "repair_used": true | null,
   "breaker_skipped": true | null,
+  "qwen_excluded_reason": "memory_pressure" | "memory_probe_failed" | null,
   "qwen_gate_failed": true | null,
   "verification": "skipped:<cause>" | null,
   "red_check": "skipped:<cause>" | null,
@@ -42,6 +43,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
 - `diagnosis` (PRD 00065): string?; `"spec_gap"`|`"solid_spec"` — the 2nd-failure diagnosis verdict, stamped on the entry of the rung that was diagnosed.
 - `repair_used` (PRD 00065): bool?; `true` stamped on the entry of the same-tier attempt that ran after a task-description repair; absent otherwise (never written `false`).
 - `breaker_skipped` (PRD 00065): bool?; `true` stamped on a qwen-eligible attempt the breaker rerouted to Claude at original tier (no preflight probe). Absent otherwise.
+- `qwen_excluded_reason` (PRD 00075): string?; `"memory_pressure"` (row 4's `check_memory_pressure.py` exited 1) or `"memory_probe_failed"` (exited 2) — stamped on the entry when `work` SKILL.md step 3 row 4 fired; key omitted otherwise. This is an attempt-scoped RUNTIME field, distinct from the plan-time `task.metadata.qwen_excluded_reason` (`"ui"`/`"tier"`/`"files"`/`"contract"`) that `/plan-tasks` writes — `/work` never rewrites planner metadata. Absent on every attempt written before PRD 00075; readers treat absence as "no pressure exclusion", never an error — the same absence tolerance the neighbouring PRD-00065 fields (`breaker_skipped`, `qwen_gate_failed`) get.
 - `qwen_gate_failed` (PRD 00065): bool?; `true` stamped on an `implementor:"qwen"` entry whose step-5.5 gate FAILED — the durable signal the qwen capability breaker keys on. Absent otherwise.
 
 **Best-effort gate stamps (fail-loud markers, PRD 00084 R2d)**: each records that a per-task gate was skipped or failed rather than passed, so a skipped check never reads as a passed one (`rules/operating-principles.md`). All optional — absent means the gate ran normally (or its tier-skip applied). They are pass-through markers: none blocks the task or changes `outcome`.
