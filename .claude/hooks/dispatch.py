@@ -148,12 +148,7 @@ def _raise_timeout(signum, frame):
 
 
 def _invoke(route, payload) -> tuple[int, str, str]:
-    """Run one handler under a SIGALRM cap with crash/timeout isolation.
-
-    `run(payload)` already returns (exit_code, stdout, stderr); it is called
-    directly and its triple surfaced unchanged. Anything else is a handler bug:
-    it is logged as a fault and contributes no stdout.
-    """
+    """Run one handler under a SIGALRM cap with crash/timeout isolation."""
     prev = signal.signal(signal.SIGALRM, _raise_timeout)
     signal.alarm(max(1, int(route.timeout)))
     try:
