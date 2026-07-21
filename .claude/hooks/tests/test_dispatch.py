@@ -741,6 +741,74 @@ def test_aggregate_merges_context_and_permission_into_one_envelope(dispatch, cap
 
 
 # --------------------------------------------------------------------------- #
+# _aggregate: non-blocking handler stderr excluded from the block reason
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_non_blocking_stderr_excluded_from_block_reason(dispatch, capsys):
+    """When the aggregate exit code is 2, only the stderr of handlers that
+    themselves returned 2 may reach the real stderr - a non-blocking sibling's
+    stderr must not be concatenated into the model-visible block reason. This
+    MUST fail against the current implementation, which writes every handler's
+    stderr to real stderr regardless of that handler's own exit code."""
+    results = [
+        (2, "", "BLOCKED: dangerous command\n"),
+        (0, "", "[some-hook] non-blocking note\n"),
+    ]
+    names = ["BLOCKER", "NOTER"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "BLOCKED: dangerous command" in err
+    assert "non-blocking note" not in err
+
+
+@pytest.mark.unit
+def test_non_blocking_stderr_recorded_in_dispatch_log(dispatch, capsys):
+    """A non-blocking handler's stderr, suppressed from real stderr on a
+    blocking run, must not vanish silently - it lands in the dispatch log."""
+    results = [
+        (2, "", "BLOCKED: dangerous command\n"),
+        (0, "", "[some-hook] non-blocking note\n"),
+    ]
+    names = ["BLOCKER", "NOTER"]
+    dispatch._aggregate(results, names)
+    capsys.readouterr()  # drain; real-stderr content is not under test here
+    assert "non-blocking note" in dispatch_log_text()
+
+
+@pytest.mark.unit
+def test_stderr_not_suppressed_when_no_handler_blocks(dispatch, capsys):
+    """When the aggregate exit code is 0, current behavior is preserved: every
+    handler's stderr still reaches real stderr. Locks in that the block-reason
+    fix does not over-suppress a non-blocking run."""
+    results = [
+        (0, "", "[hook-a] note-a\n"),
+        (0, "", "[hook-b] note-b\n"),
+    ]
+    names = ["A", "B"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 0
+    err = capsys.readouterr().err
+    assert "note-a" in err
+    assert "note-b" in err
+
+
+@pytest.mark.unit
+def test_blocking_stderr_order_preserved_across_handlers(dispatch, capsys):
+    """When multiple handlers block, their stderr must reach real stderr in
+    handler order."""
+    results = [
+        (2, "", "FIRST-BLOCK\n"),
+        (2, "", "SECOND-BLOCK\n"),
+    ]
+    names = ["FIRST", "SECOND"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 2
+    err = capsys.readouterr().err
+    assert err.index("FIRST-BLOCK") < err.index("SECOND-BLOCK")
+
+
+# --------------------------------------------------------------------------- #
 # Merge-conflict warning names the losing handler (acceptance 6)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
