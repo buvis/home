@@ -40,7 +40,7 @@ classifier; it does not re-derive it.
 | Rung(s) | Budget |
 |---------|--------|
 | Claude rungs (haiku / sonnet / opus) | **2 dispatches**: initial + one feedback retry. The 2nd gate failure at a rung triggers diagnosis. |
-| qwen | **1 dispatch**: no same-tier feedback retry. A qwen gate failure escalates immediately (this is the qwen one-shot budget; the Capability ladders section below names it the `qwen -> sonnet` edge). |
+| qwen | **1 dispatch per task**: no same-tier feedback retry. A qwen gate failure escalates immediately (this is the qwen one-shot-per-task budget; the Capability ladders section below names it the `qwen -> sonnet` edge). Scoped per task, not per PRD or per batch — every qwen-eligible task gets its own independent one-shot budget. |
 | Repair | **At most 1 per task, total** (Claude rungs only; qwen never gets a repair). |
 
 Worst-case examples:
@@ -68,13 +68,40 @@ seam later.
 - A **capability** failure (a real test-gate failure) escalates UP the
   capability ladder, after diagnosis.
 
+## Memory gate
+
+`/work` step 3 routing row 4 (`work/SKILL.md`) reroutes a qwen-eligible task
+to Claude at its original tier when the host is short on RAM, via:
+
+    python3 ~/.claude/skills/work/scripts/check_memory_pressure.py --max-level <threshold>
+
+**Threshold: `1`** — the highest `kern.memorystatus_vm_pressure_level` the
+script still calls healthy (its own Python default, mirrored here because the
+ladder is this file's single source of the number). The script compares
+`level <= max_level`: exit 0 = headroom OK, exit 1 = under pressure, exit 2 =
+probe failed. A non-zero exit reroutes the task and stamps the attempt
+`qwen_excluded_reason` — `memory_pressure` on exit 1, `memory_probe_failed` on
+exit 2 (`state-schema.md` `tasks[].attempts`).
+
+**Revert needs no new env knob:** raise this threshold to `4` — the maximum
+level macOS reports — and the gate can never fire, since the comparison is
+`<=`. This works ONLY because the routing row reads `--max-level` from this
+section explicitly, at dispatch time; there is no `_AUTOPILOT_*` switch for
+this gate.
+
+**Not guarded by `_AUTOPILOT_ESCALATION`** (unlike the qwen capability
+breaker below): this is a host-safety mechanism, not a quality mechanism, and
+keeps firing even under `_AUTOPILOT_ESCALATION=legacy`.
+
 ## Ordering
 
 There are TWO separately-scoped orderings, NOT one single linear chain:
 
 1. **Routing-time order** (per task, at implementor selection): qwen breaker
-   consult -> qwen infra preflight -> dispatch. A tripped breaker
-   short-circuits before the preflight.
+   consult -> memory-pressure gate -> qwen infra preflight -> dispatch. A
+   tripped breaker short-circuits before the memory-pressure gate and the
+   preflight; a memory-pressure gate fire short-circuits before the
+   preflight.
 2. **Failure-classification rule** (at the gate, or on a lost result): infra
    failure -> fall back same tier; capability failure -> diagnose, where
    **repair precedes escalate**.
@@ -90,6 +117,12 @@ chain. They are scoped to different moments.
   (today's same-tier "max 2 implementation retries" cap). The qwen one-shot
   carve-out (qwen fail -> Claude Sonnet) still applies. Any other value or
   absent -> the new flow.
+- `_PLAN_TASKS_FLOOR=legacy` (alias: `sonnet`): read by `/plan-tasks`,
+  plan-time only — no `/work` dispatch-time effect. Currently a documented
+  no-op: the classifier rule-widening this knob was built to revert was
+  withdrawn after review, so the `legacy` row and the current row of the
+  step 4.7 tier classifier are identical — setting it changes nothing today.
+  Any other value or absent -> the same (unchanged) classifier row.
 - Reserved (declared by future PRDs, env var names TBD by each): a
   sonnet-first + Fable-rescue knob (PRD 00076), a codex-rung activation knob
   (PRD 00077), a decay knob (PRD 00078).
