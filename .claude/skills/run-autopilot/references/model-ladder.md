@@ -136,10 +136,12 @@ chain. They are scoped to different moments.
 
 - `_AUTOPILOT_ESCALATION=legacy`: read by `/work` step 5.5. When set to
   `legacy`, skips diagnosis, repair, escalation, attribution stamping, AND the
-  qwen capability breaker; the flow becomes byte-identical to pre-00065
-  (today's same-tier "max 2 implementation retries" cap). The qwen one-shot
-  carve-out (qwen fail -> Claude Sonnet) still applies. Any other value or
-  absent -> the new flow.
+  qwen capability breaker; the escalation machinery becomes byte-identical to
+  pre-00065 (today's same-tier "max 2 implementation retries" cap). The
+  memory-pressure gate (routing row 4) is not disabled by this knob and keeps
+  firing under `legacy` (see § Memory gate). The qwen one-shot carve-out (qwen
+  fail -> Claude Sonnet) still applies. Any other value or absent -> the new
+  flow.
 - `_PLAN_TASKS_FLOOR=legacy` (alias: `sonnet`): read by `/plan-tasks`,
   plan-time only — no `/work` dispatch-time effect. Currently a documented
   no-op: the classifier rule-widening this knob was built to revert was
