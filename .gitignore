@@ -19,6 +19,8 @@
 !.claude/skills-library/**
 .claude/skills/**/dev/
 .claude/skills/**/node_modules/
+.claude/skills-library/**/dev/
+.claude/skills-library/**/node_modules/
 .claude/skills/brief-portfolio/app/dist/
 !.claude/workflows/
 !.claude/workflows/**
