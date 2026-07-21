@@ -222,10 +222,7 @@ def test_exits_unknown_on_unparseable_max_level_argument(
     # An unparseable --max-level must still honour the one-line stdout
     # contract, not exit with argparse's own status and stderr-only output
     # (which the caller cannot record as a reason).
-    try:
-        exit_code = check_memory_pressure.main(["--max-level", "abc"])
-    except SystemExit as exc:
-        exit_code = exc.code
+    exit_code = check_memory_pressure.main(["--max-level", "abc"])
 
     assert exit_code == 2
     captured = capsys.readouterr()
