@@ -79,6 +79,14 @@ def _worst_case_sequential_timeout(event: str) -> int:
     worst tool name: the one whose matching routes sum to the largest
     total. matcher=None routes (e.g. all Stop routes) run unconditionally
     for every tool and are added to every candidate's sum.
+
+    EXACT ONLY FOR FLAT PIPE-ALTERNATION MATCHERS, the same caveat the
+    matcher-coverage test carries. Candidate tool names come from splitting
+    matchers on '|', so a grouped or nested regex (e.g. `mcp__(a|b)__.*`)
+    would yield tokens that match nothing, the real worst-case tool would be
+    missed, and this would return a minimum BELOW the true bound - silently
+    reopening the truncation the assertion exists to catch. Add such a route
+    and you must teach this helper about it.
     """
     dispatch = _load_dispatch()
     routes = [r for r in dispatch.ROUTES if r.event == event]
@@ -87,9 +95,7 @@ def _worst_case_sequential_timeout(event: str) -> int:
     base = sum(r.timeout for r in always)
     if not conditional:
         return base
-    candidates: set[str] = set()
-    for r in conditional:
-        candidates.update(r.matcher.split("|"))
+    candidates = _route_tokens(event)
     worst_conditional = max(
         sum(r.timeout for r in conditional if dispatch._matches(r.matcher, tool))
         for tool in candidates
