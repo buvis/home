@@ -1,9 +1,11 @@
 """Parity tests for the in-process `run(payload)` entry point on 12 hook handlers.
 
-CONTRACT under test (RED until each handler grows a module-level `run`): for a
-given JSON payload, invoking a handler in-process via
+CONTRACT under test (PRD 00071, feature "run() interface"): each handler exposes
+`run(payload: dict) -> tuple[int, str, str]`. For a given JSON payload, calling
+that entry point DIRECTLY - no outer capture_main, the handler owns its own
+capture -
 
-    _common.capture_main(lambda: mod.run(payload), payload)
+    code, out, err = mod.run(payload)
 
 MUST produce the SAME exit_code and the SAME stdout as running that handler as a
 standalone subprocess:
@@ -33,18 +35,24 @@ resolve under the temp HOME.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import importlib.util
 import json
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-HOOKS_DIR = Path("/Users/bob/.claude/hooks")
-SCRIPTS_DIR = Path("/Users/bob/.claude/skills/run-autopilot/scripts")
+# Derived from THIS file, never hardcoded: an absolute `/Users/bob/.claude/hooks`
+# would make the suite load and subprocess whatever is INSTALLED there, so in a
+# git worktree it would pass no matter how broken the checkout under test is.
+HOOKS_DIR = Path(__file__).resolve().parents[1]
+SCRIPTS_DIR = HOOKS_DIR.parent / "skills" / "run-autopilot" / "scripts"
 
 # Both dirs on sys.path so the test's `import _common` AND the handlers' own
 # sibling imports (`_common`, `_lib_cartographer`, `_walk_up`) resolve during an
@@ -64,15 +72,27 @@ _STRIP_ENV = ("_AUTOPILOT_LOOP", "CLAUDE_NESTED", "CLAUDE_SESSION_NAME")
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _load_common():
-    """Import the shared `_common` (resolved via HOOKS_DIR on sys.path).
+def _purge_sibling_modules() -> None:
+    """Drop cached sibling libraries (`_common`, `_walk_up`, `_lib_cartographer`)
+    so the next handler load re-executes their bodies under the CURRENT temp HOME.
 
-    Imported lazily, mirroring test_dispatch.py, so the sys.path setup above can
-    precede it without a module-level import-after-code.
+    Some of them create their store directory at IMPORT time from `Path.home()`.
+    Left cached from an EARLIER test's temp HOME, that mkdir never re-runs, and a
+    later handler's append then fails with ENOENT under the current HOME
+    (measured: cartographer-stop's audit.jsonl, once cartographer-echo has
+    imported the shared library first). That is a cross-test artifact, not a
+    handler defect, and it would forge a file-tree mismatch below.
+
+    Scoped to underscore-prefixed modules living DIRECTLY in the two handler
+    dirs - the documented sibling set plus this file's own `_hook_*` loads - so
+    `dispatch` (imported at the real HOME by the sibling test module) is left
+    alone.
     """
-    import _common
-
-    return _common
+    roots = {str(HOOKS_DIR), str(SCRIPTS_DIR)}
+    for name, mod in list(sys.modules.items()):
+        file = getattr(mod, "__file__", None)
+        if name.startswith("_") and file and str(Path(file).parent) in roots:
+            del sys.modules[name]
 
 
 def _load_handler(path: str):
@@ -83,6 +103,7 @@ def _load_handler(path: str):
     patched at load time. Sibling imports resolve via sys.path, independent of
     this name.
     """
+    _purge_sibling_modules()
     stem = Path(path).stem
     name = f"_hook_{stem}_{uuid4().hex[:8]}"
     spec = importlib.util.spec_from_file_location(name, path)
@@ -111,6 +132,11 @@ def _glob_nonempty(root: Path, pattern: str) -> bool:
     return any(_nonempty(p) for p in root.glob(pattern))
 
 
+def _tree(home: Path) -> list[str]:
+    """The relative, sorted shape of everything a leg wrote under its HOME."""
+    return sorted(str(p.relative_to(home)) for p in home.rglob("*"))
+
+
 def _last_json_row(path: Path) -> dict:
     """Parse the last non-empty JSONL line of `path` (the row just appended)."""
     lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -123,6 +149,64 @@ def _one_nonempty_glob(root: Path, pattern: str) -> Path:
     matches = [p for p in root.glob(pattern) if _nonempty(p)]
     assert matches, f"no non-empty file at {root}/{pattern}"
     return matches[0]
+
+
+@contextlib.contextmanager
+def require_in_process_work(mod, who: str):
+    """Witness that `mod.run(payload)` did the handler's real work IN THIS PROCESS.
+
+    THE ORACLE HOLE this closes: every assertion in this file compares the
+    in-process leg against a subprocess leg. A `run()` that just re-execs its own
+    script - `subprocess.run([sys.executable, __file__], input=json.dumps(payload),
+    ...)` - reproduces the exit code, stdout, stderr AND every side-effect file
+    BY CONSTRUCTION, because it is literally the same program the expected leg
+    runs. No output-based comparison can tell it apart, and it is strictly SLOWER
+    than the code PRD 00071 replaces (fork/exec paid twice against a target of one
+    python spawn per pre/post hook).
+
+    Denying spawns BY NAME cannot close it: the interpreter is trivially hidden
+    behind a one-line `/bin/sh` shim (or a renamed interpreter), where argv
+    inspection sees only the shim path. So this oracle is POSITIVE instead - the
+    handler module's own entry point is wrapped with a recorder, and `run()` must
+    make it fire. A child process cannot touch the parent's module object, so
+    EVERY subprocess-shaped run() leaves the recorder unfired regardless of how
+    the child is launched. A no-op `return (0, "", "")` leaves it unfired too.
+
+    Because it witnesses work instead of policing spawns, a handler's own
+    legitimate child processes still run: review_coverage_hook delegates to
+    check_review_file.py via `python3`, enforce_prd_location shells out to
+    `git rev-parse`. That is pre-existing handler work, not dispatcher overhead.
+
+    Applied to the IN-PROCESS leg only; the subprocess leg must of course spawn.
+    """
+    own = {
+        name: obj
+        for name, obj in vars(mod).items()
+        if isinstance(obj, types.FunctionType) and name != "run"
+    }
+    # `main` is the documented entry point of every handler script; when a module
+    # has one, only IT counts as the work witness (a trivial helper must not
+    # stand in for the handler's real work). Otherwise fall back to any of the
+    # module's own functions.
+    targets = {"main": own["main"]} if "main" in own else own
+    assert targets, f"{who}: module exposes no work function to witness"
+    fired: list[str] = []
+
+    def recorder(name, real):
+        @functools.wraps(real)
+        def wrapper(*args, **kwargs):
+            fired.append(name)
+            return real(*args, **kwargs)
+
+        return wrapper
+
+    for name, real in targets.items():
+        setattr(mod, name, recorder(name, real))
+    try:
+        yield fired
+    finally:
+        for name, real in targets.items():
+            setattr(mod, name, real)
 
 
 def _run_subprocess(path: str, payload: dict, home: Path, cwd: Path, env_extra=None):
@@ -155,14 +239,55 @@ def _run_in_process(path: str, payload: dict, home: Path, cwd: Path, monkeypatch
     monkeypatch.chdir(cwd)
     mod = _load_handler(path)  # loaded AFTER HOME is patched
     # Requirement (a): a real, callable module-level run(payload) must exist.
-    # Asserted BEFORE capture_main so a missing run fails loudly here instead of
+    # Asserted BEFORE the call so a missing run fails loudly here instead of
     # being swallowed into a false (0, "") that would spuriously match a benign
     # subprocess run.
     assert hasattr(mod, "run") and callable(mod.run), (
         f"{Path(path).name}: module-level run(payload) is missing or not callable"
     )
-    common = _load_common()
-    code, out, err = common.capture_main(lambda: mod.run(payload), payload)
+    name = Path(path).name
+    # Requirement (b): run(payload) is called DIRECTLY. The handler owns its own
+    # capture and RETURNS (exit_code, stdout, stderr); wrapping it in an outer
+    # capture_main here would map that triple to a bogus (0, "", "") and make
+    # every leg of this parity suite agree on nothing.
+    # Requirement (c): it does that work IN-PROCESS. See require_in_process_work:
+    # a run() that re-execs its own script passes every parity assertion in this
+    # file by construction, so the witness - not the comparison - is what catches it.
+    try:
+        with require_in_process_work(mod, name) as fired:
+            result = mod.run(payload)
+    except SystemExit as exc:
+        pytest.fail(
+            f"{name}: run(payload) exited (SystemExit {exc.code!r}) instead of "
+            f"returning (exit_code, stdout, stderr)"
+        )
+    except Exception as exc:
+        # e.g. a handler that still reads the real sys.stdin: run() must feed
+        # `payload` itself, not lean on a caller to swap the stream.
+        pytest.fail(
+            f"{name}: run(payload) raised {type(exc).__name__}: {exc}; it must "
+            f"return (exit_code, stdout, stderr)"
+        )
+    assert fired, (
+        f"{name}: run(payload) returned without ever entering the module's own "
+        f"work function IN THIS PROCESS. A re-exec (any shape: [sys.executable, "
+        f"__file__], a renamed interpreter, a /bin/sh shim, os.posix_spawn) runs "
+        f"the work in a CHILD, which cannot touch this module object; a no-op "
+        f"`return (0, \"\", \"\")` never enters it at all. Both reproduce a benign "
+        f"parity result while doing none of the handler's work in-process."
+    )
+    assert isinstance(result, tuple) and len(result) == 3, (
+        f"{name}: run(payload) must return a 3-tuple (exit_code, stdout, stderr), "
+        f"got {type(result).__name__} ({result!r})"
+    )
+    code, out, err = result
+    assert isinstance(code, int) and not isinstance(code, bool), (
+        f"{name}: exit code must be an int, got {type(code).__name__} ({code!r})"
+    )
+    assert isinstance(out, str) and isinstance(err, str), (
+        f"{name}: stdout/stderr must be str, got "
+        f"{type(out).__name__}/{type(err).__name__}"
+    )
     return code, out, err
 
 
@@ -272,6 +397,14 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     writes can perturb the other. For benign handlers both legs agree at
     (0, "") - a valid but weak parity check; for enforce_prd_location both legs
     agree at (2, "") - a case a trivial `(0, "")` stub cannot fake.
+
+    The FILE-TREE assertion carries the rest of the weight, with no per-handler
+    fixture: whatever the subprocess wrote under its HOME, the in-process leg
+    must have written too. A no-op `run()` leaves an empty tree, so notify
+    (notify.log), cartographer-stop and analyze-instincts (their stores) and
+    observe_tool (its observation row) all fail on it. Verified deterministic:
+    running each handler twice under different HOMEs and cwds yields identical
+    trees for all twelve, so nothing here needs normalizing.
     """
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
     code_sub, out_sub, _ = _run_subprocess(path, payload, sub_home, sub_cwd)
@@ -282,6 +415,11 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     assert (code_in, out_in) == (code_sub, out_sub), (
         f"{Path(path).name}: in-process {(code_in, out_in)!r} != "
         f"subprocess {(code_sub, out_sub)!r}"
+    )
+    assert _tree(in_home) == _tree(sub_home), (
+        f"{Path(path).name}: the two legs wrote different file trees under HOME - "
+        f"in-process {_tree(in_home)!r} != subprocess {_tree(sub_home)!r}. run() "
+        f"must perform the handler's side effects, not just return its exit code."
     )
 
 
