@@ -7,6 +7,13 @@ wall-clock cap and crash isolation, then aggregates their outputs into a single
 hook response (merged stdout envelope, concatenated stderr, most-restrictive
 exit code).
 
+Handler contract: a handler module exposes `run(payload) -> (exit_code, stdout,
+stderr)` and owns its own capture. `_invoke` calls it DIRECTLY and surfaces that
+triple unchanged; re-capturing around it would map the triple to a bogus 0 and
+silently discard every block and every stdout envelope. A return that is not an
+(int, str, str) triple is logged as a fault and contributes nothing. A script
+with no `run` falls back to a subprocess.
+
 Stdlib only. Python 3.10+.
 """
 
@@ -22,7 +29,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from _common import HandlerTimeout, capture_main
+from _common import HandlerTimeout
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "stop": "Stop"}
 
@@ -141,16 +148,32 @@ def _raise_timeout(signum, frame):
 
 
 def _invoke(route, payload) -> tuple[int, str, str]:
-    """Run one handler under a SIGALRM cap with crash/timeout isolation."""
+    """Run one handler under a SIGALRM cap with crash/timeout isolation.
+
+    `run(payload)` already returns (exit_code, stdout, stderr); it is called
+    directly and its triple surfaced unchanged. Anything else is a handler bug:
+    it is logged as a fault and contributes no stdout.
+    """
     prev = signal.signal(signal.SIGALRM, _raise_timeout)
     signal.alarm(max(1, int(route.timeout)))
     try:
         mod = _load_handler(route.path)
         if hasattr(mod, "run"):
-            result = capture_main(lambda: mod.run(payload), payload)
+            result = mod.run(payload)
         else:
             result = _subprocess_fallback(route.path, payload, route.timeout)
         signal.alarm(0)  # handler DONE: cancel immediately
+        if not (
+            isinstance(result, tuple)
+            and len(result) == 3
+            and isinstance(result[0], int)
+            and isinstance(result[1], str)
+            and isinstance(result[2], str)
+        ):
+            msg = (f"[dispatch] {route.name}: malformed return {result!r}; "
+                   f"expected a (int, str, str) 3-tuple")
+            log(msg)
+            return 0, "", msg + "\n"
         return result
     except HandlerTimeout:
         log(f"{route.name} timed out after {route.timeout}s")

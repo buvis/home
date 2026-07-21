@@ -10,7 +10,8 @@ gone; this hook detects it at the write, while the model can still fix it:
 exit 2 feeds the parse error straight back to the session.
 
 Fires only when the edited path ends with dev/local/autopilot/state.json.
-Stdlib only. Self-contained — no `_common` import (this script lives outside
+Stdlib only. The standalone path is self-contained: `_common` is imported only
+inside `run()`, the dispatcher entry point (this script lives outside
 ~/.claude/hooks/). A failure of the hook itself never blocks writes to
 unrelated files.
 """
@@ -53,12 +54,14 @@ def main() -> int:
 
 
 def run(payload):
-    """Dispatcher entry point (hooks/dispatch.py). dispatch._invoke already wraps
-    this in _common.capture_main, which feeds `payload` via stdin and traps the
-    exit, so run() is RAW: call main() and return its result. `return` preserves
-    an int exit code; `payload` is unused here (main() reads it from the stdin
-    capture)."""
-    return main()
+    """Dispatcher entry point (hooks/dispatch.py). The handler owns its own
+    capture: `capture_main` feeds `payload` as stdin, captures stdout/stderr and
+    maps main()'s exit, so run() RETURNS the (exit_code, stdout, stderr) triple
+    the dispatcher surfaces unchanged. `_common` is imported here, not at module
+    scope, so the standalone `__main__` path is unaffected."""
+    from _common import capture_main
+
+    return capture_main(main, payload)
 
 
 if __name__ == "__main__":
