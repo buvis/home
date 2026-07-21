@@ -822,6 +822,7 @@ def test_clean_bash_passes_through(tmp_path: Path) -> None:
         ("python3 -c \"open('src/x.py', 'w').write('...')\"", "python-open-write"),
         ("sed -i 's/foo/bar/' src/main.rs", "sed-inplace"),
         ("echo hello > out.md", "redirect-source"),
+        ("echo x >> notes.md", "redirect-source"),
     ],
 )
 def test_detect_bash_bypass_positive(tmp_path: Path, command: str, expected_pattern: str) -> None:
@@ -843,6 +844,13 @@ def test_detect_bash_bypass_positive(tmp_path: Path, command: str, expected_patt
         "python3 script.py --flag",
         # Outside cwd
         "cat > /tmp/scratch.py <<EOF\nx\nEOF",
+        # Literal > inside quoted args must not read as a redirect (audit FPs
+        # 2026-06-28 and 2026-07-21).
+        'git commit -m "defer to <prd>-review-<n>.md"',
+        'rg ">\\s*\\S+\\.py" hooks/',
+        'echo "a -> result.rs"',
+        # fd redirect, not a source write
+        "python3 script.py 2> err.md",
     ],
 )
 def test_detect_bash_bypass_negative(tmp_path: Path, command: str) -> None:
