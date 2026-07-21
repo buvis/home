@@ -13,15 +13,19 @@ import types
 def require_in_process_work(mod, who: str):
     """Witness that `mod.run(payload)` did the handler's real work IN THIS PROCESS.
 
-    THE ORACLE HOLE this closes: assertions across these test suites compare
-    an in-process leg against a subprocess leg. A `run()` that just re-execs
-    its own script - `subprocess.run([sys.executable, __file__],
-    input=json.dumps(payload), ...)` - reproduces the exit code, stdout,
-    stderr AND every side-effect file BY CONSTRUCTION, because it is
-    literally the same program the expected leg runs. No output-based
-    comparison can tell it apart, and it is strictly SLOWER than the code PRD
-    00071 replaces (fork/exec paid twice against a target of one python spawn
-    per pre/post hook).
+    THE ORACLE HOLE this closes differs slightly by caller. In
+    test_handler_run_parity.py the assertions compare an in-process leg
+    against a subprocess leg, so a `run()` that just re-execs its own script -
+    `subprocess.run([sys.executable, __file__], input=json.dumps(payload),
+    ...)` - reproduces the exit code, stdout, stderr AND every side-effect
+    file BY CONSTRUCTION, because it is literally the same program the
+    expected leg runs; no output-based comparison can tell it apart. In
+    test_dispatch.py there is no subprocess leg to compare against - the
+    helper is the ONLY thing establishing that the handler's work happened in
+    this process at all. Either way the same defect is fatal: PRD 00071 exists
+    to REMOVE the per-hook fork/exec, and a re-execing `run()` is strictly
+    SLOWER than the code it replaces (fork/exec paid twice against a target of
+    one python spawn per pre/post hook).
 
     Denying spawns BY NAME cannot close it: the interpreter is trivially
     hidden behind a one-line `/bin/sh` shim (or a renamed interpreter), where
