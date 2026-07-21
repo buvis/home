@@ -324,7 +324,7 @@ class TestMainSuppression(unittest.TestCase):
                 with patch("notify.log_line", side_effect=logs.append):
                     with patch("notify.send_ntfy") as send:
                         with patch("notify.show_desktop_notification") as show:
-                            with patch("notify.read_idle_seconds", return_value=0):
+                            with patch("notify.dispatched_by_agent", return_value=False), patch("notify.read_idle_seconds", return_value=0):
                                 with patch("notify.screensaver_active", return_value=False):
                                     with patch("notify.lid_closed", return_value=False):
                                         notify.main()
@@ -406,7 +406,7 @@ class TestBackgroundTaskSuppression(unittest.TestCase):
                 with patch("notify.log_line", side_effect=logs.append):
                     with patch("notify.send_ntfy") as send:
                         with patch("notify.show_desktop_notification") as show:
-                            with patch("notify.read_idle_seconds", return_value=0):
+                            with patch("notify.dispatched_by_agent", return_value=False), patch("notify.read_idle_seconds", return_value=0):
                                 with patch("notify.screensaver_active", return_value=False):
                                     with patch("notify.lid_closed", return_value=False):
                                         notify.main()
@@ -467,7 +467,7 @@ class TestNotifyQuiet(unittest.TestCase):
                 with patch("notify.log_line", side_effect=logs.append):
                     with patch("notify.send_ntfy") as send:
                         with patch("notify.show_desktop_notification") as show:
-                            with patch("notify.read_idle_seconds", return_value=0):
+                            with patch("notify.dispatched_by_agent", return_value=False), patch("notify.read_idle_seconds", return_value=0):
                                 with patch("notify.screensaver_active", return_value=False):
                                     with patch("notify.lid_closed", return_value=False):
                                         notify.main()
@@ -525,7 +525,7 @@ class TestIdlePromptWithLiveAgents(unittest.TestCase):
                 with patch("notify.log_line", side_effect=logs.append):
                     with patch("notify.send_ntfy") as send:
                         with patch("notify.show_desktop_notification") as show:
-                            with patch("notify.read_idle_seconds", return_value=0):
+                            with patch("notify.dispatched_by_agent", return_value=False), patch("notify.read_idle_seconds", return_value=0):
                                 with patch("notify.screensaver_active", return_value=False):
                                     with patch("notify.lid_closed", return_value=False):
                                         notify.main()
@@ -568,6 +568,104 @@ class TestIdlePromptWithLiveAgents(unittest.TestCase):
     def test_fires_when_no_subagents_dir(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             logs = self._run_main(self._session(td, agent_age_sec=None))
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+
+class TestCountAgentAncestors(unittest.TestCase):
+    """Regression (2026-07-21): codex's exec sandbox scrubs env, so nested
+    `claude -p` parity probes lost _AUTOPILOT_LOOP/CLAUDE_NESTED and paged
+    "done" mid-loop (/tmp/gate71). Process ancestry is the env-proof signal:
+    the first agent CLI in the ppid chain is the session itself, a second
+    one above it means nested dispatch."""
+
+    PS_NESTED = (
+        "  100     1 /sbin/launchd\n"
+        "  200   100 /Applications/WezTerm.app/Contents/MacOS/wezterm-gui\n"
+        "  300   200 -bash\n"
+        "  400   300 /Users/x/.local/bin/claude\n"
+        "  500   400 /bin/bash\n"
+        "  600   500 /Users/x/.local/share/mise/installs/codex/1.0/bin/codex\n"
+        "  700   600 /Users/x/.local/bin/claude\n"
+    )
+    PS_INTERACTIVE = (
+        "  100     1 /sbin/launchd\n"
+        "  200   100 /Applications/WezTerm.app/Contents/MacOS/wezterm-gui\n"
+        "  300   200 -bash\n"
+        "  400   300 /Users/x/.local/bin/claude\n"
+    )
+
+    def test_nested_probe_chain_counts_all_agents(self) -> None:
+        # probe claude (700) ← codex (600) ← review claude (400)
+        self.assertEqual(notify._count_agent_ancestors(self.PS_NESTED, 700), 3)
+
+    def test_interactive_chain_counts_one(self) -> None:
+        self.assertEqual(notify._count_agent_ancestors(self.PS_INTERACTIVE, 400), 1)
+
+    def test_unknown_start_pid_counts_zero(self) -> None:
+        self.assertEqual(notify._count_agent_ancestors(self.PS_INTERACTIVE, 999), 0)
+
+    def test_garbage_ps_output_counts_zero(self) -> None:
+        self.assertEqual(notify._count_agent_ancestors("nope\nx y\n", 400), 0)
+
+    def test_login_shell_dash_prefix_not_an_agent(self) -> None:
+        # "-bash" must not basename-match anything in AGENT_CLIS
+        self.assertEqual(notify._count_agent_ancestors("  300     1 -bash\n", 300), 0)
+
+
+class TestDispatchedByAgentSuppression(unittest.TestCase):
+    """main() must silence Stop/idle_prompt for a session nested under another
+    agent CLI even with no env markers at all (the codex-scrubbed-env case)."""
+
+    def _run_main(self, payload: dict, nested: bool) -> list[str]:
+        logs: list[str] = []
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("notify.read_input", return_value=payload):
+                with patch("notify.log_line", side_effect=logs.append):
+                    with patch("notify.send_ntfy") as send:
+                        with patch("notify.show_desktop_notification") as show:
+                            with patch("notify.dispatched_by_agent", return_value=nested), patch("notify.read_idle_seconds", return_value=0):
+                                with patch("notify.screensaver_active", return_value=False):
+                                    with patch("notify.lid_closed", return_value=False):
+                                        notify.main()
+                            self._send = send
+                            self._show = show
+        return logs
+
+    def test_stop_suppressed_when_nested(self) -> None:
+        logs = self._run_main({"hook_event_name": "Stop", "cwd": "/x/case1"}, nested=True)
+        self.assertTrue(any("nested under agent CLI" in line for line in logs))
+        self._send.assert_not_called()
+        self._show.assert_not_called()
+
+    def test_idle_prompt_suppressed_when_nested(self) -> None:
+        logs = self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/case1",
+                "message": "Claude is waiting for your input",
+                "notification_type": "idle_prompt",
+            },
+            nested=True,
+        )
+        self.assertTrue(any("Suppressed" in line for line in logs))
+        self._show.assert_not_called()
+
+    def test_permission_prompt_fires_when_nested(self) -> None:
+        logs = self._run_main(
+            {
+                "hook_event_name": "Notification",
+                "cwd": "/x/case1",
+                "message": "Claude needs your permission",
+                "notification_type": "permission_prompt",
+            },
+            nested=True,
+        )
+        self.assertFalse(any("Suppressed" in line for line in logs))
+        self._show.assert_called_once()
+
+    def test_stop_fires_when_not_nested(self) -> None:
+        logs = self._run_main({"hook_event_name": "Stop", "cwd": "/x/proj"}, nested=False)
         self.assertFalse(any("Suppressed" in line for line in logs))
         self._show.assert_called_once()
 
