@@ -27,6 +27,7 @@ import signal
 import subprocess
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 from _common import HandlerTimeout
@@ -93,8 +94,9 @@ def log(message: str) -> None:
         # enforcement - add locking only if a lost generation ever costs us.
         if path.exists() and path.stat().st_size >= _LOG_CAP_BYTES:
             path.replace(path.with_name(path.name + ".1"))
+        stamp = datetime.now().isoformat()
         with path.open("a", encoding="utf-8") as fh:
-            fh.write(message.rstrip("\n") + "\n")
+            fh.write(stamp + " " + message.rstrip("\n") + "\n")
     except Exception:
         pass
 
