@@ -238,6 +238,8 @@ def _aggregate(results, names=None) -> tuple[int, str]:
             continue
         hso = obj.get("hookSpecificOutput")
         if not isinstance(hso, dict):
+            log(f"[dispatch] dict stdout with no hookSpecificOutput from "
+                f"{_name_at(names, idx)}")
             continue
         if "additionalContext" in hso:
             ctx = hso["additionalContext"]
@@ -267,7 +269,14 @@ def _aggregate(results, names=None) -> tuple[int, str]:
             if key in ("additionalContext", "permissionDecision",
                        "permissionDecisionReason"):
                 continue
-            other.setdefault(key, value)
+            if key in other:
+                if other[key] != value:
+                    msg = (f"[dispatch] key conflict: dropped {key!r} "
+                           f"from {_name_at(names, idx)}")
+                    sys.stderr.write(msg + "\n")
+                    log(msg)
+            else:
+                other[key] = value
 
     if decision_count >= 2 and losers:
         for loser in losers:
