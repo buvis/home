@@ -97,6 +97,58 @@ def notify_quiet() -> bool:
     )
 
 
+AGENT_CLIS = frozenset({"claude", "codex", "copilot", "gemini"})
+
+
+def _count_agent_ancestors(ps_output: str, start_pid: int) -> int:
+    """Count agent-CLI processes in the ppid chain starting at start_pid."""
+    parent: dict[int, int] = {}
+    comm: dict[int, str] = {}
+    for line in ps_output.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) < 3:
+            continue
+        try:
+            pid, ppid = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        parent[pid] = ppid
+        comm[pid] = fields[2].strip().rsplit("/", 1)[-1].lower()
+    count = 0
+    pid = start_pid
+    for _ in range(30):
+        if comm.get(pid, "") in AGENT_CLIS:
+            count += 1
+        pid = parent.get(pid, 0)
+        if pid <= 1:
+            break
+    return count
+
+
+def dispatched_by_agent() -> bool:
+    """True when this session's harness was itself spawned by another agent
+    CLI — a dispatched reviewer/probe whose Stop is loop noise even when the
+    env markers are gone (codex's exec sandbox scrubs env, so nested
+    `claude -p` probes lose _AUTOPILOT_LOOP/CLAUDE_NESTED and paged the
+    operator — 2026-07-21, /tmp/gate71 parity probes).
+
+    The first agent CLI in the ppid chain is the session firing this hook;
+    a second one above it means nested dispatch.
+    ponytail: an orphaned probe reparents to launchd and slips through;
+    walk process-group ancestry if that ever pages.
+    """
+    try:
+        proc = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,comm="],
+            capture_output=True,
+            text=True,
+            timeout=PRESENCE_TIMEOUT_SEC,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return False
+    return _count_agent_ancestors(proc.stdout or "", os.getppid()) >= 2
+
+
 def running_background_tasks(payload: dict[str, Any]) -> int:
     """Count background_tasks entries the harness reports as still running.
 
@@ -388,6 +440,10 @@ def main() -> None:
         return
     if loop_noise and notify_quiet():
         log_line(f"[{now_local()}] Suppressed: _CLAUDE_NOTIFY_QUIET ({notif_type or event})")
+        log_line("---")
+        return
+    if loop_noise and dispatched_by_agent():
+        log_line(f"[{now_local()}] Suppressed: nested under agent CLI ({notif_type or event})")
         log_line("---")
         return
 
