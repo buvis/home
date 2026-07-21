@@ -74,16 +74,22 @@ ROUTES = [
 
 _RANK = {"allow": 0, "ask": 1, "deny": 2}
 
+_LOG_CAP_BYTES = 1048576  # 1 MiB; one generation of rotation (-> dispatch.log.1)
+
 
 def log(message: str) -> None:
     """Append one line to ~/.claude/hooks/dispatch.log; never raise.
 
     The path is resolved at call time so tests that patch Path.home() after
-    import land their logs in the sandbox.
+    import land their logs in the sandbox. Capped at 1 MiB with one generation
+    of rotation: a file already at or over the cap is moved to dispatch.log.1
+    (replacing any previous one) before the new line lands in a fresh file.
     """
     try:
         path = Path.home() / ".claude" / "hooks" / "dispatch.log"
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size >= _LOG_CAP_BYTES:
+            path.replace(path.with_name(path.name + ".1"))
         with path.open("a", encoding="utf-8") as fh:
             fh.write(message.rstrip("\n") + "\n")
     except Exception:
@@ -142,16 +148,24 @@ def _raise_timeout(signum, frame):
 
 
 def _invoke(route, payload) -> tuple[int, str, str]:
-    """Run one handler under a SIGALRM cap with crash/timeout isolation."""
-    prev = signal.signal(signal.SIGALRM, _raise_timeout)
-    signal.alarm(max(1, int(route.timeout)))
+    """Run one handler under a SIGALRM cap with crash/timeout isolation.
+
+    Degrades to NO per-handler wall-clock cap on a platform without
+    SIGALRM/alarm (e.g. Windows): the handler still runs and its result still
+    surfaces, isolation just loses the timeout half.
+    """
+    has_alarm = hasattr(signal, "SIGALRM") and hasattr(signal, "alarm")
+    prev = signal.signal(signal.SIGALRM, _raise_timeout) if has_alarm else None
+    if has_alarm:
+        signal.alarm(max(1, int(route.timeout)))
     try:
         mod = _load_handler(route.path)
         if hasattr(mod, "run"):
             result = mod.run(payload)
         else:
             result = _subprocess_fallback(route.path, payload, route.timeout)
-        signal.alarm(0)  # handler DONE: cancel immediately
+        if has_alarm:
+            signal.alarm(0)  # handler DONE: cancel immediately
         # test_teardown_race_no_false_timeout probes the line above from inside
         # this `len(result)` call. Keep the check calling len() on the result:
         # a refactor to match/case or manual unpacking would stop firing that
@@ -176,9 +190,10 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         log(traceback.format_exc())
         return 0, "", f"[dispatch] {route.name}: {exc}\n"
     finally:
-        signal.signal(signal.SIGALRM, signal.SIG_IGN)
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, prev)
+        if has_alarm:
+            signal.signal(signal.SIGALRM, signal.SIG_IGN)
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, prev)
 
 
 def _warn(msg: str) -> None:
@@ -306,6 +321,9 @@ def _aggregate(results, names=None) -> tuple[int, str]:
 
 
 def main(event: str) -> None:
+    if event not in EVENTS:
+        log(f"[dispatch] unknown event {event!r}; exiting non-blocking")
+        sys.exit(0)
     payload = _parse_stdin()
     tool = payload.get("tool_name", "")
     selected = [
@@ -322,4 +340,7 @@ def main(event: str) -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        log("[dispatch] missing event argument; exiting non-blocking")
+        sys.exit(0)
     main(sys.argv[1])
