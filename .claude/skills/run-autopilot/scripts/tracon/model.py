@@ -305,6 +305,15 @@ def current_task_name(state: LoopState) -> str:
     return ""
 
 
+def batch_completed_count(state: LoopState) -> int:
+    """PRDs finished this batch: len of batch.completed_prds (0 on any junk)."""
+    batch = state.raw.get("batch")
+    if not isinstance(batch, dict):
+        return 0
+    done = batch.get("completed_prds")
+    return len(done) if isinstance(done, list) else 0
+
+
 def prd_counts(root: Path) -> tuple[int, int]:
     backlog = root / "dev" / "local" / "prds" / "backlog"
     wip = root / "dev" / "local" / "prds" / "wip"

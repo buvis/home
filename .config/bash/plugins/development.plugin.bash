@@ -764,9 +764,10 @@ autoclaude() {
       ;;
     done)
       mkdir -p "$_ap_dir/reports" 2>/dev/null
+      _prds_done=$(jq -r '.batch.completed_prds | length' "$_state" 2>/dev/null)
       mv "$_state" "$_ap_dir/reports/${_batch:-$(date +%Y%m%d%H%M)}-state-final.json" 2>/dev/null
-      printf '\nBacklog drained.\n'
-      python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained."
+      printf '\nBacklog drained.%s\n' "${_prds_done:+ $_prds_done PRDs completed.}"
+      python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained.${_prds_done:+ $_prds_done PRDs completed.}"
       python3 ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py --repo "$PWD" --apply || true
       trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"

@@ -430,6 +430,30 @@ def test_prd_counts_zero_for_missing_dirs(tmp_path: Path) -> None:
     assert model.prd_counts(tmp_path) == (0, 0)
 
 
+# --- batch_completed_count ---------------------------------------------------
+
+
+def test_batch_completed_count_lens_completed_prds(tmp_path: Path) -> None:
+    """The morning-after question — how many PRDs did the batch finish — is
+    answered by batch.completed_prds; tracon must surface its length."""
+    path = _write_json(
+        tmp_path / "state.json",
+        {"batch": {"id": "B1", "completed_prds": [{"filename": "00070-a.md"}, {"filename": "00071-b.md"}]}},
+    )
+    assert model.batch_completed_count(model.read_state(path)) == 2
+
+
+def test_batch_completed_count_zero_when_missing(tmp_path: Path) -> None:
+    path = _write_json(tmp_path / "state.json", {"batch": {"id": "B1"}})
+    assert model.batch_completed_count(model.read_state(path)) == 0
+
+
+def test_batch_completed_count_zero_on_junk(tmp_path: Path) -> None:
+    path = _write_json(tmp_path / "state.json", {"batch": {"completed_prds": "nope"}})
+    assert model.batch_completed_count(model.read_state(path)) == 0
+    assert model.batch_completed_count(model.read_state(tmp_path / "absent.json")) == 0
+
+
 # --- scan_session_cost -------------------------------------------------------
 
 

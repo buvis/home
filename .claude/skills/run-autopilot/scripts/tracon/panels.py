@@ -151,6 +151,7 @@ def _row_progress(
     rows: Sequence[model.MetricsRow],
     status: Status,
     prd_counts: tuple[int, int],
+    done_count: int,
     batch_id: str,
     session_start: float | None,
     now: float,
@@ -182,7 +183,7 @@ def _row_progress(
         if b_start is not None
         else ""
     )
-    row3.append(f"{backlog} backlog · {wip} wip · {batch_stamp}{sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
+    row3.append(f"{backlog} backlog · {wip} wip · {done_count} done · {batch_stamp}{sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
 
     if cost > 0 and active_secs >= 600:
         row3.append(f" · ${cost / active_secs * 3600:.2f}/h")
@@ -229,7 +230,9 @@ def build_head(
     row2.no_wrap = True
     row2.overflow = "ellipsis"
 
-    row3 = _row_progress(rows, status, prd_counts, batch_id, session_start, now, usage)
+    row3 = _row_progress(
+        rows, status, prd_counts, model.batch_completed_count(state), batch_id, session_start, now, usage
+    )
     row4 = _row_usage(usage, status)
 
     lines = [row1, row2, row3, row4]
