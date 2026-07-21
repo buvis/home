@@ -140,3 +140,94 @@ def test_stdout_is_exactly_one_line(
     check_memory_pressure.main([])
     unknown_out = capsys.readouterr().out
     assert len(unknown_out.splitlines()) == 1
+
+
+# --- timeout / nonzero-exit / bad-argv paths ----------------------------------
+
+
+def _patch_sysctl_nonzero_exit(monkeypatch: pytest.MonkeyPatch, stderr: str) -> None:
+    def _fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(check_memory_pressure.subprocess, "run", _fake_run)
+
+
+def test_exits_unknown_when_sysctl_times_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A wedged sysctl must not hang the caller: the probe runs precisely when
+    # the host is short on RAM, so the subprocess call must be bounded by a
+    # timeout, and the timeout firing must be legible as the cause on stdout.
+    _patch_sysctl_raises(monkeypatch, subprocess.TimeoutExpired(cmd=SYSCTL_KEY, timeout=5))
+
+    exit_code = check_memory_pressure.main([])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out.startswith("unknown:")
+    reason = captured.out.lower()
+    assert "timeout" in reason or "timed out" in reason
+    assert len(captured.out.splitlines()) == 1
+
+
+def test_sysctl_call_is_bounded_by_a_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # R-A, call-site half: the subprocess.run call itself must carry a
+    # timeout kwarg. A wedged sysctl can't be simulated behaviourally in a
+    # unit test without hanging the suite, so this binds the call's kwargs
+    # directly. Deliberately not pinning a specific value: a legitimate
+    # tuning change (e.g. 5s -> 10s) must not fail this test, only the
+    # absence of a positive bound should.
+    recorded_kwargs: dict[str, object] = {}
+
+    def _fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        recorded_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
+
+    monkeypatch.setattr(check_memory_pressure.subprocess, "run", _fake_run)
+
+    exit_code = check_memory_pressure.main([])
+
+    assert exit_code == 0
+    assert "timeout" in recorded_kwargs
+    timeout_value = recorded_kwargs["timeout"]
+    assert isinstance(timeout_value, (int, float))
+    assert timeout_value > 0
+
+
+def test_exits_unknown_with_key_and_stderr_when_sysctl_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A non-zero sysctl exit must not surface as an int-parse complaint: the
+    # reason line must name the sysctl key and carry sysctl's own stderr, so a
+    # renamed key or a non-macOS host is diagnosable from the attempt log
+    # alone.
+    stderr_text = "sysctl: unknown oid 'kern.memorystatus_vm_pressure_level'"
+    _patch_sysctl_nonzero_exit(monkeypatch, stderr_text)
+
+    exit_code = check_memory_pressure.main([])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out.startswith("unknown:")
+    assert SYSCTL_KEY in captured.out
+    assert stderr_text in captured.out
+    assert len(captured.out.splitlines()) == 1
+
+
+def test_exits_unknown_on_unparseable_max_level_argument(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # An unparseable --max-level must still honour the one-line stdout
+    # contract, not exit with argparse's own status and stderr-only output
+    # (which the caller cannot record as a reason).
+    try:
+        exit_code = check_memory_pressure.main(["--max-level", "abc"])
+    except SystemExit as exc:
+        exit_code = exc.code
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out.startswith("unknown:")
+    assert len(captured.out.splitlines()) == 1
