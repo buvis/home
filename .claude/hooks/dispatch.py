@@ -88,6 +88,9 @@ def log(message: str) -> None:
     try:
         path = Path.home() / ".claude" / "hooks" / "dispatch.log"
         path.parent.mkdir(parents=True, exist_ok=True)
+        # ponytail: unlocked check-then-act; two dispatchers rotating at the
+        # same instant can clobber each other's .1. Diagnostic log, never
+        # enforcement - add locking only if a lost generation ever costs us.
         if path.exists() and path.stat().st_size >= _LOG_CAP_BYTES:
             path.replace(path.with_name(path.name + ".1"))
         with path.open("a", encoding="utf-8") as fh:
