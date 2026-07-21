@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import os
 import signal
+import subprocess
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -24,6 +26,19 @@ if TYPE_CHECKING:
 
 LOG_KEEP = 5000
 DETAIL_TICK = 0.5
+COPY_TAIL_LINES = 100
+
+
+def _copy_to_pasteboard(text: str) -> bool:
+    """Put text on the system clipboard; False on any failure.
+
+    ponytail: pbcopy is macOS-only; emit OSC 52 instead if tracon ever runs
+    over ssh."""
+    try:
+        subprocess.run(["pbcopy"], input=text.encode("utf-8"), timeout=5, check=True)
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return False
+    return True
 FLEET_TICK = 2.0
 THEME_FILE = Path.home() / ".claude" / "tracon-theme"
 
@@ -225,6 +240,7 @@ UI keys (never touch a loop)
   t         task board: kanban lanes over the loop's task plan
   a         agent board: subagent and background-CLI lanes with live activity
   f         follow — log auto-scrolls to the newest lines
+  y         copy the last 100 rendered log lines to the clipboard
   q         quit tracon; every loop keeps running (ctrl+c does the same)
   ctrl+p    command palette (themes — the choice persists)
 
@@ -343,6 +359,7 @@ esc or ? closes this help.
             Binding("t", "show_tasks", "Tasks"),
             Binding("a", "show_agents", "Agents"),
             Binding("f", "toggle_follow", "Follow"),
+            Binding("y", "copy_tail", "Copy tail"),
             Binding("q", "app.detach", "Quit UI (loop runs)"),
             Binding("p", "pause_loop", "Pause loop"),
             Binding("s", "stop_loop", "Stop loop"),
@@ -354,6 +371,7 @@ esc or ? closes this help.
             self.root = root
             self.collector = Collector(root)
             self._first_attach = True
+            self._tail_lines: deque[str] = deque(maxlen=COPY_TAIL_LINES)
 
         def compose(self) -> ComposeResult:
             yield Static(id="head")
@@ -396,6 +414,7 @@ esc or ? closes this help.
                     if replay:
                         t.stylize("dim")
                     log.write(t)
+                    self._tail_lines.append(t.plain)
 
             self.update_head()
 
@@ -410,6 +429,15 @@ esc or ? closes this help.
 
         def action_show_help(self) -> None:
             self.app.push_screen(HelpScreen())
+
+        def action_copy_tail(self) -> None:
+            if not self._tail_lines:
+                self.app.notify("nothing to copy yet", severity="warning")
+                return
+            if _copy_to_pasteboard("\n".join(self._tail_lines) + "\n"):
+                self.app.notify(f"copied last {len(self._tail_lines)} log lines")
+            else:
+                self.app.notify("pbcopy failed", severity="error")
 
         def action_toggle_follow(self) -> None:
             log = self.query_one("#log", RichLog)

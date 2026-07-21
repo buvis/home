@@ -843,6 +843,39 @@ def test_lines_written_after_attach_are_not_banner_ed_as_replay(
     asyncio.run(_drive())
 
 
+@pytest.mark.ui
+def test_y_copies_rendered_log_tail_to_clipboard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Textual's mouse capture blocks native select/copy on the live log, so
+    `y` must put the recently rendered lines on the clipboard instead."""
+    pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "copy-loop", log_lines=[])
+    log_path = root / "dev" / "local" / "autopilot" / "last-session.log"
+    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
+    copied: list[str] = []
+    monkeypatch.setattr(
+        screens, "_copy_to_pasteboard", lambda text: copied.append(text) or True
+    )
+
+    async def _drive() -> None:
+        app = screens.build_app([root])  # single root -> auto-pushes DetailScreen
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            with log_path.open("a") as f:
+                f.write(_init_event() + "\n")
+            await asyncio.sleep(screens.DETAIL_TICK * 3)
+            await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause()
+
+    asyncio.run(_drive())
+    assert copied, "y did not trigger the copy action"
+    assert "claude-opus-4-8" in copied[0]  # the rendered line, not raw JSONL
+
+
 # --- the fleet dashboard re-discovers loops on every refresh ----------------
 
 
