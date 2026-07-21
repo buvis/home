@@ -221,7 +221,7 @@
   "enabledPlugins": {
     "lua-lsp@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "swift-lsp@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": false,
     "pyright-lsp@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "warden@buvis-plugins": true,
