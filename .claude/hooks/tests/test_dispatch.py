@@ -1081,14 +1081,49 @@ def test_sigalrm_next_handler_still_runs(dispatch, monkeypatch, tmp_path, capsys
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_SIGALRM, reason="SIGALRM unavailable on this platform")
 def test_teardown_race_no_false_timeout(dispatch, tmp_path):
+    """The marked `signal.alarm(0)` in `_invoke` must cancel the per-handler
+    cap the INSTANT the handler returns - not merely "eventually" in
+    `finally`, after the malformed-return validation has already run. A
+    handler that COMPLETED must never be killed by its own alarm firing
+    during that validation-and-return path.
+
+    A stub that sleeps close to its cap cannot expose this: measurement
+    showed the actual gap between the fixed cancellation point and
+    finally's fallback cancellation is tens to ~1500 nanoseconds - far
+    below the resolution of any real wall-clock SIGALRM/setitimer (0 false
+    timeouts observed in 2000 trials of a handler-armed 1-microsecond
+    timer, and 0 in 30 trials sleeping to within 5ms of a 1s cap). A
+    sleep-based race for this specific invariant is a coin flip that never
+    lands - it would just be a differently-shaped dead test.
+
+    So instead of racing wall-clock luck, the stub's returned triple probes
+    the cap's actual state DETERMINISTICALLY: `signal.alarm(0)` atomically
+    cancels whatever is pending and reports how many seconds were left on
+    it (0 if nothing was pending). The triple is a `tuple` subclass whose
+    `__len__` - invoked by `_invoke`'s own `len(result) == 3` check, which
+    runs immediately after the marked line when it is present - records
+    that probe's result. Fixed code has already cancelled the cap by then,
+    so the probe reports 0 every time. With the marked line removed, the
+    1s cap armed at `_invoke`'s entry is still pending when validation (and
+    the probe) runs, so it reports the true remaining time (non-zero) -
+    exactly the condition under which a completed handler could still be
+    killed by its own alarm.
+    """
     quick = make_route(
         tmp_path,
         "quick",
         """
-        import time
+        import signal
+
+        _observed = []
+
+        class _RaceTuple(tuple):
+            def __len__(self):
+                _observed.append(signal.alarm(0))
+                return tuple.__len__(self)
+
         def run(payload):
-            time.sleep(0.02)
-            return (0, "QUICK-DONE", "")
+            return _RaceTuple((0, "QUICK-DONE", ""))
         """,
         timeout=1,
     )
@@ -1096,6 +1131,12 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
         code, out, err = dispatch._invoke(quick, {"tool_name": "Bash"})
         assert code == 0
         assert "QUICK-DONE" in out  # completed, never mislabeled timed-out
+
+    observed = dispatch._load_handler(quick.path)._observed
+    assert observed == [0] * 20, (
+        f"the cap must already be cancelled by the time _invoke validates "
+        f"the handler's return; leftover armed seconds per call: {observed!r}"
+    )
 
 
 # --------------------------------------------------------------------------- #
