@@ -211,7 +211,10 @@ def _merge_envelopes(named) -> str:
     keys into one {"hookSpecificOutput": {...}} JSON string ("" if empty).
 
     named is [(name, code, out, err), ...] - each result already carries its
-    own handler name, in dispatch order.
+    own handler name, in dispatch order. Conflict warnings follow the same
+    block-reason rule as _aggregate's handler stderr: on a blocking run (some
+    handler in named returned 2) they are logged only, never written to real
+    stderr, so they cannot pollute the model-visible block reason.
     """
     contexts: list[str] = []
     other: dict = {}
@@ -220,6 +223,7 @@ def _merge_envelopes(named) -> str:
     win_rank = -1
     win_idx = -1
     losers: list[str] = []
+    blocking = any(c == 2 for (_n, c, _o, _e) in named)
 
     for idx, (name, _c, out, _e) in enumerate(named):
         if not out or not out.strip():
@@ -269,13 +273,21 @@ def _merge_envelopes(named) -> str:
                 continue
             if key in other:
                 if other[key] != value:
-                    _warn(f"[dispatch] key conflict: dropped {key!r} from {name}")
+                    msg = f"[dispatch] key conflict: dropped {key!r} from {name}"
+                    if blocking:
+                        log(msg)
+                    else:
+                        _warn(msg)
             else:
                 other[key] = value
 
     for loser in losers:
-        _warn(f"[dispatch] permission conflict: dropped permissionDecision "
-              f"from {loser}")
+        msg = (f"[dispatch] permission conflict: dropped permissionDecision "
+               f"from {loser}")
+        if blocking:
+            log(msg)
+        else:
+            _warn(msg)
 
     inner: dict = {}
     if contexts:
