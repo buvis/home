@@ -299,3 +299,44 @@ def test_help_flag_exits_successfully(capsys: pytest.CaptureFixture[str]) -> Non
     assert "usage" in captured.out.lower()
     assert "--max-level" in captured.out
     assert not captured.out.startswith("unknown:")
+
+
+# --- review gap coverage: newline-safety and the SystemExit branch -----------
+
+
+def test_stdout_stays_one_line_when_bad_argv_contains_embedded_newline(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # An unrecognised argument containing a newline must not multiply the
+    # caller's one-line stdout contract: argument-parsing errors can echo the
+    # offending text verbatim, so a newline embedded in argv must not survive
+    # into stdout.
+    exit_code = check_memory_pressure.main(["--bad-flag\nSECOND-LINE"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    assert captured.out.startswith("unknown:")
+    reason = captured.out[len("unknown:") :].strip()
+    assert reason != ""
+
+
+def test_exits_unknown_when_argument_parsing_raises_system_exit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # On Python versions where argument parsing terminates via SystemExit
+    # rather than raising directly, that branch must still honour the
+    # one-line exit-2 contract, not let SystemExit propagate past main().
+    def _raise_system_exit(argv: list[str] | None) -> int:
+        raise SystemExit(2)
+
+    monkeypatch.setattr(check_memory_pressure, "parse_args", _raise_system_exit)
+
+    exit_code = check_memory_pressure.main([])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    assert captured.out.startswith("unknown:")
+    reason = captured.out[len("unknown:") :].strip()
+    assert reason != ""
