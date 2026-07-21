@@ -15,6 +15,10 @@ import sys
 SYSCTL_KEY = "kern.memorystatus_vm_pressure_level"
 
 
+def _collapse_to_one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Check macOS memory pressure headroom.", exit_on_error=False
@@ -34,6 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     except argparse.ArgumentError as e:
         print(f"unknown: {e}")
         return 2
+    except SystemExit as e:
+        if e.code == 0:
+            raise
+        print("unknown: invalid arguments")
+        return 2
 
     try:
         result = subprocess.run(
@@ -43,11 +52,11 @@ def main(argv: list[str] | None = None) -> int:
             timeout=5,
         )
         if result.returncode != 0:
-            print(f"unknown: failed to read {SYSCTL_KEY}: {result.stderr.strip()}")
+            print(f"unknown: failed to read {SYSCTL_KEY}: {_collapse_to_one_line(result.stderr)}")
             return 2
         level = int(result.stdout.strip())
     except Exception as e:
-        print(f"unknown: failed to read {SYSCTL_KEY}: {e}")
+        print(f"unknown: failed to read {SYSCTL_KEY}: {_collapse_to_one_line(str(e))}")
         return 2
 
     if level <= args.max_level:
