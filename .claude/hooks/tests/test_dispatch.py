@@ -2625,28 +2625,31 @@ def test_log_never_raises_when_rotation_target_is_blocked(dispatch):
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
 def test_log_prefixes_line_with_parseable_iso8601_timestamp(dispatch):
-    """Every line log() writes must start with an ISO-8601 local timestamp
-    that `datetime.fromisoformat` parses without raising - that is the ONLY
-    way to date a dispatch.log line from its contents alone once file mtime
-    is lost to rotation (the real incident this coverage guards against:
-    an outage was dated purely from mtime, and a 1 MiB rotation can now
-    discard even that signal for the retired generation).
+    """Every line log() writes must start with an ISO-8601 local timestamp,
+    WITH a UTC offset, that `datetime.fromisoformat` parses without raising -
+    that is the ONLY way to date a dispatch.log line from its contents alone
+    once file mtime is lost to rotation (the real incident this coverage
+    guards against: an outage was dated purely from mtime, and a 1 MiB
+    rotation can now discard even that signal for the retired generation).
 
-    Today log() writes the raw message with NO prefix, so the first
-    whitespace-delimited token of the line is just the first word of the
-    message (or the whole message) and `datetime.fromisoformat` raises
-    ValueError on it - this test is RED until a timestamp prefix lands, and
-    stays RED against any implementation that logs a non-ISO-8601 stamp
-    (e.g. a Unix epoch float, or `time.ctime()` output)."""
+    The offset is asserted explicitly (not just parseability): a naive local
+    stamp parses fine too, but during a DST fall-back the same wall-clock
+    hour repeats, reintroducing the stale-vs-live ambiguity this timestamp
+    exists to remove, and a naive stamp can't be correlated against
+    UTC-stamped logs from other tools. This test is RED against any
+    implementation that logs a non-ISO-8601 stamp (e.g. a Unix epoch float,
+    or `time.ctime()` output) or an offset-naive one."""
     log_path, _rotated_path = _dispatch_log_paths()
 
-    before = datetime.now()
+    before = datetime.now().astimezone()
     dispatch.log("PLAIN MESSAGE WITH NO TIMESTAMP TODAY")
-    after = datetime.now()
+    after = datetime.now().astimezone()
 
     line = log_path.read_text().splitlines()[0]
     prefix = line.split(" ", 1)[0]
     stamp = datetime.fromisoformat(prefix)  # raises ValueError if unparseable
+
+    assert stamp.utcoffset() is not None  # must be offset-aware, not naive
 
     # Plausible, not exact (flaky-avoidance): the stamp must fall inside the
     # call's own wall-clock window, not just "look like a date".
