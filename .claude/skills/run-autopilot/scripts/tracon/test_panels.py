@@ -606,6 +606,8 @@ def test_phase_strip_unknown_phase_legacy_stopped_does_not_crash_or_mark_current
 
 
 def test_phase_strip_expands_build_into_sub_steps() -> None:
+    # The "● build:" label mirrors the review branch — bare sub-step names
+    # (catchup, design, …) must read as build stages.
     raw = {
         "batch": {"id": "B1", "catchup_completed_at": "2026-07-18T08:00:00Z"},
         "design_doc": "dev/local/designs/x-design.md",
@@ -613,7 +615,7 @@ def test_phase_strip_expands_build_into_sub_steps() -> None:
     }
     state = _state(phase="build", raw=raw, tasks_total=6, tasks_completed=2)
     plain = panels.phase_strip(state).plain
-    assert plain == "✓ catchup ─ ✓ design ─ ✓ plan ─ ● work ─ ○ review ─ ○ done"
+    assert plain == "● build: ✓ catchup ─ ✓ design ─ ✓ plan ─ ● work ─ ○ review ─ ○ done"
 
 
 def test_phase_strip_collapses_build_once_review_is_current() -> None:
