@@ -61,3 +61,29 @@ Archive of normative prose deleted from `~/.claude/rules/` by PRD 00072
   - "Payment or financial code"
 - The four-row severity table (CRITICAL/HIGH/MEDIUM/LOW definitions)
 - "missing pagination, unbounded queries, missing caching"
+
+## Deletions from commit 3f9478fc8 (enforced-prose trim, empty commit body)
+
+Commit `3f9478fc8` trimmed four rule files to pointers at the aegis hooks that
+enforce them, but shipped with no commit body, so these deletions were recorded
+nowhere until now.
+
+### rules/coding-style.md
+
+- "Prefer immutable data to prevent hidden side effects, simplify debugging, and enable safe concurrency." → survives implicitly: the two bullets directly beneath it in the same Immutability section carry the actual per-language directive.
+
+### rules/tools.md
+
+- "Check documentation for APIs and dependencies before writing code." (the whole `## Search and Documentation` section) → survives condensed in `rules/development-workflow.md` line 5, pipeline step 0: "check library docs for API behavior and version-specific details".
+- "Don't pipe command output to `tail`/`head`/`grep` to trim it." — plus its two guidance sub-bullets:
+  - "Run the command bare (`cargo test -p ddb-core`) - the Bash tool already truncates long output."
+  - "If you need a specific slice, redirect to a file (`cargo test -p ddb-core > /tmp/ddb-test.log`) and `Read` it with `offset`/`limit`."
+  → survives enforced: the **aegis** plugin's `prefer_tools.py` hook, documented in `aegis/rules/tools.md` line 21, carries the same guidance verbatim ("run `cmd` bare ... or redirect to a file ... and `Read` it with `offset`/`limit`"), and rules/tools.md's own "Tool vs. Bash (BLOCKING)" section already points readers at that doc.
+
+### rules/development-workflow.md
+
+- "(conventional commit format, no boilerplate trailers, no HEREDOC)" — the parenthetical detailing what "the full policy" covers, dropped from the sentence pointing at the `validate_commit_msg.py` hook. → survives: the **aegis** plugin's `rules/development-workflow.md` doc (lines 15-16, 22, 24) spells out the no-trailer/no-HEREDOC/conventional-format rules enforced by `validate_commit_msg.py`, and rules/development-workflow.md's pointer sentence already directs there.
+
+### rules/working-documents.md
+
+- No normative statements were dropped from this file. Both hunks (the `dev/local/` paragraph and the "Layout (GC contract)" paragraph) are reword/condense-only — every fact present before the commit (dev/local location, gitignore requirement, hook name and behavior, GC retention specifics) is still present after it, just phrased more tersely.
