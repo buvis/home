@@ -38,6 +38,7 @@ import sys
 import textwrap
 import time
 import types
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -2617,3 +2618,104 @@ def test_log_never_raises_when_rotation_target_is_blocked(dispatch):
     rotated_path.mkdir()
 
     dispatch.log("SHOULD NOT RAISE")  # must not raise despite the rotation clash
+
+
+# --------------------------------------------------------------------------- #
+# log(): ISO-8601 timestamp prefix on every logged line
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_log_prefixes_line_with_parseable_iso8601_timestamp(dispatch):
+    """Every line log() writes must start with an ISO-8601 local timestamp
+    that `datetime.fromisoformat` parses without raising - that is the ONLY
+    way to date a dispatch.log line from its contents alone once file mtime
+    is lost to rotation (the real incident this coverage guards against:
+    an outage was dated purely from mtime, and a 1 MiB rotation can now
+    discard even that signal for the retired generation).
+
+    Today log() writes the raw message with NO prefix, so the first
+    whitespace-delimited token of the line is just the first word of the
+    message (or the whole message) and `datetime.fromisoformat` raises
+    ValueError on it - this test is RED until a timestamp prefix lands, and
+    stays RED against any implementation that logs a non-ISO-8601 stamp
+    (e.g. a Unix epoch float, or `time.ctime()` output)."""
+    log_path, _rotated_path = _dispatch_log_paths()
+
+    before = datetime.now()
+    dispatch.log("PLAIN MESSAGE WITH NO TIMESTAMP TODAY")
+    after = datetime.now()
+
+    line = log_path.read_text().splitlines()[0]
+    prefix = line.split(" ", 1)[0]
+    stamp = datetime.fromisoformat(prefix)  # raises ValueError if unparseable
+
+    # Plausible, not exact (flaky-avoidance): the stamp must fall inside the
+    # call's own wall-clock window, not just "look like a date".
+    assert before - timedelta(seconds=5) <= stamp <= after + timedelta(seconds=5)
+
+
+@pytest.mark.unit
+def test_log_message_body_survives_intact_next_to_timestamp_prefix(dispatch):
+    """Splicing in a timestamp must not truncate, mutate, or partially
+    overwrite the original message. This catches implementations that get
+    the timestamp itself right but corrupt the payload while assembling the
+    line - e.g. off-by-one slicing, or interpolating the message into an
+    f-string that eats characters. A test that only checked 'the message
+    appears somewhere in the file' would miss a mangled tail; requiring the
+    line to END with the exact original message pins that nothing after the
+    timestamp prefix was altered."""
+    message = "[dispatch] ENFORCE_PRD_LOCATION: dropped key 'foo' from BAR"
+    dispatch.log(message)
+
+    line = dispatch_log_text().splitlines()[0]
+    assert line.endswith(message)
+
+
+@pytest.mark.unit
+def test_log_multiline_traceback_message_not_corrupted_by_timestamp_prefix(dispatch):
+    """log() is called with tracebacks today - dispatch._invoke's
+    `except Exception` branch does `log(traceback.format_exc())`, a single
+    multi-line string. Adding a timestamp prefix must not corrupt, drop, or
+    reorder any line of a multi-line message: an implementation that only
+    handles the message up to its first '\\n' when splicing in the prefix
+    (e.g. `message.split("\\n")[0]`, or a regex anchored with `^`/`$` in
+    non-MULTILINE mode) would silently discard every line after the first.
+    The test also pins that a parseable timestamp is present at all - the
+    same requirement as the single-line case - since the implementation is
+    free to prefix only the first line or every line."""
+    traceback_like = (
+        "Traceback (most recent call last):\n"
+        '  File "handler.py", line 42, in run\n'
+        "    raise ValueError('boom')\n"
+        "ValueError: boom"
+    )
+    dispatch.log(traceback_like)
+
+    text = dispatch_log_text()
+    for expected_line in traceback_like.splitlines():
+        assert expected_line in text
+    # Order must be preserved - checking presence alone would not catch a
+    # shuffle of the traceback's lines.
+    positions = [text.index(expected_line) for expected_line in traceback_like.splitlines()]
+    assert positions == sorted(positions)
+
+    first_line = text.splitlines()[0]
+    first_token = first_line.split(" ", 1)[0]
+    datetime.fromisoformat(first_token)  # raises if no parseable stamp up front
+
+
+@pytest.mark.unit
+def test_log_never_raises_when_log_path_itself_is_unwritable(dispatch):
+    """`log()` must never raise even when the log file itself cannot be
+    opened for writing - here dispatch.log is a directory, so the `open("a")`
+    call inside log() fails with IsADirectoryError. This is distinct from
+    test_log_never_raises_when_rotation_target_is_blocked above (which
+    blocks only the .1 rotation target while the primary path stays
+    writable): it guards against a timestamp-prefix change that introduces a
+    new unguarded call - e.g. computing `datetime.now().isoformat()` outside
+    the existing try/except, or opening the path a second time - that would
+    let an unwritable primary log path escape the blanket `except Exception`
+    and crash the caller."""
+    log_path, _rotated_path = _dispatch_log_paths()
+    log_path.mkdir(parents=True)
+
+    dispatch.log("SHOULD NOT RAISE EITHER")  # must not raise
