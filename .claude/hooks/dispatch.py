@@ -174,7 +174,10 @@ def _aggregate(results, names=None) -> tuple[int, str]:
     """Fold [(code, out, err), ...] into (exit_code, merged_stdout).
 
     exit_code is 2 if any handler blocked, else 0 (other codes logged as 0).
-    Non-empty stderr is concatenated in order and written to the real stderr.
+    Non-empty stderr is concatenated in order and written to the real stderr,
+    except that when the run is blocking, a non-blocking handler's stderr is
+    logged instead of reaching the real stderr (it must not pollute the
+    model-visible block reason).
     Parseable stdout envelopes merge into one {"hookSpecificOutput": {...}}.
     """
     code = 2 if any(c == 2 for (c, _o, _e) in results) else 0
@@ -182,8 +185,12 @@ def _aggregate(results, names=None) -> tuple[int, str]:
         if c not in (0, 2):
             log(f"[dispatch] ignoring non-0/2 handler exit code {c}")
 
-    for (_c, _o, err) in results:
-        if err:
+    for idx, (c, _o, err) in enumerate(results):
+        if not err:
+            continue
+        if code == 2 and c != 2:
+            log(f"[dispatch] non-blocking stderr from {_name_at(names, idx)}: {err.rstrip()}")
+        else:
             sys.stderr.write(err)
 
     contexts: list[str] = []
