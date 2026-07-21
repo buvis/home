@@ -266,6 +266,45 @@ def test_capture_main_non_int_return_is_zero(common):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "value,expected_code",
+    [
+        pytest.param(True, 0, id="bool-true-not-mapped"),
+        pytest.param(False, 0, id="bool-false-not-mapped"),
+        pytest.param(0, 0, id="int-0-still-works"),
+        pytest.param(2, 2, id="int-2-still-works"),
+    ],
+)
+def test_capture_main_bool_return_is_not_mapped_but_genuine_int_is(
+    common, value, expected_code
+):
+    """`code = ret if isinstance(ret, int) else 0` maps a `main()` returning
+    True to exit code 1 and False to 0 today, because `isinstance(True, int)`
+    is True in Python (bool is an int subclass). A bool return must instead
+    fall to the same non-mapped 0 that any other non-int return (None, a
+    string) already produces per test_capture_main_non_int_return_is_zero
+    above - the returned exit code itself must be a genuine int, never the
+    bool object. Asserting the TYPE (not just the value) is what makes the
+    False case bite: False == 0 by value, so a guard that only checks
+    truthiness (`if ret: code = ret`) would let False slip straight through
+    as a successful-looking exit code 0 while never actually excluding it -
+    the value assertion alone would pass by coincidence and hide the bug.
+    int-0 and int-2 are controls: a wrong fix that rejects every int return,
+    or mis-detects bools via `ret in (True, False)` (which equals the real
+    ints 0 and 1 by `==`), would wrongly break these and this test would
+    catch it."""
+    code, out, err = common.capture_main(lambda: value, {})
+    assert code == expected_code, (
+        f"main() returning {value!r} must map to exit code {expected_code}, "
+        f"got {code!r}"
+    )
+    assert not isinstance(code, bool), (
+        f"capture_main's returned exit code must be a real int, never a bool "
+        f"(got {code!r} of type {type(code).__name__})"
+    )
+
+
+@pytest.mark.unit
 def test_capture_main_systemexit_int_code(common):
     def fn():
         sys.exit(2)
@@ -2356,6 +2395,79 @@ def test_invoke_reports_no_fault_for_well_formed_handler_return(dispatch, tmp_pa
         f"a well-formed (int, str, str) return must NOT be reported as a fault; "
         f"got {malformed_report_lines(surface, route.name)!r}"
     )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "returned,expect_malformed,expected_code",
+    [
+        pytest.param("(True, '', '')", True, None, id="bool-true-rejected"),
+        pytest.param("(False, '', '')", True, None, id="bool-false-rejected"),
+        pytest.param("(0, '', '')", False, 0, id="int-0-accepted"),
+        pytest.param("(2, '', '')", False, 2, id="int-2-accepted"),
+    ],
+)
+def test_invoke_rejects_bool_exit_code_but_accepts_genuine_int(
+    dispatch, tmp_path, returned, expect_malformed, expected_code
+):
+    """`isinstance(x, int)` is True for bool in Python, so `_invoke`'s
+    `isinstance(result[0], int)` check alone accepts (True, "", "") and
+    (False, "", "") as well-formed return triples today: True becomes the
+    handler's own exit code, and False - falsy AND equal to 0 by value - is
+    silently read as a clean, non-blocking allow, exactly the case a
+    truthiness-based guard would fail to catch. Both bool cases must instead
+    take the same MALFORMED-return path a non-tuple or wrong-length return
+    already takes (see test_invoke_logs_malformed_handler_return_instead_of_
+    reporting_success above): logged with a message naming the fault, and
+    degraded to a non-blocking (0, "", <note>). The int-0 and int-2 cases are
+    controls, sharing this test's matcher: a wrong fix that rejects every int
+    (e.g. `result[0] in (True, False)`, which misfires on the real int 0
+    because `0 == False`) would wrongly flag them as malformed too, and this
+    test would catch that."""
+    route = make_route(
+        tmp_path,
+        "boolcheck",
+        f"""
+        def run(payload):
+            return {returned}
+        """,
+    )
+    result = dispatch._invoke(route, {"tool_name": "Bash"})  # must not raise
+    code, out, err = assert_triple(result, "_invoke")
+
+    log_text = dispatch_log_text()
+    surface = err + log_text
+    reported = malformed_report_lines(surface, route.name)
+
+    if expect_malformed:
+        assert code == 0, (
+            f"a malformed bool exit code must degrade to a non-blocking exit "
+            f"0, got {code!r}"
+        )
+        assert out == "", (
+            f"a malformed return must contribute no stdout, got {out!r}"
+        )
+        assert route.name.lower() in surface.lower(), (
+            f"the malformed bool return must name the handler {route.name!r}; "
+            f"stderr={err!r} log={log_text!r}"
+        )
+        assert reported, (
+            f"a bool exit code ({returned}) must be reported as a MALFORMED "
+            f"return - isinstance(True, int) is True in Python, so a naive "
+            f"isinstance(x, int) check silently accepts it; expected one of "
+            f"{_MALFORMED_MARKERS}. stderr={err!r} log={log_text!r}"
+        )
+    else:
+        assert result == (expected_code, "", ""), (
+            f"a genuine int exit code must pass through _invoke unchanged, "
+            f"got {result!r}"
+        )
+        assert reported == [], (
+            f"a genuine int exit code ({returned}) must NOT be reported as "
+            f"malformed - got {reported!r}. A fix that also mis-rejects real "
+            f"ints (e.g. via `in (True, False)` membership, which equals 0 "
+            f"and 1) is wrong."
+        )
 
 
 @pytest.mark.integration
