@@ -5,6 +5,8 @@ regression. Ceremony beyond that is optional.
 
 - Bug fix: write the regression test with the fix, watch it fail once
   against the old code. This is the one place fail-first is mandatory.
+- Fix the implementation, not the test. If a test looks wrong, say so -
+  don't quietly change it.
 - TDD is a technique, not a mandate.
 - No blanket coverage target. Coverage is a lens for spotting untested
   logic, not a gate. Critical paths (money, auth, data loss) deserve
