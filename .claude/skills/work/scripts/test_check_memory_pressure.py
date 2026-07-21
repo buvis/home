@@ -228,3 +228,57 @@ def test_exits_unknown_on_unparseable_max_level_argument(
     captured = capsys.readouterr()
     assert captured.out.startswith("unknown:")
     assert len(captured.out.splitlines()) == 1
+
+
+# --- embedded-newline and bad-argv stdout contract ----------------------------
+
+
+def test_stdout_stays_one_line_when_sysctl_stderr_has_embedded_newlines(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A multi-line sysctl stderr (a real wrapped error message) must not
+    # multiply the caller's one-line stdout contract: the routing step reads
+    # exactly one line as the reason.
+    stderr_text = "sysctl: unknown oid\nkern.memorystatus_vm_pressure_level\nnot found"
+    _patch_sysctl_nonzero_exit(monkeypatch, stderr_text)
+
+    exit_code = check_memory_pressure.main([])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    assert captured.out.startswith("unknown:")
+    assert SYSCTL_KEY in captured.out
+
+
+def test_stdout_stays_one_line_when_sysctl_exception_message_has_embedded_newlines(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Same one-line contract when the failure surfaces as a raised exception
+    # (not a nonzero exit) whose own message spans multiple lines.
+    _patch_sysctl_raises(monkeypatch, OSError("permission denied\nretry failed\ngiving up"))
+
+    exit_code = check_memory_pressure.main([])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    assert captured.out.startswith("unknown:")
+    assert SYSCTL_KEY in captured.out
+
+
+@pytest.mark.parametrize("argv", [["--max-level", "abc"], ["--not-a-real-flag"]])
+def test_unknown_reason_is_non_empty_after_prefix_for_bad_argv(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    # A bare "unknown:" with nothing after it tells the caller nothing: both
+    # an unparseable --max-level and an unrecognised flag must still leave a
+    # non-empty reason after the prefix, on a single line.
+    exit_code = check_memory_pressure.main(argv)
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    assert captured.out.startswith("unknown:")
+    reason = captured.out[len("unknown:") :].strip()
+    assert reason != ""
