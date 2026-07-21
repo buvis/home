@@ -7,13 +7,19 @@ capture -
 
     code, out, err = mod.run(payload)
 
-MUST produce the SAME exit_code and the SAME stdout as running that handler as a
-standalone subprocess:
+MUST produce the SAME exit_code, the SAME stdout AND the SAME stderr as running
+that handler as a standalone subprocess:
 
     subprocess.run([sys.executable, handler], input=json.dumps(payload), ...)
 
-Exit code and stdout are the HARD contract. stderr is asserted ONLY for the
-`enforce_prd_location` block, whose message is fully deterministic static text.
+All three members of the contract tuple are compared for every handler. Note
+what that is worth in practice: measured across the twelve, only
+`enforce_prd_location` emits non-empty stderr (deterministic static block text),
+so the stderr member is a live discriminator for 1 of 12 and agrees vacuously at
+"" on both legs for the other 11. It is still worth comparing - stderr is the
+model-visible block reason, so a handler that stopped emitting one would now be
+caught - but do not read a green run as proof that eleven handlers' stderr was
+meaningfully exercised.
 
 Isolation (the central hazard). Several handlers write state as a side effect
 (per-session throttle stores, append-only logs, cartographer stores). If both
@@ -332,12 +338,14 @@ _HANDLERS = [
 @pytest.mark.integration
 @pytest.mark.parametrize("path,payload", _HANDLERS)
 def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
-    """In-process run(payload) must match the subprocess run in (exit_code, stdout).
+    """In-process run(payload) must match the subprocess run in (exit_code, stdout, stderr).
 
     Each leg runs in its OWN clean temp HOME + cwd so neither leg's side-effect
     writes can perturb the other. For benign handlers both legs agree at
-    (0, "") - a valid but weak parity check; for enforce_prd_location both legs
-    agree at (2, "") - a case a trivial `(0, "")` stub cannot fake.
+    (0, "", "") - a valid but weak parity check; for enforce_prd_location both
+    legs agree at (2, "", <block text>) - a case a trivial `(0, "", "")` stub
+    cannot fake, and the only one of the twelve where the stderr member does
+    real discriminating work.
 
     The FILE-TREE assertion carries the rest of the weight, with no per-handler
     fixture: whatever the subprocess wrote under its HOME, the in-process leg
