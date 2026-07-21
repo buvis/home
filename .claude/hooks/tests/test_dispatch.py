@@ -40,7 +40,12 @@ from uuid import uuid4
 import pytest
 
 HOOKS_DIR = Path(__file__).resolve().parents[1]
-SETTINGS_PATH = Path(__file__).resolve().parents[2] / "settings.json"
+# PRD 00071 consolidated the per-handler PreToolUse/PostToolUse/Stop matchers
+# out of settings.json and into dispatch.ROUTES; settings.json now carries one
+# dispatcher entry per event. This fixture is the frozen pre-swap wiring ROUTES
+# must keep reproducing - comparing ROUTES against the post-swap settings.json
+# would be a tautology (both would just say "one dispatch.py entry").
+SETTINGS_PATH = Path(__file__).resolve().parent / "fixtures" / "settings-preswap-hooks.json"
 
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
