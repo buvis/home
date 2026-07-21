@@ -36,6 +36,9 @@
 !.codex/AGENTS.md
 !.codex/config.toml
 !.codex/notify.sh
+!.codex/hooks
+.codex/hooks/*
+!.codex/hooks/notify.py
 .config/MusicBrainz
 .config/bash/sh-prompt-simple
 .config/beets/discogs_token.json
