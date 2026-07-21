@@ -72,8 +72,6 @@ ROUTES = [
     Route("Stop", None, "cartographer-stop", HOOKS / "cartographer-stop.py", 5),
 ]
 
-_HANDLER_CACHE: dict[str, object] = {}
-
 _RANK = {"allow": 0, "ask": 1, "deny": 2}
 
 
@@ -111,12 +109,9 @@ def _matches(matcher: str, tool: str) -> bool:
 
 
 def _load_handler(path):
-    """Import a handler module from its file path, caching only on success."""
-    key = str(path)
-    if key in _HANDLER_CACHE:
-        return _HANDLER_CACHE[key]
+    """Import a handler module from its file path."""
     modname = f"_hook_{Path(path).stem}"
-    spec = importlib.util.spec_from_file_location(modname, key)
+    spec = importlib.util.spec_from_file_location(modname, str(path))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[modname] = mod
     try:
@@ -124,7 +119,6 @@ def _load_handler(path):
     except BaseException:
         sys.modules.pop(modname, None)
         raise
-    _HANDLER_CACHE[key] = mod
     return mod
 
 
@@ -187,10 +181,95 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         signal.signal(signal.SIGALRM, prev)
 
 
-def _name_at(names, idx) -> str:
-    if names and idx < len(names):
-        return names[idx]
-    return f"handler[{idx}]"
+def _warn(msg: str) -> None:
+    """Write msg to the real stderr and the dispatch log."""
+    sys.stderr.write(msg + "\n")
+    log(msg)
+
+
+def _merge_envelopes(named) -> str:
+    """Parse each handler's stdout as a hookSpecificOutput envelope and merge
+    additionalContext, the most-restrictive permissionDecision, and any other
+    keys into one {"hookSpecificOutput": {...}} JSON string ("" if empty).
+
+    named is [(name, code, out, err), ...] - each result already carries its
+    own handler name, in dispatch order.
+    """
+    contexts: list[str] = []
+    other: dict = {}
+    win_decision = None
+    win_reason = None
+    win_rank = -1
+    win_idx = -1
+    losers: list[str] = []
+
+    for idx, (name, _c, out, _e) in enumerate(named):
+        if not out or not out.strip():
+            continue
+        try:
+            obj = json.loads(out)
+        except (ValueError, TypeError):
+            log(f"[dispatch] non-JSON stdout from {name}")
+            continue
+        if not isinstance(obj, dict):
+            log(f"[dispatch] non-object stdout from {name}")
+            continue
+        if "hookSpecificOutput" not in obj:
+            log(f"[dispatch] missing hookSpecificOutput from {name}")
+            continue
+        hso = obj["hookSpecificOutput"]
+        if not isinstance(hso, dict):
+            log(f"[dispatch] non-dict hookSpecificOutput "
+                f"({type(hso).__name__}) from {name}")
+            continue
+        if "additionalContext" in hso:
+            ctx = hso["additionalContext"]
+            if isinstance(ctx, str):
+                contexts.append(ctx)
+            else:
+                log(f"[dispatch] non-str additionalContext from {name}")
+        if "permissionDecision" in hso:
+            rank = _RANK.get(hso["permissionDecision"], -1)
+            if rank < 0:
+                log(f"[dispatch] unrecognized permissionDecision "
+                    f"{hso['permissionDecision']!r} from {name}")
+            # win_idx < 0 registers the FIRST decision even when unranked, so an
+            # unrecognized value passes through (as the separate hooks would) and
+            # never silently vanishes; a known decision still wins on rank.
+            if win_idx < 0 or rank > win_rank:
+                if win_idx >= 0:
+                    losers.append(named[win_idx][0])
+                win_decision = hso["permissionDecision"]
+                win_reason = hso.get("permissionDecisionReason")
+                win_rank = rank
+                win_idx = idx
+            else:
+                losers.append(name)
+        for key, value in hso.items():
+            if key in ("additionalContext", "permissionDecision",
+                       "permissionDecisionReason"):
+                continue
+            if key in other:
+                if other[key] != value:
+                    _warn(f"[dispatch] key conflict: dropped {key!r} from {name}")
+            else:
+                other[key] = value
+
+    for loser in losers:
+        _warn(f"[dispatch] permission conflict: dropped permissionDecision "
+              f"from {loser}")
+
+    inner: dict = {}
+    if contexts:
+        inner["additionalContext"] = "\n---\n".join(contexts)
+    if win_decision is not None:
+        inner["permissionDecision"] = win_decision
+        if win_reason is not None:
+            inner["permissionDecisionReason"] = win_reason
+    for key, value in other.items():
+        inner[key] = value
+
+    return json.dumps({"hookSpecificOutput": inner}) if inner else ""
 
 
 def _aggregate(results, names=None) -> tuple[int, str]:
@@ -208,94 +287,21 @@ def _aggregate(results, names=None) -> tuple[int, str]:
         if c not in (0, 2):
             log(f"[dispatch] ignoring non-0/2 handler exit code {c}")
 
-    for idx, (c, _o, err) in enumerate(results):
+    named = [
+        (names[idx] if names and idx < len(names) else f"handler[{idx}]",
+         c, out, err)
+        for idx, (c, out, err) in enumerate(results)
+    ]
+
+    for name, c, _out, err in named:
         if not err:
             continue
         if code == 2 and c != 2:
-            log(f"[dispatch] non-blocking stderr from {_name_at(names, idx)}: {err.rstrip()}")
+            log(f"[dispatch] non-blocking stderr from {name}: {err.rstrip()}")
         else:
             sys.stderr.write(err)
 
-    contexts: list[str] = []
-    other: dict = {}
-    win_decision = None
-    win_reason = None
-    win_rank = -1
-    win_idx = -1
-    decision_count = 0
-    losers: list[str] = []
-
-    for idx, (_c, out, _e) in enumerate(results):
-        if not out or not out.strip():
-            continue
-        try:
-            obj = json.loads(out)
-        except (ValueError, TypeError):
-            log(f"[dispatch] non-JSON stdout from {_name_at(names, idx)}")
-            continue
-        if not isinstance(obj, dict):
-            log(f"[dispatch] non-object stdout from {_name_at(names, idx)}")
-            continue
-        hso = obj.get("hookSpecificOutput")
-        if not isinstance(hso, dict):
-            log(f"[dispatch] dict stdout with no hookSpecificOutput from "
-                f"{_name_at(names, idx)}")
-            continue
-        if "additionalContext" in hso:
-            ctx = hso["additionalContext"]
-            if isinstance(ctx, str):
-                contexts.append(ctx)
-            else:
-                log(f"[dispatch] non-str additionalContext from {_name_at(names, idx)}")
-        if "permissionDecision" in hso:
-            decision_count += 1
-            rank = _RANK.get(hso["permissionDecision"], -1)
-            if rank < 0:
-                log(f"[dispatch] unrecognized permissionDecision "
-                    f"{hso['permissionDecision']!r} from {_name_at(names, idx)}")
-            # win_idx < 0 registers the FIRST decision even when unranked, so an
-            # unrecognized value passes through (as the separate hooks would) and
-            # never silently vanishes; a known decision still wins on rank.
-            if win_idx < 0 or rank > win_rank:
-                if win_idx >= 0:
-                    losers.append(_name_at(names, win_idx))
-                win_decision = hso["permissionDecision"]
-                win_reason = hso.get("permissionDecisionReason")
-                win_rank = rank
-                win_idx = idx
-            else:
-                losers.append(_name_at(names, idx))
-        for key, value in hso.items():
-            if key in ("additionalContext", "permissionDecision",
-                       "permissionDecisionReason"):
-                continue
-            if key in other:
-                if other[key] != value:
-                    msg = (f"[dispatch] key conflict: dropped {key!r} "
-                           f"from {_name_at(names, idx)}")
-                    sys.stderr.write(msg + "\n")
-                    log(msg)
-            else:
-                other[key] = value
-
-    if decision_count >= 2 and losers:
-        for loser in losers:
-            msg = (f"[dispatch] permission conflict: dropped permissionDecision "
-                   f"from {loser}")
-            sys.stderr.write(msg + "\n")
-            log(msg)
-
-    inner: dict = {}
-    if contexts:
-        inner["additionalContext"] = "\n---\n".join(contexts)
-    if win_decision is not None:
-        inner["permissionDecision"] = win_decision
-        if win_reason is not None:
-            inner["permissionDecisionReason"] = win_reason
-    for key, value in other.items():
-        inner[key] = value
-
-    merged = json.dumps({"hookSpecificOutput": inner}) if inner else ""
+    merged = _merge_envelopes(named)
     return code, merged
 
 
