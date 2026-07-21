@@ -2551,6 +2551,22 @@ def test_log_never_raises_when_rotation_target_is_blocked(dispatch):
     dispatch.log("SHOULD NOT RAISE")  # must not raise despite the rotation clash
 
 
+@pytest.mark.unit
+def test_log_writes_line_even_when_rotation_target_is_blocked(dispatch):
+    """A blocked rotation (dispatch.log.1 is a directory, so path.replace()
+    raises) must not swallow the line being logged along with the rotation
+    failure - the write must still happen. Same setup as
+    test_log_never_raises_when_rotation_target_is_blocked, but asserts the
+    line actually lands instead of only that log() doesn't raise."""
+    log_path, rotated_path = _dispatch_log_paths()
+    log_path.write_text("X" * _LOG_CAP_BYTES)
+    rotated_path.mkdir()
+
+    dispatch.log("LINE MUST SURVIVE A FAILED ROTATION")
+
+    assert "LINE MUST SURVIVE A FAILED ROTATION" in log_path.read_text()
+
+
 # --------------------------------------------------------------------------- #
 # log(): ISO-8601 timestamp prefix on every logged line
 # --------------------------------------------------------------------------- #
