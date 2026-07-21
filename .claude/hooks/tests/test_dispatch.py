@@ -463,6 +463,76 @@ def test_main_survives_malformed_stdin(dispatch, monkeypatch, raw):
 
 
 # --------------------------------------------------------------------------- #
+# Entry-point robustness: missing argv / unknown event never block, never
+# raise a raw traceback (a dispatcher that cannot identify its own event must
+# not take down the harness).
+# --------------------------------------------------------------------------- #
+DISPATCH_PATH = HOOKS_DIR / "dispatch.py"
+
+
+def _sandbox_home(tmp_path) -> Path:
+    home = tmp_path / "home"
+    (home / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    return home
+
+
+def _sandbox_dispatch_log(home: Path) -> str:
+    p = home / ".claude" / "hooks" / "dispatch.log"
+    return p.read_text() if p.exists() else ""
+
+
+@pytest.mark.integration
+def test_subprocess_missing_argv_is_non_blocking_no_traceback(tmp_path):
+    """`python3 dispatch.py` with NO argument today raises IndexError from
+    `main(sys.argv[1])` at module scope. A dispatcher that cannot identify its
+    own event must log the problem and exit 0 (non-blocking) instead of
+    crashing the harness with a raw traceback on stderr."""
+    home = _sandbox_home(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, str(DISPATCH_PATH)],
+        input=json.dumps({"tool_name": "Bash"}),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(home)},
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
+    assert "Traceback" not in proc.stderr
+    assert _sandbox_dispatch_log(home).strip(), "the missing-argument problem must be logged"
+
+
+@pytest.mark.integration
+def test_subprocess_unknown_event_is_non_blocking_no_traceback(tmp_path):
+    """`python3 dispatch.py bogus` today raises KeyError from `EVENTS[event]` -
+    same non-blocking requirement as the missing-argument case, and the log
+    line must name the offending event value."""
+    home = _sandbox_home(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, str(DISPATCH_PATH), "bogus"],
+        input=json.dumps({"tool_name": "Bash"}),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(home)},
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
+    assert "Traceback" not in proc.stderr
+    assert "bogus" in _sandbox_dispatch_log(home).lower()
+
+
+@pytest.mark.unit
+def test_main_unknown_event_exits_zero_not_keyerror(dispatch, monkeypatch):
+    """`dispatch.main("bogus")` must SystemExit(0) - not raise KeyError - when
+    called directly, so any in-process caller of `main` is protected too, not
+    just the `__main__` subprocess path."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": "Bash"})))
+    with pytest.raises(SystemExit) as ei:
+        dispatch.main("bogus")
+    assert ei.value.code == 0
+    assert "bogus" in dispatch_log_text().lower()
+
+
+# --------------------------------------------------------------------------- #
 # Routing: real ROUTES vs settings.json (acceptance 1 + 2 negatives)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
@@ -1260,26 +1330,46 @@ def test_subprocess_fallback_matches_direct_run(dispatch, tmp_path):
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_SIGALRM, reason="SIGALRM unavailable on this platform")
-def test_sigalrm_caps_slow_handler(dispatch, tmp_path):
+@pytest.mark.parametrize(
+    "timeout,sleep_seconds,min_elapsed,max_elapsed",
+    [
+        # Original case, unchanged assertion (elapsed < 2.5): alone this is
+        # satisfied by an impl that hardcodes `signal.alarm(1)` and ignores
+        # `route.timeout` entirely - in production that would give `notify`
+        # (timeout 15) only 1s.
+        pytest.param(1, 3, 0, 2.5, id="short-route-timeout"),
+        # route.timeout=3 against a 6s sleep: a hardcoded alarm(1) fires at
+        # ~1s (elapsed < 2.5), failing min_elapsed below; an impl that honors
+        # route.timeout is capped near 3s instead - comfortably above the
+        # smaller 1s cap and comfortably below the 6s sleep.
+        pytest.param(3, 6, 2.5, 5.5, id="longer-route-timeout-honored"),
+    ],
+)
+def test_sigalrm_caps_slow_handler(
+    dispatch, tmp_path, timeout, sleep_seconds, min_elapsed, max_elapsed
+):
     slow = make_route(
         tmp_path,
         "slow",
-        """
+        f"""
         import time
         def run(payload):
             try:
-                time.sleep(3)
+                time.sleep({sleep_seconds})
             except Exception:
                 pass
             return (0, "SLOW-FINISHED", "")
         """,
-        timeout=1,
+        timeout=timeout,
     )
     start = time.monotonic()
     code, out, err = dispatch._invoke(slow, {"tool_name": "Bash"})
     elapsed = time.monotonic() - start
 
-    assert elapsed < 2.5  # capped at ~1s, did not sleep the full 3s
+    assert min_elapsed <= elapsed < max_elapsed, (
+        f"timeout={timeout}: elapsed={elapsed!r} outside "
+        f"[{min_elapsed}, {max_elapsed}) - the cap must track route.timeout"
+    )
     assert code == 0
     assert "SLOW-FINISHED" not in out
     assert out == ""
@@ -1388,6 +1478,59 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
         f"the cap must already be cancelled by the time _invoke validates "
         f"the handler's return; leftover armed seconds per call: {observed!r}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# _invoke degrades gracefully when SIGALRM is unavailable (e.g. Windows): the
+# handler still runs and its result still surfaces, just with no per-handler
+# wall-clock cap. Deliberately NOT gated by `_HAS_SIGALRM` - these tests
+# simulate its absence regardless of the real platform.
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_invoke_runs_handler_when_sigalrm_unavailable(dispatch, monkeypatch, tmp_path):
+    """On a platform with no `signal.SIGALRM`/`signal.alarm` (Windows),
+    `_invoke` must still call the handler and return its triple - degrading to
+    NO per-handler wall-clock cap - instead of raising AttributeError before
+    ever reaching the handler. Today `signal.signal(signal.SIGALRM, ...)` runs
+    OUTSIDE `_invoke`'s try, so removing SIGALRM kills every invocation."""
+    monkeypatch.delattr(signal, "SIGALRM", raising=False)
+    monkeypatch.delattr(signal, "alarm", raising=False)
+    monkeypatch.delattr(signal, "setitimer", raising=False)
+    route = make_route(
+        tmp_path,
+        "noalarm",
+        """
+        def run(payload):
+            return (0, "NOALARM-OK", "")
+        """,
+    )
+    result = dispatch._invoke(route, {"tool_name": "Bash"})
+    assert result == (0, "NOALARM-OK", "")
+
+
+@pytest.mark.unit
+def test_invoke_isolates_raising_handler_when_sigalrm_unavailable(
+    dispatch, monkeypatch, tmp_path
+):
+    """Same degraded platform: a handler that raises must still be isolated -
+    exit code 0 with its error on stderr - rather than an AttributeError from
+    the (now-missing) SIGALRM setup masking the handler's own crash or
+    propagating out of `_invoke` uncaught."""
+    monkeypatch.delattr(signal, "SIGALRM", raising=False)
+    monkeypatch.delattr(signal, "alarm", raising=False)
+    monkeypatch.delattr(signal, "setitimer", raising=False)
+    route = make_route(
+        tmp_path,
+        "noalarmraiser",
+        """
+        def run(payload):
+            raise RuntimeError("NOALARM-BOOM")
+        """,
+    )
+    code, out, err = dispatch._invoke(route, {"tool_name": "Bash"})
+    assert code == 0
+    assert out == ""
+    assert "NOALARM-BOOM" in err or "RuntimeError" in err
 
 
 # --------------------------------------------------------------------------- #
@@ -1777,3 +1920,86 @@ def test_handler_script_standalone_behavior_unchanged(
     assert proc.returncode == expected_code, f"{command!r}: stderr={proc.stderr!r}"
     assert proc.stdout == ""
     assert ("BLOCKED" in proc.stderr) is expect_blocked
+
+
+# --------------------------------------------------------------------------- #
+# log(): 1 MiB size cap with one-generation rotation
+# --------------------------------------------------------------------------- #
+_LOG_CAP_BYTES = 1048576
+
+
+def _dispatch_log_paths() -> tuple[Path, Path]:
+    log_path = Path.home() / ".claude" / "hooks" / "dispatch.log"
+    rotated_path = log_path.parent / (log_path.name + ".1")
+    return log_path, rotated_path
+
+
+@pytest.mark.unit
+def test_log_rotates_oversized_file_before_writing_new_line(dispatch):
+    """When the existing dispatch.log is already AT OR OVER the 1 MiB cap,
+    `log()` must rotate it to dispatch.log.1 first, then write the new line
+    into a fresh, small dispatch.log - a persistently broken handler must
+    never be allowed to grow the log without bound, and the old generation is
+    real forensic evidence that must survive one rotation, never be silently
+    truncated to nothing."""
+    log_path, rotated_path = _dispatch_log_paths()
+    old_content = "OLD-GENERATION-LINE\n" + ("X" * _LOG_CAP_BYTES)
+    log_path.write_text(old_content)
+    assert log_path.stat().st_size >= _LOG_CAP_BYTES
+
+    dispatch.log("NEW LINE")
+
+    assert "NEW LINE" in log_path.read_text()
+    assert log_path.stat().st_size < _LOG_CAP_BYTES
+    assert rotated_path.exists()
+    assert "OLD-GENERATION-LINE" in rotated_path.read_text()
+
+
+@pytest.mark.unit
+def test_log_second_rotation_replaces_previous_dot1_not_appends(dispatch):
+    """A second rotation must REPLACE dispatch.log.1 with the newly-retired
+    generation, not error out and not accumulate onto the previous .1 -
+    history is kept exactly one generation back, never more."""
+    log_path, rotated_path = _dispatch_log_paths()
+
+    log_path.write_text("GEN-1-OLD\n" + ("A" * _LOG_CAP_BYTES))
+    dispatch.log("GEN-2")
+    assert "GEN-1-OLD" in rotated_path.read_text()
+
+    log_path.write_text(log_path.read_text() + ("B" * _LOG_CAP_BYTES))
+    dispatch.log("GEN-3")
+
+    rotated_text = rotated_path.read_text()
+    assert "GEN-2" in rotated_text
+    assert "GEN-1-OLD" not in rotated_text  # replaced, not accumulated
+    assert "GEN-3" in log_path.read_text()
+
+
+@pytest.mark.unit
+def test_log_small_file_is_not_rotated(dispatch):
+    """NEGATIVE CONTROL: an ordinary small dispatch.log must NOT rotate on
+    every call, only when it is already at or over the cap. Without this, an
+    implementation that unconditionally rotates on every log() call would
+    pass the rotation test above for the wrong reason."""
+    log_path, rotated_path = _dispatch_log_paths()
+    log_path.write_text("EXISTING-SMALL-LINE\n")
+
+    dispatch.log("ANOTHER LINE")
+
+    assert not rotated_path.exists()
+    text = log_path.read_text()
+    assert "EXISTING-SMALL-LINE" in text
+    assert "ANOTHER LINE" in text
+
+
+@pytest.mark.unit
+def test_log_never_raises_when_rotation_target_is_blocked(dispatch):
+    """`log()` must never raise, whatever happens - including when the
+    rotation step itself cannot complete (here: dispatch.log.1 is a
+    directory, not a file, so any rename/replace onto it fails). A broken
+    handler's log call must never take down the dispatcher."""
+    log_path, rotated_path = _dispatch_log_paths()
+    log_path.write_text("X" * _LOG_CAP_BYTES)
+    rotated_path.mkdir()
+
+    dispatch.log("SHOULD NOT RAISE")  # must not raise despite the rotation clash
