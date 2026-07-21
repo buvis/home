@@ -1,0 +1,1 @@
+/Users/bob/.claude/hooks/notify.py
