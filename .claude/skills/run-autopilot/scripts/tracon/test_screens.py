@@ -876,6 +876,46 @@ def test_y_copies_rendered_log_tail_to_clipboard(
     assert "claude-opus-4-8" in copied[0]  # the rendered line, not raw JSONL
 
 
+def test_bash_heartbeats_report_out_file_growth_throttled(tmp_path: Path) -> None:
+    """Background CLI lanes emit no task_progress events; the -o file is
+    their only progress signal. Growth logs one dim lane-tagged line, first
+    sighting is a silent baseline, and beats are throttled per lane."""
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {"task_id": "bg1", "task_type": "local_bash", "description": "Bob doubt review"}
+            ],
+        }
+    )
+    lane = collector.tracker.live_tasks()[0]
+    out = tmp_path / "bob.out"
+    out.write_text("x" * 100)
+    lane.out_path = str(out)
+
+    assert collector.bash_heartbeats(now=1000.0) == []  # first sight: baseline only
+
+    out.write_text("x" * 4200)
+    beats = collector.bash_heartbeats(now=1001.0)
+    assert len(beats) == 1
+    assert "Bob doubt review" in beats[0].plain
+    assert "out 4.2k" in beats[0].plain
+    assert "+4.1k" in beats[0].plain
+
+    out.write_text("x" * 5000)
+    assert collector.bash_heartbeats(now=1003.0) == []  # grown but throttled
+    later = collector.bash_heartbeats(now=1007.0)  # window passed
+    assert len(later) == 1
+    assert "+800" in later[0].plain
+
+    assert collector.bash_heartbeats(now=1020.0) == []  # no growth, no beat
+
+
 # --- the fleet dashboard re-discovers loops on every refresh ----------------
 
 

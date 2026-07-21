@@ -94,6 +94,8 @@ class Collector:
         self._tail = LogTail(self._autopilot / "last-session.log")
         self._usage = SessionUsage()
         self._tracker = AgentTracker()
+        self._out_sizes: dict[str, int] = {}
+        self._hb_at: dict[str, float] = {}
 
     @property
     def tracker(self) -> AgentTracker:
@@ -126,6 +128,39 @@ class Collector:
             notes[lane.task_id] = f"out {panels.fmt_tok(st.st_size)} · {age} ago"
         return notes
 
+    HEARTBEAT_EVERY = 5.0
+
+    def bash_heartbeats(self, now: float | None = None) -> list[Text]:
+        """One dim lane-tagged growth line per live bash lane whose -o file
+        grew since its last heartbeat — the only progress signal an opaque
+        background CLI gives (they emit no task_progress events, unlike
+        subagents). Throttled per lane to HEARTBEAT_EVERY seconds; the first
+        sighting only records a baseline so replayed content never reports
+        as fresh growth."""
+        if now is None:
+            now = time.time()
+        lines: list[Text] = []
+        for lane in self._tracker.live_tasks():
+            if not lane.out_path:
+                continue
+            try:
+                size = Path(lane.out_path).stat().st_size
+            except OSError:
+                continue
+            last = self._out_sizes.get(lane.task_id)
+            if last is None:
+                self._out_sizes[lane.task_id] = size
+                continue
+            if size <= last or now - self._hb_at.get(lane.task_id, 0.0) < self.HEARTBEAT_EVERY:
+                continue
+            self._out_sizes[lane.task_id] = size
+            self._hb_at[lane.task_id] = now
+            t = Text()
+            t.append(f"⟨{lane.label}⟩", style=lane.color)
+            t.append(f" out {panels.fmt_tok(size)} (+{panels.fmt_tok(size - last)})", style="dim")
+            lines.append(t)
+        return lines
+
     def poll(self) -> tuple[list[str], bool]:
         return self._tail.read_new()
 
@@ -148,6 +183,8 @@ class Collector:
     def reset_session(self) -> None:
         self._usage.reset()
         self._tracker.reset()
+        self._out_sizes.clear()
+        self._hb_at.clear()
 
     def snapshot(self) -> tuple[model.LoopState, list[model.MetricsRow], discovery.Status, tuple[int, int]]:
         state = model.read_state(self._autopilot / "state.json")
@@ -455,6 +492,10 @@ esc or ? closes this help.
                         t.stylize("dim")
                     log.write(t)
                     self._tail_lines.append(t.plain)
+
+            for hb in self.collector.bash_heartbeats():
+                log.write(hb)
+                self._tail_lines.append(hb.plain)
 
             self.update_head()
 
