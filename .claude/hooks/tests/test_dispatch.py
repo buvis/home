@@ -565,6 +565,111 @@ def test_routing_matches_settings_json(dispatch, monkeypatch, event_short, tool_
     assert [route_basename(r) for r in recorded] == expected
 
 
+# Distinct tool names observed across 31,031 PostToolUse observations in
+# ~/.claude/instincts/projects/*/observations.jsonl (2026-07-21), plus the
+# three never-observed names whose routing would change under re.search
+# (TodoWrite, NotebookEdit, BashOutput - substrings Write/Edit/Bash).
+OBSERVED_TOOL_NAMES = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "TaskUpdate",
+    "ToolSearch",
+    "TaskCreate",
+    "Agent",
+    "AskUserQuestion",
+    "mcp__plugin_context-mode_context-mode__ctx_execute",
+    "Skill",
+    "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+    "mcp__serena__read_file",
+    "WebSearch",
+    "WebFetch",
+    "TaskList",
+    "StructuredOutput",
+    "mcp__serena__search_for_pattern",
+    "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+    "TaskOutput",
+    "mcp__plugin_context-mode_context-mode__ctx_search",
+    "mcp__serena__activate_project",
+    "Monitor",
+    "mcp__serena__find_symbol",
+    "TaskStop",
+    "TaskGet",
+    "mcp__serena__initial_instructions",
+    "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+    "mcp__claude_ai_Context7__query-docs",
+    "mcp__claude_ai_Context7__resolve-library-id",
+    "ScheduleWakeup",
+    "mcp__serena__get_symbols_overview",
+    "SendMessage",
+    "Workflow",
+    "mcp__serena__list_dir",
+    "mcp__claude_ai_Mermaid_Chart__validate_and_render_mermaid_diagram",
+    "mcp__serena__onboarding",
+    "mcp__serena__find_file",
+    "Glob",
+    "ReportFindings",
+    "mcp__plugin_context-mode_context-mode__ctx_stats",
+    "mcp__plugin_context-mode_context-mode__ctx_doctor",
+    "mcp__claude-in-chrome__tabs_context_mcp",
+    "list_mcp_resources",
+    "ExitPlanMode",
+    "EnterPlanMode",
+    # Never observed in the 31,031 PostToolUse sample, but routing-relevant:
+    # each is a substring of a real ROUTES matcher (Write/Edit/Bash) and would
+    # gain handlers under re.search instead of re.fullmatch.
+    "TodoWrite",
+    "NotebookEdit",
+    "BashOutput",
+    # Never observed either, but named outright by a real matcher
+    # ("Edit|Write|MultiEdit") - included so every matcher token in ROUTES has
+    # at least one tool case exercising it.
+    "MultiEdit",
+]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("tool_name", OBSERVED_TOOL_NAMES)
+def test_routing_matches_settings_json_for_observed_tools(dispatch, monkeypatch, tool_name):
+    """Pin fullmatch routing parity across the tool set actually in use.
+
+    For every tool_name in OBSERVED_TOOL_NAMES, and for both PreToolUse and
+    PostToolUse, the handler basenames `dispatch.main(...)` selects (via
+    ROUTES + `_matches`) must equal `expected_handlers(...)` computed straight
+    from the pre-swap settings.json fixture. `test_routing_matches_settings_json`
+    above already makes this comparison for 10 hand-picked (event, tool) pairs;
+    this test runs the SAME comparison across the full observed tool set so a
+    future edit to ROUTES, to `_matches`, or to the settings fixture cannot
+    silently drift routing for any tool actually seen in production.
+
+    Does NOT prove: that the harness itself matches tool names with
+    re.fullmatch (whole-name) semantics rather than re.search (substring).
+    Both sides of this comparison - dispatch.ROUTES/`_matches` AND
+    `expected_handlers()` - model the harness with re.fullmatch, so a harness
+    that actually uses re.search would pass this test while still being
+    silently mis-routed in production. Only a live-harness probe can settle
+    that assumption; see `dispatch._matches`' docstring.
+    """
+    for event_short in ("pre", "post"):
+        event_full = EVENTS_MAP[event_short]
+        expected = expected_handlers(event_full, tool_name)
+
+        recorded = []
+        monkeypatch.setattr(
+            dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        )
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name})))
+        with pytest.raises(SystemExit):
+            dispatch.main(event_short)
+
+        actual = [route_basename(r) for r in recorded]
+        assert actual == expected, (
+            f"{event_full}/{tool_name}: ROUTES gave {actual!r}, "
+            f"settings.json expects {expected!r}"
+        )
+
+
 @pytest.mark.integration
 def test_routing_bash_pre_runs_exactly_two(dispatch, monkeypatch):
     recorded = []
