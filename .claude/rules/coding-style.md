@@ -2,8 +2,6 @@
 
 ## Immutability
 
-Prefer immutable data to prevent hidden side effects, simplify debugging, and enable safe concurrency.
-
 - In GC languages (JS, Python, Java): create new objects, don't mutate existing ones.
 - In Rust: trust the borrow checker. `&mut self`, `Mutex`, `RwLock`, and interior mutability are idiomatic when ownership rules are satisfied. Don't clone or rebuild data structures just to avoid `mut`.
 
@@ -34,13 +32,11 @@ Many small files over few large files:
 
 ## Naming
 
-- Name commands, skills, functions, and anything that performs an action starting with an action verb (e.g. `review-deps-prs`, not `dep-updates`).
+- Name commands, skills, functions, and anything that performs an action starting with an action verb.
 
 ## Production-Ready Code
 
-All code must be complete, working, and shippable. This applies to code that
-ships: deliberate throwaways in `dev/local/spikes/` and session-scratchpad
-files are exempt (the spike skill governs those).
+All code must be complete, working, and shippable, except deliberate throwaways in `dev/local/spikes/` and session-scratchpad files (the spike skill governs those).
 
 - No stubs, placeholders, TODOs, `NotImplementedError`, `unimplemented!()`, or fake data. When requirements are unclear, ask.
 - Write or update tests covering new behavior. Ensure they pass.
@@ -56,7 +52,7 @@ files are exempt (the spike skill governs those).
 
 ## Warnings
 
-Enforced by the **aegis** plugin's `block-suppression-markers.py` and `protect_config.py` hooks. See `aegis/rules/coding-style.md` for the full policy.
+Enforced by the **aegis** plugin's `block_suppression_markers.py` and `protect_config.py` hooks. See `aegis/rules/coding-style.md` for the full policy.
 
 When you discover pre-existing warnings, lint issues, or code smells, do not silently ignore them. Surface them and push for action.
 
