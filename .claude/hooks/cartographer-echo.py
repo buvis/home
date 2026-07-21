@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -530,7 +531,6 @@ _BASH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"python3?\s+-c\s+[\"'][^\"']*\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"']w[\"']"),
     ),
     ("sed-inplace", re.compile(r"\bsed\s+-i\b[^|;\n]*?\s(\S+\.[A-Za-z0-9]+)(?:\s|$)")),
-    ("redirect-source", re.compile(r"(?<!\d)(?:>|>>)\s*(\S+\.[A-Za-z0-9]+)")),
 )
 
 
@@ -551,6 +551,42 @@ def _resolve_within_cwd(raw_path: str, cwd: Path) -> Path | None:
         return None
 
 
+def _find_redirect_targets(command: str) -> list[str]:
+    """Targets of real (unquoted) `>` / `>>` operators, via shlex tokenization.
+
+    A `>` inside quotes dequotes into an ordinary token, so literal text like
+    `"<prd>-review-<n>.md"` or regex arguments can never read as a redirect.
+    """
+    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        tokens = list(lex)
+    except ValueError:
+        # Unparseable (heredoc body, unbalanced quotes) — fail open; the
+        # cat-redirect regex still covers the heredoc form.
+        return []
+    targets = []
+    for i, tok in enumerate(tokens[:-1]):
+        if tok in (">", ">>") and not (i > 0 and tokens[i - 1].isdigit()):
+            # ponytail: isdigit guard skips fd redirects (2> err.md) but also
+            # `echo 2 > x.md`; acceptable, Echo is a soft nudge.
+            targets.append(tokens[i + 1])
+    return targets
+
+
+def _check_target(target: str, cwd: Path) -> Path | None:
+    """Apply the source-path heuristic to one candidate target path."""
+    resolved = _resolve_within_cwd(target, cwd)
+    if resolved is None:
+        return None
+    ext = "." + resolved.name.rsplit(".", 1)[-1].lower() if "." in resolved.name else ""
+    if ext not in _BASH_SOURCE_EXTENSIONS:
+        return None
+    if is_claude_settings_path(str(resolved)):
+        return None
+    return resolved
+
+
 def detect_bash_bypass(command: str, cwd: Path) -> tuple[str, str] | None:
     """Detect code-writing Bash patterns. Return `(pattern_name, resolved_path_str)` or None.
 
@@ -565,15 +601,14 @@ def detect_bash_bypass(command: str, cwd: Path) -> tuple[str, str] | None:
             target = m.group(1)
             if not target:
                 continue
-            resolved = _resolve_within_cwd(target, cwd)
+            resolved = _check_target(target, cwd)
             if resolved is None:
                 continue
-            ext = "." + resolved.name.rsplit(".", 1)[-1].lower() if "." in resolved.name else ""
-            if ext not in _BASH_SOURCE_EXTENSIONS:
-                continue
-            if is_claude_settings_path(str(resolved)):
-                continue
             return (name, str(resolved))
+    for target in _find_redirect_targets(command):
+        resolved = _check_target(target, cwd)
+        if resolved is not None:
+            return ("redirect-source", str(resolved))
     return None
 
 
