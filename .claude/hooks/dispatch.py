@@ -115,7 +115,13 @@ def _parse_stdin() -> dict:
 
 
 def _matches(matcher: str, tool: str) -> bool:
-    """Anchored whole-name match, returning a real bool."""
+    """Anchored whole-name match, returning a real bool.
+
+    Assumes the harness itself matches tool names with fullmatch (whole-name)
+    semantics, not re.search (substring) - unverified against the live
+    harness; see test_routing_matches_settings_json_for_observed_tools in
+    tests/test_dispatch.py, which models the harness the same way.
+    """
     return re.fullmatch(matcher, tool) is not None
 
 
@@ -171,11 +177,9 @@ def _invoke(route, payload) -> tuple[int, str, str]:
             result = _subprocess_fallback(route.path, payload, route.timeout)
         if has_alarm:
             signal.alarm(0)  # handler DONE: cancel immediately
-        # test_teardown_race_no_false_timeout probes the line above from inside
-        # this `len(result)` call. Keep the check calling len() on the result:
-        # a refactor to match/case or manual unpacking would stop firing that
-        # probe, and the test would silently stop binding the cancel-on-return
-        # invariant instead of failing loudly.
+        # This line is observed by test_teardown_race_no_false_timeout via
+        # len(result) on the handler's returned triple; keep the check calling
+        # len() on the result.
         if not (
             isinstance(result, tuple)
             and len(result) == 3
@@ -238,10 +242,9 @@ def _pick_decision(envelopes, blocking) -> tuple:
     """Select the winning permissionDecision from parsed envelopes.
 
     envelopes is [(name, hso), ...] for handlers whose stdout was a valid
-    envelope, in dispatch order. Returns (decision, reason, losers) where
-    losers is the list of handler names whose permissionDecision was
-    dropped. blocking routes the loser warnings to the log (blocking run)
-    or real stderr (non-blocking run), same rule as _aggregate's stderr.
+    envelope, in dispatch order. Returns (decision, reason). blocking routes
+    the loser warnings to the log (blocking run) or real stderr (non-blocking
+    run), same rule as _aggregate's stderr.
     """
     win_decision = None
     win_reason = None
@@ -274,7 +277,7 @@ def _pick_decision(envelopes, blocking) -> tuple:
                f"from {loser}")
         (log if blocking else _warn)(msg)
 
-    return win_decision, win_reason, losers
+    return win_decision, win_reason
 
 
 def _merge_envelopes(named) -> str:
@@ -317,7 +320,7 @@ def _merge_envelopes(named) -> str:
             else:
                 other[key] = value
 
-    win_decision, win_reason, _losers = _pick_decision(envelopes, blocking)
+    win_decision, win_reason = _pick_decision(envelopes, blocking)
 
     inner: dict = {}
     if contexts:
@@ -332,7 +335,7 @@ def _merge_envelopes(named) -> str:
     return json.dumps({"hookSpecificOutput": inner}) if inner else ""
 
 
-def _aggregate(results, names=None) -> tuple[int, str]:
+def _aggregate(results, names) -> tuple[int, str]:
     """Fold [(code, out, err), ...] into (exit_code, merged_stdout).
 
     exit_code is 2 if any handler blocked, else 0 (other codes logged as 0).
@@ -348,8 +351,7 @@ def _aggregate(results, names=None) -> tuple[int, str]:
             log(f"[dispatch] ignoring non-0/2 handler exit code {c}")
 
     named = [
-        (names[idx] if names and idx < len(names) else f"handler[{idx}]",
-         c, out, err)
+        (names[idx], c, out, err)
         for idx, (c, out, err) in enumerate(results)
     ]
 
