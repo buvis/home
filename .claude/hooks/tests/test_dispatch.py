@@ -533,6 +533,150 @@ def test_main_unknown_event_exits_zero_not_keyerror(dispatch, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Malformed tool_name: fail-open crash guard (bug under test).
+#
+# `main()` does `tool = payload.get("tool_name", "")` then, for each route,
+# `r.matcher is None or _matches(r.matcher, tool)`. `_parse_stdin` already
+# guards non-JSON/non-dict stdin (-> {}), and `main` already guards an unknown
+# event name - but a payload that IS a valid dict with a PRESENT `tool_name`
+# key holding a non-string value (int, dict, list, JSON null) sails through
+# both guards untouched. `_matches` then calls `re.fullmatch(matcher, tool)`,
+# which raises TypeError for a non-str `tool` on the first specific-matcher
+# route. That TypeError escapes `main()` uncaught: the dispatcher dies with a
+# traceback and a nonzero exit, and since only exit code 2 blocks a tool call,
+# the harness reads an uncaught crash as "allow" - every handler, including
+# the enforce_prd_location policy gate, silently never runs. Fail-open.
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "tool_name_value",
+    [123, {"a": 1}, [1, 2, 3], None],
+    ids=["int", "dict", "list", "null"],
+)
+def test_main_survives_non_string_tool_name(dispatch, monkeypatch, tool_name_value):
+    """A `tool_name` that IS present but is not a string (int, dict, list, or
+    JSON null) must never raise out of `main()`. Today the "" default in
+    `payload.get("tool_name", "")` only applies when the KEY is absent; a
+    present-but-wrong-type value passes straight through to `_matches`, whose
+    `re.fullmatch(matcher, tool)` raises TypeError on the first specific-
+    matcher PreToolUse route. This test FAILS against the current
+    implementation because `pytest.raises(SystemExit)` does not match a
+    TypeError escaping instead - proving the crash is real and uncaught."""
+    recorded = []
+    monkeypatch.setattr(
+        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+    )
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name_value}))
+    )
+    with pytest.raises(SystemExit) as ei:
+        dispatch.main("pre")
+    assert ei.value.code == 0
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "tool_name_value",
+    [123, {"a": 1}, [1, 2, 3], None],
+    ids=["int", "dict", "list", "null"],
+)
+def test_malformed_tool_name_runs_match_all_but_not_specific_matcher(
+    dispatch, monkeypatch, tmp_path, tool_name_value
+):
+    """Routing consequence of the guard, with a mix of routes registered for
+    the SAME event: a malformed `tool_name` must not be treated as matching a
+    specific matcher ("Bash", via `re.fullmatch`), but a match-all route
+    (`matcher=None`) must STILL run - a malformed `tool_name` silently
+    disabling match-all routes would be its own fail-open. This test FAILS
+    against the current implementation: building `ROUTES` from a specific
+    matcher first means the list comprehension in `main` raises TypeError
+    before EITHER route is recorded, so `recorded` never even reaches the
+    assertions (the surrounding `pytest.raises(SystemExit)` catches nothing
+    but a TypeError, which is not a SystemExit). An impl that fixes the crash
+    by defensively skipping ALL routing whenever `tool_name` is malformed
+    (instead of only the specific-matcher check) would still fail the
+    MATCHALL assertion below, since that is its own fail-open in disguise."""
+    bash_route = make_route(
+        tmp_path,
+        "bashonly",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher="Bash",
+    )
+    match_all_route = make_route(
+        tmp_path,
+        "matchall",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher=None,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [bash_route, match_all_route])
+
+    recorded = []
+    monkeypatch.setattr(
+        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+    )
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name_value}))
+    )
+    with pytest.raises(SystemExit):
+        dispatch.main("pre")
+
+    names = [r.name for r in recorded]
+    assert "MATCHALL" in names
+    assert "BASHONLY" not in names
+
+
+@pytest.mark.integration
+def test_missing_tool_name_key_routing_is_unchanged(dispatch, monkeypatch, tmp_path):
+    """Regression control for the two tests above: a payload that IS a valid
+    JSON object but simply has NO `tool_name` key at all (as opposed to a
+    present key holding a non-string value) must keep behaving exactly as it
+    does today - `payload.get("tool_name", "")` defaults to "", the specific
+    matcher ("Bash") does not fire, and the match-all route still does. This
+    must PASS both before and after the tool_name-type guard lands; a guard
+    that also changes the missing-key default (not just the wrong-type case)
+    has overreached the fix, and this test would catch that regression."""
+    bash_route = make_route(
+        tmp_path,
+        "bashonly",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher="Bash",
+    )
+    match_all_route = make_route(
+        tmp_path,
+        "matchall",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher=None,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [bash_route, match_all_route])
+
+    recorded = []
+    monkeypatch.setattr(
+        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+    )
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO(json.dumps({"unrelated_key": "value"}))
+    )
+    with pytest.raises(SystemExit) as ei:
+        dispatch.main("pre")
+
+    assert ei.value.code == 0
+    names = [r.name for r in recorded]
+    assert names == ["MATCHALL"]
+
+
+# --------------------------------------------------------------------------- #
 # Routing: real ROUTES vs settings.json (acceptance 1 + 2 negatives)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
