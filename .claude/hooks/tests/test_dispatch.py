@@ -933,6 +933,60 @@ def test_no_conflict_emits_no_conflict_warning(dispatch, monkeypatch, tmp_path, 
     assert conflict_context_lines(surface, "PLAIN") == [], surface
 
 
+@pytest.mark.integration
+def test_merge_conflict_names_true_losers_when_winner_route_is_last(
+    dispatch, monkeypatch, tmp_path, capsys
+):
+    """Three routes ranked [allow, allow, deny] in route order: the highest-
+    ranked decision (deny) belongs to the LAST route, not the first. Guards
+    against a "loser = last route name" hardcode - that shape would instead
+    name the true winner (THIRD_DENY) as dropped and miss both real losers
+    (FIRST_ALLOW, SECOND_ALLOW), so it cannot pass this test."""
+    first_allow = make_route(
+        tmp_path,
+        "first_allow",
+        """
+        import json
+        def run(payload):
+            return (0, json.dumps({"hookSpecificOutput": {
+                "permissionDecision": "allow", "permissionDecisionReason": "FIRST"}}), "")
+        """,
+    )
+    second_allow = make_route(
+        tmp_path,
+        "second_allow",
+        """
+        import json
+        def run(payload):
+            return (0, json.dumps({"hookSpecificOutput": {
+                "permissionDecision": "allow", "permissionDecisionReason": "SECOND"}}), "")
+        """,
+    )
+    third_deny = make_route(
+        tmp_path,
+        "third_deny",
+        """
+        import json
+        def run(payload):
+            return (0, json.dumps({"hookSpecificOutput": {
+                "permissionDecision": "deny", "permissionDecisionReason": "THIRD"}}), "")
+        """,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [first_allow, second_allow, third_deny])
+    code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["permissionDecision"] == "deny"  # highest rank wins even though last
+    assert hso["permissionDecisionReason"] == "THIRD"  # winner's own reason survives
+
+    surface = err + dispatch_log_text()
+    # Both allow handlers are real losers - they never won the rank comparison.
+    assert conflict_context_lines(surface, "FIRST_ALLOW") != [], surface
+    assert conflict_context_lines(surface, "SECOND_ALLOW") != [], surface
+    # The deny handler won; it must never be named as dropped/losing.
+    assert conflict_context_lines(surface, "THIRD_DENY") == [], surface
+
+
 # --------------------------------------------------------------------------- #
 # Merge-conflict warning generalizes beyond permissionDecision (PRD 00071)
 # --------------------------------------------------------------------------- #
