@@ -8,9 +8,6 @@
 - Never chain with `&&`, `;`, or newlines when sub-commands have different permission prefixes.
 - Use separate parallel Bash calls when commands are independent, sequential when dependent.
 - Don't add `2>&1` - the Bash tool captures both stdout and stderr by default.
-- **Don't pipe command output to `tail`/`head`/`grep` to trim it.** The `prefer_tools.py` hook blocks this, and the Read/Grep tools can't read a process's stdout. To inspect a long test or build run:
-  - Run the command bare (`cargo test -p ddb-core`) - the Bash tool already truncates long output.
-  - If you need a specific slice, redirect to a file (`cargo test -p ddb-core > /tmp/ddb-test.log`) and `Read` it with `offset`/`limit`.
 
 ## Tool vs. Bash (BLOCKING)
 
@@ -29,10 +26,6 @@ The native `Grep`/`Glob` tools are unregistered in this build (upstream bug, nat
 Don't spawn `Explore` for a one-line lookup (slow, token-heavy), and don't pull whole files into context when `Explore` can return the conclusion. `Explore` is read-only and locates code via excerpts, so `Read` the exact bytes yourself before any `Edit`.
 
 - ALWAYS read and understand relevant files before proposing edits. Do not speculate about code you have not inspected.
-
-## Search and Documentation
-
-- Check documentation for APIs and dependencies before writing code.
 
 ## ripgrep Regex
 
