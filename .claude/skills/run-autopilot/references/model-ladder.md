@@ -83,10 +83,16 @@ probe failed. A non-zero exit reroutes the task and stamps the attempt
 `qwen_excluded_reason` — `memory_pressure` on exit 1, `memory_probe_failed` on
 exit 2 (`state-schema.md` `tasks[].attempts`).
 
-**Revert needs no new env knob:** raise this threshold to `4` — the maximum
-level macOS reports — and the gate can never fire, since the comparison is
-`<=`. This works ONLY because the routing row reads `--max-level` from this
-section explicitly, at dispatch time.
+**Revert needs no new env knob:** raise this threshold to `4` (the maximum
+level macOS reports) and the gate's exit 1 verdict, the pressure check, can
+never fire, since the comparison is `<=`. Raising the threshold does not
+touch exit 2, the probe-failure verdict: when the sysctl can't be read or
+parsed, the script exits 2 no matter what `--max-level` is set to, and the
+task still reroutes off qwen. There is no env knob for that path. The actual
+remedy is to fix the probe (make `kern.memorystatus_vm_pressure_level`
+readable again) or mark the affected tasks `qwen_eligible: false` so routing
+never reaches row 4. This works ONLY because the routing row reads
+`--max-level` from this section explicitly, at dispatch time.
 
 **Not guarded by `_AUTOPILOT_ESCALATION`** (unlike the qwen capability
 breaker below): this is a host-safety mechanism, not a quality mechanism, and
