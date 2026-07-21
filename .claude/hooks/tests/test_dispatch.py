@@ -1447,6 +1447,38 @@ def test_permission_conflict_warning_suppressed_from_real_stderr_when_blocking(d
     assert any("permissionDecision" in ln for ln in loser_log_lines), log_text
 
 
+@pytest.mark.unit
+def test_key_conflict_warning_suppressed_when_blocker_is_not_first(dispatch, capsys):
+    """Exists to catch a first-position-only implementation of `blocking`
+    (e.g. `bool(named) and named[0][1] == 2` instead of `any(c == 2 for ...)`).
+    Same scenario as test_key_conflict_warning_suppressed_from_real_stderr_
+    when_blocking, but the blocking handler is LAST in `results`/`names`
+    instead of first. `blocking` must bind "ANY handler returned 2", not
+    "the first handler returned 2" - a first-position-only impl would treat
+    this run as non-blocking (since WINNER, at index 0, exits 0), route the
+    conflict warning through `_warn` instead of `log`, and so leak it onto
+    real stderr, failing the assertions below, while still passing every
+    other blocking-conflict test in this file (all of which put the blocker
+    first)."""
+    results = [
+        (0, env(customField="FIRST"), ""),
+        (0, env(customField="SECOND"), ""),
+        (2, "", "BLOCKED: dangerous command\n"),
+    ]
+    names = ["WINNER", "LOSER", "BLOCKER"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 2
+
+    err = capsys.readouterr().err
+    assert "BLOCKED: dangerous command" in err  # the blocker's own reason still surfaces
+    assert conflict_context_lines(err, "LOSER") == [], err  # conflict warning kept off it
+
+    log_text = dispatch_log_text()
+    loser_log_lines = conflict_context_lines(log_text, "LOSER")
+    assert loser_log_lines, log_text  # ...but recorded in the log, not dropped silently
+    assert any("customField" in ln for ln in loser_log_lines), log_text
+
+
 # --------------------------------------------------------------------------- #
 # Crash / broken-import isolation (acceptance 7, 8)
 # --------------------------------------------------------------------------- #
