@@ -86,8 +86,7 @@ exit 2 (`state-schema.md` `tasks[].attempts`).
 **Revert needs no new env knob:** raise this threshold to `4` — the maximum
 level macOS reports — and the gate can never fire, since the comparison is
 `<=`. This works ONLY because the routing row reads `--max-level` from this
-section explicitly, at dispatch time; there is no `_AUTOPILOT_*` switch for
-this gate.
+section explicitly, at dispatch time.
 
 **Not guarded by `_AUTOPILOT_ESCALATION`** (unlike the qwen capability
 breaker below): this is a host-safety mechanism, not a quality mechanism, and
