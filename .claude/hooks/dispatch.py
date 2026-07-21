@@ -274,20 +274,14 @@ def _merge_envelopes(named) -> str:
             if key in other:
                 if other[key] != value:
                     msg = f"[dispatch] key conflict: dropped {key!r} from {name}"
-                    if blocking:
-                        log(msg)
-                    else:
-                        _warn(msg)
+                    (log if blocking else _warn)(msg)
             else:
                 other[key] = value
 
     for loser in losers:
         msg = (f"[dispatch] permission conflict: dropped permissionDecision "
                f"from {loser}")
-        if blocking:
-            log(msg)
-        else:
-            _warn(msg)
+        (log if blocking else _warn)(msg)
 
     inner: dict = {}
     if contexts:
