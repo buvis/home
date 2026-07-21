@@ -397,6 +397,19 @@ def test_backlog_and_wip_render_from_injected_prd_counts() -> None:
     assert "17" in rendered
 
 
+def test_row3_renders_batch_completed_prd_count_from_state() -> None:
+    """Overnight-run answer: row 3 must say how many PRDs the batch finished
+    (batch.completed_prds length), not leave the operator to count folders."""
+    state = _state(raw={"batch": {"id": "B1", "completed_prds": [{"filename": "a"}, {"filename": "b"}, {"filename": "c"}]}})
+    rendered = _render(_head(state=state))
+    assert "3 done" in rendered
+
+
+def test_row3_renders_zero_done_when_state_has_no_batch() -> None:
+    rendered = _render(_head())
+    assert "0 done" in rendered
+
+
 # --- build_head: row 3 batch stamp and burn rate ------------------------------
 
 
