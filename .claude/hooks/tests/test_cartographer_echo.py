@@ -1255,3 +1255,83 @@ def test_skip_does_not_emit_deny_envelope(tmp_path: Path) -> None:
         assert (
             envelope.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
         ), "skip path must not deny"
+
+
+# --- Rationalizations catalog path: pinned after move to rules-library/ ---
+
+
+def test_rationalizations_path_points_to_existing_file() -> None:
+    """The module-level catalog path constant must resolve to a real file on disk."""
+    mod = _import_hook_module()
+    assert mod._RATIONALIZATIONS_PATH.is_file(), (
+        f"_RATIONALIZATIONS_PATH does not exist: {mod._RATIONALIZATIONS_PATH}"
+    )
+
+
+def test_rationalizations_path_yields_parsed_entries_not_pointer_stub() -> None:
+    """The catalog path must resolve to the real catalog (parseable entries), not
+    the <=200 byte pointer stub left behind at the old rules/ location."""
+    mod = _import_hook_module()
+    mod._RATIONALIZATIONS_CACHE = None
+    rats = mod._load_rationalizations()
+    assert rats, f"expected non-empty parsed entries from {mod._RATIONALIZATIONS_PATH}, got {rats}"
+    for key in ("Quick fix, skip atlas", "Couldn't find existing helper", "I'll add tests later"):
+        assert key in rats, f"missing known catalog entry {key!r}; got keys {sorted(rats.keys())}"
+        why, counter = rats[key]
+        assert why.strip(), f"empty 'why' text for {key!r}"
+        assert counter.strip(), f"empty 'counter' text for {key!r}"
+
+
+# --- Deny payload attribution: pinned to rules-library/ after the catalog move ---
+
+
+def test_build_deny_envelope_attribution_cites_new_catalog_path() -> None:
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "Rationalization (`rules-library/rationalizations.md`):" in reason
+    assert "rules/rationalizations.md" not in reason, (
+        f"attribution still cites the old rules/ path: {reason!r}"
+    )
+
+
+def test_build_deny_envelope_excerpt_line_format_pinned() -> None:
+    """The quoted excerpt line directly under the attribution keeps its exact
+    shape: `> "<excuse>". Why it's wrong: <why> Counter-action: <counter>`."""
+    import re
+
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    lines = reason.splitlines()
+    attribution_idx = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.strip() == "Rationalization (`rules-library/rationalizations.md`):"
+        ),
+        None,
+    )
+    assert attribution_idx is not None, f"attribution line not found in: {reason!r}"
+    excerpt_line = lines[attribution_idx + 1].strip()
+    pattern = r'^> ".+"\. Why it\'s wrong: .+ Counter-action: .+$'
+    assert re.match(pattern, excerpt_line), f"excerpt line format changed: {excerpt_line!r}"
+
+
+def test_build_deny_envelope_surrounding_lines_unchanged_by_catalog_move() -> None:
+    """The catalog move only rewords the attribution's path; the leading Echo
+    line, the 'Existing implementation' line, and the trailing retry line must
+    stay exactly as before."""
+    mod = _import_hook_module()
+    matches = [{"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    lines = [line.strip() for line in reason.splitlines() if line.strip()]
+    assert lines[0] == "Echo: `formatPrice` likely duplicates `src/util.py:42`."
+    assert (
+        "Existing implementation is at `src/util.py:42` — import it instead of writing a parallel one."
+        in lines
+    )
+    assert lines[-1] == "If this is genuinely new, retry — the second attempt will pass."
