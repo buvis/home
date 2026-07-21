@@ -44,7 +44,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
 - `breaker_skipped` (PRD 00065): bool?; `true` stamped on a qwen-eligible attempt the breaker rerouted to Claude at original tier (no preflight probe). Absent otherwise.
 - `qwen_gate_failed` (PRD 00065): bool?; `true` stamped on an `implementor:"qwen"` entry whose step-5.5 gate FAILED — the durable signal the qwen capability breaker keys on. Absent otherwise.
 
-**Best-effort gate stamps (fail-loud markers, PRD 00084 R2d)**: each records that a per-task gate was skipped or failed rather than passed, so a skipped check never reads as a passed one (`rules/fail-loud.md`). All optional — absent means the gate ran normally (or its tier-skip applied). They are pass-through markers: none blocks the task or changes `outcome`.
+**Best-effort gate stamps (fail-loud markers, PRD 00084 R2d)**: each records that a per-task gate was skipped or failed rather than passed, so a skipped check never reads as a passed one (`rules/operating-principles.md`). All optional — absent means the gate ran normally (or its tier-skip applied). They are pass-through markers: none blocks the task or changes `outcome`.
 
 - `verification`: string?; `"skipped:<cause>"` when step 5.5's per-task test verification could not run (e.g. the build lock was contended and cargo was backgrounded — `SKILL.md` step 5.5 / the "test verification is blocked" rule). Absent when the task's tests ran.
 - `red_check`: string?; `"skipped:<cause>"` when step 2.95's red-check could not run standalone (tests import the not-yet-built feature, or the runner cannot execute them). Absent when the red-check ran (saw red, or strengthened-then-red).

@@ -30,7 +30,7 @@ Shared contract for skills that may run headless (autopilot, cron, any
    affected step ends as FAILED/stalled, and the session continues wherever
    the calling skill allows.
 5. **Fail loud.** A defaulted decision, a skipped step, or a FAILED step must
-   never read as a clean success (`rules/fail-loud.md`).
+   never read as a clean success (`rules/operating-principles.md`).
 
 ## For skill authors
 
