@@ -158,6 +158,11 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         else:
             result = _subprocess_fallback(route.path, payload, route.timeout)
         signal.alarm(0)  # handler DONE: cancel immediately
+        # test_teardown_race_no_false_timeout probes the line above from inside
+        # this `len(result)` call. Keep the check calling len() on the result:
+        # a refactor to match/case or manual unpacking would stop firing that
+        # probe, and the test would silently stop binding the cancel-on-return
+        # invariant instead of failing loudly.
         if not (
             isinstance(result, tuple)
             and len(result) == 3
