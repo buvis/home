@@ -57,6 +57,8 @@ def phase_strip(state: model.LoopState) -> Text:
         t.append(f" · {current}")
     elif current == "build":
         # Expand build into its sub-steps; the first unfinished one is live.
+        # Same "● build:" group label as the review branch, so the sub-step
+        # names read as build stages.
         steps = model.build_steps_done(state)
         sub_current = next((s for s in model.BUILD_STEPS if not steps[s]), "work")
         nodes = [
@@ -64,7 +66,8 @@ def phase_strip(state: model.LoopState) -> Text:
             for s in model.BUILD_STEPS
         ]
         nodes += [("review", "pending"), ("done", "pending")]
-        t = _strip_nodes(nodes)
+        t = Text.assemble(("● build:", "bold cyan"), " ")
+        t.append_text(_strip_nodes(nodes))
     elif current == "review" and (lenses := model.review_lenses(state)):
         # Expand review into its lens sub-steps (stamped by the review skill
         # at dispatch); lenses run in parallel, so several can be current.
