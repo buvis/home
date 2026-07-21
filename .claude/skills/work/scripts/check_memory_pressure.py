@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
     except argparse.ArgumentError as e:
-        print(f"unknown: {e}")
+        print(f"unknown: {_collapse_to_one_line(str(e))}")
         return 2
     except SystemExit as e:
         if e.code == 0:
