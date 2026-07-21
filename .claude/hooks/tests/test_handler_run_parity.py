@@ -348,14 +348,14 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     trees for all twelve, so nothing here needs normalizing.
     """
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
-    code_sub, out_sub, _ = _run_subprocess(path, payload, sub_home, sub_cwd)
+    code_sub, out_sub, err_sub = _run_subprocess(path, payload, sub_home, sub_cwd)
 
     in_home, in_cwd = _fresh_env(tmp_path, "inproc")
-    code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
+    code_in, out_in, err_in = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
 
-    assert (code_in, out_in) == (code_sub, out_sub), (
-        f"{Path(path).name}: in-process {(code_in, out_in)!r} != "
-        f"subprocess {(code_sub, out_sub)!r}"
+    assert (code_in, out_in, err_in) == (code_sub, out_sub, err_sub), (
+        f"{Path(path).name}: in-process {(code_in, out_in, err_in)!r} != "
+        f"subprocess {(code_sub, out_sub, err_sub)!r}"
     )
     assert _tree(in_home) == _tree(sub_home), (
         f"{Path(path).name}: the two legs wrote different file trees under HOME - "

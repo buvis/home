@@ -92,8 +92,11 @@ def log(message: str) -> None:
         # ponytail: unlocked check-then-act; two dispatchers rotating at the
         # same instant can clobber each other's .1. Diagnostic log, never
         # enforcement - add locking only if a lost generation ever costs us.
-        if path.exists() and path.stat().st_size >= _LOG_CAP_BYTES:
-            path.replace(path.with_name(path.name + ".1"))
+        try:
+            if path.exists() and path.stat().st_size >= _LOG_CAP_BYTES:
+                path.replace(path.with_name(path.name + ".1"))
+        except Exception:
+            pass  # rotation failure must not drop the line being logged below
         stamp = datetime.now().astimezone().isoformat()
         with path.open("a", encoding="utf-8") as fh:
             fh.write(stamp + " " + message.rstrip("\n") + "\n")
