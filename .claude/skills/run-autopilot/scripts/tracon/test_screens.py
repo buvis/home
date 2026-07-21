@@ -1160,16 +1160,15 @@ def test_dashboard_table_uses_fleet_cells_for_row_construction(
     asyncio.run(_drive())
 
 
-# --- key protocol: q detaches, ctrl+c stops the loop ------------------------
+# --- key protocol: the q quit dialog; ctrl+c exits UI-only ------------------
 
 
 @pytest.mark.ui
-def test_q_detaches_the_dashboard_with_return_code_zero(
+def test_qq_quits_the_dashboard_ui_with_return_code_zero(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """q leaves the loop running: it is rebound from app.quit to
-    app.detach, which must exit with return_code=0 so the wrapper knows to
-    keep the loop alive."""
+    """q opens the quit dialog; q again quits UI-only with return_code=0 so
+    the wrapper knows to keep the loop alive (old instant detach = qq)."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
@@ -1181,16 +1180,19 @@ def test_q_detaches_the_dashboard_with_return_code_zero(
             await pilot.pause()
             await pilot.press("q")
             await pilot.pause()
+            assert app.return_code is None  # dialog open, nothing exited
+            await pilot.press("q")
+            await pilot.pause()
             assert app.return_code == 0
 
     asyncio.run(_drive())
 
 
 @pytest.mark.ui
-def test_q_detaches_the_detail_screen_with_return_code_zero(
+def test_qq_quits_the_detail_screen_ui_and_esc_cancels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """q is rebound on BOTH screens, not just the dashboard."""
+    """The dialog is bound on BOTH screens; esc closes it without exiting."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import RichLog
 
@@ -1205,6 +1207,15 @@ def test_q_detaches_the_detail_screen_with_return_code_zero(
             await pilot.pause()
             assert app.screen.query_one(RichLog) is not None  # on the detail screen
 
+            await pilot.press("q")
+            await pilot.pause()
+            await pilot.press("escape")  # cancel: back to the log, still running
+            await pilot.pause()
+            assert app.return_code is None
+            assert app.screen.query_one(RichLog) is not None
+
+            await pilot.press("q")
+            await pilot.pause()
             await pilot.press("q")
             await pilot.pause()
             assert app.return_code == 0
@@ -1353,9 +1364,11 @@ def test_question_mark_opens_help_and_escape_closes_it(
 
 
 @pytest.mark.ui
-def test_s_with_no_wrapper_toasts_nothing_to_stop(
+def test_quit_dialog_stop_with_no_wrapper_toasts_and_stays_running(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """q → s with no live wrapper: toast "nothing to stop", dialog closes,
+    the UI keeps running (no accidental exit on a dead loop)."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
@@ -1369,20 +1382,23 @@ def test_s_with_no_wrapper_toasts_nothing_to_stop(
             app.notify = lambda *a, **kw: notifications.append((a, kw))
 
             await pilot.pause()
+            await pilot.press("q")
+            await pilot.pause()
             await pilot.press("s")
             await pilot.pause()
             assert any("nothing to stop" in str(a) for a, _ in notifications)
+            assert app.return_code is None  # still running
 
     asyncio.run(_drive())
 
 
 @pytest.mark.ui
-def test_s_double_press_interrupts_the_registered_wrappers_process_group(
+def test_quit_dialog_s_interrupts_the_wrappers_process_group_and_quits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """s must send the sanctioned stop — SIGINT to the wrapper's process
-    GROUP (kill -INT -pid, the wrapper's own ctrl+c path) — and only on a
-    confirming second press."""
+    """q → s must send the sanctioned stop — SIGINT to the wrapper's process
+    GROUP (kill -INT -pid, the wrapper's own ctrl+c path) — then exit the UI.
+    The dialog itself is the confirmation; no second press."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import discovery, screens
 
@@ -1397,18 +1413,14 @@ def test_s_double_press_interrupts_the_registered_wrappers_process_group(
     async def _drive() -> None:
         app = screens.build_app([root])
         async with app.run_test() as pilot:
-            notifications: list[Any] = []
-            app.notify = lambda *a, **kw: notifications.append((a, kw))
-
             await pilot.pause()
-            await pilot.press("s")
+            await pilot.press("q")
             await pilot.pause()
-            assert kills == []  # armed, not fired
-            assert any("press s again" in str(a) for a, _ in notifications)
-
+            assert kills == []  # dialog open, nothing fired yet
             await pilot.press("s")
             await pilot.pause()
             assert kills == [(os.getpid(), screens.signal.SIGINT)]
+            assert app.return_code == 0
 
     asyncio.run(_drive())
 
