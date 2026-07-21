@@ -178,6 +178,7 @@ def _invoke(route, payload) -> tuple[int, str, str]:
             isinstance(result, tuple)
             and len(result) == 3
             and isinstance(result[0], int)
+            and not isinstance(result[0], bool)
             and isinstance(result[1], str)
             and isinstance(result[2], str)
         ):
