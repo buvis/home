@@ -1313,6 +1313,141 @@ def test_aggregate_single_handler_setting_key_no_conflict_warning(dispatch, caps
 
 
 # --------------------------------------------------------------------------- #
+# Conflict warnings vs. the block-reason surface (Rule A x Rule B interaction)
+#
+# Rule A (implemented): on a blocking run, a non-blocking handler's OWN stderr
+# is excluded from real stderr (logged instead), so it cannot pollute the
+# model-visible block reason.
+#
+# Rule B (implemented): on ANY key conflict, the earlier handler wins and "a
+# stderr line" names the losing handler and the dropped key (PRD 00071
+# wording), so nothing drops silently.
+#
+# The gap: today `_warn()` (called from `_merge_envelopes`) writes the
+# conflict warning to real stderr UNCONDITIONALLY, with no awareness of the
+# aggregate's own blocking exit code. On a blocking run that means the
+# dispatcher-generated conflict warning - chatter unrelated to the blocker's
+# own reason - still lands in the model-visible block reason, violating Rule
+# A. Every existing conflict test above asserts against err + dispatch_log_text()
+# concatenated, so a warning that only ever reached the log (stderr write
+# deleted entirely) would still satisfy them. These tests split the two
+# surfaces apart and bind each half explicitly.
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_key_conflict_warning_reaches_real_stderr_when_non_blocking(dispatch, capsys):
+    """Rule B, stderr half: on a NON-blocking run (no handler returned 2), the
+    key-conflict warning must reach REAL stderr - not just the dispatch log -
+    because the PRD text promises "a stderr line", and real stderr is the only
+    surface a non-blocking run's caller actually reads. Asserted against
+    capsys stderr ALONE (the dispatch log is deliberately excluded from the
+    checked surface). This FAILS if the stderr write is removed and the
+    warning is only logged - the exact regression every existing conflict test
+    (which merges err + log) cannot detect."""
+    results = [
+        (0, env(customField="FIRST"), ""),
+        (0, env(customField="SECOND"), ""),
+    ]
+    names = ["WINNER", "LOSER"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 0
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["customField"] == "FIRST"  # earlier handler's value still wins
+
+    err = capsys.readouterr().err
+    loser_lines = conflict_context_lines(err, "LOSER")
+    assert loser_lines, err  # names the losing handler, on real stderr
+    assert any("customField" in ln for ln in loser_lines), err  # names the dropped key
+    assert conflict_context_lines(err, "WINNER") == [], err
+
+
+@pytest.mark.unit
+def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(dispatch, capsys):
+    """Rule A x Rule B: on a BLOCKING run (one handler exits 2), the key-
+    conflict warning is dispatcher-generated chatter unrelated to the
+    blocker's own reason - Rule A requires it stay off real stderr so it
+    cannot pollute the model-visible block reason, and Rule B requires it not
+    vanish, so it must still land in the dispatch log. EXPECTED TO FAIL against
+    the current implementation: `_merge_envelopes`/`_warn` write the conflict
+    warning to real stderr unconditionally, with no check of the aggregate's
+    own blocking exit code, so today the warning leaks into `err` alongside
+    the blocker's own reason."""
+    results = [
+        (2, "", "BLOCKED: dangerous command\n"),
+        (0, env(customField="FIRST"), ""),
+        (0, env(customField="SECOND"), ""),
+    ]
+    names = ["BLOCKER", "WINNER", "LOSER"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 2
+
+    err = capsys.readouterr().err
+    assert "BLOCKED: dangerous command" in err  # the blocker's own reason still surfaces
+    assert conflict_context_lines(err, "LOSER") == [], err  # conflict warning kept off it
+
+    log_text = dispatch_log_text()
+    loser_log_lines = conflict_context_lines(log_text, "LOSER")
+    assert loser_log_lines, log_text  # ...but recorded in the log, not dropped silently
+    assert any("customField" in ln for ln in loser_log_lines), log_text
+
+
+@pytest.mark.unit
+def test_permission_conflict_warning_reaches_real_stderr_when_non_blocking(dispatch, capsys):
+    """Same Rule B stderr half as test_key_conflict_warning_reaches_real_stderr_
+    when_non_blocking, but for the permissionDecision conflict path - a
+    structurally distinct branch in `_merge_envelopes` (the `losers` list,
+    warned in a separate pass after the main per-handler loop) rather than the
+    generic `other`-dict key-conflict branch. On a non-blocking run the losing
+    handler's permissionDecision warning must reach real stderr, checked
+    against capsys stderr ALONE."""
+    results = [
+        (0, env(permissionDecision="deny", permissionDecisionReason="FIRST"), ""),
+        (0, env(permissionDecision="deny", permissionDecisionReason="SECOND"), ""),
+    ]
+    names = ["WINNER", "LOSER"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 0
+
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["permissionDecisionReason"] == "FIRST"  # earlier wins the tie
+
+    err = capsys.readouterr().err
+    loser_lines = conflict_context_lines(err, "LOSER")
+    assert loser_lines, err
+    assert any("permissionDecision" in ln for ln in loser_lines), err
+    assert conflict_context_lines(err, "WINNER") == [], err
+
+
+@pytest.mark.unit
+def test_permission_conflict_warning_suppressed_from_real_stderr_when_blocking(dispatch, capsys):
+    """Rule A x Rule B for the permissionDecision conflict path (the `losers`
+    list branch in `_merge_envelopes`, distinct from the generic key-conflict
+    branch exercised by test_key_conflict_warning_suppressed_from_real_stderr_
+    when_blocking): on a blocking run the losing-permissionDecision warning
+    must not reach real stderr (Rule A) but must still land in the dispatch
+    log (Rule B). EXPECTED TO FAIL against the current implementation for the
+    same reason as the generic-key blocking test above - `_warn()` fires
+    unconditionally regardless of the aggregate's own blocking exit code."""
+    results = [
+        (2, "", "BLOCKED: dangerous command\n"),
+        (0, env(permissionDecision="deny", permissionDecisionReason="FIRST"), ""),
+        (0, env(permissionDecision="deny", permissionDecisionReason="SECOND"), ""),
+    ]
+    names = ["BLOCKER", "WINNER", "LOSER"]
+    code, out = dispatch._aggregate(results, names)
+    assert code == 2
+
+    err = capsys.readouterr().err
+    assert "BLOCKED: dangerous command" in err
+    assert conflict_context_lines(err, "LOSER") == [], err
+
+    log_text = dispatch_log_text()
+    loser_log_lines = conflict_context_lines(log_text, "LOSER")
+    assert loser_log_lines, log_text
+    assert any("permissionDecision" in ln for ln in loser_log_lines), log_text
+
+
+# --------------------------------------------------------------------------- #
 # Crash / broken-import isolation (acceptance 7, 8)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
