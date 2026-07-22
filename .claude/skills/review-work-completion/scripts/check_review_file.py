@@ -40,7 +40,10 @@ TESTS_RE = re.compile(
     r"^Tests: (\d+ passed.*|none \(docs-only\))\s*$", re.MULTILINE
 )
 CODEX_RUNG_GUARD_RE = re.compile(
-    r"^codex_rung_guard: (fired \(\d+ codex-implemented task\(s\)\)|not fired)\s*$",
+    r"^codex_rung_guard: ("
+    r"fired \(\d+ codex-implemented task\(s\)\)"
+    r"(; eve unavailable, doubt lens fell back to claude|; constraint UNMET)?"
+    r"|not fired)\s*$",
     re.MULTILINE,
 )
 FRONTMATTER_REVIEWERS_RE = re.compile(r"^reviewers:\s*(.+)$", re.MULTILINE)
@@ -74,8 +77,10 @@ def check(
         return "no tests line (expected 'Tests: N passed ...' or 'Tests: none (docs-only)')"
     if require_codex_guard and not CODEX_RUNG_GUARD_RE.search(text):
         return (
-            "no codex_rung_guard line (expected 'codex_rung_guard: fired "
-            "(N codex-implemented task(s))' or 'codex_rung_guard: not fired')"
+            "no codex_rung_guard line (expected 'codex_rung_guard: not fired', "
+            "'codex_rung_guard: fired (N codex-implemented task(s))', or that "
+            "fired form suffixed with '; eve unavailable, doubt lens fell back "
+            "to claude' or '; constraint UNMET')"
         )
     return None
 
