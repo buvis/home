@@ -422,6 +422,22 @@ assert_model "signal 1 MUST NOT fire: default_model: opus#opus (glued suffix rep
   "$B6P/state.json" "$B6P/prds" "$B6P/loop-metrics.jsonl" "$B6P/ledger.json" "$B6P/deferred"
 
 # =============================================================================
+# Scenario 6q (signal 1 MUST fire) - a genuine YAML inline comment: the "#" is
+# preceded by whitespace (two spaces), so per real YAML semantics the scalar
+# value is "opus" and the rest is a comment, not part of the value. This is a
+# GUARD row, not a bug row: it already passes against the current code. Its
+# job is to pin that the upcoming whitespace-preceded-# fix (which makes 6o/6p
+# pass) does not over-correct and stop this legitimate form from promoting.
+# =============================================================================
+B6Q=$(mktemp -d); _DIRS+=("$B6Q"); init_box "$B6Q"
+P6Q="00120-keep-the-real-inline-comment-v1.md"
+write_prd_fm "$B6Q/prds/wip/$P6Q" $'catchup: skip\ndefault_model: opus  # rationale\ndesign: skip'
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fq"}}\n' \
+  "$P6Q" >"$B6Q/state.json"
+assert_model "signal 1 MUST fire: default_model: opus  # rationale (whitespace-preceded inline comment)" "claude-opus-4-8" \
+  "$B6Q/state.json" "$B6Q/prds" "$B6Q/loop-metrics.jsonl" "$B6Q/ledger.json" "$B6Q/deferred"
+
+# =============================================================================
 # Scenario 7 (signal 2) — the PRD was replanned at least once. The other two
 # state signals are explicitly zero, so only replan_count can be doing the work.
 # =============================================================================
