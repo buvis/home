@@ -8,7 +8,13 @@ things about a consolidated review file:
 2. a parseable verdict line (`Verdict: converged` / `Verdict: N findings`),
 3. a test-summary line (`Tests: N passed ...` / `Tests: none (docs-only)`),
 4. a codex_rung_guard line (`codex_rung_guard: fired (N codex-implemented
-   task(s))` / `codex_rung_guard: not fired`).
+   task(s))` / `codex_rung_guard: not fired`) — checked ONLY when
+   --require-codex-guard is passed.
+
+This script gates several different kinds of review file (consolidated
+reviews, blind reviews, shadow-run renders), and only the consolidated
+review carries a codex_rung_guard line — so that check is opt-in, not
+imposed on every caller.
 
 No git, no subprocesses, no PRD parsing. A missing element exits 1 with a
 one-line gap description on stderr. An unreadable file system exits 0 with a
@@ -16,6 +22,7 @@ loud stderr note — an infrastructure error must not masquerade as a coverage
 gap (the old gate's DIFF_ERROR philosophy).
 
 CLI: check_review_file.py --review-file <path> [--reviewers alice,bob,...]
+[--require-codex-guard]
 When --reviewers is omitted, the file's frontmatter `reviewers:` line (a
 comma-separated list written by consolidation) is used; if neither names any
 reviewer, only the verdict and tests lines are checked.
@@ -33,7 +40,7 @@ TESTS_RE = re.compile(
     r"^Tests: (\d+ passed.*|none \(docs-only\))\s*$", re.MULTILINE
 )
 CODEX_RUNG_GUARD_RE = re.compile(
-    r"^codex_rung_guard: (fired \([0-9]+ codex-implemented task\(s\)\)|not fired)\s*$",
+    r"^codex_rung_guard: (fired \(\d+ codex-implemented task\(s\)\)|not fired)\s*$",
     re.MULTILINE,
 )
 FRONTMATTER_REVIEWERS_RE = re.compile(r"^reviewers:\s*(.+)$", re.MULTILINE)
@@ -53,7 +60,7 @@ def reviewer_section_nonempty(lines: list[str], name: str) -> bool:
     return False
 
 
-def check(text: str, reviewers: list[str]) -> str | None:
+def check(text: str, reviewers: list[str], require_codex_guard: bool) -> str | None:
     """Return a one-line gap description, or None when the shape holds."""
     lines = text.splitlines()
     for reviewer in reviewers:
@@ -63,7 +70,7 @@ def check(text: str, reviewers: list[str]) -> str | None:
         return "no verdict line (expected 'Verdict: converged' or 'Verdict: N findings')"
     if not TESTS_RE.search(text):
         return "no tests line (expected 'Tests: N passed ...' or 'Tests: none (docs-only)')"
-    if not CODEX_RUNG_GUARD_RE.search(text):
+    if require_codex_guard and not CODEX_RUNG_GUARD_RE.search(text):
         return (
             "no codex_rung_guard line (expected 'codex_rung_guard: fired "
             "(N codex-implemented task(s))' or 'codex_rung_guard: not fired')"
@@ -75,6 +82,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--review-file", type=Path, required=True)
     parser.add_argument("--reviewers", default=None)
+    parser.add_argument("--require-codex-guard", action="store_true", default=False)
     args = parser.parse_args()
 
     if not args.review_file.exists():
@@ -98,7 +106,7 @@ def main() -> int:
             [r for r in match.group(1).split(",") if r.strip()] if match else []
         )
 
-    gap = check(text, reviewers)
+    gap = check(text, reviewers, args.require_codex_guard)
     if gap is not None:
         sys.stderr.write(gap + "\n")
         return 1

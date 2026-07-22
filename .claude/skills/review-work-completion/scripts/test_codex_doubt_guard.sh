@@ -133,8 +133,9 @@ rc=$?
 PASS "a state with no tasks[] key at all reads as no codex, and jq exits 0 rather than erroring"
 
 # ── coverage 5/6: the rendered audit line, extracted from its prose home ────
-# check_review_file.py enforces (or soon will enforce) the exact grammar
-# documented in prose at SKILL.md:250 for the codex_rung_guard audit line.
+# check_review_file.py enforces the exact grammar documented in prose at
+# SKILL.md:250 for the codex_rung_guard audit line, when invoked with
+# --require-codex-guard (the one caller, step 8, that requires the line).
 # That grammar has two literal forms — the "fired (N ...)" form and the
 # "not fired" form — both quoted in backticks on the same prose line. This
 # coverage EXTRACTS both forms from that prose rather than hardcoding or
@@ -177,11 +178,10 @@ if [ "$concrete_fired_line" = "$fired_form" ]; then
 fi
 
 # ── coverage 5: the gate accepts a correctly-formed fired line ──────────────
-# check_review_file.py does not enforce this grammar yet (the implementor's
-# regex ships separately, after this test), so this passes trivially today.
-# It becomes load-bearing the moment that regex lands: shelling out to the
-# real gate here is what binds prose to script, so if the implementor's
-# regex ever disagrees with this prose-extracted fired form, this goes red.
+# check_review_file.py enforces this grammar under --require-codex-guard:
+# shelling out to the real gate here is what binds prose to script, so if
+# the implementor's regex ever disagrees with this prose-extracted fired
+# form, this goes red.
 review_fired="$TMP/review-fired.md"
 cat >"$review_fired" <<REVIEW
 Verdict: converged
@@ -189,14 +189,13 @@ Tests: none (docs-only)
 $concrete_fired_line
 REVIEW
 
-python3 "$CHECK_SCRIPT" --review-file "$review_fired" >/dev/null 2>"$TMP/fired-stderr.txt"
+python3 "$CHECK_SCRIPT" --review-file "$review_fired" --require-codex-guard >/dev/null 2>"$TMP/fired-stderr.txt"
 rc=$?
 [ "$rc" -eq 0 ] || FAIL "gate accepts a correctly-formed fired line" "check_review_file.py exited $rc against '$concrete_fired_line': $(cat "$TMP/fired-stderr.txt")"
-PASS "gate accepts the fired line built from the prose-extracted form: '$concrete_fired_line' (meaningful once check_review_file.py enforces the grammar)"
+PASS "gate enforces the fired line built from the prose-extracted form: '$concrete_fired_line' (checked via --require-codex-guard)"
 
 # ── coverage 6: the gate accepts a correctly-formed not-fired line ──────────
-# Same reasoning as coverage 5: trivial pass today, load-bearing once the
-# gate's regex ships.
+# Same reasoning as coverage 5: enforced under --require-codex-guard.
 review_notfired="$TMP/review-notfired.md"
 cat >"$review_notfired" <<REVIEW
 Verdict: converged
@@ -204,10 +203,10 @@ Tests: none (docs-only)
 $notfired_form
 REVIEW
 
-python3 "$CHECK_SCRIPT" --review-file "$review_notfired" >/dev/null 2>"$TMP/notfired-stderr.txt"
+python3 "$CHECK_SCRIPT" --review-file "$review_notfired" --require-codex-guard >/dev/null 2>"$TMP/notfired-stderr.txt"
 rc=$?
 [ "$rc" -eq 0 ] || FAIL "gate accepts a correctly-formed not-fired line" "check_review_file.py exited $rc against '$notfired_form': $(cat "$TMP/notfired-stderr.txt")"
-PASS "gate accepts the not-fired line extracted verbatim from prose: '$notfired_form' (meaningful once check_review_file.py enforces the grammar)"
+PASS "gate enforces the not-fired line extracted verbatim from prose: '$notfired_form' (checked via --require-codex-guard)"
 
 echo ""
 echo "All checks passed."
