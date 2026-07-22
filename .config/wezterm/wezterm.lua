@@ -94,6 +94,7 @@ config.keys = {
 	{ key = "c", mods = "CTRL", action = act.CopyTo("Clipboard") },
 	{ key = "v", mods = "CTRL", action = act.PasteFrom("Clipboard") },
 	{ key = "c", mods = "CTRL|SHIFT", action = act.SendKey({ key = "c", mods = "CTRL" }) },
+	{ key = "v", mods = "CTRL|SHIFT", action = act.SendKey({ key = "v", mods = "CTRL" }) },
 	{ key = "Enter", mods = "SHIFT", action = wezterm.action.SendString("\n") },
 	-- move between split panes
 	split_nav("move", "h"),
