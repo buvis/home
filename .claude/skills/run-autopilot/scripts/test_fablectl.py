@@ -459,6 +459,22 @@ class FablectlTest(unittest.TestCase):
         self.assertNotIn("Traceback (most recent call last)", result.stderr)
         self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
 
+    def test_os_error_on_request_mkdir_exits_4_with_one_line_diagnostic_and_no_traceback(
+        self,
+    ) -> None:
+        # `request` takes a different path to the same failure: it skips the
+        # pre-refusal peek's `read_ledger` (verb == "request") and goes
+        # straight to `ledger_path.parent.mkdir(parents=True, exist_ok=True)`,
+        # which must map to exit 4 just as read_ledger's OSError does for
+        # decide/consume above - not exit 1 (bad argument) and not a traceback.
+        blocker = Path(self.tmp.name) / "afile"
+        blocker.write_text("not a directory")
+        bad_ledger = blocker / "sub" / "ledger.json"
+        result = self.request(ledger=bad_ledger)
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertNotIn("Traceback (most recent call last)", result.stderr)
+        self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+
     def test_refused_decide_and_consume_create_no_droppings(self) -> None:
         # decide/consume against an absent ledger correctly refuse (exit 3),
         # but must not leave a stray parent directory or `.lock` file behind
@@ -1610,6 +1626,32 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             "listing `fable` alongside haiku/sonnet/opus as eligible for the "
             "feedback retry is not excluding it - it grants a second `fable` "
             "dispatch off one human approval",
+        )
+
+    def test_anti_vacuity_reports_the_reworded_anchor_site(self) -> None:
+        # check_retry_repair_excludes_fable's own escape hatch: when an
+        # anchor's STABLE boilerplate is re-worded (not exploited - just
+        # edited), FEEDBACK_RETRY_ANCHOR stops matching and the check must SAY
+        # SO ("text was not found ... blind there"), not silently report a
+        # clean pass. This is a re-wording, not an exploit: the fable
+        # exclusion itself is untouched, only the surrounding phrasing changes.
+        doc = self.exploited(
+            (
+                "below, per the 1-dispatch budget)",
+                "below, per the one-dispatch budget)",
+            )
+        )
+        problems = check_retry_repair_excludes_fable(doc)
+        self.assertTrue(
+            any(
+                "feedback-retry gate" in p
+                and "text was not found" in p
+                and "this scan is blind there" in p
+                for p in problems
+            ),
+            "re-wording the feedback-retry anchor's boilerplate must make the "
+            "check report itself blind there, not silently pass:\n"
+            + "\n".join(problems),
         )
 
 

@@ -308,7 +308,7 @@ run_sandboxed() {
           TRACON_MODE PF_RC _rs_dir _rs_timeout _rs_d _STUB_LOOPS_DIR \
           _DIRS _PIDS WALKUP_MODE TRAVERSAL_PRD LEADING_SLASH_PRD \
           WRONG_EXT_PRD NO_PREFIX_PRD UNUSUAL_PRD MV_ERR_TAIL MV_PREFLIGHT_RC \
-          OCCUPANT_SENTINEL
+          OCCUPANT_SENTINEL EMBEDDED_TRAVERSAL_PRD
     unset "${!SBOX_@}" "${!LEDGER_@}"
     "$@"
   ) >"$_rs_dir/stdout.log" 2>"$_rs_dir/stderr.log" &
@@ -1521,6 +1521,35 @@ assert_walkup_called "$L28: the autopilot dir came from _walk_up.py" "$SBOX_28"
 assert_fablectl_wrote "$L28: fablectl.py performed the ledger write" "$SBOX_28"
 PASS "$L28: exit 2, status left approved, pre-existing backlog/$PRD file byte-for-byte unchanged, PRD still reachable in hold/"
 assert_no_loop "$L28: no loop session launched" "$SBOX_28"
+
+# =============================================================================
+# Scenario 29 - <prd> carries an EMBEDDED `/../` traversal segment inside an
+# otherwise well-formed digit-prefixed `.md` name. Unlike 22/23 (a LEADING
+# `../` or `/`, which fail the naming-pattern arm too, in either arm order),
+# `00076-a/../b.md` matches `[0-9][0-9][0-9][0-9][0-9]-*.md` on its own (the
+# glob's `*` matches `/` too), so this is the one shape where the case arms'
+# ORDER, not just their presence, decides the outcome: the traversal arm must
+# run first, or this string validates and walks outside dev/local/prds.
+# =============================================================================
+L29="scenario 29 (approve is refused when <prd> has an embedded /../ inside a well-formed name)"
+EMBEDDED_TRAVERSAL_PRD="00076-a/../b.md"
+
+make_sandbox; SBOX_29="$SBOX"; LEDGER_29="$LEDGER"
+seed_request "$LEDGER_29" "$PRD"
+park_prd "$SBOX_29" hold
+cp "$LEDGER_29" "$SBOX_29/ledger.expected"
+
+run_helper "$SBOX_29" approve-fable "$EMBEDDED_TRAVERSAL_PRD"
+assert_no_timeout "$L29" "$SBOX_29"
+assert_rc "$L29: exits 2" "$SBOX_29" 2
+assert_matches "$L29: prints a usage-shaped message" "$SBOX_29/stderr.log" 'usage' \
+  "stderr does not read as a usage message"
+assert_ledger_unchanged "$L29: ledger is byte identical" "$SBOX_29" "$LEDGER_29"
+assert_in_dir "$L29: the real PRD stays parked in hold/, untouched" "$SBOX_29" hold
+[ -f "$SBOX_29/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L29: no write was attempted" "fablectl.py decide was invoked for an embedded traversal argument"
+PASS "$L29: exit 2, usage-shaped message, nothing written, nothing moved"
+assert_no_loop "$L29: no loop session launched" "$SBOX_29"
 
 # =============================================================================
 echo ""

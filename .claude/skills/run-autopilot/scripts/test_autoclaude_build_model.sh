@@ -490,6 +490,24 @@ assert_model "signal 3b: a prior-batch stall naming the target (2 newest deferre
   "$B9/state.json" "$B9/prds" "$B9/loop-metrics.jsonl" "$B9/ledger.json" "$B9/deferred"
 
 # =============================================================================
+# Scenario 9b (signal 3b boundary) - the deferred dir holds exactly ONE
+# *-deferred.json file, and that file names the target's stall. The 2-newest
+# window is a bounds-safe POSITIVE offset (max(0, count-2)); the buggy
+# negative-slice form "${_files[@]: -2}" returns ZERO elements on a 1-element
+# bash array, so a lone deferred log would go unscanned and this scenario
+# would wrongly route Sonnet.
+# =============================================================================
+B9B=$(mktemp -d); _DIRS+=("$B9B"); init_box "$B9B"
+P9B="00046-catch-the-one-file-window-v1.md"
+write_prd "$B9B/prds/wip/$P9B"
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260706-k"}}\n' \
+  "$P9B" >"$B9B/state.json"
+printf '{"batch_id":"202607060000","items":[{"type":"stall","site":"design_gate","prd":"%s","detail":"the only deferred log in this dir"}]}\n' \
+  "$P9B" >"$B9B/deferred/202607060000-deferred.json"
+assert_model "signal 3b: exactly one deferred log in the dir is still scanned" "claude-opus-4-8" \
+  "$B9B/state.json" "$B9B/prds" "$B9B/loop-metrics.jsonl" "$B9B/ledger.json" "$B9B/deferred"
+
+# =============================================================================
 # Scenario 10 (signal 3b negative) — inside the 2-newest window the only stall
 # names a different PRD, and the target's own entry is not a stall. The target's
 # stall exists only in the 3rd-newest file, outside the window, so scanning the
