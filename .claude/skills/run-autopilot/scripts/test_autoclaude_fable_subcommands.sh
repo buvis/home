@@ -1218,9 +1218,10 @@ assert_no_loop "$L19: no loop session launched" "$SBOX_19"
 # answer blindly derives a ledger path of `/ledger/fable-requests.json` and PRD
 # folders of `/prds/hold` and `/prds/backlog`; the helper must instead exit 2,
 # name the resolver/autopilot-dir as the cause, never call fablectl.py at all,
-# and never touch a real path rooted at `/`. The `/ledger` and `/prds` checks
-# run against the REAL machine (not the sandbox) — that is the whole point —
-# so a loud preflight refuses to run at all if either already exists.
+# and never move the PRD out of hold/. Proven against the stubbed fablectl.py
+# writer and the hold->backlog move boundary (both sandboxed), not by probing
+# real /ledger or /prds paths on the host - that would make the suite depend
+# on the machine it runs on.
 # =============================================================================
 L20="scenario 20 (approve when the autopilot-dir resolver fails outright)"
 
@@ -1228,10 +1229,6 @@ make_sandbox; SBOX_20="$SBOX"; LEDGER_20="$LEDGER"
 seed_request "$LEDGER_20" "$PRD"
 park_prd "$SBOX_20" hold
 cp "$LEDGER_20" "$SBOX_20/ledger.expected"
-[ -e /ledger ] \
-  && FAIL "$L20: preflight" "/ledger already exists on this machine — cannot safely prove a resolver failure never touches it"
-[ -e /prds ] \
-  && FAIL "$L20: preflight" "/prds already exists on this machine — cannot safely prove a resolver failure never touches it"
 
 WALKUP_MODE=fail
 run_helper "$SBOX_20" approve-fable "$PRD"
@@ -1242,22 +1239,21 @@ assert_matches "$L20: message names the resolver/autopilot-dir as the cause" "$S
   "stderr does not say the autopilot directory could not be resolved"
 assert_ledger_unchanged "$L20: ledger is byte identical" "$SBOX_20" "$LEDGER_20"
 assert_in_dir "$L20: PRD is left parked in hold/" "$SBOX_20" hold
+assert_not_in_dir "$L20: PRD did not reach backlog/" "$SBOX_20" backlog
 [ -f "$SBOX_20/dev/local/autopilot/fablectl-invocations.log" ] \
   && FAIL "$L20: no write was attempted" "fablectl.py decide was invoked despite the resolver failing"
-[ -e /ledger ] \
-  && FAIL "$L20: nothing was touched at /" "/ledger now exists on the real machine — a root-derived path was created"
-[ -e /prds ] \
-  && FAIL "$L20: nothing was touched at /" "/prds now exists on the real machine — a root-derived path was created"
 assert_walkup_called "$L20: the resolver was actually invoked, not skipped" "$SBOX_20"
-PASS "$L20: exit 2, resolver failure named, nothing written, no /-rooted path touched"
+PASS "$L20: exit 2, resolver failure named, nothing written, PRD never moved out of hold/"
 assert_no_loop "$L20: no loop session launched" "$SBOX_20"
 
 # =============================================================================
 # Scenario 21 — the mirror of 20 for the OTHER half of "fails or prints
 # nothing": the resolver exits 0 but prints an empty answer. A helper that
 # guards only on the resolver's exit code (`|| exit 2`) and never checks the
-# captured string for emptiness passes scenario 20 but not this one — closing
-# it forces the emptiness check too.
+# captured string for emptiness passes scenario 20 but not this one - closing
+# it forces the emptiness check too. Proven the same way as 20: the stubbed
+# fablectl.py writer and the hold->backlog move boundary, not real /ledger or
+# /prds paths on the host.
 # =============================================================================
 L21="scenario 21 (approve when the autopilot-dir resolver exits 0 but prints nothing)"
 
@@ -1265,10 +1261,6 @@ make_sandbox; SBOX_21="$SBOX"; LEDGER_21="$LEDGER"
 seed_request "$LEDGER_21" "$PRD"
 park_prd "$SBOX_21" hold
 cp "$LEDGER_21" "$SBOX_21/ledger.expected"
-[ -e /ledger ] \
-  && FAIL "$L21: preflight" "/ledger already exists on this machine — cannot safely prove an empty resolver answer never touches it"
-[ -e /prds ] \
-  && FAIL "$L21: preflight" "/prds already exists on this machine — cannot safely prove an empty resolver answer never touches it"
 
 WALKUP_MODE=empty
 run_helper "$SBOX_21" approve-fable "$PRD"
@@ -1279,14 +1271,11 @@ assert_matches "$L21: message names the resolver/autopilot-dir as the cause" "$S
   "stderr does not say the autopilot directory could not be resolved"
 assert_ledger_unchanged "$L21: ledger is byte identical" "$SBOX_21" "$LEDGER_21"
 assert_in_dir "$L21: PRD is left parked in hold/" "$SBOX_21" hold
+assert_not_in_dir "$L21: PRD did not reach backlog/" "$SBOX_21" backlog
 [ -f "$SBOX_21/dev/local/autopilot/fablectl-invocations.log" ] \
   && FAIL "$L21: no write was attempted" "fablectl.py decide was invoked despite an empty resolver answer"
-[ -e /ledger ] \
-  && FAIL "$L21: nothing was touched at /" "/ledger now exists on the real machine — a root-derived path was created"
-[ -e /prds ] \
-  && FAIL "$L21: nothing was touched at /" "/prds now exists on the real machine — a root-derived path was created"
 assert_walkup_called "$L21: the resolver was actually invoked, not skipped" "$SBOX_21"
-PASS "$L21: exit 2 on a zero-exit empty answer too, nothing written, no /-rooted path touched"
+PASS "$L21: exit 2 on a zero-exit empty answer too, nothing written, PRD never moved out of hold/"
 assert_no_loop "$L21: no loop session launched" "$SBOX_21"
 
 # =============================================================================

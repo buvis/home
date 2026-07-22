@@ -143,6 +143,10 @@ def write_transition(ledger_path: Path, verb: str, prd: str, payload: Any) -> No
     if verb != "request":
         raw, entries = read_ledger(ledger_path)
         if raw is None:
+            # apply_verb is called here only to raise RefusedError (empty
+            # entries never satisfy decide/consume) - control never returns
+            # normally from this call, so raw/entries are not reused after
+            # it; a fresh read happens under the lock below.
             apply_verb(entries, verb, prd, payload)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = Path(f"{ledger_path}.lock")

@@ -904,10 +904,14 @@ RETRY_REPAIR_SITES = (
     ("REPAIR gate condition", REPAIR_CONDITION_ANCHOR),
 )
 
-# `fable` must be NEGATED close to where it is named in the qualifier - not
-# merely present somewhere in it. Without the tight window, a stray `never`/
-# `no` belonging to the qwen carve-out several words away (same qualifier
-# text on the feedback-retry site) would launder an unguarded `fable` grant.
+# Bare `no` is deliberately OMITTED from the alternation below - that is what
+# stops the qwen carve-out's "the qwen rung has no feedback retry" text from
+# laundering an unguarded `fable` grant, no matter how far "no" sits from
+# `fable` (mutation-verified: dropping `never` while "no" stays 26 characters
+# away is still flagged). The 20-character window instead constrains the
+# OTHER negations (never, not, neither, nor, exclud*, except): `fable` must
+# be negated close to where it is named in the qualifier, not merely present
+# somewhere in it.
 FABLE_EXCLUDED = (
     re.compile(r"fable\b.{0,20}?\b(?:never|not|neither|nor|exclud\w*|except)\b", re.I),
     re.compile(r"\b(?:never|not|neither|nor|exclud\w*|except)\b.{0,20}?fable\b", re.I),
