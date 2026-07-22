@@ -172,7 +172,7 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 **Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Quinn are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/qwen) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls, the Watcher (below, if `$_AUTOPILOT_LOOP` is set), and the background Bash calls in the one message - if any CLI reviewer is in the dispatch, the Watcher goes in the same message or nothing holds the session open to see it finish.
 
-**Eve unavailable (codex doubt-roster guard active).** When Eve's dispatch fails after her one-retry budget (`references/agent-invocation.md` for the retry/unavailability semantics), dispatch a Claude Task subagent with Bob's exact assembled doubt prompt as a substitute for her, so a non-codex doubt voice still exists. Step 6 records which of the three `codex_rung_guard` outcomes resulted.
+**Eve unavailable (codex doubt-roster guard active).** When Eve's dispatch fails after her one-retry budget (`references/agent-invocation.md` for the retry/unavailability semantics), dispatch a Claude Task subagent with Bob's exact assembled doubt prompt as a substitute for her, so a non-codex doubt voice still exists, and use its output as Eve's. Step 6 records which of the three `codex_rung_guard` outcomes resulted.
 
 **Watcher (headless keep-alive — dispatch only when `$_AUTOPILOT_LOOP` is set).** Headless `claude -p` kills background Bash tasks ~5s after the final result; only a live subagent holds the session open (2026-07-12 loop death: every Claude subagent reviewer finished first, the CLI exited at turn end and killed codex mid-review, the loop halted). So in the SAME dispatch message, launch one extra Task subagent named Watcher (general-purpose) whose entire prompt is:
 
@@ -228,7 +228,7 @@ Read these before proceeding:
 
 **Close out the lens roster (autopilot runs).** When `state.review_lenses` was stamped in step 5, set each lens to `"done"`, or `"failed"` for a reviewer that failed per `references/retry-policy.md` (a lens rescued by a fallback — e.g. Bob's Claude fallback — is `"done"`). Skip on standalone runs.
 
-Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Quinn's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `quinn-output-{id}.txt` in step 5. Then run:
+Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) or her Claude substitute (when it ran instead) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Quinn's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `quinn-output-{id}.txt` in step 5. Then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
@@ -239,7 +239,7 @@ Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to
   QUINN:$PWD/dev/local/tmp/quinn-output-{id}.txt
 ```
 
-Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `QUINN:` pair when Quinn was skipped; append an `EVE:` pair when Eve ran). The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `QUINN:` pair when Quinn was skipped; append an `EVE:` pair when Eve or her Claude substitute ran). The script computes consensus dynamically from the number of agent pairs provided.
 
 **If `consolidate-findings.sh` exits nonzero, or warden denies it:** do not skip consolidation (that would silently drop every finding). Read the deny/error reason from the tool result; a fixable invocation problem (a passed path that does not exist for a reviewer that did run) → fix and retry ONCE. Otherwise **fall back to model-side consolidation**: read each reviewer's `*-output-{id}.txt`, group the findings that name the same issue at the same `File:` across reviewers, set each finding's consensus to the count of distinct reviewers that flagged it, and sort by consensus then severity — the same shape the script emits. **Note in the review file that consolidation was model-side** (fail loud — a hand-rolled consolidation must not read as the script's). The Quinn advisory-weighting rule and the `Verdict:`/`Tests:` composition below apply unchanged to the model-side result.
 
