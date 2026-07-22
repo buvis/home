@@ -22,8 +22,9 @@ Implement pending tasks one-by-one, committing after each completion.
     `## What to remove` section is inlined into the step-5.6 deslop dispatch
 - CLIs: `git`, `python3`
 - Optional (explicit fallback exists): `use-gemini` skill (UI tasks), `use-qwen`
-  skill, `use-sonnet` skill (its `scripts/sonnet-run.sh` drives the step-5.7
-  reviewer lane)
+  skill, `use-codex` skill (an unhealthy or absent codex falls back to Claude at
+  the task's tier), `use-sonnet` skill (its `scripts/sonnet-run.sh` drives the
+  step-5.7 reviewer lane)
 
 ## CRITICAL: Never Ask the User to Run Commands
 
@@ -95,7 +96,7 @@ The **Subagent Dispatch Budget** applies regardless of tier. Haiku doesn't earn 
 
 ## Assumptions footer
 
-Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism (Agent, `use-gemini`, `use-qwen`) - must end with this instruction verbatim:
+Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism (Agent, `use-gemini`, `use-qwen`, `use-codex`) - must end with this instruction verbatim:
 
 > End your report with `ASSUMPTIONS:` - one line per assumption you made where the task, tests, or listed files were silent (guessed interface, data shape, resolved ambiguity, unstated behavior). Write `ASSUMPTIONS: none` if you made none.
 
@@ -109,7 +110,7 @@ Collect the returned lines: step 6 appends non-`none` entries to `dev/local/assu
 
 ## Dispatch prologue
 
-Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism (Agent, `use-gemini`, `use-qwen`) - must also contain this line verbatim (transcript mining 2026-07-14: ~150 hook-blocked coreutils calls and ~60 Edit-before-Read failures across 90 sampled loop sessions):
+Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism (Agent, `use-gemini`, `use-qwen`, `use-codex`) - must also contain this line verbatim (transcript mining 2026-07-14: ~150 hook-blocked coreutils calls and ~60 Edit-before-Read failures across 90 sampled loop sessions):
 
 > Read every file before your first Edit to it. Never call bash `head`, `tail`, `cat`, `grep`, or `find` - a hook blocks them. Use the Read tool (offset/limit), `rg`, or `rg --files` instead.
 
@@ -117,7 +118,7 @@ Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism
 
 At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`. Each entry carries:
 
-- **`implementor`** — `"claude"`, `"gemini"`, or `"qwen"`, reflecting what actually dispatched, NOT what the step-3 routing table initially picked (a qwen pick that fell back to Claude on preflight failure records `"claude"`).
+- **`implementor`** — `"claude"`, `"gemini"`, `"qwen"`, or `"codex"`, reflecting what actually dispatched, NOT what the step-3 routing table initially picked (a qwen pick that fell back to Claude on preflight failure records `"claude"`).
 - **`preflight_outcome`** — from the step-3 preflight probe. Always written explicitly — never omit the key. Qwen-eligible attempts record one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`, `"completion_failed"`; non-qwen-eligible attempts record the literal JSON `null`. A pressure-gated attempt (row 4 fired, the probe never ran) also records the literal JSON `null` — the same carve-out already granted to a breaker-skipped attempt (row 3).
 - **`qwen_excluded_reason`** — `"memory_pressure"` (row 4 fired, `check_memory_pressure.py` exited 1) or `"memory_probe_failed"` (row 4 fired, exited 2); key omitted when row 4 did not fire. Attempt-scoped RUNTIME field — distinct from the plan-time `task.metadata.qwen_excluded_reason` (`"ui"`/`"tier"`/`"files"`/`"contract"`) that `/plan-tasks` writes; `/work` never rewrites planner metadata. Absent on every attempt written before PRD 00075 — readers treat absence as "no pressure exclusion", never an error.
 - **`pipeline`** — the tier-gated depth this attempt ran, keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy is treated as `sonnet` → `"lean"`. `fable` → `"full"` as well — the rescue rung runs the deepest pipeline, like `opus`. Written at every task exit; a Phase-6 escalation to `opus` records `"full"`.
@@ -126,13 +127,13 @@ See `references/attempt-logging.md` for the full entry schema, field semantics, 
 
 ## Implementor Selection
 
-The **deterministic routing table in step 3** is the single source of truth for picking each task's implementor (Gemini / local qwen / Claude at tier). Do not route from memory or from this section.
+The **deterministic routing table in step 3** is the single source of truth for picking each task's implementor (Gemini / local qwen / codex / Claude at tier). Do not route from memory or from this section.
 
 **Gemini-first tasks** — the UI definition the routing table references. A task is UI/visual when it involves: color palettes/theming/contrast, layouts (page structure, spacing, visual hierarchy), UI components (buttons, forms, cards), typography, animations/transitions, responsive design, or any user-facing surface (web pages, GUI, dashboards).
 
 For visual tasks, Gemini can also challenge the spec before implementation — see `references/gemini-integration.md` § Design Authority (trust its feedback on visual matters).
 
-Codex (`use-codex`) is **not** an implementor. It appears only in the review path — see `references/codex-integration.md`.
+Codex (`use-codex`) is an implementor rung — activated by PRD 00077, sitting between qwen and the Claude tiers, gated by the fences and toggle declared in `run-autopilot/references/model-ladder.md` § Codex rung. It also still serves in the review path — see `references/codex-integration.md`.
 
 ## Dashboard State Sync
 
@@ -196,7 +197,7 @@ Before dispatching the implementor, load relevant context into the prompt:
 
 Dispatch a separate agent to write tests from requirements only. This agent must NOT receive implementation hints or architecture deep-dives - only what a user of the API would know.
 
-**Tess runs as:** Claude Code subagent (Agent tool), not a helper-script implementor (`use-gemini`, `use-qwen`). It's a focused task that benefits from direct file access for reading test patterns.
+**Tess runs as:** Claude Code subagent (Agent tool), not a helper-script implementor (`use-gemini`, `use-qwen`, `use-codex`). It's a focused task that benefits from direct file access for reading test patterns.
 
 **Skip for:** test-only, docs-only, or config-only tasks.
 
@@ -334,7 +335,7 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 
 **Gemini availability check.** "Gemini if available" means the `use-gemini` helper resolves AND can run a no-op probe. Concretely: `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND `mise which gemini` (or `command -v gemini`) exits 0. If either fails, fall back to Claude at `task.metadata.model` for that UI task. Treat a runtime helper-script failure (non-zero exit, no output) the same way: record the failure and re-dispatch the task to Claude at the task's tier. Cross-reference: `references/gemini-integration.md`.
 
-`use-qwen` and `use-gemini` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. Both must satisfy the **Subagent Dispatch Budget** and the **Subagent Watchdog**.
+`use-qwen`, `use-gemini`, and `use-codex` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. All three must satisfy the **Subagent Dispatch Budget** and the **Subagent Watchdog**.
 
 **Qwen infra preflight.** When (and only when) the routing table picks qwen, run the four-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper — it keeps an unhealthy backend from silently hanging, returning garbage, or accepting the dispatch only to fail the worker spawn. `"healthy"` → proceed with the qwen dispatch; any other verdict (`"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`) → fall back to Claude at the task's original tier, byte-for-byte identical to a normal Claude dispatch apart from the recorded `preflight_outcome`. Record the outcome for the attempt-log entry; the dispatch decision determines `implementor`. Preflight does NOT run on Claude or Gemini dispatches.
 

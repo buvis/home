@@ -1,12 +1,12 @@
 # Codex Integration
 
-Codex is **a review tool only** in this skill — never an implementor. UI tasks route to Gemini and backend tasks route to qwen or Claude per `work` SKILL.md's deterministic routing table; Codex appears strictly in the review path.
+As of PRD 00077, Codex is both an implementor rung and a reviewer in this skill. The implementor rung sits between qwen and the Claude tiers, with its fences, budget, and toggle declared in `run-autopilot/references/model-ladder.md` § Codex rung; the routing decision itself belongs to `work` SKILL.md step 3.
 
 ## Where Codex is invoked today
 
-Codex IS currently invoked as a reviewer from `/run-autopilot`'s review phase — specifically by `skills/review-work-completion`, which dispatches the "Bob" reviewer (doubt lens) as a background Bash call to `~/.claude/skills/use-codex/scripts/codex-run.sh` (see `skills/review-work-completion/references/agent-invocation.md`). That is the one way `/work` indirectly produces work that Codex touches. The batched de-slop pass Codex used to execute was removed in the 2026-06-09 lifecycle refactor; the per-task de-slop at step 5.6 is a Claude dispatch, not Codex.
+Codex IS currently invoked as a reviewer from `/run-autopilot`'s review phase — specifically by `skills/review-work-completion`, which dispatches the "Bob" reviewer (doubt lens) as a background Bash call to `~/.claude/skills/use-codex/scripts/codex-run.sh` (see `skills/review-work-completion/references/agent-invocation.md`). That is the indirect path; the step-3 implementor rung below is the direct one. The batched de-slop pass Codex used to execute was removed in the 2026-06-09 lifecycle refactor; the per-task de-slop at step 5.6 is a Claude dispatch, not Codex.
 
-`/work` itself does not invoke Codex directly. The per-task code review at step 5.7 dispatches a Claude Agent code-reviewer, not Codex.
+`/work` now dispatches Codex directly as an implementor (step 3 routing). The per-task code review at step 5.7 remains a Claude/Sonnet lane, not Codex.
 
 ## Invocation
 
