@@ -669,7 +669,8 @@ def test_review_coverage_hook_allows_valid_review_exit_0(tmp_path, monkeypatch):
     review file present on disk -> exit 0 (allow). Kills a stub that returns 2
     whenever `_AUTOPILOT_LOOP` is set regardless of review state. The review file
     is the minimal shape check_review_file.py accepts (no reviewers named ->
-    only a Verdict line and a Tests line are required)."""
+    a Verdict line, a Tests line, and a codex_rung_guard line; this hook gates
+    consolidated review files, so it passes --require-codex-guard)."""
     path = str(SCRIPTS_DIR / "review_coverage_hook.py")
     payload = {"session_id": "s"}
     loop = {"_AUTOPILOT_LOOP": "1"}
@@ -684,6 +685,7 @@ def test_review_coverage_hook_allows_valid_review_exit_0(tmp_path, monkeypatch):
         # prd_base '00099-demo' + '-review-<n>.md'; body passes the shape check.
         (reviews / "00099-demo-review-1.md").write_text(
             "Verdict: converged\nTests: none (docs-only)\n"
+            "codex_rung_guard: not fired\n"
         )
         return home, cwd
 
