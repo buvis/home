@@ -248,9 +248,11 @@ assert_model "signal 1 boundary: no frontmatter block, body quotes default_model
 # =============================================================================
 # Scenarios 6c-6q (signal 1, frontmatter edge cases): table-driven. Rows
 # differ only in the label, the expected model and the write_prd_fm body.
-# batch.id is irrelevant (signal 1 returns before state.json is read), so
-# every row shares one id; the loop builds the shared box/PRD/state.json/
-# assert_model boilerplate once per row.
+# batch.id is irrelevant: no signal reads `.batch.id`, whether it returns
+# before state.json is read (the MUST-fire rows, signal 1) or falls through
+# to a state.json parse on the way to signals 2/3a/4 (the MUST-NOT-fire
+# rows) - so every row can safely share one id; the loop builds the shared
+# box/PRD/state.json/assert_model boilerplate once per row.
 # =============================================================================
 _SIG1_LABEL=() _SIG1_WANT=() _SIG1_BODY=()
 

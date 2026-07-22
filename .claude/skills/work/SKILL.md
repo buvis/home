@@ -422,12 +422,13 @@ gate fail #2 at current rung → DIAGNOSE:
      judgment, this session, at its current tier: spec_gap | solid_spec, with a one-line
      justification, stamped as `diagnosis` on the diagnosed rung's attempt entry (see Attribution
      below). The orchestrator never overrides a deterministic spec_gap verdict from step 1.
-REPAIR (spec_gap, repair not yet used this task, current rung is haiku, sonnet, or opus, never fable): fill the identified
-  gaps (missing Contract, missing Acceptance criteria, dangling file references) from the PRD +
-  design doc, rewrite the task description via TaskUpdate(taskId, description=<repaired>) — the
-  canonical store /work re-reads via TaskGet — and re-dispatch Ivan at the SAME tier ONCE. Stamp
-  `repair_used:true` on that rung's attempt entry. A gate failure after the repair takes the
-  solid_spec path below — repair is exhausted for this task.
+REPAIR (spec_gap, repair not yet used this task, current rung is
+  haiku, sonnet, or opus, never fable): fill the identified gaps (missing Contract, missing
+  Acceptance criteria, dangling file references) from the PRD + design doc, rewrite the task
+  description via TaskUpdate(taskId, description=<repaired>) — the canonical store /work
+  re-reads via TaskGet — and re-dispatch Ivan at the SAME tier ONCE. Stamp `repair_used:true`
+  on that rung's attempt entry. A gate failure after the repair takes the solid_spec path below
+  — repair is exhausted for this task.
 ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any qwen-rung spec_gap):
   1. Reset guard — capture `<candidate_head>` = `git rev-parse HEAD` first, then require BOTH:
      - **uncommitted:** `git status --porcelain` is empty (no foreign/uncommitted working-tree files), AND

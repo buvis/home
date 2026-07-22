@@ -321,51 +321,54 @@ When a decision is made through the research-then-decide path, the `research` fi
 File: `dev/local/autopilot/deferred/{batch_id}-deferred.json` - persists across PRD sessions, not reset between PRDs.
 
 ```json
-[
-  {
-    "prd": "00004-feature-x.md",
-    "cycle": 2,
-    "type": "deferred_decision",
-    "issue": "API signature change needed",
-    "severity": "high",
-    "reason": "touches public API",
-    "research": {
-      "category": "high-public-api",
-      "verdict": "escalate",
-      "checks": [
-        {"check": "prd-requires-change", "result": "PRD mentions API but no signature spec", "pass": false}
-      ],
-      "evidence_summary": "API is external-facing, PRD doesn't specify new signature"
+{
+  "batch_id": "<id>",
+  "items": [
+    {
+      "prd": "00004-feature-x.md",
+      "cycle": 2,
+      "type": "deferred_decision",
+      "issue": "API signature change needed",
+      "severity": "high",
+      "reason": "touches public API",
+      "research": {
+        "category": "high-public-api",
+        "verdict": "escalate",
+        "checks": [
+          {"check": "prd-requires-change", "result": "PRD mentions API but no signature spec", "pass": false}
+        ],
+        "evidence_summary": "API is external-facing, PRD doesn't specify new signature"
+      }
+    },
+    {
+      "prd": "00005-auth-rework.md",
+      "cycle": 1,
+      "type": "doubt",
+      "category": "known",
+      "issue": "Edge case in token refresh under concurrent requests",
+      "justification": "Requires distributed lock infrastructure not in scope for this PRD"
+    },
+    {
+      "prd": "00004-feature-x.md",
+      "cycle": 2,
+      "type": "autonomous_research",
+      "issue": "New dependency needed: zod",
+      "severity": "high",
+      "action": "auto-fix",
+      "research": {
+        "category": "new-dependency",
+        "verdict": "proceed",
+        "checks": [
+          {"check": "license", "result": "MIT (compatible)", "pass": true},
+          {"check": "maintenance", "result": "active", "pass": true},
+          {"check": "security", "result": "no CVEs", "pass": true},
+          {"check": "adoption", "result": "4.2M weekly downloads", "pass": true}
+        ],
+        "evidence_summary": "zod: MIT, active, no CVEs, 4.2M downloads"
+      }
     }
-  },
-  {
-    "prd": "00005-auth-rework.md",
-    "cycle": 1,
-    "type": "doubt",
-    "category": "known",
-    "issue": "Edge case in token refresh under concurrent requests",
-    "justification": "Requires distributed lock infrastructure not in scope for this PRD"
-  },
-  {
-    "prd": "00004-feature-x.md",
-    "cycle": 2,
-    "type": "autonomous_research",
-    "issue": "New dependency needed: zod",
-    "severity": "high",
-    "action": "auto-fix",
-    "research": {
-      "category": "new-dependency",
-      "verdict": "proceed",
-      "checks": [
-        {"check": "license", "result": "MIT (compatible)", "pass": true},
-        {"check": "maintenance", "result": "active", "pass": true},
-        {"check": "security", "result": "no CVEs", "pass": true},
-        {"check": "adoption", "result": "4.2M weekly downloads", "pass": true}
-      ],
-      "evidence_summary": "zod: MIT, active, no CVEs, 4.2M downloads"
-    }
-  }
-]
+  ]
+}
 ```
 
 Written at Phase 9 step 6, and appended incrementally by the Loop-mode stall procedure (`references/recovery.md`) for `type:"stall"` records. This is the single source of truth for batch-end review. Includes:
