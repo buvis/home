@@ -12,13 +12,16 @@ Lowest to highest:
 | Rung | Backend | Activation status |
 |------|---------|--------------------|
 | `qwen` | local llama.cpp backend | **ACTIVE** |
-| `codex` | Codex CLI | **DECLARED-INACTIVE** (activated by PRD 00077) |
+| `codex` | Codex CLI (`skills/use-codex/scripts/codex-run.sh`) | **ACTIVE** (PRD 00077) |
 | `claude-haiku` | Claude Haiku | **ACTIVE** |
 | `claude-sonnet` | Claude Sonnet | **ACTIVE** |
 | `claude-opus` | Claude Opus | **ACTIVE** |
 | `fable` | Claude Fable | **ACTIVE (human-gated)** — entered only through the rescue gate (§ Fable rescue): one dispatch per PRD, ever, and only after a human approves. Never a session model, never selected autonomously. |
 
-Order: qwen -> codex -> claude haiku/sonnet/opus -> fable. The last edge is the
+Order (cheapest to most capable - this is the **cost order** used at
+routing-time selection, NOT a capability-escalation chain; the escalation
+edges are declared in § Capability ladders and deliberately differ):
+qwen -> codex -> claude haiku/sonnet/opus -> fable. The last edge is the
 only one no skill may take on its own: `opus` exhaustion does not escalate to
 `fable`, it stops at the human-gated rescue (§ Fable rescue).
 
@@ -44,8 +47,9 @@ classifier; it does not re-derive it.
 |---------|--------|
 | Claude rungs (haiku / sonnet / opus) | **2 dispatches**: initial + one feedback retry. The 2nd gate failure at a rung triggers diagnosis. |
 | qwen | **1 dispatch per task**: no same-tier feedback retry. A qwen gate failure escalates immediately (this is the qwen one-shot-per-task budget; the Capability ladders section below names it the `qwen -> sonnet` edge). Scoped per task, not per PRD or per batch — every qwen-eligible task gets its own independent one-shot budget. |
+| codex | **2 dispatches**: initial + one feedback retry, identical to the Claude rungs (PRD 00077: "same as every rung"). |
 | `fable` | **1 capability dispatch per PRD, ever**: no same-tier feedback retry, no repair. An *infra* failure (watchdog / lost result) still falls back at the same tier per § Infra vs capability — infra is not a capability attempt. Scoped per PRD, not per task: one approved rescue buys one Fable attempt for the whole PRD. |
-| Repair | **At most 1 per task, total** (Claude rungs only; qwen never gets a repair). |
+| Repair | **At most 1 per task, total** (Claude rungs only; qwen and codex never get a repair). |
 
 Worst-case examples:
 
@@ -53,10 +57,14 @@ Worst-case examples:
   dispatches, +1 possible repair) -> Opus (2 dispatches) -> opus exhaustion.
 - A non-qwen `haiku` task: haiku (2 dispatches +1 repair) -> sonnet (2
   dispatches) -> opus (2 dispatches) -> exhaustion.
+- A `files`-band `sonnet` task (excluded from qwen for file count, so
+  codex-eligible): codex (2 dispatches) -> Sonnet (2 dispatches, +1 possible
+  repair) -> Opus (2 dispatches) -> exhaustion.
 
 ## Capability ladders
 
-- `qwen -> sonnet` (skips haiku)
+- `qwen -> sonnet` (skips haiku AND skips codex)
+- `codex -> claude at the task's own tier` (haiku -> Haiku, sonnet -> Sonnet)
 - `haiku -> sonnet -> opus`
 
 Opus-rung exhaustion (2 failures at opus) flows into the existing abort/stall
@@ -93,6 +101,55 @@ and what each `fablectl` exit means — lives in `references/recovery.md`
   (Existing behavior, unchanged.)
 - A **capability** failure (a real test-gate failure) escalates UP the
   capability ladder, after diagnosis.
+
+## Codex rung
+
+- **Position**: between `qwen` and the Claude tiers, exactly as the order
+  line in § Rungs already states. The `qwen -> sonnet` capability edge
+  (§ Capability ladders) is UNCHANGED.
+- **Fences**: the eligibility predicate, evaluated at routing time from
+  existing plan-time metadata (no new plan-tasks field):
+
+  ```
+  codex_eligible(task) =
+        task.metadata.qwen_eligible == true
+     OR task.metadata.qwen_excluded_reason == "files"
+  ```
+
+  Absent `qwen_eligible` (legacy plans) -> `false`. Any
+  `qwen_excluded_reason` of `ui`, `tier`, or `contract` -> `false`. UI stays
+  gemini; `opus` tier stays Claude; declared contract edits stay Claude.
+- **Budget**: declared in § Per-rung budgets, not restated here; see that
+  section for the dispatch count.
+- **Toggle**: `_WORK_CODEX_RUNG=off` disables the rung entirely; routing is
+  then byte-identical to pre-00077. Any other value or absent -> rung
+  active.
+- **Infra vs capability - THREE arms, not two:**
+
+  1. **Infra**: an unhealthy batch probe, a watchdog timeout, or a
+     missing/empty `-o` output file -> fall back to Claude at the task's
+     tier, stamp **no** `escalation_reason`.
+  2. **Infra (no-edit arm)**: the `-o` file is non-empty and the helper
+     exited 0, but the run produced **no working-tree change**. This is the
+     hook-blocked case: codex explains in prose that it was denied, exits 0,
+     and edits nothing. Classify as **infra**: fall back to Claude at tier,
+     **no** feedback retry, **no** `escalation_reason`, and record
+     `cause: "codex_no_edit"`. Without this arm, a pure policy condition
+     burns dispatches and is stamped permanently as a codex *capability*
+     failure. The detector's probe is indeterminate on a non-zero exit: a
+     failed probe is NOT "no change" and must NOT latch `codex_no_edit`. The
+     detector command and its evaluation point belong to `/work` step 5.5
+     and are not documented here.
+  3. **Capability**: a step-5.5 test-gate failure on a run that DID edit the
+     tree -> diagnose and escalate with a stamp.
+
+  Arms 1 and 3 mirror the asymmetry this file already declares for qwen in
+  § Infra vs capability; arm 2 is new and specific to a CLI whose tool calls
+  pass through this host's PreToolUse hooks.
+- **Memory gate does not apply**: routing row 4's `check_memory_pressure.py`
+  gate (§ Memory gate) guards the local llama-server's RAM footprint. codex
+  is a remote-API CLI with negligible resident memory, so a pressure verdict
+  never reroutes away from codex.
 
 ## Memory gate
 
@@ -165,7 +222,9 @@ chain. They are scoped to different moments.
   qwen capability breaker; the escalation machinery becomes byte-identical to
   pre-00065 (today's same-tier "max 2 implementation retries" cap). The
   memory-pressure gate (routing row 4) is not disabled by this knob and keeps
-  firing under `legacy` (see § Memory gate). The qwen one-shot carve-out (qwen
+  firing under `legacy` (see § Memory gate). The codex rung interception
+  (`/work` step 3, § Codex rung) never fires under `legacy`: routing is the
+  pre-00077 qwen/Claude-only path. The qwen one-shot carve-out (qwen
   fail -> Claude Sonnet) still applies. Any other value or absent -> the new
   flow.
 - `_PLAN_TASKS_FLOOR=legacy` (alias: `sonnet`): read by `/plan-tasks`,
@@ -180,8 +239,11 @@ chain. They are scoped to different moments.
 - The Fable rescue has **no env knob**. It is gated by human approval
   (`autoclaude approve-fable <prd>`), one request per PRD ever, and `fable` is
   never a session model (§ Fable rescue).
-- Reserved (declared by future PRDs, env var names TBD by each): a codex-rung
-  activation knob (PRD 00077), a decay knob (PRD 00078).
+- `_WORK_CODEX_RUNG=off`: read by `/work` step 3. Disables the codex rung
+  interception entirely; routing is byte-identical to pre-00077. Any other
+  value or absent -> rung active.
+- Reserved (declared by future PRDs, env var names TBD by each): a decay knob
+  (PRD 00078).
 
 ## Decay
 
