@@ -249,7 +249,7 @@ _autopilot_died_next() {
 # one that just finished.
 _autopilot_build_model() {
   local _state="$1" _prds="$2" _metrics="$3" _ledger="$4" _deferred="$5"
-  local _dir _f _tpath="" _target="" _fm _files=() _n _i
+  local _dir _f _tpath="" _target="" _files=() _n _i
 
   for _dir in wip backlog; do
     for _f in "$_prds/$_dir"/[0-9][0-9][0-9][0-9][0-9]-*; do
@@ -262,11 +262,21 @@ _autopilot_build_model() {
   if [ -z "$_tpath" ]; then printf 'claude-sonnet-5\n'; return 0; fi
   _target="${_tpath##*/}"
 
-  # (1) frontmatter default_model: opus — the leading --- block only.
-  _fm=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$_tpath" 2>/dev/null)
-  case "$_fm" in
-    *"default_model: opus"*) printf 'claude-opus-4-8\n'; return 0 ;;
-  esac
+  # (1) frontmatter default_model: opus — the leading --- block only, and only
+  # a real (uncommented) default_model key whose value is exactly opus.
+  if awk '
+      NR==1 && $0!="---" {exit 1}
+      NR>1 && $0=="---" {exit 1}
+      NR>1 {
+        line=$0
+        sub(/[ \t]*#.*$/, "", line)
+        if (line ~ /^[ \t]*default_model[ \t]*:[ \t]*("opus"|\047opus\047|opus)[ \t]*$/) {found=1; exit 0}
+      }
+      END {exit !found}
+    ' "$_tpath" 2>/dev/null
+  then
+    printf 'claude-opus-4-8\n'; return 0
+  fi
 
   # (2) replanned / (3a) live stall / (4) cap rotation — all guarded on
   # state.prd being the target; (5) a rescue-ledger KEY for the target;
