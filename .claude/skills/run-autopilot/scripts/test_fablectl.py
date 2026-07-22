@@ -14,13 +14,21 @@ These tests bind the public contract only - the one-request-per-PRD latch, the
 transition table, and the exit codes callers branch on (0 ok, 1 usage, 2 corrupt
 ledger, 3 refused) - by running the CLI as a subprocess and asserting on exit
 codes and file bytes, never on internals.
+
+The file also carries the Fable documentation contract (`FableTierEnumerationTest`,
+`WorkSkillFableContractTest` and `WorkSkillExploitRejectionTest` at the bottom): an
+approved rescue is worthless if the tier tables `/work` routes from forget the
+rescue rung exists.
 """
 
 import datetime
 import json
+import re
+import shutil
 import subprocess
 import tempfile
 import unittest
+from collections import namedtuple
 from pathlib import Path
 
 FABLECTL = Path(__file__).parent / "fablectl.py"
@@ -552,6 +560,910 @@ class FablectlTest(unittest.TestCase):
                 sorted([PRD, PRD_B, PRD_C]),
                 f"iteration {i}: lost a write",
             )
+
+
+# ---------------------------------------------------------------------------
+# Fable documentation contract
+#
+# `fable` is a real model tier - the human-gated rescue rung above `opus`. The
+# three files below are the tier tables `/work` routes, stamps, and gates from.
+# Every tier enumeration in them that names haiku, sonnet and opus together must
+# also name fable, or a future edit silently drops the rescue rung out of a
+# routing / pipeline / gate table and a rescued task is mis-handled.
+# ---------------------------------------------------------------------------
+
+SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
+WORK_SKILL = SKILLS_DIR / "work" / "SKILL.md"
+STATE_SCHEMA = SKILLS_DIR / "run-autopilot" / "references" / "state-schema.md"
+MODEL_LADDER = SKILLS_DIR / "run-autopilot" / "references" / "model-ladder.md"
+TIER_TABLE_FILES = (WORK_SKILL, STATE_SCHEMA, MODEL_LADDER)
+
+# One line at a time: "names all three tiers", and the same with "and does not
+# name fable" - the offending shape.
+TIER_ENUM = re.compile(r"(?=.*haiku)(?=.*sonnet)(?=.*opus)", re.I)
+MISSING_FABLE = re.compile(r"(?=.*haiku)(?=.*sonnet)(?=.*opus)(?!.*fable)", re.I)
+
+# An escalation chain (`haiku -> sonnet -> opus`) is a LADDER WALK, not a tier
+# enumeration: `fable` is never auto-escalatable, so its absence there IS the
+# contract. Blanking chains before the enumeration test states that as a rule
+# instead of as a per-file exemption a re-wording could launder.
+CHAIN = re.compile(r"(?:`?[\w-]+`?\s*(?:->|→)\s*)+`?[\w-]+`?")
+
+COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+# Lines that name all three tiers and must STAY fable-free: adding `fable` to
+# one of these would be a real defect, not a fix. Each row is (file, short
+# distinctive substring, why). Keep this table small - a growing exemption list
+# means the rule is wrong, not that the docs are special.
+EXEMPTIONS = (
+    (
+        MODEL_LADDER,
+        "Claude rungs (haiku / sonnet / opus)",
+        "§ Per-rung budgets: `fable` has its OWN budget row (1 dispatch per PRD, "
+        "ever), so it is not a Claude rung in this sense",
+    ),
+    (
+        MODEL_LADDER,
+        "`haiku -> sonnet -> opus`",
+        "§ Capability ladders edge list: `fable` is never auto-escalatable, so "
+        "its absence from the ladder IS the contract (the human gate)",
+    ),
+    (
+        MODEL_LADDER,
+        "A non-qwen `haiku` task:",
+        "§ Per-rung budgets worst-case example: a ladder-walk narrative, not an "
+        "enumeration (wrapped over two lines today, so this row only bites if "
+        "the bullet is ever re-wrapped onto one)",
+    ),
+    (
+        STATE_SCHEMA,
+        "haiku(2) -> sonnet(2) -> opus(2)",
+        "the rung-history example (JSON block and the `justification` row): it "
+        "records what exhausted BEFORE a rescue is requested, so it must never "
+        "gain `fable`",
+    ),
+)
+
+
+def _section(lines: list[str], heading: str) -> list[tuple[int, str]]:
+    """1-based (lineno, text) for the body of the `heading` section."""
+    body: list[tuple[int, str]] = []
+    inside = False
+    for number, text in enumerate(lines, 1):
+        if text.startswith(heading):
+            inside = True
+            continue
+        if inside:
+            if text.startswith("## ") or text.startswith("### "):
+                break
+            body.append((number, text))
+    return body
+
+
+def _cite(path: Path, number: int, text: str) -> str:
+    return f"  {path}:{number}: {' '.join(text.split())[:140]}"
+
+
+def _strip_comments(text: str) -> str:
+    """Blank out `<!-- ... -->`, keeping every newline so line numbers survive.
+
+    An HTML comment is invisible in the rendered doc, so it can never satisfy a
+    contract - and stripping it must not shift the `file:line` a failure cites.
+    """
+    return COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
+Hit = namedtuple("Hit", "line text start end")
+
+
+class Flow:
+    """A run of lines JOINED into one string, with a line number per offset.
+
+    Pinned contracts are matched against this, not against single lines: a
+    hard wrap in the middle of a mapping must not hide it from the scan.
+    """
+
+    def __init__(self, path: Path, rows: list[tuple[int, str]]) -> None:
+        self.path = path
+        self.rows = rows
+        pieces: list[str] = []
+        index: list[int] = []
+        for number, text in rows:
+            piece = " ".join(text.split())
+            pieces.append(piece)
+            index.extend([number] * (len(piece) + 1))
+        self.text = " ".join(pieces)
+        self.index = index or [0]
+
+    @property
+    def head(self) -> int:
+        return self.rows[0][0] if self.rows else 0
+
+    def find(self, pattern: re.Pattern) -> list[Hit]:
+        return [
+            Hit(self.index[match.start()], match.group(0), match.start(), match.end())
+            for match in pattern.finditer(self.text)
+        ]
+
+    def window(self, hit: Hit, radius: int) -> str:
+        return self.text[max(0, hit.start - radius) : hit.end + radius]
+
+
+class Doc:
+    """A tier-table file, comment-stripped, addressable by line or by section."""
+
+    def __init__(self, path: Path, text: str | None = None) -> None:
+        self.path = path
+        source = path.read_text() if text is None else text
+        self.lines = _strip_comments(source).splitlines()
+
+    def section(self, heading: str) -> list[tuple[int, str]]:
+        return _section(self.lines, heading)
+
+    def flow(self, *headings: str) -> Flow:
+        rows: list[tuple[int, str]] = []
+        for heading in headings:
+            rows.extend(self.section(heading))
+        return Flow(self.path, rows)
+
+    def whole(self) -> Flow:
+        return Flow(self.path, list(enumerate(self.lines, 1)))
+
+
+# --- the pinned sites -------------------------------------------------------
+#
+# Every check below returns a list of problem strings (empty = the contract
+# holds) and takes the Doc as a parameter, so the same code runs against the
+# real file and against the exploit fixtures at the bottom.
+
+PINNED_SECTIONS = (
+    "## Per-task model dispatch",
+    "## Attempt logging",
+    "### 2.85.",
+    "### 3.",
+    "### 5.5.",
+    "### 5.7.",
+    "### 6.",
+)
+PIPELINE_SECTIONS = ("## Attempt logging", "### 6.")
+ROUTING_SECTIONS = ("## Per-task model dispatch", "### 3.")
+ESCALATION_SECTION = "### 5.5."
+
+# A mapping is a PAIR. `fable` on the same line as `"full"` proves nothing when
+# `opus -> "full"` sits later in the same sentence, so the arrow has to be
+# between the two halves - and no OTHER arrow may sit in the gap.
+GAP = r"(?:(?!->|→)[^|\n]){0,30}"
+FABLE_FULL = re.compile(rf"`?fable`?{GAP}(?:->|→)\s*`?\"full\"`?", re.I)
+FABLE_SHALLOW = re.compile(rf"`?fable`?{GAP}(?:->|→)\s*`?\"(?:minimal|lean)\"`?", re.I)
+ANY_PIPELINE_MAP = re.compile(r"(?:->|→)\s*`?\"(?:minimal|lean|full)\"", re.I)
+
+# A negator between the two halves flips the sentence, so the gap may not hold
+# one: `fable` DOES NOT override the table is not a statement that it does.
+CLEAN_GAP = r"(?:(?!\b(?:not|never|neither|nor)\b)[^.]){0,120}?"
+OVERRIDES = (
+    re.compile(rf"`?fable`?{CLEAN_GAP}\boverrid(?:e|es|ing)\b", re.I),
+    re.compile(rf"\boverrid(?:e|es|ing)\b{CLEAN_GAP}`?fable`?", re.I),
+)
+SESSION_MODEL = (
+    re.compile(r"`?fable`?[^.]{0,120}?\bnever\b[^.]{0,80}?session model", re.I),
+    re.compile(r"\bnever\b[^.]{0,80}?session model[^.]{0,120}?`?fable`?", re.I),
+)
+
+NEGATED_ACTION = re.compile(
+    r"\b(?:skip|skips|skipped|no|not|never|without|omit|omits|bypass|bypasses)\b", re.I
+)
+DEVON_ACTION = re.compile(
+    r"(?:dispatch\w*\s+devon|devon\s+(?:is\s+)?dispatch\w*)", re.I
+)
+REVIEW_ACTION = re.compile(r"\breview\b", re.I)
+
+FOLDED_BUDGET = re.compile(r"claude rungs?\b.{0,80}?\b(?:2|two) dispatches", re.I)
+FABLE_TWO_DISPATCHES = re.compile(
+    r"`?fable`?[^.]{0,60}?\bgets?\s+(?:2|two) dispatches", re.I
+)
+FABLE_OWN_BUDGET = re.compile(
+    r"`?fable`?[^.]{0,80}?\b(?:1|one)\s+(?:capability\s+)?dispatch per PRD", re.I
+)
+LADDER_FILE = "model-ladder.md"
+
+# The exclusion words that make a `fable` mention on an escalation edge legal.
+# NOT "gate" - § 5.5 says "gate failure" and "gate-output" everywhere.
+EXCLUSION = re.compile(
+    r"\b(?:never|not|human|approval|approved|exclude\w*|no rung above)\b", re.I
+)
+NO_RUNG_ABOVE = (
+    re.compile(r"`?fable`?[^.]{0,80}?no rung above", re.I),
+    re.compile(r"no rung above[^.]{0,80}?`?fable`?", re.I),
+)
+
+# Phrasings that DENY a contract. A `fable` mention that denies must fail, not
+# pass: every one of these was appended to a real line to satisfy a scan that
+# only asked whether the word appeared.
+DENIALS = tuple(
+    re.compile(pattern, re.I)
+    for pattern in (
+        r"not an accepted value",
+        r"never write it",
+        r"treat any task carrying it as",
+        r"(?:does|do) not override",
+        r"no (?:reviewer|devon) dispatch",
+        r"nothing (?:in this step|here) changes",
+        r"is not supported",
+        r"not a (?:valid|real|supported) (?:tier|rung|value|model)",
+        r"never a (?:valid|real|supported) (?:tier|rung|value|model)",
+    )
+)
+DENIAL_RADIUS = 200
+
+
+def check_line_enumerations(doc: Doc) -> list[str]:
+    """Backstop: any ONE line naming all three Claude tiers also names fable."""
+    exempt = [needle for source, needle, _ in EXEMPTIONS if source == doc.path]
+    problems = []
+    for number, text in enumerate(doc.lines, 1):
+        if not MISSING_FABLE.match(text) or any(needle in text for needle in exempt):
+            continue
+        if not TIER_ENUM.match(CHAIN.sub(" ", text)):
+            continue  # a ladder walk, not an enumeration
+        problems.append(_cite(doc.path, number, text))
+    return problems
+
+
+def check_pinned_enumerations(doc: Doc) -> list[str]:
+    """Wrap-proof: each pinned section, read as ONE joined string, names fable."""
+    problems = []
+    for heading in PINNED_SECTIONS:
+        flow = doc.flow(heading)
+        if not flow.rows:
+            problems.append(f"  {doc.path}: no `{heading}` section - renamed?")
+            continue
+        enumerates = TIER_ENUM.match(CHAIN.sub(" ", flow.text))
+        if enumerates and "fable" not in flow.text.lower():
+            problems.append(
+                _cite(
+                    doc.path,
+                    flow.head,
+                    f"§ {heading} enumerates haiku/sonnet/opus and never names fable",
+                )
+            )
+    return problems
+
+
+def check_denials(doc: Doc) -> list[str]:
+    """A `fable` mention that DENIES the contract must never satisfy it."""
+    flow = doc.whole()
+    problems = []
+    for pattern in DENIALS:
+        for hit in flow.find(pattern):
+            if "fable" in flow.window(hit, DENIAL_RADIUS).lower():
+                problems.append(
+                    _cite(doc.path, hit.line, f"denies the rescue rung: {hit.text}")
+                )
+    return problems
+
+
+def check_pipeline_mapping(doc: Doc) -> list[str]:
+    """`fable` is PAIRED with `"full"` in every tier -> pipeline-depth mapping."""
+    problems = []
+    mapped = False
+    for heading in PIPELINE_SECTIONS:
+        flow = doc.flow(heading)
+        if not ANY_PIPELINE_MAP.search(flow.text):
+            continue
+        mapped = True
+        for hit in flow.find(FABLE_SHALLOW):
+            problems.append(
+                _cite(
+                    doc.path,
+                    hit.line,
+                    f"§ {heading} maps the rescue rung SHALLOW: {hit.text}",
+                )
+            )
+        if not flow.find(FABLE_FULL):
+            problems.append(
+                _cite(
+                    doc.path,
+                    flow.head,
+                    f"§ {heading} maps tiers to pipeline depths but never pairs "
+                    '`fable` -> `"full"`',
+                )
+            )
+    if not mapped:
+        problems.append(
+            f"  {doc.path}: no tier -> pipeline-depth mapping left in "
+            f"{list(PIPELINE_SECTIONS)} - deleted or renamed?"
+        )
+    return problems
+
+
+def check_routing_override(doc: Doc) -> list[str]:
+    flow = doc.flow(*ROUTING_SECTIONS)
+    problems = []
+    if not any(flow.find(pattern) for pattern in OVERRIDES):
+        problems.append(
+            f"  {doc.path}:{flow.head}: no sentence in "
+            f"{list(ROUTING_SECTIONS)} says `fable` OVERRIDES the routing table"
+        )
+    if not any(flow.find(pattern) for pattern in SESSION_MODEL):
+        problems.append(
+            f"  {doc.path}:{flow.head}: no sentence in "
+            f"{list(ROUTING_SECTIONS)} says `fable` is NEVER a session model"
+        )
+    return problems
+
+
+def _fable_rows(rows: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
+    """(lineno, subject, action) for table rows whose FIRST cell names fable."""
+    found = []
+    for number, text in rows:
+        line = text.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 2 or set(cells[0]) <= set("-: "):
+            continue
+        if "fable" in cells[0].lower():
+            found.append((number, cells[0], cells[1]))
+    return found
+
+
+def check_gate_row(
+    doc: Doc, heading: str, action: re.Pattern, otherwise: str
+) -> list[str]:
+    """The row that NAMES fable carries the positive action, in that same row."""
+    rows = doc.section(heading)
+    if not rows:
+        return [f"  {doc.path}: no `{heading}` section - renamed?"]
+    named = _fable_rows(rows)
+    if not named:
+        return [
+            _cite(
+                doc.path,
+                rows[0][0],
+                f"§ {heading} has NO table row naming `fable`, so it falls into "
+                f"the catch-all row, which {otherwise}",
+            )
+        ]
+    return [
+        _cite(doc.path, number, f"the `{subject}` row's action is `{cell}`")
+        for number, subject, cell in named
+        if NEGATED_ACTION.search(cell) or not action.search(cell)
+    ]
+
+
+def check_devon_row(doc: Doc) -> list[str]:
+    return check_gate_row(
+        doc,
+        "### 2.85.",
+        DEVON_ACTION,
+        "skips Devon - the rescue rung belongs with `opus` on the dispatch side",
+    )
+
+
+def check_review_row(doc: Doc) -> list[str]:
+    return check_gate_row(
+        doc,
+        "### 5.7.",
+        REVIEW_ACTION,
+        "is not the reviewed side - only `haiku` skips the per-task review",
+    )
+
+
+def check_budget(doc: Doc) -> list[str]:
+    """`fable` keeps its own budget: 1 dispatch per PRD, ever - never folded."""
+    whole = doc.whole()
+    problems = [
+        _cite(
+            doc.path,
+            hit.line,
+            f"`fable` folded into the Claude-rungs 2-dispatch group: {hit.text}",
+        )
+        for hit in whole.find(FOLDED_BUDGET)
+        if "fable" in hit.text.lower()
+    ]
+    problems += [
+        _cite(doc.path, hit.line, f"`fable` given a 2-dispatch budget: {hit.text}")
+        for hit in whole.find(FABLE_TWO_DISPATCHES)
+    ]
+    flow = doc.flow(ESCALATION_SECTION)
+    own = flow.find(FABLE_OWN_BUDGET)
+    if not own:
+        problems.append(
+            f"  {doc.path}:{flow.head}: § {ESCALATION_SECTION} never gives `fable` "
+            "its own budget (1 dispatch per PRD, ever)"
+        )
+    elif LADDER_FILE not in flow.window(own[0], 300):
+        problems.append(
+            _cite(
+                doc.path,
+                own[0].line,
+                f"fable's budget is restated without citing {LADDER_FILE}: "
+                f"{own[0].text}",
+            )
+        )
+    return problems
+
+
+def check_no_auto_escalation(doc: Doc) -> list[str]:
+    """The rung-up computation never puts `fable` on an automatic edge."""
+    flow = doc.flow(ESCALATION_SECTION)
+    return [
+        _cite(
+            doc.path,
+            hit.line,
+            f"escalation chain puts `fable` on an automatic edge: {hit.text}",
+        )
+        for hit in flow.find(CHAIN)
+        if "fable" in hit.text.lower()
+        and not EXCLUSION.search(flow.window(hit, 120))
+    ]
+
+
+def check_no_rung_above(doc: Doc) -> list[str]:
+    """The `no rung above` claim is pinned to `fable`, not to some other rung."""
+    flow = doc.flow(ESCALATION_SECTION)
+    if any(flow.find(pattern) for pattern in NO_RUNG_ABOVE):
+        return []
+    return [
+        f"  {doc.path}:{flow.head}: § {ESCALATION_SECTION} never says, of `fable` "
+        "itself, that it has no rung above it"
+    ]
+
+
+WORK_SKILL_CHECKS = (
+    ("line enumerations", check_line_enumerations),
+    ("pinned enumerations", check_pinned_enumerations),
+    ("denials", check_denials),
+    ("routing override", check_routing_override),
+    ("pipeline mapping", check_pipeline_mapping),
+    ("Devon gate row", check_devon_row),
+    ("review gate row", check_review_row),
+    ("per-rung budget", check_budget),
+    ("auto-escalation", check_no_auto_escalation),
+    ("no rung above", check_no_rung_above),
+)
+
+
+class FableTierEnumerationTest(unittest.TestCase):
+    """Every tier enumeration in the tier tables names the rescue rung."""
+
+    def setUp(self) -> None:
+        self.docs = []
+        for path in TIER_TABLE_FILES:
+            self.assertTrue(path.exists(), f"missing tier-table file: {path}")
+            doc = Doc(path)
+            # Per-FILE positive control. An empty result is evidence of absence
+            # only once the pattern is known to match something IN THAT FILE
+            # (rules/tools.md: empty output is unverified, not confirmed-absent).
+            # Controlling one file said nothing about the other two.
+            self.assertTrue(
+                any(TIER_ENUM.match(line) for line in doc.lines),
+                f"the tier-enumeration pattern matches nothing in {path} - the "
+                "scan is broken there, so its verdict on that file means nothing",
+            )
+            self.docs.append(doc)
+
+    def test_fable_row_present_in_every_tier_enumeration(self) -> None:
+        offenders = [
+            problem for doc in self.docs for problem in check_line_enumerations(doc)
+        ]
+        if offenders:
+            self.fail(
+                "these lines enumerate haiku/sonnet/opus without naming `fable`, "
+                "the human-gated rescue rung above `opus`:\n"
+                + "\n".join(offenders)
+                + "\nAdd `fable` to the enumeration. If naming it there would be "
+                "WRONG (a Claude-rungs-only budget, a pre-rescue history), add a "
+                "row to EXEMPTIONS with the reason instead. A ladder walk "
+                "(`haiku -> sonnet -> opus`) needs no exemption - chains are "
+                "blanked before this scan."
+            )
+
+    def test_pinned_sections_name_fable_even_when_rewrapped(self) -> None:
+        # The per-line scan above dies to a hard wrap: split a mapping across two
+        # lines and neither half names all three tiers. Each pinned section is
+        # therefore also read as ONE joined string.
+        offenders = check_pinned_enumerations(Doc(WORK_SKILL))
+        if offenders:
+            self.fail(
+                "these sections enumerate the Claude tiers with no `fable` "
+                "anywhere in them, read with their lines joined:\n"
+                + "\n".join(offenders)
+            )
+
+    def test_no_tier_table_denies_the_fable_contract(self) -> None:
+        offenders = [problem for doc in self.docs for problem in check_denials(doc)]
+        if offenders:
+            self.fail(
+                "these lines mention `fable` in order to DENY it - naming the "
+                "rescue rung to forbid it is not naming it:\n" + "\n".join(offenders)
+            )
+
+
+class WorkSkillFableContractTest(unittest.TestCase):
+    """`fable` is wired into /work's routing, pipeline and gates, not just spelled.
+
+    The enumeration scan above is satisfied by pasting the bare word `fable`
+    onto a line. These pin the contracts a rescued task actually depends on:
+    the mapping's two halves must be PAIRED, a gate row must carry the positive
+    action, and a sentence that denies the contract fails it.
+    """
+
+    def setUp(self) -> None:
+        self.assertTrue(WORK_SKILL.exists(), f"missing tier-table file: {WORK_SKILL}")
+        self.doc = Doc(WORK_SKILL)
+        # Positive control: every section these contracts pin still exists, so a
+        # clean verdict cannot come from scanning an empty section.
+        for heading in PINNED_SECTIONS:
+            self.assertTrue(
+                self.doc.section(heading),
+                f"{WORK_SKILL}: no `{heading}` section - renamed?",
+            )
+
+    def reject(self, problems: list[str], message: str) -> None:
+        if problems:
+            self.fail(message + "\n" + "\n".join(problems))
+
+    def test_fable_overrides_the_deterministic_routing_table(self) -> None:
+        self.reject(
+            check_routing_override(self.doc),
+            f"{WORK_SKILL} never says a task carrying `metadata.model: \"fable\"` "
+            "OVERRIDES the step-3 deterministic routing table outright - never "
+            'qwen, never Gemini, always a Claude Agent dispatch at `model: '
+            '"fable"` - and that `fable` is never a session model, never selected '
+            "autonomously. Without both, the table routes a rescued backend task "
+            "to qwen and burns the one approved rescue.",
+        )
+
+    def test_fable_maps_to_full_pipeline(self) -> None:
+        self.reject(
+            check_pipeline_mapping(self.doc),
+            f"{WORK_SKILL} never PAIRS `fable` with the `\"full\"` pipeline depth "
+            "(the same depth as `opus`) in a tier -> depth mapping. A rescue "
+            "attempt would then be stamped with, and run, the wrong pipeline.",
+        )
+
+    def test_devon_is_dispatched_for_a_fable_task(self) -> None:
+        self.reject(
+            check_devon_row(self.doc),
+            f"{WORK_SKILL} step 2.85: the Devon tier gate has no `fable` row "
+            "carrying the DISPATCH action. The rescue rung runs the deepest "
+            "pipeline, like `opus`, so its own row must dispatch Devon.",
+        )
+
+    def test_a_fable_task_is_reviewed_by_the_per_task_review_gate(self) -> None:
+        self.reject(
+            check_review_row(self.doc),
+            f"{WORK_SKILL} step 5.7: the per-task review tier gate has no `fable` "
+            "row carrying the REVIEW action. Only `haiku` skips that review - the "
+            "rescue rung's own row must be on the reviewed side.",
+        )
+
+    def test_a_fable_gate_failure_has_no_rung_above_it(self) -> None:
+        self.reject(
+            check_no_rung_above(self.doc),
+            f"{WORK_SKILL} step 5.5: state of `fable` ITSELF that it has **no rung "
+            "above it**, in that same sentence, so its gate failure goes to the "
+            "exhaustion path, never to an escalation.",
+        )
+        self.reject(
+            check_no_auto_escalation(self.doc),
+            f"{WORK_SKILL} step 5.5: the rung-up computation puts `fable` on an "
+            "automatic escalation edge, which destroys the human gate. Name it "
+            "there only to EXCLUDE it.",
+        )
+
+    def test_fable_carries_its_own_dispatch_budget(self) -> None:
+        self.reject(
+            check_budget(self.doc),
+            f"{WORK_SKILL} step 5.5: `fable` has its own budget - 1 dispatch per "
+            f"PRD, ever - and must be cited from {LADDER_FILE} § Per-rung budgets, "
+            "never folded into the Claude-rungs 2-dispatch group. Folding it "
+            "licenses a second rescue off one human approval.",
+        )
+
+
+# --- exploit regression fixtures -------------------------------------------
+#
+# The checks above are only as good as their ability to REJECT. Each fixture
+# below builds a COMPLIANT copy of work/SKILL.md in a temp dir, applies exactly
+# one edit that beat an earlier version of these tests, and asserts the check
+# now rejects it. The compliant baseline doubles as proof the contracts are
+# satisfiable at all.
+
+FABLE_WIRING = (
+    (
+        'Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.',
+        'Accepted values: `"haiku"`, `"sonnet"`, `"opus"`, `"fable"` (the '
+        "human-gated rescue rung).",
+    ),
+    (
+        '`opus` → `"full"` (+ Devon at step 2.85); absent/legacy is treated as '
+        '`sonnet` → `"lean"`.',
+        '`opus` → `"full"` (+ Devon at step 2.85), `fable` → `"full"` (the rescue '
+        "rung runs the deepest pipeline, like `opus`); absent/legacy is treated as "
+        '`sonnet` → `"lean"`.',
+    ),
+    (
+        '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`)',
+        '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → '
+        '`"full"`, `fable` → `"full"`)',
+    ),
+    (
+        "| `opus` | dispatch Devon (below) |",
+        "| `opus` | dispatch Devon (below) |\n| `fable` | dispatch Devon (below), "
+        "the rescue rung runs the deepest pipeline |",
+    ),
+    (
+        "| `haiku` | skip per-task review |",
+        "| `haiku` | skip per-task review |\n| `fable` | review (below), the "
+        "rescue rung is reviewed like `opus` |",
+    ),
+    (
+        "qwen never sees `opus`-tier or UI tasks",
+        "**`fable` overrides this table outright.** A task carrying "
+        '`metadata.model: "fable"` (the human-approved rescue rung) never routes '
+        "to qwen and never to Gemini: dispatch a Claude Agent at "
+        '`model: "fable"`, whatever the rows above would pick. `fable` is never a '
+        "session model and is never selected autonomously, so the human rescue "
+        "gate is the only way in (`run-autopilot/references/model-ladder.md` "
+        "§ Fable rescue).\n\nqwen never sees `opus`-tier or UI tasks",
+    ),
+    (
+        "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
+        "feedback retry) before diagnosis;",
+        "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
+        "feedback retry) before diagnosis; the `fable` rescue rung gets 1 "
+        "dispatch per PRD, ever (no feedback retry, no repair);",
+    ),
+    (
+        "  00017) — do not invent a new halt class.",
+        "  00017) — do not invent a new halt class.\n"
+        "  A `fable` attempt has **no rung above it**: its gate failure goes "
+        "straight to that\n"
+        "  same exhaustion path, never to an escalation (`model-ladder.md` "
+        "§ Capability ladders).\n"
+        "  The `opus -> fable` edge is NEVER taken here: it is the human rescue "
+        "gate, not a ladder step.",
+    ),
+)
+
+WRAPPED_STEP_6_MAPPING = (
+    '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → '
+    '`"full"`, `fable` → `"full"`)',
+    '(`haiku` → `"minimal"`,\n`sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`)',
+)
+
+
+class WorkSkillExploitRejectionTest(unittest.TestCase):
+    """Nine edits that wired `fable` nowhere and passed anyway. Never again."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.copy = Path(self.tmp.name) / "SKILL.md"
+        shutil.copyfile(WORK_SKILL, self.copy)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def patch(self, text: str, patches: tuple) -> str:
+        for old, new in patches:
+            self.assertIn(
+                old,
+                text,
+                f"fixture drift: {WORK_SKILL} no longer contains {old[:70]!r}, so "
+                "this fixture is testing something else - re-anchor it",
+            )
+            text = text.replace(old, new, 1)
+        return text
+
+    def compliant(self) -> str:
+        return self.patch(self.copy.read_text(), FABLE_WIRING)
+
+    def write(self, text: str) -> Doc:
+        self.copy.write_text(text)
+        return Doc(self.copy)
+
+    def exploited(self, *patches: tuple) -> Doc:
+        return self.write(self.patch(self.compliant(), patches))
+
+    def test_the_compliant_fixture_passes_every_check(self) -> None:
+        # Without this, "the check rejects the exploit" is worthless: a check
+        # that rejects everything would pass all nine fixtures below.
+        doc = self.write(self.compliant())
+        for name, check in WORK_SKILL_CHECKS:
+            with self.subTest(check=name):
+                self.assertEqual(
+                    check(doc),
+                    [],
+                    f"the {name} check rejects a correctly-wired file, so it can "
+                    "never be satisfied",
+                )
+
+    def test_rejects_negated_accepted_values_line(self) -> None:
+        # 1. The word `fable` on the accepted-values line, appended to a
+        #    parenthetical that FORBIDS the tier.
+        doc = self.exploited(
+            (
+                '`"opus"`, `"fable"` (the human-gated rescue rung).',
+                '`"opus"`, `"fable"` (the human-gated rescue rung). (`"fable"` is '
+                "**not** an accepted value - never write it into "
+                "`metadata.model`; treat any task carrying it as `sonnet`.)",
+            )
+        )
+        self.assertEqual(
+            check_line_enumerations(doc),
+            [],
+            "precondition: the line still spells `fable`, which is exactly why a "
+            "presence scan cannot catch this",
+        )
+        self.assertTrue(
+            check_denials(doc), "a line that forbids `fable` must not satisfy it"
+        )
+
+    def test_rejects_fable_mapped_to_the_shallowest_pipeline(self) -> None:
+        # 2. `haiku` and `fable` -> "minimal", with `opus` -> "full" later in the
+        #    same sentence satisfying a co-occurrence scan.
+        doc = self.exploited(
+            (
+                ', `fable` → `"full"` (the rescue rung runs the deepest pipeline, '
+                "like `opus`)",
+                "",
+            ),
+            (
+                '`haiku` → `"minimal"` (Tess + Ivan)',
+                '`haiku` and `fable` → `"minimal"` (Tess + Ivan)',
+            ),
+        )
+        self.assertEqual(
+            check_line_enumerations(doc),
+            [],
+            "precondition: the line still names all four tiers",
+        )
+        self.assertTrue(
+            check_pipeline_mapping(doc),
+            "`fable` and `\"full\"` on one line is not a mapping - the pair has to "
+            "be `fable` -> `\"full\"`",
+        )
+
+    def test_rejects_fable_folded_into_the_claude_rungs_budget(self) -> None:
+        # 3. `Claude rungs (haiku/sonnet/opus/fable) get 2 dispatches` - which
+        #    licenses a second rescue off one human approval.
+        doc = self.exploited(
+            (
+                "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
+                "feedback retry) before diagnosis; the `fable` rescue rung gets 1 "
+                "dispatch per PRD, ever (no feedback retry, no repair);",
+                "Claude rungs (haiku/sonnet/opus/fable) get 2 dispatches (initial "
+                "+ one feedback retry) before diagnosis;",
+            )
+        )
+        self.assertTrue(
+            check_budget(doc),
+            "`fable` gets 1 dispatch per PRD, ever - it is not a Claude rung in "
+            "the 2-dispatch sense",
+        )
+
+    def test_rejects_fable_on_an_automatic_escalation_edge(self) -> None:
+        # 4. `haiku -> sonnet -> opus -> fable` in the rung-up computation.
+        doc = self.exploited(
+            (
+                "haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY",
+                "haiku, haiku -> sonnet -> opus -> fable) with a FAILURE SUMMARY",
+            )
+        )
+        self.assertTrue(
+            check_no_auto_escalation(doc),
+            "an automatic `opus -> fable` edge destroys the human rescue gate",
+        )
+
+    def test_rejects_a_rewrapped_enumeration_that_drops_fable(self) -> None:
+        # 5. The step-6 mapping hard-wrapped after `haiku` -> "minimal", so no
+        #    single line names all three tiers any more.
+        doc = self.exploited(WRAPPED_STEP_6_MAPPING)
+        self.assertEqual(
+            check_line_enumerations(doc),
+            [],
+            "precondition: the wrap is exactly what blinds the per-line scan",
+        )
+        self.assertTrue(
+            check_pinned_enumerations(doc),
+            "the joined-section scan exists for this: a hard wrap must not hide "
+            "an enumeration",
+        )
+        self.assertTrue(check_pipeline_mapping(doc))
+
+    def test_rejects_a_contract_stated_only_in_an_html_comment(self) -> None:
+        # 6. The routing-override paragraph replaced by an invisible comment that
+        #    negates both halves of the contract.
+        doc = self.exploited(
+            (
+                "**`fable` overrides this table outright.** A task carrying "
+                '`metadata.model: "fable"` (the human-approved rescue rung) never '
+                "routes to qwen and never to Gemini: dispatch a Claude Agent at "
+                '`model: "fable"`, whatever the rows above would pick. `fable` is '
+                "never a session model and is never selected autonomously, so the "
+                "human rescue gate is the only way in "
+                "(`run-autopilot/references/model-ladder.md` § Fable rescue).\n\n",
+                "<!-- fable note: `fable` does not override the routing table, "
+                "still routes to qwen/Gemini, and IS an ordinary session model. "
+                "-->\n\n",
+            )
+        )
+        self.assertTrue(
+            check_routing_override(doc),
+            "an HTML comment renders to nothing, so it can never carry a contract",
+        )
+        self.assertEqual(
+            check_denials(doc),
+            [],
+            "the comment must be invisible to BOTH scans - not merely re-caught "
+            "by the denial rule",
+        )
+
+    def test_rejects_a_see_also_line_in_place_of_a_devon_row(self) -> None:
+        # 7. A "nothing in this step changes" pointer in § 2.85 that changes no
+        #    row, leaving `fable` in the catch-all skip row.
+        doc = self.exploited(
+            (
+                "\n| `fable` | dispatch Devon (below), the rescue rung runs the "
+                "deepest pipeline |",
+                "",
+            ),
+            (
+                "The step-2.8 test quality gate is **unchanged**",
+                "See also: the Fable rescue gate is documented in "
+                "`run-autopilot/references/model-ladder.md` - nothing in this "
+                "step changes for it.\n\nThe step-2.8 test quality gate is "
+                "**unchanged**",
+            ),
+        )
+        self.assertTrue(
+            check_devon_row(doc),
+            "a mention in the section is not a row: the gate reads the TABLE",
+        )
+
+    def test_rejects_a_skip_row_worded_as_no_reviewer_dispatch(self) -> None:
+        # 8. The `fable` row moved to the not-reviewed side by synonym, evading a
+        #    scan for the literal word "skip".
+        doc = self.exploited(
+            (
+                "| `fable` | review (below), the rescue rung is reviewed like "
+                "`opus` |",
+                "| `fable` | no reviewer dispatch - proceed straight to step 6 |",
+            )
+        )
+        self.assertTrue(
+            check_review_row(doc),
+            "the row that names `fable` must carry the REVIEW action, whatever "
+            "words the skip side is dressed in",
+        )
+
+    def test_rejects_no_rung_above_attached_to_the_wrong_rung(self) -> None:
+        # 9. "no rung above" said of `opus`, with `fable` six lines earlier (in
+        #    exploit 4, where it says the opposite).
+        doc = self.exploited(
+            (
+                "haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY",
+                "haiku, haiku -> sonnet -> opus -> fable) with a FAILURE SUMMARY",
+            ),
+            (
+                "  A `fable` attempt has **no rung above it**: its gate failure "
+                "goes straight to that\n"
+                "  same exhaustion path, never to an escalation (`model-ladder.md` "
+                "§ Capability ladders).\n"
+                "  The `opus -> fable` edge is NEVER taken here: it is the human "
+                "rescue gate, not a ladder step.",
+                "  The opus rung has **no rung above it**, so opus-rung exhaustion "
+                "goes straight\n  to that same exhaustion path, never to an "
+                "escalation.",
+            ),
+        )
+        self.assertTrue(
+            check_no_rung_above(doc),
+            "`fable` and `no rung above` in one section is not a statement about "
+            "`fable` - the subject has to be the rescue rung itself",
+        )
 
 
 if __name__ == "__main__":
