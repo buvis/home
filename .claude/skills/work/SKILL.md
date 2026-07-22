@@ -85,7 +85,9 @@ Applies to **every** Agent call this skill dispatches, including follow-up dispa
 
 **Qwen one-shot-per-task budget carve-out (step 5.5 only).** When the failing attempt's implementor was qwen (helper-script `use-qwen`, NOT an Agent dispatch — qwen never used `task.metadata.model`), every step-5.5 re-dispatch for that task targets **Claude Sonnet** regardless of `task.metadata.model` — never qwen again for that task. This is the one-shot-per-task qwen attempt budget — one qwen dispatch per task, never a per-PRD or per-batch cap — the ladder's `qwen -> sonnet` capability edge (`run-autopilot/references/model-ladder.md` § Capability ladders and § Per-rung budgets; why: `references/design-rationale.md` § one shot): qwen gets exactly 1 dispatch per task, a qwen gate failure escalates to Sonnet immediately with zero qwen retries for that task, and step 5.5's Claude-rung budget then runs entirely on Claude Sonnet — see step 5.5 below for the full diagnose/repair/escalate flow this now drives. Applies unchanged under `_AUTOPILOT_ESCALATION=legacy` (model-ladder.md § Kill-switches). All non-step-5.5 Agent calls continue to obey `task.metadata.model` with no exceptions.
 
-Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.
+Accepted values: `"haiku"`, `"sonnet"`, `"opus"`. A fourth value, `"fable"`, is the human-gated rescue rung above `opus` (`run-autopilot/references/model-ladder.md` § Rungs).
+
+**A task carrying `metadata.model: "fable"` overrides the step-3 Deterministic routing table outright** — set only by the Fable rescue gate (`run-autopilot/references/recovery.md` § Rework escalation exhausted): never qwen, never Gemini, always a Claude Agent dispatch at `model: "fable"`, whatever the rows of that table would pick. `fable` is never a session model and is never selected autonomously — a human-approved rescue is the only writer of this value (`run-autopilot/references/model-ladder.md` § Fable rescue). It runs at the same depth as `opus`: Devon at step 2.85, the step-5.7 per-task review, and `pipeline: "full"`.
 
 **Legacy plans** (created before `metadata.model` existed) have no model field. Omit the `model` parameter — subagents inherit the session model. This preserves the legacy behavior bit-for-bit.
 
@@ -118,7 +120,7 @@ At every task exit — success in step 6, abort in step 4 (timeout / context exc
 - **`implementor`** — `"claude"`, `"gemini"`, or `"qwen"`, reflecting what actually dispatched, NOT what the step-3 routing table initially picked (a qwen pick that fell back to Claude on preflight failure records `"claude"`).
 - **`preflight_outcome`** — from the step-3 preflight probe. Always written explicitly — never omit the key. Qwen-eligible attempts record one of `"healthy"`, `"pi_missing"`, `"endpoint_unreachable"`, `"model_id_missing"`, `"completion_failed"`; non-qwen-eligible attempts record the literal JSON `null`. A pressure-gated attempt (row 4 fired, the probe never ran) also records the literal JSON `null` — the same carve-out already granted to a breaker-skipped attempt (row 3).
 - **`qwen_excluded_reason`** — `"memory_pressure"` (row 4 fired, `check_memory_pressure.py` exited 1) or `"memory_probe_failed"` (row 4 fired, exited 2); key omitted when row 4 did not fire. Attempt-scoped RUNTIME field — distinct from the plan-time `task.metadata.qwen_excluded_reason` (`"ui"`/`"tier"`/`"files"`/`"contract"`) that `/plan-tasks` writes; `/work` never rewrites planner metadata. Absent on every attempt written before PRD 00075 — readers treat absence as "no pressure exclusion", never an error.
-- **`pipeline`** — the tier-gated depth this attempt ran, keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy is treated as `sonnet` → `"lean"`. Written at every task exit; a Phase-6 escalation to `opus` records `"full"`.
+- **`pipeline`** — the tier-gated depth this attempt ran, keyed on `task.metadata.model`: `haiku` → `"minimal"` (Tess + Ivan), `sonnet` → `"lean"` (+ step-5.7 reviewer), `opus` → `"full"` (+ Devon at step 2.85); absent/legacy is treated as `sonnet` → `"lean"`. `fable` → `"full"` as well — the rescue rung runs the deepest pipeline, like `opus`. Written at every task exit; a Phase-6 escalation to `opus` records `"full"`.
 
 See `references/attempt-logging.md` for the full entry schema, field semantics, and the atomic write procedure.
 
@@ -233,14 +235,15 @@ If any check fails, dispatch Tess again with specific feedback about what's weak
 
 ### 2.85. Adversarial validation (Devon - devil's advocate)
 
-**Tier gate — Devon is the opus-only dispatch.** Read `task.metadata.model`:
+**Tier gate — Devon runs on the deepest rungs only, `opus` and `fable`.** Read `task.metadata.model`:
 
 | `task.metadata.model` | Devon (step 2.85) |
 |-----------------------|-------------------|
 | `opus` | dispatch Devon (below) |
+| `fable` | dispatch Devon (below) — the rescue rung runs the deepest pipeline, like `opus` |
 | anything else — `haiku`, `sonnet`, absent/legacy or unknown (both treated as `sonnet`) | skip Devon, proceed to step 2.9 |
 
-The step-2.8 test quality gate is **unchanged** and runs for every tier — only this Agent dispatch is conditional. A Devon dispatch obeys the **Per-task model dispatch** rule (passes `model: opus`). Escalation interplay is automatic: when the review gate escalates a review-flagged task to `opus`, the rework attempt regains Devon with no extra mechanism. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
+The step-2.8 test quality gate is **unchanged** and runs for every tier — only this Agent dispatch is conditional. A Devon dispatch obeys the **Per-task model dispatch** rule (passes `model: opus`, or `model: fable` on a rescued task). Escalation interplay is automatic: when the review gate escalates a review-flagged task to `opus`, the rework attempt regains Devon with no extra mechanism. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
 
 Dispatch Devon to try to write a **wrong** implementation that passes all of Tess's tests. Devon's goal is to exploit weak tests.
 
@@ -316,6 +319,8 @@ Apply the rows in this order — the first match wins (in practice `qwen_eligibl
 | 7 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
 
 The memory-pressure gate (row 4) runs only when the table would otherwise reach qwen (now row 5) — it never runs for UI, `opus`, `qwen_eligible == false`, or breaker-skipped tasks.
+
+**`fable` overrides this table outright.** A task carrying `metadata.model: "fable"` — set only by the Fable rescue gate (`run-autopilot/references/recovery.md` § Rework escalation exhausted) — never routes to qwen and never to Gemini: dispatch a Claude Agent at `model: "fable"`, whatever the rows above would pick. `fable` is never a session model and is never selected autonomously, so the human rescue gate is the only way in (`run-autopilot/references/model-ladder.md` § Fable rescue).
 
 qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is already `false` for those upstream.
 
@@ -399,7 +404,7 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
 
 **Any other value / absent — diagnose→repair/escalate flow (default):**
 
-Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — cite, do not restate: Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one feedback retry) before diagnosis; the qwen rung gets 1 dispatch (no feedback retry — the existing one-shot carve-out, named the ladder's `qwen -> sonnet` capability edge); repair is capped at 1 per task, total, and is Claude-rungs only (qwen never repairs).
+Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — cite, do not restate: Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one feedback retry) before diagnosis; the `fable` rescue rung gets 1 capability dispatch per PRD, ever (no feedback retry, no repair); the qwen rung gets 1 dispatch (no feedback retry — the existing one-shot carve-out, named the ladder's `qwen -> sonnet` capability edge); repair is capped at 1 per task, total, and is Claude-rungs only (qwen never repairs).
 
 ```
 gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure output, SAME tier
@@ -470,6 +475,8 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
      Per-rung budgets), then this same gate-failure flow re-applies if it fails again.
   Opus-rung exhaustion (2 failures at opus) flows into the existing abort/stall machinery (PRD
   00017) — do not invent a new halt class.
+  A `fable` attempt has **no rung above it**: its gate failure goes straight to that same
+  exhaustion path, never to an escalation (`model-ladder.md` § Capability ladders).
 ```
 
 **Attribution row ownership** (one entry per rung/dispatch-group — never lump every field onto a single entry; see `references/attempt-logging.md` § Attribution row ownership):
@@ -534,6 +541,7 @@ In every non-committed outcome, the implementor's original commit stands and ste
 | `task.metadata.model` | Per-task review (step 5.7) |
 |-----------------------|----------------------------|
 | `haiku` | skip per-task review |
+| `fable` | review (below) — the rescue rung is reviewed like `opus` |
 | anything else — `opus`, `sonnet`, absent/legacy or unknown (both treated as `sonnet`) | review (below) |
 
 A `haiku`-tier task commits after per-task test verification (step 5.5) with **no** review dispatch and proceeds straight to step 6 — it relies on per-task test verification plus the mandated PRD-level review lenses (consensus, blind, doubt — every review cycle reviews every task's diff regardless of tier). The reviewer is a fixed-model helper-script lane (Sonnet via `use-sonnet`) — reviewer capability is deliberately independent of the task's implementor tier. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
@@ -557,7 +565,7 @@ Skip for documentation-only or configuration-only tasks.
 ### 6. Mark complete and sync
 
 1. Use `TaskUpdate` to set `status: completed`
-2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
+2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`) plus `fable` → `"full"` (the rescue rung runs the deepest pipeline, like `opus`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
 3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
 4. **Sync state file** (see Dashboard State Sync) — mandatory
 5. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
