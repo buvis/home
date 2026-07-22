@@ -328,7 +328,7 @@ _autopilot_plugin_drift() {
 # writer. `approve-fable` also un-parks the PRD (hold/ -> backlog/) and VERIFIES
 # the file arrived: `mv` exits 0 when the destination name is a directory, and
 # the PRD would then be invisible to the next batch. A failed un-park never rolls
-# the decision back — the operator finishes the move by hand. <prd> is used both
+# the decision back; the operator finishes the move by hand. <prd> is used both
 # as a ledger key and as an mv path component, so it is validated up front
 # (no `/`, no `..`, and the PRD naming convention) before either use, and a
 # resolver failure or empty answer from _walk_up.py is refused before any path
@@ -344,7 +344,7 @@ _autopilot_fable_decide() {
     return 2
   fi
   # <prd> becomes a ledger key (below) and an mv path component (further
-  # down), so both traversal shapes are rejected before either use — a
+  # down), so both traversal shapes are rejected before either use: a
   # leading `/` or an embedded `..` can otherwise walk outside dev/local/prds.
   case "$_prd" in
     */*|*..*)
@@ -367,7 +367,7 @@ _autopilot_fable_decide() {
   # A resolver that fails outright and one that exits 0 but prints nothing
   # both land here as an empty string. Trusting either blindly would derive
   # _ledger/_prds rooted at `/` (a bare "/ledger/fable-requests.json" and
-  # "/prds/hold|backlog") and hand that to fablectl — refuse before either
+  # "/prds/hold|backlog") and hand that to fablectl. Refuse before either
   # path is built and before fablectl is ever invoked.
   if [ -z "$_ap_dir" ]; then
     printf 'autoclaude: the autopilot directory could not be resolved (_walk_up.py failed or returned nothing).\n' >&2
