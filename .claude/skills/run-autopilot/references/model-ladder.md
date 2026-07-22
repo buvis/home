@@ -72,7 +72,9 @@ The `opus -> fable` edge is a human gate, not a ladder step. In ladder terms:
   ever. A PRD that already has an entry (`requested`, `approved`, `rejected`,
   or `consumed`) never gets a second one.
 - A human decides it out of band: `autoclaude approve-fable <prd>` (or
-  `autoclaude reject-fable <prd>`).
+  `autoclaude reject-fable <prd>`). If the wrapper is unavailable, the
+  documented fallback is invoking `fablectl.py` directly - see
+  `references/state-schema.md` § `fablectl.py`.
 - The next exhaustion for that PRD spends the approval on exactly one
   Fable-tier dispatch, and the entry flips to `consumed` regardless of
   outcome. A failed Fable attempt therefore stalls the PRD normally, with no

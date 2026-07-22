@@ -273,7 +273,7 @@ python3 fablectl.py <ledger.json> show    <prd>
 - `consume` - **exit 3 unless the entry exists AND `status == "approved"`**; otherwise sets `status: "consumed"` and `consumed_at`. This is the at-most-once gate: the second `consume` for a PRD always exits 3.
 - `show` - prints the entry as JSON (`{}` and exit 0 when absent), for readers. Never exits 3.
 
-Exit codes: **0** success, **1** usage/bad argument, **2** unreadable ledger, **3** refused by the latch or the transition table. Exit 3 is a *legitimate* outcome that callers branch on, never an error to retry; only 1 and 2 mean something is broken.
+Exit codes: **0** success, **1** usage/bad argument, **2** unreadable ledger or an entry with a `status` outside `requested|approved|rejected|consumed`, **3** refused by the latch or the transition table, **4** an OS error (permission, unreachable path, disk), printed as a one-line diagnostic. Exit 3 is a *legitimate* outcome that callers branch on, never an error to retry; only 1, 2 and 4 mean something is broken.
 
 **Backup and restore.** Every mutation first writes the previous bytes to `fable-requests.json.bak` inside the lock (one rotating backup, byte-for-byte, the same pattern `statectl.py` uses for `state.json`). The `.bak` lives in the same GC-exempt `ledger/` dir, so it survives batch end and the 14d purge alongside the ledger. Operator restore is a single move:
 
@@ -282,6 +282,16 @@ mv dev/local/autopilot/ledger/fable-requests.json.bak dev/local/autopilot/ledger
 ```
 
 then re-run the intended `autoclaude approve-fable <prd>` / `autoclaude reject-fable <prd>`.
+
+**Operator fallback when `autoclaude` is unavailable.** Invoke the sole writer by hand:
+
+```
+python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py dev/local/autopilot/ledger/fable-requests.json decide <prd> approved
+```
+
+(swap `approved` for `rejected` to reject). Exit **0** means the decision landed. Exit **3** means there is no entry for `<prd>` at `status: "requested"` (already decided, already consumed, or never requested) - a legitimate answer, not a retry. Exit **1** is a bad argument, **2** an unreadable or corrupt ledger, **4** an OS error; retry once on 1, 2, or 4, never "fix" a 3 by editing the file.
+
+This is the successor to PRD 00076's "manual state edit" fallback: the acceptance criterion that a manual path stays documented is met by this direct invocation, not by hand-editing JSON. It is still the same sole writer, called by hand instead of through the wrapper - never edit `fable-requests.json` directly. Hand-editing bypasses the advisory lock and the transition table, which is exactly what the one-approval-per-PRD latch depends on.
 
 **`state.json` gains no `fable_request` field.** `state.json` is on the disposable list and is deleted at batch end, and it has a single-writer contract; neither survives a cross-batch latch nor an operator approval landing mid-drain. See the design doc's § Alternatives considered A (state field), B (this ledger, chosen), and C (both).
 
