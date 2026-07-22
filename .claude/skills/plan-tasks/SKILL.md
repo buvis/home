@@ -273,7 +273,7 @@ See `references/design-rationale.md` for the counterexamples and why a future wi
 PRD frontmatter accepts an optional `default_model: haiku|sonnet|opus` field that acts as a **floor** on the classifier output — never a demotion. Parse it from the YAML block at the top of the PRD using the same approach `/run-autopilot` Phase 0 uses for `catchup:` (look for `---` delimiters, parse the YAML, accept `haiku`/`sonnet`/`opus`). Behavior:
 
 - **Absent frontmatter or unset `default_model:`** → no override (silent; the classifier output from Rules 1–3 passes through unchanged). This is what keeps Rule 2's `haiku` reachable without requiring every PRD to opt in explicitly — and matches `/run-autopilot` Phase 6's `[D]` follow-up behavior.
-- **Malformed frontmatter or invalid `default_model:` value** → no override AND log a one-line warning. The classifier output passes through.
+- **Malformed frontmatter or invalid `default_model:` value** → no override AND log a one-line warning. The classifier output passes through. `fable` is deliberately not in the accepted set: it is human-gated — use the rescue flow (PRD 00076, `run-autopilot/references/model-ladder.md` § Fable rescue), never a frontmatter floor. Warn with that reason rather than a bare "invalid value" so the omission reads as policy.
 - **Valid value (`haiku`/`sonnet`/`opus`)** → apply the floor below.
 
 Apply the override AFTER Rules 1-3 produce a classifier tier, by taking the maximum across the precedence `haiku < sonnet < opus` (only when `default_model` is a valid value):
