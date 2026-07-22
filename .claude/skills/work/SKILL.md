@@ -423,6 +423,7 @@ Reuses `use-codex/references/dispatch-contract.md` unchanged:
 - **edit-enabled sandbox: `-a` (`--sandbox workspace-write`), never `-y`.** `-y` maps to `--dangerously-bypass-approvals-and-sandbox`, i.e. no sandbox at all; granting that to an unattended autonomous implementor is unbounded write access for no added capability, and the dispatch contract requires an explicit calling-skill grant before any unattended `-y`. `-a` needs no such grant.
 - **`-d <realpath of dev/local>`** whenever the task's file slice includes a `dev/local/` path: that path is a symlink outside the workspace here and CLI backends cannot follow it without `--add-dir`. Omit it otherwise, keeping the sandbox as narrow as the task requires.
 - **On a `TaskOutput` timeout, kill before falling back.** `TaskStop` the codex background task and verify it is gone BEFORE dispatching the Claude fallback, then capture `git status --porcelain`. An orphaned `--sandbox workspace-write` codex keeps write access to the very files the Claude implementor is about to edit; without the kill, its late writes either get swept into that commit or land as unexplained foreign paths.
+- **Hook-coverage delta**: this dispatch runs under a weaker `Bash`-hook set than a Claude implementor — see `model-ladder.md` § Codex rung ("Hook coverage").
 
 #### Hook interaction
 
