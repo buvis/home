@@ -249,6 +249,20 @@ class RunGateTests(unittest.TestCase):
             msg=f"No element ending with 'check_review_file.py' found in argv: {argv}",
         )
 
+    def test_run_gate_passes_require_codex_guard_flag(self) -> None:
+        # This hook gates only the consolidated review file for a
+        # review-gated phase, the one file kind that carries the
+        # codex_rung_guard line, so run_gate must always require it.
+        import types
+
+        fake_result = types.SimpleNamespace(returncode=0, stderr="")
+        with mock.patch.object(hook.subprocess, "run", return_value=fake_result) as patched:
+            hook.run_gate(Path("/tmp/rev.md"))
+
+        patched.assert_called_once()
+        argv = patched.call_args[0][0]
+        self.assertIn("--require-codex-guard", argv)
+
     def test_run_gate_end_to_end_against_real_files(self) -> None:
         """No mocks: the delegation must pass a well-shaped file and fail a
         gapped one through the real check_review_file.py subprocess."""
@@ -257,6 +271,7 @@ class RunGateTests(unittest.TestCase):
             good.write_text(
                 "---\nreviewers: alice\n---\n\n## Alice\n\nall clear\n\n"
                 "Verdict: converged\nTests: 3 passed, 0 failed\n"
+                "codex_rung_guard: not fired\n"
             )
             code, msg = hook.run_gate(good)
             self.assertEqual(code, 0, msg)
