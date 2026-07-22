@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Minimal review-file shape check (PRD 00016).
 
-Replaces the 774-line review_coverage.py engine. Validates exactly three
+Replaces the 774-line review_coverage.py engine. Validates exactly four
 things about a consolidated review file:
 
 1. every launched reviewer has a non-empty section,
 2. a parseable verdict line (`Verdict: converged` / `Verdict: N findings`),
-3. a test-summary line (`Tests: N passed ...` / `Tests: none (docs-only)`).
+3. a test-summary line (`Tests: N passed ...` / `Tests: none (docs-only)`),
+4. a codex_rung_guard line (`codex_rung_guard: fired (N codex-implemented
+   task(s))` / `codex_rung_guard: not fired`).
 
 No git, no subprocesses, no PRD parsing. A missing element exits 1 with a
 one-line gap description on stderr. An unreadable file system exits 0 with a
@@ -29,6 +31,10 @@ from pathlib import Path
 VERDICT_RE = re.compile(r"^Verdict: (converged|\d+ findings?)\s*$", re.MULTILINE)
 TESTS_RE = re.compile(
     r"^Tests: (\d+ passed.*|none \(docs-only\))\s*$", re.MULTILINE
+)
+CODEX_RUNG_GUARD_RE = re.compile(
+    r"^codex_rung_guard: (fired \([0-9]+ codex-implemented task\(s\)\)|not fired)\s*$",
+    re.MULTILINE,
 )
 FRONTMATTER_REVIEWERS_RE = re.compile(r"^reviewers:\s*(.+)$", re.MULTILINE)
 
@@ -57,6 +63,11 @@ def check(text: str, reviewers: list[str]) -> str | None:
         return "no verdict line (expected 'Verdict: converged' or 'Verdict: N findings')"
     if not TESTS_RE.search(text):
         return "no tests line (expected 'Tests: N passed ...' or 'Tests: none (docs-only)')"
+    if not CODEX_RUNG_GUARD_RE.search(text):
+        return (
+            "no codex_rung_guard line (expected 'codex_rung_guard: fired "
+            "(N codex-implemented task(s))' or 'codex_rung_guard: not fired')"
+        )
     return None
 
 

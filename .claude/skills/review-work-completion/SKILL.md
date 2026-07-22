@@ -285,6 +285,8 @@ Stamp the `reviewers:` frontmatter field with the comma-separated lowercase name
 
 Include all findings even if zero issues. Give each reviewer that ran a `## <Name>` section (their findings, or a one-line all-clear; Bob's keeps his `R{n}:` verdict lines), and end the file with the `Verdict:` and `Tests:` lines composed in step 6.
 
+Place the `codex_rung_guard:` line composed in step 6 in the top matter: directly after the `Diff range:` block, before the body sections.
+
 **Gate the saved file (PRD 00016).** Run the shape check and fix the file if it fails — do not report a completed review over a failing gate:
 
 ```bash

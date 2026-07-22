@@ -187,7 +187,13 @@ Agent states: `available` (ran successfully), `unavailable` (failed after retrie
 
 `consensus_run_id`: the `review-fanout` workflow's `runId` for this cycle's consensus-engine run — the forensic handle for that run. Present whenever the engine ran (`consensus_engine` is `workflow` or `shadow`); omitted otherwise. Deliberately not written to `state.json`: the Workflow tool's `resumeFromRunId` is same-session only, so a stored id would outlive its usefulness.
 
+`codex_rung_guard`: a plain body line, not a frontmatter field. Required by `check_review_file.py`. Two accepted forms only, `codex_rung_guard: fired (N codex-implemented task(s))` or `codex_rung_guard: not fired`. Lives in the body top matter, directly after the `Diff range:` block, before the body sections (shown at its real position below).
+
 # Review: <prd-name>
+
+Diff range: `<since-sha>..<head-sha>`
+
+codex_rung_guard: fired (N codex-implemented task(s))
 
 {review summary content}
 ```
