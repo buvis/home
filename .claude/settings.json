@@ -139,7 +139,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "claude-fable-5[1m]",
+  "model": "sonnet",
   "hooks": {
     "SessionStart": [
       {
