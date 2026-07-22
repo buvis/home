@@ -1,9 +1,9 @@
 """Implementor routing for /work step 3 — the deterministic table plus the codex rung.
 
-Pure decision core: two functions over plain dicts, no I/O, no env reads of its
+Pure decision core: three functions over plain dicts, no I/O, no env reads of its
 own, no side effects. It pins the step-3 routing table (the `fable` override,
-rows 1-7, first match wins) and the codex interception so the SKILL.md prose
-cannot drift from the rule silently.
+rows 1-7, first match wins), the codex interception, and codex attempt outcomes
+so the SKILL.md prose cannot drift from the rules silently.
 """
 
 from __future__ import annotations
@@ -11,6 +11,57 @@ from __future__ import annotations
 # The rows whose verdict is "Claude at the task's (original) tier" — the only
 # rows the codex rung may intercept.
 _INTERCEPTION_ROWS = frozenset({"row3", "row4", "row6", "row7"})
+
+_CODEX_ATTEMPT_OUTCOMES = {
+    "timeout": {
+        "arm": "infra",
+        "next": "claude_at_tier",
+        "cause": "timeout",
+        "codex_outcome": "aborted",
+        "escalation_reason": None,
+        "escalated_from": None,
+    },
+    "no_output": {
+        "arm": "infra",
+        "next": "claude_at_tier",
+        "cause": "subagent_infra_failure",
+        "codex_outcome": "aborted",
+        "escalation_reason": None,
+        "escalated_from": None,
+    },
+    "no_edit": {
+        "arm": "infra",
+        "next": "claude_at_tier",
+        "cause": "codex_no_edit",
+        "codex_outcome": "aborted",
+        "escalation_reason": None,
+        "escalated_from": None,
+    },
+    "pass": {
+        "arm": "pass",
+        "next": "proceed",
+        "cause": None,
+        "codex_outcome": "completed",
+        "escalation_reason": None,
+        "escalated_from": None,
+    },
+    "retry": {
+        "arm": "capability",
+        "next": "feedback_retry_codex",
+        "cause": None,
+        "codex_outcome": None,
+        "escalation_reason": None,
+        "escalated_from": None,
+    },
+    "escalate": {
+        "arm": "capability",
+        "next": "escalate_claude_at_tier",
+        "cause": None,
+        "codex_outcome": "escalated",
+        "escalation_reason": "gate_failure",
+        "escalated_from": "codex",
+    },
+}
 
 
 def route(task: dict, env: dict, state: dict, probes: dict) -> dict:
@@ -35,6 +86,23 @@ def route(task: dict, env: dict, state: dict, probes: dict) -> dict:
 def needs_probe(state: dict, batch_id: str) -> bool:
     """True when no codex probe verdict is cached for exactly this batch."""
     return state.get("codex_probe", {}).get("batch_id") != batch_id
+
+
+def codex_attempt_outcome(signals: dict) -> dict:
+    """Classify a codex implementor attempt and name its next action."""
+    if signals["watchdog_timeout"]:
+        outcome = "timeout"
+    elif not signals["output_nonempty"]:
+        outcome = "no_output"
+    elif signals["no_edit"] is True:
+        outcome = "no_edit"
+    elif signals["gate_failures_at_codex"] == 0:
+        outcome = "pass"
+    elif signals["gate_failures_at_codex"] == 1:
+        outcome = "retry"
+    else:
+        outcome = "escalate"
+    return _CODEX_ATTEMPT_OUTCOMES[outcome].copy()
 
 
 def _table_row(task: dict, env: dict, state: dict, probes: dict) -> str:
