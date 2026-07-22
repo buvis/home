@@ -83,7 +83,7 @@ An invalid value falls back to `legacy` with one logged warning line (same rule 
 
 **Codex doubt-roster guard.** After resolving `doubt_reviewer`, when `dev/local/autopilot/state.json` exists and `any(state.tasks[]?.attempts[]?.implementor == "codex")` is true, force the resolved value to `fable` — the doubt leg must not be codex alone. This adds **Eve** as the fifth lens alongside Bob; Bob/codex still runs, so the guard adds a voice rather than removing one. This override is in-memory only: do NOT write `state.doubt_reviewer` or invoke `statectl` for it. The stored field keeps whatever Phase 0 parsed, and Phase 0 remains its single writer. Count the codex-implemented tasks for step 6's review-file record.
 
-The guard cannot fire for a manual `/work` run outside autopilot because no `dev/local/autopilot/state.json` exists. On that narrow standalone path, codex-implemented code retains the frontmatter default `codex` and can still be doubt-reviewed by codex alone.
+`/work` writes `attempts[].implementor` into the same `state.json` via `statectl`, whether invoked directly or under autopilot, so the guard fires on this path too whenever the file exists. The real gap: `state.json` exists only from `/run-autopilot`'s Phase 0 (which creates it) until batch end (which deletes or archives it), so a PRD that never ran under autopilot, or whose batch has already closed, leaves the guard with no attempts record to consult.
 
 **If CLI/script check fails, STOP and report:**
 
