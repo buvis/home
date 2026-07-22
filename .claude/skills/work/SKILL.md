@@ -522,7 +522,7 @@ Both snapshots MUST use the same Git context as the `repo_root` invariant. A bar
 git --git-dir=<bare-git-dir> --work-tree=<work-tree> status --porcelain -- <file slice>
 ```
 
-For this repo the context is `--git-dir=/Users/bob/.buvis --work-tree=/Users/bob`. If either snapshot exits non-zero, the probe is **INDETERMINATE**, not "no change": do not latch `codex_no_edit`; record the exit code in the attempt record and continue through the capability path normally. A broken detector must never silently reclassify real codex capability failures as infra. These classification semantics are pinned executably by `scripts/work_routing.py` and `scripts/test_work_routing.py`.
+For this repo the context is `--git-dir=/Users/bob/.buvis --work-tree=/Users/bob`. If either snapshot exits non-zero, the probe is **INDETERMINATE**, not "no change": do not latch `codex_no_edit`; record the exit code in `codex_no_edit_probe_exit` and continue through the capability path normally. A broken detector must never silently reclassify real codex capability failures as infra. These classification semantics are pinned executably by `scripts/work_routing.py` and `scripts/test_work_routing.py`.
 
 ```
 gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure output, SAME tier
