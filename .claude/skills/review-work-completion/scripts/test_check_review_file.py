@@ -33,6 +33,8 @@ head_sha: abc123
 reviewers: alice,blake,bob
 ---
 
+codex_rung_guard: not fired
+
 ## Alice
 
 - 🟡 minor nit | File: x.py | Task: 3
@@ -155,6 +157,81 @@ class CheckReviewFileTests(unittest.TestCase):
         proc = run_cli(["--review-file", str(p)])
         self.assertEqual(proc.returncode, 1)
         self.assertIn("bob", proc.stderr.lower())
+
+    # -- codex_rung_guard audit line: exactly one of two grammar forms is
+    # required as a plain body line; this is a shape check, not semantic --
+
+    def test_codex_rung_guard_fired_form_with_count_passes(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s))",
+        )
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_codex_rung_guard_not_fired_form_passes(self) -> None:
+        p = self._write(GOOD_FILE)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_codex_rung_guard_position_in_file_does_not_matter(self) -> None:
+        # Shape check only: the line may sit anywhere, not just up top.
+        text = GOOD_FILE.replace("codex_rung_guard: not fired\n\n", "")
+        text += "\ncodex_rung_guard: not fired\n"
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_codex_rung_guard_missing_entirely_exit_1(self) -> None:
+        text = GOOD_FILE.replace("codex_rung_guard: not fired\n\n", "")
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("codex_rung_guard", proc.stderr.lower())
+
+    def test_codex_rung_guard_fired_missing_count_exit_1(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (codex-implemented task(s))",
+        )
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 1)
+
+    def test_codex_rung_guard_fired_non_numeric_count_exit_1(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (three codex-implemented task(s))",
+        )
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 1)
+
+    def test_codex_rung_guard_bare_fired_no_parenthetical_exit_1(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired", "codex_rung_guard: fired"
+        )
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 1)
+
+    def test_codex_rung_guard_trailing_junk_after_paren_exit_1(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)) extra",
+        )
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 1)
+
+    def test_codex_rung_guard_wrong_key_casing_exit_1(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired", "Codex_Rung_Guard: not fired"
+        )
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 1)
 
 
 if __name__ == "__main__":

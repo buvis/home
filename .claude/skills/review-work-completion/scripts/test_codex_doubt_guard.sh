@@ -23,6 +23,7 @@
 set -u
 
 SKILL_MD="/Users/bob/.claude/skills/review-work-completion/SKILL.md"
+CHECK_SCRIPT="/Users/bob/.claude/skills/review-work-completion/scripts/check_review_file.py"
 
 # ── assert helpers (house style: plain bash, no framework, exit 1 on fail) ───
 PASS() { echo "PASS: $1"; }
@@ -130,6 +131,83 @@ rc=$?
 [ "$rc" -eq 0 ] || FAIL "state with no tasks[] key: jq must exit 0, not error, on the optional ? chain" "jq exited $rc, output: $out"
 [ "$out" = "false" ] || FAIL "a state with no tasks[] key at all reads as no codex" "got '$out', expected 'false'"
 PASS "a state with no tasks[] key at all reads as no codex, and jq exits 0 rather than erroring"
+
+# ── coverage 5/6: the rendered audit line, extracted from its prose home ────
+# check_review_file.py enforces (or soon will enforce) the exact grammar
+# documented in prose at SKILL.md:250 for the codex_rung_guard audit line.
+# That grammar has two literal forms — the "fired (N ...)" form and the
+# "not fired" form — both quoted in backticks on the same prose line. This
+# coverage EXTRACTS both forms from that prose rather than hardcoding or
+# computing them, for the same reason as the predicate extraction above: a
+# hardcoded copy would only prove the gate's regex is internally consistent,
+# never that it agrees with the documented rule — which is the one failure
+# this coverage exists to catch for a grammar whose only home is prose. If
+# the prose moves, is reworded, or is deleted, extraction fails loud below
+# rather than the suite silently asserting its own arithmetic against
+# itself.
+guard_line=$(rg -n 'codex_rung_guard: fired' "$SKILL_MD" 2>/dev/null | rg 'codex_rung_guard: not fired')
+
+if [ -z "$guard_line" ]; then
+  FAIL "codex_rung_guard rendered-line rule must exist in SKILL.md" "no line in SKILL.md carries both the fired and not-fired forms - the rule moved, was reworded apart, or was deleted"
+fi
+
+fired_form=$(printf '%s\n' "$guard_line" | rg -o '`codex_rung_guard: fired[^`]*`' | head -n1 | sed 's/^`//; s/`$//')
+notfired_form=$(printf '%s\n' "$guard_line" | rg -o '`codex_rung_guard: not fired[^`]*`' | head -n1 | sed 's/^`//; s/`$//')
+
+if [ -z "$fired_form" ]; then
+  FAIL "fired form isolated from the prose rule" "found the guard's line but could not isolate the backtick-quoted fired form from: $guard_line"
+fi
+if [ -z "$notfired_form" ]; then
+  FAIL "not-fired form isolated from the prose rule" "found the guard's line but could not isolate the backtick-quoted not-fired form from: $guard_line"
+fi
+
+PASS "rendered-line forms extracted from SKILL.md:250 - fired: '$fired_form', not fired: '$notfired_form'"
+
+# ── build a concrete fired line from a fixture's real count ─────────────────
+# The extracted fired form carries "N" as its documented count placeholder.
+# Substitute the count of codex-implemented tasks in fixture A - computed
+# the same way the guard itself selects tasks, never a separately guessed
+# number - so the concrete line is a real instance of the documented
+# grammar, not a fabricated string.
+fixture_a_codex_task_count=$(jq '[.tasks[]? | select(any(.attempts[]?; .implementor == "codex"))] | length' "$TMP/fixture-a-codex-present.json")
+concrete_fired_line=$(printf '%s' "$fired_form" | sed "s/(N /($fixture_a_codex_task_count /")
+
+if [ "$concrete_fired_line" = "$fired_form" ]; then
+  FAIL "fired form's count placeholder substituted" "expected the extracted fired form to contain a '(N ' count placeholder to substitute a real count into, got: $fired_form"
+fi
+
+# ── coverage 5: the gate accepts a correctly-formed fired line ──────────────
+# check_review_file.py does not enforce this grammar yet (the implementor's
+# regex ships separately, after this test), so this passes trivially today.
+# It becomes load-bearing the moment that regex lands: shelling out to the
+# real gate here is what binds prose to script, so if the implementor's
+# regex ever disagrees with this prose-extracted fired form, this goes red.
+review_fired="$TMP/review-fired.md"
+cat >"$review_fired" <<REVIEW
+Verdict: converged
+Tests: none (docs-only)
+$concrete_fired_line
+REVIEW
+
+python3 "$CHECK_SCRIPT" --review-file "$review_fired" >/dev/null 2>"$TMP/fired-stderr.txt"
+rc=$?
+[ "$rc" -eq 0 ] || FAIL "gate accepts a correctly-formed fired line" "check_review_file.py exited $rc against '$concrete_fired_line': $(cat "$TMP/fired-stderr.txt")"
+PASS "gate accepts the fired line built from the prose-extracted form: '$concrete_fired_line' (meaningful once check_review_file.py enforces the grammar)"
+
+# ── coverage 6: the gate accepts a correctly-formed not-fired line ──────────
+# Same reasoning as coverage 5: trivial pass today, load-bearing once the
+# gate's regex ships.
+review_notfired="$TMP/review-notfired.md"
+cat >"$review_notfired" <<REVIEW
+Verdict: converged
+Tests: none (docs-only)
+$notfired_form
+REVIEW
+
+python3 "$CHECK_SCRIPT" --review-file "$review_notfired" >/dev/null 2>"$TMP/notfired-stderr.txt"
+rc=$?
+[ "$rc" -eq 0 ] || FAIL "gate accepts a correctly-formed not-fired line" "check_review_file.py exited $rc against '$notfired_form': $(cat "$TMP/notfired-stderr.txt")"
+PASS "gate accepts the not-fired line extracted verbatim from prose: '$notfired_form' (meaningful once check_review_file.py enforces the grammar)"
 
 echo ""
 echo "All checks passed."
