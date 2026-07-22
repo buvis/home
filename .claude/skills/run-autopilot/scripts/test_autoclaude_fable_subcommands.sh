@@ -89,6 +89,9 @@
 #     one carrying ordinary hyphens/underscores/mixed case           -> scenarios 24, 25, 26
 #   - a helper that redirects the un-park mv's stderr to /dev/null
 #     and reports only generic guidance, never mv's own error text   -> scenario 27
+#   - a helper whose un-park mv silently OVERWRITES a pre-existing
+#     regular file already sitting at backlog/<prd> instead of
+#     refusing the move                                               -> scenario 28
 #
 # Run: bash ~/.claude/skills/run-autopilot/scripts/test_autoclaude_fable_subcommands.sh
 set -u
@@ -304,7 +307,8 @@ run_sandboxed() {
           TRACON_RECORDER USAGE_LINE TS_BEFORE TS_AFTER RUN_RC RUN_SUBDIR \
           TRACON_MODE PF_RC _rs_dir _rs_timeout _rs_d _STUB_LOOPS_DIR \
           _DIRS _PIDS WALKUP_MODE TRAVERSAL_PRD LEADING_SLASH_PRD \
-          WRONG_EXT_PRD NO_PREFIX_PRD UNUSUAL_PRD MV_ERR_TAIL MV_PREFLIGHT_RC
+          WRONG_EXT_PRD NO_PREFIX_PRD UNUSUAL_PRD MV_ERR_TAIL MV_PREFLIGHT_RC \
+          OCCUPANT_SENTINEL
     unset "${!SBOX_@}" "${!LEDGER_@}"
     "$@"
   ) >"$_rs_dir/stdout.log" 2>"$_rs_dir/stderr.log" &
@@ -1474,6 +1478,49 @@ assert_walkup_called "$L27: the autopilot dir came from _walk_up.py" "$SBOX_27"
 assert_fablectl_wrote "$L27: fablectl.py performed the ledger write" "$SBOX_27"
 PASS "$L27: exit 2, status left approved, and the real mv error text reaches stderr alongside the manual-move guidance"
 assert_no_loop "$L27: no loop session launched" "$SBOX_27"
+
+# =============================================================================
+# Scenario 28 - the un-park's destination is already occupied by a REGULAR
+# FILE, not scenario 13's non-empty directory. A bare `mv src dst` with no -n
+# and no destination pre-check SILENTLY OVERWRITES a same-named regular file,
+# and mv's own exit code is 0, so a helper that only checks "does
+# backlog/<prd> exist afterwards" (the fix scenario 18 forced) is STILL
+# fooled here: the file exists, it is just the WRONG one now, and the
+# original is gone for good (dev/local/ is gitignored, nothing to recover
+# from). The correct behaviour refuses the un-park before ever touching the
+# destination: the decision still stands (status approved, decided_at kept),
+# the call exits 2, the pre-existing backlog/<prd> file is left byte-for-byte
+# as it was, the parked PRD is still reachable in hold/, and stderr names the
+# PRD and gives the operator something actionable.
+# =============================================================================
+L28="scenario 28 (approve refuses to overwrite a pre-existing backlog/<prd> regular file)"
+OCCUPANT_SENTINEL="# a pre-existing, unrelated file already occupying backlog/<prd>, must survive untouched"
+
+make_sandbox; SBOX_28="$SBOX"; LEDGER_28="$LEDGER"
+seed_request "$LEDGER_28" "$PRD"
+seed_request "$LEDGER_28" "$BYSTANDER"
+park_prd "$SBOX_28" hold
+printf '%s\n' "$OCCUPANT_SENTINEL" >"$SBOX_28/dev/local/prds/backlog/$PRD"
+
+TS_BEFORE=$(utc_now)
+run_helper "$SBOX_28" approve-fable "$PRD"
+TS_AFTER=$(utc_now)
+assert_no_timeout "$L28" "$SBOX_28"
+assert_rc "$L28: exits 2 (the un-park did not land)" "$SBOX_28" 2
+assert_status "$L28: status stays approved (the decision is not rolled back)" "$LEDGER_28" "$PRD" approved
+assert_decided_at_between "$L28: decided_at is stamped at decision time" "$LEDGER_28" "$PRD" "$TS_BEFORE" "$TS_AFTER"
+assert_bystander_untouched "$L28: the unrelated requested entry is untouched" "$LEDGER_28"
+[ "$(cat "$SBOX_28/dev/local/prds/backlog/$PRD")" = "$OCCUPANT_SENTINEL" ] \
+  || FAIL "$L28: the pre-existing backlog/$PRD file is byte-for-byte unchanged" \
+          "content is now '$(cat "$SBOX_28/dev/local/prds/backlog/$PRD" 2>/dev/null)', expected the untouched occupant; the un-park overwrote it"
+assert_in_dir "$L28: the parked PRD is still reachable in hold/" "$SBOX_28" hold
+assert_mentions "$L28: message names the PRD" "$SBOX_28/stderr.log" "$PRD"
+grep -qiE 'exist|already|manual|by hand|remove|delete|rename|resolve|conflict|occupied' "$SBOX_28/stderr.log" \
+  || FAIL "$L28: message gives the operator something actionable" "no actionable guidance in stderr: $(cat "$SBOX_28/stderr.log" 2>/dev/null)"
+assert_walkup_called "$L28: the autopilot dir came from _walk_up.py" "$SBOX_28"
+assert_fablectl_wrote "$L28: fablectl.py performed the ledger write" "$SBOX_28"
+PASS "$L28: exit 2, status left approved, pre-existing backlog/$PRD file byte-for-byte unchanged, PRD still reachable in hold/"
+assert_no_loop "$L28: no loop session launched" "$SBOX_28"
 
 # =============================================================================
 echo ""
