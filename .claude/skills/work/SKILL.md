@@ -319,6 +319,27 @@ Apply the rows in this order — the first match wins (in practice `qwen_eligibl
 | 6 | Backend, `qwen_eligible == true`, row 3 did not fire, row 4 did not fire, **unhealthy** qwen infra | Claude at the task's original tier (`haiku` → Haiku, `sonnet` → Sonnet) | `references/qwen-integration.md` (Preflight) |
 | 7 | Backend, `qwen_eligible == false` (or absent) | Claude at the task's tier (e.g. a `>=4`-file `sonnet` task → Claude Sonnet) | — |
 
+> **Codex rung interception.** After the table above yields its verdict, when ALL
+> of the following hold, dispatch **codex** instead of the Claude implementor the
+> table named:
+>
+> 1. the table's verdict is "Claude at the task's tier" or "Claude at the task's
+>    ORIGINAL tier" (i.e. rows 3, 4, 6, or 7 fired — never rows 1, 2, or 5), and
+> 2. `codex_eligible(task)` per `model-ladder.md § Codex rung`, and
+> 3. `_WORK_CODEX_RUNG != "off"`, and
+> 4. `_AUTOPILOT_ESCALATION != "legacy"`, and
+> 5. the batch codex health probe verdict is `"healthy"`.
+>
+> The interception never fires for a `fable` task (that override outranks the
+> whole table), never for a UI task, and never for `opus` tier — fence 2 and the
+> `fable` rule already exclude all three.
+
+The table's semantics plus this interception are pinned executably by `scripts/work_routing.py` and `scripts/test_work_routing.py` — editing the routing logic there flips a test red rather than silently drifting from this prose.
+
+**Why condition 4 is required, not optional.** `model-ladder.md` promises that under `_AUTOPILOT_ESCALATION=legacy` the escalation machinery is byte-identical to pre-00065. The legacy branch of step 5.5 has no codex arm, so letting the interception fire under `legacy` would both falsify that promise and send a failing codex attempt into "escalate to the user" — in a headless loop, a stall with no defined `site:`, i.e. a new halt class. Gating the interception is cheaper than adding a codex carve-out to the legacy branch.
+
+**Routing row 3 (qwen breaker tripped) IS codex-eligible — stated intent.** The qwen capability breaker fences *qwen*, not the whole non-Claude family: it latches on two consecutive qwen test-gate failures, which is evidence about the local model, not about codex. A breakered batch is when the rung absorbs the most traffic.
+
 The memory-pressure gate (row 4) runs only when the table would otherwise reach qwen (now row 5) — it never runs for UI, `opus`, `qwen_eligible == false`, or breaker-skipped tasks.
 
 **`fable` overrides this table outright.** A task carrying `metadata.model: "fable"` — set only by the Fable rescue gate (`run-autopilot/references/recovery.md` § Rework escalation exhausted) — never routes to qwen and never to Gemini: dispatch a Claude Agent at `model: "fable"`, whatever the rows above would pick. `fable` is never a session model and is never selected autonomously, so the human rescue gate is the only way in (`run-autopilot/references/model-ladder.md` § Fable rescue).
@@ -338,6 +359,86 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 `use-qwen`, `use-gemini`, and `use-codex` are Bash helper-script dispatches; Claude implementor passes are Agent dispatches at the task's tier. All three must satisfy the **Subagent Dispatch Budget** and the **Subagent Watchdog**.
 
 **Qwen infra preflight.** When (and only when) the routing table picks qwen, run the four-check probe defined in `references/qwen-integration.md` (Preflight section) BEFORE dispatching the qwen helper — it keeps an unhealthy backend from silently hanging, returning garbage, or accepting the dispatch only to fail the worker spawn. `"healthy"` → proceed with the qwen dispatch; any other verdict (`"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`) → fall back to Claude at the task's original tier, byte-for-byte identical to a normal Claude dispatch apart from the recorded `preflight_outcome`. Record the outcome for the attempt-log entry; the dispatch decision determines `implementor`. Preflight does NOT run on Claude or Gemini dispatches.
+
+#### Codex batch health probe
+
+Same placement as the qwen preflight above, but scoped per **batch**, not per task — one probe decides the codex rung for every task in the batch:
+
+```
+state.codex_probe = {
+  "batch_id":   "<state.batch.id, or \"no-batch\">",
+  "verdict":    "healthy" | "unhealthy",
+  "backend":    "codex" | "copilot",
+  "detail":     "<one-line cause on unhealthy, else null>",
+  "checked_at": "<ISO 8601>"
+}
+```
+
+**Batch-scope check, before any read or write** — the same lazy-reset idiom `qwen_breaker` already uses: compute the effective batch id `(state.batch.id // "no-batch")` and compare it to `codex_probe.batch_id`. Mismatch or field absent → re-probe and overwrite the slice. Match → reuse the cached verdict, never re-probe.
+
+**The probe must EXERCISE TOOL USE, not just completion.** Dispatch it exactly like a real implementor run:
+
+```
+Bash (run_in_background: true):
+  ~/.claude/skills/use-codex/scripts/codex-run.sh -a \
+    -d <realpath of the repo's dev/local> \
+    -f <abs tmp prompt file> -o <abs tmp out file>
+then: TaskOutput(task_id, block=true, timeout=300000)
+```
+
+`-d` is **mandatory on the probe**, not conditional: the probe artifact lives under `dev/local/`, which in this repo is a symlink outside the workspace. Under `--sandbox workspace-write` a write there resolves outside the writable root and is denied, so a probe without `-d` returns `unhealthy` on every batch in `~/.claude` and the rung would never fire.
+
+Prompt file contents: the TOOL-GATE NOTICE block from § Hook interaction verbatim, followed by these three lines with `<nonce>` substituted (a fresh per-probe value, e.g. `<batch_id>-<uuid4>`):
+
+```
+Create the file dev/local/tmp/codex-probe-<nonce>.txt containing exactly: <nonce>
+Then run: git status --porcelain dev/local/tmp/codex-probe-<nonce>.txt
+Reply with the single word: done
+```
+
+The notice is required for the same reason every real dispatch carries it: the probe performs exactly the two actions the gate intercepts (first `Write` to a path, first `Bash` of the session).
+
+Verdict is `"healthy"` iff ALL of: the helper exited 0, the `-o` file is non-empty, AND `dev/local/tmp/codex-probe-<nonce>.txt` exists on disk with content equal to `<nonce>`. Delete the file after the verdict is written. **The nonce is load-bearing:** a fixed filename would still be on disk from a previous batch (`dev/local/tmp/` is GC'd only at 7 days), so a fully hook-blocked run — exit 0, a non-empty `-o` explaining the deny, and last batch's leftover file — would satisfy every condition and report `healthy`.
+
+**Why a tool-less probe is rejected.** A prompt like "reply with the word ok" invokes zero tools, so it returns `"healthy"` in exactly the state that kills a real run. Measured, not hypothetical: a codex reviewer in this repo died on `Command blocked by PreToolUse hook: [Fact-Forcing Gate]`, retried until its run was exhausted, and emitted no findings — while a completion probe would have reported perfect health. Same trap the qwen stack taught one layer up.
+
+**Watchdog and cleanup (no new halt class).** Background-dispatched with a `TaskOutput` deadline like every other helper-script call — never a bare foreground CLI call, the canonical way to hang an unattended session. A timeout return is verdict `"unhealthy"`, `detail: "probe_timeout"`, followed by `TaskStop` on the probe task so it cannot outlive the decision. **300s, not 120s:** the probe must survive two one-shot gate denials (restate facts, retry) plus a final reply — five-plus model round trips, against the qwen preflight's ~2 min budget for a single 1-token completion. A `probe_timeout` is fail-safe (rung off, batch continues, no halt) but indistinguishable from real ill-health, so the batch-report probe-verdict line is the signal to re-tune it.
+
+**Backend check.** `codex-run.sh` silently falls back to `copilot` when `codex` is not on PATH, and a premium Copilot model once burned 25% of monthly Copilot quota in one run — the same quota the UI reviewer lens runs on. A cost-reduction rung that silently drains the UI reviewer inverts its own premise. Record the resolved backend (`command -v codex`) in `state.codex_probe.backend`; `backend == "copilot"` is verdict `"unhealthy"`, `detail: "copilot_fallback_not_authorized_for_implementor"`.
+
+**No exit-4 clause.** `codex-run.sh` has no exit 4 and writes no `codex-review-last.jsonl` — both belong to `run-autopilot/scripts/codex_review_run.py`, a wrapper the implementor path does not use. The real empty-output signal for this helper is its own "codex exited 0 but wrote no output" warning, already covered by the non-empty `-o` condition.
+
+**On `"unhealthy"`** — every codex interception is skipped for the rest of the batch; affected tasks take the Claude implementor the table already named, with **no** escalation stamp (infra semantics).
+
+#### Codex dispatch
+
+Reuses `use-codex/references/dispatch-contract.md` unchanged:
+
+- background Bash, never Agent-wrapped (era invariant: a subagent that shells out to a CLI hangs);
+- `-f <prompt file>` and `-o <output file>`, absolute paths;
+- `TaskOutput(task_id, block=true, timeout=600000)` as the watchdog;
+- completion judged by the `-o` file plus the step-5.5 test gate — **never by exit code alone**;
+- **edit-enabled sandbox: `-a` (`--sandbox workspace-write`), never `-y`.** `-y` maps to `--dangerously-bypass-approvals-and-sandbox`, i.e. no sandbox at all; granting that to an unattended autonomous implementor is unbounded write access for no added capability, and the dispatch contract requires an explicit calling-skill grant before any unattended `-y`. `-a` needs no such grant.
+- **`-d <realpath of dev/local>`** whenever the task's file slice includes a `dev/local/` path: that path is a symlink outside the workspace here and CLI backends cannot follow it without `--add-dir`. Omit it otherwise, keeping the sandbox as narrow as the task requires.
+- **On a `TaskOutput` timeout, kill before falling back.** `TaskStop` the codex background task and verify it is gone BEFORE dispatching the Claude fallback, then capture `git status --porcelain`. An orphaned `--sandbox workspace-write` codex keeps write access to the very files the Claude implementor is about to edit; without the kill, its late writes either get swept into that commit or land as unexplained foreign paths.
+
+#### Hook interaction
+
+Codex's tool calls are gated by this host's own PreToolUse hooks, and this is the single largest execution risk in the rung: `~/.codex/hooks.json` registers PreToolUse hooks on codex's `Edit|Write|MultiEdit` and `Bash` matchers; the fact-forcing gate denies the FIRST `Edit`/`Write` to each distinct `file_path` and the FIRST `Bash` command of a session, and its deny text tells the agent to use Grep/Glob — tools codex does not have and which do not exist in this build at all. Observed consequence: a codex design reviewer burned its entire run retrying blocked commands and returned nothing.
+
+The gate is one-shot per path, so a run that understands it can proceed. Every codex implementor prompt therefore ends with this block:
+
+```
+TOOL-GATE NOTICE. This host runs PreToolUse hooks on your Edit/Write/Bash calls.
+A deny message beginning "[Fact-Forcing Gate]" is a ONE-SHOT gate, not a refusal:
+state the facts it asks for once, in plain text, then retry the IDENTICAL
+operation, which will then be allowed. Never retry more than once per operation
+and never loop. If a deny message names a preferred tool you do not have
+(Grep/Glob), use `rg` via Bash instead. If an operation is denied twice, stop and
+report the deny text verbatim as your result rather than continuing to retry.
+```
+
+This is a prompt-level mitigation for a host-level policy, so it is best-effort by construction — which is why the no-edit infra arm (`model-ladder.md` § Codex rung) exists as the backstop: if the notice fails, the run is classified infra, falls back to Claude at tier, and costs one wasted dispatch rather than a false capability verdict or a stalled loop.
 
 ### 4. Handle result
 
