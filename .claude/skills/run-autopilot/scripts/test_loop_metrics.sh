@@ -96,8 +96,8 @@ echo "$line1" | jq -e '.wall_secs | type == "number"' >/dev/null \
   || fail "scenario 1: wall_secs not a number"
 echo "$line1" | jq -e '.prd == "00013-test.md" and .batch == "209901010000" and .phase_launched == "build" and .phase_end == "review" and .signal == "continue"' >/dev/null \
   || fail "scenario 1: line 1 field values wrong"
-echo "$line1" | jq -e '.model == "claude-opus-4-8" and .cost_usd == 1.23 and .tokens_out == 456' >/dev/null \
-  || fail "scenario 1: line 1 model/cost fields wrong (PRD 00018)"
+echo "$line1" | jq -e '.model == "claude-sonnet-5" and .cost_usd == 1.23 and .tokens_out == 456' >/dev/null \
+  || fail "scenario 1: line 1 model/cost fields wrong (PRD 00018, build model re-baselined by PRD 00076)"
 echo "$line3" | jq -e '.phase_launched == "done" and .phase_end == "" and .signal == "done"' >/dev/null \
   || fail "scenario 1: line 3 field values wrong"
 echo "$line3" | jq -e '.model == "claude-sonnet-5"' >/dev/null \
@@ -124,8 +124,8 @@ line2=$(cat "$M2")
 echo "scenario 2 line: $line2"
 echo "$line2" | jq -e '.prd == "" and .batch == "" and .phase_launched == "" and .phase_end == "" and .signal == "died"' >/dev/null \
   || fail "scenario 2: died-path fields wrong"
-echo "$line2" | jq -e '.model == "claude-opus-4-8" and (has("cost_usd") | not) and (has("tokens_out") | not)' >/dev/null \
-  || fail "scenario 2: absent-phase default model or spurious cost keys (PRD 00018: no result event -> omit keys, never fake zeros)"
+echo "$line2" | jq -e '.model == "claude-sonnet-5" and (has("cost_usd") | not) and (has("tokens_out") | not)' >/dev/null \
+  || fail "scenario 2: absent-phase default model or spurious cost keys (PRD 00018: no result event -> omit keys, never fake zeros; PRD 00076 widened the build branch to build|\"\" so the bootstrap launch routes sonnet-first)"
 
 # ── Scenario 3: append target unwritable — silent by design ──────────
 # `2>/dev/null` must precede `>>` so a failed append-target open is
