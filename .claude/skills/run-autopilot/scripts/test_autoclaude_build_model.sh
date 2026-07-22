@@ -394,6 +394,34 @@ assert_model "signal 1 MUST NOT fire: real default_model: sonnet alongside a com
   "$B6N/state.json" "$B6N/prds" "$B6N/loop-metrics.jsonl" "$B6N/ledger.json" "$B6N/deferred"
 
 # =============================================================================
+# Scenario 6o (signal 1 MUST NOT fire) - a "#" glued directly onto the value,
+# with NO preceding whitespace. In YAML a "#" only starts an inline comment
+# when it is preceded by whitespace (or starts the line), so this whole thing
+# is the scalar value "opus#suffix", not "opus" followed by a comment.
+# =============================================================================
+B6O=$(mktemp -d); _DIRS+=("$B6O"); init_box "$B6O"
+P6O="00118-glue-a-comment-onto-the-value-v1.md"
+write_prd_fm "$B6O/prds/wip/$P6O" $'catchup: skip\ndefault_model: opus#suffix\ndesign: skip'
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fo"}}\n' \
+  "$P6O" >"$B6O/state.json"
+assert_model "signal 1 MUST NOT fire: default_model: opus#suffix (no whitespace before #)" "claude-sonnet-5" \
+  "$B6O/state.json" "$B6O/prds" "$B6O/loop-metrics.jsonl" "$B6O/ledger.json" "$B6O/deferred"
+
+# =============================================================================
+# Scenario 6p (signal 1 MUST NOT fire) - same shape as 6o, but the glued
+# suffix itself repeats the target word. A naive fix that strips everything
+# from the first "#" and then re-checks the remainder for "opus" would still
+# wrongly promote here, since the text after the "#" is also "opus".
+# =============================================================================
+B6P=$(mktemp -d); _DIRS+=("$B6P"); init_box "$B6P"
+P6P="00119-glue-opus-onto-opus-v1.md"
+write_prd_fm "$B6P/prds/wip/$P6P" $'catchup: skip\ndefault_model: opus#opus\ndesign: skip'
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fp"}}\n' \
+  "$P6P" >"$B6P/state.json"
+assert_model "signal 1 MUST NOT fire: default_model: opus#opus (glued suffix repeats the target word)" "claude-sonnet-5" \
+  "$B6P/state.json" "$B6P/prds" "$B6P/loop-metrics.jsonl" "$B6P/ledger.json" "$B6P/deferred"
+
+# =============================================================================
 # Scenario 7 (signal 2) — the PRD was replanned at least once. The other two
 # state signals are explicitly zero, so only replan_count can be doing the work.
 # =============================================================================
