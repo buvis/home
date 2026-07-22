@@ -152,6 +152,16 @@ and what each `fablectl` exit means — lives in `references/recovery.md`
   gate (§ Memory gate) guards the local llama-server's RAM footprint. codex
   is a remote-API CLI with negligible resident memory, so a pressure verdict
   never reroutes away from codex.
+- **Hook coverage**: codex's `Bash` matcher (`~/.codex/hooks.json`) registers
+  four hooks — `validate_commit_msg.py`, `block_devlocal_redirects.py`,
+  `enforce_prd_location.py`, `gateguard-fact-force.py`. A Claude implementor's
+  `Bash` calls on this host are additionally screened by aegis's
+  `prefer_tools.py`, `block_poll_loops.py`, and `block_force_push.py`,
+  warden's command-safety filter, and the user's own `dispatch.py pre` layer
+  (`settings.json`) — none of which run on a codex dispatch. An unattended
+  `--sandbox workspace-write` codex run is therefore screened by a strictly
+  weaker `Bash` gate than any Claude rung. `_WORK_CODEX_RUNG=off` reverts the
+  rung entirely (§ Kill-switches) if this gap is unacceptable for a batch.
 
 ## Memory gate
 
