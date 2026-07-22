@@ -530,10 +530,13 @@ autoclaude() {
     # Per-phase launch model (PRD 00018) + effort. Safe where the old
     # _autoclaude_pick_model died: the phase comes from the SAME state.json
     # read the relaunch decision uses, not a pre-launch guess from stale
-    # state. build/review stay on Opus at xhigh (the decision gate
-    # classifies findings); finalize (done) is mechanical rendering —
-    # Sonnet at medium. Unknown or absent phase (including the first-ever
-    # launch) → Opus xhigh: fail expensive, never fail dumb.
+    # state. Review stays on Opus at xhigh (the decision gate classifies
+    # findings); finalize (done) is mechanical rendering — Sonnet at medium.
+    # Build routes per-PRD via _autopilot_build_model (PRD 00076): Sonnet
+    # unless a promotion signal fires. The absent phase is a BUILD launch (a
+    # fresh batch has no state.json and resumes at the build gate), so it
+    # shares that branch. A genuinely unknown non-empty phase still falls to
+    # *) → Opus xhigh: fail expensive, never fail dumb.
     local _model _effort _cap
     case "$_phase_launched" in
     build|"")
