@@ -12,8 +12,10 @@ Contract:
   token counters, rate-limit pings) is dropped BY DESIGN; it stays in the
   raw log.
 - Subagent events (parent_tool_use_id set) show tool calls only, dimmed and
-  tagged with a stable per-lane ⟨label⟩ (from the spawning Task description;
-  ⟨agentN⟩ fallback); subagent prose is noise at loop-watching altitude.
+  tagged with a compact per-lane ⟨name⟩: the FIRST WORD of the spawning
+  Task description (persona name by convention; ⟨agentN⟩ fallback). The
+  full task title lives in the agents view, not on every line. Subagent
+  prose is noise at loop-watching altitude.
 - Non-JSON lines (merged stderr, wrapper banners) pass through verbatim.
 - Never breaks the session: a line that fails to render passes through
   raw, and a dead stdout (closed terminal) switches to draining stdin so
@@ -69,7 +71,11 @@ _lanes: dict[str, tuple[str, str]] = {}
 def _register_lane(block_id: str, description: str) -> None:
     if block_id in _lanes:
         return
-    label = _trunc(description, 24) if description.strip() else f"agent{len(_lanes) + 1}"
+    # ponytail: first word = persona name by convention (Ivan, Tess, Watcher);
+    # colors disambiguate two concurrent lanes that share a first word.
+    words = description.split()
+    first = words[0].rstrip(".,:;!—-") if words else ""
+    label = _trunc(first, 12) if first else f"agent{len(_lanes) + 1}"
     _lanes[block_id] = (label, _LANE_COLORS[len(_lanes) % len(_LANE_COLORS)])
 
 
@@ -130,12 +136,12 @@ def _render_assistant(event: dict[str, Any]) -> list[str]:
             name = str(block.get("name", "?"))
             summary = _trunc(_tool_summary(block.get("input")))
             if subagent:
-                tail = f"↳ {name}"
+                tail = name
                 if summary:
                     tail += f" · {summary}"
                 lane = _lane(str(event.get("parent_tool_use_id")))
                 lines.append(
-                    f"{_c(_DIM, time.strftime('%H:%M:%S'))} {lane} {_c(_DIM, tail)}"
+                    f"{_c(_DIM, time.strftime('%H:%M:%S'))} {_c(_DIM, '↳')} {lane} {_c(_DIM, tail)}"
                 )
             else:
                 if name in _AGENT_TOOLS and isinstance(block.get("id"), str):
@@ -162,7 +168,7 @@ def _render_tool_results(event: dict[str, Any]) -> list[str]:
     if not isinstance(content, list):
         return []
     parent_id = event.get("parent_tool_use_id")
-    prefix = f"{_lane(str(parent_id))} " if parent_id else ""
+    prefix = f"{_c(_DIM, '↳')} {_lane(str(parent_id))} " if parent_id else ""
     lines: list[str] = []
     for block in content:
         if (
