@@ -1,5 +1,5 @@
-model = "gpt-5.5"
-model_reasoning_effort = "xhigh"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
 personality = "pragmatic"
 
 [mcp_servers]
@@ -151,13 +151,13 @@ trusted_hash = "sha256:2902cf37cc16e808c9d646bc4a5abe1dba2afa48a855ed71fb9e62a59
 trusted_hash = "sha256:7742655e037b5286bc93728f0fbd3e27c012e42e8b5cea5cfb026ed05b003521"
 
 [hooks.state."/Users/bob/.codex/hooks.json:stop:1:0"]
-trusted_hash = "sha256:ebb36b15ea0626245ec31ffdaedb6a066736433c1dec3e1a1637e4fcee78d6ff"
-
-[hooks.state."/Users/bob/.codex/hooks.json:stop:2:0"]
 trusted_hash = "sha256:6f9ea9c3207a718b5331e2a60e43582dd7cc9f6cb907d2b236a2cc0b4d193b4f"
 
-[hooks.state."/Users/bob/.codex/hooks.json:stop:3:0"]
+[hooks.state."/Users/bob/.codex/hooks.json:stop:2:0"]
 trusted_hash = "sha256:cb56202426e0743b14e1ecf47ec018f25c98c0714c57474e2fcdfe90ae7c0bcc"
+
+[hooks.state."/Users/bob/.codex/hooks.json:stop:3:0"]
+trusted_hash = "sha256:dd9e7002d061d91af5beae47694a4e9947eaffc638d661d85b33837d35f1892d"
 
 [hooks.state."/Users/bob/.codex/hooks.json:stop:4:0"]
 trusted_hash = "sha256:dd9e7002d061d91af5beae47694a4e9947eaffc638d661d85b33837d35f1892d"
