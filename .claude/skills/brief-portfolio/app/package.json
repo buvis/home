@@ -7,10 +7,10 @@
     "test": "node src/lib/derive.test.js"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.0.0",
-    "svelte": "^5.56.4",
-    "vite": "^8.0.0",
-    "vite-plugin-singlefile": "^2.0.3"
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "svelte": "5.56.7",
+    "vite": "8.1.5",
+    "vite-plugin-singlefile": "2.3.3"
   },
   "dependencies": {
     "d3-force": "^3.0.0"
