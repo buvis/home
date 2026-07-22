@@ -1,6 +1,6 @@
 ---
 name: create-skill
-description: Use when running the skill validator or applying user frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "skill-creator", "create skill", "lint skill", "skill compliance".
+description: Use when running the skill validator or applying frontmatter conventions (trigger-led description, <=250 chars). Triggers on "validate skill", "skill validator", "skill-creator", "create skill", "lint skill", "skill compliance", "sharpen skill".
 ---
 
 # Skill Creator
@@ -198,6 +198,8 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 
 **Dependencies:** if the skill needs anything outside its own directory - another skill, a plugin skill, an external CLI, a file under `~/.claude`, an external service - state it in a `## Dependencies` section right after the intro. Name each dep and what happens when it is missing (hard failure, or which fallback runs). Namespace plugin skills as `plugin:skill`. Frontmatter is the wrong home for this: `metadata` never reaches the model at runtime, the body loads exactly when the skill triggers. See `brush` or `run-autopilot` for the shape.
 
+**Design for compliance:** a skill that runs unattended, on another harness, or produces evidence-based conclusions (research, audit, exploration) gets executed by an agent under pressure. Design enforcement in from the start instead of discovering it over benchmark rounds: demand checkable artifacts (receipts, machine-parseable status lines, gates that echo numbers) instead of adverbs; bundle a self-check script and define done as "checker passes, output pasted"; give every run an honest-partial path (INCOMPLETE that ships) so faking is never the only road to COMPLETE; split gather-from-write across fresh sessions where fabrication is possible. Mechanisms and evidence: [references/sharpening.md](references/sharpening.md).
+
 **Token efficiency:**
 - Frequently-loaded skills: aim for <200 words total
 - Other skills: <500 words in SKILL.md body
@@ -228,10 +230,14 @@ is where it stops (PRD 00083).
 
 ### Step 6: Iterate
 
-1. Use the skill on real tasks
-2. Notice struggles or inefficiencies
-3. Update SKILL.md or bundled resources
-4. Test again
+Casual iteration: use the skill on real tasks, notice struggles, update, retest.
+
+Sharpening a skill that must perform unattended or on another harness is benchmark work; run it as a controlled loop or it eats days (full protocol in [references/sharpening.md](references/sharpening.md)):
+
+1. **Preflight the harness before every run**: current copy synced (symlinks dereferenced, `scripts/` + `references/` present), explicit slash activation, model pinned, fresh session with priors hidden. A run on a broken harness produces zero signal on the skill text.
+2. **Kill early**: no first mandatory artifact within minutes means a dead run; kill it and fix the harness instead of paying for the full iteration.
+3. **Eval against a frozen baseline**, one eval file per iteration; fixes stay generic (benchmark specifics go to examples); where the run beats the baseline, improve the baseline in place.
+4. **Never restate an ignored rule** - diagnose why it was ignored, then escalate that failure one level: prose rule -> forced artifact -> mechanical check -> coupling check -> structural change. A failure on its third round jumps straight to structural.
 
 ## Platform Details
 
