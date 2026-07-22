@@ -198,7 +198,7 @@ Runs BETWEEN the `outcome` rewrite above and the stall move below — after the 
    `--send` is the CLI path and dispatches unconditionally (the `_AUTOPILOT_LOOP` suppression applies only to hook-event mode), so an in-loop review session does fire this.
 4. **Continue into the stall move below**, unchanged: the PRD parks to `hold/` and the batch drains on. **No new pause path, no new halt class**, and `site` stays `escalation_exhausted`.
 
-**Caller contract for `fablectl` exits 1 and 2** (0 and 3 are normal control flow — `references/state-schema.md` § `fablectl.py`): retry the exact command ONCE. Still 1 or 2 → treat as a sub-skill failure per core `SKILL.md` § Error Handling — loop mode runs the "Loop-mode stall procedure" above with `site: "sub_skill_fail"` and the raw stderr in `detail`; interactive PAUSEs with the same site. No new halt class.
+**Caller contract for `fablectl` exits 1, 2 and 4** (0 and 3 are normal control flow — `references/state-schema.md` § `fablectl.py`): retry the exact command ONCE. Still 1, 2 or 4 → treat as a sub-skill failure per core `SKILL.md` § Error Handling — loop mode runs the "Loop-mode stall procedure" above with `site: "sub_skill_fail"` and the raw stderr in `detail`; interactive PAUSEs with the same site. No new halt class.
 
 **Crash windows.** Step 1's queue-then-claim order makes both windows recoverable:
 
