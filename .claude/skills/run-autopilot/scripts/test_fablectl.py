@@ -1530,14 +1530,8 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         #     eligible tiers instead of excluding it - a second Fable dispatch.
         doc = self.exploited(
             (
-                "(Claude rungs only — the qwen rung has no feedback retry: its "
-                "single\n"
-                "                                gate failure goes straight to "
-                "DIAGNOSE below, per the 1-dispatch budget)",
-                "(haiku/sonnet/opus/fable rungs only — the qwen rung has no "
-                "feedback retry: its single\n"
-                "                                gate failure goes straight to "
-                "DIAGNOSE below, per the 1-dispatch budget)",
+                "haiku/sonnet/opus rungs only, never fable",
+                "haiku/sonnet/opus/fable rungs only",
             )
         )
         self.assertEqual(

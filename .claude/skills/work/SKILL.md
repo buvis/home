@@ -408,20 +408,21 @@ Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — 
 
 ```
 gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure output, SAME tier
-                                (Claude rungs only — the qwen rung has no feedback retry: its single
-                                gate failure goes straight to DIAGNOSE below, per the 1-dispatch budget)
+                                (haiku/sonnet/opus rungs only, never fable - the qwen rung has no
+                                feedback retry: its single gate failure goes straight to DIAGNOSE
+                                below, per the 1-dispatch budget)
 gate fail #2 at current rung → DIAGNOSE:
   1. Write task.description (from TaskGet) to dev/local/tmp/diagnose-task-<id>.txt and run:
        python3 ~/.claude/skills/work/scripts/diagnose_task.py <task-file> --repo-root <project-root>
      `<project-root>` = the dir containing dev/local/, resolved by walking up from cwd (same anchor
      as _walk_up.py) — NOT state.repo_root, which differs under a bare-repo-backed project.
      verdict "spec_gap" (exit 0) → REPAIR path below, if repair unused this task AND current rung
-     is a Claude rung (qwen never repairs — see budgets above)
+     is a haiku, sonnet, or opus rung, never fable (qwen never repairs — see budgets above)
   2. verdict "pass", OR the script errored (exit 2, shape-check inconclusive) → inline rubric
      judgment, this session, at its current tier: spec_gap | solid_spec, with a one-line
      justification, stamped as `diagnosis` on the diagnosed rung's attempt entry (see Attribution
      below). The orchestrator never overrides a deterministic spec_gap verdict from step 1.
-REPAIR (spec_gap, repair not yet used this task, current rung is a Claude rung): fill the identified
+REPAIR (spec_gap, repair not yet used this task, current rung is haiku, sonnet, or opus, never fable): fill the identified
   gaps (missing Contract, missing Acceptance criteria, dangling file references) from the PRD +
   design doc, rewrite the task description via TaskUpdate(taskId, description=<repaired>) — the
   canonical store /work re-reads via TaskGet — and re-dispatch Ivan at the SAME tier ONCE. Stamp
