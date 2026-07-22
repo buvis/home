@@ -313,6 +313,165 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 1)
 
+    # -- --assert-constraint-met: opt-in semantic check on top of the shape
+    # check. "; constraint UNMET" is still a VALID recorded shape (script
+    # exits 0 on it without this flag); this flag lets a caller additionally
+    # ask whether that recorded constraint was actually met. --
+
+    def test_constraint_unmet_without_assert_flag_stays_exit_0(self) -> None:
+        # Regression pin: today's only caller (the Stop hook) passes
+        # --require-codex-guard alone and must never gain a new halt class
+        # just because this flag now exists in the parser.
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); constraint UNMET",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_assert_constraint_met_fails_when_guard_constraint_unmet(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); constraint UNMET",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        # Guard against a false pass: argparse's own "unrecognized arguments"
+        # error also exits non-zero, so a bare assertNotEqual(0) would pass
+        # even with the flag unimplemented. Rule that out explicitly.
+        self.assertNotIn("unrecognized arguments", proc.stderr)
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_assert_constraint_met_uses_exit_code_2_not_shape_gap_code(self) -> None:
+        # An unmet constraint is its own failure class, distinct from a
+        # shape gap (1), so a caller can tell "malformed file" apart from
+        # "constraint not certified".
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); constraint UNMET",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        # Same false-pass guard as above: code 2 must come from the
+        # constraint check, not from argparse rejecting an unknown flag.
+        self.assertNotIn("unrecognized arguments", proc.stderr)
+        self.assertEqual(proc.returncode, 2)
+
+    def test_assert_constraint_met_passes_when_guard_not_fired(self) -> None:
+        p = self._write(GOOD_FILE)  # "codex_rung_guard: not fired"
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_assert_constraint_met_passes_when_guard_fired_plain(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s))",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_assert_constraint_met_passes_when_eve_unavailable_fallback_form(
+        self,
+    ) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); "
+            "eve unavailable, doubt lens fell back to claude",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_shape_gap_reported_over_unmet_constraint_when_both_present(self) -> None:
+        # A file that is both malformed (missing verdict line) and records
+        # constraint UNMET cannot be trusted for a constraint reading, so
+        # the shape-gap exit code (1) wins over the constraint code (2).
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); constraint UNMET",
+        ).replace("Verdict: converged\n", "")
+        p = self._write(text)
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        self.assertEqual(proc.returncode, 1)
+
+    def test_assert_constraint_met_exit_code_differs_from_unrelated_shape_gap(
+        self,
+    ) -> None:
+        # A pure shape gap with no constraint-UNMET involved at all (guard
+        # line is the plain "not fired" form) must still exit 1, not step
+        # on the constraint-specific code 2.
+        text = GOOD_FILE.replace("Verdict: converged\n", "")
+        p = self._write(text)
+        proc = run_cli(
+            [
+                "--review-file",
+                str(p),
+                "--reviewers",
+                "alice",
+                "--require-codex-guard",
+                "--assert-constraint-met",
+            ]
+        )
+        self.assertEqual(proc.returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
