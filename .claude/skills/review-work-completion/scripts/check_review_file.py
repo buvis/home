@@ -7,9 +7,11 @@ things about a consolidated review file:
 1. every launched reviewer has a non-empty section,
 2. a parseable verdict line (`Verdict: converged` / `Verdict: N findings`),
 3. a test-summary line (`Tests: N passed ...` / `Tests: none (docs-only)`),
-4. a codex_rung_guard line (`codex_rung_guard: fired (N codex-implemented
-   task(s))` / `codex_rung_guard: not fired`) — checked ONLY when
-   --require-codex-guard is passed.
+4. a codex_rung_guard line — `codex_rung_guard: not fired`, plain
+   `fired (N codex-implemented task(s))`, or that fired form suffixed
+   `; eve unavailable, doubt lens fell back to claude` or
+   `; constraint UNMET` — checked ONLY when --require-codex-guard is
+   passed.
 
 This script gates several different kinds of review file (consolidated
 reviews, blind reviews, shadow-run renders), and only the consolidated
