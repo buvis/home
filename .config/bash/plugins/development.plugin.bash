@@ -320,7 +320,73 @@ _autopilot_plugin_drift() {
   return 0
 }
 
+# _autopilot_fable_decide <approve-fable|reject-fable> <prd>
+# The operator's one-command decision on a pending Fable rescue. Positional args
+# only — it runs outside any loop, so it reads no loop-local state: the autopilot
+# dir comes from _walk_up.py (it therefore works from any subdirectory of the
+# repo) and every ledger change goes through fablectl.py, the ledger's sole
+# writer. `approve-fable` also un-parks the PRD (hold/ -> backlog/) and VERIFIES
+# the file arrived: `mv` exits 0 when the destination name is a directory, and
+# the PRD would then be invisible to the next batch. A failed un-park never rolls
+# the decision back — the operator finishes the move by hand. Exit 0 on success,
+# 2 on every failure.
+_autopilot_fable_decide() {
+  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur
+  case "$_verb" in
+    approve-fable) _status=approved ;;
+    *)             _status=rejected ;;
+  esac
+  if [ -z "$_prd" ]; then
+    printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
+    return 2
+  fi
+
+  _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
+  _ledger="$_ap_dir/ledger/fable-requests.json"
+  _prds="${_ap_dir%/autopilot}/prds"
+
+  _err=$(python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py "$_ledger" decide "$_prd" "$_status" 2>&1 >/dev/null)
+  _rc=$?
+  if [ "$_rc" -eq 3 ]; then
+    # fablectl's refusal does not carry the entry's status, so read THIS PRD's
+    # own status back (a neighbour's is not it) and say plainly when nothing was
+    # ever filed.
+    _cur=$(python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py "$_ledger" show "$_prd" 2>/dev/null | jq -r '.status // empty')
+    if [ -n "$_cur" ]; then
+      printf 'autoclaude: %s is already %s; leaving it alone.\n' "$_prd" "$_cur" >&2
+    else
+      printf 'autoclaude: no rescue request on file for %s.\n' "$_prd" >&2
+    fi
+    return 2
+  fi
+  if [ "$_rc" -ne 0 ]; then
+    printf '%s\n' "$_err" >&2
+    return 2
+  fi
+
+  if [ "$_status" = rejected ]; then
+    printf 'autoclaude: %s rejected; it stays parked in hold/.\n' "$_prd"
+    return 0
+  fi
+  if [ ! -f "$_prds/hold/$_prd" ]; then
+    printf 'autoclaude: %s approved; it is not parked in hold/, so nothing was moved.\n' "$_prd"
+    return 0
+  fi
+  mv "$_prds/hold/$_prd" "$_prds/backlog/$_prd" 2>/dev/null
+  if [ ! -f "$_prds/backlog/$_prd" ]; then
+    printf 'autoclaude: %s approved, but the un-park failed; move it to %s by hand.\n' "$_prd" "$_prds/backlog" >&2
+    return 2
+  fi
+  printf 'autoclaude: %s approved and un-parked into backlog/.\n' "$_prd"
+}
+
 autoclaude() {
+  # Operator subcommands FIRST: they decide a pending Fable rescue and return
+  # without ever starting or attaching to a loop.
+  case "${1:-}" in
+    approve-fable|reject-fable) _autopilot_fable_decide "$1" "${2:-}"; return $? ;;
+  esac
+
   local _tracon=0
   case "${_AUTOPILOT_TRACON:-auto}" in
     0) _tracon=0 ;;                                                    # escape hatch
