@@ -41,7 +41,7 @@ are prompt disciplines carried by the roster, not separate phases:
 - **Bob** → Codex, **doubt lens**: carries the doubt rubric (R1-R5) and the de-slop lens every cycle; when codex is unavailable, a Claude subagent runs the same prompt so the lens never silently drops
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
 - **Quinn** → local qwen via `qwen-run.sh -R --approved-only` (background Bash: the `pi` agent against a llama.cpp-served model, read-only, pinned to the eval-approved registry; **advisory weight** — findings unique to Quinn create no tasks; active only when the qwen preflight probe passes, skipped otherwise with a note)
-- **Eve** → Claude Fable 5 Task subagent, opt-in fifth lens: joins the batch only when the PRD frontmatter sets `doubt_reviewer: fable`, running the same doubt prompt as Bob (see `references/agent-invocation.md` "Eve (Fable 5)"); absent otherwise
+- **Eve** → Claude Fable 5 Task subagent, opt-in fifth lens: joins the batch when the resolved doubt reviewer says so (step 1), running the same doubt prompt as Bob (see `references/agent-invocation.md` "Eve (Fable 5)"); absent otherwise
 
 ## Workflow
 
@@ -78,6 +78,12 @@ Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 | `shadow` | Both. Legacy Alice gates the cycle; the workflow runs beside her, non-gating, and its result is recorded as an observation (step 8). |
 
 An invalid value falls back to `legacy` with one logged warning line (same rule as `rework_cap` / `doubt_reviewer`). Hold the resolved value as `CONSENSUS_ENGINE` for steps 5 and 8.
+
+**Resolve the doubt reviewer.** Read `state.doubt_reviewer` from `dev/local/autopilot/state.json`; on a standalone run with no state file, read `doubt_reviewer` straight from the wip PRD's frontmatter. An invalid value falls back to `codex` with one logged warning line. Hold the resolved value for the later roster and consolidation steps. Eve joins the batch when the resolved value is `fable`.
+
+**Codex doubt-roster guard.** After resolving `doubt_reviewer`, when `dev/local/autopilot/state.json` exists and `any(state.tasks[]?.attempts[]?.implementor == "codex")` is true, force the resolved value to `fable` — the doubt leg must not be codex alone. This adds **Eve** as the fifth lens alongside Bob; Bob/codex still runs, so the guard adds a voice rather than removing one. This override is in-memory only: do NOT write `state.doubt_reviewer` or invoke `statectl` for it. The stored field keeps whatever Phase 0 parsed, and Phase 0 remains its single writer. Count the codex-implemented tasks for step 6's review-file record.
+
+The guard cannot fire for a manual `/work` run outside autopilot because no `dev/local/autopilot/state.json` exists. On that narrow standalone path, codex-implemented code retains the frontmatter default `codex` and can still be doubt-reviewed by codex alone.
 
 **If CLI/script check fails, STOP and report:**
 
@@ -209,7 +215,7 @@ Three failure classes, three different answers — **only the last one may fall 
 
 On `shadow`, legacy Alice still runs and still gates; the workflow's output is never written to `alice-output-{id}.txt` and never consolidated. Step 8 records it.
 
-Active reviewers: Alice, Blake, Bob, Carl, Quinn, plus Eve when `doubt_reviewer: fable`. Include Carl only if the optional Gemini check in step 1 passed, and Quinn only if the optional qwen preflight in step 1 passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
+Active reviewers: Alice, Blake, Bob, Carl, Quinn, plus Eve when the resolved doubt-reviewer rule in step 1 activates her. Include Carl only if the optional Gemini check in step 1 passed, and Quinn only if the optional qwen preflight in step 1 passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
 
@@ -240,6 +246,8 @@ Pass only agents that produced output (omit the `CARL:` pair when Carl was skipp
 **Compose the `Verdict:` line.** Zero consolidated findings → `Verdict: converged`; otherwise `Verdict: N findings` (the consolidated count). Step 8 writes it into the review file.
 
 **Compose the `Tests:` line.** Record the cycle's test counts — run the project's test suite once in the FOREGROUND (or reuse the counts from a suite run already performed this cycle; do not run it twice) and write `Tests: N passed, M failed, K skipped`. When the reviewed diff touches no code, write `Tests: none (docs-only)` — a first-class value, not a sentinel.
+
+**Record the Codex doubt-roster guard.** Emit the fired rule in the cycle's review file as `codex_rung_guard: fired (N codex-implemented task(s))`, using the count from step 1, or emit `codex_rung_guard: not fired` when the predicate is false. Consolidation owns this line; `run-autopilot` must not write it.
 
 **Record the doubt-rubric verdicts (autopilot runs).** When `dev/local/autopilot/state.json` exists, parse the five `R{n}: pass|fail` lines from Bob's output (or his Claude fallback's) and REPLACE `state.doubts_rubric_verdicts` with the five entries `{"rule_id": "R{n}", "verdict": "pass"|"fail"}`; when Eve also ran, read her raw `R{n}:` lines too and write one entry per rule per reviewer with `source` tags (`"codex"` / `"fable"`). Verdicts are re-recorded every cycle; the final cycle's are the durable ones (the batch report renders them). Skip this entirely on standalone (non-autopilot) runs.
 
