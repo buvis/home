@@ -176,8 +176,8 @@ class Collector:
         self._usage.feed(event)
         self._tracker.feed(event)
 
-        # render_stream already lane-tags subagent events with ⟨label⟩;
-        # prefixing our own tag doubled it (two truncated labels per line).
+        # render_stream already lane-tags subagent events with a compact
+        # first-word ⟨name⟩; the full title lives in the agents row/screen.
         return event, render_line(raw, event)
 
     def reset_session(self) -> None:
