@@ -10,7 +10,8 @@ CLI:
 One request per PRD, ever. The transition table is requested -> approved or
 rejected, and approved -> consumed; every other mutation is refused with exit 3
 and leaves the ledger byte identical. A bad argument exits 1, a ledger that is
-present but unreadable exits 2. An ABSENT ledger is not damage - it means no
+present but unreadable exits 2, and an OS error (e.g. a blocked path) exits 4
+with a one-line diagnostic. An ABSENT ledger is not damage - it means no
 request has been filed yet, so `show` answers {} and the mutating verbs refuse.
 """
 
@@ -27,6 +28,7 @@ from statectl import atomic_write
 
 TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 JUSTIFICATION_FIELDS = ("problem", "attempts", "impact")
+STATUSES = ("requested", "approved", "rejected", "consumed")
 ARITY = {"request": 5, "decide": 2, "consume": 1, "show": 1}
 USAGE = (
     "usage: fablectl.py <ledger> "
@@ -73,6 +75,11 @@ def read_ledger(ledger_path: Path) -> tuple[bytes | None, dict[str, Any]]:
     for prd, entry in data.items():
         if not isinstance(entry, dict) or not isinstance(entry.get("status"), str):
             raise LedgerError(f"ledger entry is damaged ({ledger_path}): {prd}")
+        if entry["status"] not in STATUSES:
+            raise LedgerError(
+                f"ledger entry has an out-of-enum status ({ledger_path}): "
+                f"{prd} status={entry['status']!r}"
+            )
     return raw, data
 
 
@@ -126,8 +133,17 @@ def write_transition(ledger_path: Path, verb: str, prd: str, payload: Any) -> No
     """Read-modify-write the ledger under an exclusive advisory lock.
 
     Refusals raise before the backup, so a rejected transition leaves both the
-    ledger and its `.bak` untouched.
+    ledger and its `.bak` untouched. `decide`/`consume` against a cleanly
+    absent ledger are refused here too, before touching the filesystem, so
+    they leave no parent directory and no lock file behind; `request` is the
+    legitimate absent-ledger case and always proceeds to create both. A
+    non-absent OS error (e.g. a parent that is a file) is not swallowed here -
+    it propagates to the caller's exit-4 handler.
     """
+    if verb != "request":
+        raw, entries = read_ledger(ledger_path)
+        if raw is None:
+            apply_verb(entries, verb, prd, payload)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = Path(f"{ledger_path}.lock")
     with open(lock_path, "w", encoding="utf-8") as lock:
@@ -184,6 +200,9 @@ def main() -> int:
     except RefusedError as err:
         print(str(err), file=sys.stderr)
         return 3
+    except OSError as err:
+        print(str(err), file=sys.stderr)
+        return 4
     return 0
 
 
