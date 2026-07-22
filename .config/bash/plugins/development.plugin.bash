@@ -328,10 +328,13 @@ _autopilot_plugin_drift() {
 # writer. `approve-fable` also un-parks the PRD (hold/ -> backlog/) and VERIFIES
 # the file arrived: `mv` exits 0 when the destination name is a directory, and
 # the PRD would then be invisible to the next batch. A failed un-park never rolls
-# the decision back — the operator finishes the move by hand. Exit 0 on success,
-# 2 on every failure.
+# the decision back — the operator finishes the move by hand. <prd> is used both
+# as a ledger key and as an mv path component, so it is validated up front
+# (no `/`, no `..`, and the PRD naming convention) before either use, and a
+# resolver failure or empty answer from _walk_up.py is refused before any path
+# is derived from it. Exit 0 on success, 2 on every failure.
 _autopilot_fable_decide() {
-  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur
+  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur _mv_err
   case "$_verb" in
     approve-fable) _status=approved ;;
     *)             _status=rejected ;;
@@ -340,8 +343,36 @@ _autopilot_fable_decide() {
     printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
     return 2
   fi
+  # <prd> becomes a ledger key (below) and an mv path component (further
+  # down), so both traversal shapes are rejected before either use — a
+  # leading `/` or an embedded `..` can otherwise walk outside dev/local/prds.
+  case "$_prd" in
+    */*|*..*)
+      printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
+      return 2
+      ;;
+  esac
+  # The naming convention is checked separately from the traversal guard
+  # above: a value can dodge `/` and `..` while still not being a PRD
+  # filename at all (wrong extension, no digit prefix).
+  case "$_prd" in
+    [0-9][0-9][0-9][0-9][0-9]-*.md) ;;
+    *)
+      printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
+      return 2
+      ;;
+  esac
 
   _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
+  # A resolver that fails outright and one that exits 0 but prints nothing
+  # both land here as an empty string. Trusting either blindly would derive
+  # _ledger/_prds rooted at `/` (a bare "/ledger/fable-requests.json" and
+  # "/prds/hold|backlog") and hand that to fablectl — refuse before either
+  # path is built and before fablectl is ever invoked.
+  if [ -z "$_ap_dir" ]; then
+    printf 'autoclaude: the autopilot directory could not be resolved (_walk_up.py failed or returned nothing).\n' >&2
+    return 2
+  fi
   _ledger="$_ap_dir/ledger/fable-requests.json"
   _prds="${_ap_dir%/autopilot}/prds"
 
@@ -372,9 +403,13 @@ _autopilot_fable_decide() {
     printf 'autoclaude: %s approved; it is not parked in hold/, so nothing was moved.\n' "$_prd"
     return 0
   fi
-  mv "$_prds/hold/$_prd" "$_prds/backlog/$_prd" 2>/dev/null
+  _mv_err=$(mv "$_prds/hold/$_prd" "$_prds/backlog/$_prd" 2>&1 >/dev/null)
+  # `mv` can exit 0 and still not deliver (a destination that names a
+  # directory), so there is a real failure path with no error text to quote.
+  # Say that plainly rather than rendering an empty parenthetical.
+  [ -n "$_mv_err" ] || _mv_err="mv reported no error but the file did not arrive"
   if [ ! -f "$_prds/backlog/$_prd" ]; then
-    printf 'autoclaude: %s approved, but the un-park failed; move it to %s by hand.\n' "$_prd" "$_prds/backlog" >&2
+    printf 'autoclaude: %s approved, but the un-park failed (%s); move it to %s by hand.\n' "$_prd" "$_mv_err" "$_prds/backlog" >&2
     return 2
   fi
   printf 'autoclaude: %s approved and un-parked into backlog/.\n' "$_prd"
