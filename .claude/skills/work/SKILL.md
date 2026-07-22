@@ -506,11 +506,27 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
 
 **Any other value / absent — diagnose→repair/escalate flow (default):**
 
-Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — cite, do not restate: Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one feedback retry) before diagnosis; the `fable` rescue rung gets 1 capability dispatch per PRD, ever (no feedback retry, no repair); the qwen rung gets 1 dispatch (no feedback retry — the existing one-shot carve-out, named the ladder's `qwen -> sonnet` capability edge); repair is capped at 1 per task, total, and is Claude-rungs only (qwen never repairs).
+Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — cite, do not restate: Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one feedback retry) before diagnosis; the codex rung gets 2 dispatches (initial + one feedback retry), and never a repair; the `fable` rescue rung gets 1 capability dispatch per PRD, ever (no feedback retry, no repair); the qwen rung gets 1 dispatch (no feedback retry — the existing one-shot carve-out, named the ladder's `qwen -> sonnet` capability edge); repair is capped at 1 per task, total, and is Claude-rungs only (qwen never repairs).
+
+**Codex attempt classification — three arms.** Use the arms declared in `model-ladder.md` § Codex rung:
+
+1. **Infra:** an unhealthy batch probe, watchdog timeout, or missing/empty `-o` file falls back to Claude at the task's tier with no `escalation_reason`.
+2. **Infra (no-edit arm):** when the `-o` file is non-empty and the helper exited 0 but the run produced no working-tree change, classify the hook-blocked prose-only run as infra: fall back to Claude at tier, with no feedback retry and no `escalation_reason`, and record `cause: "codex_no_edit"`.
+3. **Capability:** a step-5.5 test-gate failure after a run that did edit the tree enters diagnosis and escalates with a stamp.
+
+The no-edit detector runs at the dispatch boundary, **not at step 5.5**. Step 5 commits the implementation before the step-5.5 gate, so the porcelain is clean at 5.5 for both a successful codex run and a no-edit run; checking there cannot distinguish them. Capture porcelain for the task's own file slice immediately before the codex dispatch, then capture it again in step 4 immediately after the helper returns and before step 5's `git add`; latch the comparison as `codex_no_edit` in the attempt record, and have step 5.5 read only that latched flag — never re-run `git status` here. Scoping both snapshots to the task's own file slice prevents a concurrent user edit elsewhere in the live worktree from masking this arm.
+
+Both snapshots MUST use the same Git context as the `repo_root` invariant. A bare `git status` fails for a bare-repo-backed worktree: measured 2026-07-22, running `git status --porcelain <path>` from `/Users/bob/.claude` exits 128 with `fatal: not a git repository (or any of the parent directories): .git`, because `~/.claude` is tracked by the `~/.buvis` bare repo with work-tree `$HOME` and has no `.git` of its own. Use:
+
+```bash
+git --git-dir=<bare-git-dir> --work-tree=<work-tree> status --porcelain -- <file slice>
+```
+
+For this repo the context is `--git-dir=/Users/bob/.buvis --work-tree=/Users/bob`. If either snapshot exits non-zero, the probe is **INDETERMINATE**, not "no change": do not latch `codex_no_edit`; record the exit code in the attempt record and continue through the capability path normally. A broken detector must never silently reclassify real codex capability failures as infra. These classification semantics are pinned executably by `scripts/work_routing.py` and `scripts/test_work_routing.py`.
 
 ```
 gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure output, SAME tier
-                                (haiku/sonnet/opus rungs only, never fable - the qwen rung has no
+                                (haiku/sonnet/opus and codex rungs only, never fable - the qwen rung has no
                                 feedback retry: its single gate failure goes straight to DIAGNOSE
                                 below, per the 1-dispatch budget)
 gate fail #2 at current rung → DIAGNOSE:
@@ -572,7 +588,10 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
      `review_flag` onto this `gate_failure` rung.
   4. Dispatch ONE rung up (per `model-ladder.md` § Capability ladders — qwen -> sonnet skipping
      haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY: failing test names, the last
-     gate-output excerpt, the diagnosis verdict, and the prior implementor + tier.
+     gate-output excerpt, the diagnosis verdict, and the prior implementor + tier. **Codex carve-out:**
+     after the second gate failure at the codex rung, DIAGNOSE and dispatch Claude at the task's OWN
+     tier — never a repair and never one rung above the task's tier. The capability edge is
+     `codex -> claude at the task's own tier`, so Claude-at-tier is the rung above codex.
   5. Stamp the HIGHER rung's NEW attempt entry: `escalation_reason:"gate_failure"`,
      `escalated_from:<prev tier>`.
   6. At the new rung the budget resets (initial + one feedback retry, per `model-ladder.md` §
@@ -593,6 +612,8 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
 | `escalation_reason:"gate_failure"` | the rung escalated **INTO** (higher)'s entry |
 | `escalation_reason:"review_flag"` | the review-flagged rework rung's OWN entry (Phase 6 escalated INTO it): copied from `task.metadata` at step 6 if that rung exits there, or at ESCALATE point 2 (then cleared at point 3) if it escalates in-loop |
 | `escalated_from` | the rung escalated **INTO** (higher)'s entry (both `gate_failure` and `review_flag` paths) |
+
+For codex attribution, `attempts[].model` records the task's own tier (for example, `"sonnet"`) while `implementor: "codex"` carries the backend identity. This is the same split as qwen, whose attempt records `model: "sonnet"` with `implementor: "qwen"`. On a codex capability failure, stamp the codex entry `outcome: "escalated"` and `diagnosis: <verdict>`; the Claude entry it escalates into receives `escalation_reason: "gate_failure"` and `escalated_from: "codex"`.
 
 **Pipeline stamping on escalation.** An in-loop escalation re-dispatches the implementor at the higher rung and re-runs the tier-appropriate post-implementor gates (step 5.7 reviewer for sonnet+, and this step-5.5 gate) — it does NOT re-run Devon (2.85; the tests are already committed). Stamp the escalated-into entry `pipeline:"lean"` (implementor + reviewer), never `"full"` — `"full"` stays reserved for a from-scratch opus task/rework that actually ran Devon.
 
