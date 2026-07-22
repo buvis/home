@@ -89,7 +89,8 @@ def test_subagent_shows_tools_but_not_prose() -> None:
             )
         ]
     )
-    assert "↳ Edit · a.rs" in out
+    assert "Edit · a.rs" in out
+    assert out.count("↳") == 1
     assert "subagent narration" not in out
 
 
@@ -191,18 +192,32 @@ def _task_spawn(block_id: str, description: str) -> str:
     )
 
 
-def test_subagent_lane_label_from_task_description() -> None:
+def test_subagent_lane_label_is_first_word_of_description() -> None:
     out = _run(
         [
-            _task_spawn("toolu_A", "review bugs"),
+            _task_spawn("toolu_A", "Ivan splits _merge_envelopes"),
             _assistant(
                 [{"type": "tool_use", "name": "Edit", "input": {"file_path": "a.rs"}}],
                 parent="toolu_A",
             ),
         ]
     )
-    assert "⟨review bugs⟩" in out
-    assert "↳ Edit · a.rs" in out
+    assert "↳ ⟨Ivan⟩ Edit · a.rs" in out
+    assert "⟨Ivan splits" not in out  # the full title lives in the agents view
+
+
+def test_lane_label_strips_trailing_punctuation() -> None:
+    out = _run(
+        [
+            _task_spawn("toolu_A", "Watcher: hold session for cycle-2 reviewer"),
+            _assistant(
+                [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}],
+                parent="toolu_A",
+            ),
+        ]
+    )
+    assert "⟨Watcher⟩" in out
+    assert "⟨Watcher:⟩" not in out
 
 
 def test_unknown_parent_falls_back_to_agent_n() -> None:
@@ -220,8 +235,8 @@ def test_unknown_parent_falls_back_to_agent_n() -> None:
 def test_lanes_are_distinct_and_stable_across_events() -> None:
     out = _run(
         [
-            _task_spawn("toolu_A", "lane alpha"),
-            _task_spawn("toolu_B", "lane beta"),
+            _task_spawn("toolu_A", "alpha work"),
+            _task_spawn("toolu_B", "beta work"),
             _assistant(
                 [{"type": "tool_use", "name": "Read", "input": {"file_path": "x"}}],
                 parent="toolu_A",
@@ -236,8 +251,8 @@ def test_lanes_are_distinct_and_stable_across_events() -> None:
             ),
         ]
     )
-    assert out.count("⟨lane alpha⟩") == 2
-    assert out.count("⟨lane beta⟩") == 1
+    assert out.count("⟨alpha⟩") == 2
+    assert out.count("⟨beta⟩") == 1
 
 
 def test_lane_color_stable_per_lane_and_distinct() -> None:
@@ -249,14 +264,14 @@ def test_lane_color_stable_per_lane_and_distinct() -> None:
     spec.loader.exec_module(rs)
     rs._color_enabled = True
     rs._lanes.clear()
-    rs._register_lane("toolu_A", "alpha")
-    rs._register_lane("toolu_B", "beta")
+    rs._register_lane("toolu_A", "alpha work")
+    rs._register_lane("toolu_B", "beta work")
     a_first = rs._lane("toolu_A")
     b_first = rs._lane("toolu_B")
     a_second = rs._lane("toolu_A")
     assert a_first == a_second
     assert a_first != b_first
-    assert a_first.split("⟨")[0] != b_first.split("⟨")[0]
+    assert a_first.split("⟨")[0] != b_first.split("⟨")[0]  # distinct lane color
 
 
 def test_subagent_error_line_carries_lane() -> None:
@@ -276,11 +291,10 @@ def test_subagent_error_line_carries_lane() -> None:
         }
     )
     out = _run([_task_spawn("toolu_A", "review bugs"), err])
-    assert "⟨review bugs⟩" in out
-    assert "✗ boom" in out
+    assert "↳ ⟨review⟩ ✗ boom" in out
 
 
-def test_parent_lines_carry_no_lane_brackets() -> None:
+def test_parent_lines_carry_no_lane_tag() -> None:
     out = _run(
         [
             _assistant(
@@ -289,3 +303,4 @@ def test_parent_lines_carry_no_lane_brackets() -> None:
         ]
     )
     assert "⟨" not in out
+    assert "↳" not in out
