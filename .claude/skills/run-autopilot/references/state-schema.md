@@ -283,13 +283,21 @@ mv dev/local/autopilot/ledger/fable-requests.json.bak dev/local/autopilot/ledger
 
 then re-run the intended `autoclaude approve-fable <prd>` / `autoclaude reject-fable <prd>`.
 
-**Operator fallback when `autoclaude` is unavailable.** Invoke the sole writer by hand:
+**Operator fallback when `autoclaude` is unavailable.** Run every command below from the repo root: the ledger path is relative, and unlike `autoclaude approve-fable`/`reject-fable`, `fablectl.py` does not walk up the tree to find it, so any other cwd resolves to the wrong (or a missing) ledger. Invoke the sole writer by hand:
 
 ```
 python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py dev/local/autopilot/ledger/fable-requests.json decide <prd> approved
 ```
 
 (swap `approved` for `rejected` to reject). Exit **0** means the decision landed. Exit **3** means there is no entry for `<prd>` at `status: "requested"` (already decided, already consumed, or never requested) - a legitimate answer, not a retry. Exit **1** is a bad argument, **2** an unreadable or corrupt ledger, **4** an OS error; retry once on 1, 2, or 4, never "fix" a 3 by editing the file.
+
+**On approval, also un-park the PRD by hand.** `autoclaude approve-fable <prd>` does two things: it writes the ledger decision above, and it moves the PRD from `dev/local/prds/hold/` to `dev/local/prds/backlog/`. Autopilot never reads `hold/`, so stopping after `decide ... approved` leaves the approval inert and the rescue never fires - the project's own design record calls this shape a trap. After a successful `decide ... approved`, from the repo root run:
+
+```
+mv dev/local/prds/hold/<00XXX-...>.md dev/local/prds/backlog/
+```
+
+then confirm the file landed at the new path, since `mv` can exit 0 without delivering. If the PRD is not in `hold/` to begin with, there is nothing to move; that is a success, not an error. This move belongs to an **approval only** - a **rejection** deliberately leaves the PRD in `hold/` for human disposition, so skip the move on reject.
 
 This is the successor to PRD 00076's "manual state edit" fallback: the acceptance criterion that a manual path stays documented is met by this direct invocation, not by hand-editing JSON. It is still the same sole writer, called by hand instead of through the wrapper - never edit `fable-requests.json` directly. Hand-editing bypasses the advisory lock and the transition table, which is exactly what the one-approval-per-PRD latch depends on.
 
