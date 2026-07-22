@@ -1460,10 +1460,13 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         doc = self.exploited(
             (
                 "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
-                "feedback retry) before diagnosis; the `fable` rescue rung gets 1 "
-                "capability dispatch per PRD, ever (no feedback retry, no repair);",
+                "feedback retry) before diagnosis; the codex rung gets 2 "
+                "dispatches (initial + one feedback retry), and never a repair; "
+                "the `fable` rescue rung gets 1 capability dispatch per PRD, "
+                "ever (no feedback retry, no repair);",
                 "Claude rungs (haiku/sonnet/opus/fable) get 2 dispatches (initial "
-                "+ one feedback retry) before diagnosis;",
+                "+ one feedback retry) before diagnosis; the codex rung gets 2 "
+                "dispatches (initial + one feedback retry), and never a repair;",
             )
         )
         self.assertTrue(
@@ -1615,8 +1618,8 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         #     eligible tiers instead of excluding it - a second Fable dispatch.
         doc = self.exploited(
             (
-                "haiku/sonnet/opus rungs only, never fable",
-                "haiku/sonnet/opus/fable rungs only",
+                "haiku/sonnet/opus and codex rungs only, never fable",
+                "haiku/sonnet/opus/fable and codex rungs only",
             )
         )
         self.assertEqual(
