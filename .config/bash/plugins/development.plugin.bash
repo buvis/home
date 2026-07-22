@@ -294,7 +294,7 @@ _autopilot_build_model() {
       NR>1 && $0=="---" {exit 1}
       NR>1 {
         line=$0
-        sub(/[ \t]*#.*$/, "", line)
+        sub(/[ \t]+#.*$/, "", line)
         if (line ~ /^[ \t]*default_model[ \t]*:[ \t]*("opus"|\047opus\047|opus)[ \t]*$/) {found=1; exit 0}
       }
       END {exit !found}
