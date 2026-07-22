@@ -414,9 +414,11 @@ Verdict is `"healthy"` iff ALL of: the helper exited 0, the `-o` file is non-emp
 
 Reuses `use-codex/references/dispatch-contract.md` unchanged:
 
+- **No-edit probe: before-capture.** Immediately before this background Bash dispatch, capture porcelain for the task's own file slice — never the whole worktree, so a concurrent user edit elsewhere cannot mask this arm: `git --git-dir=<bare-git-dir> --work-tree=<work-tree> status --porcelain -- <file slice>`;
 - background Bash, never Agent-wrapped (era invariant: a subagent that shells out to a CLI hangs);
 - `-f <prompt file>` and `-o <output file>`, absolute paths;
 - `TaskOutput(task_id, block=true, timeout=600000)` as the watchdog;
+- **No-edit probe: after-capture.** Immediately after `TaskOutput` returns, before step 4 hands off, capture porcelain again with the same command and file slice. Latch the before/after comparison as `codex_no_edit` in the attempt record — step 5.5 reads only this latched flag and never re-runs `git status`. A non-zero exit on either capture is INDETERMINATE, not "no change": do not latch `codex_no_edit`; record the exit code in `codex_no_edit_probe_exit` instead and continue through the capability path normally;
 - completion judged by the `-o` file plus the step-5.5 test gate — **never by exit code alone**;
 - **edit-enabled sandbox: `-a` (`--sandbox workspace-write`), never `-y`.** `-y` maps to `--dangerously-bypass-approvals-and-sandbox`, i.e. no sandbox at all; granting that to an unattended autonomous implementor is unbounded write access for no added capability, and the dispatch contract requires an explicit calling-skill grant before any unattended `-y`. `-a` needs no such grant.
 - **`-d <realpath of dev/local>`** whenever the task's file slice includes a `dev/local/` path: that path is a symlink outside the workspace here and CLI backends cannot follow it without `--add-dir`. Omit it otherwise, keeping the sandbox as narrow as the task requires.
@@ -449,6 +451,8 @@ This is a prompt-level mitigation for a host-level policy, so it is best-effort 
 | Context exceeded | Append attempt-log entry (`outcome: "aborted"`, `cause: "context_overrun"`). Split task per `references/task-splitting.md`, mark original as blocked. |
 | Error | Invoke `debug-stuck-agent` (step 4.5). On unrecoverable error, append attempt-log entry (`outcome: "aborted"`, `cause: "error"`). Report to user. |
 | Result lost / hung | The Agent result is empty, is `[Tool result missing due to internal error]`, or the Subagent Watchdog killed a hung agent. This is an infrastructure failure, not real work — apply the **infrastructure-failure circuit breaker** (step 4.2). |
+
+The `codex_no_edit` / `codex_no_edit_probe_exit` flags latched during dispatch (step 3) are consumed by step 5.5's classification, not here.
 
 ### 4.2. Infrastructure-failure circuit breaker
 
@@ -514,7 +518,7 @@ Per-rung budgets are declared once in `model-ladder.md` § Per-rung budgets — 
 2. **Infra (no-edit arm):** when the `-o` file is non-empty and the helper exited 0 but the run produced no working-tree change, classify the hook-blocked prose-only run as infra: fall back to Claude at tier, with no feedback retry and no `escalation_reason`, and record `cause: "codex_no_edit"`.
 3. **Capability:** a step-5.5 test-gate failure after a run that did edit the tree enters diagnosis and escalates with a stamp.
 
-The no-edit detector runs at the dispatch boundary, **not at step 5.5**. Step 5 commits the implementation before the step-5.5 gate, so the porcelain is clean at 5.5 for both a successful codex run and a no-edit run; checking there cannot distinguish them. Capture porcelain for the task's own file slice immediately before the codex dispatch, then capture it again in step 4 immediately after the helper returns and before step 5's `git add`; latch the comparison as `codex_no_edit` in the attempt record, and have step 5.5 read only that latched flag — never re-run `git status` here. Scoping both snapshots to the task's own file slice prevents a concurrent user edit elsewhere in the live worktree from masking this arm.
+The no-edit detector runs at the dispatch boundary, **not at step 5.5**. Step 5 commits the implementation before the step-5.5 gate, so the porcelain is clean at 5.5 for both a successful codex run and a no-edit run; checking there cannot distinguish them. Capture porcelain for the task's own file slice immediately before the codex dispatch, then capture it again immediately after the helper returns and before step 5's `git add` (both captures are checklist steps in step 3's Codex dispatch section); latch the comparison as `codex_no_edit` in the attempt record, and have step 5.5 read only that latched flag — never re-run `git status` here. Scoping both snapshots to the task's own file slice prevents a concurrent user edit elsewhere in the live worktree from masking this arm.
 
 Both snapshots MUST use the same Git context as the `repo_root` invariant. A bare `git status` fails for a bare-repo-backed worktree: measured 2026-07-22, running `git status --porcelain <path>` from `/Users/bob/.claude` exits 128 with `fatal: not a git repository (or any of the parent directories): .git`, because `~/.claude` is tracked by the `~/.buvis` bare repo with work-tree `$HOME` and has no `.git` of its own. Use:
 
