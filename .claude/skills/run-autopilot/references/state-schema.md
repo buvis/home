@@ -376,6 +376,29 @@ Written at Phase 9 step 6, and appended incrementally by the Loop-mode stall pro
 
 Each entry preserves the full `research` field when available, so evidence is readable at batch-end review even after per-PRD state is cleared. Not deleted by autopilot - left for user review.
 
+## Build-Session Model Promotion Signals
+
+Governs which model launches a `build` (or empty, first-launch) phase session. Source: `_autopilot_build_model` in `~/.config/bash/plugins/development.plugin.bash` (around lines 276-331), called from the wrapper's per-phase launch dispatch. This closes the promotion-signal half of the PRD's Phase 0 acceptance criterion "Define `fable_request` and promotion-signal fields in state-schema.md" (see § Fable rescue ledger above for the `fable_request` half).
+
+**Precedence.** The `_AUTOPILOT_MODEL_BUILD` env override wins over everything: it is a kill switch, and the wrapper's `${_AUTOPILOT_MODEL_BUILD:-$(_autopilot_build_model ...)}` default expansion means `_autopilot_build_model` is not even called once the override is set, so no signal below can fire. Absent an override, any promotion signal firing launches `claude-opus-4-8`; with no override and no signal, the launch is `claude-sonnet-5`. Review-phase sessions always launch `claude-opus-4-8` at `xhigh` effort, and done-phase sessions always launch `claude-sonnet-5` at `medium` effort - separate case arms in the wrapper's dispatch table, untouched by this routing.
+
+**Target resolution.** The routed PRD is the lowest `00XXX-` basename in `<prds_dir>/wip/`, else the lowest in `<prds_dir>/backlog/` (`_autopilot_build_target`). This is never `state.prd`: between PRDs, `state.prd` still names the PRD that just finished. When neither `wip/` nor `backlog/` holds a PRD, there is no target and routing returns the Sonnet default outright.
+
+**The six signals.** Any one promotes the build session to Opus:
+
+1. **Frontmatter `default_model: opus`.** The target PRD's own file carries a `default_model` key set to exactly `opus` (bare or quoted), matched only inside its leading `---` frontmatter block. A commented-out line (`# default_model: opus`) never counts. A whitespace-preceded inline comment after the value still matches (`default_model: opus  # rationale` fires); a comment glued straight onto the value does not (`default_model: opus#suffix` does not fire, since there is no whitespace to strip before the `#`).
+2. **Replan history:** `state.replan_count > 0`.
+3. **Prior stall**, in either form:
+   - 3a. Live: `state.stall_reason != null`.
+   - 3b. Durable: a `type: "stall"` item naming the target in the 2 newest `<deferred_dir>/*-deferred.json` files (see § Batch Deferred Log above), chosen by filename sort - batch ids are minted in order, so filenames sort reliably; mtimes do not.
+4. **Context-cap rotation:** `state.cap_rotations` is a non-empty array. Beyond the PRD's four enumerated signals - see note below.
+5. **Fable rescue request:** a key equal to the target PRD's basename exists in the rescue ledger (`dev/local/autopilot/ledger/fable-requests.json`, see § Fable rescue ledger above), whatever its `status`. Beyond the PRD's four enumerated signals - see note below.
+6. **Repeat build session:** a prior build launch for the target appears in the loop-metrics tail - a line with `.prd == <target>` and `.phase_launched == "build"`. Checked against both `loop-metrics.jsonl` and its GC-exempt `ledger/` mirror, each independently bounded to its own newest 200 lines.
+
+**The `state.prd == target` guard.** Signals 2, 3a, and 4 fire only when `state.prd` equals the resolved target - all three live inside one combined check gated on that equality. Signals 1, 3b, 5, and 6 carry no such guard. This is what stops the PRD that just finished (still named by `state.prd`) from promoting the next PRD's build session on its own leftover replan count, live stall, or cap-rotation history - while a rescue-ledger entry, a durable deferred-log stall, or a metrics hit recorded under the new target's own filename still promotes it.
+
+**Signals 4 and 5 are not PRD-specified.** The PRD's Phase 0 acceptance criterion names four promotion signals: frontmatter `default_model: opus`, `replan_count > 0`, a prior stall for this PRD, and a repeat build session for the same PRD. `cap_rotations` (signal 4) and the rescue-ledger key (signal 5) are additions the shipped code carries beyond that set. Both appear in the design doc's signal table, and both are awaiting user ratification: document them here as shipped behavior, not as PRD-mandated.
+
 ## Skip Logic
 
 Used to determine which phases to skip:
