@@ -257,6 +257,21 @@ _autopilot_build_target() {
   printf '%s' "$_tpath"
 }
 
+# _autopilot_build_metrics_hit <loop_metrics.jsonl> <target_prd>
+# Signal 6 support: 0 when the newest-200-line tail of EITHER the primary
+# metrics file or its GC-exempt ledger/ mirror carries a build launch for the
+# target, 1 otherwise. The mirror is the primary with ledger/ inserted before
+# the filename. Both sources get the same 200-line bound applied independently
+# (the primary is GC-eligible past 14 days, purge-devlocal; the mirror is
+# not), and either may be absent, empty, or lag the other (both writes are
+# best-effort).
+_autopilot_build_metrics_hit() {
+  local _metrics="$1" _target="$2" _mirror
+  _mirror="${_metrics%/*}/ledger/${_metrics##*/}"
+  tail -n 200 "$_metrics" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1 \
+    || tail -n 200 "$_mirror" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1
+}
+
 # _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
 # Build-phase model routing: prints claude-opus-4-8 when the PRD about to be
 # built carries difficulty evidence, else claude-sonnet-5. Always exits 0 and
@@ -293,7 +308,7 @@ _autopilot_build_model() {
   # (6) a prior build session for the target in the metrics tail.
   if jq -e --arg t "$_target" '.prd == $t and ((.replan_count // 0) > 0 or .stall_reason != null or ((.cap_rotations // []) | length) > 0)' "$_state" >/dev/null 2>&1 \
     || jq -e --arg t "$_target" 'has($t)' "$_ledger" >/dev/null 2>&1 \
-    || tail -n 200 "$_metrics" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1
+    || _autopilot_build_metrics_hit "$_metrics" "$_target"
   then
     printf 'claude-opus-4-8\n'; return 0
   fi
