@@ -914,3 +914,61 @@ def test_output_always_has_exactly_the_six_contract_keys() -> None:
         "escalation_reason",
         "escalated_from",
     }
+
+
+# --- legacy tasks: absent `model` treated as sonnet --------------------------
+#
+# SKILL.md states in four places that a task with no `model` field — a plan
+# written before `metadata.model` existed — is treated as `sonnet`. These pin
+# that rule at the routing-table boundary: a missing key must behave exactly
+# like an explicit `"model": "sonnet"` for every row it can reach.
+
+
+def _legacy_task(**overrides: object) -> dict[str, object]:
+    """A task from a plan written before `metadata.model` existed — no `model` key."""
+    return dict(overrides)
+
+
+def test_legacy_task_without_model_routes_at_sonnet() -> None:
+    # Plain case: no `model`, no `qwen_eligible`. Row 7's own rule treats an
+    # absent `qwen_eligible` as false, so this must land on row 7 at the
+    # task's tier. If absent `model` is not treated as sonnet, `route` raises
+    # KeyError instead of ever returning a verdict.
+    verdict = _route(_legacy_task())
+
+    assert verdict == {"implementor": "claude", "tier": "sonnet", "rule": "row7"}
+
+
+def test_legacy_task_is_never_treated_as_opus() -> None:
+    # Row 2 fires on `task["model"] == "opus"`. A missing `model` key must not
+    # read as opus — if it did, this verdict would come back as
+    # {"implementor": "claude", "tier": "opus", "rule": "row2"}.
+    verdict = _route(_legacy_task())
+
+    assert verdict["tier"] != "opus"
+    assert verdict["rule"] != "row2"
+
+
+def test_legacy_task_that_is_qwen_eligible_still_reaches_the_qwen_row() -> None:
+    # Absent `model` must not short-circuit the rest of the table: with
+    # `qwen_eligible` true and a healthy preflight this must still fall
+    # through to row 5, still reporting the tier as "sonnet".
+    verdict = _route(_legacy_task(qwen_eligible=True))
+
+    assert verdict == {"implementor": "qwen", "tier": "sonnet", "rule": "row5"}
+
+
+def test_legacy_task_with_files_exclusion_reaches_codex_interception_at_sonnet() -> None:
+    # Row 7's codex-eligible files family, on a legacy task: no `model` key,
+    # `qwen_excluded_reason` "files", a healthy cached codex probe and the
+    # rung on must still intercept, and the reported tier must be "sonnet".
+    verdict = _route(
+        _legacy_task(qwen_excluded_reason="files"),
+        env=_env(_WORK_CODEX_RUNG="on"),
+    )
+
+    assert verdict == {
+        "implementor": "codex",
+        "tier": "sonnet",
+        "rule": "codex_interception",
+    }
