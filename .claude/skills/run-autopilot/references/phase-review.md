@@ -125,7 +125,7 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 - **Has blocking escalation** →
   - **Interactive:** PAUSE. Present only the blocking issue(s) to user via `AskUserQuestion`. Wait for decision. After user responds, proceed to Phase 6.
   - **Loop mode (`$_AUTOPILOT_LOOP` set):** there is no human to answer — do NOT pause the batch. Follow the **Loop-mode stall procedure** (`references/recovery.md`) with `site: "blocking_escalation"`, recording the blocking issue(s) in the deferred JSON `detail`, and continue the batch. The parked PRD, on un-park, re-enters the build gate and the decision resurfaces interactively.
-- **No issues found** → the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Hand off to the finalize session (see below).
+- **No issues found** → before treating the cycle as converged, run `python3 ~/.claude/skills/review-work-completion/scripts/check_review_file.py --review-file <this cycle's review file> --require-codex-guard --assert-constraint-met` (flag semantics: `check_review_file.py` module docstring). Exit 0 → the doubt-roster constraint certified; the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Hand off to the finalize session (see below). Exit 2 → the constraint did NOT hold; do NOT converge this cycle — this is not a batch halt, so re-run the Cap check above: below cap, continue to Phase 6 for another review cycle; at cap, record the finding as a cap-overflow deferral exactly like any other unresolved finding and proceed via the cap-overflow path already defined above. The batch keeps draining either way; this does not create a new batch-halt class.
 
 ### Hand off to the finalize session
 

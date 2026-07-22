@@ -23,8 +23,17 @@ one-line gap description on stderr. An unreadable file system exits 0 with a
 loud stderr note — an infrastructure error must not masquerade as a coverage
 gap (the old gate's DIFF_ERROR philosophy).
 
+--assert-constraint-met is an opt-in semantic check on top of the shape
+check above: when the codex_rung_guard line records `; constraint UNMET`
+(the doubt lens ran on codex alone), exit 2 instead of the usual 0 — a
+failure class distinct from a shape gap, so a caller can tell "malformed
+file" (exit 1) apart from "constraint not certified" (exit 2). A shape gap
+still wins when both are present: a file that fails the shape check cannot
+be trusted for a constraint reading, so it exits 1, not 2. Without this
+flag, `; constraint UNMET` remains a validly-shaped, exit-0 recorded form.
+
 CLI: check_review_file.py --review-file <path> [--reviewers alice,bob,...]
-[--require-codex-guard]
+[--require-codex-guard] [--assert-constraint-met]
 When --reviewers is omitted, the file's frontmatter `reviewers:` line (a
 comma-separated list written by consolidation) is used; if neither names any
 reviewer, only the verdict and tests lines are checked.
@@ -46,6 +55,10 @@ CODEX_RUNG_GUARD_RE = re.compile(
     r"fired \(\d+ codex-implemented task\(s\)\)"
     r"(; eve unavailable, doubt lens fell back to claude|; constraint UNMET)?"
     r"|not fired)\s*$",
+    re.MULTILINE,
+)
+CONSTRAINT_UNMET_RE = re.compile(
+    r"^codex_rung_guard: fired \(\d+ codex-implemented task\(s\)\); constraint UNMET\s*$",
     re.MULTILINE,
 )
 FRONTMATTER_REVIEWERS_RE = re.compile(r"^reviewers:\s*(.+)$", re.MULTILINE)
@@ -92,6 +105,7 @@ def main() -> int:
     parser.add_argument("--review-file", type=Path, required=True)
     parser.add_argument("--reviewers", default=None)
     parser.add_argument("--require-codex-guard", action="store_true", default=False)
+    parser.add_argument("--assert-constraint-met", action="store_true", default=False)
     args = parser.parse_args()
 
     if not args.review_file.exists():
@@ -119,6 +133,12 @@ def main() -> int:
     if gap is not None:
         sys.stderr.write(gap + "\n")
         return 1
+
+    if args.assert_constraint_met and CONSTRAINT_UNMET_RE.search(text):
+        sys.stderr.write(
+            "codex_rung_guard: constraint UNMET; doubt-roster constraint not certified\n"
+        )
+        return 2
     return 0
 
 
