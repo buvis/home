@@ -168,7 +168,7 @@ Reached from **Phase 2** when `/plan-tasks` exits non-zero and writes `state.sta
 
 ## Rework escalation exhausted
 
-Reached from **Phase 6** when a review-flagged task's last attempt was already at tier `"opus"` — the `haiku → sonnet → opus` chain has no higher tier, so the task cannot be reworked automatically.
+Reached from **Phase 6** when a review-flagged task's last attempt was already at tier `"opus"` (or at `"fable"`, when a rescue attempt was already spent) — the `haiku → sonnet → opus` chain has no higher tier the skill may pick on its own, so the task cannot be reworked automatically. The one exception is the human-gated Fable rescue gate below.
 
 Rewrite the attempt entry's `outcome` to `"rework_failed"`, then merge into state:
 
@@ -178,7 +178,38 @@ Rewrite the attempt entry's `outcome` to `"rework_failed"`, then merge into stat
 
 (The `outcome` rewrite is forensic — the stall move below clears `state.tasks` immediately after, so the `"rework_failed"` value only persists in pre-clear observers (any state.json reader — e.g. the tracon dashboard — catching the window between the rewrite and the clear). It documents the failure mode for external observers in the brief window before reset; the durable record lives in the PRD's commit history and in `stall_reason.stalled` itself.)
 
-Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3). This ordering matters because a crash between the two leaves the PRD in `hold/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
+### Fable rescue gate (PRD 00076)
+
+Runs BETWEEN the `outcome` rewrite above and the stall move below — after the rewrite so the justification can quote the final `rework_failed` state, before the stall move because that clears `state.tasks`. **Steps 0-4 in this subsection are the GATE's steps**; the stall move keeps its own 1-5 list under "Stall move" below, so a "step N" here always means a gate step. `<ledger>` is `dev/local/autopilot/ledger/fable-requests.json` (`references/state-schema.md` § Fable rescue ledger). `fable` is the human-gated rung above `opus` (`references/model-ladder.md` § Rungs); this gate is the only thing that ever selects it.
+
+0. **One-fable-attempt guard.** If the exhausted task's `attempts[-1].model` is already `"fable"`, this PRD has had its rescue attempt — skip steps 1 AND 2 entirely and go to step 4 (normal stall). This is a state-side guard, so it holds even if the ledger write of a prior attempt was lost to a crash.
+1. **Spend an approved rescue.** Otherwise run `python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py <ledger> show <state.prd>`. When it reports `status == "approved"`, spend the rescue instead of stalling, **in this order** (each numbered write is durable before the next runs):
+   a. **Queue the retry first** — `TaskUpdate(taskId, metadata={"model": "fable", "escalation_reason": "fable_rescue", "escalated_from": "opus"})`, `state.tasks[i].model = "fable"`, append the id to `state.rework_task_ids`, reset its status to `pending`. These are Phase 6 step 4's existing requeue mechanics (`references/phase-review.md`) with `"fable"` as the tier — the gate reuses them, it does not add a dispatch path.
+   b. **Then claim it** — `fablectl.py <ledger> consume <state.prd>`, which flips `approved` → `consumed`. A second claim for this PRD can never succeed (`consume` exits 3 unless the entry is `approved`).
+   c. **Then clear `stall_reason` from state and continue Phase 6's normal "Dispatch rework" path.** Do NOT stall. This path never reaches the stall move below, so `state.tasks` is not cleared and the PRD stays in `wip/` — but that also means the stall move's step 3 never runs, and it is the only other thing that clears `stall_reason`. The `escalation_exhausted` value written above was written in anticipation of a stall that is not happening; leaving it behind would make the next build-gate entry (a cap rotation sets `next_phase: "build"`) read it at Phase 0 and run "Crash recovery: escalation_exhausted seen at Phase 0" against a healthy PRD that is mid-rework.
+   Any other `show` result (no entry, or `requested` / `rejected` / `consumed`) → continue to step 2.
+2. **Record a new request.** Run `python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py <ledger> request <state.prd> <task_id> <task_name> <batch_id> <justification-json>`, where `justification` is a JSON object with `problem` (what the task could not achieve), `attempts` (the rung-by-rung history, e.g. `haiku(2) -> sonnet(2) -> opus(2), last outcome rework_failed`), and `impact` (what stays broken).
+   - **Exit 3 — the latch already fired** for this PRD (a `rejected` or `consumed` entry): log one line, notify nothing, fall through to step 4.
+   - **Exit 0 — a new request was recorded**: continue to step 3.
+3. **Notify:**
+   ```
+   python3 ~/.claude/hooks/notify.py --send "autopilot 🆘 <repo>" "Fable rescue requested for <prd>: run 'autoclaude approve-fable <prd>' or 'autoclaude reject-fable <prd>'."
+   ```
+   `--send` is the CLI path and dispatches unconditionally (the `_AUTOPILOT_LOOP` suppression applies only to hook-event mode), so an in-loop review session does fire this.
+4. **Continue into the stall move below**, unchanged: the PRD parks to `hold/` and the batch drains on. **No new pause path, no new halt class**, and `site` stays `escalation_exhausted`.
+
+**Caller contract for `fablectl` exits 1 and 2** (0 and 3 are normal control flow — `references/state-schema.md` § `fablectl.py`): retry the exact command ONCE. Still 1 or 2 → treat as a sub-skill failure per core `SKILL.md` § Error Handling — loop mode runs the "Loop-mode stall procedure" above with `site: "sub_skill_fail"` and the raw stderr in `detail`; interactive PAUSEs with the same site. No new halt class.
+
+**Crash windows.** Step 1's queue-then-claim order makes both windows recoverable:
+
+| Crash window | Ledger | State | Next session |
+|---|---|---|---|
+| after (a), before (b) | still `approved` | task queued at `fable` | rework mode dispatches the queued fable retry — the retry is not lost. If it then fails, step 0's guard sees `attempts[-1].model == "fable"` and refuses a second rescue |
+| after (b), before (c) | `consumed` | task queued at `fable` | same: rework mode dispatches the queued retry. Nothing re-claims |
+
+### Stall move
+
+Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3) — these numbers are this subsection's own 1-5 list, not the gate's 0-4. This ordering matters because a crash between the two leaves the PRD in `hold/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
 
 1. `mkdir -p dev/local/prds/hold` if missing.
 2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
