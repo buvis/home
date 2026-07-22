@@ -266,10 +266,11 @@ _autopilot_build_target() {
 # not), and either may be absent, empty, or lag the other (both writes are
 # best-effort).
 _autopilot_build_metrics_hit() {
-  local _metrics="$1" _target="$2" _mirror
-  _mirror="${_metrics%/*}/ledger/${_metrics##*/}"
-  tail -n 200 "$_metrics" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1 \
-    || tail -n 200 "$_mirror" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1
+  local _metrics="$1" _target="$2" _src
+  for _src in "$_metrics" "${_metrics%/*}/ledger/${_metrics##*/}"; do
+    tail -n 200 "$_src" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1 && return 0
+  done
+  return 1
 }
 
 # _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
