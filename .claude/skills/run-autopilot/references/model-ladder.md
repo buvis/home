@@ -138,8 +138,10 @@ and what each `fablectl` exit means — lives in `references/recovery.md`
      burns dispatches and is stamped permanently as a codex *capability*
      failure. The detector's probe is indeterminate on a non-zero exit: a
      failed probe is NOT "no change" and must NOT latch `codex_no_edit`. The
-     detector command and its evaluation point belong to `/work` step 5.5
-     and are not documented here.
+     detector command is documented in `/work` step 5.5, not here — and that
+     section pins its evaluation point at the DISPATCH BOUNDARY (step 4,
+     before step 5's `git add`), never at the step-5.5 gate itself, where the
+     porcelain is already clean for a successful run and a no-edit run alike.
   3. **Capability**: a step-5.5 test-gate failure on a run that DID edit the
      tree -> diagnose and escalate with a stamp.
 
