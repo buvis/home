@@ -167,12 +167,16 @@ class CheckReviewFileTests(unittest.TestCase):
             "codex_rung_guard: fired (3 codex-implemented task(s))",
         )
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_codex_rung_guard_not_fired_form_passes(self) -> None:
         p = self._write(GOOD_FILE)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_codex_rung_guard_position_in_file_does_not_matter(self) -> None:
@@ -180,7 +184,9 @@ class CheckReviewFileTests(unittest.TestCase):
         text = GOOD_FILE.replace("codex_rung_guard: not fired\n\n", "")
         text += "\ncodex_rung_guard: not fired\n"
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_codex_rung_guard_missing_entirely_exit_1(self) -> None:
@@ -253,6 +259,59 @@ class CheckReviewFileTests(unittest.TestCase):
         p = self._write(text)
         proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    # -- widened grammar: two additional suffix forms after the parenthetical,
+    # each naming a distinct guard-fired outcome; still a shape check only --
+
+    def test_codex_rung_guard_eve_unavailable_fallback_form_passes(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); "
+            "eve unavailable, doubt lens fell back to claude",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_codex_rung_guard_constraint_unmet_form_passes(self) -> None:
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); constraint UNMET",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_codex_rung_guard_eve_unavailable_alone_not_full_suffix_exit_1(
+        self,
+    ) -> None:
+        # Has the "; " separator but not the full documented suffix — must
+        # not be accepted by a loosely-widened (e.g. ".*") suffix pattern.
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); eve unavailable",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 1)
+
+    def test_codex_rung_guard_constraint_unmet_wrong_case_exit_1(self) -> None:
+        # Lowercase "unmet" is not the documented literal suffix.
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); constraint unmet",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 1)
 
 
 if __name__ == "__main__":
