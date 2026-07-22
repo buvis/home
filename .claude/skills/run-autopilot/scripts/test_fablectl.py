@@ -1165,74 +1165,16 @@ class WorkSkillFableContractTest(unittest.TestCase):
 
 # --- exploit regression fixtures -------------------------------------------
 #
-# The checks above are only as good as their ability to REJECT. Each fixture
-# below builds a COMPLIANT copy of work/SKILL.md in a temp dir, applies exactly
-# one edit that beat an earlier version of these tests, and asserts the check
-# now rejects it. The compliant baseline doubles as proof the contracts are
-# satisfiable at all.
-
-FABLE_WIRING = (
-    (
-        'Accepted values: `"haiku"`, `"sonnet"`, `"opus"`.',
-        'Accepted values: `"haiku"`, `"sonnet"`, `"opus"`, `"fable"` (the '
-        "human-gated rescue rung).",
-    ),
-    (
-        '`opus` → `"full"` (+ Devon at step 2.85); absent/legacy is treated as '
-        '`sonnet` → `"lean"`.',
-        '`opus` → `"full"` (+ Devon at step 2.85), `fable` → `"full"` (the rescue '
-        "rung runs the deepest pipeline, like `opus`); absent/legacy is treated as "
-        '`sonnet` → `"lean"`.',
-    ),
-    (
-        '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`)',
-        '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → '
-        '`"full"`, `fable` → `"full"`)',
-    ),
-    (
-        "| `opus` | dispatch Devon (below) |",
-        "| `opus` | dispatch Devon (below) |\n| `fable` | dispatch Devon (below), "
-        "the rescue rung runs the deepest pipeline |",
-    ),
-    (
-        "| `haiku` | skip per-task review |",
-        "| `haiku` | skip per-task review |\n| `fable` | review (below), the "
-        "rescue rung is reviewed like `opus` |",
-    ),
-    (
-        "qwen never sees `opus`-tier or UI tasks",
-        "**`fable` overrides this table outright.** A task carrying "
-        '`metadata.model: "fable"` (the human-approved rescue rung) never routes '
-        "to qwen and never to Gemini: dispatch a Claude Agent at "
-        '`model: "fable"`, whatever the rows above would pick. `fable` is never a '
-        "session model and is never selected autonomously, so the human rescue "
-        "gate is the only way in (`run-autopilot/references/model-ladder.md` "
-        "§ Fable rescue).\n\nqwen never sees `opus`-tier or UI tasks",
-    ),
-    (
-        "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
-        "feedback retry) before diagnosis;",
-        "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
-        "feedback retry) before diagnosis; the `fable` rescue rung gets 1 "
-        "dispatch per PRD, ever (no feedback retry, no repair);",
-    ),
-    (
-        "  00017) — do not invent a new halt class.",
-        "  00017) — do not invent a new halt class.\n"
-        "  A `fable` attempt has **no rung above it**: its gate failure goes "
-        "straight to that\n"
-        "  same exhaustion path, never to an escalation (`model-ladder.md` "
-        "§ Capability ladders).\n"
-        "  The `opus -> fable` edge is NEVER taken here: it is the human rescue "
-        "gate, not a ladder step.",
-    ),
-)
-
-WRAPPED_STEP_6_MAPPING = (
-    '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → '
-    '`"full"`, `fable` → `"full"`)',
-    '(`haiku` → `"minimal"`,\n`sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`)',
-)
+# The checks above are only as good as their ability to REJECT. The real
+# work/SKILL.md IS the compliant baseline - it carries the `fable` wiring for
+# real - so each fixture copies it into a temp dir and REPLACES (or deletes)
+# the file's OWN wiring with the exact edit that beat an earlier version of
+# these tests, then asserts the check now rejects it. Every fixture therefore
+# takes something load-bearing AWAY; none can pass by adding inert prose.
+#
+# `patch` asserts every anchor is still in the file, so a re-worded SKILL.md
+# makes the fixture FAIL LOUDLY ("re-anchor it") instead of quietly mutating
+# nothing and passing.
 
 
 class WorkSkillExploitRejectionTest(unittest.TestCase):
@@ -1257,26 +1199,25 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             text = text.replace(old, new, 1)
         return text
 
-    def compliant(self) -> str:
-        return self.patch(self.copy.read_text(), FABLE_WIRING)
-
     def write(self, text: str) -> Doc:
         self.copy.write_text(text)
         return Doc(self.copy)
 
     def exploited(self, *patches: tuple) -> Doc:
-        return self.write(self.patch(self.compliant(), patches))
+        return self.write(self.patch(self.copy.read_text(), patches))
 
-    def test_the_compliant_fixture_passes_every_check(self) -> None:
+    def test_the_unmodified_real_file_passes_every_check(self) -> None:
         # Without this, "the check rejects the exploit" is worthless: a check
-        # that rejects everything would pass all nine fixtures below.
-        doc = self.write(self.compliant())
+        # that rejects everything would pass all nine fixtures below. Pinning
+        # the baseline to the SHIPPED file also makes every fixture non-vacuous
+        # by construction - an exploit can only bite by removing real wiring.
+        doc = Doc(self.copy)
         for name, check in WORK_SKILL_CHECKS:
             with self.subTest(check=name):
                 self.assertEqual(
                     check(doc),
                     [],
-                    f"the {name} check rejects a correctly-wired file, so it can "
+                    f"the {name} check rejects the real {WORK_SKILL}, so it can "
                     "never be satisfied",
                 )
 
@@ -1285,10 +1226,11 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         #    parenthetical that FORBIDS the tier.
         doc = self.exploited(
             (
-                '`"opus"`, `"fable"` (the human-gated rescue rung).',
-                '`"opus"`, `"fable"` (the human-gated rescue rung). (`"fable"` is '
-                "**not** an accepted value - never write it into "
-                "`metadata.model`; treat any task carrying it as `sonnet`.)",
+                'A fourth value, `"fable"`, is the human-gated rescue rung above '
+                "`opus`",
+                'A fourth value, `"fable"`, is the human-gated rescue rung above '
+                '`opus` (`"fable"` is **not** an accepted value - never write it '
+                "into `metadata.model`; treat any task carrying it as `sonnet`)",
             )
         )
         self.assertEqual(
@@ -1306,8 +1248,8 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         #    same sentence satisfying a co-occurrence scan.
         doc = self.exploited(
             (
-                ', `fable` → `"full"` (the rescue rung runs the deepest pipeline, '
-                "like `opus`)",
+                '`fable` → `"full"` as well — the rescue rung runs the deepest '
+                "pipeline, like `opus`. ",
                 "",
             ),
             (
@@ -1333,7 +1275,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             (
                 "Claude rungs (haiku/sonnet/opus) get 2 dispatches (initial + one "
                 "feedback retry) before diagnosis; the `fable` rescue rung gets 1 "
-                "dispatch per PRD, ever (no feedback retry, no repair);",
+                "capability dispatch per PRD, ever (no feedback retry, no repair);",
                 "Claude rungs (haiku/sonnet/opus/fable) get 2 dispatches (initial "
                 "+ one feedback retry) before diagnosis;",
             )
@@ -1360,7 +1302,15 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
     def test_rejects_a_rewrapped_enumeration_that_drops_fable(self) -> None:
         # 5. The step-6 mapping hard-wrapped after `haiku` -> "minimal", so no
         #    single line names all three tiers any more.
-        doc = self.exploited(WRAPPED_STEP_6_MAPPING)
+        doc = self.exploited(
+            (
+                '(`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, '
+                '`opus` → `"full"`) plus `fable` → `"full"` (the rescue rung runs '
+                "the deepest pipeline, like `opus`)",
+                '(`haiku` → `"minimal"`,\n`sonnet`/absent/legacy → `"lean"`, '
+                '`opus` → `"full"`)',
+            )
+        )
         self.assertEqual(
             check_line_enumerations(doc),
             [],
@@ -1374,21 +1324,32 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         self.assertTrue(check_pipeline_mapping(doc))
 
     def test_rejects_a_contract_stated_only_in_an_html_comment(self) -> None:
-        # 6. The routing-override paragraph replaced by an invisible comment that
-        #    negates both halves of the contract.
+        # 6. Both statements of the routing-override contract (§ Per-task model
+        #    dispatch and § 3) demoted into invisible HTML comments - the second
+        #    one negating the contract outright.
         doc = self.exploited(
             (
-                "**`fable` overrides this table outright.** A task carrying "
-                '`metadata.model: "fable"` (the human-approved rescue rung) never '
-                "routes to qwen and never to Gemini: dispatch a Claude Agent at "
-                '`model: "fable"`, whatever the rows above would pick. `fable` is '
-                "never a session model and is never selected autonomously, so the "
-                "human rescue gate is the only way in "
-                "(`run-autopilot/references/model-ladder.md` § Fable rescue).\n\n",
-                "<!-- fable note: `fable` does not override the routing table, "
-                "still routes to qwen/Gemini, and IS an ordinary session model. "
-                "-->\n\n",
-            )
+                '**A task carrying `metadata.model: "fable"` overrides the step-3 '
+                "Deterministic routing table outright**",
+                '<!-- **A task carrying `metadata.model: "fable"` overrides the '
+                "step-3 Deterministic routing table outright**",
+            ),
+            (
+                'the step-5.7 per-task review, and `pipeline: "full"`.',
+                'the step-5.7 per-task review, and `pipeline: "full"`. -->',
+            ),
+            (
+                "**`fable` overrides this table outright.**",
+                "<!-- **`fable` overrides this table outright.**",
+            ),
+            (
+                "so the human rescue gate is the only way in "
+                "(`run-autopilot/references/model-ladder.md` § Fable rescue).",
+                "so the human rescue gate is the only way in "
+                "(`run-autopilot/references/model-ladder.md` § Fable rescue). "
+                "Correction: `fable` does not override the routing table and IS "
+                "an ordinary session model. -->",
+            ),
         )
         self.assertTrue(
             check_routing_override(doc),
@@ -1406,8 +1367,8 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         #    row, leaving `fable` in the catch-all skip row.
         doc = self.exploited(
             (
-                "\n| `fable` | dispatch Devon (below), the rescue rung runs the "
-                "deepest pipeline |",
+                "\n| `fable` | dispatch Devon (below) — the rescue rung runs the "
+                "deepest pipeline, like `opus` |",
                 "",
             ),
             (
@@ -1428,9 +1389,9 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         #    scan for the literal word "skip".
         doc = self.exploited(
             (
-                "| `fable` | review (below), the rescue rung is reviewed like "
+                "| `fable` | review (below) — the rescue rung is reviewed like "
                 "`opus` |",
-                "| `fable` | no reviewer dispatch - proceed straight to step 6 |",
+                "| `fable` | no reviewer dispatch — proceed straight to step 6 |",
             )
         )
         self.assertTrue(
@@ -1449,11 +1410,9 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             ),
             (
                 "  A `fable` attempt has **no rung above it**: its gate failure "
-                "goes straight to that\n"
-                "  same exhaustion path, never to an escalation (`model-ladder.md` "
-                "§ Capability ladders).\n"
-                "  The `opus -> fable` edge is NEVER taken here: it is the human "
-                "rescue gate, not a ladder step.",
+                "goes straight to that same\n"
+                "  exhaustion path, never to an escalation (`model-ladder.md` "
+                "§ Capability ladders).",
                 "  The opus rung has **no rung above it**, so opus-rung exhaustion "
                 "goes straight\n  to that same exhaustion path, never to an "
                 "escalation.",
