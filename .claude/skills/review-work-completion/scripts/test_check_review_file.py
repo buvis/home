@@ -186,7 +186,9 @@ class CheckReviewFileTests(unittest.TestCase):
     def test_codex_rung_guard_missing_entirely_exit_1(self) -> None:
         text = GOOD_FILE.replace("codex_rung_guard: not fired\n\n", "")
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 1)
         self.assertIn("codex_rung_guard", proc.stderr.lower())
 
@@ -196,7 +198,9 @@ class CheckReviewFileTests(unittest.TestCase):
             "codex_rung_guard: fired (codex-implemented task(s))",
         )
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 1)
 
     def test_codex_rung_guard_fired_non_numeric_count_exit_1(self) -> None:
@@ -205,7 +209,9 @@ class CheckReviewFileTests(unittest.TestCase):
             "codex_rung_guard: fired (three codex-implemented task(s))",
         )
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 1)
 
     def test_codex_rung_guard_bare_fired_no_parenthetical_exit_1(self) -> None:
@@ -213,7 +219,9 @@ class CheckReviewFileTests(unittest.TestCase):
             "codex_rung_guard: not fired", "codex_rung_guard: fired"
         )
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 1)
 
     def test_codex_rung_guard_trailing_junk_after_paren_exit_1(self) -> None:
@@ -222,7 +230,9 @@ class CheckReviewFileTests(unittest.TestCase):
             "codex_rung_guard: fired (3 codex-implemented task(s)) extra",
         )
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 1)
 
     def test_codex_rung_guard_wrong_key_casing_exit_1(self) -> None:
@@ -230,8 +240,19 @@ class CheckReviewFileTests(unittest.TestCase):
             "codex_rung_guard: not fired", "Codex_Rung_Guard: not fired"
         )
         p = self._write(text)
-        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
         self.assertEqual(proc.returncode, 1)
+
+    # Regression: the shared gate must stay usable for review kinds (blind
+    # reviews, shadow-run renders) that never carry a codex_rung_guard line —
+    # without --require-codex-guard, its absence is not a gap.
+    def test_missing_codex_rung_guard_without_flag_exit_0(self) -> None:
+        text = GOOD_FILE.replace("codex_rung_guard: not fired\n\n", "")
+        p = self._write(text)
+        proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":
