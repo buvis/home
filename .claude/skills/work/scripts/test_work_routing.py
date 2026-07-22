@@ -16,6 +16,7 @@ way, and the codex families run at both haiku and sonnet.
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -972,3 +973,178 @@ def test_legacy_task_with_files_exclusion_reaches_codex_interception_at_sonnet()
         "tier": "sonnet",
         "rule": "codex_interception",
     }
+
+
+# --- codex eligibility fence: extracted from model-ladder.md § Codex rung ---
+#
+# `_codex_eligible` mirrors the `codex_eligible(task)` fence in
+# `run-autopilot/references/model-ladder.md` § Codex rung, but nothing at
+# runtime reads that fence — this suite is its only consumer. The tests below
+# EXTRACT the fence's clauses from the ladder text at test time instead of
+# hardcoding a second copy of them, the same house pattern
+# `review-work-completion/scripts/test_codex_doubt_guard.sh` uses for its jq
+# predicate: a hardcoded copy would only prove `_codex_eligible` works, not
+# that the documented fence and the mirrored rule stayed in sync. If someone
+# edits the fence's field or value, these tests go red instead of the drift
+# surfacing later as a silently wrong routing decision.
+
+_LADDER_PATH = (
+    Path(__file__).parent
+    / ".."
+    / ".."
+    / "run-autopilot"
+    / "references"
+    / "model-ladder.md"
+).resolve()
+
+_CODEX_RUNG_HEADING_RE = re.compile(r"^## Codex rung\s*$", re.MULTILINE)
+_NEXT_HEADING_RE = re.compile(r"^## ", re.MULTILINE)
+_FENCE_RE = re.compile(r"```\n(.*?)\n[ \t]*```", re.DOTALL)
+_CLAUSE_RE = re.compile(r"task\.metadata\.(\w+)\s*==\s*(.+?)\s*$")
+
+
+def _extract_codex_eligible_clauses(ladder_text: str) -> list[tuple[str, object]]:
+    """The `(field, value)` clauses of the `codex_eligible(task)` fence in
+    `ladder_text`'s `## Codex rung` section.
+
+    Never a hardcoded copy of the fence: an edit to `ladder_text` changes what
+    this returns. Raises, naming what could not be found, rather than
+    returning an empty list or skipping — a missing rule is the exact drift
+    this guard exists to catch.
+    """
+    heading_match = _CODEX_RUNG_HEADING_RE.search(ladder_text)
+    if heading_match is None:
+        raise ValueError("'## Codex rung' heading not found in the ladder text")
+
+    section_start = heading_match.end()
+    next_heading_match = _NEXT_HEADING_RE.search(ladder_text, section_start)
+    section_end = (
+        next_heading_match.start() if next_heading_match else len(ladder_text)
+    )
+    section_text = ladder_text[section_start:section_end]
+
+    target_block: str | None = None
+    for candidate in _FENCE_RE.findall(section_text):
+        lines = candidate.splitlines()
+        if lines and lines[0].strip().startswith("codex_eligible(task)"):
+            target_block = candidate
+            break
+
+    if target_block is None:
+        raise ValueError(
+            "no fenced block starting with 'codex_eligible(task)' found in "
+            "the '## Codex rung' section"
+        )
+
+    clauses: list[tuple[str, object]] = []
+    for line in target_block.splitlines():
+        clause_match = _CLAUSE_RE.search(line)
+        if clause_match is None:
+            continue
+        field, raw_value = clause_match.group(1), clause_match.group(2)
+        if raw_value == "true":
+            value: object = True
+        elif raw_value == "false":
+            value = False
+        elif raw_value.startswith('"') and raw_value.endswith('"'):
+            value = raw_value[1:-1]
+        else:
+            value = raw_value
+        clauses.append((field, value))
+
+    if not clauses:
+        raise ValueError(
+            "'codex_eligible(task)' block found but no "
+            "'task.metadata.<field> == <value>' clause could be parsed from it"
+        )
+
+    return clauses
+
+
+_UNRELATED_EXCLUSION_REASON = "not_a_real_exclusion_reason"
+
+_LADDER_TEXT_MISSING_FENCE = """\
+## Codex rung
+
+Some prose about the rung with no fenced predicate at all.
+
+## Memory gate
+"""
+
+_ALTERED_LADDER_TEXT = """\
+## Codex rung
+
+- **Fences**: the eligibility predicate, evaluated at routing time:
+
+  ```
+  codex_eligible(task) =
+        task.metadata.qwen_eligible == true
+     OR task.metadata.qwen_excluded_reason == "tier"
+  ```
+
+## Memory gate
+"""
+
+
+def test_model_ladder_relative_path_resolves_to_a_real_file() -> None:
+    # A guard on the guard: if the ladder ever moves, this fails with a plain
+    # "no such file" message instead of a confusing failure inside the tests
+    # below that read it.
+    assert _LADDER_PATH.is_file()
+
+
+def test_codex_eligible_agrees_with_every_clause_extracted_from_the_real_ladder() -> (
+    None
+):
+    ladder_text = _LADDER_PATH.read_text()
+    clauses = _extract_codex_eligible_clauses(ladder_text)
+
+    for field, value in clauses:
+        task = {field: value}
+        assert work_routing._codex_eligible(task) is True, (
+            f"_codex_eligible must be True for a task carrying only "
+            f"{field!r}: {value!r} — the clause extracted from "
+            f"model-ladder.md § Codex rung"
+        )
+
+    reason_values = {
+        value for field, value in clauses if field == "qwen_excluded_reason"
+    }
+    assert _UNRELATED_EXCLUSION_REASON not in reason_values, (
+        "the sentinel exclusion reason collided with a real clause value; "
+        "pick a different sentinel"
+    )
+    unmatched_task = {
+        "qwen_eligible": False,
+        "qwen_excluded_reason": _UNRELATED_EXCLUSION_REASON,
+    }
+    assert work_routing._codex_eligible(unmatched_task) is False
+
+
+def test_extractor_distinguishes_an_altered_exclusion_reason_from_the_real_one() -> (
+    None
+):
+    # Proves the guard actually bites: this altered ladder text (never the
+    # real file — that one is off-limits) differs from the real fence only in
+    # the excluded-reason clause's value, "tier" instead of "files". The
+    # comparison the test above performs against the real clause would fail
+    # if run against this text: `_codex_eligible` still checks == "files", so
+    # a task built from the altered clause must DISAGREE, not agree.
+    altered_clauses = _extract_codex_eligible_clauses(_ALTERED_LADDER_TEXT)
+    reason_clauses = [
+        (field, value)
+        for field, value in altered_clauses
+        if field == "qwen_excluded_reason"
+    ]
+
+    assert reason_clauses == [("qwen_excluded_reason", "tier")]
+
+    field, value = reason_clauses[0]
+    assert work_routing._codex_eligible({field: value}) is False
+
+
+def test_extractor_raises_when_the_codex_rung_section_has_no_fenced_predicate() -> (
+    None
+):
+    with pytest.raises(ValueError, match="codex_eligible"):
+        _extract_codex_eligible_clauses(_LADDER_TEXT_MISSING_FENCE)
