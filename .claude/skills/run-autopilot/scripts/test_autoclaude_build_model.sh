@@ -246,196 +246,70 @@ assert_model "signal 1 boundary: no frontmatter block, body quotes default_model
   "$B6B/state.json" "$B6B/prds" "$B6B/loop-metrics.jsonl" "$B6B/ledger.json" "$B6B/deferred"
 
 # =============================================================================
-# Scenario 6c (signal 1 MUST fire) — no space after the colon.
+# Scenarios 6c-6q (signal 1, frontmatter edge cases): table-driven. Rows
+# differ only in the label, the expected model and the write_prd_fm body.
+# batch.id is irrelevant (signal 1 returns before state.json is read), so
+# every row shares one id; the loop builds the shared box/PRD/state.json/
+# assert_model boilerplate once per row.
 # =============================================================================
-B6C=$(mktemp -d); _DIRS+=("$B6C"); init_box "$B6C"
-P6C="00101-omit-the-colon-space-v1.md"
-write_prd_fm "$B6C/prds/wip/$P6C" $'catchup: skip\ndefault_model:opus\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fc"}}\n' \
-  "$P6C" >"$B6C/state.json"
-assert_model "signal 1 MUST fire: default_model:opus (no space after colon)" "claude-opus-4-8" \
-  "$B6C/state.json" "$B6C/prds" "$B6C/loop-metrics.jsonl" "$B6C/ledger.json" "$B6C/deferred"
+_SIG1_LABEL=() _SIG1_WANT=() _SIG1_BODY=()
 
-# =============================================================================
-# Scenario 6d (signal 1 MUST fire) — whitespace around both the key and the
-# value: leading indentation, extra spaces either side of the colon, and
-# trailing spaces after the value.
-# =============================================================================
-B6D=$(mktemp -d); _DIRS+=("$B6D"); init_box "$B6D"
-P6D="00102-pad-the-frontmatter-whitespace-v1.md"
-write_prd_fm "$B6D/prds/wip/$P6D" $'catchup: skip\n  default_model  :  opus  \ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fd"}}\n' \
-  "$P6D" >"$B6D/state.json"
-assert_model "signal 1 MUST fire: leading/trailing whitespace around key and value" "claude-opus-4-8" \
-  "$B6D/state.json" "$B6D/prds" "$B6D/loop-metrics.jsonl" "$B6D/ledger.json" "$B6D/deferred"
+# 6c (signal 1 MUST fire): no space after the colon.
+_SIG1_LABEL+=("signal 1 MUST fire: default_model:opus (no space after colon)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_BODY+=($'catchup: skip\ndefault_model:opus\ndesign: skip')
+# 6d (signal 1 MUST fire): whitespace around both the key and the value (leading indentation, extra spaces either side of the colon, and trailing spaces after the value).
+_SIG1_LABEL+=("signal 1 MUST fire: leading/trailing whitespace around key and value"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_BODY+=($'catchup: skip\n  default_model  :  opus  \ndesign: skip')
+# 6e (signal 1 MUST fire): YAML double-quoted value; /plan-tasks does a real YAML parse and applies its opus floor for this form, so this row pins the two consumers to agree.
+_SIG1_LABEL+=("signal 1 MUST fire: default_model: \"opus\" (double-quoted)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: "opus"\ndesign: skip')
+# 6f (signal 1 MUST fire): YAML single-quoted value, same rationale as 6e, the other quote style.
+_SIG1_LABEL+=("signal 1 MUST fire: default_model: 'opus' (single-quoted)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: \'opus\'\ndesign: skip')
+# 6g (signal 1 MUST NOT fire): a letter suffix on the value; a bare substring test treats "opus" as a prefix match and wrongly promotes.
+_SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opusX (letter suffix)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: opusX\ndesign: skip')
+# 6h (signal 1 MUST NOT fire): a hyphenated-word suffix on the value.
+_SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opus-extra (word suffix)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: opus-extra\ndesign: skip')
+# 6i (signal 1 MUST NOT fire): a different letter suffix on the value, so a fix that only special-cases "X" cannot pass by accident.
+_SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opusy (any suffix)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: opusy\ndesign: skip')
+# 6j (signal 1 MUST NOT fire): a commented-out line, no leading whitespace before the "#".
+_SIG1_LABEL+=("signal 1 MUST NOT fire: # default_model: opus (commented, no indent)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\n# default_model: opus\ndesign: skip')
+# 6k (signal 1 MUST NOT fire): a commented-out line, WITH leading whitespace before the "#".
+_SIG1_LABEL+=("signal 1 MUST NOT fire: # default_model: opus (commented, indented)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\n  # default_model: opus\ndesign: skip')
+# 6l (signal 1 MUST NOT fire): a trailing comment appended to a DIFFERENT key's line; there is no real default_model key in this block at all.
+_SIG1_LABEL+=("signal 1 MUST NOT fire: catchup: skip # default_model: opus (trailing comment on another key)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip # default_model: opus\ndesign: skip')
+# 6m (signal 1 MUST NOT fire): mismatched quotes around the value; a fix that strips a leading/trailing quote character without checking they match must not treat this as "opus".
+_SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: \"opus' (mismatched quotes)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: "opus\'\ndesign: skip')
+# 6n (signal 1 MUST NOT fire): a legitimate non-opus default_model line shares the block with a commented-out opus decoy; a check that ignores the block's other lines (or matches the block as one blob rather than the actual key) fails here.
+_SIG1_LABEL+=("signal 1 MUST NOT fire: real default_model: sonnet alongside a commented opus decoy"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: sonnet\n# default_model: opus\ndesign: skip')
+# 6o (signal 1 MUST NOT fire): a "#" glued directly onto the value with NO preceding whitespace; in YAML a "#" only starts an inline comment when preceded by whitespace (or starts the line), so this whole thing is the scalar value "opus#suffix", not "opus" followed by a comment.
+_SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opus#suffix (no whitespace before #)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: opus#suffix\ndesign: skip')
+# 6p (signal 1 MUST NOT fire): same shape as 6o, but the glued suffix itself repeats the target word; a naive fix that strips everything from the first "#" and rechecks the remainder for "opus" would still wrongly promote here, since the text after the "#" is also "opus".
+_SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opus#opus (glued suffix repeats the target word)"); _SIG1_WANT+=("claude-sonnet-5")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: opus#opus\ndesign: skip')
+# 6q (signal 1 MUST fire): a genuine YAML inline comment, the "#" is preceded by whitespace (two spaces), so per real YAML semantics the scalar value is "opus" and the rest is a comment. This is a GUARD row, not a bug row: it already passes against the current code.
+# Its job is to pin that the upcoming whitespace-preceded-# fix (which makes 6o/6p pass) does not over-correct and stop this legitimate form from promoting.
+_SIG1_LABEL+=("signal 1 MUST fire: default_model: opus  # rationale (whitespace-preceded inline comment)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_BODY+=($'catchup: skip\ndefault_model: opus  # rationale\ndesign: skip')
 
-# =============================================================================
-# Scenario 6e (signal 1 MUST fire) — YAML double-quoted value. /plan-tasks does
-# a real YAML parse and applies its opus floor for this form; this row pins the
-# two consumers to agree.
-# =============================================================================
-B6E=$(mktemp -d); _DIRS+=("$B6E"); init_box "$B6E"
-P6E="00103-double-quote-the-opus-value-v1.md"
-write_prd_fm "$B6E/prds/wip/$P6E" $'catchup: skip\ndefault_model: "opus"\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fe"}}\n' \
-  "$P6E" >"$B6E/state.json"
-assert_model "signal 1 MUST fire: default_model: \"opus\" (double-quoted)" "claude-opus-4-8" \
-  "$B6E/state.json" "$B6E/prds" "$B6E/loop-metrics.jsonl" "$B6E/ledger.json" "$B6E/deferred"
-
-# =============================================================================
-# Scenario 6f (signal 1 MUST fire) — YAML single-quoted value. Same rationale
-# as 6e, the other quote style.
-# =============================================================================
-B6F=$(mktemp -d); _DIRS+=("$B6F"); init_box "$B6F"
-P6F="00104-single-quote-the-opus-value-v1.md"
-write_prd_fm "$B6F/prds/wip/$P6F" $'catchup: skip\ndefault_model: \'opus\'\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-ff"}}\n' \
-  "$P6F" >"$B6F/state.json"
-assert_model "signal 1 MUST fire: default_model: 'opus' (single-quoted)" "claude-opus-4-8" \
-  "$B6F/state.json" "$B6F/prds" "$B6F/loop-metrics.jsonl" "$B6F/ledger.json" "$B6F/deferred"
-
-# =============================================================================
-# Scenario 6g (signal 1 MUST NOT fire) — a letter suffix on the value. A bare
-# substring test treats "opus" as a prefix match and wrongly promotes.
-# =============================================================================
-B6G=$(mktemp -d); _DIRS+=("$B6G"); init_box "$B6G"
-P6G="00105-suffix-opus-with-a-letter-v1.md"
-write_prd_fm "$B6G/prds/wip/$P6G" $'catchup: skip\ndefault_model: opusX\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fg"}}\n' \
-  "$P6G" >"$B6G/state.json"
-assert_model "signal 1 MUST NOT fire: default_model: opusX (letter suffix)" "claude-sonnet-5" \
-  "$B6G/state.json" "$B6G/prds" "$B6G/loop-metrics.jsonl" "$B6G/ledger.json" "$B6G/deferred"
-
-# =============================================================================
-# Scenario 6h (signal 1 MUST NOT fire) — a hyphenated-word suffix on the value.
-# =============================================================================
-B6H=$(mktemp -d); _DIRS+=("$B6H"); init_box "$B6H"
-P6H="00106-suffix-opus-with-a-word-v1.md"
-write_prd_fm "$B6H/prds/wip/$P6H" $'catchup: skip\ndefault_model: opus-extra\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fh"}}\n' \
-  "$P6H" >"$B6H/state.json"
-assert_model "signal 1 MUST NOT fire: default_model: opus-extra (word suffix)" "claude-sonnet-5" \
-  "$B6H/state.json" "$B6H/prds" "$B6H/loop-metrics.jsonl" "$B6H/ledger.json" "$B6H/deferred"
-
-# =============================================================================
-# Scenario 6i (signal 1 MUST NOT fire) — a different letter suffix on the
-# value, so a fix that only special-cases "X" cannot pass by accident.
-# =============================================================================
-B6I=$(mktemp -d); _DIRS+=("$B6I"); init_box "$B6I"
-P6I="00107-suffix-opus-with-a-trailing-y-v1.md"
-write_prd_fm "$B6I/prds/wip/$P6I" $'catchup: skip\ndefault_model: opusy\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fi"}}\n' \
-  "$P6I" >"$B6I/state.json"
-assert_model "signal 1 MUST NOT fire: default_model: opusy (any suffix)" "claude-sonnet-5" \
-  "$B6I/state.json" "$B6I/prds" "$B6I/loop-metrics.jsonl" "$B6I/ledger.json" "$B6I/deferred"
-
-# =============================================================================
-# Scenario 6j (signal 1 MUST NOT fire) — a commented-out line, no leading
-# whitespace before the "#".
-# =============================================================================
-B6J=$(mktemp -d); _DIRS+=("$B6J"); init_box "$B6J"
-P6J="00108-comment-out-the-opus-line-v1.md"
-write_prd_fm "$B6J/prds/wip/$P6J" $'catchup: skip\n# default_model: opus\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fj"}}\n' \
-  "$P6J" >"$B6J/state.json"
-assert_model "signal 1 MUST NOT fire: # default_model: opus (commented, no indent)" "claude-sonnet-5" \
-  "$B6J/state.json" "$B6J/prds" "$B6J/loop-metrics.jsonl" "$B6J/ledger.json" "$B6J/deferred"
-
-# =============================================================================
-# Scenario 6k (signal 1 MUST NOT fire) — a commented-out line, WITH leading
-# whitespace before the "#".
-# =============================================================================
-B6K=$(mktemp -d); _DIRS+=("$B6K"); init_box "$B6K"
-P6K="00109-indent-the-commented-opus-line-v1.md"
-write_prd_fm "$B6K/prds/wip/$P6K" $'catchup: skip\n  # default_model: opus\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fk"}}\n' \
-  "$P6K" >"$B6K/state.json"
-assert_model "signal 1 MUST NOT fire: # default_model: opus (commented, indented)" "claude-sonnet-5" \
-  "$B6K/state.json" "$B6K/prds" "$B6K/loop-metrics.jsonl" "$B6K/ledger.json" "$B6K/deferred"
-
-# =============================================================================
-# Scenario 6l (signal 1 MUST NOT fire) — a trailing comment appended to a
-# DIFFERENT key's line. There is no real default_model key in this block at
-# all.
-# =============================================================================
-B6L=$(mktemp -d); _DIRS+=("$B6L"); init_box "$B6L"
-P6L="00110-trail-a-comment-on-another-key-v1.md"
-write_prd_fm "$B6L/prds/wip/$P6L" $'catchup: skip # default_model: opus\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fl"}}\n' \
-  "$P6L" >"$B6L/state.json"
-assert_model "signal 1 MUST NOT fire: catchup: skip # default_model: opus (trailing comment on another key)" "claude-sonnet-5" \
-  "$B6L/state.json" "$B6L/prds" "$B6L/loop-metrics.jsonl" "$B6L/ledger.json" "$B6L/deferred"
-
-# =============================================================================
-# Scenario 6m (signal 1 MUST NOT fire) — mismatched quotes around the value. A
-# fix that strips a leading/trailing quote character without checking they
-# match must not treat this as "opus".
-# =============================================================================
-B6M=$(mktemp -d); _DIRS+=("$B6M"); init_box "$B6M"
-P6M="00111-mismatch-the-opus-quotes-v1.md"
-write_prd_fm "$B6M/prds/wip/$P6M" $'catchup: skip\ndefault_model: "opus\'\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fm"}}\n' \
-  "$P6M" >"$B6M/state.json"
-assert_model "signal 1 MUST NOT fire: default_model: \"opus' (mismatched quotes)" "claude-sonnet-5" \
-  "$B6M/state.json" "$B6M/prds" "$B6M/loop-metrics.jsonl" "$B6M/ledger.json" "$B6M/deferred"
-
-# =============================================================================
-# Scenario 6n (signal 1 MUST NOT fire) — a legitimate non-opus default_model
-# line shares the block with a commented-out opus decoy. A check that ignores
-# the block's other lines (or matches on the block as one blob rather than the
-# actual key) fails here.
-# =============================================================================
-B6N=$(mktemp -d); _DIRS+=("$B6N"); init_box "$B6N"
-P6N="00112-hide-opus-behind-a-real-sonnet-line-v1.md"
-write_prd_fm "$B6N/prds/wip/$P6N" $'catchup: skip\ndefault_model: sonnet\n# default_model: opus\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fn"}}\n' \
-  "$P6N" >"$B6N/state.json"
-assert_model "signal 1 MUST NOT fire: real default_model: sonnet alongside a commented opus decoy" "claude-sonnet-5" \
-  "$B6N/state.json" "$B6N/prds" "$B6N/loop-metrics.jsonl" "$B6N/ledger.json" "$B6N/deferred"
-
-# =============================================================================
-# Scenario 6o (signal 1 MUST NOT fire) - a "#" glued directly onto the value,
-# with NO preceding whitespace. In YAML a "#" only starts an inline comment
-# when it is preceded by whitespace (or starts the line), so this whole thing
-# is the scalar value "opus#suffix", not "opus" followed by a comment.
-# =============================================================================
-B6O=$(mktemp -d); _DIRS+=("$B6O"); init_box "$B6O"
-P6O="00118-glue-a-comment-onto-the-value-v1.md"
-write_prd_fm "$B6O/prds/wip/$P6O" $'catchup: skip\ndefault_model: opus#suffix\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fo"}}\n' \
-  "$P6O" >"$B6O/state.json"
-assert_model "signal 1 MUST NOT fire: default_model: opus#suffix (no whitespace before #)" "claude-sonnet-5" \
-  "$B6O/state.json" "$B6O/prds" "$B6O/loop-metrics.jsonl" "$B6O/ledger.json" "$B6O/deferred"
-
-# =============================================================================
-# Scenario 6p (signal 1 MUST NOT fire) - same shape as 6o, but the glued
-# suffix itself repeats the target word. A naive fix that strips everything
-# from the first "#" and then re-checks the remainder for "opus" would still
-# wrongly promote here, since the text after the "#" is also "opus".
-# =============================================================================
-B6P=$(mktemp -d); _DIRS+=("$B6P"); init_box "$B6P"
-P6P="00119-glue-opus-onto-opus-v1.md"
-write_prd_fm "$B6P/prds/wip/$P6P" $'catchup: skip\ndefault_model: opus#opus\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fp"}}\n' \
-  "$P6P" >"$B6P/state.json"
-assert_model "signal 1 MUST NOT fire: default_model: opus#opus (glued suffix repeats the target word)" "claude-sonnet-5" \
-  "$B6P/state.json" "$B6P/prds" "$B6P/loop-metrics.jsonl" "$B6P/ledger.json" "$B6P/deferred"
-
-# =============================================================================
-# Scenario 6q (signal 1 MUST fire) - a genuine YAML inline comment: the "#" is
-# preceded by whitespace (two spaces), so per real YAML semantics the scalar
-# value is "opus" and the rest is a comment, not part of the value. This is a
-# GUARD row, not a bug row: it already passes against the current code. Its
-# job is to pin that the upcoming whitespace-preceded-# fix (which makes 6o/6p
-# pass) does not over-correct and stop this legitimate form from promoting.
-# =============================================================================
-B6Q=$(mktemp -d); _DIRS+=("$B6Q"); init_box "$B6Q"
-P6Q="00120-keep-the-real-inline-comment-v1.md"
-write_prd_fm "$B6Q/prds/wip/$P6Q" $'catchup: skip\ndefault_model: opus  # rationale\ndesign: skip'
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-fq"}}\n' \
-  "$P6Q" >"$B6Q/state.json"
-assert_model "signal 1 MUST fire: default_model: opus  # rationale (whitespace-preceded inline comment)" "claude-opus-4-8" \
-  "$B6Q/state.json" "$B6Q/prds" "$B6Q/loop-metrics.jsonl" "$B6Q/ledger.json" "$B6Q/deferred"
+for _i in "${!_SIG1_LABEL[@]}"; do
+  BX=$(mktemp -d); _DIRS+=("$BX"); init_box "$BX"
+  PX=$(printf '%05d-sigfm-edge-case-v1.md' "$_i")
+  write_prd_fm "$BX/prds/wip/$PX" "${_SIG1_BODY[$_i]}"
+  printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-sig1"}}\n' \
+    "$PX" >"$BX/state.json"
+  assert_model "${_SIG1_LABEL[$_i]}" "${_SIG1_WANT[$_i]}" \
+    "$BX/state.json" "$BX/prds" "$BX/loop-metrics.jsonl" "$BX/ledger.json" "$BX/deferred"
+done
 
 # =============================================================================
 # Scenario 7 (signal 2) — the PRD was replanned at least once. The other two
