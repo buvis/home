@@ -334,7 +334,7 @@ Apply the rows in this order — the first match wins (in practice `qwen_eligibl
 > whole table), never for a UI task, and never for `opus` tier — fence 2 and the
 > `fable` rule already exclude all three.
 
-The table's semantics plus this interception are pinned executably by `scripts/work_routing.py` and `scripts/test_work_routing.py` — editing the routing logic there flips a test red rather than silently drifting from this prose.
+`scripts/work_routing.py` is a decision model of the table and this interception, tested in isolation by `scripts/test_work_routing.py`; it is kept in sync with this prose by review, not by a test that flips red when the prose changes. The one exception is the `codex_eligible` fence itself: `test_work_routing.py` extracts it live from `model-ladder.md` § Codex rung, so an edit to that fence's field or value does flip a test red (see `test_codex_eligible_agrees_with_every_clause_extracted_from_the_real_ladder`).
 
 **Why condition 4 is required, not optional.** `model-ladder.md` promises that under `_AUTOPILOT_ESCALATION=legacy` the escalation machinery is byte-identical to pre-00065. The legacy branch of step 5.5 has no codex arm, so letting the interception fire under `legacy` would both falsify that promise and send a failing codex attempt into "escalate to the user" — in a headless loop, a stall with no defined `site:`, i.e. a new halt class. Gating the interception is cheaper than adding a codex carve-out to the legacy branch.
 
@@ -522,7 +522,7 @@ Both snapshots MUST use the same Git context as the `repo_root` invariant. A bar
 git --git-dir=<bare-git-dir> --work-tree=<work-tree> status --porcelain -- <file slice>
 ```
 
-For this repo the context is `--git-dir=/Users/bob/.buvis --work-tree=/Users/bob`. If either snapshot exits non-zero, the probe is **INDETERMINATE**, not "no change": do not latch `codex_no_edit`; record the exit code in `codex_no_edit_probe_exit` and continue through the capability path normally. A broken detector must never silently reclassify real codex capability failures as infra. These classification semantics are pinned executably by `scripts/work_routing.py` and `scripts/test_work_routing.py`.
+For this repo the context is `--git-dir=/Users/bob/.buvis --work-tree=/Users/bob`. If either snapshot exits non-zero, the probe is **INDETERMINATE**, not "no change": do not latch `codex_no_edit`; record the exit code in `codex_no_edit_probe_exit` and continue through the capability path normally. A broken detector must never silently reclassify real codex capability failures as infra. These classification semantics live as a hand-maintained model in `scripts/work_routing.py`, tested in isolation by `scripts/test_work_routing.py` — kept in sync with this prose by review, not by a test that goes red when the prose changes.
 
 ```
 gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure output, SAME tier
