@@ -64,9 +64,14 @@ _CODEX_ATTEMPT_OUTCOMES = {
 }
 
 
+def _tier(task: dict) -> str:
+    """The task's model tier. A legacy plan (no `model`, or `model: None`) is sonnet."""
+    return task.get("model") or "sonnet"
+
+
 def route(task: dict, env: dict, state: dict, probes: dict) -> dict:
     """Pick the implementor for one claimed task."""
-    tier = task["model"]
+    tier = _tier(task)
     if tier == "fable":
         return {"implementor": "claude", "tier": tier, "rule": "fable_override"}
 
@@ -108,7 +113,7 @@ def codex_attempt_outcome(signals: dict) -> dict:
 def _table_row(task: dict, env: dict, state: dict, probes: dict) -> str:
     if _is_ui(task):
         return "row1"
-    if task["model"] == "opus":
+    if _tier(task) == "opus":
         return "row2"
     if not task.get("qwen_eligible", False):
         return "row7"
