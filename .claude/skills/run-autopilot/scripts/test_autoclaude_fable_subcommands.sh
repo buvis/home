@@ -78,6 +78,17 @@
 #   - a helper that trusts `mv`'s exit code instead of checking the
 #     PRD arrived at backlog/<prd>                                  -> scenario 18
 #   - a helper that reports an unreadable ledger as "no request"    -> scenario 19
+#   - a helper that derives the ledger/PRD-folder paths from the
+#     resolver's answer without checking it actually succeeded, so
+#     a resolver failure collapses those paths onto `/`             -> scenarios 20, 21
+#   - a helper that uses <prd> as a ledger key and mv path
+#     component without rejecting `/` or `..` in it (path
+#     traversal)                                                     -> scenarios 22, 23
+#   - a <prd> validator that is either so loose it accepts a
+#     malformed filename, or so strict it rejects a well-formed
+#     one carrying ordinary hyphens/underscores/mixed case           -> scenarios 24, 25, 26
+#   - a helper that redirects the un-park mv's stderr to /dev/null
+#     and reports only generic guidance, never mv's own error text   -> scenario 27
 #
 # Run: bash ~/.claude/skills/run-autopilot/scripts/test_autoclaude_fable_subcommands.sh
 set -u
@@ -143,12 +154,20 @@ _autoclaude_tracon() {
 python3() {
   case "$*" in
     *_walk_up.py*)
-      # RECORDER, then the answer. An implementation that hardcodes a relative
-      # `dev/local/autopilot`, or that lifts a path out of the environment,
-      # produces the right ledger from the repo root and never lands here — so
-      # assert_walkup_called is the only assertion that can tell them apart.
+      # RECORDER, then the answer — or a simulated resolver failure, per
+      # $_STUB_WALKUP_MODE (set by run_sandboxed from the scenario's
+      # $WALKUP_MODE knob). Every scenario before 20 runs under the default
+      # "ok", so this arm's behavior for them is byte-for-byte what it always
+      # was. An implementation that hardcodes a relative `dev/local/autopilot`,
+      # or that lifts a path out of the environment, produces the right ledger
+      # from the repo root and never lands here — so assert_walkup_called is
+      # the only assertion that can tell them apart.
       printf 'walk_up %s\n' "$*" >>"$_STUB_AP_DIR/walkup-invocations.log"
-      printf '%s\n' "$_STUB_AP_DIR" ;;                  # resolve ap dir -> sandbox
+      case "${_STUB_WALKUP_MODE:-ok}" in
+        fail)  return 1 ;;                              # resolver fails outright, no answer
+        empty) return 0 ;;                               # resolver "succeeds" but prints nothing
+        *)     printf '%s\n' "$_STUB_AP_DIR" ;;          # resolve ap dir -> sandbox
+      esac ;;
     *fablectl.py*decide*)
       # RECORDER, then the REAL interpreter. fablectl.py must be the sole writer
       # of the ledger; a hand-rolled sed/jq edit satisfies every status and
@@ -172,6 +191,7 @@ SENTINEL="# the parked PRD body — must survive the un-park move verbatim"
 # Per-run knobs consumed by run_sandboxed (reset by every runner call).
 RUN_SUBDIR=""     # relative dir inside the sandbox to run from ("" = repo root)
 TRACON_MODE=0     # value exported as _AUTOPILOT_TRACON inside the sandbox
+WALKUP_MODE=""    # "ok" (default) | "fail" | "empty" — the python3 stub's *_walk_up.py* answer
 
 # ── sandbox construction ──────────────────────────────────────────────────────
 # write_recording_claude <dir> — a `claude` that logs every invocation AND writes
@@ -262,6 +282,7 @@ run_sandboxed() {
   (
     cd "$_rs_dir${RUN_SUBDIR:+/$RUN_SUBDIR}" || exit 90
     _STUB_AP_DIR="$_rs_dir/dev/local/autopilot"
+    _STUB_WALKUP_MODE="${WALKUP_MODE:-ok}"
     export _AUTOPILOT_TRACON="$TRACON_MODE"
     _AUTOPILOT_LOOPS_DIR="$_STUB_LOOPS_DIR"
     PATH="$_rs_dir/bin:$PATH"
@@ -282,7 +303,8 @@ run_sandboxed() {
           OTHER_PRD NEIGHBOUR_PRD REJECTED_NEIGHBOUR_PRD NEIGHBOUR_DECIDED_AT \
           TRACON_RECORDER USAGE_LINE TS_BEFORE TS_AFTER RUN_RC RUN_SUBDIR \
           TRACON_MODE PF_RC _rs_dir _rs_timeout _rs_d _STUB_LOOPS_DIR \
-          _DIRS _PIDS
+          _DIRS _PIDS WALKUP_MODE TRAVERSAL_PRD LEADING_SLASH_PRD \
+          WRONG_EXT_PRD NO_PREFIX_PRD UNUSUAL_PRD MV_ERR_TAIL MV_PREFLIGHT_RC
     unset "${!SBOX_@}" "${!LEDGER_@}"
     "$@"
   ) >"$_rs_dir/stdout.log" 2>"$_rs_dir/stderr.log" &
@@ -296,6 +318,7 @@ run_sandboxed() {
   wait "$_rs_safety_pid" 2>/dev/null
   RUN_SUBDIR=""
   TRACON_MODE=0
+  WALKUP_MODE=""
 }
 
 # run_helper <dir> [args…] — drive _autopilot_fable_decide directly (positional
@@ -1184,6 +1207,273 @@ assert_not_matches "$L19: message does NOT blame a missing request" "$SBOX_19/st
 assert_walkup_called "$L19: the autopilot dir came from _walk_up.py" "$SBOX_19"
 PASS "$L19: exit 2, ledger untouched, PRD left in hold/, stderr names the unreadable ledger"
 assert_no_loop "$L19: no loop session launched" "$SBOX_19"
+
+# =============================================================================
+# Scenario 20 — the autopilot-dir resolver fails outright (non-zero exit, no
+# stdout — exactly what the real _walk_up.py does on a miss). Trusting that
+# answer blindly derives a ledger path of `/ledger/fable-requests.json` and PRD
+# folders of `/prds/hold` and `/prds/backlog`; the helper must instead exit 2,
+# name the resolver/autopilot-dir as the cause, never call fablectl.py at all,
+# and never touch a real path rooted at `/`. The `/ledger` and `/prds` checks
+# run against the REAL machine (not the sandbox) — that is the whole point —
+# so a loud preflight refuses to run at all if either already exists.
+# =============================================================================
+L20="scenario 20 (approve when the autopilot-dir resolver fails outright)"
+
+make_sandbox; SBOX_20="$SBOX"; LEDGER_20="$LEDGER"
+seed_request "$LEDGER_20" "$PRD"
+park_prd "$SBOX_20" hold
+cp "$LEDGER_20" "$SBOX_20/ledger.expected"
+[ -e /ledger ] \
+  && FAIL "$L20: preflight" "/ledger already exists on this machine — cannot safely prove a resolver failure never touches it"
+[ -e /prds ] \
+  && FAIL "$L20: preflight" "/prds already exists on this machine — cannot safely prove a resolver failure never touches it"
+
+WALKUP_MODE=fail
+run_helper "$SBOX_20" approve-fable "$PRD"
+assert_no_timeout "$L20" "$SBOX_20"
+assert_rc "$L20: exits 2" "$SBOX_20" 2
+assert_matches "$L20: message names the resolver/autopilot-dir as the cause" "$SBOX_20/stderr.log" \
+  'resolv' \
+  "stderr does not say the autopilot directory could not be resolved"
+assert_ledger_unchanged "$L20: ledger is byte identical" "$SBOX_20" "$LEDGER_20"
+assert_in_dir "$L20: PRD is left parked in hold/" "$SBOX_20" hold
+[ -f "$SBOX_20/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L20: no write was attempted" "fablectl.py decide was invoked despite the resolver failing"
+[ -e /ledger ] \
+  && FAIL "$L20: nothing was touched at /" "/ledger now exists on the real machine — a root-derived path was created"
+[ -e /prds ] \
+  && FAIL "$L20: nothing was touched at /" "/prds now exists on the real machine — a root-derived path was created"
+assert_walkup_called "$L20: the resolver was actually invoked, not skipped" "$SBOX_20"
+PASS "$L20: exit 2, resolver failure named, nothing written, no /-rooted path touched"
+assert_no_loop "$L20: no loop session launched" "$SBOX_20"
+
+# =============================================================================
+# Scenario 21 — the mirror of 20 for the OTHER half of "fails or prints
+# nothing": the resolver exits 0 but prints an empty answer. A helper that
+# guards only on the resolver's exit code (`|| exit 2`) and never checks the
+# captured string for emptiness passes scenario 20 but not this one — closing
+# it forces the emptiness check too.
+# =============================================================================
+L21="scenario 21 (approve when the autopilot-dir resolver exits 0 but prints nothing)"
+
+make_sandbox; SBOX_21="$SBOX"; LEDGER_21="$LEDGER"
+seed_request "$LEDGER_21" "$PRD"
+park_prd "$SBOX_21" hold
+cp "$LEDGER_21" "$SBOX_21/ledger.expected"
+[ -e /ledger ] \
+  && FAIL "$L21: preflight" "/ledger already exists on this machine — cannot safely prove an empty resolver answer never touches it"
+[ -e /prds ] \
+  && FAIL "$L21: preflight" "/prds already exists on this machine — cannot safely prove an empty resolver answer never touches it"
+
+WALKUP_MODE=empty
+run_helper "$SBOX_21" approve-fable "$PRD"
+assert_no_timeout "$L21" "$SBOX_21"
+assert_rc "$L21: exits 2" "$SBOX_21" 2
+assert_matches "$L21: message names the resolver/autopilot-dir as the cause" "$SBOX_21/stderr.log" \
+  'resolv' \
+  "stderr does not say the autopilot directory could not be resolved"
+assert_ledger_unchanged "$L21: ledger is byte identical" "$SBOX_21" "$LEDGER_21"
+assert_in_dir "$L21: PRD is left parked in hold/" "$SBOX_21" hold
+[ -f "$SBOX_21/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L21: no write was attempted" "fablectl.py decide was invoked despite an empty resolver answer"
+[ -e /ledger ] \
+  && FAIL "$L21: nothing was touched at /" "/ledger now exists on the real machine — a root-derived path was created"
+[ -e /prds ] \
+  && FAIL "$L21: nothing was touched at /" "/prds now exists on the real machine — a root-derived path was created"
+assert_walkup_called "$L21: the resolver was actually invoked, not skipped" "$SBOX_21"
+PASS "$L21: exit 2 on a zero-exit empty answer too, nothing written, no /-rooted path touched"
+assert_no_loop "$L21: no loop session launched" "$SBOX_21"
+
+# =============================================================================
+# Scenario 22 — <prd> carries a `../` traversal segment. It is used both as a
+# ledger key and, unvalidated, as a path component in the un-park mv; a value
+# like `../<real-prd>` must be refused before either use, not silently walked.
+# The real $PRD stays seeded and parked so the scenario also proves the
+# rejection does not collaterally touch an unrelated, well-formed entry.
+# =============================================================================
+L22="scenario 22 (approve is refused when <prd> contains a ../ traversal segment)"
+TRAVERSAL_PRD="../$PRD"
+
+make_sandbox; SBOX_22="$SBOX"; LEDGER_22="$LEDGER"
+seed_request "$LEDGER_22" "$PRD"
+park_prd "$SBOX_22" hold
+cp "$LEDGER_22" "$SBOX_22/ledger.expected"
+
+run_helper "$SBOX_22" approve-fable "$TRAVERSAL_PRD"
+assert_no_timeout "$L22" "$SBOX_22"
+assert_rc "$L22: exits 2" "$SBOX_22" 2
+assert_matches "$L22: prints a usage-shaped message" "$SBOX_22/stderr.log" 'usage' \
+  "stderr does not read as a usage message"
+assert_ledger_unchanged "$L22: ledger is byte identical" "$SBOX_22" "$LEDGER_22"
+assert_in_dir "$L22: the real PRD stays parked in hold/, untouched" "$SBOX_22" hold
+[ -f "$SBOX_22/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L22: no write was attempted" "fablectl.py decide was invoked for a traversal argument"
+PASS "$L22: exit 2, usage-shaped message, nothing written, nothing moved"
+assert_no_loop "$L22: no loop session launched" "$SBOX_22"
+
+# =============================================================================
+# Scenario 23 — the mirror of 22 for the OTHER traversal shape: <prd> is an
+# absolute path (a leading `/`). Its basename alone matches the naming
+# convention, so a validator that only checks the basename against the regex
+# and never scans the full argument for `/` would wrongly accept this.
+# =============================================================================
+L23="scenario 23 (approve is refused when <prd> is an absolute path)"
+LEADING_SLASH_PRD="/$PRD"
+
+make_sandbox; SBOX_23="$SBOX"; LEDGER_23="$LEDGER"
+seed_request "$LEDGER_23" "$PRD"
+park_prd "$SBOX_23" hold
+cp "$LEDGER_23" "$SBOX_23/ledger.expected"
+
+run_helper "$SBOX_23" approve-fable "$LEADING_SLASH_PRD"
+assert_no_timeout "$L23" "$SBOX_23"
+assert_rc "$L23: exits 2" "$SBOX_23" 2
+assert_matches "$L23: prints a usage-shaped message" "$SBOX_23/stderr.log" 'usage' \
+  "stderr does not read as a usage message"
+assert_ledger_unchanged "$L23: ledger is byte identical" "$SBOX_23" "$LEDGER_23"
+assert_in_dir "$L23: the real PRD stays parked in hold/, untouched" "$SBOX_23" hold
+[ -f "$SBOX_23/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L23: no write was attempted" "fablectl.py decide was invoked for an absolute-path argument"
+PASS "$L23: exit 2, usage-shaped message, nothing written, nothing moved"
+assert_no_loop "$L23: no loop session launched" "$SBOX_23"
+
+# =============================================================================
+# Scenario 24 — <prd> has the right digit prefix but the wrong extension
+# (`.txt`, not `.md`). No `/` or `..` is involved here; this pins the naming
+# check on its own, independent of the traversal check in 22/23.
+# =============================================================================
+L24="scenario 24 (approve is refused when <prd> has the right prefix but the wrong extension)"
+WRONG_EXT_PRD="00076-foo.txt"
+
+make_sandbox; SBOX_24="$SBOX"; LEDGER_24="$LEDGER"
+seed_request "$LEDGER_24" "$PRD"
+park_prd "$SBOX_24" hold
+cp "$LEDGER_24" "$SBOX_24/ledger.expected"
+
+run_helper "$SBOX_24" approve-fable "$WRONG_EXT_PRD"
+assert_no_timeout "$L24" "$SBOX_24"
+assert_rc "$L24: exits 2" "$SBOX_24" 2
+assert_matches "$L24: prints a usage-shaped message" "$SBOX_24/stderr.log" 'usage' \
+  "stderr does not read as a usage message"
+assert_ledger_unchanged "$L24: ledger is byte identical" "$SBOX_24" "$LEDGER_24"
+assert_in_dir "$L24: the real PRD stays parked in hold/, untouched" "$SBOX_24" hold
+[ -f "$SBOX_24/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L24: no write was attempted" "fablectl.py decide was invoked for a .txt argument"
+PASS "$L24: exit 2, usage-shaped message, nothing written"
+assert_no_loop "$L24: no loop session launched" "$SBOX_24"
+
+# =============================================================================
+# Scenario 25 — <prd> carries no PRD-number prefix at all. The mirror failure
+# mode from 24: this time the extension is right and the digit-hyphen prefix
+# is missing entirely.
+# =============================================================================
+L25="scenario 25 (approve is refused when <prd> carries no PRD-number prefix)"
+NO_PREFIX_PRD="notaprd.md"
+
+make_sandbox; SBOX_25="$SBOX"; LEDGER_25="$LEDGER"
+seed_request "$LEDGER_25" "$PRD"
+park_prd "$SBOX_25" hold
+cp "$LEDGER_25" "$SBOX_25/ledger.expected"
+
+run_helper "$SBOX_25" approve-fable "$NO_PREFIX_PRD"
+assert_no_timeout "$L25" "$SBOX_25"
+assert_rc "$L25: exits 2" "$SBOX_25" 2
+assert_matches "$L25: prints a usage-shaped message" "$SBOX_25/stderr.log" 'usage' \
+  "stderr does not read as a usage message"
+assert_ledger_unchanged "$L25: ledger is byte identical" "$SBOX_25" "$LEDGER_25"
+assert_in_dir "$L25: the real PRD stays parked in hold/, untouched" "$SBOX_25" hold
+[ -f "$SBOX_25/dev/local/autopilot/fablectl-invocations.log" ] \
+  && FAIL "$L25: no write was attempted" "fablectl.py decide was invoked for a prefix-less argument"
+PASS "$L25: exit 2, usage-shaped message, nothing written"
+assert_no_loop "$L25: no loop session launched" "$SBOX_25"
+
+# =============================================================================
+# Scenario 26 — a well-formed PRD name that is NOT the suite's plain fixture:
+# hyphens, an underscore and mixed case in the slug. This is the guard against
+# a validation regex clamped down so hard it also rejects legitimate names —
+# the approval must land exactly like scenario 1's. $PRD's own park/seed
+# helpers hardcode $PRD, so this scenario builds its fixtures directly.
+# =============================================================================
+L26="scenario 26 (approve succeeds for a well-formed PRD with hyphens, underscore and mixed case)"
+UNUSUAL_PRD="00076-Fix_the-Thing-v2.md"
+
+make_sandbox; SBOX_26="$SBOX"; LEDGER_26="$LEDGER"
+seed_request "$LEDGER_26" "$UNUSUAL_PRD"
+seed_request "$LEDGER_26" "$BYSTANDER"
+printf '%s\n' "$SENTINEL" >"$SBOX_26/dev/local/prds/hold/$UNUSUAL_PRD"
+
+TS_BEFORE=$(utc_now)
+run_helper "$SBOX_26" approve-fable "$UNUSUAL_PRD"
+TS_AFTER=$(utc_now)
+assert_no_timeout "$L26" "$SBOX_26"
+assert_rc "$L26: exits 0 (the naming convention allows this shape)" "$SBOX_26" 0
+assert_status "$L26: status becomes approved" "$LEDGER_26" "$UNUSUAL_PRD" approved
+assert_decided_at_between "$L26: decided_at is stamped at decision time" "$LEDGER_26" "$UNUSUAL_PRD" "$TS_BEFORE" "$TS_AFTER"
+assert_bystander_untouched "$L26: the unrelated requested entry is untouched" "$LEDGER_26"
+[ -f "$SBOX_26/dev/local/prds/backlog/$UNUSUAL_PRD" ] \
+  || FAIL "$L26: PRD is un-parked into backlog/" "expected a file at $SBOX_26/dev/local/prds/backlog/$UNUSUAL_PRD"
+[ "$(cat "$SBOX_26/dev/local/prds/backlog/$UNUSUAL_PRD")" = "$SENTINEL" ] \
+  || FAIL "$L26: the file in backlog/ is the original PRD" "body changed"
+[ -e "$SBOX_26/dev/local/prds/hold/$UNUSUAL_PRD" ] \
+  && FAIL "$L26: PRD no longer sits in hold/" "PRD is still present in hold/"
+assert_mentions "$L26: confirmation names the PRD" "$SBOX_26/stdout.log" "$UNUSUAL_PRD"
+assert_walkup_called "$L26: the autopilot dir came from _walk_up.py" "$SBOX_26"
+assert_fablectl_wrote "$L26: fablectl.py performed the ledger write" "$SBOX_26"
+PASS "$L26: a hyphen/underscore/mixed-case PRD name still approves and un-parks cleanly, exit 0"
+assert_no_loop "$L26: no loop session launched" "$SBOX_26"
+
+# =============================================================================
+# Scenario 27 — the un-park move fails (backlog/ made unwritable, as in
+# scenario 8), and this time the assertion is on the failure MESSAGE, not just
+# the outcome: mv's own error text must reach the operator, not only the
+# canned "move it by hand" guidance. The expected text is not invented — a
+# preflight runs the identical mv against the identical fixture outside the
+# helper, captures what THIS filesystem's mv really says, and the scenario
+# asserts that exact fragment shows up in the helper's stderr.
+# =============================================================================
+L27="scenario 27 (the un-park move's own error text reaches stderr, not just generic guidance)"
+
+make_sandbox; SBOX_27="$SBOX"; LEDGER_27="$LEDGER"
+seed_request "$LEDGER_27" "$PRD"
+park_prd "$SBOX_27" hold
+chmod 500 "$SBOX_27/dev/local/prds/backlog"
+# Pre-flight, loud: the mode bits really do block writes here (as in scenario
+# 8), and the REAL mv's own stderr on this exact failure is captured so the
+# assertion below pins the ACTUAL error text, never a guessed one.
+if : 2>/dev/null >"$SBOX_27/dev/local/prds/backlog/.write-probe"; then
+  rm -f "$SBOX_27/dev/local/prds/backlog/.write-probe"
+  chmod 700 "$SBOX_27/dev/local/prds/backlog"
+  FAIL "$L27: preflight" "cannot make backlog/ unwritable on this filesystem (running as root?) — the failed-move branch cannot be exercised"
+fi
+mv "$SBOX_27/dev/local/prds/hold/$PRD" "$SBOX_27/dev/local/prds/backlog/$PRD" 2>"$SBOX_27/mv-preflight.err"
+MV_PREFLIGHT_RC=$?
+if [ "$MV_PREFLIGHT_RC" -eq 0 ]; then
+  chmod 700 "$SBOX_27/dev/local/prds/backlog"
+  FAIL "$L27: preflight" "a direct mv into the unwritable backlog/ unexpectedly succeeded — cannot pin the real error text"
+fi
+[ -f "$SBOX_27/dev/local/prds/hold/$PRD" ] \
+  || { chmod 700 "$SBOX_27/dev/local/prds/backlog"; FAIL "$L27: preflight" "the probe mv consumed the source PRD despite failing — fixture corrupted"; }
+MV_ERR_TAIL=$(command python3 -c \
+  'import sys; t=sys.stdin.read().strip(); print(t.rsplit(":",1)[-1].strip())' <"$SBOX_27/mv-preflight.err")
+if [ -z "$MV_ERR_TAIL" ]; then
+  chmod 700 "$SBOX_27/dev/local/prds/backlog"
+  FAIL "$L27: preflight" "mv produced no parseable error text on this filesystem — cannot pin the real error"
+fi
+
+run_helper "$SBOX_27" approve-fable "$PRD"
+chmod 700 "$SBOX_27/dev/local/prds/backlog"   # restore so the cleanup trap can rm -rf
+assert_no_timeout "$L27" "$SBOX_27"
+assert_rc "$L27: exits 2" "$SBOX_27" 2
+assert_status "$L27: status stays approved (the decision is not rolled back)" "$LEDGER_27" "$PRD" approved
+assert_in_dir "$L27: PRD is still parked in hold/" "$SBOX_27" hold
+assert_mentions "$L27: stderr surfaces the move's own real error text" "$SBOX_27/stderr.log" "$MV_ERR_TAIL"
+grep -qiE 'manual|by hand|move|mv ' "$SBOX_27/stderr.log" \
+  || FAIL "$L27: message still tells the operator to move the PRD manually" "no manual-move instruction alongside the real error: $(cat "$SBOX_27/stderr.log" 2>/dev/null)"
+assert_walkup_called "$L27: the autopilot dir came from _walk_up.py" "$SBOX_27"
+assert_fablectl_wrote "$L27: fablectl.py performed the ledger write" "$SBOX_27"
+PASS "$L27: exit 2, status left approved, and the real mv error text reaches stderr alongside the manual-move guidance"
+assert_no_loop "$L27: no loop session launched" "$SBOX_27"
 
 # =============================================================================
 echo ""
