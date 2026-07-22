@@ -60,7 +60,9 @@ def reviewer_section_nonempty(lines: list[str], name: str) -> bool:
     return False
 
 
-def check(text: str, reviewers: list[str], require_codex_guard: bool) -> str | None:
+def check(
+    text: str, reviewers: list[str], require_codex_guard: bool = False
+) -> str | None:
     """Return a one-line gap description, or None when the shape holds."""
     lines = text.splitlines()
     for reviewer in reviewers:

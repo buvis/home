@@ -58,14 +58,27 @@ def review_file_for(surface: str, prd_base: str, reviews_dir: Path) -> Path | No
 def run_gate(review_file: Path) -> tuple[int, str]:
     """Delegate to check_review_file.py — the same shape check the review
     skill runs. Reviewer names come from the file's own `reviewers:`
-    frontmatter (written by consolidation); no git, no PRD parsing."""
+    frontmatter (written by consolidation); no git, no PRD parsing.
+
+    Passes --require-codex-guard: this hook gates only the consolidated
+    review file for a review-gated phase (see surface_for_phase/gate_blocks
+    above), and that is the one file kind that carries the codex_rung_guard
+    line. Other callers of check_review_file.py (review-blindly, the
+    shadow-run gate) gate blind reviews and shadow renders, which legitimately
+    have no guard line, so they must stay unflagged."""
     gate_path = (
         Path(__file__).resolve().parents[2]
         / "review-work-completion"
         / "scripts"
         / "check_review_file.py"
     )
-    argv = ["python3", str(gate_path), "--review-file", str(review_file)]
+    argv = [
+        "python3",
+        str(gate_path),
+        "--review-file",
+        str(review_file),
+        "--require-codex-guard",
+    ]
     result = subprocess.run(argv, capture_output=True, text=True)
     return (result.returncode, result.stderr.strip())
 
