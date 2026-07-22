@@ -795,6 +795,43 @@ DENIALS = tuple(
 )
 DENIAL_RADIUS = 200
 
+# The feedback-retry and REPAIR carve-outs at § 5.5 say "Claude rung(s)"
+# without naming which tiers that means. `fable` is elsewhere mapped to
+# "Claude Fable" as a model (the routing table), so the bare phrase reads as
+# including it - handing a `fable` gate failure a second dispatch (retry) and
+# a third (repair), which breaks the one-Fable-dispatch-per-PRD invariant.
+# Each anchor pins the STABLE boilerplate around one carve-out and captures
+# the qualifier phrase between it - the phrase a fix is expected to re-word.
+FEEDBACK_RETRY_ANCHOR = re.compile(
+    r"feedback retry:\s*dispatch ivan with the failure output,\s*same tier\s*"
+    r"\((.*?)per the 1-dispatch budget\)",
+    re.I,
+)
+REPAIR_VERDICT_ANCHOR = re.compile(
+    r'verdict\s*"spec_gap"\s*\(exit 0\)\s*(?:->|→)\s*repair path below, if '
+    r"repair unused this task and current rung is\s+(.*?)\s*\(qwen never repairs",
+    re.I,
+)
+REPAIR_CONDITION_ANCHOR = re.compile(
+    r"repair\s*\(spec_gap, repair not yet used this task,\s*(.*?)\):\s*"
+    r"fill the identified",
+    re.I,
+)
+RETRY_REPAIR_SITES = (
+    ("feedback-retry gate", FEEDBACK_RETRY_ANCHOR),
+    ("repair-diagnosis condition", REPAIR_VERDICT_ANCHOR),
+    ("REPAIR gate condition", REPAIR_CONDITION_ANCHOR),
+)
+
+# `fable` must be NEGATED close to where it is named in the qualifier - not
+# merely present somewhere in it. Without the tight window, a stray `never`/
+# `no` belonging to the qwen carve-out several words away (same qualifier
+# text on the feedback-retry site) would launder an unguarded `fable` grant.
+FABLE_EXCLUDED = (
+    re.compile(r"fable\b.{0,20}?\b(?:never|not|neither|nor|exclud\w*|except)\b", re.I),
+    re.compile(r"\b(?:never|not|neither|nor|exclud\w*|except)\b.{0,20}?fable\b", re.I),
+)
+
 
 def check_line_enumerations(doc: Doc) -> list[str]:
     """Backstop: any ONE line naming all three Claude tiers also names fable."""
@@ -1010,6 +1047,57 @@ def check_no_rung_above(doc: Doc) -> list[str]:
     ]
 
 
+def check_retry_repair_excludes_fable(doc: Doc) -> list[str]:
+    """The feedback-retry gate and both REPAIR gates name their tiers and
+    explicitly exclude `fable` - a bare "Claude rung(s)" reads as including it
+    (`fable` is elsewhere mapped to "Claude Fable" as a model), which would
+    hand a `fable` gate failure a second dispatch (retry) and a third
+    (repair).
+    """
+    flow = doc.flow(ESCALATION_SECTION)
+    problems = []
+    for label, anchor in RETRY_REPAIR_SITES:
+        matches = list(anchor.finditer(flow.text))
+        if not matches:
+            problems.append(
+                f"  {doc.path}: the {label} text was not found in § "
+                f"{ESCALATION_SECTION} - re-worded, so this scan is blind there"
+            )
+            continue
+        for match in matches:
+            qualifier = match.group(1)
+            line = flow.index[match.start(1)]
+            if not TIER_ENUM.match(qualifier):
+                problems.append(
+                    _cite(
+                        doc.path,
+                        line,
+                        f"{label} still says an unqualified `Claude rung(s)` "
+                        f"instead of naming haiku/sonnet/opus: {qualifier.strip()}",
+                    )
+                )
+                continue
+            if "fable" not in qualifier.lower():
+                problems.append(
+                    _cite(
+                        doc.path,
+                        line,
+                        f"{label} names haiku/sonnet/opus but never names "
+                        f"`fable` to exclude it: {qualifier.strip()}",
+                    )
+                )
+            elif not any(pattern.search(qualifier) for pattern in FABLE_EXCLUDED):
+                problems.append(
+                    _cite(
+                        doc.path,
+                        line,
+                        f"{label} names `fable` without excluding it, granting "
+                        f"it a retry/repair: {qualifier.strip()}",
+                    )
+                )
+    return problems
+
+
 WORK_SKILL_CHECKS = (
     ("line enumerations", check_line_enumerations),
     ("pinned enumerations", check_pinned_enumerations),
@@ -1021,6 +1109,7 @@ WORK_SKILL_CHECKS = (
     ("per-rung budget", check_budget),
     ("auto-escalation", check_no_auto_escalation),
     ("no rung above", check_no_rung_above),
+    ("retry/repair fable exclusion", check_retry_repair_excludes_fable),
 )
 
 
@@ -1162,6 +1251,18 @@ class WorkSkillFableContractTest(unittest.TestCase):
             "licenses a second rescue off one human approval.",
         )
 
+    def test_feedback_retry_and_repair_gates_exclude_fable_by_name(self) -> None:
+        self.reject(
+            check_retry_repair_excludes_fable(self.doc),
+            f"{WORK_SKILL} step 5.5: the feedback-retry gate or a REPAIR gate "
+            "still says an unqualified `Claude rung(s)` (or names `fable` "
+            'without excluding it). `fable` is elsewhere mapped to "Claude '
+            'Fable" as a model, so that wording reads as including it - '
+            "handing a `fable` gate failure a second dispatch (feedback "
+            "retry) and a third (repair), which breaks the one-Fable-"
+            "dispatch-per-PRD invariant.",
+        )
+
 
 # --- exploit regression fixtures -------------------------------------------
 #
@@ -1178,7 +1279,7 @@ class WorkSkillFableContractTest(unittest.TestCase):
 
 
 class WorkSkillExploitRejectionTest(unittest.TestCase):
-    """Nine edits that wired `fable` nowhere and passed anyway. Never again."""
+    """Ten edits that beat the `fable` contract and passed anyway. Never again."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -1422,6 +1523,34 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             check_no_rung_above(doc),
             "`fable` and `no rung above` in one section is not a statement about "
             "`fable` - the subject has to be the rescue rung itself",
+        )
+
+    def test_rejects_fable_granted_a_feedback_retry(self) -> None:
+        # 10. The feedback-retry carve-out "fixed" by listing `fable` among the
+        #     eligible tiers instead of excluding it - a second Fable dispatch.
+        doc = self.exploited(
+            (
+                "(Claude rungs only — the qwen rung has no feedback retry: its "
+                "single\n"
+                "                                gate failure goes straight to "
+                "DIAGNOSE below, per the 1-dispatch budget)",
+                "(haiku/sonnet/opus/fable rungs only — the qwen rung has no "
+                "feedback retry: its single\n"
+                "                                gate failure goes straight to "
+                "DIAGNOSE below, per the 1-dispatch budget)",
+            )
+        )
+        self.assertEqual(
+            check_line_enumerations(doc),
+            [],
+            "precondition: the line now names all four tiers, which is exactly "
+            "why a bare presence scan cannot catch this",
+        )
+        self.assertTrue(
+            check_retry_repair_excludes_fable(doc),
+            "listing `fable` alongside haiku/sonnet/opus as eligible for the "
+            "feedback retry is not excluding it - it grants a second `fable` "
+            "dispatch off one human approval",
         )
 
 
