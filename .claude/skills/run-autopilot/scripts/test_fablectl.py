@@ -419,6 +419,71 @@ class FablectlTest(unittest.TestCase):
                     self.assertTrue(result.stderr.strip())
                     self.assertEqual(self.ledger.read_bytes(), corrupt)
 
+    def test_out_of_enum_status_exits_2_and_names_ledger_prd_and_status(self) -> None:
+        # A string status outside the four legal values is corrupt state, not a
+        # valid latch: `apply_verb` must never see it, or a garbage status could
+        # silently refuse or allow a mutation. Distinct from the "not a string"
+        # corruption above; must be caught for every verb that reads the ledger,
+        # `show` included, with a message naming the ledger, the PRD key, AND
+        # the offending status value.
+        bad_status = "foo"
+        corrupt = json.dumps(
+            {PRD: {"status": bad_status, "task_id": TASK_ID}}
+        ).encode()
+        verbs = {
+            "request": None,
+            "decide": ("decide", PRD, "approved"),
+            "consume": ("consume", PRD),
+            "show": ("show", PRD),
+        }
+        for name, args in verbs.items():
+            with self.subTest(verb=name):
+                self.ledger.write_bytes(corrupt)
+                result = self.request() if args is None else self.run_cli(*args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(str(self.ledger), result.stderr)
+                self.assertIn(PRD, result.stderr)
+                self.assertIn(bad_status, result.stderr)
+                self.assertEqual(self.ledger.read_bytes(), corrupt)
+
+    def test_os_error_exits_4_with_one_line_diagnostic_and_no_traceback(self) -> None:
+        # A NotADirectoryError (or any other OS error beyond a plain missing
+        # file) must not read as "bad argument" (1), and must not traceback out
+        # unhandled: a disk/permission failure needs its own exit code and a
+        # caller-readable one-line diagnostic, not a Python stack dump.
+        blocker = Path(self.tmp.name) / "afile"
+        blocker.write_text("not a directory")
+        bad_ledger = blocker / "sub" / "ledger.json"
+        result = self.run_cli("decide", PRD, "approved", ledger=bad_ledger)
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertNotIn("Traceback (most recent call last)", result.stderr)
+        self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+
+    def test_refused_decide_and_consume_create_no_droppings(self) -> None:
+        # decide/consume against an absent ledger correctly refuse (exit 3),
+        # but must not leave a stray parent directory or `.lock` file behind
+        # when there is nothing to mutate. `request` against an absent ledger
+        # is the legitimate case and must still create both, so an
+        # implementation that never creates anything for any verb cannot pass
+        # this test by doing nothing.
+        nested = Path(self.tmp.name) / "state" / "fable" / "ledger.json"
+        lock = Path(f"{nested}.lock")
+        for args in (("decide", PRD, "approved"), ("consume", PRD)):
+            with self.subTest(verb=args[0]):
+                result = self.run_cli(*args, ledger=nested)
+                self.assertEqual(result.returncode, 3, result.stderr)
+                self.assertFalse(
+                    nested.parent.exists(), "refusal must not create the parent dir"
+                )
+                self.assertFalse(
+                    lock.exists(), "refusal must not create the lock file"
+                )
+        legit = self.request(ledger=nested)
+        self.assertEqual(legit.returncode, 0, legit.stderr)
+        self.assertTrue(nested.parent.exists())
+        self.assertTrue(nested.exists())
+        self.assertTrue(lock.exists())
+
     # 7. usage errors ----------------------------------------------------------
 
     def test_invalid_justification_exits_1(self) -> None:
