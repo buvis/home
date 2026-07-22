@@ -373,15 +373,23 @@ _autopilot_fable_validate_prd() {
 # _autopilot_fable_unpark <prds_dir> <prd>
 # Moves an approved PRD out of parking (hold/ -> backlog/) and verifies the
 # file actually arrived: `mv` exits 0 even when the destination names a
-# directory, and the PRD would then be invisible to the next batch. Prints
-# the operator-facing outcome itself, success on stdout and failure on
-# stderr, and returns 0 on success (including "nothing to move"), 2 on a
-# failed un-park.
+# directory, and the PRD would then be invisible to the next batch. It also
+# refuses before touching a destination that is already a regular file:
+# unlike a directory target, `mv` overwrites a same-named regular file
+# silently and still exits 0, so the post-move existence check alone cannot
+# tell that from a real success, and dev/local/ is gitignored, so the
+# overwritten PRD would be unrecoverable. Prints the operator-facing outcome
+# itself, success on stdout and failure on stderr, and returns 0 on success
+# (including "nothing to move"), 2 on a failed or refused un-park.
 _autopilot_fable_unpark() {
   local _prds="$1" _prd="$2" _mv_err
   if [ ! -f "$_prds/hold/$_prd" ]; then
     printf 'autoclaude: %s approved; it is not parked in hold/, so nothing was moved.\n' "$_prd"
     return 0
+  fi
+  if [ -f "$_prds/backlog/$_prd" ]; then
+    printf 'autoclaude: %s approved, but backlog/%s already exists; move it aside by hand instead of overwriting it.\n' "$_prd" "$_prd" >&2
+    return 2
   fi
   _mv_err=$(mv "$_prds/hold/$_prd" "$_prds/backlog/$_prd" 2>&1 >/dev/null)
   # `mv` can exit 0 and still not deliver (a destination that names a
