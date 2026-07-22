@@ -240,6 +240,23 @@ _autopilot_died_next() {
   printf 'park'
 }
 
+# _autopilot_build_target <prds_dir>
+# Resolves the build target: the lowest 00XXX- PRD basename in
+# <prds_dir>/wip/, else in <prds_dir>/backlog/. Prints the full path, or
+# nothing when neither holds one.
+_autopilot_build_target() {
+  local _prds="$1" _dir _f _tpath=""
+  for _dir in wip backlog; do
+    for _f in "$_prds/$_dir"/[0-9][0-9][0-9][0-9][0-9]-*; do
+      [ -f "$_f" ] || continue
+      _tpath="$_f"
+      break
+    done
+    [ -n "$_tpath" ] && break
+  done
+  printf '%s' "$_tpath"
+}
+
 # _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
 # Build-phase model routing: prints claude-opus-4-8 when the PRD about to be
 # built carries difficulty evidence, else claude-sonnet-5. Always exits 0 and
@@ -249,16 +266,9 @@ _autopilot_died_next() {
 # one that just finished.
 _autopilot_build_model() {
   local _state="$1" _prds="$2" _metrics="$3" _ledger="$4" _deferred="$5"
-  local _dir _f _tpath="" _target="" _files=() _n _i
+  local _f _tpath _target _files=()
 
-  for _dir in wip backlog; do
-    for _f in "$_prds/$_dir"/[0-9][0-9][0-9][0-9][0-9]-*; do
-      [ -f "$_f" ] || continue
-      _tpath="$_f"
-      break
-    done
-    [ -n "$_tpath" ] && break
-  done
+  _tpath=$(_autopilot_build_target "$_prds")
   if [ -z "$_tpath" ]; then printf 'claude-sonnet-5\n'; return 0; fi
   _target="${_tpath##*/}"
 
@@ -289,18 +299,15 @@ _autopilot_build_model() {
   fi
 
   # (3b) a durable stall naming the target in the 2 newest deferred logs
-  # (filename sort — batch ids are minted in order, mtimes are not).
+  # (filename sort — batch ids are minted in order, mtimes are not). Offset
+  # is explicit: bash 5.3 does not clamp a negative slice past array length.
   for _f in "$_deferred"/*-deferred.json; do
     [ -f "$_f" ] && _files+=("$_f")
   done
-  _n=${#_files[@]}
-  _i=0
-  [ "$_n" -gt 2 ] && _i=$((_n - 2))
-  while [ "$_i" -lt "$_n" ]; do
-    if jq -e --arg t "$_target" 'any(.items[]?; .type == "stall" and .prd == $t)' "${_files[$_i]}" >/dev/null 2>&1; then
+  for _f in "${_files[@]:$(( ${#_files[@]} > 2 ? ${#_files[@]} - 2 : 0 ))}"; do
+    if jq -e --arg t "$_target" 'any(.items[]?; .type == "stall" and .prd == $t)' "$_f" >/dev/null 2>&1; then
       printf 'claude-opus-4-8\n'; return 0
     fi
-    _i=$((_i + 1))
   done
 
   printf 'claude-sonnet-5\n'
@@ -330,6 +337,49 @@ _autopilot_plugin_drift() {
   return 0
 }
 
+# _autopilot_fable_validate_prd <approve-fable|reject-fable> <prd>
+# The single usage-message site for _autopilot_fable_decide's three reject
+# shapes (empty, `/` or `..` traversal, or off the 00XXX-name.md naming
+# convention). The traversal guard runs first on purpose: a bash glob's `*`
+# matches `/` too, so `00076-a/../b.md` would otherwise slip past the naming
+# pattern while still walking outside dev/local/prds. Exits 0 when <prd> is
+# safe to use as a ledger key and an mv path component, 2 otherwise (with
+# the usage line already on stderr).
+_autopilot_fable_validate_prd() {
+  local _verb="$1" _prd="$2"
+  case "$_prd" in
+    ''|*/*|*..*) ;;
+    [0-9][0-9][0-9][0-9][0-9]-*.md) return 0 ;;
+  esac
+  printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
+  return 2
+}
+
+# _autopilot_fable_unpark <prds_dir> <prd>
+# Moves an approved PRD out of parking (hold/ -> backlog/) and verifies the
+# file actually arrived: `mv` exits 0 even when the destination names a
+# directory, and the PRD would then be invisible to the next batch. Prints
+# the operator-facing outcome itself, success on stdout and failure on
+# stderr, and returns 0 on success (including "nothing to move"), 2 on a
+# failed un-park.
+_autopilot_fable_unpark() {
+  local _prds="$1" _prd="$2" _mv_err
+  if [ ! -f "$_prds/hold/$_prd" ]; then
+    printf 'autoclaude: %s approved; it is not parked in hold/, so nothing was moved.\n' "$_prd"
+    return 0
+  fi
+  _mv_err=$(mv "$_prds/hold/$_prd" "$_prds/backlog/$_prd" 2>&1 >/dev/null)
+  # `mv` can exit 0 and still not deliver (a destination that names a
+  # directory), so there is a real failure path with no error text to quote.
+  # Say that plainly rather than rendering an empty parenthetical.
+  [ -n "$_mv_err" ] || _mv_err="mv reported no error but the file did not arrive"
+  if [ ! -f "$_prds/backlog/$_prd" ]; then
+    printf 'autoclaude: %s approved, but the un-park failed (%s); move it to %s by hand.\n' "$_prd" "$_mv_err" "$_prds/backlog" >&2
+    return 2
+  fi
+  printf 'autoclaude: %s approved and un-parked into backlog/.\n' "$_prd"
+}
+
 # _autopilot_fable_decide <approve-fable|reject-fable> <prd>
 # The operator's one-command decision on a pending Fable rescue. Positional args
 # only — it runs outside any loop, so it reads no loop-local state: the autopilot
@@ -344,34 +394,14 @@ _autopilot_plugin_drift() {
 # resolver failure or empty answer from _walk_up.py is refused before any path
 # is derived from it. Exit 0 on success, 2 on every failure.
 _autopilot_fable_decide() {
-  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur _mv_err
+  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur
   case "$_verb" in
     approve-fable) _status=approved ;;
     *)             _status=rejected ;;
   esac
-  if [ -z "$_prd" ]; then
-    printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
-    return 2
-  fi
   # <prd> becomes a ledger key (below) and an mv path component (further
-  # down), so both traversal shapes are rejected before either use: a
-  # leading `/` or an embedded `..` can otherwise walk outside dev/local/prds.
-  case "$_prd" in
-    */*|*..*)
-      printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
-      return 2
-      ;;
-  esac
-  # The naming convention is checked separately from the traversal guard
-  # above: a value can dodge `/` and `..` while still not being a PRD
-  # filename at all (wrong extension, no digit prefix).
-  case "$_prd" in
-    [0-9][0-9][0-9][0-9][0-9]-*.md) ;;
-    *)
-      printf 'usage: autoclaude %s <prd-filename.md>\n' "$_verb" >&2
-      return 2
-      ;;
-  esac
+  # down); validated once up front so there is a single usage-message site.
+  _autopilot_fable_validate_prd "$_verb" "$_prd" || return 2
 
   _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
   # A resolver that fails outright and one that exits 0 but prints nothing
@@ -409,20 +439,7 @@ _autopilot_fable_decide() {
     printf 'autoclaude: %s rejected; it stays parked in hold/.\n' "$_prd"
     return 0
   fi
-  if [ ! -f "$_prds/hold/$_prd" ]; then
-    printf 'autoclaude: %s approved; it is not parked in hold/, so nothing was moved.\n' "$_prd"
-    return 0
-  fi
-  _mv_err=$(mv "$_prds/hold/$_prd" "$_prds/backlog/$_prd" 2>&1 >/dev/null)
-  # `mv` can exit 0 and still not deliver (a destination that names a
-  # directory), so there is a real failure path with no error text to quote.
-  # Say that plainly rather than rendering an empty parenthetical.
-  [ -n "$_mv_err" ] || _mv_err="mv reported no error but the file did not arrive"
-  if [ ! -f "$_prds/backlog/$_prd" ]; then
-    printf 'autoclaude: %s approved, but the un-park failed (%s); move it to %s by hand.\n' "$_prd" "$_mv_err" "$_prds/backlog" >&2
-    return 2
-  fi
-  printf 'autoclaude: %s approved and un-parked into backlog/.\n' "$_prd"
+  _autopilot_fable_unpark "$_prds" "$_prd"
 }
 
 autoclaude() {
