@@ -240,6 +240,63 @@ _autopilot_died_next() {
   printf 'park'
 }
 
+# _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
+# Build-phase model routing: prints claude-opus-4-8 when the PRD about to be
+# built carries difficulty evidence, else claude-sonnet-5. Always exits 0 and
+# always keeps stderr clean (a missing state.json, ledger or metrics file and an
+# empty deferred dir are all normal). The target is the lowest 00XXX- PRD in
+# wip/, else in backlog/ — NEVER state.prd, which between PRDs still names the
+# one that just finished.
+_autopilot_build_model() {
+  local _state="$1" _prds="$2" _metrics="$3" _ledger="$4" _deferred="$5"
+  local _dir _f _tpath="" _target="" _fm _files=() _n _i
+
+  for _dir in wip backlog; do
+    for _f in "$_prds/$_dir"/[0-9][0-9][0-9][0-9][0-9]-*; do
+      [ -f "$_f" ] || continue
+      _tpath="$_f"
+      break
+    done
+    [ -n "$_tpath" ] && break
+  done
+  if [ -z "$_tpath" ]; then printf 'claude-sonnet-5\n'; return 0; fi
+  _target="${_tpath##*/}"
+
+  # (1) frontmatter default_model: opus — the leading --- block only.
+  _fm=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$_tpath" 2>/dev/null)
+  case "$_fm" in
+    *"default_model: opus"*) printf 'claude-opus-4-8\n'; return 0 ;;
+  esac
+
+  # (2) replanned / (3a) live stall / (4) cap rotation — all guarded on
+  # state.prd being the target; (5) a rescue-ledger KEY for the target;
+  # (6) a prior build session for the target in the metrics tail.
+  if jq -e --arg t "$_target" '.prd == $t and ((.replan_count // 0) > 0 or .stall_reason != null or ((.cap_rotations // []) | length) > 0)' "$_state" >/dev/null 2>&1 \
+    || jq -e --arg t "$_target" 'has($t)' "$_ledger" >/dev/null 2>&1 \
+    || tail -n 200 "$_metrics" 2>/dev/null | jq -e -s --arg t "$_target" 'any(.[]; .prd == $t and .phase_launched == "build")' >/dev/null 2>&1
+  then
+    printf 'claude-opus-4-8\n'; return 0
+  fi
+
+  # (3b) a durable stall naming the target in the 2 newest deferred logs
+  # (filename sort — batch ids are minted in order, mtimes are not).
+  for _f in "$_deferred"/*-deferred.json; do
+    [ -f "$_f" ] && _files+=("$_f")
+  done
+  _n=${#_files[@]}
+  _i=0
+  [ "$_n" -gt 2 ] && _i=$((_n - 2))
+  while [ "$_i" -lt "$_n" ]; do
+    if jq -e --arg t "$_target" 'any(.items[]?; .type == "stall" and .prd == $t)' "${_files[$_i]}" >/dev/null 2>&1; then
+      printf 'claude-opus-4-8\n'; return 0
+    fi
+    _i=$((_i + 1))
+  done
+
+  printf 'claude-sonnet-5\n'
+  return 0
+}
+
 # _autopilot_plugin_drift <state.json> <installed_plugins.json>
 # Exit 1 (+ prints "<name> pinned=<v> now=<v>") when a plugin pinned in
 # state.batch.plugin_versions at batch selection differs from the version
@@ -479,8 +536,8 @@ autoclaude() {
     # launch) → Opus xhigh: fail expensive, never fail dumb.
     local _model _effort _cap
     case "$_phase_launched" in
-    build)
-      _model="${_AUTOPILOT_MODEL_BUILD:-claude-opus-4-8}"
+    build|"")
+      _model="${_AUTOPILOT_MODEL_BUILD:-$(_autopilot_build_model "$_ap_dir/state.json" "${_ap_dir%/autopilot}/prds" "$_ap_dir/loop-metrics.jsonl" "$_ap_dir/ledger/fable-requests.json" "$_ap_dir/deferred")}"
       _effort="${_AUTOPILOT_EFFORT_BUILD:-xhigh}"
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
