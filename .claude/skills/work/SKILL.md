@@ -328,11 +328,17 @@ Apply the rows in this order — the first match wins (in practice `qwen_eligibl
 > 2. `codex_eligible(task)` per `model-ladder.md § Codex rung`, and
 > 3. `_WORK_CODEX_RUNG != "off"`, and
 > 4. `_AUTOPILOT_ESCALATION != "legacy"`, and
-> 5. the batch codex health probe verdict is `"healthy"`.
+> 5. the batch codex health probe verdict is `"healthy"`, and
+> 6. the task's own TERMINAL attempt (the last entry in `task.attempts`, if any)
+>    was not itself codex.
 >
 > The interception never fires for a `fable` task (that override outranks the
 > whole table), never for a UI task, and never for `opus` tier — fence 2 and the
-> `fable` rule already exclude all three.
+> `fable` rule already exclude all three. It also never re-fires on a task whose
+> terminal attempt was codex: per `run-autopilot/references/phase-review.md`
+> ("terminal attempt with `implementor: codex` -> re-dispatch Claude at the
+> task's same tier"), a review-flagged codex rework escalates to Claude at the
+> task's own tier, never back to codex.
 
 `scripts/work_routing.py` is a decision model of the table and this interception, tested in isolation by `scripts/test_work_routing.py`; it is kept in sync with this prose by review, not by a test that flips red when the prose changes. The one exception is the `codex_eligible` fence itself: `test_work_routing.py` extracts it live from `model-ladder.md` § Codex rung, so editing a clause's field or value, adding or removing a clause, or changing the `OR` that joins them, all flip a test red (see `test_codex_eligible_agrees_with_every_clause_extracted_from_the_real_ladder` and `test_extractor_raises_when_the_fence_joins_clauses_with_a_non_or_combinator`). A cosmetic reword of the fence's own opening line (e.g. renaming the pseudocode parameter) does not — the extractor's fence-selection match is deliberately loose there. The guard binds the fence to `_codex_eligible`, not the reverse: widening `_codex_eligible` to a value no clause and no candidate in `_CODEX_ELIGIBLE_CANDIDATES` names is not caught, so an edit there still needs review.
 
