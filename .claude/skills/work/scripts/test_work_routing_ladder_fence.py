@@ -45,14 +45,12 @@ _CLAUSE_RE = re.compile(
 )
 
 
-def _extract_codex_eligible_clauses(ladder_text: str) -> list[tuple[str, object]]:
-    """The `(field, value)` clauses of the `codex_eligible(task)` fence in
-    `ladder_text`'s `## Codex rung` section.
+def _find_codex_eligible_block(ladder_text: str) -> str:
+    """The fenced `codex_eligible(task)` block from `ladder_text`'s
+    `## Codex rung` section.
 
-    Never a hardcoded copy of the fence: an edit to `ladder_text` changes what
-    this returns. Raises, naming what could not be found, rather than
-    returning an empty list or skipping — a missing rule is the exact drift
-    this guard exists to catch.
+    Raises, naming what could not be found, rather than returning `None` or
+    skipping — a missing rule is the exact drift this guard exists to catch.
     """
     heading_match = _CODEX_RUNG_HEADING_RE.search(ladder_text)
     if heading_match is None:
@@ -65,19 +63,36 @@ def _extract_codex_eligible_clauses(ladder_text: str) -> list[tuple[str, object]
     )
     section_text = ladder_text[section_start:section_end]
 
-    target_block: str | None = None
     for candidate in _FENCE_RE.findall(section_text):
         lines = candidate.splitlines()
         if lines and lines[0].strip().startswith("codex_eligible("):
-            target_block = candidate
-            break
+            return candidate
 
-    if target_block is None:
-        raise ValueError(
-            "no fenced block starting with 'codex_eligible(' found in "
-            "the '## Codex rung' section"
-        )
+    raise ValueError(
+        "no fenced block starting with 'codex_eligible(' found in "
+        "the '## Codex rung' section"
+    )
 
+
+def _validate_disjunction(combinators: list[str | None]) -> None:
+    """Raises unless every combinator after the first clause is `OR`.
+
+    The fence is documented as a disjunction (§ Codex rung: "OR"); the first
+    clause has no combinator by construction, so only clauses after it are
+    checked. A single-clause fence never reaches this loop body.
+    """
+    for combinator in combinators[1:]:
+        if combinator != "OR":
+            raise ValueError(
+                f"'codex_eligible(task)' fence joins its clauses with "
+                f"{combinator!r}, not the documented disjunction 'OR'"
+            )
+
+
+def _parse_fence_clauses(target_block: str) -> list[tuple[str, object]]:
+    """The `(field, value)` clauses parsed line-by-line from `target_block`,
+    after checking they are joined by the documented disjunction.
+    """
     clauses: list[tuple[str, object]] = []
     combinators: list[str | None] = []
     for line in target_block.splitlines():
@@ -102,17 +117,22 @@ def _extract_codex_eligible_clauses(ladder_text: str) -> list[tuple[str, object]
             "'task.metadata.<field> == <value>' clause could be parsed from it"
         )
 
-    # The fence is documented as a disjunction (§ Codex rung: "OR"); the first
-    # clause has no combinator by construction, so only clauses after it are
-    # checked. A single-clause fence never reaches this loop body.
-    for combinator in combinators[1:]:
-        if combinator != "OR":
-            raise ValueError(
-                f"'codex_eligible(task)' fence joins its clauses with "
-                f"{combinator!r}, not the documented disjunction 'OR'"
-            )
+    _validate_disjunction(combinators)
 
     return clauses
+
+
+def _extract_codex_eligible_clauses(ladder_text: str) -> list[tuple[str, object]]:
+    """The `(field, value)` clauses of the `codex_eligible(task)` fence in
+    `ladder_text`'s `## Codex rung` section.
+
+    Never a hardcoded copy of the fence: an edit to `ladder_text` changes what
+    this returns. Raises, naming what could not be found, rather than
+    returning an empty list or skipping — a missing rule is the exact drift
+    this guard exists to catch.
+    """
+    target_block = _find_codex_eligible_block(ladder_text)
+    return _parse_fence_clauses(target_block)
 
 
 _UNRELATED_EXCLUSION_REASON = "not_a_real_exclusion_reason"
