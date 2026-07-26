@@ -306,10 +306,10 @@ Each of the following yields `qwen_eligible = false` independently, with the nam
 
 - The task matches the UI list (Gemini's domain, not qwen's) → `ui`.
 - `model == "opus"` (opus tier is never qwen-eligible) → `tier`.
-- `files_touched >= 4` (qwen under-covers wide multi-file tasks) → `files`.
 - The task edits a public contract (exported API signature, schema, wire format, hook registration shape) → `contract`.
+- `files_touched >= 4` (qwen under-covers wide multi-file tasks) → `files`.
 
-**`qwen_excluded_reason`**: on **every** ineligible task, also persist `qwen_excluded_reason` — one of `ui` / `tier` / `files` / `contract`. When several conditions fail, record the FIRST failing one in the order above (`ui` → `tier` → `files` → `contract`). Eligible tasks omit the key. This makes under-routing auditable per batch: the Phase 9 Implementor Mix render counts exclusions by reason (PRD 00019).
+**`qwen_excluded_reason`**: on **every** ineligible task, also persist `qwen_excluded_reason` — one of `ui` / `tier` / `files` / `contract`. When several conditions fail, record the FIRST failing one in the order above (`ui` → `tier` → `contract` → `files`). `contract` is recorded ahead of `files` because the codex rung's fence (`run-autopilot/references/model-ladder.md` § Codex rung) admits `files` but must exclude `contract`, so a task that both spans many files and edits a public contract has to record `contract`, keeping it off codex. Eligible tasks omit the key. This makes under-routing auditable per batch: the Phase 9 Implementor Mix render counts exclusions by reason (PRD 00019).
 
 The flag is computed **from** the classifier output; it does **not** alter the classifier. Rules 1-3 above are unchanged.
 

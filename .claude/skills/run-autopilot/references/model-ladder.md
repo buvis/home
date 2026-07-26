@@ -118,7 +118,12 @@ and what each `fablectl` exit means — lives in `references/recovery.md`
 
   Absent `qwen_eligible` (legacy plans) -> `false`. Any
   `qwen_excluded_reason` of `ui`, `tier`, or `contract` -> `false`. UI stays
-  gemini; `opus` tier stays Claude; declared contract edits stay Claude.
+  gemini; `opus` tier stays Claude; declared contract edits stay Claude. This
+  last guarantee holds only because `/plan-tasks` records `contract` ahead of
+  `files` in its `qwen_excluded_reason` precedence (see
+  `plan-tasks/SKILL.md` § the qwen-eligibility precedence), so a task that
+  both spans many files and edits a contract is recorded `contract`, not
+  `files`.
 - **Budget**: declared in § Per-rung budgets, not restated here; see that
   section for the dispatch count.
 - **Toggle**: `_WORK_CODEX_RUNG=off` disables the rung entirely; routing is
