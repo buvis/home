@@ -140,10 +140,16 @@ def _codex_eligible(task: dict) -> bool:
     )
 
 
+def _terminal_attempt_was_codex(task: dict) -> bool:
+    attempts = task.get("attempts", [])
+    return bool(attempts) and attempts[-1].get("implementor") == "codex"
+
+
 def _intercepted_by_codex(task: dict, env: dict, state: dict) -> bool:
     return (
         _codex_eligible(task)
         and env.get("_WORK_CODEX_RUNG") != "off"
         and env.get("_AUTOPILOT_ESCALATION") != "legacy"
         and state.get("codex_probe", {}).get("verdict") == "healthy"
+        and not _terminal_attempt_was_codex(task)
     )
