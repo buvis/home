@@ -162,9 +162,15 @@ class CheckReviewFileTests(unittest.TestCase):
     # required as a plain body line; this is a shape check, not semantic --
 
     def test_codex_rung_guard_fired_form_with_count_passes(self) -> None:
-        text = GOOD_FILE.replace(
-            "codex_rung_guard: not fired",
-            "codex_rung_guard: fired (3 codex-implemented task(s))",
+        # Plain fired(N) now asserts the doubt-roster constraint held via
+        # Eve, so the fixture must carry a non-empty Eve section.
+        text = (
+            GOOD_FILE.replace(
+                "codex_rung_guard: not fired",
+                "codex_rung_guard: fired (3 codex-implemented task(s))",
+            )
+            .replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
+            + "\n## Eve\n\nNo constraint issues found; doubt lens confirmed.\n"
         )
         p = self._write(text)
         proc = run_cli(
@@ -312,6 +318,68 @@ class CheckReviewFileTests(unittest.TestCase):
             ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
         )
         self.assertEqual(proc.returncode, 1)
+
+    # -- consistency: the guard's record must match the roster, not just
+    # parse — enforced only under --require-codex-guard --
+
+    def test_codex_rung_guard_fired_zero_count_exit_1(self) -> None:
+        # fired(0) is self-contradictory: fired implies at least one
+        # codex-implemented task.
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (0 codex-implemented task(s))",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 1)
+
+    def test_codex_rung_guard_plain_fired_without_eve_section_exit_1(self) -> None:
+        # KEY RED TEST: plain fired(N) with no Eve section claims a
+        # non-codex doubt reviewer ran when the roster shows none.
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s))",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("eve", proc.stderr.lower())
+
+    def test_codex_rung_guard_plain_fired_with_eve_section_exit_0(self) -> None:
+        text = (
+            GOOD_FILE.replace(
+                "codex_rung_guard: not fired",
+                "codex_rung_guard: fired (3 codex-implemented task(s))",
+            )
+            .replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
+            + "\n## Eve\n\nNo constraint issues found; doubt lens confirmed.\n"
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_codex_rung_guard_eve_unavailable_form_needs_no_eve_section_exit_0(
+        self,
+    ) -> None:
+        # Control: the suffix self-documents Eve's absence (Bob's Claude
+        # fallback covered doubt), so no Eve section is required even
+        # though the count is otherwise plain-fired-shaped.
+        text = GOOD_FILE.replace(
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired (3 codex-implemented task(s)); "
+            "eve unavailable, doubt lens fell back to claude",
+        )
+        p = self._write(text)
+        proc = run_cli(
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
     # -- --assert-constraint-met: opt-in semantic check on top of the shape
     # check. "; constraint UNMET" is still a VALID recorded shape (script
