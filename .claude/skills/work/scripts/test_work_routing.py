@@ -342,6 +342,49 @@ def test_legacy_escalation_blocks_codex_interception_on_files_tasks(model: str) 
     assert verdict == {"implementor": "claude", "tier": model, "rule": "row7"}
 
 
+@pytest.mark.parametrize("model", BACKEND_MODELS)
+def test_terminal_codex_attempt_is_not_re_intercepted_to_codex(model: str) -> None:
+    # Same codex-eligible files fixture as
+    # test_files_exclusion_reason_routes_to_codex_at_task_tier, which the rung
+    # would otherwise send to codex, but this task's own last attempt was
+    # codex. The escalation ladder (phase-review.md: "terminal attempt with
+    # implementor: codex -> re-dispatch Claude at the task's same tier") means
+    # a review-flagged codex rework must never be handed back to codex; it
+    # falls through to the row the table already named.
+    verdict = _route(
+        _task(
+            model,
+            qwen_eligible=False,
+            qwen_excluded_reason="files",
+            attempts=[{"implementor": "codex"}],
+        ),
+    )
+
+    assert verdict == {"implementor": "claude", "tier": model, "rule": "row7"}
+
+
+@pytest.mark.parametrize("model", BACKEND_MODELS)
+def test_non_terminal_codex_attempt_does_not_suppress_interception(model: str) -> None:
+    # Suppression is scoped to the TERMINAL attempt, not to "codex appears
+    # anywhere in this task's history": codex then claude (terminal is claude)
+    # must still be intercepted to codex, exactly like the plain fixture with
+    # no attempt history at all.
+    verdict = _route(
+        _task(
+            model,
+            qwen_eligible=False,
+            qwen_excluded_reason="files",
+            attempts=[{"implementor": "codex"}, {"implementor": "claude"}],
+        ),
+    )
+
+    assert verdict == {
+        "implementor": "codex",
+        "tier": model,
+        "rule": "codex_interception",
+    }
+
+
 # --- codex interception: the qwen-path fences (rows 3, 4, 6) -----------------
 #
 # Rows 3, 4 and 6 all park a qwen-eligible task on claude at its original tier.
