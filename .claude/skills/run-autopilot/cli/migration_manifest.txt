@@ -1,0 +1,46 @@
+# Park/stall behavior migration manifest
+# One behavior ID per line. Blank lines and lines starting with `#` are
+# comments and are ignored by the parser. See migration_map.md for the
+# disposition + test_id mapping for each ID.
+
+# --- phase-build.md § Handle park request (7-step procedure) -------------
+park-consume-marker
+park-classify-decision
+park-skip-malformed
+park-skip-stale
+park-execute-stall
+park-increment-parks-consecutive
+park-delete-marker-last
+park-systemic-halt
+
+# --- recovery.md § Loop-mode stall procedure (5 steps) --------------------
+stall-verified-move-to-hold
+stall-deferred-json-record
+stall-per-prd-reset
+stall-print-banner
+stall-continue-batch
+
+# --- recovery.md § Systemic-park breaker interaction -----------------------
+systemic-park-reset-on-non-wrapper-died
+
+# --- recovery.md § Crash recovery: escalation_exhausted seen at Phase 0 -----
+# The move already happened (Phase 6 does its own); recovery must NOT re-run
+# it. do_stall's "already in hold/ counts as move success" is the port.
+crash-recovery-no-double-move
+
+# --- shared per-PRD reset (recovery.md's three lists + phase-done.md's) ---
+reset-prd-fields-standard
+reset-repo-root-always
+reset-unlisted-fields-now-cleared
+
+# --- scripts/statectl.py transaction ordering -------------------------------
+statectl-transaction-ordering
+
+# --- park-requested marker call site (retired) ------------------------------
+park-marker-wrapper-call-site
+
+# --- stays prose (guarded by scripts/test_autopilot_lifecycle.py) ----------
+lifecycle-mkdir-p-block
+backlog-to-wip-verified-move
+wip-to-done-verified-move
+work-start-sha-recapture-guard
