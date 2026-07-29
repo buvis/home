@@ -240,6 +240,53 @@ class TransactionAtomicityOnFailureTest(_TempDirTestCase):
         self.assertEqual(str(ctx.exception), "specific validator message")
 
 
+class TransactionBackupAliasingTest(_TempDirTestCase):
+    """The backup must capture the PRE-transaction state even when `fn`
+    mutates its argument in place and returns the same object.
+
+    Found by the task-3 review, 2026-07-30. Nothing in the contract requires
+    `fn` to copy, and mutate-and-return-self is ordinary Python. When it
+    happens, a naive implementation writes the ALREADY-MUTATED dict to `.bak`,
+    so the backup holds the new state and `restore()` becomes a no-op -- the
+    same destroyed-rollback-point failure this module exists to fix in
+    scripts/statectl.py, arriving by a different route. Every other test in
+    this file copies inside `fn`, so only this one can catch it.
+    """
+
+    def test_bak_holds_previous_state_when_fn_mutates_in_place(self) -> None:
+        _write_json(self.path, {"phase": "build", "cycle": 1})
+
+        def bump_in_place(current: dict) -> dict:
+            current["cycle"] = 2
+            return current
+
+        state.transaction(self.path, bump_in_place)
+
+        committed = json.loads(self.path.read_text(encoding="utf-8"))
+        backed_up = json.loads(_bak_path(self.path).read_text(encoding="utf-8"))
+        self.assertEqual(committed["cycle"], 2, "the new state must be committed")
+        self.assertEqual(
+            backed_up["cycle"],
+            1,
+            "the .bak must hold the PREVIOUS state; got the mutated one, so the "
+            "rollback point was destroyed and restore() would be a no-op",
+        )
+
+    def test_restore_recovers_previous_state_after_in_place_mutation(self) -> None:
+        # The consequence, stated as behavior rather than as file content.
+        _write_json(self.path, {"phase": "build", "cycle": 1})
+
+        def bump_in_place(current: dict) -> dict:
+            current["cycle"] = 2
+            return current
+
+        state.transaction(self.path, bump_in_place)
+        state.restore(self.path)
+
+        recovered = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(recovered["cycle"], 1)
+
+
 class TransactionBackupOrderingTest(_TempDirTestCase):
     def test_bak_holds_the_state_from_before_the_transaction(self) -> None:
         _write_json(self.path, {"phase": "build", "cycle": 1})
