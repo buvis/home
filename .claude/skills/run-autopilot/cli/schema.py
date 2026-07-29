@@ -47,9 +47,17 @@ _LIST_FIELDS = (
 
 def validate(state: dict) -> None:
     """Raise SchemaError naming the first offending known field, else None."""
+    if not isinstance(state, dict):
+        raise SchemaError(f"state: expected dict, got {state!r}")
+
     for field, allowed in _ENUMS.items():
-        if field in state and state[field] not in allowed:
-            raise SchemaError(f"{field}: invalid value {state[field]!r}")
+        if field in state:
+            try:
+                invalid = state[field] not in allowed
+            except TypeError:
+                invalid = True
+            if invalid:
+                raise SchemaError(f"{field}: invalid value {state[field]!r}")
 
     for field in _INT_FIELDS:
         if field in state:
@@ -71,6 +79,8 @@ def validate(state: dict) -> None:
 
 def version_status(state: dict) -> str:
     """Classify state["schema_version"]: unstamped/current/old/future/invalid."""
+    if not isinstance(state, dict):
+        return "invalid"
     if "schema_version" not in state:
         return "unstamped"
     version: Any = state["schema_version"]
