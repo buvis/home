@@ -53,7 +53,7 @@ def _read_and_parse(path: Path) -> tuple[bytes, dict]:
         raise StateError(f"state file not found: {path}") from err
     try:
         return raw, json.loads(raw)
-    except json.JSONDecodeError as err:
+    except (json.JSONDecodeError, UnicodeDecodeError) as err:
         raise StateError(f"state file is not valid JSON ({path}): {err}") from err
 
 
@@ -130,13 +130,24 @@ def transaction(
 def init(path: Path, initial: dict) -> None:
     """Create the state file when absent; raise StateExistsError otherwise."""
     path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as err:
-        raise StateExistsError(f"state file already exists: {path}") from err
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(initial, fh, indent=2)
-        fh.write("\n")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(initial, fh, indent=2)
+            fh.write("\n")
+        try:
+            # os.link, not os.replace: os.replace would silently clobber an
+            # existing state file, destroying the exclusivity guarantee
+            # init() exists to provide. os.link raises FileExistsError when
+            # `path` already exists, giving the same exclusivity O_EXCL gave.
+            os.link(tmp, path)
+        except FileExistsError as err:
+            raise StateExistsError(f"state file already exists: {path}") from err
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def restore(path: Path) -> None:
@@ -146,16 +157,12 @@ def restore(path: Path) -> None:
     lock_path = Path(f"{path}.lock")
     with open(lock_path, "w", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if not bak_path.exists():
+            raise BackupError(f"no backup to restore: {bak_path}")
         try:
-            raw = bak_path.read_bytes()
-        except FileNotFoundError as err:
-            raise BackupError(f"no backup to restore: {bak_path}") from err
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as err:
-            raise BackupError(
-                f"backup is not valid JSON ({bak_path}): {err}"
-            ) from err
+            _raw, parsed = _read_and_parse(bak_path)
+        except StateError as err:
+            raise BackupError(str(err)) from err
         try:
             schema.validate(parsed)
         except schema.SchemaError as err:
