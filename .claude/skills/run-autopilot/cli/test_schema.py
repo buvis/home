@@ -363,6 +363,45 @@ class VersionStatusTest(unittest.TestCase):
         self.assertEqual(schema.version_status({"schema_version": False}), "invalid")
 
 
+class ValidateHostileInputTest(unittest.TestCase):
+    """Regressions found by the task-2 per-task review, 2026-07-29.
+
+    All three shipped in the first implementation and all three break the
+    boundary contract that `transaction()` depends on: it promises its callers
+    either a committed write or a raised `SchemaError`, and callers branch on
+    documented exit codes derived from exactly that. Any other exception
+    escaping, or any silent acceptance, breaks it.
+    """
+
+    def test_rejects_unhashable_value_in_enum_field(self) -> None:
+        # `state[field] not in allowed` against a set raises TypeError for an
+        # unhashable value. Reachable: `statectl set phase '[]'` writes it,
+        # since statectl has no validation -- the gap this module closes.
+        for bad in ([], {}):
+            with self.subTest(value=bad):
+                with self.assertRaises(schema.SchemaError) as ctx:
+                    schema.validate({"phase": bad})
+                self.assertIn("phase", str(ctx.exception))
+
+    def test_rejects_non_dict_state_root(self) -> None:
+        # The severe one: a root that is a list or str silently returned None,
+        # i.e. a FULL validation bypass -- `transaction()` would then commit a
+        # corrupt root through the very boundary meant to prevent it.
+        for bad in ([], "x", None, 42):
+            with self.subTest(root=bad):
+                with self.assertRaises(schema.SchemaError) as ctx:
+                    schema.validate(bad)
+                self.assertIn("state", str(ctx.exception))
+
+    def test_version_status_classifies_non_dict_state_as_invalid(self) -> None:
+        # `version_status(None)` leaked TypeError; `version_status([])`
+        # answered "unstamped", which a caller would treat as a healthy
+        # legacy state and stamp as current.
+        for bad in (None, [], "x", 42):
+            with self.subTest(root=bad):
+                self.assertEqual(schema.version_status(bad), "invalid")
+
+
 class LiveStateFixtureTest(unittest.TestCase):
     """The live autopilot state file must always validate clean."""
 
