@@ -240,6 +240,58 @@ class TransactionAtomicityOnFailureTest(_TempDirTestCase):
         self.assertEqual(str(ctx.exception), "specific validator message")
 
 
+class CorruptBytesTest(_TempDirTestCase):
+    """Invalid UTF-8 must surface as the module's own exceptions.
+
+    Found by the task-3 review, 2026-07-30. `json.loads(bytes)` decodes before
+    parsing, so malformed bytes raise UnicodeDecodeError -- NOT
+    JSONDecodeError. A truncated or partially-overwritten state file therefore
+    escaped as a raw UnicodeDecodeError, past the StateError/BackupError
+    contract that callers branch on.
+    """
+
+    def test_load_raises_state_error_on_invalid_utf8(self) -> None:
+        self.path.write_bytes(b'{"phase": "\xff\xfe build"}')
+        with self.assertRaises(state.StateError):
+            state.load(self.path)
+
+    def test_transaction_raises_state_error_on_invalid_utf8(self) -> None:
+        self.path.write_bytes(b'{"phase": "\xff\xfe build"}')
+        with self.assertRaises(state.StateError):
+            state.transaction(self.path, lambda s: s)
+
+    def test_restore_raises_backup_error_on_invalid_utf8_backup(self) -> None:
+        _write_json(self.path, {"phase": "build"})
+        _bak_path(self.path).write_bytes(b'{"phase": "\xff\xfe build"}')
+        before = self.path.read_bytes()
+        with self.assertRaises(state.BackupError):
+            state.restore(self.path)
+        self.assertEqual(self.path.read_bytes(), before)
+
+
+class InitFailureTest(_TempDirTestCase):
+    """A failed init() must leave NO file behind.
+
+    Found by the task-3 review, 2026-07-30. init() used O_CREAT|O_EXCL and
+    then wrote in place, so a serialization failure left a truncated file on
+    disk -- and StateExistsError then refused every later init(), permanently
+    wedging the loop's ability to bootstrap its own state.
+    """
+
+    def test_failed_init_leaves_no_file_and_allows_retry(self) -> None:
+        with self.assertRaises(Exception):
+            state.init(self.path, {"unserializable": object()})
+        self.assertFalse(
+            self.path.exists(),
+            "a failed init must not leave a partial file; StateExistsError "
+            "would then block every retry and the loop could never bootstrap",
+        )
+        state.init(self.path, {"phase": "build"})
+        self.assertEqual(
+            json.loads(self.path.read_text(encoding="utf-8"))["phase"], "build"
+        )
+
+
 class TransactionBackupAliasingTest(_TempDirTestCase):
     """The backup must capture the PRE-transaction state even when `fn`
     mutates its argument in place and returns the same object.
