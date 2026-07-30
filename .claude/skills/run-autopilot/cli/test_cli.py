@@ -214,6 +214,21 @@ class ParkTests(_TempDirTestCase):
         self.assertTrue((self.prds_dir / "hold" / self.PRD).exists())
         self.assertFalse(marker_path.exists())
 
+    def test_without_autopilot_dir_flag_defaults_to_state_parent(self) -> None:
+        (self.prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
+        marker_path = self.autopilot_dir / "park-requested"
+        _write_json(marker_path, {"prd": self.PRD, "reason": "died"})
+
+        proc = _run(
+            ["park", "--state", str(self.state_path), "--prds", str(self.prds_dir)],
+            cwd=self.root,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((self.prds_dir / "wip" / self.PRD).exists())
+        self.assertTrue((self.prds_dir / "hold" / self.PRD).exists())
+        self.assertFalse(marker_path.exists())
+
 
 class ResetPrdTests(_TempDirTestCase):
     def test_resets_cycle_phase_and_clears_tasks(self) -> None:
@@ -231,6 +246,14 @@ class ResetPrdTests(_TempDirTestCase):
     def test_corrupt_state_exits_2(self) -> None:
         state_path = self.root / "state.json"
         state_path.write_text("{not valid json", encoding="utf-8")
+
+        proc = _run(["reset-prd", "--state", str(state_path)], cwd=self.root)
+
+        self.assertEqual(proc.returncode, 2)
+
+    def test_non_dict_state_root_exits_2(self) -> None:
+        state_path = self.root / "state.json"
+        state_path.write_text("[]", encoding="utf-8")
 
         proc = _run(["reset-prd", "--state", str(state_path)], cwd=self.root)
 
@@ -280,6 +303,25 @@ class DeferTests(_TempDirTestCase):
         )
 
         self.assertEqual(proc.returncode, 1)
+
+    def test_valid_json_non_dict_exits_1_and_creates_no_deferred_file(self) -> None:
+        proc = _run(
+            [
+                "defer",
+                "--state", str(self.state_path),
+                "--prd", "00007-other-feature.md",
+                "--batch", "202607300005",
+                "--json", "42",
+            ],
+            cwd=self.root,
+        )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotEqual(proc.stderr.strip(), "")
+        # A one-line diagnostic (per the fix), not an uncaught-exception traceback.
+        self.assertEqual(len(proc.stderr.splitlines()), 1)
+        deferred_path = self.state_dir / "deferred" / "202607300005-deferred.json"
+        self.assertFalse(deferred_path.exists())
 
 
 class RestoreTests(_TempDirTestCase):

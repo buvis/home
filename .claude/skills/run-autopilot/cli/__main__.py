@@ -194,6 +194,12 @@ def _run_defer(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as err:
         print(f"autopilot: defer --json is not valid JSON: {err}", file=sys.stderr)
         return 1
+    if not isinstance(record, dict):
+        print(
+            f"autopilot: defer --json must be a JSON object, got {type(record).__name__}",
+            file=sys.stderr,
+        )
+        return 1
     try:
         records.record_defer(state_path.parent, args.prd, args.batch, record)
     except (OSError, ValueError):

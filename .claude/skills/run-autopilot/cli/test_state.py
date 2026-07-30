@@ -99,6 +99,11 @@ class LoadTest(_TempDirTestCase):
         with self.assertRaises(state.StateError):
             state.load(self.path)
 
+    def test_raises_state_error_for_non_dict_root(self) -> None:
+        self.path.write_text("[]", encoding="utf-8")
+        with self.assertRaises(state.StateError):
+            state.load(self.path)
+
     def test_does_not_create_lock_or_bak_files_as_a_side_effect(self) -> None:
         _write_json(self.path, {"phase": "build"})
         state.load(self.path)

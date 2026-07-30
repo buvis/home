@@ -344,6 +344,23 @@ class ExitCodeTests(_StallTestCase):
         self.assertTrue(self._in_wip(), "nothing may move when state is unreadable")
         self.assertFalse(self._in_hold())
 
+    def test_exit_4_when_hold_path_is_occupied_by_a_file(self) -> None:
+        # <prds_dir>/hold exists as a regular file: mkdir(hold) raises before
+        # any effect (step 1, before the intent stamp is even written).
+        self._put_in_wip()
+        self._write_state(self._sample_state())
+        before = self._state()
+        (self.prds_dir / "hold").write_text("occupied", encoding="utf-8")
+
+        rc = self._do_stall(site="design_gate")
+
+        self.assertEqual(rc, 4)
+        self.assertTrue(self._in_wip())
+        final = self._state()
+        self.assertNotIn("stall_op", final)
+        self.assertEqual(final, before)
+        self.assertEqual(self._deferred_items(), [])
+
 
 class DistinctOperationsTests(_StallTestCase):
     def test_two_full_stalls_of_the_same_prd_and_site_mint_different_op_ids(self) -> None:
