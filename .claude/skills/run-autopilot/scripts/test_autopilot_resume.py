@@ -576,6 +576,33 @@ class ResumeEscalationExhaustedTests(unittest.TestCase):
         self.assertEqual(target, "crash-recovery at selection")
 
 
+class ResumeStallReconcileTests(unittest.TestCase):
+    """A durable stall_op intent record (do_stall's PRD 00073 protocol) wins
+    over every other resume branch -- phase, phases_completed, stall_reason
+    -- since it means a stall was interrupted mid-flight and must be
+    reconciled before anything else runs.
+
+    RED now: resume_target has no stall_op branch yet; this case fails until
+    the do_stall implementation and its resume-side reconcile branch land.
+    """
+
+    def test_stall_op_wins_over_review_phase_and_a_set_stall_reason(self) -> None:
+        target = resume_target(
+            {
+                "phase": "review",
+                "phases_completed": [],
+                "stall_reason": {"stalled": "oversized_task", "task": "t8"},
+                "stall_op": {
+                    "op_id": "op-77af3",
+                    "prd": "00066-foo-v1.md",
+                    "site": "design_gate",
+                    "detail": "hook failed",
+                },
+            }
+        )
+        self.assertEqual(target, "reconcile stall op-77af3 for 00066-foo-v1.md")
+
+
 class ParkDecisionTests(unittest.TestCase):
     """park_decision(marker, wip_filenames, parks_consecutive) classifies a
     park-requested marker against the live WIP set and the consecutive-park
