@@ -37,14 +37,20 @@ def resume_target(state: dict) -> str:
 
     Resolution order encodes the SKILL contract:
 
-    1. Crash-recovery and replan stalls win first (stall_reason).
-    2. Cap-pause (phase=="paused" + cap_pause_reason) gets its own handler.
-    3. Review resume is driven by phases_completed; legacy `blind`/`doubt`
+    1. A durable stall_op intent (do_stall's protocol) wins first — a stall
+       interrupted mid-flight must be reconciled before any other resume
+       branch runs.
+    2. Crash-recovery and replan stalls run next (stall_reason).
+    3. Cap-pause (phase=="paused" + cap_pause_reason) gets its own handler.
+    4. Review resume is driven by phases_completed; legacy `blind`/`doubt`
        phases (pre-00015 state files) run one full review cycle instead —
        the lenses that replaced those legs must not be skipped.
-    4. Build re-entry is by ARTIFACT (capsule freshness, tasks-exist,
+    5. Build re-entry is by ARTIFACT (capsule freshness, tasks-exist,
        all-done) — never a granular catchup/planning/work cascade.
     """
+    if state.get("stall_op"):
+        return f"reconcile stall {state['stall_op']['op_id']} for {state['stall_op']['prd']}"
+
     stall = state.get("stall_reason") or {}
     stalled = stall.get("stalled")
 
