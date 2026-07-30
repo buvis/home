@@ -5,8 +5,13 @@ Split out of test_autopilot_context_cap_hook.py to keep each file under the
 module; the suite runs from scripts/ on sys.path, so the import resolves.
 """
 
+import importlib.util
 import json
+import multiprocessing as mp
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 from test_autopilot_context_cap_hook import HookFixture
 
@@ -405,6 +410,277 @@ class ContextCapRotationTests(unittest.TestCase):
         context = out["hookSpecificOutput"]["additionalContext"].lower()
         self.assertIn("rotation", context)
         self.assertNotIn("replan", context)
+
+
+# PRD 00051 task 8: port off the private unlocked writer -------------------
+#
+# The hook's private `_atomic_write_state` (a lockless tmp+os.replace) is
+# removed; its two callers (`_append_rotation_to_state`,
+# `_set_oversized_stall`) write through cli.state.transaction instead - the
+# advisory-locked read-modify-write boundary in cli/state.py. These tests
+# were written without having seen the port's implementation.
+
+HOOK_PATH = Path(__file__).resolve().parent / "autopilot_context_cap_hook.py"
+
+# Literal bootstrap path for cli.* imports inside spawned worker processes
+# (each spawned process is a fresh interpreter with its own sys.path).
+_RUN_AUTOPILOT_ROOT = "/Users/bob/.claude/skills/run-autopilot"
+
+_RACE_INITIAL_STATE = {
+    "prd": "00004-feature-x.md",
+    "phase": "build",
+    "next_phase": "build",
+    "cycle": 2,
+    "tasks": [{"id": "t1", "name": "x", "status": "in_progress"}],
+    "batch": {
+        "id": "202607300000",
+        "completed_prds": [],
+        "parks_consecutive": 0,
+    },
+}
+
+
+def _load_hook_module_for_test():
+    """Load autopilot_context_cap_hook.py fresh, by file path.
+
+    The rest of this file drives the hook only via HookFixture.run_hook
+    (subprocess), so there is no existing in-process import idiom to reuse.
+    Loading by path also makes this work unmodified inside a spawned worker
+    process, which starts with no modules imported.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "autopilot_context_cap_hook_under_test", HOOK_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Spawn-safe worker bodies: top-level functions only (macOS default start
+# method is "spawn", which cannot pickle closures/bound methods).
+
+
+def _race_worker_append_rotation(barrier, queue, autopilot_dir, task_id) -> None:
+    try:
+        barrier.wait(timeout=25)
+    except Exception as exc:  # BrokenBarrierError or a timeout
+        queue.put(("rotation", f"barrier_error: {exc!r}"))
+        return
+    try:
+        module = _load_hook_module_for_test()
+        ok = module._append_rotation_to_state(Path(autopilot_dir), task_id)
+        queue.put(("rotation", bool(ok)))
+    except Exception as exc:
+        queue.put(("rotation", f"error: {exc!r}"))
+
+
+def _race_worker_state_transaction_probe(barrier, queue, state_path) -> None:
+    try:
+        barrier.wait(timeout=25)
+    except Exception as exc:
+        queue.put(("probe", f"barrier_error: {exc!r}"))
+        return
+    try:
+        sys.path.insert(0, _RUN_AUTOPILOT_ROOT)
+        from cli import state as state_mod
+
+        state_mod.transaction(
+            Path(state_path),
+            lambda s: {**s, "probe_field": "landed"},
+            validator=lambda s: None,
+        )
+        queue.put(("probe", True))
+    except Exception as exc:
+        queue.put(("probe", f"error: {exc!r}"))
+
+
+def _race_worker_do_stall(
+    barrier, queue, state_path, prd, site, detail, prds_dir, autopilot_dir
+) -> None:
+    try:
+        barrier.wait(timeout=25)
+    except Exception as exc:
+        queue.put(("stall", f"barrier_error: {exc!r}"))
+        return
+    try:
+        sys.path.insert(0, _RUN_AUTOPILOT_ROOT)
+        from cli import records
+
+        rc = records.do_stall(
+            Path(state_path),
+            prd=prd,
+            site=site,
+            detail=detail,
+            prds_dir=Path(prds_dir),
+            autopilot_dir=Path(autopilot_dir),
+        )
+        queue.put(("stall", rc))
+    except Exception as exc:
+        queue.put(("stall", f"error: {exc!r}"))
+
+
+class AtomicWriterRemovedTests(unittest.TestCase):
+    """Structural: the port removes the private lockless writer outright."""
+
+    def test_private_atomic_writer_is_gone(self) -> None:
+        module = _load_hook_module_for_test()
+        self.assertFalse(
+            hasattr(module, "_atomic_write_state"),
+            "_atomic_write_state must be removed once its callers write "
+            "through cli.state.transaction",
+        )
+
+
+class ConcurrentRotationAndTransactionWriteTests(unittest.TestCase):
+    """_append_rotation_to_state racing an unrelated cli.state.transaction
+    writer on the same state.json, as two REAL processes synchronized with a
+    Barrier (no sleeps).
+
+    Under the old lockless tmp+os.replace writer this interleaving can drop
+    one side's write (last-writer-wins). Ported onto cli.state.transaction's
+    advisory-locked read-modify-write, both effects must always land,
+    regardless of which process wins the lock first.
+    """
+
+    def _run_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = Path(tmp) / "autopilot"
+            autopilot_dir.mkdir(parents=True)
+            state_path = autopilot_dir / "state.json"
+            state_path.write_text(json.dumps(_RACE_INITIAL_STATE), encoding="utf-8")
+
+            ctx = mp.get_context("spawn")
+            barrier = ctx.Barrier(2)
+            queue = ctx.Queue()
+            proc_a = ctx.Process(
+                target=_race_worker_append_rotation,
+                args=(barrier, queue, str(autopilot_dir), "t1"),
+            )
+            proc_b = ctx.Process(
+                target=_race_worker_state_transaction_probe,
+                args=(barrier, queue, str(state_path)),
+            )
+            proc_a.start()
+            proc_b.start()
+            proc_a.join(timeout=30)
+            proc_b.join(timeout=30)
+            self.assertFalse(proc_a.is_alive(), "rotation process hung")
+            self.assertFalse(proc_b.is_alive(), "transaction-probe process hung")
+
+            results = {}
+            for _ in range(2):
+                kind, value = queue.get(timeout=30)
+                results[kind] = value
+
+            self.assertIs(results.get("rotation"), True, results)
+            self.assertIs(results.get("probe"), True, results)
+
+            final = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                final.get("cap_rotations"), [{"task_id": "t1", "cycle": 2}]
+            )
+            self.assertEqual(final["tasks"][0]["status"], "pending")
+            self.assertEqual(final["next_phase"], "build")
+            self.assertEqual(final.get("probe_field"), "landed")
+
+    def test_both_writes_land_regardless_of_lock_order(self) -> None:
+        # A Barrier releases both processes simultaneously; run the whole
+        # race twice to sample both possible lock-acquisition orders.
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                self._run_once()
+
+
+class ConcurrentRotationAndStallRaceTests(unittest.TestCase):
+    """PRD 00051 task 8's named acceptance pair: _append_rotation_to_state
+    racing records.do_stall's reset-commit on the same state.json.
+
+    Both writers go through cli.state.transaction, so the final state must
+    be EXACTLY one of the two legal serializations - never a merge that
+    drops one side's write. The lost-update signature is the original
+    `tasks` list (with t1 still in_progress) surviving a stall that should
+    have reset it.
+    """
+
+    PRD = "00004-feature-x.md"
+
+    def test_final_state_is_one_legal_serialization_never_a_lost_update(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prds_dir = root / "prds"
+            autopilot_dir = root / "autopilot"
+            (prds_dir / "wip").mkdir(parents=True)
+            autopilot_dir.mkdir(parents=True)
+            state_path = autopilot_dir / "state.json"
+            state_path.write_text(json.dumps(_RACE_INITIAL_STATE), encoding="utf-8")
+            (prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
+
+            ctx = mp.get_context("spawn")
+            barrier = ctx.Barrier(2)
+            queue = ctx.Queue()
+            proc_a = ctx.Process(
+                target=_race_worker_append_rotation,
+                args=(barrier, queue, str(autopilot_dir), "t1"),
+            )
+            proc_b = ctx.Process(
+                target=_race_worker_do_stall,
+                args=(
+                    barrier,
+                    queue,
+                    str(state_path),
+                    self.PRD,
+                    "design_gate",
+                    "race",
+                    str(prds_dir),
+                    str(autopilot_dir),
+                ),
+            )
+            proc_a.start()
+            proc_b.start()
+            proc_a.join(timeout=30)
+            proc_b.join(timeout=30)
+            self.assertFalse(proc_a.is_alive(), "rotation process hung")
+            self.assertFalse(proc_b.is_alive(), "do_stall process hung")
+
+            results = {}
+            for _ in range(2):
+                kind, value = queue.get(timeout=30)
+                results[kind] = value
+
+            self.assertIs(results.get("rotation"), True, results)
+            self.assertEqual(results.get("stall"), 0, results)
+
+            final = json.loads(state_path.read_text(encoding="utf-8"))
+
+            # True in BOTH legal outcomes.
+            self.assertEqual(final["cycle"], 1)
+            self.assertEqual(final["next_phase"], "build")
+            self.assertNotIn("stall_op", final)
+            # Lost-update signature: the stall's reset always removes
+            # "tasks". If it is still present (least of all with t1 still
+            # in_progress), the rotation clobbered the stall's reset with
+            # stale pre-stall data.
+            self.assertNotIn("tasks", final)
+
+            # The two legal serializations differ only in cap_rotations:
+            # absent (stall committed last - its reset removed it, legal)
+            # or a single t1/cycle-1 entry (rotation committed last, having
+            # re-read the post-stall state under the lock).
+            if "cap_rotations" in final:
+                self.assertEqual(
+                    final["cap_rotations"], [{"task_id": "t1", "cycle": 1}]
+                )
+
+            # True regardless of ordering.
+            self.assertFalse((prds_dir / "wip" / self.PRD).exists())
+            self.assertTrue((prds_dir / "hold" / self.PRD).exists())
+
+            deferred_path = autopilot_dir / "deferred" / "202607300000-deferred.json"
+            deferred_items = json.loads(
+                deferred_path.read_text(encoding="utf-8")
+            )["items"]
+            self.assertEqual(len(deferred_items), 1)
+            self.assertEqual(deferred_items[0]["type"], "stall")
 
 
 if __name__ == "__main__":
