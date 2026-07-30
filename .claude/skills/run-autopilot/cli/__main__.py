@@ -212,8 +212,6 @@ def _run_restore(args: argparse.Namespace) -> int:
         state.restore(state_path)
     except state.BackupError:
         return 8
-    except state.StateError:
-        return 2
     return 0
 
 
