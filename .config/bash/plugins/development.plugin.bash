@@ -83,6 +83,9 @@ tracon() {
   uv run --quiet --no-project "$HOME/.claude/skills/run-autopilot/scripts/tracon.py" "$@"
 }
 
+# autopilot [args...] — dispatch to the cli/__main__.py subcommand CLI (PRD 00051).
+autopilot() { python3 "$HOME/.claude/skills/run-autopilot/cli/__main__.py" "$@"; }
+
 # _autoclaude_tracon <args...> — foreground the tracon TUI while the loop runs
 # backgrounded as a process-group leader. See autoclaude's presentation
 # branch (_AUTOPILOT_TRACON=0/1/auto) for the routing decision.
