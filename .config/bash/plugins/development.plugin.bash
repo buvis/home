@@ -1009,10 +1009,16 @@ autoclaude() {
       # broken handler). Either bound → loud halt.
       if [ -f "$_ap_dir/park-requested" ]; then
         _park_relaunches=$((_park_relaunches + 1))
-        local _marker_mtime _marker_age
+        local _marker_mtime _marker_age _marker_stale_max
         _marker_mtime=$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$_ap_dir/park-requested" 2>/dev/null)
         case "$_marker_mtime" in ''|*[!0-9]*) _marker_age=0 ;; *) _marker_age=$(( $(date +%s) - _marker_mtime )) ;; esac   # stat glitch → age 0, rely on the count bound
-        if [ "$_park_relaunches" -gt "${_AUTOPILOT_DIED_RETRIES_MAX:-1}" ] || [ "$_marker_age" -ge "${_AUTOPILOT_SESSION_MAX:-7200}" ]; then
+        # Staleness bound must cover whichever phase's cap the consuming relaunch
+        # runs under, NOT just the build default: a park raised mid-review (10800s
+        # cap) always outlived a 7200s bound, so the ONE relaunch meant to consume
+        # the marker got flagged stale before it could even finish (2026-07-27).
+        _marker_stale_max="${_AUTOPILOT_SESSION_MAX:-7200}"
+        [ "${_AUTOPILOT_SESSION_MAX_REVIEW:-10800}" -gt "$_marker_stale_max" ] && _marker_stale_max="${_AUTOPILOT_SESSION_MAX_REVIEW:-10800}"
+        if [ "$_park_relaunches" -gt "${_AUTOPILOT_DIED_RETRIES_MAX:-1}" ] || [ "$_marker_age" -ge "$_marker_stale_max" ]; then
           printf '\nautoclaude: park-requested unconsumed (%s relaunches, %ss) — halting (systemic).\n' "$_park_relaunches" "$_marker_age" >&2
           python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "Park marker unconsumed; halting."
           trap - INT TERM HUP; [ -n "$_reg" ] && rm -f "$_reg"; unset _AUTOPILOT_LOOP; return 1
