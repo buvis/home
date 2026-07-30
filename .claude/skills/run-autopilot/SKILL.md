@@ -46,6 +46,8 @@ If invoked with `review-batch`, load the newest `dev/local/autopilot/deferred/{b
 
 The full per-phase instructions live in three gate reference files; this core deliberately carries only the shared contract plus the invariants below. After the entry-point checks, read `dev/local/autopilot/state.json` and **Read the matching gate file now; do not execute a gate from memory**:
 
+A state carrying `stall_op` runs `autopilot park` to reconcile before any gate file is read.
+
 | resume state | Read this gate file |
 |--------------|---------------------|
 | `phase: "build"` — or `state.json` missing (fresh start) | `references/phase-build.md` |
