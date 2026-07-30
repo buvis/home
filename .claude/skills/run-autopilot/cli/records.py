@@ -297,6 +297,4 @@ def do_stall(
 
     state.transaction(state_path, _commit, validator=_validate_stall_commit)
 
-    _trip("after-commit-before-marker-delete")
-
     return 0
