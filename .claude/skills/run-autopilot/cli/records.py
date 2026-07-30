@@ -261,7 +261,10 @@ def do_stall(
 
     # Step 1: mkdir -p <prds_dir>/hold.
     hold_dir = prds_dir / "hold"
-    hold_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        hold_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return 4
 
     # Step 2: stamp the intent (idempotent on retry: same op_id).
     def _stamp_intent(s: dict) -> dict:

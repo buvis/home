@@ -52,9 +52,14 @@ def _read_and_parse(path: Path) -> tuple[bytes, dict]:
     except FileNotFoundError as err:
         raise StateError(f"state file not found: {path}") from err
     try:
-        return raw, json.loads(raw)
+        parsed = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError) as err:
         raise StateError(f"state file is not valid JSON ({path}): {err}") from err
+    if not isinstance(parsed, dict):
+        raise StateError(
+            f"state root must be a JSON object, got {type(parsed).__name__}: {path}"
+        )
+    return raw, parsed
 
 
 def _atomic_write(path: Path, data: dict) -> None:
