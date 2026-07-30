@@ -64,8 +64,12 @@ sys.path.insert(0, str(_SKILL_ROOT))
 
 from cli import records, schema, state
 
-# scripts/ is already on sys.path: importing cli.records ran its own guarded
-# insert of the scripts/ dir (for resume_target) as a side effect.
+# Explicit guarded insert (mirrors records.py's own): no longer relies on
+# importing cli.records having put scripts/ on sys.path as a side effect,
+# so dropping `records` from the import above can't silently break this.
+_SCRIPTS_DIR = _SKILL_ROOT / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 import _walk_up
 
 
@@ -105,6 +109,9 @@ def _run_init(args: argparse.Namespace) -> int:
         state.init(state_path, initial)
     except state.StateExistsError:
         return 7
+    except OSError as err:
+        print(f"autopilot: init failed: {err}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -174,7 +181,7 @@ def _run_reset_prd(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
     try:
         state.transaction(state_path, records.reset_prd_fields, validator=_validate_reset_prd)
-    except state.StateError:
+    except (state.StateError, OSError):
         return 2
     return 0
 
@@ -218,6 +225,9 @@ def _run_restore(args: argparse.Namespace) -> int:
         state.restore(state_path)
     except state.BackupError:
         return 8
+    except OSError as err:
+        print(f"autopilot: restore failed: {err}", file=sys.stderr)
+        return 2
     return 0
 
 
