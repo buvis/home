@@ -98,6 +98,18 @@ class InitTests(_TempDirTestCase):
         self.assertEqual(second.returncode, 7)
         self.assertEqual(state_path.read_bytes(), before)
 
+    def test_missing_state_parent_dir_exits_2_not_a_traceback_crash(self) -> None:
+        state_path = self.root / "no-such-dir" / "state.json"
+
+        proc = _run(
+            ["init", "--state", str(state_path), "--prd", "00004-feature-x.md"],
+            cwd=self.root,
+        )
+
+        # A crash from an uncaught exception exits 1, not 2 - pinning
+        # returncode to exactly 2 rules that out.
+        self.assertEqual(proc.returncode, 2)
+
 
 class StallTests(_TempDirTestCase):
     PRD = "00004-feature-x.md"
@@ -259,6 +271,13 @@ class ResetPrdTests(_TempDirTestCase):
 
         self.assertEqual(proc.returncode, 2)
 
+    def test_missing_state_parent_dir_exits_2(self) -> None:
+        state_path = self.root / "no-such-dir" / "state.json"
+
+        proc = _run(["reset-prd", "--state", str(state_path)], cwd=self.root)
+
+        self.assertEqual(proc.returncode, 2)
+
 
 class DeferTests(_TempDirTestCase):
     def setUp(self) -> None:
@@ -359,6 +378,13 @@ class RestoreTests(_TempDirTestCase):
 
         self.assertEqual(proc.returncode, 8)
 
+    def test_missing_state_parent_dir_exits_2(self) -> None:
+        state_path = self.root / "no-such-dir" / "state.json"
+
+        proc = _run(["restore", "--state", str(state_path)], cwd=self.root)
+
+        self.assertEqual(proc.returncode, 2)
+
 
 class UsageErrorTests(_TempDirTestCase):
     def test_unknown_subcommand_exits_1_with_diagnostic_on_stderr(self) -> None:
@@ -386,6 +412,14 @@ class DefaultStatePathTests(_TempDirTestCase):
         self.assertEqual(content["cycle"], 1)
         self.assertEqual(content["phase"], "build")
         self.assertNotIn("tasks", content)
+
+    def test_reset_prd_without_state_flag_and_no_autopilot_ancestor_exits_1(self) -> None:
+        # self.root is a bare tmpdir with no dev/local/autopilot anywhere
+        # above it (verified: the default tempdir root has no such ancestor).
+        proc = _run(["reset-prd"], cwd=self.root)
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotEqual(proc.stderr.strip(), "")
 
 
 class CwdIndependenceTests(unittest.TestCase):
