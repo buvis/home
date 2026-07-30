@@ -30,6 +30,13 @@ Exposes:
         from a kill at any of its three internal boundaries. See
         test_records_stall.py's module docstring for the full 0-5 step /
         exit-code / retry contract.
+    do_park(state_path, *, prds_dir, autopilot_dir) -> int
+        The Phase 0 park-request handler as one callable: consumes
+        `<autopilot_dir>/park-requested`, reconciles any pending stall_op
+        first, then parks via `do_stall(site="wrapper_died", ...)`. Never
+        writes state itself - every effect rides through do_stall's
+        transactions. See test_records_park.py's module docstring for the
+        full marker/stall_op match matrix and exit-code contract.
 """
 
 from __future__ import annotations
@@ -37,12 +44,20 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import sys
 import tempfile
 import uuid
 from pathlib import Path
 
 from . import schema
 from . import state
+
+# scripts/ is a sibling of cli/ under the skill root; resume_target.py is
+# stdlib-pure (no circular import risk) and exposes park_decision.
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from resume_target import park_decision
 
 # Fields removed by the per-PRD reset, grouped by why they're here:
 #
@@ -298,3 +313,139 @@ def do_stall(
     state.transaction(state_path, _commit, validator=_validate_stall_commit)
 
     return 0
+
+
+def _park_mutator(pause_detail: str | None = None):
+    """Compose into do_stall's step-5 commit: increment
+    batch.parks_consecutive by 1; when `pause_detail` is given, also set the
+    systemic-halt phase/next_phase/pause_reason fields."""
+    def _mutator(s: dict) -> dict:
+        new_s = dict(s)
+        batch = dict(new_s.get("batch") or {})
+        batch["parks_consecutive"] = batch.get("parks_consecutive", 0) + 1
+        new_s["batch"] = batch
+        if pause_detail is not None:
+            new_s["phase"] = "paused"
+            new_s["next_phase"] = "paused"
+            new_s["pause_reason"] = {"site": "systemic_park", "detail": pause_detail}
+        return new_s
+    return _mutator
+
+
+def _parse_marker(marker_path: Path) -> None | str | dict:
+    """Return None (absent), "malformed" (unparseable or missing/empty
+    prd), or {"prd": str, "reason": str} for a present, usable marker."""
+    if not marker_path.exists():
+        return None
+    try:
+        raw = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return "malformed"
+    if not isinstance(raw, dict) or not raw.get("prd"):
+        return "malformed"
+    return {"prd": raw["prd"], "reason": raw.get("reason", "")}
+
+
+def do_park(
+    state_path: str | Path,
+    *,
+    prds_dir: str | Path,
+    autopilot_dir: str | Path,
+) -> int:
+    """Consume `<autopilot_dir>/park-requested` end-to-end: the Phase 0 park
+    handler as one callable, reconciling command. See
+    test_records_park.py's module docstring for the full contract. Returns
+    the exit code (0 parked | 3 no/ignored/reconciled marker | 5 parked AND
+    systemic halt | 10 stall_op conflict | 2 state error | 4/9 propagated
+    from an inner do_stall move/append failure).
+    """
+    state_path = Path(state_path)
+    prds_dir = Path(prds_dir)
+    autopilot_dir = Path(autopilot_dir)
+    marker_path = autopilot_dir / "park-requested"
+
+    def _delete_marker() -> None:
+        _trip("after-commit-before-marker-delete")
+        marker_path.unlink()
+
+    marker = _parse_marker(marker_path)
+
+    try:
+        current, _version = state.load(state_path)
+    except state.StateError:
+        return 2
+
+    stall_op = current.get("stall_op")
+
+    # Conflict: the marker names a different PRD than a stored stall_op -
+    # refuse before any effect, regardless of wip/ placement.
+    if isinstance(marker, dict) and stall_op and stall_op.get("prd") != marker["prd"]:
+        return 10
+
+    if marker == "malformed":
+        _delete_marker()
+        print("autopilot: park-requested malformed; ignoring")
+        return 3
+
+    if marker is None:
+        if not stall_op:
+            print("autopilot: no park-requested; nothing to do")
+            return 3
+        extra = _park_mutator() if stall_op["site"] == "wrapper_died" else None
+        rc = do_stall(
+            state_path, prd=stall_op["prd"], site=stall_op["site"], detail=stall_op["detail"],
+            prds_dir=prds_dir, autopilot_dir=autopilot_dir, extra_mutator=extra,
+        )
+        if rc != 0:
+            return rc
+        print(f"autopilot: reconciled pending {stall_op['site']} stall for {stall_op['prd']}")
+        return 3
+
+    # marker is a valid dict ({"prd": ..., "reason": ...}) from here on.
+    prd = marker["prd"]
+    reason = marker["reason"]
+    wip_filenames = [p.name for p in (prds_dir / "wip").glob("*.md")]
+    prd_in_wip = prd in wip_filenames
+
+    # A stall_op that isn't simply "this same wrapper_died park being
+    # resumed" must be reconciled (its own stored prd/site/detail) before the
+    # marker is acted on.
+    if stall_op and not (prd_in_wip and stall_op["site"] == "wrapper_died"):
+        extra = _park_mutator() if stall_op["site"] == "wrapper_died" else None
+        rc = do_stall(
+            state_path, prd=stall_op["prd"], site=stall_op["site"], detail=stall_op["detail"],
+            prds_dir=prds_dir, autopilot_dir=autopilot_dir, extra_mutator=extra,
+        )
+        if rc != 0:
+            return rc
+
+    if not prd_in_wip:
+        _delete_marker()
+        print(f"autopilot: park-requested named {prd} not in wip/; ignoring")
+        return 3
+
+    try:
+        consult_state, _version = state.load(state_path)
+    except state.StateError:
+        return 2
+    parks_consecutive = (consult_state.get("batch") or {}).get("parks_consecutive", 0)
+
+    decision = park_decision(marker, wip_filenames, parks_consecutive)
+    if decision.endswith("systemic halt"):
+        pause_detail = f"{parks_consecutive + 1} consecutive PRDs parked via wrapper_died; batch halted"
+        extra = _park_mutator(pause_detail=pause_detail)
+        exit_code = 5
+    else:
+        extra = _park_mutator()
+        exit_code = 0
+
+    rc = do_stall(
+        state_path, prd=prd, site="wrapper_died", detail=reason,
+        prds_dir=prds_dir, autopilot_dir=autopilot_dir, extra_mutator=extra,
+    )
+    if rc != 0:
+        return rc
+    _delete_marker()
+    suffix = " (systemic halt)" if exit_code == 5 else ""
+    print(f"autopilot: parked {prd}{suffix}")
+    return exit_code
