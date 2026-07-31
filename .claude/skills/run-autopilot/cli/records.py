@@ -144,6 +144,11 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
     record with no "op_id" is always appended. Locked and written
     atomically under its own `.lock` sidecar next to the deferred file.
     """
+    if "/" in prd or prd == "..":
+        raise ValueError(f"record_defer: invalid prd {prd!r}")
+    if not isinstance(batch_id, str) or not batch_id or "/" in batch_id or ".." in batch_id:
+        raise ValueError(f"record_defer: invalid batch_id {batch_id!r}")
+
     deferred_dir = Path(path) / "deferred"
     deferred_dir.mkdir(parents=True, exist_ok=True)
     file_path = deferred_dir / f"{batch_id}-deferred.json"
@@ -153,6 +158,8 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         if file_path.exists():
             content = json.loads(file_path.read_text(encoding="utf-8"))
+            if not isinstance(content, dict) or not isinstance(content.get("items"), list):
+                raise ValueError(f"record_defer: corrupt deferred file {file_path}")
         else:
             content = {"batch_id": batch_id, "items": []}
 
@@ -160,10 +167,12 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
         already_present = op_id is not None and any(
             item.get("op_id") == op_id for item in content["items"]
         )
-        if not already_present:
-            item = dict(record)
-            item["prd"] = prd
-            content["items"].append(item)
+        if already_present:
+            return
+
+        item = dict(record)
+        item["prd"] = prd
+        content["items"].append(item)
 
         _atomic_write(file_path, content)
 
@@ -250,6 +259,13 @@ def do_stall(
     # Step 0: identity guard, before any effect.
     stall_op = current.get("stall_op")
     if stall_op:
+        if (
+            not isinstance(stall_op, dict)
+            or not isinstance(stall_op.get("op_id"), str)
+            or not isinstance(stall_op.get("prd"), str)
+        ):
+            print("autopilot: malformed stall_op in state; refusing", file=sys.stderr)
+            return 2
         if stall_op.get("prd") != prd:
             return 10
         state_prd = current.get("prd")
@@ -258,6 +274,11 @@ def do_stall(
         op_id = stall_op["op_id"]
     else:
         op_id = _new_op_id()
+
+    batch = current.get("batch")
+    if not isinstance(batch, dict) or not isinstance(batch.get("id"), str):
+        print("autopilot: batch.id missing or not a string; refusing", file=sys.stderr)
+        return 2
 
     # Step 1: mkdir -p <prds_dir>/hold.
     hold_dir = prds_dir / "hold"
@@ -272,7 +293,10 @@ def do_stall(
         new_s["stall_op"] = {"op_id": op_id, "prd": prd, "site": site, "detail": detail}
         return new_s
 
-    state.transaction(state_path, _stamp_intent, validator=_validate_stall_op)
+    try:
+        state.transaction(state_path, _stamp_intent, validator=_validate_stall_op)
+    except (state.StateError, schema.SchemaError, OSError):
+        return 2
 
     _trip("after-intent-before-move")
 
@@ -281,7 +305,10 @@ def do_stall(
     wip_path = prds_dir / "wip" / prd
     hold_path = hold_dir / prd
     if wip_path.exists():
-        wip_path.rename(hold_path)
+        try:
+            wip_path.rename(hold_path)
+        except OSError:
+            return 4
     if not hold_path.exists():
         return 4
 
@@ -313,7 +340,10 @@ def do_stall(
         new_s.pop("stall_op", None)
         return new_s
 
-    state.transaction(state_path, _commit, validator=_validate_stall_commit)
+    try:
+        state.transaction(state_path, _commit, validator=_validate_stall_commit)
+    except (state.StateError, schema.SchemaError, OSError):
+        return 2
 
     return 0
 
@@ -379,6 +409,15 @@ def do_park(
         return 2
 
     stall_op = current.get("stall_op")
+
+    # Malformed stall_op shape: before any identity-compare or effect.
+    if stall_op and (
+        not isinstance(stall_op, dict)
+        or not isinstance(stall_op.get("op_id"), str)
+        or not isinstance(stall_op.get("prd"), str)
+    ):
+        print("autopilot: malformed stall_op in state; refusing", file=sys.stderr)
+        return 2
 
     # Conflict: the marker names a different PRD than a stored stall_op -
     # refuse before any effect, regardless of wip/ placement.
