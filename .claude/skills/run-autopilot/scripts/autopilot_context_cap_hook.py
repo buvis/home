@@ -260,17 +260,42 @@ def _last_rotation_task(state: dict[str, Any]) -> str | None:
     return None
 
 
+def _import_cli_state(caller: str) -> Any | None:
+    """Import cli.state, inserting the skill root onto sys.path first.
+
+    The hook lives in scripts/, one level below the skill root that owns the
+    cli/ package (mirrors cli/__main__.py's own bootstrap). Returns the
+    module, or None if cli/ cannot be imported at all (broken package) — the
+    hook must never raise into the harness on that path, only warn and fail
+    the write.
+    """
+    try:
+        skill_root = Path(__file__).resolve().parent.parent
+        if str(skill_root) not in sys.path:
+            sys.path.insert(0, str(skill_root))
+        from cli import state as cli_state
+    except ImportError as exc:
+        print(
+            f"autopilot_context_cap_hook: cli package unavailable ({exc}); "
+            f"skipping {caller} to avoid a handoff with no record",
+            file=sys.stderr,
+        )
+        return None
+    return cli_state
+
+
 def _append_rotation_to_state(
     autopilot_dir: Path, task_id: str
 ) -> bool:
-    """Re-read state.json, append one cap_rotations entry, reset the in-flight
-    task to pending, write atomically.
+    """Append one cap_rotations entry, reset the in-flight task to pending,
+    write through cli.state.transaction (the advisory-locked read-modify-
+    write boundary).
 
-    Re-reading immediately before writing minimizes the race window with
-    concurrent model writes via the Edit tool. The model writes fields like
-    tasks[].status and tasks_completed that the hook must not overwrite;
-    merging onto a fresh read rather than the initial read (done earlier for
-    phase/task checks) captures those concurrent updates.
+    The transaction holds its lock across its own read, so it replaces the
+    hook's former pre-write re-read: the mutation runs on that locked read.
+    The model writes fields like tasks[].status and tasks_completed that this
+    transaction must not overwrite; mutating the locked read rather than the
+    hook's earlier phase/task-check read captures those concurrent updates.
 
     A rotation touches cap_rotations, next_phase, and the in-flight task's
     status. The rotated-into /work iterates pending tasks, so the in-flight
@@ -278,29 +303,56 @@ def _append_rotation_to_state(
     first non-completed task. It does not set stall_reason and does not modify
     tasks_completed, other tasks, phases_completed, or replan_count.
     """
-    fresh = _load_state(autopilot_dir)
-    if fresh is None:
+    cli_state = _import_cli_state("rotation")
+    if cli_state is None:
         return False
-    rotations = fresh.get("cap_rotations")
-    if not isinstance(rotations, list):
-        rotations = []
-    rotations.append({"task_id": task_id, "cycle": fresh.get("cycle")})
-    fresh["cap_rotations"] = rotations
-    # Reset the in-flight task to pending so the rotated /work re-attempts it.
-    # The sentinel "unknown" (no in_progress task) matches nothing -> no-op.
-    if task_id != "unknown":
-        for task in fresh.get("tasks", []):
-            if isinstance(task, dict) and task.get("id") == task_id:
-                task["status"] = "pending"
-                break
-    # next_phase stays on the build gate: the fresh session resumes build and
-    # /work continues at the first non-completed task.
-    fresh["next_phase"] = "build"
-    return _atomic_write_state(autopilot_dir, fresh)
+
+    def _mutate(fresh: dict[str, Any]) -> dict[str, Any]:
+        rotations = fresh.get("cap_rotations")
+        if not isinstance(rotations, list):
+            rotations = []
+        rotations.append({"task_id": task_id, "cycle": fresh.get("cycle")})
+        fresh["cap_rotations"] = rotations
+        # Reset the in-flight task to pending so the rotated /work re-attempts
+        # it. The sentinel "unknown" (no in_progress task) matches nothing ->
+        # no-op.
+        if task_id != "unknown":
+            for task in fresh.get("tasks", []):
+                if isinstance(task, dict) and task.get("id") == task_id:
+                    task["status"] = "pending"
+                    break
+        # next_phase stays on the build gate: the fresh session resumes build
+        # and /work continues at the first non-completed task.
+        fresh["next_phase"] = "build"
+        return fresh
+
+    def _validate(new_state: dict[str, Any]) -> None:
+        # Owned fields only — never whole-state schema.validate: a malformed
+        # unrelated field must not block the hook.
+        if not isinstance(new_state.get("cap_rotations"), list):
+            raise cli_state.schema.SchemaError(
+                f"cap_rotations: expected list, got {new_state.get('cap_rotations')!r}"
+            )
+        if not isinstance(new_state.get("next_phase"), str):
+            raise cli_state.schema.SchemaError(
+                f"next_phase: expected str, got {new_state.get('next_phase')!r}"
+            )
+
+    state_path = autopilot_dir / "state.json"
+    try:
+        cli_state.transaction(state_path, _mutate, validator=_validate)
+    except (cli_state.StateError, cli_state.schema.SchemaError, OSError) as exc:
+        print(
+            f"autopilot_context_cap_hook: state.json write failed ({exc}); "
+            "skipping rotation envelope to avoid a handoff with no record",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
-    """Re-read state.json, set the oversized-task stall, write atomically.
+    """Set the oversized-task stall, write through cli.state.transaction.
 
     The livelock path: a task rotated twice in a row without finishing, so it
     is genuinely too big for one build session. The hook records the
@@ -308,42 +360,43 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
     dev/local/prds/hold/, advance to the next PRD). It does NOT append
     another rotation.
     """
-    fresh = _load_state(autopilot_dir)
-    if fresh is None:
+    cli_state = _import_cli_state("oversized-task stall")
+    if cli_state is None:
         return False
-    fresh["stall_reason"] = {
-        "stalled": "oversized_task",
-        "task": task_id,
-        "total_input_tokens": total,
-    }
-    return _atomic_write_state(autopilot_dir, fresh)
 
+    def _mutate(fresh: dict[str, Any]) -> dict[str, Any]:
+        fresh["stall_reason"] = {
+            "stalled": "oversized_task",
+            "task": task_id,
+            "total_input_tokens": total,
+        }
+        return fresh
 
-def _atomic_write_state(autopilot_dir: Path, state: dict[str, Any]) -> bool:
-    """Write state.json atomically. Return True on success, False on failure.
+    def _validate(new_state: dict[str, Any]) -> None:
+        # Owned fields only — never whole-state schema.validate: a malformed
+        # unrelated field must not block the hook.
+        stall_reason = new_state.get("stall_reason")
+        if not isinstance(stall_reason, dict):
+            raise cli_state.schema.SchemaError(
+                f"stall_reason: expected dict, got {stall_reason!r}"
+            )
+        if not isinstance(stall_reason.get("stalled"), str):
+            raise cli_state.schema.SchemaError(
+                "stall_reason.stalled: expected str, got "
+                f"{stall_reason.get('stalled')!r}"
+            )
 
-    The fire path is only safe if the rotation entry (or the oversized stall)
-    lands on disk — otherwise the next session's livelock guard loses the
-    record and cannot tell a rotation happened. Callers must gate the
-    envelope and the .cap-fired marker on this return value.
-    """
-    state_file = autopilot_dir / "state.json"
-    tmp = state_file.with_suffix(".json.tmp")
+    state_path = autopilot_dir / "state.json"
     try:
-        tmp.write_text(json.dumps(state, indent=2))
-        os.replace(tmp, state_file)
-        return True
-    except OSError as exc:
+        cli_state.transaction(state_path, _mutate, validator=_validate)
+    except (cli_state.StateError, cli_state.schema.SchemaError, OSError) as exc:
         print(
             f"autopilot_context_cap_hook: state.json write failed ({exc}); "
             "skipping rotation envelope to avoid a handoff with no record",
             file=sys.stderr,
         )
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
         return False
+    return True
 
 
 def _request_handoff(autopilot_dir: Path, task_id: str) -> None:
