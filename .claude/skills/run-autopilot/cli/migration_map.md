@@ -17,25 +17,25 @@ Disposition legend:
 
 | behavior_id | source | disposition | test_id |
 |---|---|---|---|
-| park-consume-marker | references/phase-build.md § Handle park request | ported | test_records_park.py::test_consumes_park_requested_marker |
-| park-classify-decision | references/phase-build.md § Handle park request | ported | test_records_park.py::test_classifies_marker_via_park_decision |
-| park-skip-malformed | references/phase-build.md § Handle park request | ported | test_records_park.py::test_skips_malformed_marker_and_falls_through |
-| park-skip-stale | references/phase-build.md § Handle park request | ported | test_records_park.py::test_skips_stale_marker_without_incrementing_counter |
-| park-execute-stall | references/phase-build.md § Handle park request | ported | test_records_park.py::test_parks_prd_via_stall_procedure |
-| park-increment-parks-consecutive | references/phase-build.md § Handle park request | ported | test_records_park.py::test_increments_parks_consecutive_in_same_write |
-| park-delete-marker-last | references/phase-build.md § Handle park request | ported | test_records_park.py::test_deletes_marker_only_after_park_succeeds |
-| park-systemic-halt | references/phase-build.md § Handle park request | ported | test_records_park.py::test_halts_batch_at_two_consecutive_parks |
-| stall-verified-move-to-hold | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_verified_move_wip_to_hold |
-| stall-deferred-json-record | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_appends_stall_record_to_deferred_json |
-| stall-per-prd-reset | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_stall_procedure_resets_per_prd_state |
-| stall-print-banner | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_prints_stalled_banner |
-| stall-continue-batch | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_continue_ends_turn_or_resumes_phase0 |
-| systemic-park-reset-on-non-wrapper-died | references/recovery.md § Systemic-park breaker interaction | ported | test_records_stall.py::test_resets_parks_consecutive_for_non_wrapper_died_stall |
-| reset-prd-fields-standard | references/phase-done.md § Phase 9 step 10 | ported | test_records.py::test_reset_clears_standard_fields |
-| crash-recovery-no-double-move | references/recovery.md § Crash recovery: escalation_exhausted seen at Phase 0 | ported | test_records_stall.py::test_already_in_hold_counts_as_move_success |
-| reset-repo-root-always | references/phase-done.md § Phase 9 step 10 | behavior_change | test_records.py::test_reset_clears_every_listed_field |
-| reset-unlisted-fields-now-cleared | references/phase-build.md § Frontmatter parse table | behavior_change | test_records.py::test_reset_clears_every_listed_field |
-| statectl-transaction-ordering | scripts/statectl.py § mutate | behavior_change | test_state.py::test_raising_fn_leaves_bak_unchanged |
+| park-consume-marker | references/phase-build.md § Handle park request | ported | test_records_park.py::test_normal_park_moves_prd_records_stall_and_resets_state |
+| park-classify-decision | references/phase-build.md § Handle park request | ported | test_autopilot_resume.py::ParkDecisionTests |
+| park-skip-malformed | references/phase-build.md § Handle park request | ported | test_records_park.py::test_unparseable_json_marker_is_deleted_and_ignored |
+| park-skip-stale | references/phase-build.md § Handle park request | ported | test_records_park.py::test_marker_prd_not_in_wip_and_no_stall_op_is_deleted_as_stale |
+| park-execute-stall | references/phase-build.md § Handle park request | ported | test_records_park.py::test_normal_park_moves_prd_records_stall_and_resets_state |
+| park-increment-parks-consecutive | references/phase-build.md § Handle park request | ported | test_records_park.py::test_normal_park_lands_the_increment_and_the_reset_in_the_same_commit |
+| park-delete-marker-last | references/phase-build.md § Handle park request | ported | test_records_park.py::test_after_commit_before_marker_delete_leaves_marker_and_recovers_as_stale_on_retry |
+| park-systemic-halt | references/phase-build.md § Handle park request | ported | test_records_park.py::test_second_consecutive_park_triggers_systemic_halt |
+| stall-verified-move-to-hold | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_stall_creates_hold_dir_moves_prd_and_appends_one_deferred_record |
+| stall-deferred-json-record | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_stall_creates_hold_dir_moves_prd_and_appends_one_deferred_record |
+| stall-per-prd-reset | references/recovery.md § Loop-mode stall procedure | ported | test_records_stall.py::test_stall_creates_hold_dir_moves_prd_and_appends_one_deferred_record |
+| stall-print-banner | references/recovery.md § Loop-mode stall procedure | stays_prose | test_autopilot_lifecycle.py::test_stall_banner_and_continue_stay_caller_prose |
+| stall-continue-batch | references/recovery.md § Loop-mode stall procedure | stays_prose | test_autopilot_lifecycle.py::test_stall_banner_and_continue_stay_caller_prose |
+| systemic-park-reset-on-non-wrapper-died | references/recovery.md § Systemic-park breaker interaction | ported | test_records_stall.py::test_resets_parks_consecutive_to_zero_for_non_wrapper_died_site |
+| reset-prd-fields-standard | references/phase-done.md § Phase 9 step 10 | ported | test_records.py::test_removes_every_per_prd_reset_field |
+| crash-recovery-no-double-move | references/recovery.md § Crash recovery: escalation_exhausted seen at Phase 0 | ported | test_records_stall.py::test_after_move_before_append_leaves_prd_in_hold_and_recovers_on_retry |
+| reset-repo-root-always | references/phase-done.md § Phase 9 step 10 | behavior_change | test_records.py::test_removes_every_per_prd_reset_field |
+| reset-unlisted-fields-now-cleared | references/phase-build.md § Frontmatter parse table | behavior_change | test_records.py::test_clears_the_four_fields_that_leak_today |
+| statectl-transaction-ordering | scripts/statectl.py § mutate | behavior_change | test_state.py::test_raising_fn_leaves_state_and_bak_byte_unchanged |
 | park-marker-wrapper-call-site | references/phase-build.md § Handle park request | retired | Interim call site only — PRD 00052 moves the call to `autopilot park` directly; do_park is written caller-agnostic so the call site can move without touching the logic |
 | lifecycle-mkdir-p-block | references/phase-build.md § Ensure lifecycle directories exist | stays_prose | test_autopilot_lifecycle.py::test_phase0_ensures_lifecycle_dirs_with_mkdir_p |
 | backlog-to-wip-verified-move | references/phase-build.md § Normal PRD selection | stays_prose | test_autopilot_lifecycle.py::test_backlog_to_wip_move_is_verified |
@@ -54,3 +54,13 @@ Disposition legend:
 - `park-marker-wrapper-call-site` is retired as a call site, not as logic:
   `do_park` itself is ported (see the `park-*` rows above) and stays
   caller-agnostic so PRD 00052 can point a different caller at it later.
+- Task-10 cutover (2026-07-31): every `ported`/`behavior_change` `test_id` was
+  re-pointed from task 1's forward references to the REAL tests that landed
+  (tasks 4-6); `stall-print-banner` and `stall-continue-batch` were
+  re-classified `ported` → `stays_prose` — the CLI performs the stall's
+  durable effects, but the STALLED banner and the continue-the-batch judgment
+  deliberately remain caller prose in `recovery.md`'s exit-0 row, guarded by
+  the new lifecycle doc-contract test the rows now name. No doc-contract test
+  pinned the retired multi-step prose (proven: the lifecycle and phase2-stall
+  suites stayed green through the rewrite), so zero test retirements were
+  needed.

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -91,6 +92,12 @@ class CapHookFixture:
         self.transcript.write_text(json.dumps(line) + "\n")
 
     def run_hook(self) -> subprocess.CompletedProcess:
+        # $_AUTOPILOT_LOOP is required (2026-07-19 guard, mirrors HookFixture
+        # in test_autopilot_context_cap_hook.py): without it the hook no-ops
+        # even far over the cap, since an interactive session sharing this
+        # cwd tree with a parked batch must never rotate/stall it.
+        env = dict(os.environ)
+        env["_AUTOPILOT_LOOP"] = "test-loop"
         return subprocess.run(
             [sys.executable, str(CAP_HOOK)],
             input=json.dumps(
@@ -100,6 +107,7 @@ class CapHookFixture:
             text=True,
             cwd=str(self.cwd),
             timeout=5,
+            env=env,
         )
 
     def state(self) -> dict:
