@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 
 def main() -> int:
@@ -32,7 +33,7 @@ def main() -> int:
         return 0
     try:
         with open(path, encoding="utf-8") as fh:
-            json.load(fh)
+            parsed = json.load(fh)
     except FileNotFoundError:
         return 0
     except OSError:
@@ -47,6 +48,28 @@ def main() -> int:
             "'died (state.json unreadable)' and halt the loop. Rewrite the "
             "ENTIRE file as pure JSON — no trailing text, no harness wrapper "
             "tags like </content>.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # PRD 00051 task 9: valid JSON can still violate cli.schema (e.g. a
+    # hand-edit that types a known field wrong) — catch that on top of the
+    # parse-only check above.
+    try:
+        skill_root = Path(__file__).resolve().parent.parent
+        if str(skill_root) not in sys.path:
+            sys.path.insert(0, str(skill_root))
+        from cli import schema
+    except ImportError:
+        # A broken cli/ package must never block unrelated writes — mirror
+        # this hook's never-block posture.
+        return 0
+    try:
+        schema.validate(parsed)
+    except schema.SchemaError as err:
+        print(
+            f"state.json failed schema validation after this write: {err}. "
+            "Fix the named field and rewrite the file.",
             file=sys.stderr,
         )
         return 2

@@ -54,6 +54,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -260,7 +261,37 @@ def _last_rotation_task(state: dict[str, Any]) -> str | None:
     return None
 
 
-def _import_cli_state(caller: str) -> Any | None:
+def _write_state_write_failed_marker(autopilot_dir: Path, detail: str) -> None:
+    """Write the state-write-failed halt marker: one line of JSON, no cli
+    import, no lock, no schema validation — the recovery path must not
+    depend on the state boundary that just failed. Best-effort: a failure
+    writing the marker itself only warns on stderr, since this hook must
+    never raise into the harness.
+    """
+    marker_path = autopilot_dir / "state-write-failed"
+    line = json.dumps({"site": "statectl_fail", "detail": detail}) + "\n"
+    try:
+        autopilot_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(autopilot_dir), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(line)
+            os.replace(tmp_name, marker_path)
+        except OSError:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+    except OSError as exc:
+        print(
+            f"autopilot_context_cap_hook: failed to write state-write-failed "
+            f"marker ({exc})",
+            file=sys.stderr,
+        )
+
+
+def _import_cli_state(caller: str, autopilot_dir: Path) -> Any | None:
     """Import cli.state, inserting the skill root onto sys.path first.
 
     The hook lives in scripts/, one level below the skill root that owns the
@@ -275,11 +306,12 @@ def _import_cli_state(caller: str) -> Any | None:
             sys.path.insert(0, str(skill_root))
         from cli import state as cli_state
     except ImportError as exc:
-        print(
+        detail = (
             f"autopilot_context_cap_hook: cli package unavailable ({exc}); "
-            f"skipping {caller} to avoid a handoff with no record",
-            file=sys.stderr,
+            f"skipping {caller} to avoid a handoff with no record"
         )
+        print(detail, file=sys.stderr)
+        _write_state_write_failed_marker(autopilot_dir, detail)
         return None
     return cli_state
 
@@ -303,7 +335,7 @@ def _append_rotation_to_state(
     first non-completed task. It does not set stall_reason and does not modify
     tasks_completed, other tasks, phases_completed, or replan_count.
     """
-    cli_state = _import_cli_state("rotation")
+    cli_state = _import_cli_state("rotation", autopilot_dir)
     if cli_state is None:
         return False
 
@@ -342,11 +374,12 @@ def _append_rotation_to_state(
     try:
         cli_state.transaction(state_path, _mutate, validator=_validate)
     except (cli_state.StateError, cli_state.schema.SchemaError, OSError) as exc:
-        print(
+        detail = (
             f"autopilot_context_cap_hook: state.json write failed ({exc}); "
-            "skipping rotation envelope to avoid a handoff with no record",
-            file=sys.stderr,
+            "skipping rotation envelope to avoid a handoff with no record"
         )
+        print(detail, file=sys.stderr)
+        _write_state_write_failed_marker(autopilot_dir, detail)
         return False
     return True
 
@@ -360,7 +393,7 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
     dev/local/prds/hold/, advance to the next PRD). It does NOT append
     another rotation.
     """
-    cli_state = _import_cli_state("oversized-task stall")
+    cli_state = _import_cli_state("oversized-task stall", autopilot_dir)
     if cli_state is None:
         return False
 
@@ -390,11 +423,12 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
     try:
         cli_state.transaction(state_path, _mutate, validator=_validate)
     except (cli_state.StateError, cli_state.schema.SchemaError, OSError) as exc:
-        print(
+        detail = (
             f"autopilot_context_cap_hook: state.json write failed ({exc}); "
-            "skipping rotation envelope to avoid a handoff with no record",
-            file=sys.stderr,
+            "skipping rotation envelope to avoid a handoff with no record"
         )
+        print(detail, file=sys.stderr)
+        _write_state_write_failed_marker(autopilot_dir, detail)
         return False
     return True
 
