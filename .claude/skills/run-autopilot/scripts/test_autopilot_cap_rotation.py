@@ -423,9 +423,10 @@ class ContextCapRotationTests(unittest.TestCase):
 
 HOOK_PATH = Path(__file__).resolve().parent / "autopilot_context_cap_hook.py"
 
-# Literal bootstrap path for cli.* imports inside spawned worker processes
-# (each spawned process is a fresh interpreter with its own sys.path).
-_RUN_AUTOPILOT_ROOT = "/Users/bob/.claude/skills/run-autopilot"
+# Bootstrap path for cli.* imports inside spawned worker processes (each
+# spawned process is a fresh interpreter with its own sys.path). Derived from
+# HOOK_PATH (scripts/autopilot_context_cap_hook.py) rather than hardcoded.
+_RUN_AUTOPILOT_ROOT = str(HOOK_PATH.parent.parent)
 
 _RACE_INITIAL_STATE = {
     "prd": "00004-feature-x.md",
