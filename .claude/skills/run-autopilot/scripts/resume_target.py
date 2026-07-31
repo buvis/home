@@ -48,8 +48,13 @@ def resume_target(state: dict) -> str:
     5. Build re-entry is by ARTIFACT (capsule freshness, tasks-exist,
        all-done) — never a granular catchup/planning/work cascade.
     """
-    if state.get("stall_op"):
-        return f"reconcile stall {state['stall_op']['op_id']} for {state['stall_op']['prd']}"
+    stall_op = state.get("stall_op")
+    if stall_op:
+        op_id = stall_op.get("op_id") if isinstance(stall_op, dict) else None
+        stall_prd = stall_op.get("prd") if isinstance(stall_op, dict) else None
+        op_id = op_id if isinstance(op_id, str) else "unknown"
+        stall_prd = stall_prd if isinstance(stall_prd, str) else "unknown"
+        return f"reconcile stall {op_id} for {stall_prd}"
 
     stall = state.get("stall_reason") or {}
     stalled = stall.get("stalled")
