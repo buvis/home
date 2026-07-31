@@ -56,7 +56,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from _walk_up import find_autopilot_dir
 
@@ -305,7 +305,7 @@ def _import_cli_state(caller: str, autopilot_dir: Path) -> Any | None:
         if str(skill_root) not in sys.path:
             sys.path.insert(0, str(skill_root))
         from cli import state as cli_state
-    except ImportError as exc:
+    except Exception as exc:
         detail = (
             f"autopilot_context_cap_hook: cli package unavailable ({exc}); "
             f"skipping {caller} to avoid a handoff with no record"
@@ -314,6 +314,39 @@ def _import_cli_state(caller: str, autopilot_dir: Path) -> Any | None:
         _write_state_write_failed_marker(autopilot_dir, detail)
         return None
     return cli_state
+
+
+def _write_via_transaction(
+    autopilot_dir: Path,
+    caller: str,
+    op_desc: str,
+    mutate: Callable[[dict[str, Any]], dict[str, Any]],
+    validate: Callable[[dict[str, Any]], None],
+) -> bool:
+    """Import the cli boundary and run one locked cli.state.transaction,
+    upholding the hook's halt guarantee: ANY failure — cli/ unimportable, or
+    the transaction itself raising — writes the state-write-failed marker and
+    a stderr warning naming `op_desc`, then returns False. Never raises into
+    the harness. Shared by `_append_rotation_to_state` and
+    `_set_oversized_stall`, whose only differences are `caller` (passed to
+    `_import_cli_state`), `op_desc`, and the mutate/validate closures.
+    """
+    cli_state = _import_cli_state(caller, autopilot_dir)
+    if cli_state is None:
+        return False
+
+    state_path = autopilot_dir / "state.json"
+    try:
+        cli_state.transaction(state_path, mutate, validator=validate)
+    except Exception as exc:
+        detail = (
+            f"autopilot_context_cap_hook: state.json write failed ({exc}); "
+            f"skipping {op_desc} to avoid a handoff with no record"
+        )
+        print(detail, file=sys.stderr)
+        _write_state_write_failed_marker(autopilot_dir, detail)
+        return False
+    return True
 
 
 def _append_rotation_to_state(
@@ -335,9 +368,6 @@ def _append_rotation_to_state(
     first non-completed task. It does not set stall_reason and does not modify
     tasks_completed, other tasks, phases_completed, or replan_count.
     """
-    cli_state = _import_cli_state("rotation", autopilot_dir)
-    if cli_state is None:
-        return False
 
     def _mutate(fresh: dict[str, Any]) -> dict[str, Any]:
         rotations = fresh.get("cap_rotations")
@@ -361,27 +391,20 @@ def _append_rotation_to_state(
     def _validate(new_state: dict[str, Any]) -> None:
         # Owned fields only — never whole-state schema.validate: a malformed
         # unrelated field must not block the hook.
+        from cli import schema
+
         if not isinstance(new_state.get("cap_rotations"), list):
-            raise cli_state.schema.SchemaError(
+            raise schema.SchemaError(
                 f"cap_rotations: expected list, got {new_state.get('cap_rotations')!r}"
             )
         if not isinstance(new_state.get("next_phase"), str):
-            raise cli_state.schema.SchemaError(
+            raise schema.SchemaError(
                 f"next_phase: expected str, got {new_state.get('next_phase')!r}"
             )
 
-    state_path = autopilot_dir / "state.json"
-    try:
-        cli_state.transaction(state_path, _mutate, validator=_validate)
-    except (cli_state.StateError, cli_state.schema.SchemaError, OSError) as exc:
-        detail = (
-            f"autopilot_context_cap_hook: state.json write failed ({exc}); "
-            "skipping rotation envelope to avoid a handoff with no record"
-        )
-        print(detail, file=sys.stderr)
-        _write_state_write_failed_marker(autopilot_dir, detail)
-        return False
-    return True
+    return _write_via_transaction(
+        autopilot_dir, "rotation", "rotation envelope", _mutate, _validate
+    )
 
 
 def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
@@ -393,9 +416,6 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
     dev/local/prds/hold/, advance to the next PRD). It does NOT append
     another rotation.
     """
-    cli_state = _import_cli_state("oversized-task stall", autopilot_dir)
-    if cli_state is None:
-        return False
 
     def _mutate(fresh: dict[str, Any]) -> dict[str, Any]:
         fresh["stall_reason"] = {
@@ -408,29 +428,23 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
     def _validate(new_state: dict[str, Any]) -> None:
         # Owned fields only — never whole-state schema.validate: a malformed
         # unrelated field must not block the hook.
+        from cli import schema
+
         stall_reason = new_state.get("stall_reason")
         if not isinstance(stall_reason, dict):
-            raise cli_state.schema.SchemaError(
+            raise schema.SchemaError(
                 f"stall_reason: expected dict, got {stall_reason!r}"
             )
         if not isinstance(stall_reason.get("stalled"), str):
-            raise cli_state.schema.SchemaError(
+            raise schema.SchemaError(
                 "stall_reason.stalled: expected str, got "
                 f"{stall_reason.get('stalled')!r}"
             )
 
-    state_path = autopilot_dir / "state.json"
-    try:
-        cli_state.transaction(state_path, _mutate, validator=_validate)
-    except (cli_state.StateError, cli_state.schema.SchemaError, OSError) as exc:
-        detail = (
-            f"autopilot_context_cap_hook: state.json write failed ({exc}); "
-            "skipping rotation envelope to avoid a handoff with no record"
-        )
-        print(detail, file=sys.stderr)
-        _write_state_write_failed_marker(autopilot_dir, detail)
-        return False
-    return True
+    return _write_via_transaction(
+        autopilot_dir, "oversized-task stall", "oversized-task stall",
+        _mutate, _validate,
+    )
 
 
 def _request_handoff(autopilot_dir: Path, task_id: str) -> None:
