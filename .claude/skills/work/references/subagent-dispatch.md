@@ -60,10 +60,19 @@ Every Agent dispatch in this skill (Tess, Ivan, Devon, or the code reviewer) mus
 
 **Dispatch protocol — applies to every Agent call:**
 
-1. Dispatch with `run_in_background: true` (plus `model` per `SKILL.md` "Per-task model dispatch"). Record the dispatch wall-clock time.
-2. Wait for the background agent using the `Monitor` tool with a **15-minute** timeout. The harness re-invokes you when a background agent finishes — do not poll in a tight loop.
-3. If `Monitor` reports the agent completed within the deadline, retrieve its result (`TaskOutput`) and continue to the result handling in `SKILL.md` step 4.
-4. If the 15-minute deadline elapses with no completion, the agent is **presumed hung**: call `TaskStop` on it, then handle it as the **Result lost / hung** row of `SKILL.md`'s Handle result table (step 4) — which routes to the infrastructure-failure circuit breaker (step 4.2). Do **not** treat a hung agent as a content **Timeout**: it produced no usable work, so splitting the task (the Timeout remedy) would split nothing.
+1. Dispatch with `run_in_background: true` (plus `model` per `SKILL.md` "Per-task model dispatch"). Record the dispatch wall-clock time. Arm the watchdog as a `Monitor` timer (`sleep 900; echo "WATCHDOG: ..."`) — **15 minutes is a check-in, not a kill deadline**.
+2. When the agent's completion notification arrives first, `TaskStop` the watchdog timer immediately (a stale timer fires later and reads as a hang that is not there), retrieve the result, and continue to `SKILL.md` step 4.
+3. **When the timer fires first, probe for progress before any kill** — two cheap read-only checks:
+   - `git status --porcelain` (the repo's own git context): have the task's AUTHORIZED surfaces changed since dispatch?
+   - `ls -la` on the dispatch's `<task-id>.output` file: is its mtime/size still advancing? (Never Read that file — it is the full subagent transcript and will overflow context.)
+   Branch on the evidence:
+   - **Progress on either probe** → the agent is working, not hung. Re-arm the timer (10-15 min) and keep waiting. Hard cap: **45 minutes wall-clock per dispatch**, after which treat it as hung regardless of probes.
+   - **No progress on BOTH probes across two consecutive checks** (or the 45-min cap) → `TaskStop` the agent. If `TaskStop` reports the task **already completed**, the "hang" was a late completion notification — treat it as a normal completion, not a failure. Otherwise handle it as the **Result lost / hung** row of `SKILL.md`'s Handle result table (step 4) → the infrastructure-failure circuit breaker (step 4.2). Do **not** treat a hung agent as a content **Timeout**: it produced no usable work, so splitting the task (the Timeout remedy) would split nothing.
+4. **After ANY kill, inspect before re-dispatching.** Run `git status` over the authorized surfaces:
+   - **Work looks complete** → the kill landed at the agent's verification/reporting tail (the common case — measured 2026-07-31: 5 kills in one session, 0 true hangs; 3 had complete work on disk). Verify the work INDEPENDENTLY (run the task's own verify commands yourself); green → accept it as a normal completion. The report footers are lost with the agent, so reconstruct `FILES_TOUCHED:` from the tree and record the missing `ASSUMPTIONS:` footer in the assumptions ledger.
+   - **Work is partial** → the step-4.2 re-dispatch must be a CONTINUATION brief that names the completed surfaces (verified by you) so the fresh agent does not redo or clobber them.
+
+**Right-size multi-surface briefs — the main driver of slow dispatches.** A dispatch touching 3+ files, or any file over ~400 lines, must carry a READING BUDGET in its brief: exact `rg`/Read line anchors per surface, an ordered per-surface work plan, and per-surface verification so partial progress survives a kill. Measured 2026-07-31: an anchored continuation finished in one window a job whose unanchored first dispatch had produced zero edits in 18 minutes of reading.
 
 A background dispatch does **not** relax the one-task-at-a-time rule: dispatch one agent, wait for it (or its watchdog), then proceed. Never have two plan-task agents in flight at once. The watchdog converts a silent infinite block into a detectable failure that the Handle result table routes to the circuit breaker.
 
@@ -73,7 +82,7 @@ A background dispatch does **not** relax the one-task-at-a-time rule: dispatch o
 
 **Three deadlines exist, by mechanism — keep them distinct:**
 
-- **15 min** — `Monitor` watchdog on Tess/Ivan/Devon/reviewer dispatches (this section).
+- **15 min check-in, progress-probed extensions, 45 min hard cap** — `Monitor` watchdog on Tess/Ivan/Devon/reviewer dispatches (this section). Honest single-task dispatch runtimes measured 2026-07-31 ranged 2-30 min (median ~12; multi-surface tasks 19-30), so a fixed 15-min kill destroys nearly-finished work.
 - **10 min × 2** — `TaskOutput` waits on `use-codex`/`use-gemini` helper-script Bash dispatches (paragraph above).
 - **20 min** — `Monitor` waits on backgrounded `cargo` full-suite runs (see `SKILL.md` "CRITICAL: Never Ask the User to Run Commands").
 
