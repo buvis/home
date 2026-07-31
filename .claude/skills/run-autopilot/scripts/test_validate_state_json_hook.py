@@ -72,6 +72,34 @@ class ValidateStateJsonHookTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0)
 
+    # PRD 00051 task 9: cli.schema.validate on top of parse-only ------------
+
+    def test_rejects_schema_invalid_valid_json(self) -> None:
+        """A hand-edit that leaves valid JSON but violates cli.schema (a
+        known field with the wrong type) must exit 2 and name the field."""
+        self.state.write_text(json.dumps({
+            "prd": "x.md",
+            "phase": "build",
+            "next_phase": "build",
+            "cycle": "three",
+            "batch": {"id": "b", "completed_prds": [], "parks_consecutive": 0},
+        }))
+        result = run_hook(self.payload(self.state))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("cycle", result.stderr)
+
+    def test_accepts_schema_valid_minimal_state(self) -> None:
+        self.state.write_text(json.dumps({
+            "prd": "x.md",
+            "phase": "build",
+            "next_phase": "build",
+            "cycle": 1,
+            "batch": {"id": "b", "completed_prds": [], "parks_consecutive": 0},
+        }))
+        result = run_hook(self.payload(self.state))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
 
 if __name__ == "__main__":
     unittest.main()

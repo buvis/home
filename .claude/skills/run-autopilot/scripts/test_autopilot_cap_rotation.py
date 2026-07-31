@@ -11,6 +11,7 @@ import multiprocessing as mp
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from test_autopilot_context_cap_hook import HookFixture
@@ -681,6 +682,75 @@ class ConcurrentRotationAndStallRaceTests(unittest.TestCase):
             )["items"]
             self.assertEqual(len(deferred_items), 1)
             self.assertEqual(deferred_items[0]["type"], "stall")
+
+
+# PRD 00051 task 9: state-write-failed marker on a broken state boundary ----
+#
+# _append_rotation_to_state's two failure branches (cli/ unimportable, and
+# the state transaction raising on corrupt state/validator/OSError) each
+# additionally write <autopilot_dir>/state-write-failed - one line of JSON,
+# {"site": "statectl_fail", "detail": "<raw error text>"} - before returning
+# False. These tests were written without having seen the marker-writing
+# implementation.
+
+
+class StateWriteFailedMarkerTests(unittest.TestCase):
+    """_append_rotation_to_state's failure branches write the marker."""
+
+    def _write_state(self, autopilot_dir: Path, text: str) -> Path:
+        autopilot_dir.mkdir(parents=True, exist_ok=True)
+        state_path = autopilot_dir / "state.json"
+        state_path.write_text(text, encoding="utf-8")
+        return state_path
+
+    def _assert_marker(self, autopilot_dir: Path) -> dict:
+        marker_path = autopilot_dir / "state-write-failed"
+        self.assertTrue(
+            marker_path.exists(), "state-write-failed marker was not written"
+        )
+        lines = marker_path.read_text(encoding="utf-8").strip("\n").splitlines()
+        self.assertEqual(
+            len(lines), 1, f"marker must be exactly one line, got {lines!r}"
+        )
+        payload = json.loads(lines[0])
+        self.assertEqual(payload.get("site"), "statectl_fail")
+        detail = payload.get("detail")
+        self.assertIsInstance(detail, str)
+        self.assertNotEqual(detail, "")
+        return payload
+
+    def test_cli_unimportable_writes_marker_and_leaves_state_unchanged(self) -> None:
+        """poisoning cli/cli.state in sys.modules makes `from cli import
+        state` raise ImportError; the function must return False, leave
+        state.json byte-identical, and write the marker."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = Path(tmp) / "autopilot"
+            before_text = json.dumps({**_RACE_INITIAL_STATE, "cap_rotations": []})
+            state_path = self._write_state(autopilot_dir, before_text)
+
+            module = _load_hook_module_for_test()
+            with unittest.mock.patch.dict(
+                sys.modules, {"cli": None, "cli.state": None}
+            ):
+                ok = module._append_rotation_to_state(autopilot_dir, "t1")
+
+            self.assertFalse(ok)
+            self.assertEqual(state_path.read_text(encoding="utf-8"), before_text)
+            self._assert_marker(autopilot_dir)
+
+    def test_transaction_failure_writes_marker(self) -> None:
+        """No import poisoning here: state.json itself is invalid JSON, so
+        the state transaction raises. The function must return False and
+        write the marker (same pinned shape as the import-failure case)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            autopilot_dir = Path(tmp) / "autopilot"
+            self._write_state(autopilot_dir, "{not valid")
+
+            module = _load_hook_module_for_test()
+            ok = module._append_rotation_to_state(autopilot_dir, "t1")
+
+            self.assertFalse(ok)
+            self._assert_marker(autopilot_dir)
 
 
 if __name__ == "__main__":
