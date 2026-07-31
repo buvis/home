@@ -53,9 +53,11 @@ carries `clarification`, `reviewer_fail`, `sub_skill_fail`, and the others):
 - `blocking_escalation` — a loop-mode Phase 5 blocking escalation; records the
   blocking issue(s) in the deferred `detail`.
 - `statectl_fail` — a loop-mode `statectl` state-write that failed twice (lock
-  contention, python error, unreadable state); the model records the stall via
-  the hand-edit fallback (core `SKILL.md` § State Management) with the raw
-  stderr in `detail`.
+  contention, python error, unreadable state); the model no longer hand-edits
+  `state.json` to record this. A failure that survives retry + `autopilot
+  restore` (core `SKILL.md` § State Management) is instead recorded via the
+  `state-write-failed` marker (`references/state-schema.md` § Marker files,
+  raw stderr in `detail`), and the wrapper halts on it.
 - `oversized_task`, `escalation_exhausted`, `replan_exhausted`, `clarification` —
   the pre-existing stall sites (plan-tasks oversize, rework tier-exhaustion,
   replan-loop exhaustion, and a loop-mode Phase 2 ambiguity under

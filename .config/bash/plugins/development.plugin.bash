@@ -770,6 +770,15 @@ autoclaude() {
     local _state="$_ap_dir/state.json"
     local _signal="" _detail="" _next="" _phase_end="" _prd="" _batch="" _limit_wait=""
     local _state_touched=0 _mtime
+    # state-write-failed marker (PRD 00051 task 9): a broken state boundary
+    # (cli/ unimportable, or the state transaction raising) survives past
+    # state.json itself, so this check runs FIRST and without reading
+    # state.json at all — it must win over an otherwise-continue state.json.
+    if [ -f "$_ap_dir/state-write-failed" ]; then
+      _signal="state_write_failed"
+      _detail=$(jq -r '.detail? // "state write failed"' "$_ap_dir/state-write-failed" 2>/dev/null)
+      [ -n "$_detail" ] || _detail="state write failed"
+    fi
     if [ -f "$_state" ]; then
       # python3 for the mtime: `stat` flags differ between BSD and GNU (and
       # homebrew coreutils shadows the BSD one on this machine).
@@ -777,7 +786,7 @@ autoclaude() {
       [ -n "$_mtime" ] && [ "$_mtime" -ge "$_ts_start" ] 2>/dev/null && _state_touched=1
     fi
     [ "$_state_touched" -eq 1 ] && { _net_retries=0; _died_retries=0; } # any productive session resets the retry counters
-    if [ -f "$_state" ] && jq -e . "$_state" >/dev/null 2>&1; then
+    if [ -z "$_signal" ] && [ -f "$_state" ] && jq -e . "$_state" >/dev/null 2>&1; then
       _prd=$(jq -r '.prd // ""' "$_state" 2>/dev/null)
       _batch=$(jq -r '.batch.id // ""' "$_state" 2>/dev/null)
       _phase_end=$(jq -r '.next_phase // ""' "$_state" 2>/dev/null)
@@ -957,6 +966,14 @@ autoclaude() {
 
     # ── Act on the branch ──
     case "$_signal" in
+    state_write_failed)
+      printf '\nautoclaude: state-write-failed marker present — halting (broken state boundary): %s\n' "$_detail" >&2
+      python3 ~/.claude/hooks/notify.py --send "autopilot ⚠️ ${PWD##*/}" "State write failed: $_detail"
+      trap - INT TERM HUP
+      [ -n "$_reg" ] && rm -f "$_reg"
+      unset _AUTOPILOT_LOOP
+      return 1
+      ;;
     continue)
       if [ -n "$_limit_wait" ]; then
         printf '\nautoclaude: usage limit hit; waiting %s min (%s).\n' "$((_limit_wait / 60))" "$_detail"
