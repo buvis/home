@@ -8,38 +8,38 @@ The uniform "a single PRD may stall; the batch never stops to ask a question"
 procedure. Every loop-mode failure site references THIS section instead of
 pausing. Interactive (non-loop) sites keep their PAUSE semantics.
 
-1. **Move the PRD** from `dev/local/prds/wip/<filename>` to
-   `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix), after
-   `mkdir -p dev/local/prds/hold`. **Verify the move** (file exists at the
-   destination). If the `mv` fails, retry ONCE after re-running `mkdir -p`;
-   if it still fails, this is the one legitimate loud stop — notify ⚠️ and
-   halt (set `state.phase = "paused"`, `state.pause_reason = {"site":
-   "mv_verify", "detail": ...}`); a filesystem that refuses moves cannot be
-   safely continued past.
-2. **Record the stall** in the batch deferred JSON
-   (`dev/local/autopilot/deferred/{batch_id}-deferred.json`, create if
-   missing): append `{"type": "stall", "site": "<slug>", "detail":
-   "<one-line human string>", "prd": "<filename>"}`.
-   **This record is distinct from `state.stall_reason`** — that field is the
-   wrapper's replan signal (`subagent_prompt_overrun`, branch 2 of the
-   Session Loop decision table). The stall procedure NEVER writes
-   `state.stall_reason`.
-3. **Reset per-PRD state** exactly as the "plan-tasks stall" handler's step 5
-   does (clear the per-PRD fields, preserve `batch`, set `phase: "build"`,
-   `next_phase: "build"`).
-4. **Print the banner** and continue the batch:
-   ```
-   ── AUTOPILOT ── PRD: {prd-name} ── STALLED ({site}) ────────────────
-   ── moved to dev/local/prds/hold/ ── advancing to next PRD ─────────
-   ```
-5. **Continue**: end the turn (the wrapper relaunches on `next_phase:
-   "build"`), or jump to Phase 0 in-session when interactive. Batch-end
-   review lists every stall first, with resume instructions ("move back to
-   wip/ and re-run").
+Run `autopilot stall --prd <filename> --site <slug> --detail <one-line detail>`
+(one call). It stamps a durable intent (`state.stall_op`), performs the
+verified `wip/`→`hold/` move, appends an op_id-deduped deferred record, and
+closes with the single-commit reset + `parks_consecutive` rule — recoverable
+on retry from a kill at any internal boundary. See `cli/records.py`'s
+`do_stall` docstring for the full contract. **The deferred record is
+distinct from `state.stall_reason`** — that field is the wrapper's replan
+signal (`subagent_prompt_overrun`, branch 2 of the Session Loop decision
+table); `do_stall` never writes it (its own per-PRD reset clears it instead).
+
+| Exit code | Meaning | Action |
+|---|---|---|
+| 0 | stalled | print the STALLED banner, continue the batch |
+| 4 | move failed | PAUSE per the mv-verify invariant (`site: "mv_verify"`) |
+| 9 | deferred-record I/O failed | PAUSE (`site: "statectl_fail"` family) |
+| 10 | stall_op conflict | PAUSE for human reconciliation |
+| 2 | state unreadable | the corrupted-state row of Error Handling applies |
+
+On exit 0, print the banner and continue the batch:
+```
+── AUTOPILOT ── PRD: {prd-name} ── STALLED ({site}) ────────────────
+── moved to dev/local/prds/hold/ ── advancing to next PRD ─────────
+```
+Then continue: end the turn (the wrapper relaunches on `next_phase:
+"build"`), or jump to Phase 0 in-session when interactive. Batch-end review
+lists every stall first, with resume instructions ("move back to wip/ and
+re-run").
 
 ### Stall `site` slugs
 
-The `site` slug in step 2's deferred record names why the PRD stalled. The
+The `site` slug passed to `autopilot stall --site` (and recorded in its
+deferred record) names why the PRD stalled. The
 slugs most relevant to the park machinery are below; this is NOT the exhaustive
 enumeration — `references/state-schema.md` is the authoritative list (it also
 carries `clarification`, `reviewer_fail`, `sub_skill_fail`, and the others):
@@ -72,13 +72,13 @@ PRD (`references/phase-review.md` Safety Checks).
 
 `batch.parks_consecutive` counts consecutive `wrapper_died` parks with no healthy
 PRD outcome between them; the Phase 0 park handler halts the batch at 2
-(`systemic_park`). To keep the count meaning "N death-parks in a row", this stall
-procedure **resets `batch.parks_consecutive = 0` in the SAME per-PRD reset write
-of step 3 whenever `site != "wrapper_died"`** — any non-`wrapper_died` stall
-proves in-skill code ran and made a decision, so the infrastructure is healthy.
-The one exception is `site == "wrapper_died"`: that stall does NOT reset the
-counter (the Phase 0 park handler increments it by 1 in its own reset write,
-step 5) — otherwise the breaker could never reach 2.
+(`systemic_park`). `do_stall`'s single commit enforces the reset rule; this
+section documents it: `batch.parks_consecutive` resets to 0 whenever
+`site != "wrapper_died"` — any non-`wrapper_died` stall proves in-skill code
+ran and made a decision, so the infrastructure is healthy. The one exception
+is `site == "wrapper_died"`: that stall does NOT reset the counter (`do_park`'s
+`_park_mutator` increments it by 1 in the same commit) — otherwise the
+breaker could never reach 2.
 
 ## Cap rotation
 
@@ -150,7 +150,7 @@ If `stall_reason.stalled` is anything else (or absent), return to Phase 0's Norm
 
 ## Crash recovery: escalation_exhausted seen at Phase 0
 
-`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/hold/` but state still points at it): log a warning, clear `stall_reason`, do NOT re-run the move (Phase 6 already moved the PRD), AND reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD — `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`, preserve `batch`, set `next_phase: "build"` — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
+`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/hold/` but state still points at it): log a warning, do NOT re-run the move (Phase 6 already moved the PRD), and run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` is the single authoritative list — it already includes `stall_reason`, so no separate clear is needed) — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
 
 ## plan-tasks stall: oversized task
 
@@ -160,7 +160,7 @@ Reached from **Phase 2** when `/plan-tasks` exits non-zero and writes `state.sta
 2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 5 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
 3. Ensure `dev/local/prds/hold/` exists (`mkdir -p dev/local/prds/hold`).
 4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
-5. Clear the stall key and reset PRD-specific fields with `statectl` (`del stall_reason`, then one `set` per field below) the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`. Preserve `batch`. Set `next_phase: "build"`. Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
+5. Run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` is the single authoritative list — it already includes `stall_reason`, so the separate `del stall_reason` step is redundant and dropped). Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
 6. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
@@ -215,7 +215,7 @@ Then perform the **stall move**, identical to the "plan-tasks stall: oversized t
 
 1. `mkdir -p dev/local/prds/hold` if missing.
 2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
-3. Clear `stall_reason` from state. Reset PRD-specific fields the same way Phase 9 step 10 does for the next PRD: `phases_completed: []`, `cycle: 1`, `tasks_total: 0`, `tasks_completed: 0`, `replan_count: 0`, clear `tasks`/`task_aborts`/`cap_rotations`/`autonomous_decisions`/`deferred_decisions`/`review_cycles`/`doubts`/`doubts_rubric_verdicts`/`rework_task_ids`/`work_start_sha`/`design_doc`/`design_gate`/`design_mode`/`pause_reason`/`cap_pause_reason`. Preserve `batch`. Set `next_phase: "build"`. Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
+3. Run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` already includes `stall_reason`, so the separate clear above is redundant and dropped). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
 4. Print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──

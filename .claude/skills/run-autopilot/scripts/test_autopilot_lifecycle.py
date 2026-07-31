@@ -376,3 +376,24 @@ def test_phase3_guards_work_start_sha_against_recapture_on_resume() -> None:
         "Phase 3 must instruct the model NOT to re-capture work_start_sha "
         "when it is already set for the current PRD"
     )
+
+
+# --------------------------------------------------------------------------- #
+# PRD 00051 task 10 — the CLI performs the stall's durable effects, but the
+# STALLED banner and the continue-the-batch judgment remain the calling
+# session's prose (migration map: stall-print-banner, stall-continue-batch).
+# --------------------------------------------------------------------------- #
+
+
+def test_stall_banner_and_continue_stay_caller_prose() -> None:
+    """The rewired Loop-mode stall procedure keeps its cosmetic/judgment tail
+    as caller prose: the exit-0 row must still instruct the session to print
+    the STALLED banner and continue the batch."""
+    assert "── AUTOPILOT ── PRD: {prd-name} ── STALLED ({site})" in RECOVERY, (
+        "recovery.md must keep the STALLED banner as caller prose — "
+        "autopilot stall prints no banner (migration map: stall-print-banner)"
+    )
+    assert re.search(r"On exit 0.{0,60}continue the batch", RECOVERY, re.S), (
+        "recovery.md must keep the exit-0 continue-the-batch instruction as "
+        "caller prose (migration map: stall-continue-batch)"
+    )
