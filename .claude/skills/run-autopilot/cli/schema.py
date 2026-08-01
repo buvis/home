@@ -19,9 +19,23 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 
+# Bound on the repr() embedded in a SchemaError message: a malformed giant
+# value (e.g. a 100K-char string where an int was required) must never be
+# interpolated in full. Values whose repr is under the bound are unaffected.
+_MAX_VALUE_REPR = 200
+
 
 class SchemaError(Exception):
     """Raised by validate() naming the offending field path and value."""
+
+
+def _bounded_repr(value: Any) -> str:
+    """repr(value), truncated so a giant/malformed value can't blow up the
+    message. Under the bound, identical to plain repr()."""
+    text = repr(value)
+    if len(text) <= _MAX_VALUE_REPR:
+        return text
+    return f"{text[:_MAX_VALUE_REPR]}...({len(text)} chars)"
 
 
 _ENUMS: dict[str, set[str]] = {
@@ -33,7 +47,9 @@ _ENUMS: dict[str, set[str]] = {
     "consensus_engine": {"legacy", "shadow", "workflow"},
 }
 
-_INT_FIELDS = ("cycle", "rework_cap", "tasks_total", "tasks_completed")
+_INT_FIELDS = ("cycle", "rework_cap", "tasks_total", "tasks_completed", "replan_count")
+
+_STR_FIELDS = ("prd", "work_start_sha", "repo_root", "design_doc")
 
 _LIST_FIELDS = (
     "tasks",
@@ -52,15 +68,15 @@ def require(value: Any, type_: type, field: str) -> None:
     against type_ is int raises the int-specific message, never a bool one.
     """
     if isinstance(value, bool) and type_ is int:
-        raise SchemaError(f"{field}: expected int, got {value!r}")
+        raise SchemaError(f"{field}: expected int, got {_bounded_repr(value)}")
     if not isinstance(value, type_):
-        raise SchemaError(f"{field}: expected {type_.__name__}, got {value!r}")
+        raise SchemaError(f"{field}: expected {type_.__name__}, got {_bounded_repr(value)}")
 
 
 def validate(state: dict) -> None:
     """Raise SchemaError naming the first offending known field, else None."""
     if not isinstance(state, dict):
-        raise SchemaError(f"state: expected dict, got {state!r}")
+        raise SchemaError(f"state: expected dict, got {_bounded_repr(state)}")
 
     for field, allowed in _ENUMS.items():
         if field in state:
@@ -69,24 +85,37 @@ def validate(state: dict) -> None:
             except TypeError:
                 invalid = True
             if invalid:
-                raise SchemaError(f"{field}: invalid value {state[field]!r}")
+                raise SchemaError(f"{field}: invalid value {_bounded_repr(state[field])}")
 
     for field in _INT_FIELDS:
         if field in state:
-            value = state[field]
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise SchemaError(f"{field}: expected int, got {value!r}")
+            require(state[field], int, field)
+
+    for field in _STR_FIELDS:
+        if field in state:
+            require(state[field], str, field)
 
     for field in _LIST_FIELDS:
-        if field in state and not isinstance(state[field], list):
-            raise SchemaError(f"{field}: expected list, got {state[field]!r}")
+        if field in state:
+            require(state[field], list, field)
 
     if "batch" in state:
         batch = state["batch"]
         if not isinstance(batch, dict):
-            raise SchemaError(f"batch: expected dict, got {batch!r}")
+            raise SchemaError(f"batch: expected dict, got {_bounded_repr(batch)}")
         if "id" in batch and not isinstance(batch["id"], str):
-            raise SchemaError(f"batch.id: expected str, got {batch['id']!r}")
+            raise SchemaError(f"batch.id: expected str, got {_bounded_repr(batch['id'])}")
+        if "parks_consecutive" in batch:
+            value = batch["parks_consecutive"]
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise SchemaError(
+                    f"batch.parks_consecutive: expected int, got {_bounded_repr(value)}"
+                )
+        if "completed_prds" in batch and not isinstance(batch["completed_prds"], list):
+            raise SchemaError(
+                f"batch.completed_prds: expected list, got "
+                f"{_bounded_repr(batch['completed_prds'])}"
+            )
 
 
 def version_status(state: dict) -> str:

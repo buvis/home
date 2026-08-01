@@ -46,7 +46,8 @@ Exit codes:
     3   no/ignored marker (park)
     4   move failed (stall/park's inner PRD move)
     5   systemic halt (park)
-    6   reserved (unused by this PRD)
+    6   future-schema state.json: refused before any effect (stall, park,
+        reset-prd, restore)
     7   state file already exists (init)
     8   backup refused: missing or corrupt .bak (restore)
     9   deferred-record I/O failed (defer, or stall/park's inner append)
@@ -107,6 +108,39 @@ def _resolve_state_path(raw: str | None) -> Path:
     return _walk_up_or_exit("--state") / "state.json"
 
 
+def _schema_version_preflight(state_path: Path) -> int | None:
+    """Warn/refuse based on `state_path`'s schema_version stamp, before a
+    state-loading subcommand runs its effect. "old" warns on stderr and
+    returns None (caller continues); "future" prints and returns 6 (caller
+    must refuse before any effect); "unstamped"/"current" are silent (None).
+
+    A load failure (missing/corrupt state) is not this function's concern:
+    it returns None so the subcommand's own existing StateError handling
+    takes over, rather than introducing a new failure mode here.
+    """
+    try:
+        loaded, status = state.load(state_path)
+    except state.StateError:
+        return None
+    if status == "old":
+        version = loaded.get("schema_version")
+        print(
+            f"autopilot: old-schema state.json ({state_path}): "
+            f"v{version} -> v{schema.SCHEMA_VERSION}, auto-upgrading",
+            file=sys.stderr,
+        )
+        return None
+    if status == "future":
+        version = loaded.get("schema_version")
+        print(
+            f"autopilot: future-schema state.json ({state_path}): "
+            f"v{version} > v{schema.SCHEMA_VERSION}, refusing",
+            file=sys.stderr,
+        )
+        return 6
+    return None
+
+
 def _add_init(subparsers) -> None:
     p = subparsers.add_parser("init")
     p.add_argument("--state")
@@ -143,6 +177,9 @@ def _add_stall(subparsers) -> None:
 
 def _run_stall(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
     prds_dir = _resolve_prds_path(args.prds, state_path.parent)
     return records.do_stall(
         state_path,
@@ -163,6 +200,9 @@ def _add_park(subparsers) -> None:
 
 def _run_park(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
     autopilot_dir = (
         Path(args.autopilot_dir) if args.autopilot_dir is not None else state_path.parent
     )
@@ -189,6 +229,9 @@ def _add_reset_prd(subparsers) -> None:
 
 def _run_reset_prd(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
     try:
         state.transaction(state_path, records.reset_prd_fields, validator=_validate_reset_prd)
     except (state.StateError, OSError):
@@ -231,6 +274,9 @@ def _add_restore(subparsers) -> None:
 
 def _run_restore(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
     try:
         state.restore(state_path)
     except state.BackupError:

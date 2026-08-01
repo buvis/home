@@ -133,8 +133,13 @@ def transaction(
 
 
 def init(path: Path, initial: dict) -> None:
-    """Create the state file when absent; raise StateExistsError otherwise."""
+    """Create the state file when absent; raise StateExistsError otherwise.
+
+    Stamps schema_version onto `initial` in place before writing, so callers
+    holding a reference to the same dict see the stamp too.
+    """
     path = Path(path)
+    initial["schema_version"] = schema.SCHEMA_VERSION
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -156,7 +161,14 @@ def init(path: Path, initial: dict) -> None:
 
 
 def restore(path: Path) -> None:
-    """Roll `<path>.bak` back over the state file, only if the backup is usable."""
+    """Roll `<path>.bak` back over the state file, only if the backup is usable.
+
+    Re-stamps the restored content to the current schema_version, but only
+    when the file being replaced was itself already schema-aware (its own
+    version_status is not "unstamped") - a restore over a never-touched
+    legacy file must not be the operation that first imposes versioning on
+    it.
+    """
     path = Path(path)
     bak_path = Path(f"{path}.bak")
     lock_path = Path(f"{path}.lock")
@@ -174,4 +186,10 @@ def restore(path: Path) -> None:
             raise BackupError(
                 f"backup fails schema validation ({bak_path}): {err}"
             ) from err
+        try:
+            _current_raw, current = _read_and_parse(path)
+        except StateError:
+            current = {}
+        if schema.version_status(current) != "unstamped":
+            parsed["schema_version"] = schema.SCHEMA_VERSION
         _atomic_write(path, parsed)
