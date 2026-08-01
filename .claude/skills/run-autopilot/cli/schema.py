@@ -106,16 +106,9 @@ def validate(state: dict) -> None:
         if "id" in batch and not isinstance(batch["id"], str):
             raise SchemaError(f"batch.id: expected str, got {_bounded_repr(batch['id'])}")
         if "parks_consecutive" in batch:
-            value = batch["parks_consecutive"]
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise SchemaError(
-                    f"batch.parks_consecutive: expected int, got {_bounded_repr(value)}"
-                )
-        if "completed_prds" in batch and not isinstance(batch["completed_prds"], list):
-            raise SchemaError(
-                f"batch.completed_prds: expected list, got "
-                f"{_bounded_repr(batch['completed_prds'])}"
-            )
+            require(batch["parks_consecutive"], int, "batch.parks_consecutive")
+        if "completed_prds" in batch:
+            require(batch["completed_prds"], list, "batch.completed_prds")
 
 
 def version_status(state: dict) -> str:
