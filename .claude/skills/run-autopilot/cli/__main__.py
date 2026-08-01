@@ -175,20 +175,11 @@ def _validate_reset_prd(new_state: dict) -> None:
     only the scalars records.reset_prd_fields assigns. Deliberately does not
     require stall_op absence (a bare reset-prd legitimately preserves an
     unrelated stall_op) and does not run whole-state schema.validate."""
-    if not isinstance(new_state.get("phase"), str):
-        raise schema.SchemaError(f"phase: expected str, got {new_state.get('phase')!r}")
-    if not isinstance(new_state.get("next_phase"), str):
-        raise schema.SchemaError(
-            f"next_phase: expected str, got {new_state.get('next_phase')!r}"
-        )
-    if not isinstance(new_state.get("phases_completed"), list):
-        raise schema.SchemaError(
-            f"phases_completed: expected list, got {new_state.get('phases_completed')!r}"
-        )
+    schema.require(new_state.get("phase"), str, "phase")
+    schema.require(new_state.get("next_phase"), str, "next_phase")
+    schema.require(new_state.get("phases_completed"), list, "phases_completed")
     for field in ("cycle", "tasks_total", "tasks_completed", "replan_count"):
-        value = new_state.get(field)
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise schema.SchemaError(f"{field}: expected int, got {value!r}")
+        schema.require(new_state.get(field), int, field)
 
 
 def _add_reset_prd(subparsers) -> None:
