@@ -86,11 +86,6 @@ def find_duplicates(items: list[str]) -> list[str]:
     return sorted(item for item, n in counts.items() if n > 1)
 
 
-def looks_like_test_reference(test_id: str) -> bool:
-    """A real test reference contains `::` or starts with `test_`; prose does not."""
-    return "::" in test_id or test_id.startswith("test_")
-
-
 def source_file_path(source_cell: str) -> str:
     """Extract the leading file-path token from a `source` cell.
 
@@ -142,18 +137,6 @@ def rows_with_illegal_disposition(rows: list[list[str]]) -> list[tuple[int, str,
     return out
 
 
-def rows_with_bad_test_id_format(rows: list[list[str]]) -> list[tuple[int, str, str, str]]:
-    """Rows whose disposition requires a real test reference but test_id is prose."""
-    out = []
-    for i, r in enumerate(rows):
-        if len(r) != len(COLUMNS):
-            continue
-        behavior_id, _source, disposition, test_id = r
-        if disposition in TEST_ID_REQUIRED_DISPOSITIONS and not looks_like_test_reference(test_id):
-            out.append((i, behavior_id, disposition, test_id))
-    return out
-
-
 def rows_with_missing_source(
     rows: list[list[str]], root: Path
 ) -> list[tuple[int, str, str, Path]]:
@@ -178,47 +161,76 @@ def parse_test_id_refs(test_id: str) -> list[str]:
     return [ref.strip() for ref in test_id.split(",") if ref.strip()]
 
 
-def _defined_test_names(tree: ast.Module) -> set[tuple[str, ...]]:
+def _defined_names(tree: ast.Module) -> tuple[set[tuple[str, ...]], set[tuple[str, ...]]]:
     """Every class/function/method defined anywhere in `tree`, as name-path
     tuples: a top-level (or nested) function as `(name,)`, a class as
-    `(ClassName,)` (so a bare class reference resolves), and a method as
-    `(ClassName, method_name)`.
+    `(ClassName,)`, and a method as `(ClassName, method_name)`.
+
+    Returns `(all_names, test_names)`, where `test_names` keeps only the
+    test-shaped subset: a function/method whose leaf name is `test_`-
+    prefixed, and a class name only when the class has at least one such
+    method (so a bare class reference resolves).
     """
-    names: set[tuple[str, ...]] = set()
+    all_names: set[tuple[str, ...]] = set()
+    test_names: set[tuple[str, ...]] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
-            names.add((node.name,))
+            all_names.add((node.name,))
+            has_test_method = False
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    names.add((node.name, child.name))
+                    all_names.add((node.name, child.name))
+                    if child.name.startswith("test_"):
+                        test_names.add((node.name, child.name))
+                        has_test_method = True
+            if has_test_method:
+                test_names.add((node.name,))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            names.add((node.name,))
-    return names
+            all_names.add((node.name,))
+            if node.name.startswith("test_"):
+                test_names.add((node.name,))
+    return all_names, test_names
 
 
 def resolve_test_ref(ref: str, roots: tuple[Path, ...]) -> str | None:
     """Resolve one `<file>.py::<name>` or `<file>.py::<Class>::<name>` test
     reference against real files under `roots` (checked in order, e.g. cli/
-    then scripts/).
+    then scripts/; every root's copy of the file is tried before giving up).
 
-    Returns None when the ref names a real class/function/method (found via
-    `ast`, not by importing or collecting via pytest); otherwise a
-    human-readable reason it does not resolve.
+    A function/method ref only resolves when its leaf name is `test_`-
+    prefixed; a bare `file::ClassName` ref only resolves when the class has
+    at least one `test_`-prefixed method.
+
+    Returns None when the ref resolves against some root (found via `ast`,
+    not by importing or collecting via pytest); otherwise a human-readable
+    reason it does not.
     """
     parts = ref.split("::")
     filename, names = parts[0], tuple(parts[1:])
     if not filename.endswith(".py") or not names:
         return f"malformed test reference: {ref!r}"
-    path = next((root / filename for root in roots if (root / filename).exists()), None)
-    if path is None:
-        return f"test file not found in {[str(r) for r in roots]}: {filename}"
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except SyntaxError as err:
-        return f"{path}: could not parse as Python: {err}"
-    if names not in _defined_test_names(tree):
-        return f"{path}: no class/function/method named {'::'.join(names)}"
-    return None
+    found_file = False
+    reason: str | None = None
+    for root in roots:
+        path = root / filename
+        if not path.exists():
+            continue
+        found_file = True
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError as err:
+            reason = f"{path}: could not parse as Python: {err}"
+            continue
+        all_names, test_names = _defined_names(tree)
+        if names in test_names:
+            return None
+        if names in all_names:
+            reason = f"{path}: {'::'.join(names)} is not a test (missing test_ prefix)"
+        else:
+            reason = f"{path}: no class/function/method named {'::'.join(names)}"
+    if not found_file:
+        return f"test file not found in any root {[str(r) for r in roots]}: {filename}"
+    return reason
 
 
 def rows_with_unresolved_test_id(
@@ -327,19 +339,6 @@ class FindDuplicatesTest(unittest.TestCase):
         )
 
 
-class LooksLikeTestReferenceTest(unittest.TestCase):
-    def test_accepts_module_colon_colon_function(self) -> None:
-        self.assertTrue(looks_like_test_reference("test_migration_map.py::test_foo"))
-
-    def test_accepts_bare_test_prefixed_name(self) -> None:
-        self.assertTrue(looks_like_test_reference("test_something"))
-
-    def test_rejects_prose_sentence(self) -> None:
-        self.assertFalse(
-            looks_like_test_reference("The CLI now writes the plan file eagerly.")
-        )
-
-
 class SourceFilePathTest(unittest.TestCase):
     def test_returns_whole_cell_when_no_section_marker(self) -> None:
         self.assertEqual(source_file_path("prompts/de-sloppify.md"), "prompts/de-sloppify.md")
@@ -406,20 +405,6 @@ class RowValidatorsTest(unittest.TestCase):
             ["BID-4", "foo.md", "behavior_change", "test_x.py::test_c"],
         ]
         self.assertEqual(rows_with_illegal_disposition(rows), [])
-
-    def test_rows_with_bad_test_id_format_flags_prose_for_ported(self) -> None:
-        rows = [["BID-1", "foo.md", "ported", "it just works now"]]
-        offenders = rows_with_bad_test_id_format(rows)
-        self.assertEqual(offenders, [(0, "BID-1", "ported", "it just works now")])
-
-    def test_rows_with_bad_test_id_format_exempts_retired_prose(self) -> None:
-        rows = [["BID-1", "foo.md", "retired", "superseded by BID-2, no longer needed"]]
-        self.assertEqual(rows_with_bad_test_id_format(rows), [])
-
-    def test_rows_with_bad_test_id_format_requires_reference_for_stays_prose(self) -> None:
-        rows = [["BID-1", "foo.md", "stays_prose", "reviewed by a human each cycle"]]
-        offenders = rows_with_bad_test_id_format(rows)
-        self.assertEqual(offenders, [(0, "BID-1", "stays_prose", "reviewed by a human each cycle")])
 
     def test_rows_with_missing_source_flags_nonexistent_path(self) -> None:
         rows = [["BID-1", "references/does-not-exist.md#Section", "retired", "gone"]]
