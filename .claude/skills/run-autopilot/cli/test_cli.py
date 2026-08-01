@@ -542,42 +542,6 @@ class DefaultStatePathTests(_TempDirTestCase):
         self.assertNotEqual(proc.stderr.strip(), "")
 
 
-class CwdIndependenceTests(unittest.TestCase):
-    """The decoy regression: a top-level `cli/` package sitting in cwd must
-    never shadow the real cli package the CLI script belongs to."""
-
-    def test_reset_prd_with_explicit_state_exits_0_from_any_cwd_including_a_decoy_cli_package(
-        self,
-    ) -> None:
-        decoy_root = _fresh_dir(self)
-        decoy_pkg = decoy_root / "cli"
-        decoy_pkg.mkdir()
-        (decoy_pkg / "__init__.py").write_text(
-            'raise ImportError("decoy cli package imported")\n', encoding="utf-8"
-        )
-        (decoy_pkg / "records.py").write_text(
-            'raise ImportError("decoy cli package imported")\n', encoding="utf-8"
-        )
-
-        cwds = [
-            Path("/Users/bob"),
-            RUN_AUTOPILOT_DIR,
-            Path("/"),
-            decoy_root,
-        ]
-        for cwd in cwds:
-            with self.subTest(cwd=str(cwd)):
-                case_dir = _fresh_dir(self)
-                state_path = case_dir / "state.json"
-                _write_json(state_path, _minimal_state())
-
-                proc = _run(["reset-prd", "--state", str(state_path)], cwd=cwd)
-
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                content = json.loads(state_path.read_text(encoding="utf-8"))
-                self.assertEqual(content["cycle"], 1)
-
-
 class AllSubcommandsCwdMatrixTests(unittest.TestCase):
     """The decoy regression (see CwdIndependenceTests) generalized to every
     subcommand: each of init/stall/park/reset-prd/defer/restore must succeed
@@ -595,7 +559,7 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
         (decoy_pkg / "records.py").write_text(
             'raise ImportError("decoy cli package imported")\n', encoding="utf-8"
         )
-        return [Path("/Users/bob"), RUN_AUTOPILOT_DIR, Path("/"), testcase_root]
+        return [Path.home(), RUN_AUTOPILOT_DIR, Path("/"), testcase_root]
 
     def _case_init(self, case_dir: Path) -> tuple[list[str], "callable"]:
         state_path = case_dir / "state.json"
