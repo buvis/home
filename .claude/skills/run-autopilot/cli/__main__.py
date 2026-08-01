@@ -31,12 +31,17 @@ Subcommands:
 --state, when omitted, resolves by walking up from cwd via
 _walk_up.find_autopilot_dir() to <dir>/state.json. park's --autopilot-dir,
 when omitted, defaults to the resolved --state path's parent directory (the
-same rule stall and defer apply without a flag at all).
+same rule stall and defer apply without a flag at all). stall/park's
+--prds, when omitted, anchors on that same resolved autopilot dir (its
+`.parent / "prds"`) rather than walking up from cwd independently - an
+explicit --state pointed at a different tree carries --prds's default with
+it, and an unresolved --state (no dev/local/autopilot ancestor) is what
+leaves a bare --prds unresolved too.
 
 Exit codes:
     0   ok
     1   usage error (unknown/missing subcommand, bad flags, malformed
-        --json, --state unresolved)
+        --json, --state unresolved - which also blocks --prds's default)
     2   state error (state.json missing or not valid JSON)
     3   no/ignored marker (park)
     4   move failed (stall/park's inner PRD move)
@@ -83,17 +88,23 @@ class _ArgumentParser(argparse.ArgumentParser):
         self.exit(1, f"{self.prog}: error: {message}\n")
 
 
-def _resolve_state_path(raw: str | None) -> Path:
-    if raw is not None:
-        return Path(raw)
+def _walk_up_or_exit(flag_name: str) -> Path:
+    """Walk up from cwd via _walk_up.find_autopilot_dir(); exit 1 with a
+    flag-specific message when no dev/local/autopilot ancestor is found."""
     autopilot_dir = _walk_up.find_autopilot_dir(Path.cwd())
     if autopilot_dir is None:
         print(
-            "autopilot: --state not given and no dev/local/autopilot found above cwd",
+            f"autopilot: {flag_name} not given and no dev/local/autopilot found above cwd",
             file=sys.stderr,
         )
         raise SystemExit(1)
-    return autopilot_dir / "state.json"
+    return autopilot_dir
+
+
+def _resolve_state_path(raw: str | None) -> Path:
+    if raw is not None:
+        return Path(raw)
+    return _walk_up_or_exit("--state") / "state.json"
 
 
 def _add_init(subparsers) -> None:
@@ -115,16 +126,9 @@ def _run_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _resolve_prds_path(raw: str | None) -> str:
+def _resolve_prds_path(raw: str | None, autopilot_dir: Path) -> str:
     if raw is not None:
         return raw
-    autopilot_dir = _walk_up.find_autopilot_dir(Path.cwd())
-    if autopilot_dir is None:
-        print(
-            "autopilot: --prds not given and no dev/local/autopilot found above cwd",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
     return str(autopilot_dir.parent / "prds")
 
 
@@ -139,7 +143,7 @@ def _add_stall(subparsers) -> None:
 
 def _run_stall(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
-    prds_dir = _resolve_prds_path(args.prds)
+    prds_dir = _resolve_prds_path(args.prds, state_path.parent)
     return records.do_stall(
         state_path,
         prd=args.prd,
@@ -162,7 +166,7 @@ def _run_park(args: argparse.Namespace) -> int:
     autopilot_dir = (
         Path(args.autopilot_dir) if args.autopilot_dir is not None else state_path.parent
     )
-    prds_dir = _resolve_prds_path(args.prds)
+    prds_dir = _resolve_prds_path(args.prds, autopilot_dir)
     return records.do_park(state_path, prds_dir=prds_dir, autopilot_dir=autopilot_dir)
 
 

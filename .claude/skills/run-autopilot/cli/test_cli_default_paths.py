@@ -251,5 +251,43 @@ class NoAncestorProjectTests(_TempDirTestCase):
             self.assertEqual(self._list_all(), before)
 
 
+class ExplicitStateAnchorsPrdsDefaultTests(_TempDirTestCase):
+    """Behavior 7 (PRD 00051 review cycle 1 task #14, Item 5): an explicit
+    --state anchors the bare --prds default to ITS OWN tree, not an
+    independent cwd-derived walk-up. Running from inside a DIFFERENT
+    project's tree (tree A) with --state pointed at tree B must move the PRD
+    in tree B; tree A's prds/ (which never gets the PRD written into wip/)
+    is left untouched -- if the implementation still independently walked
+    up from cwd for --prds, the move would fail against tree A's empty
+    wip/ instead of succeeding against tree B."""
+
+    PRD = "00004-feature-x.md"
+
+    def test_explicit_state_anchors_bare_prds_default_to_states_own_tree(self) -> None:
+        _tree_a_autopilot_dir, tree_a_prds_dir = _make_project(self.root, self.PRD)
+
+        tree_b_root = _fresh_dir(self)
+        tree_b_autopilot_dir, tree_b_prds_dir = _make_project(tree_b_root, self.PRD)
+        (tree_b_prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
+        tree_b_state_path = tree_b_autopilot_dir / "state.json"
+
+        proc = _run(
+            [
+                "stall",
+                "--prd", self.PRD,
+                "--site", "design_gate",
+                "--detail", "x",
+                "--state", str(tree_b_state_path),
+            ],
+            cwd=self.root,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((tree_b_prds_dir / "wip" / self.PRD).exists())
+        self.assertTrue((tree_b_prds_dir / "hold" / self.PRD).exists())
+        self.assertFalse((tree_a_prds_dir / "hold" / self.PRD).exists())
+        self.assertFalse((tree_a_prds_dir / "hold").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
