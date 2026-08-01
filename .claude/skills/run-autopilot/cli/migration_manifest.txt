@@ -28,6 +28,12 @@ systemic-park-reset-on-non-wrapper-died
 # it. do_stall's "already in hold/ counts as move success" is the port.
 crash-recovery-no-double-move
 
+# --- recovery.md § plan-tasks stall / Rework escalation exhausted (PRD 00051
+# task 13) - the two remaining hand-sequenced mkdir/mv+verify/reset-prd
+# stall moves rewired to a single `autopilot stall --site <slug>` call -----
+stall-oversized-task-via-cli
+stall-escalation-exhausted-via-cli
+
 # --- shared per-PRD reset (recovery.md's three lists + phase-done.md's) ---
 reset-prd-fields-standard
 reset-repo-root-always

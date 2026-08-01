@@ -115,23 +115,37 @@ def _run_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_prds_path(raw: str | None) -> str:
+    if raw is not None:
+        return raw
+    autopilot_dir = _walk_up.find_autopilot_dir(Path.cwd())
+    if autopilot_dir is None:
+        print(
+            "autopilot: --prds not given and no dev/local/autopilot found above cwd",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    return str(autopilot_dir.parent / "prds")
+
+
 def _add_stall(subparsers) -> None:
     p = subparsers.add_parser("stall")
     p.add_argument("--state")
     p.add_argument("--prd", required=True)
     p.add_argument("--site", required=True)
     p.add_argument("--detail", required=True)
-    p.add_argument("--prds", required=True)
+    p.add_argument("--prds")
 
 
 def _run_stall(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
+    prds_dir = _resolve_prds_path(args.prds)
     return records.do_stall(
         state_path,
         prd=args.prd,
         site=args.site,
         detail=args.detail,
-        prds_dir=args.prds,
+        prds_dir=prds_dir,
         autopilot_dir=state_path.parent,
     )
 
@@ -139,7 +153,7 @@ def _run_stall(args: argparse.Namespace) -> int:
 def _add_park(subparsers) -> None:
     p = subparsers.add_parser("park")
     p.add_argument("--state")
-    p.add_argument("--prds", required=True)
+    p.add_argument("--prds")
     p.add_argument("--autopilot-dir")
 
 
@@ -148,7 +162,8 @@ def _run_park(args: argparse.Namespace) -> int:
     autopilot_dir = (
         Path(args.autopilot_dir) if args.autopilot_dir is not None else state_path.parent
     )
-    return records.do_park(state_path, prds_dir=args.prds, autopilot_dir=autopilot_dir)
+    prds_dir = _resolve_prds_path(args.prds)
+    return records.do_park(state_path, prds_dir=prds_dir, autopilot_dir=autopilot_dir)
 
 
 def _validate_reset_prd(new_state: dict) -> None:
