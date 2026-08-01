@@ -376,6 +376,8 @@ def do_stall(
     rc = _mkdir_hold(prds_dir)
     if rc is not None:
         return rc
+
+    _trip("after-mkdir-before-intent")
     rc = _stamp_stall_intent(state_path, op_id, prd, site, detail)
     if rc is not None:
         return rc

@@ -28,8 +28,9 @@ contract given in the task brief:
 
   _AUTOPILOT_CLI_FAILPOINT, when set to a boundary name, makes do_stall raise
   RuntimeError("failpoint: <name>") at that boundary, simulating a kill.
-  Boundaries owned by this task: after-intent-before-move,
-  after-move-before-append, after-append-before-commit.
+  Boundaries owned by this task: after-mkdir-before-intent,
+  after-intent-before-move, after-move-before-append,
+  after-append-before-commit.
 
 reset_prd_fields and record_defer are exercised only indirectly here (through
 do_stall); their own field-by-field contracts are covered in test_records.py
@@ -418,6 +419,31 @@ class FailpointRecoveryTests(_StallTestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 self._do_stall(site="design_gate", detail="hook failed")
         self.assertEqual(str(ctx.exception), f"failpoint: {boundary}")
+
+    def test_after_mkdir_before_intent_leaves_no_durable_state_and_recovers_on_retry(self) -> None:
+        self._put_in_wip()
+        self._write_state(self._sample_state())
+        before = self._state()
+
+        self._run_with_failpoint("after-mkdir-before-intent")
+
+        partial = self._state()
+        self.assertEqual(partial, before, "no stall_op may be stamped before this boundary")
+        self.assertTrue(self._in_wip(), "prd must still be in wip/ before the move step ran")
+        self.assertFalse(self._in_hold())
+        self.assertEqual(self._deferred_items(), [], "no deferred record before the intent stamp")
+
+        rc = self._do_stall(site="design_gate", detail="hook failed")
+
+        self.assertEqual(rc, 0)
+        self.assertFalse(self._in_wip())
+        self.assertTrue(self._in_hold())
+        items = self._deferred_items()
+        self.assertEqual(len(items), 1, "exactly one deferred record after the rerun")
+        final = self._state()
+        self.assertNotIn("stall_op", final)
+        self.assertEqual(final["cycle"], 1)
+        self.assertEqual(final["phase"], "build")
 
     def test_after_intent_before_move_leaves_prd_in_wip_and_recovers_on_retry(self) -> None:
         self._put_in_wip()
