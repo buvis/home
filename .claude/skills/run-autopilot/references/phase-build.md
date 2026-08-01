@@ -78,7 +78,7 @@ parse the YAML block between the opening `---` and the next `---`, then apply:
 | field | accepted values | default | state target | on invalid / absent |
 |-------|-----------------|---------|--------------|---------------------|
 | `catchup` | `run`, `skip`, `force` | `run` | `state.catchup_mode` | default + warn |
-| `rework_cap` | positive integer (or string that parses cleanly as one) | `3` | `state.rework_cap` | default + warn |
+| `rework_cap` | positive integer (or string that parses cleanly as one) | `2` | `state.rework_cap` | default + warn |
 | `design` | `run`, `skip` | `run` | `state.design_mode` | default + warn |
 | `design_gate` | exact `user` | field left absent | `state.design_gate` | leave absent, no warn |
 | `doubt_reviewer` | `codex`, `fable` | `codex` | `state.doubt_reviewer` | default + warn |
@@ -87,7 +87,7 @@ parse the YAML block between the opening `---` and the next `---`, then apply:
 
 Shared fallback: on malformed YAML or missing frontmatter, log ONE warning line
 ("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run,
-rework_cap=3, design_mode=run, doubt_reviewer=codex, consensus_engine=legacy"),
+rework_cap=2, design_mode=run, doubt_reviewer=codex, consensus_engine=legacy"),
 take every default, and continue — never crash Phase 0 on a frontmatter
 problem. Frontmatter is the source of truth; once Phase 0 has parsed it, do
 not re-parse it after Phase 0.
