@@ -432,5 +432,87 @@ class GoldenFixturesTest(unittest.TestCase):
                     self.fail(f"{path}: {exc}")
 
 
+WIDENED_SCALAR_REJECT_CASES = (
+    ("prd", lambda s: s.__setitem__("prd", 123), "prd"),
+    ("work_start_sha", lambda s: s.__setitem__("work_start_sha", 123), "work_start_sha"),
+    ("repo_root", lambda s: s.__setitem__("repo_root", 123), "repo_root"),
+    ("design_doc", lambda s: s.__setitem__("design_doc", 123), "design_doc"),
+    ("replan_count_non_int", lambda s: s.__setitem__("replan_count", "3"), "replan_count"),
+    ("replan_count_bool", lambda s: s.__setitem__("replan_count", True), "replan_count"),
+    (
+        "batch_parks_consecutive_non_int",
+        lambda s: s["batch"].__setitem__("parks_consecutive", "3"),
+        "batch.parks_consecutive",
+    ),
+    (
+        "batch_parks_consecutive_bool",
+        lambda s: s["batch"].__setitem__("parks_consecutive", True),
+        "batch.parks_consecutive",
+    ),
+    (
+        "batch_completed_prds_non_list",
+        lambda s: s["batch"].__setitem__("completed_prds", "not-a-list"),
+        "batch.completed_prds",
+    ),
+)
+
+WIDENED_SCALAR_ACCEPT_CASES = (
+    ("prd", lambda s: s.__setitem__("prd", "00004-feature-x.md")),
+    ("work_start_sha", lambda s: s.__setitem__("work_start_sha", "3f2c1a9")),
+    (
+        "repo_root",
+        lambda s: s.__setitem__("repo_root", "/Users/bob/git/src/github.com/buvis/run-autopilot"),
+    ),
+    (
+        "design_doc",
+        lambda s: s.__setitem__(
+            "design_doc", "dev/local/prds/wip/00004-feature-x/design.md"
+        ),
+    ),
+    ("replan_count", lambda s: s.__setitem__("replan_count", 0)),
+    ("batch_parks_consecutive", lambda s: s["batch"].__setitem__("parks_consecutive", 0)),
+    (
+        "batch_completed_prds",
+        lambda s: s["batch"].__setitem__("completed_prds", ["00001-x.md"]),
+    ),
+)
+
+
+class ValidateWidenedScalarFieldsTest(unittest.TestCase):
+    """The scalar fields this task adds: prd/work_start_sha/repo_root/design_doc
+    (str), replan_count and batch.parks_consecutive (int, bool rejected),
+    batch.completed_prds (list). Each is optional -- only checked if present."""
+
+    def test_rejects_malformed_widened_scalar_fields_naming_the_offending_field(self) -> None:
+        for label, mutate, expected_name in WIDENED_SCALAR_REJECT_CASES:
+            with self.subTest(label=label):
+                state = valid_state()
+                mutate(state)
+                with self.assertRaises(schema.SchemaError) as ctx:
+                    schema.validate(state)
+                self.assertIn(expected_name, str(ctx.exception))
+
+    def test_well_formed_widened_scalar_fields_pass(self) -> None:
+        for label, mutate in WIDENED_SCALAR_ACCEPT_CASES:
+            with self.subTest(label=label):
+                state = valid_state()
+                mutate(state)
+                self.assertIsNone(schema.validate(state))
+
+
+class SchemaErrorReprBoundedTest(unittest.TestCase):
+    def test_error_message_for_giant_field_value_is_bounded_not_interpolated_in_full(
+        self,
+    ) -> None:
+        # A MALFORMED giant value (str where int is required): the rejection
+        # message must truncate the value, never interpolate all 100K chars.
+        # (A giant-but-valid str field passes validation and raises nothing —
+        # the widened `prd: str` rule has no length limit.)
+        with self.assertRaises(schema.SchemaError) as ctx:
+            schema.validate({"replan_count": "x" * 100_000})
+        self.assertLess(len(str(ctx.exception)), 500)
+        self.assertIsNone(schema.validate({"prd": "x" * 100_000}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -496,6 +496,23 @@ class InitTest(_TempDirTestCase):
         self.assertEqual(text.rstrip("\n"), json.dumps(parsed, indent=2))
 
 
+class InitSchemaVersionStampTest(_TempDirTestCase):
+    def test_stamps_schema_version_when_initial_omits_it(self) -> None:
+        state.init(self.path, {"phase": "build"})
+
+        on_disk, _ = state.load(self.path)
+        self.assertEqual(
+            on_disk, {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
+        )
+
+    def test_initial_already_at_current_version_is_unchanged(self) -> None:
+        initial = {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
+        state.init(self.path, initial)
+
+        on_disk, _ = state.load(self.path)
+        self.assertEqual(on_disk, initial)
+
+
 class RestoreTest(_TempDirTestCase):
     def test_rolls_a_good_bak_back_over_a_changed_state_file(self) -> None:
         good = {"phase": "build", "cycle": 1}
@@ -539,6 +556,21 @@ class RestoreTest(_TempDirTestCase):
             state.restore(self.path)
 
         self.assertEqual(self.path.read_bytes(), before)
+
+
+class RestoreSchemaVersionStampTest(_TempDirTestCase):
+    def test_restore_stamps_current_schema_version_even_when_bak_is_unstamped(self) -> None:
+        _write_json(_bak_path(self.path), {"phase": "build", "cycle": 1})
+        _write_json(
+            self.path,
+            {"phase": "review", "cycle": 99, "schema_version": schema.SCHEMA_VERSION},
+        )
+
+        state.restore(self.path)
+
+        restored, _ = state.load(self.path)
+        self.assertEqual(restored["schema_version"], schema.SCHEMA_VERSION)
+        self.assertEqual(restored["cycle"], 1)
 
 
 if __name__ == "__main__":
