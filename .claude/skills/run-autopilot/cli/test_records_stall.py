@@ -432,6 +432,10 @@ class FailpointRecoveryTests(_StallTestCase):
         self.assertTrue(self._in_wip(), "prd must still be in wip/ before the move step ran")
         self.assertFalse(self._in_hold())
         self.assertEqual(self._deferred_items(), [], "no deferred record before the intent stamp")
+        self.assertTrue(
+            (self.prds_dir / "hold").is_dir(),
+            "the trip fires AFTER mkdir: hold/ must already exist at this boundary",
+        )
 
         rc = self._do_stall(site="design_gate", detail="hook failed")
 
