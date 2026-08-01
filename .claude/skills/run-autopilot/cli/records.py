@@ -143,6 +143,10 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
     the append when an existing item's "op_id" equals `record["op_id"]`; a
     record with no "op_id" is always appended. Locked and written
     atomically under its own `.lock` sidecar next to the deferred file.
+
+    Raises ValueError for an invalid `prd`/`batch_id`, or when the existing
+    deferred file is shape-corrupt (not a dict, "items" not a list, or an
+    "items" element that isn't a dict).
     """
     if "/" in prd or prd == "..":
         raise ValueError(f"record_defer: invalid prd {prd!r}")
@@ -158,7 +162,11 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         if file_path.exists():
             content = json.loads(file_path.read_text(encoding="utf-8"))
-            if not isinstance(content, dict) or not isinstance(content.get("items"), list):
+            if (
+                not isinstance(content, dict)
+                or not isinstance(content.get("items"), list)
+                or not all(isinstance(i, dict) for i in content["items"])
+            ):
                 raise ValueError(f"record_defer: corrupt deferred file {file_path}")
         else:
             content = {"batch_id": batch_id, "items": []}
@@ -263,6 +271,8 @@ def do_stall(
             not isinstance(stall_op, dict)
             or not isinstance(stall_op.get("op_id"), str)
             or not isinstance(stall_op.get("prd"), str)
+            or not isinstance(stall_op.get("site"), str)
+            or not isinstance(stall_op.get("detail"), str)
         ):
             print("autopilot: malformed stall_op in state; refusing", file=sys.stderr)
             return 2
@@ -415,6 +425,8 @@ def do_park(
         not isinstance(stall_op, dict)
         or not isinstance(stall_op.get("op_id"), str)
         or not isinstance(stall_op.get("prd"), str)
+        or not isinstance(stall_op.get("site"), str)
+        or not isinstance(stall_op.get("detail"), str)
     ):
         print("autopilot: malformed stall_op in state; refusing", file=sys.stderr)
         return 2

@@ -222,6 +222,7 @@ class MalformedStallOpReturns2NoEffectsTests(_RecordsFailureFixture):
     MALFORMED_STALL_OPS = (
         ("not_a_dict", "just a string"),
         ("missing_op_id_and_prd", {"site": "s", "detail": "d"}),
+        ("missing_site_and_detail", {"op_id": "x", "prd": _RecordsFailureFixture.PRD}),
     )
 
     def test_do_stall_with_malformed_stall_op_returns_2_without_filesystem_effects(self) -> None:
@@ -316,6 +317,7 @@ class RecordDeferShapeCorruptionTests(_RecordsFailureFixture):
         ("root_is_a_list", ["not", "the", "right", "shape"]),
         ("dict_missing_items", {"batch_id": "b1"}),
         ("items_not_a_list", {"batch_id": "b1", "items": {"oops": "not-a-list"}}),
+        ("items_contain_non_dict", {"batch_id": "b1", "items": ["not-a-dict"]}),
     )
 
     def test_record_defer_raises_valueerror_on_shape_corrupt_existing_file(self) -> None:
