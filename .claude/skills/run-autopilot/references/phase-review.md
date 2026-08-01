@@ -29,7 +29,7 @@ If traditional findings are zero but the constraint gate exits 2 (unmet), this i
 
 Otherwise (unresolved findings remain), before evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
 
-Read `state.cycle` (starts at 1; the number of the review cycle just completed) and `state.rework_cap` (the effective cap, set by Phase 0 from PRD frontmatter — default 3; see the frontmatter parse table in `references/phase-build.md`).
+Read `state.cycle` (starts at 1; the number of the review cycle just completed) and `state.rework_cap` (the effective cap, set by Phase 0 from PRD frontmatter — default 2; see the frontmatter parse table in `references/phase-build.md`).
 
 **Rework is allowed while `cycle < cap`; when `cycle >= cap` AND rework would otherwise be dispatched, the gate pauses instead of reworking.**
 
