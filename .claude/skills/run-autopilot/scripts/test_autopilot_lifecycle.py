@@ -184,15 +184,21 @@ def test_wip_to_done_move_is_verified() -> None:
 
 
 def test_hold_moves_are_verified() -> None:
-    """Every wip->hold `mv` in recovery.md must verify + PAUSE on failure."""
-    anchor = re.compile(r"the PRD from[^\n]*wip/[^\n]*hold/")
-    guards = _guarded_windows(RECOVERY, anchor)
-    assert len(guards) >= 2, (
-        f"expected >=2 wip->hold move sites in recovery.md, found {len(guards)}"
+    """PRD 00051 task 13: the two wip->hold move sites in recovery.md
+    (`oversized_task`, `escalation_exhausted`) no longer hand-sequence the
+    `mv` + verify — they delegate to `autopilot stall`, which verifies the
+    move internally and exits 4 on failure (see cli/test_records_stall.py).
+    recovery.md must still document that every `autopilot stall --site` call
+    site PAUSEs on a move failure via its exit-code branch table."""
+    anchor = re.compile(r"autopilot stall --prd <filename> --site (?:oversized_task|escalation_exhausted)")
+    sites = anchor.findall(RECOVERY)
+    assert len(sites) >= 2, (
+        f"expected >=2 `autopilot stall --site` call sites in recovery.md, found {len(sites)}"
     )
-    assert all(guards), (
-        "every wip->hold `mv` in recovery.md must be followed by an "
-        "existence check and a PAUSE on failure"
+    windows = [RECOVERY[m.start() : m.start() + 900] for m in anchor.finditer(RECOVERY)]
+    assert all("PAUSE" in w and "mv_verify" in w for w in windows), (
+        "every `autopilot stall` call site in recovery.md must document the "
+        "exit-4 move-failed PAUSE (`site: \"mv_verify\"`) in its branch table"
     )
 
 

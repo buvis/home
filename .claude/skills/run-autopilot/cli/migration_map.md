@@ -33,6 +33,8 @@ Disposition legend:
 | systemic-park-reset-on-non-wrapper-died | references/recovery.md § Systemic-park breaker interaction | ported | test_records_stall.py::test_resets_parks_consecutive_to_zero_for_non_wrapper_died_site |
 | reset-prd-fields-standard | references/phase-done.md § Phase 9 step 10 | ported | test_records.py::test_removes_every_per_prd_reset_field |
 | crash-recovery-no-double-move | references/recovery.md § Crash recovery: escalation_exhausted seen at Phase 0 | ported | test_records_stall.py::test_after_move_before_append_leaves_prd_in_hold_and_recovers_on_retry |
+| stall-oversized-task-via-cli | references/recovery.md § plan-tasks stall: oversized task | ported | test_records_stall.py::test_exit_4_when_prd_absent_from_both_wip_and_hold, test_cli_default_paths.py::test_bare_stall_resolves_state_and_prds_by_walking_up_from_cwd |
+| stall-escalation-exhausted-via-cli | references/recovery.md § Rework escalation exhausted → Stall move | ported | test_records_stall.py::test_exit_9_when_deferred_dir_path_is_occupied_by_a_file, test_cli_default_paths.py::test_bare_stall_from_nested_subdir_still_resolves_the_project_root_dirs |
 | reset-repo-root-always | references/phase-done.md § Phase 9 step 10 | behavior_change | test_records.py::test_removes_every_per_prd_reset_field |
 | reset-unlisted-fields-now-cleared | references/phase-build.md § Frontmatter parse table | behavior_change | test_records.py::test_clears_the_four_fields_that_leak_today |
 | statectl-transaction-ordering | scripts/statectl.py § mutate | behavior_change | test_state.py::test_raising_fn_leaves_state_and_bak_byte_unchanged |

@@ -150,7 +150,7 @@ If `stall_reason.stalled` is anything else (or absent), return to Phase 0's Norm
 
 ## Crash recovery: escalation_exhausted seen at Phase 0
 
-`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. If it does, treat it as corrupt-state crash recovery (the crash landed between Phase 6's `mv` and its `stall_reason` clear, so the PRD is already in `dev/local/prds/hold/` but state still points at it): log a warning, do NOT re-run the move (Phase 6 already moved the PRD), and run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` is the single authoritative list — it already includes `stall_reason`, so no separate clear is needed) — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly.
+`escalation_exhausted` is owned inline by Phase 6 — the rework path is inside the autopilot flow, so it does its own stall move + clear before signaling. Phase 0 should never see `escalation_exhausted` in normal operation. This handler covers the legacy crash-landed-between-`mv`-and-clear case: a session killed between Phase 6's `mv` and its `stall_reason` clear leaves the PRD already in `dev/local/prds/hold/` while state still points at it. If it does, treat it as corrupt-state crash recovery: log a warning, do NOT re-run the move (Phase 6 already moved the PRD), and run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` is the single authoritative list — it already includes `stall_reason`, so no separate clear is needed) — then fall through to Phase 0's Normal PRD selection so the next PRD gets picked cleanly. A stall performed via `autopilot stall` instead leaves a `state.stall_op` intent on crash, which is reconciled by `autopilot park` (SKILL.md Gate Dispatch's `stall_op` row) or by re-running the stall — not by this handler.
 
 ## plan-tasks stall: oversized task
 
@@ -158,15 +158,22 @@ Reached from **Phase 2** when `/plan-tasks` exits non-zero and writes `state.sta
 
 1. Read `dev/local/autopilot/state.json`. If `stall_reason.stalled == "oversized_task"`, do NOT proceed to Phase 3.
 2. **Delete any tasks `/plan-tasks` already created.** `/plan-tasks` calls `TaskCreate` before the per-task budget check, so tasks may exist in `TaskList` by the time the stall fires. Query `TaskList`, then `TaskUpdate(status: "deleted")` for every task. Same pattern as Phase 9 step 5 — prevents Phase 2's `TaskList`-skip logic from skipping planning on the next PRD.
-3. Ensure `dev/local/prds/hold/` exists (`mkdir -p dev/local/prds/hold`).
-4. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
-5. Run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` is the single authoritative list — it already includes `stall_reason`, so the separate `del stall_reason` step is redundant and dropped). Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode.
-6. Print:
+3. Run `autopilot stall --prd <filename> --site oversized_task --detail <one-line detail>` (one call — it stamps the intent, moves+verifies, appends the deferred record, and applies the per-PRD reset in its single commit). Delete `dev/local/autopilot/replan-context.md` if it exists — otherwise the next PRD's planning would falsely enter replan mode (the CLI does not own that file).
+
+   | Exit code | Meaning | Action |
+   |---|---|---|
+   | 0 | stalled | print the STALLED banner below, continue the batch |
+   | 4 | move failed | PAUSE per the mv-verify invariant (`site: "mv_verify"`) |
+   | 9 | deferred-record I/O failed | PAUSE (`site: "statectl_fail"` family) |
+   | 10 | stall_op conflict | PAUSE for human reconciliation |
+   | 2 | state unreadable | the corrupted-state row of Error Handling applies |
+
+   On exit 0, print:
    ```
    ── AUTOPILOT ── PRD: {prd-name} ── STALLED (oversized_task) ─────
    ── moved to dev/local/prds/hold/ ── advancing to next PRD ───────
    ```
-7. If `$_AUTOPILOT_LOOP` is set, end the turn — the wrapper reads `next_phase: "build"` and relaunches (same mechanism as the Phase 9 PRD-to-PRD transition). Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+   Then continue: if `$_AUTOPILOT_LOOP` is set, end the turn — the wrapper reads `next_phase: "build"` and relaunches (same mechanism as the Phase 9 PRD-to-PRD transition). Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 
 ## Rework escalation exhausted
 
@@ -182,13 +189,13 @@ Rewrite the attempt entry's `outcome` to `"rework_failed"`, then merge into stat
 
 ### Fable rescue gate (PRD 00076)
 
-Runs BETWEEN the `outcome` rewrite above and the stall move below — after the rewrite so the justification can quote the final `rework_failed` state, before the stall move because that clears `state.tasks`. **Steps 0-4 in this subsection are the GATE's steps**; the stall move keeps its own 1-5 list under "Stall move" below, so a "step N" here always means a gate step. `<ledger>` is `dev/local/autopilot/ledger/fable-requests.json` (`references/state-schema.md` § Fable rescue ledger). `fable` is the human-gated rung above `opus` (`references/model-ladder.md` § Rungs); this gate is the only thing that ever selects it.
+Runs BETWEEN the `outcome` rewrite above and the stall move below — after the rewrite so the justification can quote the final `rework_failed` state, before the stall move because that clears `state.tasks`. **Steps 0-4 in this subsection are the GATE's steps** — the stall move below is now one `autopilot stall` call, so a "step N" here always means a gate step. `<ledger>` is `dev/local/autopilot/ledger/fable-requests.json` (`references/state-schema.md` § Fable rescue ledger). `fable` is the human-gated rung above `opus` (`references/model-ladder.md` § Rungs); this gate is the only thing that ever selects it.
 
 0. **One-fable-attempt guard.** If the exhausted task's `attempts[-1].model` is already `"fable"`, this PRD has had its rescue attempt — skip steps 1 AND 2 entirely and go to step 4 (normal stall). This is a state-side guard, so it holds even if the ledger write of a prior attempt was lost to a crash.
 1. **Spend an approved rescue.** Otherwise run `python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py <ledger> show <state.prd>`. When it reports `status == "approved"`, spend the rescue instead of stalling, **in this order** (each numbered write is durable before the next runs):
    a. **Queue the retry first** — `TaskUpdate(taskId, metadata={"model": "fable", "escalation_reason": "fable_rescue", "escalated_from": "opus"})`, `state.tasks[i].model = "fable"`, append the id to `state.rework_task_ids`, reset its status to `pending`. These are Phase 6 step 4's existing requeue mechanics (`references/phase-review.md`) with `"fable"` as the tier — the gate reuses them, it does not add a dispatch path.
    b. **Then claim it** — `fablectl.py <ledger> consume <state.prd>`, which flips `approved` → `consumed`. A second claim for this PRD can never succeed (`consume` exits 3 unless the entry is `approved`).
-   c. **Then clear `stall_reason` from state and continue Phase 6's normal "Dispatch rework" path.** Do NOT stall. This path never reaches the stall move below, so `state.tasks` is not cleared and the PRD stays in `wip/` — but that also means the stall move's step 3 never runs, and it is the only other thing that clears `stall_reason`. The `escalation_exhausted` value written above was written in anticipation of a stall that is not happening; leaving it behind would make the next build-gate entry (a cap rotation sets `next_phase: "build"`) read it at Phase 0 and run "Crash recovery: escalation_exhausted seen at Phase 0" against a healthy PRD that is mid-rework.
+   c. **Then clear `stall_reason` from state and continue Phase 6's normal "Dispatch rework" path.** Do NOT stall. This path never reaches the stall move below, so `state.tasks` is not cleared and the PRD stays in `wip/` — but that also means the stall move's `autopilot stall` call (whose single-commit reset clears `stall_reason`) never runs, and it is the only other thing that clears `stall_reason`. The `escalation_exhausted` value written above was written in anticipation of a stall that is not happening; leaving it behind would make the next build-gate entry (a cap rotation sets `next_phase: "build"`) read it at Phase 0 and run "Crash recovery: escalation_exhausted seen at Phase 0" against a healthy PRD that is mid-rework.
    Any other `show` result (no entry, or `requested` / `rejected` / `consumed`) → continue to step 2.
 2. **Record a new request.** Run `python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py <ledger> request <state.prd> <task_id> <task_name> <batch_id> <justification-json>`, where `justification` is a JSON object with `problem` (what the task could not achieve), `attempts` (the rung-by-rung history, e.g. `haiku(2) -> sonnet(2) -> opus(2), last outcome rework_failed`), and `impact` (what stays broken).
    - **Exit 3 — the latch already fired** for this PRD (a `rejected` or `consumed` entry): log one line, notify nothing, fall through to step 4.
@@ -211,17 +218,24 @@ Runs BETWEEN the `outcome` rewrite above and the stall move below — after the 
 
 ### Stall move
 
-Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above. Sub-steps run in order: the PRD `mv` (step 2) precedes the state clear (step 3) — these numbers are this subsection's own 1-5 list, not the gate's 0-4. This ordering matters because a crash between the two leaves the PRD in `hold/` with stale state still referencing it — the "Crash recovery: escalation_exhausted seen at Phase 0" section above detects this and recovers by clearing state without re-running the move.
+Then perform the **stall move**, identical to the "plan-tasks stall: oversized task" handler above: run `autopilot stall --prd <filename> --site escalation_exhausted --detail <one-line detail>` (one call — it stamps the intent, moves+verifies, appends the deferred record, and applies the per-PRD reset in its single commit). With the intent-based CLI, the crash window between the move and the reset no longer needs hand-described ordering: a killed stall leaves a `state.stall_op` intent that is reconciled either by `autopilot park` (SKILL.md Gate Dispatch's `stall_op` row) or by re-running the stall.
 
-1. `mkdir -p dev/local/prds/hold` if missing.
-2. `mv` the PRD from `dev/local/prds/wip/<filename>` to `dev/local/prds/hold/<filename>` (keep the `00XXX-` prefix). After the `mv`, **verify the move**: confirm the PRD now exists in `dev/local/prds/hold/`. If it does not, the move failed — set `state.phase = "paused"` and `state.next_phase = "paused"`, write `state.pause_reason = {"site": "mv_verify", "detail": "<source, destination, mv error>"}`, then PAUSE naming the source, the destination, and the `mv` error, and do not continue (do not clear state or advance to the next PRD).
-3. Run `autopilot reset-prd` (one call; `cli/records.PER_PRD_RESET_FIELDS` already includes `stall_reason`, so the separate clear above is redundant and dropped). Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path).
-4. Print:
-   ```
-   ── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──
-   ── moved to dev/local/prds/hold/ ── advancing to next PRD ─────────
-   ```
-5. If `$_AUTOPILOT_LOOP` is set, end the turn — the wrapper reads `next_phase: "build"` and relaunches. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
+| Exit code | Meaning | Action |
+|---|---|---|
+| 0 | stalled | print the STALLED banner below, continue the batch |
+| 4 | move failed | PAUSE per the mv-verify invariant (`site: "mv_verify"`) |
+| 9 | deferred-record I/O failed | PAUSE (`site: "statectl_fail"` family) |
+| 10 | stall_op conflict | PAUSE for human reconciliation |
+| 2 | state unreadable | the corrupted-state row of Error Handling applies |
+
+Delete `dev/local/autopilot/replan-context.md` if it exists (defensive — it should already be gone by the time we reach a rework path; the CLI does not own that file).
+
+On exit 0, print:
+```
+── AUTOPILOT ── PRD: {prd-name} ── STALLED (escalation_exhausted) ──
+── moved to dev/local/prds/hold/ ── advancing to next PRD ─────────
+```
+Then continue: if `$_AUTOPILOT_LOOP` is set, end the turn — the wrapper reads `next_phase: "build"` and relaunches. Otherwise jump back to Phase 0 in this same session to pick the next PRD.
 
 ## Cap-Pause Resume Handler
 
