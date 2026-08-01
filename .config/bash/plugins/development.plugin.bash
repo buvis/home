@@ -277,7 +277,7 @@ _autopilot_build_metrics_hit() {
 }
 
 # _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
-# Build-phase model routing: prints claude-opus-4-8 when the PRD about to be
+# Build-phase model routing: prints claude-opus-5 when the PRD about to be
 # built carries difficulty evidence, else claude-sonnet-5. Always exits 0 and
 # always keeps stderr clean (a missing state.json, ledger or metrics file and an
 # empty deferred dir are all normal). The target is the lowest 00XXX- PRD in
@@ -304,7 +304,7 @@ _autopilot_build_model() {
       END {exit !found}
     ' "$_tpath" 2>/dev/null
   then
-    printf 'claude-opus-4-8\n'; return 0
+    printf 'claude-opus-5\n'; return 0
   fi
 
   # (2) replanned / (3a) live stall / (4) cap rotation — all guarded on
@@ -314,7 +314,7 @@ _autopilot_build_model() {
     || jq -e --arg t "$_target" 'has($t)' "$_ledger" >/dev/null 2>&1 \
     || _autopilot_build_metrics_hit "$_metrics" "$_target"
   then
-    printf 'claude-opus-4-8\n'; return 0
+    printf 'claude-opus-5\n'; return 0
   fi
 
   # (3b) a durable stall naming the target in the 2 newest deferred logs
@@ -325,7 +325,7 @@ _autopilot_build_model() {
   done
   for _f in "${_files[@]:$(( ${#_files[@]} > 2 ? ${#_files[@]} - 2 : 0 ))}"; do
     if jq -e --arg t "$_target" 'any(.items[]?; .type == "stall" and .prd == $t)' "$_f" >/dev/null 2>&1; then
-      printf 'claude-opus-4-8\n'; return 0
+      printf 'claude-opus-5\n'; return 0
     fi
   done
 
@@ -700,7 +700,7 @@ autoclaude() {
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     review)
-      _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-4-8}"
+      _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-5}"
       _effort="${_AUTOPILOT_EFFORT_REVIEW:-xhigh}"
       _cap="${_AUTOPILOT_SESSION_MAX_REVIEW:-10800}"
       ;;
@@ -710,7 +710,7 @@ autoclaude() {
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     *)
-      _model="claude-opus-4-8"
+      _model="claude-opus-5"
       _effort="xhigh"
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;

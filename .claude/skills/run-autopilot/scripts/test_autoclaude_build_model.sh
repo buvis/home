@@ -6,7 +6,7 @@
 #   _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
 #
 # Contract this suite pins:
-#   * prints EXACTLY ONE line on stdout — "claude-opus-4-8" or "claude-sonnet-5"
+#   * prints EXACTLY ONE line on stdout — "claude-opus-5" or "claude-sonnet-5"
 #     — and NOTHING on stderr (the wrapper's stderr is the operator's log);
 #   * ALWAYS exits 0 (a missing state.json is not fatal);
 #   * target PRD = lowest 00XXX- basename in <prds_dir>/wip/, else in
@@ -150,7 +150,7 @@ write_prd "$B2/prds/done/$P2_DONE" opus
 write_prd "$B2/prds/backlog/$P2_NEXT"
 printf '{"prd":"%s","next_phase":"build","replan_count":1,"cap_rotations":[{"task_id":"task-2","cycle":1}],"stall_reason":{"stalled":"oversized_task","detail":"task-2 kept overflowing"},"batch":{"id":"20260701-b"}}\n' \
   "$P2_DONE" >"$B2/state.json"
-printf '{"ts_start":1751000000,"ts_end":1751003600,"prd":"%s","batch":"20260701-b","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-opus-4-8"}\n' \
+printf '{"ts_start":1751000000,"ts_end":1751003600,"prd":"%s","batch":"20260701-b","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-opus-5"}\n' \
   "$P2_DONE" >"$B2/loop-metrics.jsonl"
 printf '{"%s":{"status":"consumed","batch_id":"20260701-b"}}\n' "$P2_DONE" >"$B2/ledger.json"
 printf '{"batch_id":"20260701-b","items":[{"type":"stall","site":"escalation_exhausted","prd":"%s","detail":"ladder exhausted"}]}\n' \
@@ -186,7 +186,7 @@ write_prd "$B3/prds/wip/00048-rehome-the-cache-dir-v1.md" opus
 write_prd "$B3/prds/wip/00061-split-render-stream-v1.md" sonnet
 write_prd "$B3/prds/backlog/00012-fix-the-banner-typo-v1.md" sonnet
 printf '{"next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260702-c"}}\n' >"$B3/state.json"
-assert_model "target resolution: lowest wip/ PRD wins over backlog/ and over higher wip/ numbers" "claude-opus-4-8" \
+assert_model "target resolution: lowest wip/ PRD wins over backlog/ and over higher wip/ numbers" "claude-opus-5" \
   "$B3/state.json" "$B3/prds" "$B3/loop-metrics.jsonl" "$B3/ledger.json" "$B3/deferred"
 
 # =============================================================================
@@ -210,7 +210,7 @@ P5="00007-emit-the-batch-summary-v1.md"
 write_prd "$B5/prds/wip/$P5" opus
 printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260703-e"}}\n' \
   "$P5" >"$B5/state.json"
-assert_model "signal 1: frontmatter default_model: opus" "claude-opus-4-8" \
+assert_model "signal 1: frontmatter default_model: opus" "claude-opus-5" \
   "$B5/state.json" "$B5/prds" "$B5/loop-metrics.jsonl" "$B5/ledger.json" "$B5/deferred"
 
 # =============================================================================
@@ -257,16 +257,16 @@ assert_model "signal 1 boundary: no frontmatter block, body quotes default_model
 _SIG1_LABEL=() _SIG1_WANT=() _SIG1_BODY=()
 
 # 6c (signal 1 MUST fire): no space after the colon.
-_SIG1_LABEL+=("signal 1 MUST fire: default_model:opus (no space after colon)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_LABEL+=("signal 1 MUST fire: default_model:opus (no space after colon)"); _SIG1_WANT+=("claude-opus-5")
 _SIG1_BODY+=($'catchup: skip\ndefault_model:opus\ndesign: skip')
 # 6d (signal 1 MUST fire): whitespace around both the key and the value (leading indentation, extra spaces either side of the colon, and trailing spaces after the value).
-_SIG1_LABEL+=("signal 1 MUST fire: leading/trailing whitespace around key and value"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_LABEL+=("signal 1 MUST fire: leading/trailing whitespace around key and value"); _SIG1_WANT+=("claude-opus-5")
 _SIG1_BODY+=($'catchup: skip\n  default_model  :  opus  \ndesign: skip')
 # 6e (signal 1 MUST fire): YAML double-quoted value; /plan-tasks does a real YAML parse and applies its opus floor for this form, so this row pins the two consumers to agree.
-_SIG1_LABEL+=("signal 1 MUST fire: default_model: \"opus\" (double-quoted)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_LABEL+=("signal 1 MUST fire: default_model: \"opus\" (double-quoted)"); _SIG1_WANT+=("claude-opus-5")
 _SIG1_BODY+=($'catchup: skip\ndefault_model: "opus"\ndesign: skip')
 # 6f (signal 1 MUST fire): YAML single-quoted value, same rationale as 6e, the other quote style.
-_SIG1_LABEL+=("signal 1 MUST fire: default_model: 'opus' (single-quoted)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_LABEL+=("signal 1 MUST fire: default_model: 'opus' (single-quoted)"); _SIG1_WANT+=("claude-opus-5")
 _SIG1_BODY+=($'catchup: skip\ndefault_model: \'opus\'\ndesign: skip')
 # 6g (signal 1 MUST NOT fire): a letter suffix on the value; a bare substring test treats "opus" as a prefix match and wrongly promotes.
 _SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opusX (letter suffix)"); _SIG1_WANT+=("claude-sonnet-5")
@@ -300,7 +300,7 @@ _SIG1_LABEL+=("signal 1 MUST NOT fire: default_model: opus#opus (glued suffix re
 _SIG1_BODY+=($'catchup: skip\ndefault_model: opus#opus\ndesign: skip')
 # 6q (signal 1 MUST fire): a genuine YAML inline comment, the "#" is preceded by whitespace (two spaces), so per real YAML semantics the scalar value is "opus" and the rest is a comment. This is a GUARD row, not a bug row: it already passes against the current code.
 # Its job is to pin that the upcoming whitespace-preceded-# fix (which makes 6o/6p pass) does not over-correct and stop this legitimate form from promoting.
-_SIG1_LABEL+=("signal 1 MUST fire: default_model: opus  # rationale (whitespace-preceded inline comment)"); _SIG1_WANT+=("claude-opus-4-8")
+_SIG1_LABEL+=("signal 1 MUST fire: default_model: opus  # rationale (whitespace-preceded inline comment)"); _SIG1_WANT+=("claude-opus-5")
 _SIG1_BODY+=($'catchup: skip\ndefault_model: opus  # rationale\ndesign: skip')
 
 for _i in "${!_SIG1_LABEL[@]}"; do
@@ -322,7 +322,7 @@ P7="00015-cap-the-review-cycles-v1.md"
 write_prd "$B7/prds/wip/$P7"
 printf '{"prd":"%s","next_phase":"build","replan_count":1,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260704-g"}}\n' \
   "$P7" >"$B7/state.json"
-assert_model "signal 2: replan_count > 0 for the target PRD" "claude-opus-4-8" \
+assert_model "signal 2: replan_count > 0 for the target PRD" "claude-opus-5" \
   "$B7/state.json" "$B7/prds" "$B7/loop-metrics.jsonl" "$B7/ledger.json" "$B7/deferred"
 
 # =============================================================================
@@ -333,7 +333,7 @@ P8="00023-guard-the-park-loop-v1.md"
 write_prd "$B8/prds/wip/$P8"
 printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":{"stalled":"escalation_exhausted","detail":"ladder exhausted at opus"},"batch":{"id":"20260704-h"}}\n' \
   "$P8" >"$B8/state.json"
-assert_model "signal 3a: stall_reason present for the target PRD" "claude-opus-4-8" \
+assert_model "signal 3a: stall_reason present for the target PRD" "claude-opus-5" \
   "$B8/state.json" "$B8/prds" "$B8/loop-metrics.jsonl" "$B8/ledger.json" "$B8/deferred"
 
 # =============================================================================
@@ -362,7 +362,7 @@ printf '{"batch_id":"202607040000","items":[{"type":"doubt","prd":"00043-fold-th
 touch -t 202601010000 "$B9/deferred/202606180000-deferred.json"
 touch -t 202607220300 "$B9/deferred/202607040000-deferred.json"
 touch -t 202607220600 "$B9/deferred/202605120000-deferred.json"
-assert_model "signal 3b: a prior-batch stall naming the target (2 newest deferred files by filename)" "claude-opus-4-8" \
+assert_model "signal 3b: a prior-batch stall naming the target (2 newest deferred files by filename)" "claude-opus-5" \
   "$B9/state.json" "$B9/prds" "$B9/loop-metrics.jsonl" "$B9/ledger.json" "$B9/deferred"
 
 # =============================================================================
@@ -380,7 +380,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   "$P9B" >"$B9B/state.json"
 printf '{"batch_id":"202607060000","items":[{"type":"stall","site":"design_gate","prd":"%s","detail":"the only deferred log in this dir"}]}\n' \
   "$P9B" >"$B9B/deferred/202607060000-deferred.json"
-assert_model "signal 3b: exactly one deferred log in the dir is still scanned" "claude-opus-4-8" \
+assert_model "signal 3b: exactly one deferred log in the dir is still scanned" "claude-opus-5" \
   "$B9B/state.json" "$B9B/prds" "$B9B/loop-metrics.jsonl" "$B9B/ledger.json" "$B9B/deferred"
 
 # =============================================================================
@@ -434,7 +434,7 @@ P11="00056-rotate-on-the-context-cap-v1.md"
 write_prd "$B11/prds/wip/$P11"
 printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[{"task_id":"task-7","cycle":2}],"stall_reason":null,"batch":{"id":"20260706-k"}}\n' \
   "$P11" >"$B11/state.json"
-assert_model "signal 4: a cap rotation already fired on the target PRD" "claude-opus-4-8" \
+assert_model "signal 4: a cap rotation already fired on the target PRD" "claude-opus-5" \
   "$B11/state.json" "$B11/prds" "$B11/loop-metrics.jsonl" "$B11/ledger.json" "$B11/deferred"
 
 # =============================================================================
@@ -449,7 +449,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   "$P12" >"$B12/state.json"
 printf '{"00075-gate-on-memory-pressure-v1.md":{"status":"approved"},"%s":{"status":"rejected","decided_at":"2026-07-21T10:00:00Z"}}\n' \
   "$P12" >"$B12/ledger.json"
-assert_model "signal 5: a rescue-ledger key for the target PRD (any status)" "claude-opus-4-8" \
+assert_model "signal 5: a rescue-ledger key for the target PRD (any status)" "claude-opus-5" \
   "$B12/state.json" "$B12/prds" "$B12/loop-metrics.jsonl" "$B12/ledger.json" "$B12/deferred"
 
 # =============================================================================
@@ -481,7 +481,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   printf '{"ts_start":1751100000,"ts_end":1751104000,"prd":"%s","batch":"20260707-m","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5"}\n' "$P13"
   printf '{"ts_start":1751110000,"ts_end":1751112000,"prd":"00028-name-the-worktrees-v1.md","batch":"20260707-m","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n'
 } >"$B13/loop-metrics.jsonl"
-assert_model "signal 6: a prior build session for the target PRD" "claude-opus-4-8" \
+assert_model "signal 6: a prior build session for the target PRD" "claude-opus-5" \
   "$B13/state.json" "$B13/prds" "$B13/loop-metrics.jsonl" "$B13/ledger.json" "$B13/deferred"
 
 # =============================================================================
@@ -495,7 +495,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   "$P14" >"$B14/state.json"
 {
   printf '{"ts_start":1751200000,"ts_end":1751203000,"prd":"00062-port-the-visuals-v1.md","batch":"20260707-n","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n'
-  printf '{"ts_start":1751210000,"ts_end":1751213000,"prd":"%s","batch":"20260707-n","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-opus-4-8"}\n' "$P14"
+  printf '{"ts_start":1751210000,"ts_end":1751213000,"prd":"%s","batch":"20260707-n","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-opus-5"}\n' "$P14"
 } >"$B14/loop-metrics.jsonl"
 assert_model "signal 6 negative: another PRD's build line and the target's review line" "claude-sonnet-5" \
   "$B14/state.json" "$B14/prds" "$B14/loop-metrics.jsonl" "$B14/ledger.json" "$B14/deferred"
@@ -517,7 +517,7 @@ rm -f "$B13B/loop-metrics.jsonl"
 mkdir -p "$B13B/ledger"
 printf '{"ts_start":1751300000,"ts_end":1751303000,"prd":"%s","batch":"20260708-o","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
   "$P13B" >"$B13B/ledger/loop-metrics.jsonl"
-assert_model "signal 6 GC-survival: primary loop-metrics.jsonl gone, ledger/ mirror holds the build line" "claude-opus-4-8" \
+assert_model "signal 6 GC-survival: primary loop-metrics.jsonl gone, ledger/ mirror holds the build line" "claude-opus-5" \
   "$B13B/state.json" "$B13B/prds" "$B13B/loop-metrics.jsonl" "$B13B/ledger.json" "$B13B/deferred"
 
 # =============================================================================
@@ -535,7 +535,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
 mkdir -p "$B13C/ledger"
 printf '{"ts_start":1751310000,"ts_end":1751313000,"prd":"%s","batch":"20260708-p","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
   "$P13C" >"$B13C/ledger/loop-metrics.jsonl"
-assert_model "signal 6 GC-survival: primary present but empty, ledger/ mirror holds the build line" "claude-opus-4-8" \
+assert_model "signal 6 GC-survival: primary present but empty, ledger/ mirror holds the build line" "claude-opus-5" \
   "$B13C/state.json" "$B13C/prds" "$B13C/loop-metrics.jsonl" "$B13C/ledger.json" "$B13C/deferred"
 
 # =============================================================================
@@ -554,7 +554,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
 printf '{"ts_start":1751320000,"ts_end":1751323000,"prd":"00097-a-different-prd-v1.md","batch":"20260708-q","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
   >"$B14B/loop-metrics.jsonl"
 mkdir -p "$B14B/ledger"
-printf '{"ts_start":1751321000,"ts_end":1751324000,"prd":"%s","batch":"20260708-q","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-opus-4-8"}\n' \
+printf '{"ts_start":1751321000,"ts_end":1751324000,"prd":"%s","batch":"20260708-q","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-opus-5"}\n' \
   "$P14B" >"$B14B/ledger/loop-metrics.jsonl"
 assert_model "signal 6 negative: primary names another PRD's build, mirror names the target's review" "claude-sonnet-5" \
   "$B14B/state.json" "$B14B/prds" "$B14B/loop-metrics.jsonl" "$B14B/ledger.json" "$B14B/deferred"
@@ -573,7 +573,7 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   "$P13D" >"$B13D/state.json"
 printf '{"ts_start":1751330000,"ts_end":1751333000,"prd":"%s","batch":"20260708-r","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
   "$P13D" >"$B13D/loop-metrics.jsonl"
-assert_model "signal 6: mirror absent, primary alone carries the target's build line" "claude-opus-4-8" \
+assert_model "signal 6: mirror absent, primary alone carries the target's build line" "claude-opus-5" \
   "$B13D/state.json" "$B13D/prds" "$B13D/loop-metrics.jsonl" "$B13D/ledger.json" "$B13D/deferred"
 
 # =============================================================================
@@ -622,7 +622,7 @@ assert_model "no state.json: the LOWEST backlog PRD is the target (not fatal)" "
 B16=$(mktemp -d); _DIRS+=("$B16"); init_box "$B16"
 write_prd "$B16/prds/backlog/00004-pin-the-plugin-versions-v1.md" opus
 write_prd "$B16/prds/backlog/00011-render-the-portfolio-brief-v1.md" sonnet
-assert_model "no state.json: the lowest backlog PRD's frontmatter signal still evaluates" "claude-opus-4-8" \
+assert_model "no state.json: the lowest backlog PRD's frontmatter signal still evaluates" "claude-opus-5" \
   "$B16/state.json" "$B16/prds" "$B16/loop-metrics.jsonl" "$B16/ledger.json" "$B16/deferred"
 
 # =============================================================================
@@ -745,23 +745,23 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   "$E1_PRD" >"$E1/dev/local/autopilot/state.json"
 run_with_timeout "$E1" 25
 assert_drained "$E1" "e2e build (signal-free)"
-assert_launch_model "$E1" "e2e build (signal-free)" "claude-sonnet-5" "claude-opus-4-8" "xhigh"
+assert_launch_model "$E1" "e2e build (signal-free)" "claude-sonnet-5" "claude-opus-5" "xhigh"
 
 # ── e2e 2 — the _AUTOPILOT_MODEL_BUILD kill-switch wins over the routing ──────
 E2=$(mktemp -d); _DIRS+=("$E2"); init_e2e_box "$E2"
 write_prd "$E2/dev/local/prds/wip/$E1_PRD"
 printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260708-e2e-build"}}\n' \
   "$E1_PRD" >"$E2/dev/local/autopilot/state.json"
-_AUTOPILOT_MODEL_BUILD=claude-opus-4-8 run_with_timeout "$E2" 25
+_AUTOPILOT_MODEL_BUILD=claude-opus-5 run_with_timeout "$E2" 25
 assert_drained "$E2" "e2e build (_AUTOPILOT_MODEL_BUILD kill-switch)"
-assert_launch_model "$E2" "e2e build (_AUTOPILOT_MODEL_BUILD kill-switch)" "claude-opus-4-8" "" "xhigh"
+assert_launch_model "$E2" "e2e build (_AUTOPILOT_MODEL_BUILD kill-switch)" "claude-opus-5" "" "xhigh"
 
 # ── e2e 3 — bootstrap: no state.json, one signal-free PRD in backlog/ ─────────
 E3=$(mktemp -d); _DIRS+=("$E3"); init_e2e_box "$E3"
 write_prd "$E3/dev/local/prds/backlog/00090-bootstrap-the-first-launch-v1.md"
 run_with_timeout "$E3" 25
 assert_drained "$E3" "e2e bootstrap (no state.json)"
-assert_launch_model "$E3" "e2e bootstrap (no state.json)" "claude-sonnet-5" "claude-opus-4-8"
+assert_launch_model "$E3" "e2e bootstrap (no state.json)" "claude-sonnet-5" "claude-opus-5"
 
 # ── e2e 4 — the review branch is untouched ────────────────────────────────────
 E4=$(mktemp -d); _DIRS+=("$E4"); init_e2e_box "$E4"
@@ -771,7 +771,7 @@ printf '{"prd":"%s","next_phase":"review","batch":{"id":"20260708-e2e-review"}}\
   >"$E4/dev/local/autopilot/state.json"
 run_with_timeout "$E4" 25
 assert_drained "$E4" "e2e review branch"
-assert_launch_model "$E4" "e2e review branch" "claude-opus-4-8"
+assert_launch_model "$E4" "e2e review branch" "claude-opus-5"
 
 # ── e2e 5 — the done branch is untouched ──────────────────────────────────────
 E5=$(mktemp -d); _DIRS+=("$E5"); init_e2e_box "$E5"
@@ -781,7 +781,7 @@ printf '{"prd":"%s","next_phase":"done","batch":{"id":"20260708-e2e-done"}}\n' "
   >"$E5/dev/local/autopilot/state.json"
 run_with_timeout "$E5" 25
 assert_drained "$E5" "e2e done branch"
-assert_launch_model "$E5" "e2e done branch" "claude-sonnet-5" "claude-opus-4-8"
+assert_launch_model "$E5" "e2e done branch" "claude-sonnet-5" "claude-opus-5"
 
 # =============================================================================
 echo ""
