@@ -215,13 +215,9 @@ def _validate_stall_op(new_state: dict) -> None:
     """Owned-fields validator for do_stall's step-2 intent stamp: checks
     only the stall_op shape this write sets, never the whole state."""
     stall_op = new_state.get("stall_op")
-    if not isinstance(stall_op, dict):
-        raise schema.SchemaError(f"stall_op: expected dict, got {stall_op!r}")
+    schema.require(stall_op, dict, "stall_op")
     for key in ("op_id", "prd", "site", "detail"):
-        if not isinstance(stall_op.get(key), str):
-            raise schema.SchemaError(
-                f"stall_op.{key}: expected str, got {stall_op.get(key)!r}"
-            )
+        schema.require(stall_op.get(key), str, f"stall_op.{key}")
 
 
 def _validate_stall_commit(new_state: dict) -> None:
@@ -232,24 +228,14 @@ def _validate_stall_commit(new_state: dict) -> None:
     whole-state schema.validate would wedge real states here."""
     if "stall_op" in new_state:
         raise schema.SchemaError("stall_op: must be absent after commit")
-    if not isinstance(new_state.get("phase"), str):
-        raise schema.SchemaError(f"phase: expected str, got {new_state.get('phase')!r}")
-    if not isinstance(new_state.get("next_phase"), str):
-        raise schema.SchemaError(
-            f"next_phase: expected str, got {new_state.get('next_phase')!r}"
-        )
-    if not isinstance(new_state.get("phases_completed"), list):
-        raise schema.SchemaError(
-            f"phases_completed: expected list, got {new_state.get('phases_completed')!r}"
-        )
+    schema.require(new_state.get("phase"), str, "phase")
+    schema.require(new_state.get("next_phase"), str, "next_phase")
+    schema.require(new_state.get("phases_completed"), list, "phases_completed")
     for field in ("cycle", "tasks_total", "tasks_completed", "replan_count"):
-        value = new_state.get(field)
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise schema.SchemaError(f"{field}: expected int, got {value!r}")
+        schema.require(new_state.get(field), int, field)
     batch = new_state.get("batch")
     parks = batch.get("parks_consecutive") if isinstance(batch, dict) else None
-    if isinstance(parks, bool) or not isinstance(parks, int):
-        raise schema.SchemaError(f"batch.parks_consecutive: expected int, got {parks!r}")
+    schema.require(parks, int, "batch.parks_consecutive")
 
 
 def _stall_preflight(current: dict, prd: str) -> tuple[str, int | None]:

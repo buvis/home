@@ -395,14 +395,8 @@ def _append_rotation_to_state(
         # unrelated field must not block the hook.
         from cli import schema
 
-        if not isinstance(new_state.get("cap_rotations"), list):
-            raise schema.SchemaError(
-                f"cap_rotations: expected list, got {new_state.get('cap_rotations')!r}"
-            )
-        if not isinstance(new_state.get("next_phase"), str):
-            raise schema.SchemaError(
-                f"next_phase: expected str, got {new_state.get('next_phase')!r}"
-            )
+        schema.require(new_state.get("cap_rotations"), list, "cap_rotations")
+        schema.require(new_state.get("next_phase"), str, "next_phase")
 
     return _write_via_transaction(
         autopilot_dir, "rotation", _mutate, _validate, op_desc="rotation envelope"
@@ -433,15 +427,8 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
         from cli import schema
 
         stall_reason = new_state.get("stall_reason")
-        if not isinstance(stall_reason, dict):
-            raise schema.SchemaError(
-                f"stall_reason: expected dict, got {stall_reason!r}"
-            )
-        if not isinstance(stall_reason.get("stalled"), str):
-            raise schema.SchemaError(
-                "stall_reason.stalled: expected str, got "
-                f"{stall_reason.get('stalled')!r}"
-            )
+        schema.require(stall_reason, dict, "stall_reason")
+        schema.require(stall_reason.get("stalled"), str, "stall_reason.stalled")
 
     return _write_via_transaction(
         autopilot_dir, "oversized-task stall", _mutate, _validate,

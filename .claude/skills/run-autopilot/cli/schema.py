@@ -45,6 +45,18 @@ _LIST_FIELDS = (
 )
 
 
+def require(value: Any, type_: type, field: str) -> None:
+    """Raise SchemaError naming `field` unless isinstance(value, type_).
+
+    Mirrors validate()'s bool-is-not-int carve-out: a bool value checked
+    against type_ is int raises the int-specific message, never a bool one.
+    """
+    if isinstance(value, bool) and type_ is int:
+        raise SchemaError(f"{field}: expected int, got {value!r}")
+    if not isinstance(value, type_):
+        raise SchemaError(f"{field}: expected {type_.__name__}, got {value!r}")
+
+
 def validate(state: dict) -> None:
     """Raise SchemaError naming the first offending known field, else None."""
     if not isinstance(state, dict):
