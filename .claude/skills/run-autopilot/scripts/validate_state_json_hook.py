@@ -52,9 +52,10 @@ def main() -> int:
         )
         return 2
 
-    # PRD 00051 task 9: valid JSON can still violate cli.schema (e.g. a
-    # hand-edit that types a known field wrong) — catch that on top of the
-    # parse-only check above.
+    # PRD 00051 (state boundary): valid JSON can still violate cli.schema
+    # (e.g. a hand-edit that types a known field wrong) — catch that on top
+    # of the parse-only check above. Registered as the hand-edit backstop
+    # per SKILL.md § State Management.
     try:
         skill_root = Path(__file__).resolve().parent.parent
         if str(skill_root) not in sys.path:

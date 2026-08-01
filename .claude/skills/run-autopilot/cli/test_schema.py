@@ -420,7 +420,7 @@ class GoldenFixturesTest(unittest.TestCase):
 
     def test_all_golden_state_fixtures_validate_clean(self) -> None:
         if not GOLDEN_DIR.exists():
-            self.skipTest(f"golden fixtures dir not found: {GOLDEN_DIR}")
+            self.fail(f"golden fixtures dir is tracked but missing: {GOLDEN_DIR}")
         golden_files = sorted(GOLDEN_DIR.glob("state-*.json"))
         self.assertTrue(golden_files, f"no golden fixtures found under {GOLDEN_DIR}")
         for path in golden_files:

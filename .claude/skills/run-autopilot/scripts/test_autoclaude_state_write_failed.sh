@@ -12,11 +12,11 @@
 # readable or writable. The marker is LEFT IN PLACE (forensic; a human clears
 # it) — the wrapper does not delete it.
 #
-# The feature does not exist yet: this suite is RED today (the wrapper has no
-# state-write-failed branch, so a pre-existing marker is ignored and the loop
-# keeps relaunching on the otherwise-continue state.json until the safety
-# timeout force-kills it). It turns GREEN once the marker row lands in the
-# wrapper's post-session decision logic.
+# Regression guard: the marker row in the wrapper's post-session decision
+# logic wins AHEAD of every other branch. A pre-existing state-write-failed
+# marker beats an otherwise-continue state.json (e.g. next_phase: "build") —
+# the wrapper halts after the in-flight session, surfaces the marker's
+# detail, and leaves the marker in place instead of relaunching.
 #
 # Written without having seen the wrapper's implementation of this branch;
 # mirrors test_autoclaude_park.sh's sourcing, stubbing, and run_with_timeout
