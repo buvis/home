@@ -1082,23 +1082,3 @@ start_qwen() {
     --no-log-timestamps 2>&1 |
     gawk '{ print strftime("%H:%M:%S"), $0; fflush() }'
 }
-
-# Engram embedding shortlist (PRD 00001). Model/port pairs mirror
-# ~/.local/share/engram/config.toml - keep the two in sync.
-start_embed() {
-  mkdir -p "$HOME/.local/state/engram"
-  local spec
-  for spec in \
-    "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0 8081" \
-    "nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0 8082" \
-    "ggml-org/bge-m3-Q8_0-GGUF:Q8_0 8083"; do
-    set -- $spec
-    llama-server --embedding -hf "$1" --port "$2" \
-      >>"$HOME/.local/state/engram/embed-$2.log" 2>&1 &
-    disown
-    printf 'embed %s on :%s (pid %s, log ~/.local/state/engram/embed-%s.log)\n' \
-      "$1" "$2" "$!" "$2"
-  done
-}
-
-stop_embed() { pkill -f 'llama-server --embedding'; }
