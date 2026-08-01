@@ -58,10 +58,15 @@ carries `clarification`, `reviewer_fail`, `sub_skill_fail`, and the others):
   restore` (core `SKILL.md` § State Management) is instead recorded via the
   `state-write-failed` marker (`references/state-schema.md` § Marker files,
   raw stderr in `detail`), and the wrapper halts on it.
+- `oversized_plan` — a loop-mode plan that exceeded the task ceiling (F5).
+  `plan-tasks` step 5.5 runs `autopilot check-plan`; exit 3 in loop mode stalls
+  the PRD here before the build starts, so a human splits it instead of the
+  batch grinding on it. Interactive runs only warn. `detail` carries the task
+  count and the ceiling it broke.
 - `oversized_task`, `escalation_exhausted`, `replan_exhausted`, `clarification` —
-  the pre-existing stall sites (plan-tasks oversize, rework tier-exhaustion,
-  replan-loop exhaustion, and a loop-mode Phase 2 ambiguity under
-  `pause_on_ambiguity`) documented in their own handlers (here and in
+  the pre-existing stall sites (plan-tasks per-task oversize, rework
+  tier-exhaustion, replan-loop exhaustion, and a loop-mode Phase 2 ambiguity
+  under `pause_on_ambiguity`) documented in their own handlers (here and in
   `references/phase-build.md`) and in `references/state-schema.md`.
 
 `scope_alarm` is NOT a stall slug: a loop-mode Phase 5 scope alarm defers the

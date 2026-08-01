@@ -68,7 +68,7 @@ _SKILL_ROOT = _CLI_DIR.parent
 # never shadow the real one this script belongs to.
 sys.path.insert(0, str(_SKILL_ROOT))
 
-from cli import records, schema, state
+from cli import policy, records, schema, state
 
 # Explicit guarded insert (mirrors records.py's own): no longer relies on
 # importing cli.records having put scripts/ on sys.path as a side effect,
@@ -267,6 +267,33 @@ def _run_defer(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_check_plan(subparsers) -> None:
+    p = subparsers.add_parser("check-plan")
+    p.add_argument("--state")
+    p.add_argument("--ceiling", type=int, default=policy.LOOP_TASK_CEILING)
+    # Deliberately no --count: the whole point of the gate is that the count
+    # comes from the snapshot on disk, not from whoever wrote the plan.
+
+
+def _run_check_plan(args: argparse.Namespace) -> int:
+    state_path = _resolve_state_path(args.state)
+    try:
+        loaded, _version = state.load(state_path)
+    except state.StateError as err:
+        print(f"autopilot: check-plan failed: {err}", file=sys.stderr)
+        return 2
+    over, count = policy.plan_over_ceiling(loaded, args.ceiling)
+    if over:
+        print(
+            f"autopilot: plan has {count} tasks, over the {args.ceiling}-task "
+            f'loop ceiling. Loop mode: stall this PRD (site "oversized_plan"). '
+            f"Interactive: this is a warning, continue.",
+            file=sys.stderr,
+        )
+        return 3
+    return 0
+
+
 def _add_restore(subparsers) -> None:
     p = subparsers.add_parser("restore")
     p.add_argument("--state")
@@ -296,6 +323,7 @@ _SUBCOMMANDS: dict[str, tuple] = {
     "reset-prd": (_add_reset_prd, _run_reset_prd),
     "defer": (_add_defer, _run_defer),
     "restore": (_add_restore, _run_restore),
+    "check-plan": (_add_check_plan, _run_check_plan),
 }
 
 

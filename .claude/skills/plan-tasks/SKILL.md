@@ -336,6 +336,32 @@ Follow PRD's dependency graph:
 - Phase 1 tasks: blocked by Phase 0
 - etc.
 
+### 5.5. Check the plan against the loop task ceiling (F5)
+
+Once the task list is persisted, run:
+
+```bash
+python3 ~/.claude/skills/run-autopilot/cli/__main__.py check-plan
+```
+
+It counts `state.tasks` itself — never a count you supply — and compares it
+against `cli/policy.LOOP_TASK_CEILING` (15).
+
+- **Exit 0**: under the ceiling. Continue to step 6.
+- **Exit 3**: over the ceiling. Branch on run mode:
+  - **Loop mode** (`$_AUTOPILOT_LOOP` set): stall the PRD via
+    `references/recovery.md`'s loop-mode stall procedure with
+    `--site oversized_plan`. Do NOT start the build. The batch continues with
+    the next PRD; a human splits this one.
+  - **Interactive**: print the warning and continue. The ceiling is advice
+    here, not a gate.
+- **Exit 2**: state unreadable. Fail loud; do not treat it as a pass.
+
+Why: PRD 00077 planned to 28 tasks, then burned 15 sessions / 21.5h / $351
+without converging and halted the batch for four days. PRD 00071 (22 tasks)
+did land, so the ceiling is conservative on purpose — it stalls for a human
+rather than refusing to plan. Override per-run with `--ceiling N`.
+
 ### 6. Report summary
 
 Output:
