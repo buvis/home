@@ -7,8 +7,9 @@ moves into the `cli/` CLI, and the test that proves the disposition.
 Disposition legend:
 
 - `ported` — the CLI now performs this behavior; `test_id` names the test
-  that proves it (forward reference — the CLI and its tests are not written
-  yet).
+  that proves it (a real, landed test — `test_migration_map.py`'s parity
+  suite resolves every `test_id` in this table against the actual test
+  files).
 - `retired` — deliberately dropped; `test_id` is the free-text reason.
 - `stays_prose` — judgment/IO that remains English, guarded by an existing
   doc-contract test.

@@ -16,6 +16,7 @@ and every cited source file must exist on disk.
 
 from __future__ import annotations
 
+import ast
 import re
 import unittest
 from collections import Counter
@@ -26,6 +27,9 @@ SKILL_ROOT = CLI.parent
 
 MANIFEST_PATH = CLI / "migration_manifest.txt"
 MAP_PATH = CLI / "migration_map.md"
+# test_id refs resolve against real test files here, cli/ first then scripts/
+# (both hold test_*.py files in this skill).
+TEST_ROOTS = (CLI, SKILL_ROOT / "scripts")
 
 COLUMNS = ("behavior_id", "source", "disposition", "test_id")
 LEGAL_DISPOSITIONS = frozenset({"ported", "retired", "stays_prose", "behavior_change"})
@@ -162,6 +166,80 @@ def rows_with_missing_source(
         resolved = root / source_file_path(source)
         if not resolved.exists():
             out.append((i, behavior_id, source, resolved))
+    return out
+
+
+def parse_test_id_refs(test_id: str) -> list[str]:
+    """Split a test_id cell into its individual test references.
+
+    A cell may hold multiple comma-separated refs (e.g. one behavior proven
+    by tests in two different files); each ref is stripped independently.
+    """
+    return [ref.strip() for ref in test_id.split(",") if ref.strip()]
+
+
+def _defined_test_names(tree: ast.Module) -> set[tuple[str, ...]]:
+    """Every class/function/method defined anywhere in `tree`, as name-path
+    tuples: a top-level (or nested) function as `(name,)`, a class as
+    `(ClassName,)` (so a bare class reference resolves), and a method as
+    `(ClassName, method_name)`.
+    """
+    names: set[tuple[str, ...]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            names.add((node.name,))
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    names.add((node.name, child.name))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add((node.name,))
+    return names
+
+
+def resolve_test_ref(ref: str, roots: tuple[Path, ...]) -> str | None:
+    """Resolve one `<file>.py::<name>` or `<file>.py::<Class>::<name>` test
+    reference against real files under `roots` (checked in order, e.g. cli/
+    then scripts/).
+
+    Returns None when the ref names a real class/function/method (found via
+    `ast`, not by importing or collecting via pytest); otherwise a
+    human-readable reason it does not resolve.
+    """
+    parts = ref.split("::")
+    filename, names = parts[0], tuple(parts[1:])
+    if not filename.endswith(".py") or not names:
+        return f"malformed test reference: {ref!r}"
+    path = next((root / filename for root in roots if (root / filename).exists()), None)
+    if path is None:
+        return f"test file not found in {[str(r) for r in roots]}: {filename}"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except SyntaxError as err:
+        return f"{path}: could not parse as Python: {err}"
+    if names not in _defined_test_names(tree):
+        return f"{path}: no class/function/method named {'::'.join(names)}"
+    return None
+
+
+def rows_with_unresolved_test_id(
+    rows: list[list[str]], roots: tuple[Path, ...]
+) -> list[tuple[int, str, str, str]]:
+    """Rows whose disposition requires a real test but whose test_id contains
+    a ref that does not resolve to one: (index, behavior_id, bad_ref, reason).
+
+    Every ref in a comma-separated test_id cell is resolved independently.
+    """
+    out = []
+    for i, r in enumerate(rows):
+        if len(r) != len(COLUMNS):
+            continue
+        behavior_id, _source, disposition, test_id = r
+        if disposition not in TEST_ID_REQUIRED_DISPOSITIONS:
+            continue
+        for ref in parse_test_id_refs(test_id):
+            reason = resolve_test_ref(ref, roots)
+            if reason is not None:
+                out.append((i, behavior_id, ref, reason))
     return out
 
 
@@ -354,6 +432,91 @@ class RowValidatorsTest(unittest.TestCase):
         self.assertEqual(rows_with_missing_source(rows, SKILL_ROOT), [])
 
 
+class ParseTestIdRefsTest(unittest.TestCase):
+    def test_splits_multiple_comma_separated_refs(self) -> None:
+        self.assertEqual(
+            parse_test_id_refs("test_a.py::test_x, test_b.py::test_y"),
+            ["test_a.py::test_x", "test_b.py::test_y"],
+        )
+
+    def test_single_ref_returns_one_element_list(self) -> None:
+        self.assertEqual(parse_test_id_refs("test_a.py::test_x"), ["test_a.py::test_x"])
+
+
+class ResolveTestRefTest(unittest.TestCase):
+    """Unit tests for resolve_test_ref, resolved against this very file (a
+    real, stable fixture: it always exists under CLI)."""
+
+    def test_resolves_existing_method_via_file_class_name(self) -> None:
+        self.assertIsNone(
+            resolve_test_ref(
+                "test_migration_map.py::ParseManifestLinesTest::test_skips_blank_lines",
+                TEST_ROOTS,
+            )
+        )
+
+    def test_resolves_bare_class_reference_with_no_method(self) -> None:
+        self.assertIsNone(
+            resolve_test_ref("test_migration_map.py::ParseManifestLinesTest", TEST_ROOTS)
+        )
+
+    def test_reports_missing_file(self) -> None:
+        reason = resolve_test_ref("test_does_not_exist_anywhere.py::test_x", TEST_ROOTS)
+        self.assertIsNotNone(reason)
+        self.assertIn("not found", reason)
+
+    def test_reports_missing_name_in_existing_file(self) -> None:
+        reason = resolve_test_ref(
+            "test_migration_map.py::test_this_name_is_not_defined_anywhere", TEST_ROOTS
+        )
+        self.assertIsNotNone(reason)
+        self.assertIn("no class/function/method named", reason)
+
+    def test_reports_malformed_ref_without_double_colon(self) -> None:
+        reason = resolve_test_ref("test_migration_map.py", TEST_ROOTS)
+        self.assertIsNotNone(reason)
+        self.assertIn("malformed", reason)
+
+
+class RowsWithUnresolvedTestIdTest(unittest.TestCase):
+    def test_flags_row_whose_test_id_does_not_resolve(self) -> None:
+        rows = [
+            ["BID-1", "foo.md", "ported", "test_migration_map.py::test_does_not_exist_here"]
+        ]
+        offenders = rows_with_unresolved_test_id(rows, TEST_ROOTS)
+        self.assertEqual(len(offenders), 1)
+        self.assertEqual(offenders[0][:2], (0, "BID-1"))
+
+    def test_accepts_row_whose_test_id_resolves(self) -> None:
+        rows = [
+            [
+                "BID-1",
+                "foo.md",
+                "ported",
+                "test_migration_map.py::ParseManifestLinesTest::test_skips_blank_lines",
+            ]
+        ]
+        self.assertEqual(rows_with_unresolved_test_id(rows, TEST_ROOTS), [])
+
+    def test_resolves_each_comma_separated_ref_independently(self) -> None:
+        rows = [
+            [
+                "BID-1",
+                "foo.md",
+                "ported",
+                "test_migration_map.py::ParseManifestLinesTest::test_skips_blank_lines, "
+                "test_migration_map.py::test_missing_entirely",
+            ]
+        ]
+        offenders = rows_with_unresolved_test_id(rows, TEST_ROOTS)
+        self.assertEqual(len(offenders), 1)
+        self.assertIn("test_missing_entirely", offenders[0][2])
+
+    def test_skips_rows_whose_disposition_does_not_require_a_test(self) -> None:
+        rows = [["BID-1", "foo.md", "retired", "not a real test reference at all"]]
+        self.assertEqual(rows_with_unresolved_test_id(rows, TEST_ROOTS), [])
+
+
 # --- contract tests against the real manifest + map files -----------------
 
 
@@ -406,12 +569,13 @@ class MigrationMapContractTest(unittest.TestCase):
         )
 
     def test_ported_behavior_change_and_stays_prose_rows_name_a_real_test(self) -> None:
-        offenders = rows_with_bad_test_id_format(self.map_rows)
+        offenders = rows_with_unresolved_test_id(self.map_rows, TEST_ROOTS)
         self.assertFalse(
             offenders,
-            "map rows whose disposition requires a real test reference (contains '::' "
-            "or starts with 'test_') but whose test_id looks like prose "
-            f"(row_index, behavior_id, disposition, test_id): {offenders}",
+            "map rows whose disposition requires a real test reference but whose "
+            "test_id does not resolve to an actual class/function/method under "
+            f"{[str(r) for r in TEST_ROOTS]} (row_index, behavior_id, bad_ref, reason): "
+            f"{offenders}",
         )
 
     def test_every_source_path_exists_on_disk(self) -> None:
