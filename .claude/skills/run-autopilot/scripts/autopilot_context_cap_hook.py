@@ -319,18 +319,20 @@ def _import_cli_state(caller: str, autopilot_dir: Path) -> Any | None:
 def _write_via_transaction(
     autopilot_dir: Path,
     caller: str,
-    op_desc: str,
     mutate: Callable[[dict[str, Any]], dict[str, Any]],
     validate: Callable[[dict[str, Any]], None],
+    op_desc: str | None = None,
 ) -> bool:
     """Import the cli boundary and run one locked cli.state.transaction,
     upholding the hook's halt guarantee: ANY failure — cli/ unimportable, or
     the transaction itself raising — writes the state-write-failed marker and
     a stderr warning naming `op_desc`, then returns False. Never raises into
-    the harness. Shared by `_append_rotation_to_state` and
-    `_set_oversized_stall`, whose only differences are `caller` (passed to
-    `_import_cli_state`), `op_desc`, and the mutate/validate closures.
+    the harness. `op_desc` defaults to `caller` when not given. Shared by
+    `_append_rotation_to_state` and `_set_oversized_stall`, whose only
+    differences are `caller` (passed to `_import_cli_state`), `op_desc`, and
+    the mutate/validate closures.
     """
+    op_desc = op_desc if op_desc is not None else caller
     cli_state = _import_cli_state(caller, autopilot_dir)
     if cli_state is None:
         return False
@@ -403,7 +405,7 @@ def _append_rotation_to_state(
             )
 
     return _write_via_transaction(
-        autopilot_dir, "rotation", "rotation envelope", _mutate, _validate
+        autopilot_dir, "rotation", _mutate, _validate, op_desc="rotation envelope"
     )
 
 
@@ -442,8 +444,7 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
             )
 
     return _write_via_transaction(
-        autopilot_dir, "oversized-task stall", "oversized-task stall",
-        _mutate, _validate,
+        autopilot_dir, "oversized-task stall", _mutate, _validate,
     )
 
 
