@@ -259,9 +259,53 @@ chain. They are scoped to different moments.
 - `_WORK_CODEX_RUNG=off`: read by `/work` step 3. Disables the codex rung
   interception entirely; routing is byte-identical to pre-00077. Any other
   value or absent -> rung active.
-- Reserved (declared by future PRDs, env var names TBD by each): a decay knob
-  (PRD 00078).
+- No decay knob exists. PRD 00111 reserved one and then did not need it:
+  `_AUTOPILOT_MODEL_BUILD` already pins every build launch to a chosen model,
+  which overrides decay and promotion alike (§ Decay).
 
 ## Decay
 
-No decay rules yet. PRD 00078 defines them.
+Escalation without decay is a ratchet, and every silent ratchet refunds the
+savings the cheaper defaults earned. These rows are the single statement of
+which build-phase promotion signals stop firing when their cause passes
+(PRD 00111). They govern `_autopilot_build_model`; the signals themselves are
+specified in `state-schema.md` § Build-phase model routing.
+
+**The wrapper recomputes, never remembers.** There is no stored promotion
+latch anywhere: `_autopilot_build_model` re-derives the launch model from
+current state at every relaunch. A live signal therefore decays by
+construction the moment its state field clears — the rows below say when that
+happens, they do not add a second mechanism.
+
+| Signal | Class | Clears when |
+|--------|-------|-------------|
+| 1. frontmatter `default_model: opus` | sticky | Never automatically. Declared author intent; only editing the PRD removes it. |
+| 2. `replan_count > 0` | live | Phase 9 step 10 resets it to 0 at PRD completion. Within a PRD it is monotonic, so the promotion holds for that PRD's remaining sessions. |
+| 3a. `stall_reason != null` | live | `/run-autopilot` clears the field once it handles the stall. This is the one signal that already decayed before this PRD. |
+| 3b. durable stall in the deferred logs | live | The stall ages out of the 2-newest-file window as later batches write their own logs. |
+| 4. `cap_rotations` non-empty | live | Phase 9 step 10 clears it at PRD completion. Monotonic within a PRD, like signal 2. |
+| 5. fable rescue ledger key | sticky | Never. A human approved an expensive rescue for that PRD; un-promoting it would spend the approval and then withhold the model it bought. |
+
+**Signal 6 (repeat build session) is retired.** It fired whenever the target
+had any prior `phase_launched: "build"` line in the metrics tail, which is
+true of every PRD from its second session onward — so sonnet-first only ever
+applied to session 1 and every multi-session PRD ran Opus regardless of how it
+was going. It was also redundant: a repeat session caused by something going
+wrong already trips signal 2, 3a or 4, and a repeat session caused merely by
+a PRD having many tasks is exactly the case where Opus is not warranted.
+Retiring it is what makes sonnet-first real for sessions 2+.
+
+**Cross-PRD containment.** Signals 2, 3a and 4 fire only when `state.prd`
+equals the resolved target, so the PRD that just finished cannot promote the
+next one on its leftover scratch. Nothing escalation-related survives a
+PRD-to-PRD reset.
+
+**Task tiers decay separately** and are contained by construction: `/work`
+re-evaluates its routing table for every claimed task from that task's own
+`metadata.model`, with no session-level memory, so a task escalated to opus
+never changes the tier any other task dispatches at (`work` SKILL.md
+§ Deterministic routing table).
+
+**Reverting decay** needs no new knob: `_AUTOPILOT_MODEL_BUILD=claude-opus-5`
+pins every build launch to Opus immediately, which is strictly stronger than
+restoring any single signal.
