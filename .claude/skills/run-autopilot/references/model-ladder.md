@@ -306,6 +306,6 @@ re-evaluates its routing table for every claimed task from that task's own
 never changes the tier any other task dispatches at (`work` SKILL.md
 § Deterministic routing table).
 
-**Reverting decay** needs no new knob: `_AUTOPILOT_MODEL_BUILD=claude-opus-5`
+**Reverting decay** needs no new knob: `_AUTOPILOT_MODEL_BUILD=claude-opus-5[1m]`
 pins every build launch to Opus immediately, which is strictly stronger than
 restoring any single signal.

@@ -261,8 +261,10 @@ _autopilot_build_target() {
 }
 
 # _autopilot_build_model <state.json> <prds_dir> <loop_metrics.jsonl> <ledger.json> <deferred_dir>
-# Build-phase model routing: prints claude-opus-5 when the PRD about to be
-# built carries difficulty evidence, else claude-sonnet-5. Always exits 0 and
+# Build-phase model routing: prints claude-opus-5[1m] when the PRD about to be
+# built carries difficulty evidence, else claude-sonnet-5[1m]. The [1m] suffix
+# is load-bearing: autopilot_context_cap_hook.USAGE_CAP (500K) is sized for a
+# 1M window, so every launch model here must carry it. Always exits 0 and
 # always keeps stderr clean (a missing state.json, ledger or metrics file and an
 # empty deferred dir are all normal). The target is the lowest 00XXX- PRD in
 # wip/, else in backlog/ — NEVER state.prd, which between PRDs still names the
@@ -280,7 +282,7 @@ _autopilot_build_model() {
   local _f _tpath _target _files=()
 
   _tpath=$(_autopilot_build_target "$_prds")
-  if [ -z "$_tpath" ]; then printf 'claude-sonnet-5\n'; return 0; fi
+  if [ -z "$_tpath" ]; then printf 'claude-sonnet-5[1m]\n'; return 0; fi
   _target="${_tpath##*/}"
 
   # (1) frontmatter default_model: opus — the leading --- block only, and only
@@ -296,7 +298,7 @@ _autopilot_build_model() {
       END {exit !found}
     ' "$_tpath" 2>/dev/null
   then
-    printf 'claude-opus-5\n'; return 0
+    printf 'claude-opus-5[1m]\n'; return 0
   fi
 
   # (2) replanned / (3a) live stall / (4) cap rotation — all guarded on
@@ -307,7 +309,7 @@ _autopilot_build_model() {
   if jq -e --arg t "$_target" '.prd == $t and ((.replan_count // 0) > 0 or .stall_reason != null or ((.cap_rotations // []) | length) > 0)' "$_state" >/dev/null 2>&1 \
     || jq -e --arg t "$_target" 'has($t)' "$_ledger" >/dev/null 2>&1
   then
-    printf 'claude-opus-5\n'; return 0
+    printf 'claude-opus-5[1m]\n'; return 0
   fi
 
   # (3b) a durable stall naming the target in the 2 newest deferred logs
@@ -318,11 +320,11 @@ _autopilot_build_model() {
   done
   for _f in "${_files[@]:$(( ${#_files[@]} > 2 ? ${#_files[@]} - 2 : 0 ))}"; do
     if jq -e --arg t "$_target" 'any(.items[]?; .type == "stall" and .prd == $t)' "$_f" >/dev/null 2>&1; then
-      printf 'claude-opus-5\n'; return 0
+      printf 'claude-opus-5[1m]\n'; return 0
     fi
   done
 
-  printf 'claude-sonnet-5\n'
+  printf 'claude-sonnet-5[1m]\n'
   return 0
 }
 
@@ -693,17 +695,17 @@ autoclaude() {
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     review)
-      _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-5}"
+      _model="${_AUTOPILOT_MODEL_REVIEW:-claude-opus-5[1m]}"
       _effort="${_AUTOPILOT_EFFORT_REVIEW:-xhigh}"
       _cap="${_AUTOPILOT_SESSION_MAX_REVIEW:-10800}"
       ;;
     done)
-      _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5}"
+      _model="${_AUTOPILOT_MODEL_DONE:-claude-sonnet-5[1m]}"
       _effort="${_AUTOPILOT_EFFORT_DONE:-medium}"
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
     *)
-      _model="claude-opus-5"
+      _model="claude-opus-5[1m]"
       _effort="xhigh"
       _cap="${_AUTOPILOT_SESSION_MAX:-7200}"
       ;;
@@ -723,7 +725,7 @@ autoclaude() {
     # relaunch storm killed a batch silently, 2026-07); skipped when it equals
     # the launch model. The metrics line records the REQUESTED model; the
     # result event in the raw log records what actually served the turn.
-    local _fallback="${_AUTOPILOT_FALLBACK_MODEL:-claude-sonnet-5}"
+    local _fallback="${_AUTOPILOT_FALLBACK_MODEL:-claude-sonnet-5[1m]}"
     local _fallback_args=()
     [ "$_fallback" != "$_model" ] && _fallback_args=(--fallback-model "$_fallback")
 
