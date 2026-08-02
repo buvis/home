@@ -42,7 +42,9 @@ numbered rubric inlined into their prompt (see `references/rubric.md` for
 `review-work-completion`; analogous files exist for `review-blindly` and the
 `run-autopilot` Phase 8 doubt-review).
 
-Exact line shape — one rule per line, no other text on the line, no rationale:
+Exact line shape — one rule per line, no other text on the line, no rationale.
+The id prefix names the rubric (PRD 00108): `R{n}` consensus, `B{n}` blind,
+`D{n}` doubt. A reviewer emits its own set's prefix and no other.
 
 ```
 R1: pass
@@ -50,13 +52,21 @@ R2: fail
 R3: pass
 ```
 
-Rule IDs (`R{n}`) are stable. Reviewers MUST answer every rule. A rule the
-reviewer cannot evaluate (insufficient context, blocked by sandbox, etc.)
-counts as a `fail` — never omit the line.
+The doubt lens emits the same shape with its own prefix:
+
+```
+D1: pass
+D2: fail
+```
+
+Rule IDs are stable within a set — the PRD 00108 rename changed prefixes only,
+never a rule number. Reviewers MUST answer every rule. A rule the reviewer
+cannot evaluate (insufficient context, blocked by sandbox, etc.) counts as a
+`fail` — never omit the line.
 
 > **Note:** `consolidate-findings.sh` parses only lines matching the
 > `[{AGENT}] {emoji} ... | File: ... | Task: ...` issue format and silently
-> drops everything else. So `R{n}: pass|fail` lines do NOT survive
+> drops everything else. So `R`/`B`/`D` verdict lines do NOT survive
 > consolidation into the findings table — they live only in the raw
 > per-agent output files at `dev/local/tmp/{agent}-output-{id}.txt` (the
 > location SKILL.md step 6 saves them to). Step 6 reads the doubt lens's

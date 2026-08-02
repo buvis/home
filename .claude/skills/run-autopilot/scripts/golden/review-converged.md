@@ -11,11 +11,11 @@ No blocking issues found; the implementation matches the PRD's acceptance criter
 
 ## Bob
 
-R1: pass
-R2: pass
-R3: pass
-R4: pass
-R5: pass
+D1: pass
+D2: pass
+D3: pass
+D4: pass
+D5: pass
 
 No doubts survived scrutiny.
 

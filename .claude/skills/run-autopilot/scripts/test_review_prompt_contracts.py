@@ -26,7 +26,11 @@ _BLIND_SKILL = _SKILLS / "review-blindly" / "SKILL.md"
 
 
 def _rubric_rule_ids(text: str) -> set[str]:
-    return set(re.findall(r"^(R\d+):", text, re.MULTILINE))
+    # Prefix-agnostic since PRD 00108 split the shared R namespace into
+    # consensus R, blind B and doubt D. Hardcoding `R` here would silently
+    # return an empty set from BOTH sides of the doubt comparison below, and
+    # `rubric_ids <= prompt_ids` would then pass vacuously.
+    return set(re.findall(r"^([RDB]\d+):", text, re.MULTILINE))
 
 
 class DoubtPromptContractTests(unittest.TestCase):
@@ -39,12 +43,18 @@ class DoubtPromptContractTests(unittest.TestCase):
 
     def test_prompt_rubric_matches_rubric_reference(self) -> None:
         rubric_ids = _rubric_rule_ids(_DOUBT_RUBRIC.read_text())
-        self.assertEqual(rubric_ids, {"R1", "R2", "R3", "R4", "R5"})
+        self.assertEqual(rubric_ids, {"D1", "D2", "D3", "D4", "D5"})
         prompt_ids = _rubric_rule_ids(self.prompt)
         self.assertTrue(
             rubric_ids <= prompt_ids,
             f"prompt must require every rubric rule; missing {rubric_ids - prompt_ids}",
         )
+
+    def test_doubt_prompt_carries_no_stale_r_prefixed_ids(self) -> None:
+        # The rename is prefix-only, so a surviving R-id here means a rule was
+        # half-migrated — the emit-verbatim block and the rule list must agree.
+        stale = sorted(re.findall(r"^(R\d+):", self.prompt, re.MULTILINE))
+        self.assertEqual(stale, [], f"doubt persona still emits {stale}")
 
     def test_prompt_has_no_retired_coverage_block(self) -> None:
         self.assertNotIn(

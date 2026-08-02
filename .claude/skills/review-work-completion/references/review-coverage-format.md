@@ -16,7 +16,7 @@ were retired (their operational record was false blocks, not caught defects).
    - `consensus_run_id: <id>` — optional; present when the consensus engine ran (`consensus_engine` is `workflow` or `shadow`)
 2. **One `## <Name>` section per launched reviewer**, non-empty: the
    reviewer's findings, or a one-line all-clear. Bob's section keeps his
-   `R{n}: pass|fail` doubt-rubric lines (consolidation parses them into
+   `D{n}: pass|fail` doubt-rubric lines (consolidation parses them into
    `state.doubts_rubric_verdicts`).
 3. **A verdict line** (at column 0, normally at the end):
    `Verdict: converged` or `Verdict: N findings`

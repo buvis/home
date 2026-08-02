@@ -64,19 +64,19 @@ Completed-PRD section:
 
 | Rule | Verdict |
 |------|---------|
-| R1 | pass |
-| R2 | fail |
+| D1 | pass |
+| D2 | fail |
 
-One row per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. Source: `state.doubts_rubric_verdicts`, written by the review phase's consolidation from the doubt lens's `R{n}:` lines (replaced each cycle; the final cycle's verdicts render here). Omit this section if `doubts_rubric_verdicts` is absent or empty for the PRD.
+One row per rule in `skills/run-autopilot/references/doubt-review-rubric.md`. Source: `state.doubts_rubric_verdicts`, written by the review phase's consolidation from the doubt lens's `D{n}:` lines (replaced each cycle; the final cycle's verdicts render here). Omit this section if `doubts_rubric_verdicts` is absent or empty for the PRD.
 
 **Source-tagged rendering (PRD 00038).** When `state.doubts_rubric_verdicts` entries carry a `source` field (a dual-reviewer `doubt_reviewer: fable` run — one entry per rule per reviewer), combine both reviewers into one row per rule, tagging each verdict with its source:
 
 | Rule | Verdict |
 |------|---------|
-| R1 | pass (codex) / pass (fable) |
-| R3 | pass (codex) / fail (fable) |
+| D1 | pass (codex) / pass (fable) |
+| D3 | pass (codex) / fail (fable) |
 
-A per-reviewer `fail` still surfaces (as shown for R3). When no entry carries `source` (single-reviewer or legacy state), render UNCHANGED — one verdict per rule, no source suffix (`| R1 | pass |`).
+A per-reviewer `fail` still surfaces (as shown for D3). When no entry carries `source` (single-reviewer or legacy state), render UNCHANGED — one verdict per rule, no source suffix (`| D1 | pass |`).
 
 ### Loop Metrics
 

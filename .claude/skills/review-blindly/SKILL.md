@@ -89,11 +89,11 @@ Pin the reviewer to **Sonnet** for model diversity — a different model from th
 
     **PER-RULE VERDICTS ARE MANDATORY.** For every rule in The Rubric above, emit one line in this exact shape:
     ```
-    R{n}: pass
+    B{n}: pass
     ```
     or
     ```
-    R{n}: fail
+    B{n}: fail
     ```
     One rule per line, no other text on the line, no rationale. Answer every rule — a rule you cannot evaluate (insufficient context, no implementation found, etc.) counts as `fail`; never omit the line. Rule IDs are stable; do not renumber.
 ```
@@ -104,11 +104,11 @@ Pin the reviewer to **Sonnet** for model diversity — a different model from th
 timeout 600 ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -y -f <ABSOLUTE path to dev/local/reviews/.blind-reviewer-prompt.md>
 ```
 
-`-y` gives the child full permissions so Sonnet reads the codebase and runs its checks unattended (`-a` grants acceptEdits only and would stall a headless child on its first gated command). `timeout 600` bounds a hung CLI. The Bash tool runs this in the FOREGROUND and blocks the turn until the CLI exits, then returns Sonnet's full report as the tool result this same turn — there is no async acknowledgment to strand on. If the command exits non-zero (including a timeout), or the result lacks the per-rule `R{n}:` verdict lines, the review did NOT complete — re-run this command, **at most 2 re-runs**. If the second re-run still fails, mark the blind review FAILED, quote the CLI's stderr in the report, and fail loud — never proceed over a failed review (unattended sessions: `~/.claude/skills/run-autopilot/references/unattended-contract.md`). On success proceed to Step 2.5.
+`-y` gives the child full permissions so Sonnet reads the codebase and runs its checks unattended (`-a` grants acceptEdits only and would stall a headless child on its first gated command). `timeout 600` bounds a hung CLI. The Bash tool runs this in the FOREGROUND and blocks the turn until the CLI exits, then returns Sonnet's full report as the tool result this same turn — there is no async acknowledgment to strand on. If the command exits non-zero (including a timeout), or the result lacks the per-rule `B{n}:` verdict lines, the review did NOT complete — re-run this command, **at most 2 re-runs**. If the second re-run still fails, mark the blind review FAILED, quote the CLI's stderr in the report, and fail loud — never proceed over a failed review (unattended sessions: `~/.claude/skills/run-autopilot/references/unattended-contract.md`). On success proceed to Step 2.5.
 
 ### Step 2.5: Write and Gate the Review File
 
-After Step 2b's Bash call returns, do the following in order. **If the command errored, timed out, or the result lacks the per-rule `R{n}:` verdict lines, the review did NOT complete — re-run Step 2b (same 2-re-run cap; a still-failing review is FAILED, never silently passed).**
+After Step 2b's Bash call returns, do the following in order. **If the command errored, timed out, or the result lacks the per-rule `B{n}:` verdict lines, the review did NOT complete — re-run Step 2b (same 2-re-run cap; a still-failing review is FAILED, never silently passed).**
 
 1. Write `dev/local/reviews/<prd>-blind-review.md` with the **Write tool** (not a shell redirect — the aegis hook blocks `>` into `dev/local/`): a frontmatter block containing `reviewers: blind`, the reviewer's FULL output under a `## Blind` heading, then a `Verdict:` line (`Verdict: converged` when no Critical/Important findings, else `Verdict: N findings`) and a `Tests:` line — run the project's test suite once in the foreground for real counts (`Tests: N passed, M failed, K skipped`), or `Tests: none (docs-only)` when the reviewed spec produced no code.
 

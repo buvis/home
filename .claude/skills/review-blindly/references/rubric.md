@@ -2,54 +2,60 @@
 
 This rubric provides binary pass/fail criteria for the spec-only hostile audit performed by the review-blindly skill. The reviewer's prompt contains ONLY the PRD — no diff, no file list, no implementation summary, no implementer self-review. The reviewer must independently locate and read the relevant code to evaluate each rule against the spec.
 
+Rule ids use the `B` prefix (PRD 00108). The three review rubrics once shared a
+single id namespace, which made a bare rule id ambiguous across consensus, blind
+and doubt — a latent misroute now that rubric ids live inside agent files. The
+consensus set keeps the `R` prefix, doubt took `D`, blind took `B`. Ids are
+stable within a set: the prefix changed, no rule was renumbered.
+
 ## Rules
 
 ### Spec Compliance
 
-R1: The implementation satisfies all specified behaviors and outputs described in the PRD.
+B1: The implementation satisfies all specified behaviors and outputs described in the PRD.
 
-R2: All stated data formats and structures in the PRD are preserved in the implementation.
+B2: All stated data formats and structures in the PRD are preserved in the implementation.
 
-R3: Every API endpoint or interface specified in the PRD is implemented with the correct signature and behavior.
+B3: Every API endpoint or interface specified in the PRD is implemented with the correct signature and behavior.
 
-R4: All stated performance requirements and constraints from the PRD are met.
+B4: All stated performance requirements and constraints from the PRD are met.
 
-R5: The implementation matches all specified error handling behaviors and status codes.
+B5: The implementation matches all specified error handling behaviors and status codes.
 
 ### Scope Creep
 
-R6: No new functionality or features beyond those explicitly specified in the PRD are present.
+B6: No new functionality or features beyond those explicitly specified in the PRD are present.
 
-R7: No additional parameters, options, or flags are added beyond those in the PRD.
+B7: No additional parameters, options, or flags are added beyond those in the PRD.
 
-R8: No new external dependencies or libraries are introduced beyond those specified.
+B8: No new external dependencies or libraries are introduced beyond those specified.
 
 ### Security
 
-R9: All specified authentication mechanisms from the PRD are implemented and enforced.
+B9: All specified authentication mechanisms from the PRD are implemented and enforced.
 
-R10: Required input validation and sanitization are present as specified in the PRD.
+B10: Required input validation and sanitization are present as specified in the PRD.
 
-R11: Any specified rate-limiting or throttling controls are implemented as described.
+B11: Any specified rate-limiting or throttling controls are implemented as described.
 
 ### Data Safety
 
-R12: No destructive operations (delete, update, etc.) are performed without proper safeguards.
+B12: No destructive operations (delete, update, etc.) are performed without proper safeguards.
 
-R13: All data migrations include rollback or reversal mechanisms as specified.
+B13: All data migrations include rollback or reversal mechanisms as specified.
 
-R14: No unguarded database queries or file operations are present in the implementation.
+B14: No unguarded database queries or file operations are present in the implementation.
 
 ### Acceptance Criteria
 
-R15: All acceptance criteria for Phase 1 tasks are satisfied in the implementation.
+B15: All acceptance criteria for Phase 1 tasks are satisfied in the implementation.
 
-R16: All acceptance criteria for Phase 2 tasks are satisfied in the implementation.
+B16: All acceptance criteria for Phase 2 tasks are satisfied in the implementation.
 
-R17: All acceptance criteria for Phase 3 tasks are satisfied in the implementation.
+B17: All acceptance criteria for Phase 3 tasks are satisfied in the implementation.
 
 ### Out-of-Scope
 
-R18: All items explicitly marked as out-of-scope in the PRD are absent from the implementation.
+B18: All items explicitly marked as out-of-scope in the PRD are absent from the implementation.
 
-R19: No features or functionality mentioned in the PRD as out-of-scope are present in the codebase the reviewer inspected.
+B19: No features or functionality mentioned in the PRD as out-of-scope are present in the codebase the reviewer inspected.
