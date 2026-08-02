@@ -1772,7 +1772,7 @@ echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the wrapper so a child process o
 # below bind the ACTUAL swallowed messages, not stand-ins.
 WRAPPERLOG_F="$TMP1/f-wrapper.log"
 cat > "$WRAPPERLOG_F" <<'EOF'
-━━ 12:00:00 · phase build · prd tracon-test.md · claude-opus-5/xhigh ━━
+━━ 12:00:00 · phase build · prd tracon-test.md · claude-opus-5[1m]/xhigh ━━
 
 autoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.
 
