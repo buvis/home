@@ -64,6 +64,8 @@ ROUTES = [
           SCRIPTS / "validate_state_json_hook.py", 5),
     Route("PostToolUse", "Bash|Edit|Write|MultiEdit", "observe_tool",
           HOOKS / "observe_tool.py", 5),
+    Route("PostToolUse", "Edit|Write|MultiEdit", "check_skill_triggers",
+          HOOKS / "check_skill_triggers.py", 5),
     Route("Stop", None, "notify", HOOKS / "notify.py", 15),
     Route("Stop", None, "review_coverage_hook",
           SCRIPTS / "review_coverage_hook.py", 5),
