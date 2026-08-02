@@ -36,8 +36,6 @@
       "Edit(tmp/*)",
       "Edit(**/tmp/**)",
       "Edit(**/tmp/*)",
-      "Grep(*)",
-      "Glob(*)",
       "WebSearch",
       "WebFetch(*)",
       "Read(~/.claude/skills/**)",
