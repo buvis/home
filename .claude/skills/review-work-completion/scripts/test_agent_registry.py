@@ -181,11 +181,9 @@ def test_dispatch_references_document_the_fail_closed_contract() -> None:
     missing would be repaired by whoever hits it next writing a prompt inline,
     which is precisely the scattering this PRD removed.
     """
-    skill_dir = (
-        Path.home() / ".claude" / "skills" / "review-work-completion"
-    )
+    skill_dir = Path.home() / ".claude" / "skills" / "review-work-completion"
     conventions = (skill_dir / "references" / "agent-registry.md").read_text(
-        encoding="utf-8"
+        encoding="utf-8",
     )
     skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     assert "fallback prompt" in conventions.lower(), (
@@ -215,12 +213,22 @@ def test_no_persona_prompt_text_survives_outside_the_registry() -> None:
         "carl": "you are the panel's",
     }
     for name, signature in signatures.items():
-        assert signature.lower() in (AGENTS_DIR / f"{name}.md").read_text(
-            encoding="utf-8"
-        ).lower(), f"{name}.md no longer carries its signature line: {signature!r}"
+        assert (
+            signature.lower()
+            in (AGENTS_DIR / f"{name}.md")
+            .read_text(
+                encoding="utf-8",
+            )
+            .lower()
+        ), f"{name}.md no longer carries its signature line: {signature!r}"
         for root in (claude / "skills", claude / "workflows"):
             for path in root.rglob("*"):
-                if not path.is_file() or path.suffix not in {".md", ".js", ".mjs", ".py"}:
+                if not path.is_file() or path.suffix not in {
+                    ".md",
+                    ".js",
+                    ".mjs",
+                    ".py",
+                }:
                     continue
                 # The goldens fixture is the frozen pre-migration record and is
                 # SUPPOSED to hold this text; the sweep test names it here too.
