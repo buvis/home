@@ -198,15 +198,19 @@ def main() -> int:
         lines = findings(path)
         if not lines:
             return 0
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": (
-                    "Skill trigger check (advisory, ~/.claude/hooks/"
-                    "check_skill_triggers.py):\n" + "\n".join(lines)
-                ),
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": (
+                            "Skill trigger check (advisory, ~/.claude/hooks/"
+                            "check_skill_triggers.py):\n" + "\n".join(lines)
+                        ),
+                    },
+                }
+            )
+        )
     except Exception:
         return 0  # advisory: never let a router check disturb an edit
     return 0
