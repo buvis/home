@@ -16,17 +16,18 @@
 #     (2) state.replan_count > 0, (3a) state.stall_reason != null,
 #     (3b) a type:"stall" item naming the target in the 2 NEWEST
 #     <deferred_dir>/*-deferred.json files, (4) state.cap_rotations non-empty,
-#     (5) a <ledger.json> key equal to the target, (6) a <loop_metrics.jsonl>
-#     line with .prd == target and .phase_launched == "build";
+#     (5) a <ledger.json> key equal to the target;
 #     signals 2/3a/4 fire ONLY when state.prd == target.
+#   * <loop_metrics.jsonl> is accepted and IGNORED. PRD 00111 retired signal 6
+#     (a repeat build session for the target), which held from every PRD's
+#     second session onward and so ran every multi-session PRD on Opus. The
+#     scenario-13 rows are the decay regression: restoring that read, from the
+#     primary or the GC-exempt ledger/ mirror, turns them red.
+#   * promotion is recomputed at EVERY relaunch with no stored latch, so a
+#     signal that clears drops the launch back to Sonnet (scenario 13f).
 #   * the launch line the wrapper builds carries the routed --model, the
 #     _AUTOPILOT_MODEL_BUILD kill-switch still wins, and the review/done
 #     branches are untouched.
-#
-# Red-first: `_autopilot_build_model` does not exist yet, so every scenario here
-# fails (rc 127) until it is implemented. Two e2e rows are ALSO red against the
-# current wrapper by design: a signal-free build launches Opus today, and the
-# bootstrap (no state.json) launch falls into the wrapper's `*)` case arm.
 #
 # Everything runs in mktemp sandboxes; the plugin is sourced READ-ONLY and no
 # real `claude` process is ever launched.
@@ -468,9 +469,14 @@ assert_model "signal 5 negative: the target appears only as a value, never as a 
   "$B12B/state.json" "$B12B/prds" "$B12B/loop-metrics.jsonl" "$B12B/ledger.json" "$B12B/deferred"
 
 # =============================================================================
-# Scenario 13 (signal 6) — this PRD already burned a build session. Its line is
-# the FIRST of the file, with another PRD's line after it, so reading only the
-# last line of loop-metrics.jsonl routes Sonnet and fails.
+# Scenario 13 (signal 6 RETIRED, PRD 00111) — the decay regression. This PRD
+# already burned a build session, in both the primary metrics file and the
+# GC-exempt ledger/ mirror, and nothing else about it is remarkable: no replan,
+# no stall, no rotation, no ledger key, no opus frontmatter. Before 00111 a
+# repeat build session promoted on its own, which made sonnet-first apply to
+# session 1 only and ran every multi-session PRD on Opus. It must now stay
+# Sonnet. Restoring the metrics read in any form — primary, mirror, or both —
+# routes Opus and fails here.
 # =============================================================================
 B13=$(mktemp -d); _DIRS+=("$B13"); init_box "$B13"
 P13="00029-record-the-attempt-log-v1.md"
@@ -481,12 +487,63 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   printf '{"ts_start":1751100000,"ts_end":1751104000,"prd":"%s","batch":"20260707-m","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5"}\n' "$P13"
   printf '{"ts_start":1751110000,"ts_end":1751112000,"prd":"00028-name-the-worktrees-v1.md","batch":"20260707-m","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n'
 } >"$B13/loop-metrics.jsonl"
-assert_model "signal 6: a prior build session for the target PRD" "claude-opus-5" \
+mkdir -p "$B13/ledger"
+printf '{"ts_start":1751100000,"ts_end":1751104000,"prd":"%s","batch":"20260707-m","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5"}\n' \
+  "$P13" >"$B13/ledger/loop-metrics.jsonl"
+assert_model "decay: a repeat build session alone no longer promotes (signal 6 retired)" "claude-sonnet-5" \
   "$B13/state.json" "$B13/prds" "$B13/loop-metrics.jsonl" "$B13/ledger.json" "$B13/deferred"
 
 # =============================================================================
-# Scenario 14 (signal 6 negative) — the only build line belongs to another PRD,
-# and the target's own line is a review launch. Both halves of the match matter.
+# Scenario 13e (decay: repeat session does not mask a real signal) — same
+# repeat-build history as scenario 13, but this PRD genuinely stalled. Retiring
+# signal 6 must not take signal 3a down with it.
+# =============================================================================
+B13E=$(mktemp -d); _DIRS+=("$B13E"); init_box "$B13E"
+P13E="00030-keep-the-real-signals-v1.md"
+write_prd "$B13E/prds/wip/$P13E"
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":{"stalled":"oversized_task","task":"t-9"},"batch":{"id":"20260707-m2"}}\n' \
+  "$P13E" >"$B13E/state.json"
+printf '{"ts_start":1751100000,"ts_end":1751104000,"prd":"%s","batch":"20260707-m2","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5"}\n' \
+  "$P13E" >"$B13E/loop-metrics.jsonl"
+assert_model "decay: a repeat build session with a live stall still promotes on signal 3a" "claude-opus-5" \
+  "$B13E/state.json" "$B13E/prds" "$B13E/loop-metrics.jsonl" "$B13E/ledger.json" "$B13E/deferred"
+
+# =============================================================================
+# Scenario 13f (decay: promote-then-clear across relaunches) — the PRD's Phase 1
+# acceptance sequence, driven as three consecutive relaunches against ONE box.
+# The wrapper recomputes and never latches, so clearing the stall must drop the
+# launch back to Sonnet; any stored promotion would keep it on Opus at step 3.
+# The repeat-build metrics line is present throughout, so this also pins that
+# the retired signal cannot silently re-latch the promotion.
+# =============================================================================
+B13F=$(mktemp -d); _DIRS+=("$B13F"); init_box "$B13F"
+P13F="00031-promote-then-clear-v1.md"
+write_prd "$B13F/prds/wip/$P13F"
+printf '{"ts_start":1751400000,"ts_end":1751404000,"prd":"%s","batch":"20260709-t","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5"}\n' \
+  "$P13F" >"$B13F/loop-metrics.jsonl"
+
+# relaunch 1 — signal-free
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260709-t"}}\n' \
+  "$P13F" >"$B13F/state.json"
+assert_model "decay sequence 1/3: signal-free launch is Sonnet" "claude-sonnet-5" \
+  "$B13F/state.json" "$B13F/prds" "$B13F/loop-metrics.jsonl" "$B13F/ledger.json" "$B13F/deferred"
+
+# relaunch 2 — a cap rotation fired during the last session
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[{"task_id":"t-3","cycle":1}],"stall_reason":null,"batch":{"id":"20260709-t"}}\n' \
+  "$P13F" >"$B13F/state.json"
+assert_model "decay sequence 2/3: a live cap rotation promotes to Opus" "claude-opus-5" \
+  "$B13F/state.json" "$B13F/prds" "$B13F/loop-metrics.jsonl" "$B13F/ledger.json" "$B13F/deferred"
+
+# relaunch 3 — Phase 9 step 10 cleared the rotation at PRD completion
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260709-t"}}\n' \
+  "$P13F" >"$B13F/state.json"
+assert_model "decay sequence 3/3: the cleared rotation decays back to Sonnet (no latch)" "claude-sonnet-5" \
+  "$B13F/state.json" "$B13F/prds" "$B13F/loop-metrics.jsonl" "$B13F/ledger.json" "$B13F/deferred"
+
+# =============================================================================
+# Scenario 14 (metrics are inert) — the metrics tail is no longer consulted at
+# all, whatever it says: another PRD's build line, the target's own review line.
+# Kept as the companion negative to scenario 13.
 # =============================================================================
 B14=$(mktemp -d); _DIRS+=("$B14"); init_box "$B14"
 P14="00063-decommission-the-dashboard-v1.md"
@@ -497,110 +554,22 @@ printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"st
   printf '{"ts_start":1751200000,"ts_end":1751203000,"prd":"00062-port-the-visuals-v1.md","batch":"20260707-n","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n'
   printf '{"ts_start":1751210000,"ts_end":1751213000,"prd":"%s","batch":"20260707-n","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-opus-5"}\n' "$P14"
 } >"$B14/loop-metrics.jsonl"
-assert_model "signal 6 negative: another PRD's build line and the target's review line" "claude-sonnet-5" \
+assert_model "metrics inert: another PRD's build line and the target's review line" "claude-sonnet-5" \
   "$B14/state.json" "$B14/prds" "$B14/loop-metrics.jsonl" "$B14/ledger.json" "$B14/deferred"
 
 # =============================================================================
-# Scenario 13b (signal 6, GC-survival) — purge-devlocal trashes autopilot/**
-# past 14 days, taking the primary loop-metrics.jsonl with it. The GC-exempt
-# ledger/ mirror (written back to back with the primary on every append)
-# survives with the target's prior build line. Reading only the primary loses
-# the repeat-build signal on every idle-past-14-days repo; the mirror must be
-# consulted too.
+# Scenario 14d (metrics are inert — missing file is still not fatal) — the
+# primary metrics file does not exist and no mirror was ever written. The
+# contract is unchanged: exit 0, one line, Sonnet.
 # =============================================================================
-B13B=$(mktemp -d); _DIRS+=("$B13B"); init_box "$B13B"
-P13B="00113-survive-the-metrics-gc-v1.md"
-write_prd "$B13B/prds/wip/$P13B"
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260708-o"}}\n' \
-  "$P13B" >"$B13B/state.json"
-rm -f "$B13B/loop-metrics.jsonl"
-mkdir -p "$B13B/ledger"
-printf '{"ts_start":1751300000,"ts_end":1751303000,"prd":"%s","batch":"20260708-o","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
-  "$P13B" >"$B13B/ledger/loop-metrics.jsonl"
-assert_model "signal 6 GC-survival: primary loop-metrics.jsonl gone, ledger/ mirror holds the build line" "claude-opus-5" \
-  "$B13B/state.json" "$B13B/prds" "$B13B/loop-metrics.jsonl" "$B13B/ledger.json" "$B13B/deferred"
-
-# =============================================================================
-# Scenario 13c (signal 6, GC-survival — primary recreated empty) — the primary
-# loop-metrics.jsonl exists again (a fresh, empty file — e.g. the wrapper's
-# next best-effort append target after a GC) but carries no lines. An empty
-# file is NOT the same as an absent one: a fix that only special-cases
-# "absent" misses this far more common post-GC-recreate shape.
-# =============================================================================
-B13C=$(mktemp -d); _DIRS+=("$B13C"); init_box "$B13C"
-P13C="00114-recreate-the-metrics-file-empty-v1.md"
-write_prd "$B13C/prds/wip/$P13C"
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260708-p"}}\n' \
-  "$P13C" >"$B13C/state.json"
-mkdir -p "$B13C/ledger"
-printf '{"ts_start":1751310000,"ts_end":1751313000,"prd":"%s","batch":"20260708-p","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
-  "$P13C" >"$B13C/ledger/loop-metrics.jsonl"
-assert_model "signal 6 GC-survival: primary present but empty, ledger/ mirror holds the build line" "claude-opus-5" \
-  "$B13C/state.json" "$B13C/prds" "$B13C/loop-metrics.jsonl" "$B13C/ledger.json" "$B13C/deferred"
-
-# =============================================================================
-# Scenario 14b (signal 6 negative, widened source not loosened match) — both
-# the primary and the mirror exist. The primary's only line is ANOTHER PRD's
-# build launch; the mirror's only line is the TARGET's own launch, but as a
-# REVIEW, not a build. Neither source names the target with phase_launched ==
-# "build", so this must stay Sonnet — proving the fix widened where signal 6
-# reads from, not what it matches.
-# =============================================================================
-B14B=$(mktemp -d); _DIRS+=("$B14B"); init_box "$B14B"
-P14B="00115-widen-the-source-not-the-match-v1.md"
-write_prd "$B14B/prds/wip/$P14B"
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260708-q"}}\n' \
-  "$P14B" >"$B14B/state.json"
-printf '{"ts_start":1751320000,"ts_end":1751323000,"prd":"00097-a-different-prd-v1.md","batch":"20260708-q","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
-  >"$B14B/loop-metrics.jsonl"
-mkdir -p "$B14B/ledger"
-printf '{"ts_start":1751321000,"ts_end":1751324000,"prd":"%s","batch":"20260708-q","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-opus-5"}\n' \
-  "$P14B" >"$B14B/ledger/loop-metrics.jsonl"
-assert_model "signal 6 negative: primary names another PRD's build, mirror names the target's review" "claude-sonnet-5" \
-  "$B14B/state.json" "$B14B/prds" "$B14B/loop-metrics.jsonl" "$B14B/ledger.json" "$B14B/deferred"
-
-# =============================================================================
-# Scenario 13d (signal 6, ordinary pre-GC path preserved) — the mirror does
-# not exist at all (a batch predating the ledger/ mirror writer, or one that
-# has never been through a GC). The primary alone carries the target's build
-# line. Pins that adding the mirror as a second source did not disturb the
-# original, still-common path.
-# =============================================================================
-B13D=$(mktemp -d); _DIRS+=("$B13D"); init_box "$B13D"
-P13D="00116-keep-the-primary-only-path-v1.md"
-write_prd "$B13D/prds/wip/$P13D"
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260708-r"}}\n' \
-  "$P13D" >"$B13D/state.json"
-printf '{"ts_start":1751330000,"ts_end":1751333000,"prd":"%s","batch":"20260708-r","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
-  "$P13D" >"$B13D/loop-metrics.jsonl"
-assert_model "signal 6: mirror absent, primary alone carries the target's build line" "claude-opus-5" \
-  "$B13D/state.json" "$B13D/prds" "$B13D/loop-metrics.jsonl" "$B13D/ledger.json" "$B13D/deferred"
-
-# =============================================================================
-# Scenario 14c (signal 6 negative, tail bound preserved on the mirror) — the
-# primary is gone (GC'd) and the mirror alone has evidence, but the target's
-# build line is the OLDEST line in a 206-line mirror: 205 newer filler lines
-# for a different PRD follow it, so it falls outside the newest 200. Whatever
-# 200-line bound applies to the primary must apply to the mirror too, or the
-# mirror becomes an unbounded scan.
-# =============================================================================
-B14C=$(mktemp -d); _DIRS+=("$B14C"); init_box "$B14C"
-P14C="00117-bound-the-mirror-tail-v1.md"
-write_prd "$B14C/prds/wip/$P14C"
-printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260708-s"}}\n' \
-  "$P14C" >"$B14C/state.json"
-rm -f "$B14C/loop-metrics.jsonl"
-mkdir -p "$B14C/ledger"
-{
-  printf '{"ts_start":1751340000,"ts_end":1751343000,"prd":"%s","batch":"20260708-s","phase_launched":"build","phase_end":"review","signal":"continue","model":"claude-sonnet-5"}\n' \
-    "$P14C"
-  for _n in $(seq 1 205); do
-    printf '{"ts_start":%s,"ts_end":%s,"prd":"00098-fill-the-mirror-tail-v1.md","batch":"20260708-s","phase_launched":"review","phase_end":"build","signal":"continue","model":"claude-sonnet-5"}\n' \
-      "$((1751340000 + _n))" "$((1751340100 + _n))"
-  done
-} >"$B14C/ledger/loop-metrics.jsonl"
-assert_model "signal 6 negative: the mirror's 200-line tail bound is preserved (target's build line pushed out)" "claude-sonnet-5" \
-  "$B14C/state.json" "$B14C/prds" "$B14C/loop-metrics.jsonl" "$B14C/ledger.json" "$B14C/deferred"
+B14D=$(mktemp -d); _DIRS+=("$B14D"); init_box "$B14D"
+P14D="00064-tolerate-the-missing-metrics-v1.md"
+write_prd "$B14D/prds/wip/$P14D"
+printf '{"prd":"%s","next_phase":"build","replan_count":0,"cap_rotations":[],"stall_reason":null,"batch":{"id":"20260707-u"}}\n' \
+  "$P14D" >"$B14D/state.json"
+rm -f "$B14D/loop-metrics.jsonl"
+assert_model "metrics inert: an absent loop-metrics.jsonl is still not fatal" "claude-sonnet-5" \
+  "$B14D/state.json" "$B14D/prds" "$B14D/loop-metrics.jsonl" "$B14D/ledger.json" "$B14D/deferred"
 
 # =============================================================================
 # Scenario 15 (degenerate) — no state.json at all (first launch of a batch).
