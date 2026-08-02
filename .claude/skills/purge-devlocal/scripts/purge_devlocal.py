@@ -284,9 +284,10 @@ def process_store(label: str, store: Path, args, now: float,
     for rel, mtime in sorted(walk_store(store)):
         action, rule = classify_artifact(rel, mtime, live, done, now, args)
         if action == "trash":
-            trash_counts[rule] += 1
-            trashed.append((rule, rel.as_posix()))
-            if args.apply:
+            if not args.apply:
+                trash_counts[rule] += 1
+                trashed.append((rule, rel.as_posix()))
+            else:
                 is_review_md = (len(rel.parts) > 1 and rel.parts[0] == "reviews"
                                 and rel.suffix == ".md")
                 harvested_ok = True
@@ -307,6 +308,8 @@ def process_store(label: str, store: Path, args, now: float,
                 if is_review_md and harvested_ok:
                     harvest_review_verdicts(store, rel, now)  # unchanged, fire-and-forget
                 if harvested_ok:
+                    trash_counts[rule] += 1
+                    trashed.append((rule, rel.as_posix()))
                     trash_file(store, rel, rule, batch)
         elif action == "flag":
             flags.append((rule, rel.as_posix()))
