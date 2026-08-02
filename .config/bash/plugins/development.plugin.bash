@@ -214,10 +214,13 @@ _autoclaude_tracon_stop() {
 # terminal), so operator-facing diagnostics (the paused resume runbook, the
 # died-session state.json/last-session.log pointer) are otherwise swallowed
 # when the loop exits on its own. Called only from the loop-child-exited
-# paths above; a non-zero child_rc with a non-empty log surfaces the log's
-# tail to stderr, a clean drain (rc 0) or a missing/empty log stays silent.
-_autoclaude_tracon_surface() {   # $1=wrapper.log, $2=child rc — surface swallowed diagnostics on a non-zero exit
-  [ "$2" -ne 0 ] || return 0
+# paths above; ANY exit with a non-empty log surfaces the log's tail to
+# stderr, a missing/empty log stays silent. Not gated on child_rc: the
+# operator-pause, park and drained branches all `return 0`, so an rc-gate
+# swallowed exactly the exits that most needed a reason (measured: an
+# agent-written pause-requested stopped an 18h engram batch silently,
+# 2026-08-02).
+_autoclaude_tracon_surface() {   # $1=wrapper.log, $2=child rc — surface swallowed diagnostics on every loop exit
   [ -s "$1" ] || return 0
   printf '\n── autoclaude: loop exited (rc %s); last output below ──\n' "$2" >&2
   tail -n 20 "$1" >&2
