@@ -11,7 +11,12 @@ things about a consolidated review file:
    `fired (N codex-implemented task(s))`, or that fired form suffixed
    `; eve unavailable, doubt lens fell back to claude` or
    `; constraint UNMET` — checked ONLY when --require-codex-guard is
-   passed.
+   passed, and checked for CONSISTENCY as well as grammar: a well-formed
+   line can still lie. `fired (0 ...)` is self-contradictory (the guard
+   fires only when at least one task was codex-implemented), and plain
+   `fired (N)` asserts a non-codex doubt reviewer covered the lens, which
+   requires a non-empty eve section to back it. The two suffixed forms are
+   exempt from that second rule: each already records why Eve did not run.
 
 This script gates several different kinds of review file (consolidated
 reviews, blind reviews, shadow-run renders), and only the consolidated
@@ -61,6 +66,14 @@ CONSTRAINT_UNMET_RE = re.compile(
     r"^codex_rung_guard: fired \(\d+ codex-implemented task\(s\)\); constraint UNMET\s*$",
     re.MULTILINE,
 )
+# Same fired branch as CODEX_RUNG_GUARD_RE, but capturing the count and the
+# suffix so the consistency check below can read them. Only ever consulted
+# AFTER the shape check has passed, so the line is already known well-formed.
+FIRED_GUARD_RE = re.compile(
+    r"^codex_rung_guard: fired \((\d+) codex-implemented task\(s\)\)"
+    r"(; eve unavailable, doubt lens fell back to claude|; constraint UNMET)?\s*$",
+    re.MULTILINE,
+)
 FRONTMATTER_REVIEWERS_RE = re.compile(r"^reviewers:\s*(.+)$", re.MULTILINE)
 
 
@@ -90,12 +103,49 @@ def check(
         return "no verdict line (expected 'Verdict: converged' or 'Verdict: N findings')"
     if not TESTS_RE.search(text):
         return "no tests line (expected 'Tests: N passed ...' or 'Tests: none (docs-only)')"
-    if require_codex_guard and not CODEX_RUNG_GUARD_RE.search(text):
+    if require_codex_guard:
+        if not CODEX_RUNG_GUARD_RE.search(text):
+            return (
+                "no codex_rung_guard line (expected 'codex_rung_guard: not fired', "
+                "'codex_rung_guard: fired (N codex-implemented task(s))', or that "
+                "fired form suffixed with '; eve unavailable, doubt lens fell back "
+                "to claude' or '; constraint UNMET')"
+            )
+        gap = _guard_matches_roster(text, lines)
+        if gap is not None:
+            return gap
+    return None
+
+
+def _guard_matches_roster(text: str, lines: list[str]) -> str | None:
+    """Check the guard's RECORD against the roster, not just its grammar.
+
+    A well-formed line can still lie. Two ways it does:
+
+    - `fired (0 ...)` is self-contradictory — the guard fires only when at
+      least one task was codex-implemented.
+    - plain `fired (N)` asserts a non-codex doubt reviewer covered the lens,
+      which means Eve. If the file carries no Eve section, nothing backs that
+      claim. The two documented suffixes are exempt: `; eve unavailable ...`
+      self-documents her absence (Bob's Claude fallback covered doubt), and
+      `; constraint UNMET` already records the constraint as not certified.
+    """
+    fired = FIRED_GUARD_RE.search(text)
+    if fired is None:  # `not fired` — nothing to cross-check
+        return None
+    if int(fired.group(1)) == 0:
         return (
-            "no codex_rung_guard line (expected 'codex_rung_guard: not fired', "
-            "'codex_rung_guard: fired (N codex-implemented task(s))', or that "
-            "fired form suffixed with '; eve unavailable, doubt lens fell back "
-            "to claude' or '; constraint UNMET')"
+            "codex_rung_guard records 'fired (0 codex-implemented task(s))', which "
+            "is self-contradictory: the guard fires only when at least one task "
+            "was codex-implemented"
+        )
+    if fired.group(2) is None and not reviewer_section_nonempty(lines, "eve"):
+        return (
+            "codex_rung_guard records a plain 'fired (N codex-implemented "
+            "task(s))', which claims a non-codex doubt reviewer covered the lens, "
+            "but the file carries no non-empty eve section; use the "
+            "'; eve unavailable, doubt lens fell back to claude' or "
+            "'; constraint UNMET' form when Eve did not run"
         )
     return None
 

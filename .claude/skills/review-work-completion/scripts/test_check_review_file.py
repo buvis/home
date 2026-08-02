@@ -461,9 +461,19 @@ class CheckReviewFileTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_assert_constraint_met_passes_when_guard_fired_plain(self) -> None:
-        text = GOOD_FILE.replace(
-            "codex_rung_guard: not fired",
-            "codex_rung_guard: fired (3 codex-implemented task(s))",
+        # Intent: a guard line that is NOT "; constraint UNMET" must not trip
+        # exit 2. The fixture carries an Eve section because plain fired(N)
+        # asserts a non-codex doubt reviewer ran, and the roster-consistency
+        # check now enforces that (see
+        # test_codex_rung_guard_plain_fired_without_eve_section_exit_1). Without
+        # it this test and that one would demand opposite results from the same
+        # file, with --assert-constraint-met somehow making the gate LAXER.
+        text = (
+            GOOD_FILE.replace(
+                "codex_rung_guard: not fired",
+                "codex_rung_guard: fired (3 codex-implemented task(s))",
+            ).replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
+            + "\n## Eve\n\nNo constraint issues found; doubt lens confirmed.\n"
         )
         p = self._write(text)
         proc = run_cli(
