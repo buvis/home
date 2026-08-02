@@ -1751,10 +1751,11 @@ echo "PASS: _AUTOPILOT_LOOPS_DIR is exported by the wrapper so a child process o
 # terminal — tracon shows only a 2-word banner and exits. The fix adds a
 # helper, _autoclaude_tracon_surface <wrapper_log_path> <child_rc>, called
 # at _autoclaude_tracon's two loop-child-exited-on-its-own exit paths
-# (case-3 and the final `wait`). Contract: child_rc != 0 and a non-empty
-# wrapper.log -> print a separator + the tail of wrapper.log (~last 20
-# lines) to stderr; child_rc == 0 (clean drain) -> print nothing; a missing
-# or empty wrapper.log -> print nothing, no error, regardless of child_rc.
+# (case-3 and the final `wait`). Contract: a non-empty wrapper.log -> print
+# a separator + the tail of wrapper.log (~last 20 lines) to stderr, on ANY
+# child_rc; a missing or empty wrapper.log -> print nothing, no error. The
+# rc-0 gate was removed 2026-08-02: pause/park/drain all `return 0`, so it
+# silenced every exit whose reason lived only in wrapper.log.
 #
 # Shipped: _autoclaude_tracon_surface is defined in the plugin (~line
 # 198-211) and wired at both loop-child-exited-on-its-own exit paths —
@@ -1791,13 +1792,16 @@ _autoclaude_tracon_surface "$WRAPPERLOG_F" 1 2>"$ERR34"
 grep -qF '1. claude' "$ERR34" ||
   fail "scenario 34: _autoclaude_tracon_surface did not surface the resume-runbook text ('1. claude') from wrapper.log to stderr on a non-zero child_rc (captured stderr: $(cat "$ERR34" 2>/dev/null))"
 
-# ── Scenario 35: a clean drain (child_rc 0) surfaces NOTHING, even though
-#    the same wrapper.log has diagnostics in it — a drained backlog needs
-#    no diagnostics ────────────────────────────────────────────────────────
+# ── Scenario 35: a CLEAN exit (child_rc 0) surfaces the tail too. The
+#    operator-pause, park and drained branches all `return 0`, so gating on
+#    child_rc swallowed exactly the exits that most needed a reason — an
+#    agent-written pause-requested stopped an 18h engram batch and the
+#    terminal showed only "[1] Done" (2026-08-02) ─────────────────────────
 ERR35="$TMP1/f35-err"
 _autoclaude_tracon_surface "$WRAPPERLOG_F" 0 2>"$ERR35"
 
-[ ! -s "$ERR35" ] || fail "scenario 35: _autoclaude_tracon_surface printed diagnostics on a clean drain (child_rc=0): $(cat "$ERR35" 2>/dev/null)"
+grep -qF 'paused by operator' "$ERR35" ||
+  fail "scenario 35: _autoclaude_tracon_surface stayed silent on a clean exit (child_rc=0) — the pause reason in wrapper.log never reached the terminal (captured stderr: $(cat "$ERR35" 2>/dev/null))"
 
 # ── Scenario 36: a missing or empty wrapper.log is safe — no output, no
 #    error, even with a non-zero child_rc ─────────────────────────────────
@@ -1817,7 +1821,7 @@ rc36b=$?
 [ "$rc36b" -eq 0 ] || fail "scenario 36: _autoclaude_tracon_surface exited non-zero ($rc36b) for an empty wrapper.log — must not error"
 [ ! -s "$ERR36B" ] || fail "scenario 36: _autoclaude_tracon_surface printed diagnostics for an EMPTY wrapper.log: $(cat "$ERR36B" 2>/dev/null)"
 
-echo "PASS: non-zero child_rc surfaces the resume-runbook text from wrapper.log to stderr (scenario 34), a clean drain surfaces nothing (scenario 35), a missing or empty wrapper.log is safe — no output, no error (scenario 36)"
+echo "PASS: non-zero child_rc surfaces the resume-runbook text from wrapper.log to stderr (scenario 34), a clean exit surfaces it too (scenario 35), a missing or empty wrapper.log is safe — no output, no error (scenario 36)"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Section G: two behaviors in _autoclaude_tracon, both FIXED in the current
