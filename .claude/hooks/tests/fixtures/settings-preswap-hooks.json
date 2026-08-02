@@ -123,6 +123,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/check_skill_triggers.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
