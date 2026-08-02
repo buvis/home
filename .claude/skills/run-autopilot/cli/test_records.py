@@ -45,8 +45,12 @@ def _sample_state(**overrides) -> dict:
         # PER_PRD_RESET_FIELDS members
         "tasks": [{"id": "t1", "name": "x", "status": "completed"}],
         "task_aborts": [
-            {"task_id": "t7", "turn": -1, "total_input_tokens": 13000,
-             "cause": "subagent_prompt_overrun"}
+            {
+                "task_id": "t7",
+                "turn": -1,
+                "total_input_tokens": 13000,
+                "cause": "subagent_prompt_overrun",
+            },
         ],
         "cap_rotations": [{"task_id": "t3", "cycle": 1}],
         "autonomous_decisions": [{"cycle": 1, "issue": "x"}],
@@ -61,10 +65,17 @@ def _sample_state(**overrides) -> dict:
         "design_mode": "run",
         "pause_reason": {"site": "reviewer_fail", "detail": "carl hung"},
         "cap_pause_reason": {
-            "cycle": 3, "cap": 3,
-            "unresolved_findings": [{"issue": "x", "severity": "high", "consensus": "3/3"}],
+            "cycle": 3,
+            "cap": 3,
+            "unresolved_findings": [
+                {"issue": "x", "severity": "high", "consensus": "3/3"}
+            ],
         },
-        "stall_reason": {"stalled": "oversized_task", "task": "t8", "estimated_tokens": 167000},
+        "stall_reason": {
+            "stalled": "oversized_task",
+            "task": "t8",
+            "estimated_tokens": 167000,
+        },
         "repo_root": "/repo",
         "pause_on_ambiguity": True,
         "review_lenses": {"consensus": "done"},
@@ -85,20 +96,35 @@ def _sample_state(**overrides) -> dict:
         "doubt_reviewer": "codex",
         "consensus_engine": "legacy",
         "qwen_gate_failures_consecutive": 1,
-        "qwen_breaker": {"tripped": False, "after_task": None, "failed_tasks": [], "batch_id": "202603161000"},
+        "qwen_breaker": {
+            "tripped": False,
+            "after_task": None,
+            "failed_tasks": [],
+            "batch_id": "202603161000",
+        },
         "codex_probe": {
-            "batch_id": "202603161000", "verdict": "healthy", "backend": "codex",
-            "detail": None, "checked_at": "2026-03-16T10:45:00Z",
+            "batch_id": "202603161000",
+            "verdict": "healthy",
+            "backend": "codex",
+            "detail": None,
+            "checked_at": "2026-03-16T10:45:00Z",
         },
         "batch": {
             "id": "202603161000",
             "completed_prds": [
-                {"filename": "00001-user-auth.md", "cycles": 2,
-                 "autonomous_decisions": 3, "escalated_decisions": 0}
+                {
+                    "filename": "00001-user-auth.md",
+                    "cycles": 2,
+                    "autonomous_decisions": 3,
+                    "escalated_decisions": 0,
+                },
             ],
             "catchup_completed_at": "2026-03-16T10:42:13Z",
             "catchup_head_sha": "a1b2c3d4e5f6789",
-            "plugin_versions": {"aegis@buvis-plugins": "1.2.3", "warden@buvis-plugins": "0.13.0"},
+            "plugin_versions": {
+                "aegis@buvis-plugins": "1.2.3",
+                "warden@buvis-plugins": "0.13.0",
+            },
             "parks_consecutive": 0,
         },
     }
@@ -109,12 +135,27 @@ def _sample_state(**overrides) -> dict:
 class PerPrdResetFieldsTest(unittest.TestCase):
     def test_matches_the_pinned_verbatim_field_set(self) -> None:
         expected = {
-            "tasks", "task_aborts", "cap_rotations", "autonomous_decisions",
-            "deferred_decisions", "review_cycles", "doubts", "doubts_rubric_verdicts",
-            "rework_task_ids", "work_start_sha", "design_doc", "design_gate",
-            "design_mode", "pause_reason", "cap_pause_reason", "stall_reason",
+            "tasks",
+            "task_aborts",
+            "cap_rotations",
+            "autonomous_decisions",
+            "deferred_decisions",
+            "review_cycles",
+            "doubts",
+            "doubts_rubric_verdicts",
+            "rework_task_ids",
+            "work_start_sha",
+            "design_doc",
+            "design_gate",
+            "design_mode",
+            "pause_reason",
+            "cap_pause_reason",
+            "stall_reason",
             "repo_root",
-            "pause_on_ambiguity", "review_lenses", "contract_card", "needs_attention",
+            "pause_on_ambiguity",
+            "review_lenses",
+            "contract_card",
+            "needs_attention",
         }
         self.assertEqual(set(records.PER_PRD_RESET_FIELDS), expected)
 
@@ -131,7 +172,12 @@ class ResetPrdFieldsTest(unittest.TestCase):
 
     def test_clears_the_four_fields_that_leak_today(self) -> None:
         result = records.reset_prd_fields(self.input_state)
-        for field in ("pause_on_ambiguity", "review_lenses", "contract_card", "needs_attention"):
+        for field in (
+            "pause_on_ambiguity",
+            "review_lenses",
+            "contract_card",
+            "needs_attention",
+        ):
             self.assertNotIn(field, result, f"{field} leaks into the next PRD today")
 
     def test_resets_counters_and_phase_markers_by_assignment(self) -> None:
@@ -151,9 +197,14 @@ class ResetPrdFieldsTest(unittest.TestCase):
     def test_preserves_every_other_key_unchanged(self) -> None:
         result = records.reset_prd_fields(self.input_state)
         untouched_keys = {
-            "prd", "catchup_mode", "rework_cap", "doubt_reviewer",
-            "consensus_engine", "qwen_gate_failures_consecutive",
-            "qwen_breaker", "codex_probe",
+            "prd",
+            "catchup_mode",
+            "rework_cap",
+            "doubt_reviewer",
+            "consensus_engine",
+            "qwen_gate_failures_consecutive",
+            "qwen_breaker",
+            "codex_probe",
         }
         for key in untouched_keys:
             self.assertEqual(result[key], self.input_snapshot[key])
@@ -182,9 +233,13 @@ class RecordDeferTest(unittest.TestCase):
     def _deferred_path(self, batch_id: str) -> Path:
         return self.autopilot_dir / "deferred" / f"{batch_id}-deferred.json"
 
-    def test_creates_file_and_directory_with_skeleton_and_appends_first_record(self) -> None:
+    def test_creates_file_and_directory_with_skeleton_and_appends_first_record(
+        self,
+    ) -> None:
         result = records.record_defer(
-            self.autopilot_dir, "00004-feature-x.md", "202603161000",
+            self.autopilot_dir,
+            "00004-feature-x.md",
+            "202603161000",
             {"type": "stall", "site": "wrapper_died", "detail": "died mid-session"},
         )
         self.assertIsNone(result)
@@ -208,13 +263,22 @@ class RecordDeferTest(unittest.TestCase):
     def test_appends_to_existing_file_preserving_prior_items(self) -> None:
         path = self._deferred_path("b3")
         path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({
-            "batch_id": "b3",
-            "items": [{"prd": "00001-old.md", "type": "doubt", "issue": "existing"}],
-        }), encoding="utf-8")
+        path.write_text(
+            json.dumps(
+                {
+                    "batch_id": "b3",
+                    "items": [
+                        {"prd": "00001-old.md", "type": "doubt", "issue": "existing"}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
 
         records.record_defer(
-            self.autopilot_dir, "00002-new.md", "b3",
+            self.autopilot_dir,
+            "00002-new.md",
+            "b3",
             {"type": "stall", "site": "clarification"},
         )
 
@@ -231,7 +295,8 @@ class RecordDeferTest(unittest.TestCase):
         path = self._deferred_path("b4")
         path.parent.mkdir(parents=True)
         path.write_text(
-            json.dumps({"batch_id": "original-on-disk-id", "items": []}), encoding="utf-8"
+            json.dumps({"batch_id": "original-on-disk-id", "items": []}),
+            encoding="utf-8",
         )
 
         records.record_defer(self.autopilot_dir, "prd.md", "b4", {"type": "doubt"})
@@ -239,9 +304,13 @@ class RecordDeferTest(unittest.TestCase):
         content = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(content["batch_id"], "original-on-disk-id")
 
-    def test_stamps_prd_argument_even_when_record_already_carries_a_different_prd(self) -> None:
+    def test_stamps_prd_argument_even_when_record_already_carries_a_different_prd(
+        self,
+    ) -> None:
         records.record_defer(
-            self.autopilot_dir, "actual.md", "b5",
+            self.autopilot_dir,
+            "actual.md",
+            "b5",
             {"prd": "should-be-overwritten.md", "type": "doubt"},
         )
 
@@ -250,11 +319,15 @@ class RecordDeferTest(unittest.TestCase):
 
     def test_second_append_with_same_op_id_is_skipped(self) -> None:
         records.record_defer(
-            self.autopilot_dir, "00001-x.md", "b6",
+            self.autopilot_dir,
+            "00001-x.md",
+            "b6",
             {"op_id": "abc-123", "type": "stall", "detail": "first"},
         )
         records.record_defer(
-            self.autopilot_dir, "00002-y.md", "b6",
+            self.autopilot_dir,
+            "00002-y.md",
+            "b6",
             {"op_id": "abc-123", "type": "stall", "detail": "second-should-be-dropped"},
         )
 
@@ -272,8 +345,12 @@ class RecordDeferTest(unittest.TestCase):
         self.assertEqual(len(content["items"]), 2)
 
     def test_distinct_op_ids_both_land(self) -> None:
-        records.record_defer(self.autopilot_dir, "prd.md", "b8", {"op_id": "op-1", "type": "doubt"})
-        records.record_defer(self.autopilot_dir, "prd.md", "b8", {"op_id": "op-2", "type": "doubt"})
+        records.record_defer(
+            self.autopilot_dir, "prd.md", "b8", {"op_id": "op-1", "type": "doubt"}
+        )
+        records.record_defer(
+            self.autopilot_dir, "prd.md", "b8", {"op_id": "op-2", "type": "doubt"}
+        )
 
         content = json.loads(self._deferred_path("b8").read_text(encoding="utf-8"))
         self.assertEqual(len(content["items"]), 2)
@@ -283,7 +360,10 @@ class RecordDeferTest(unittest.TestCase):
     def test_file_remains_valid_json_after_several_appends(self) -> None:
         for i in range(5):
             records.record_defer(
-                self.autopilot_dir, f"prd-{i}.md", "b9", {"type": "doubt", "n": i}
+                self.autopilot_dir,
+                f"prd-{i}.md",
+                "b9",
+                {"type": "doubt", "n": i},
             )
 
         # Only json.load succeeding is asserted -- the contract explicitly
@@ -301,16 +381,33 @@ class SchemaResetParityTest(unittest.TestCase):
     anyone deciding how reset_prd_fields should treat it.
     """
 
-    RESET_BY_ASSIGNMENT = frozenset({
-        "phase", "next_phase", "phases_completed", "cycle",
-        "tasks_total", "tasks_completed", "replan_count",
-    })
+    RESET_BY_ASSIGNMENT = frozenset(
+        {
+            "phase",
+            "next_phase",
+            "phases_completed",
+            "cycle",
+            "tasks_total",
+            "tasks_completed",
+            "replan_count",
+        }
+    )
 
-    NOT_RESET = frozenset({
-        "prd", "batch", "catchup_mode", "rework_cap", "doubt_reviewer",
-        "consensus_engine", "qwen_gate_failures_consecutive", "qwen_breaker",
-        "codex_probe", "phase_guard", "thrash_halt",
-    })
+    NOT_RESET = frozenset(
+        {
+            "prd",
+            "batch",
+            "catchup_mode",
+            "rework_cap",
+            "doubt_reviewer",
+            "consensus_engine",
+            "qwen_gate_failures_consecutive",
+            "qwen_breaker",
+            "codex_probe",
+            "phase_guard",
+            "thrash_halt",
+        }
+    )
 
     @staticmethod
     def _parse_top_level_field_names() -> list:
@@ -325,7 +422,9 @@ class SchemaResetParityTest(unittest.TestCase):
                 start = i + 1
                 break
         if start is None:
-            raise AssertionError("'## Field Descriptions' heading not found in state-schema.md")
+            raise AssertionError(
+                "'## Field Descriptions' heading not found in state-schema.md"
+            )
 
         end = len(lines)
         for i in range(start, len(lines)):
@@ -348,7 +447,8 @@ class SchemaResetParityTest(unittest.TestCase):
     def test_parser_finds_a_sane_number_of_fields(self) -> None:
         names = self._parse_top_level_field_names()
         self.assertGreaterEqual(
-            len(names), 30,
+            len(names),
+            30,
             "field-name parser returned too few names -- a silent parse "
             "failure must not be able to green this test for free",
         )
@@ -358,13 +458,16 @@ class SchemaResetParityTest(unittest.TestCase):
         reset_removed = set(records.PER_PRD_RESET_FIELDS)
 
         for name in names:
-            count = sum((
-                name in reset_removed,
-                name in self.RESET_BY_ASSIGNMENT,
-                name in self.NOT_RESET,
-            ))
+            count = sum(
+                (
+                    name in reset_removed,
+                    name in self.RESET_BY_ASSIGNMENT,
+                    name in self.NOT_RESET,
+                )
+            )
             self.assertEqual(
-                count, 1,
+                count,
+                1,
                 f"schema field `{name}` is in {count} of the three reset "
                 f"buckets (removed / reset-by-assignment / not-reset); it "
                 f"needs an explicit reset decision",
