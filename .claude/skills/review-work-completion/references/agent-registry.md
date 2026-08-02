@@ -14,7 +14,7 @@ Frontmatter carries:
 |-----|----------|-------|
 | `name` | yes | Matches the filename stem. This is the dispatch name. |
 | `description` | yes | One line, ≤120 characters. It lands in the boot prefix, so length is a budget, not a style preference. |
-| `tools` | native lanes only | Omitted entirely for CLI-dispatched personas. |
+| `tools` | yes, every persona | **Never omit it.** An absent `tools` key does not mean "no tools" — the harness registers every file here as a native agent type, and one with no `tools` key inherits the full set, Edit and Write included. Absence is the hazard; the hygiene suite asserts presence. |
 | `model` | only when pinned | Eve pins `model: fable`. |
 
 The body below the frontmatter is the persona's system prompt.
@@ -29,7 +29,17 @@ the repo is not a reviewer (discovery 00092 must-have 5). Beyond that:
 | rita, cora, grace, toby, mallory, trent | `Read` | The diff arrives inline in the dispatch prompt; these lanes never hunt for code. `Read` covers the truncated-diff path. |
 | victor | `Read, Bash` | Explicitly told to check the surrounding code, not just the quoted finding. |
 | alice, blake, eve | `Read, Bash` | Each is instructed to find the code itself. |
-| bob, carl, quinn, pat | *(omitted)* | CLI-dispatched (codex / gemini / qwen / sonnet runners). The runner owns the tool policy, not this file. |
+| bob, quinn, pat | `Read` | CLI-dispatched, and each is read-only on its own lane: Bob's prompt forbids running commands outright, Quinn runs `-R --approved-only`, Pat is dispatched with no `-a`/`-y`. |
+| carl | `Read, Bash` | CLI-dispatched; documented as able to execute tests, linters and build commands. |
+
+**The CLI four still declare tools.** Their runner owns the tool policy on the
+CLI path and never reads this frontmatter — the consuming skill strips it and
+passes only the body. But the same files are registered as native agent types,
+so leaving `tools` off would make `bob`, `carl`, `quinn` and `pat` dispatchable
+with Edit and Write. Bob in particular has a documented native fallback (when
+codex is unavailable the same prompt runs on a Claude subagent), so this is not
+hypothetical. Declaring a set costs nothing on the CLI path and closes the
+native hole.
 
 **Deviation from the PRD, recorded deliberately.** PRD 00109 specifies
 `tools: Read` for native reviewers with "Victor alone adds Bash". That
@@ -75,20 +85,27 @@ Registry personas dispatch by name:
 - **CLI lanes** — the skill assembles persona body + substitutions into a
   prompt file and passes it to the runner with `-f`, unchanged.
 
-**On the `agentType` probe (PRD 00109 Phase 0, task 3).** The PRD gates the
-mechanism on a live probe workflow. That probe was NOT run. Two reasons, both
-recorded rather than worked around: newly created agent files are not visible
-to the Agent tool in the session that creates them (the registry is read at
-session start), and this session was instructed not to invoke the Workflow
-tool. The mechanism was instead settled documentarily: the Workflow tool's own
-contract states that `opts.agentType` is "resolved from the same registry as
-the Agent tool", and that registry is what `~/.claude/agents/` populates. That
-is a documented contract, not an observation. **Before relying on the workflow
-lane in anger, dispatch one registry agent by `agentType` from a fresh session
-and record the result here.** If it does not resolve, the decided fallback
-stands: the orchestrating skill reads the agent bodies at invocation and
-passes them through workflow args — either way no persona text lives in the
-workflow JS.
+**On the `agentType` probe (PRD 00109 Phase 0, task 3).** Half observed, half
+still open.
+
+*Observed:* writing these files registered all 14 as native agent types **in
+the same session that created them**, with their `tools` and `model` pins
+applied. The registry does not require a session restart. (An earlier draft of
+this note claimed the opposite; it was wrong, and the `tools`-key rule above
+exists because the live registration is what exposed the inherit-everything
+hazard.)
+
+*Still open:* whether a workflow's `opts.agentType` resolves a user-level
+persona. That was not probed — this session was instructed not to invoke the
+Workflow tool. It rests on the Workflow tool's own contract, which states
+`opts.agentType` is "resolved from the same registry as the Agent tool", and
+that registry is demonstrably the one `~/.claude/agents/` populates. That is a
+documented contract plus one observed half, not an end-to-end observation.
+**Before the workflow lane is relied on, dispatch one registry agent by
+`agentType` and record the result here.** If it does not resolve, the decided
+fallback stands: the orchestrating skill reads the agent bodies at invocation
+and passes them through workflow args — either way no persona text lives in
+the workflow JS.
 
 ## Fail-closed
 

@@ -1,6 +1,7 @@
 ---
 name: quinn
 description: Consensus reviewer (local qwen, advisory weight). Same implementation-aware review as Alice, never blind or doubt.
+tools: Read
 ---
 
 Read {CONTEXT_FILE} for review context, and {DIFF_FILE} for the full diff.
