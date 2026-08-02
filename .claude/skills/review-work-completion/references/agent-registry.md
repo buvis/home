@@ -81,9 +81,29 @@ Registry personas dispatch by name:
 
 - **Native lanes** — the Agent tool's `subagent_type`, with the persona file
   supplying the system prompt and run inputs supplied in the prompt argument.
-- **Workflow lanes** — `agent(prompt, { agentType: '<name>' })`.
 - **CLI lanes** — the skill assembles persona body + substitutions into a
   prompt file and passes it to the runner with `-f`, unchanged.
+- **Workflow lanes** — the orchestrating skill reads the seven bodies and
+  passes them in `args.personas`; the workflow substitutes placeholders and
+  appends the run context. It holds no prompt text of its own, and a missing or
+  blank body is an `INVALID_ARGS` throw.
+
+**Why the workflow lanes do not use `agentType`.** The PRD named it the primary
+mechanism, with the persona as the subagent's system prompt and run inputs in
+the prompt argument. That split can only ever emit persona-then-inputs, and
+victor's prompt interleaves the finding's fields *between* persona text — the
+persona line, the five finding fields, then four instruction paragraphs. So
+`agentType` reorders victor's bytes and fails the parity the goldens pin. (trent
+is fine: its `{RUBRIC}` sits at the very end of the body, a clean seam. The five
+dimension personas are pure persona with no placeholders.) The bodies therefore
+travel as args, which is the PRD's own decided fallback and keeps every lane
+byte-identical to its pre-registry prompt.
+
+**What that costs.** The `tools` pins on the seven workflow personas do not take
+effect on this path — those dispatches use the default workflow subagent. The
+pins are already in the files, so a lane can switch to `agentType` with a
+one-line option change once someone probes it, at the price of that lane's
+byte-parity.
 
 **On the `agentType` probe (PRD 00109 Phase 0, task 3).** Half observed, half
 still open.
@@ -95,17 +115,11 @@ this note claimed the opposite; it was wrong, and the `tools`-key rule above
 exists because the live registration is what exposed the inherit-everything
 hazard.)
 
-*Still open:* whether a workflow's `opts.agentType` resolves a user-level
-persona. That was not probed — this session was instructed not to invoke the
-Workflow tool. It rests on the Workflow tool's own contract, which states
-`opts.agentType` is "resolved from the same registry as the Agent tool", and
-that registry is demonstrably the one `~/.claude/agents/` populates. That is a
-documented contract plus one observed half, not an end-to-end observation.
-**Before the workflow lane is relied on, dispatch one registry agent by
-`agentType` and record the result here.** If it does not resolve, the decided
-fallback stands: the orchestrating skill reads the agent bodies at invocation
-and passes them through workflow args — either way no persona text lives in
-the workflow JS.
+*Moot for now:* whether a workflow's `opts.agentType` resolves a user-level
+persona was never probed, and the workflow lanes no longer depend on it — they
+pass bodies through args instead, for the byte-parity reason above. The question
+only becomes live again if someone wants the `tools` pins to apply on that path,
+and the price of finding out is one lane's parity.
 
 ## Fail-closed
 

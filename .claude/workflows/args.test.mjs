@@ -6,6 +6,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { pure, arr, invalidArgs, PURE_SYMBOLS } from "./_harness.mjs";
+
+// PRD 00109: persona bodies arrive through args, so every valid-args fixture
+// needs one per registry lane. The content is irrelevant to arg validation —
+// only presence and non-emptiness are checked here.
+const PERSONAS = Object.fromEntries(
+  ["rita", "cora", "grace", "toby", "mallory", "trent", "victor"].map((n) => [
+    n,
+    `${n} persona body\n`,
+  ]),
+);
+
 test("the pure region is present and every contracted symbol is defined", () => {
   const p = pure();
   for (const name of PURE_SYMBOLS) {
@@ -22,9 +33,33 @@ test("invalid arguments fail closed with an INVALID_ARGS error", () => {
     diff: "@@ -1 +1 @@\n+const a = 1;\n",
     rubric_text: "R1: no stubs\nR2: tests exist\n",
     diff_bytes: 32,
+    personas: PERSONAS,
   };
 
   assert.doesNotThrow(() => p.validateArgs(ok));
+
+  // Persona bodies are a hard requirement: the workflow holds no prompt text of
+  // its own, so a missing one would dispatch an empty reviewer, not a weaker one.
+  assert.throws(
+    () => p.validateArgs({ ...ok, personas: undefined }),
+    invalidArgs,
+    "missing personas",
+  );
+  assert.throws(
+    () => p.validateArgs({ ...ok, personas: ["rita"] }),
+    invalidArgs,
+    "personas as an array, not an object",
+  );
+  assert.throws(
+    () => p.validateArgs({ ...ok, personas: { ...PERSONAS, victor: undefined } }),
+    invalidArgs,
+    "one lane's body absent",
+  );
+  assert.throws(
+    () => p.validateArgs({ ...ok, personas: { ...PERSONAS, trent: "   " } }),
+    invalidArgs,
+    "one lane's body blank",
+  );
 
   assert.throws(() => p.validateArgs({ ...ok, diff: "" }), invalidArgs, "empty diff");
   assert.throws(() => p.validateArgs({ ...ok, diff: undefined }), invalidArgs, "missing diff");
@@ -81,6 +116,7 @@ test("args handed over as a JSON string are parsed, not rejected as an empty dif
     diff: "@@ -1 +1 @@\n+const a = 1;\n",
     rubric_text: "R1: no stubs\n",
     diff_bytes: 32,
+    personas: PERSONAS,
   };
 
   // The Workflow tool delivers `args` verbatim, and a caller that stringified it
@@ -142,6 +178,7 @@ test("validateArgs rejects a nonsense diff_bytes (NaN, Infinity, negative) as IN
   const ok = {
     diff: "@@ -1 +1 @@\n+const a = 1;\n",
     rubric_text: "R1: no stubs\n",
+    personas: PERSONAS,
   };
 
   assert.throws(() => p.validateArgs({ ...ok, diff_bytes: NaN }), invalidArgs, "NaN diff_bytes");

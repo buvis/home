@@ -16,6 +16,19 @@ const CELL_MAX = 200;
 
 const RUBRIC_IDS = ["R1", "R2", "R3", "R4", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13"];
 
+// The reviewer personas this workflow dispatches, by registry name (PRD 00109).
+// Their prompt text lives in ~/.claude/agents/<name>.md and arrives through
+// `args.personas`; none of it is written here. The five finding dimensions come
+// first, then the rubric and verify lanes.
+const DIMENSION_PERSONAS = [
+  { name: "requirements", persona: "rita" },
+  { name: "correctness", persona: "cora" },
+  { name: "quality", persona: "grace" },
+  { name: "tests", persona: "toby" },
+  { name: "security", persona: "mallory" },
+];
+const PERSONA_KEYS = [...DIMENSION_PERSONAS.map((d) => d.persona), "trent", "victor"];
+
 const SEVERITY_EMOJI = { CRITICAL: "🔴", HIGH: "🟠", MEDIUM: "🟡", LOW: "⚪" };
 const SEVERITY_RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
@@ -98,6 +111,31 @@ function validateArgs(a) {
   // Reject a non-array up front rather than under-arm the security dimension.
   if (a.changed_files != null && !Array.isArray(a.changed_files))
     bad("changed_files must be an array of paths (a string iterates characters and silently under-arms the security dimension)");
+  // PRD 00109: persona text lives in ~/.claude/agents/, never here. The caller
+  // reads each body (frontmatter stripped) and passes it through. A missing or
+  // blank body is INVALID_ARGS rather than a quietly weaker review — there is
+  // no fallback prompt anywhere in the registry contract.
+  if (a.personas === null || typeof a.personas !== "object" || Array.isArray(a.personas))
+    bad("personas is required: an object mapping persona name -> agent body (frontmatter stripped)");
+  for (const name of PERSONA_KEYS) {
+    if (typeof a.personas[name] !== "string" || a.personas[name].trim() === "")
+      bad(`personas.${name} is required and must be the non-empty body of agents/${name}.md`);
+  }
+}
+
+/** Substitute `{PLACEHOLDER}` spans in a persona body, then append the run
+ *  context. Mirrors the assembly the pre-registry prompts produced: the body
+ *  with its trailing newline trimmed, a blank line, then the context block.
+ *  Throws when a placeholder is left unfilled — a literal `{RUBRIC}` reaching a
+ *  reviewer is a silent quality failure, not a cosmetic one. */
+function assemblePersona(body, substitutions, contextBlock) {
+  let text = body;
+  for (const key of Object.keys(substitutions)) {
+    text = text.split(`{${key}}`).join(substitutions[key]);
+  }
+  const leftover = text.match(/\{[A-Z_]+\}/);
+  if (leftover) throw new Error(`INVALID_ARGS: unsubstituted placeholder ${leftover[0]}`);
+  return `${text.replace(/\s+$/, "")}\n\n${contextBlock}`;
 }
 
 /** `diff_bytes` is a real byte count (from `wc -c`); `.length` counts UTF-16 code
@@ -381,60 +419,6 @@ const VERDICT_SCHEMA = {
   properties: { refuted: { type: "boolean" }, reason: { type: "string" } },
 };
 
-const DIMENSIONS = [
-  {
-    name: "requirements",
-    checklist: [
-      "Implementation matches the task description; all acceptance criteria met.",
-      "No scope creep: features nobody asked for.",
-      "No missing pieces from the original task.",
-      'Every PRD "must have" requirement is addressed; no PRD section is left unimplemented.',
-      "Dependencies are handled; the success metrics are achievable with what shipped.",
-    ],
-  },
-  {
-    name: "correctness",
-    checklist: [
-      "Hunt logic bugs in the diff: off-by-one, wrong boundary, inverted condition, missing await, lost error.",
-      "Trace each changed function on its edge inputs (empty, one element, last element, null).",
-      "Error handling is explicit and never silently swallowed (R10).",
-      "The implementation matches the described behavior exactly (R9).",
-      "No debug statements, TODOs, stubs or placeholder markers remain (R11).",
-    ],
-  },
-  {
-    name: "quality",
-    checklist: [
-      "Reduce complexity: no needless indirection, dead branches, or abstractions built for a single caller; nesting <= 4; functions under 50 lines.",
-      "Eliminate redundancy: no logic duplicated within the diff or against existing code.",
-      "Improve naming: names state intent; action-named functions start with a verb.",
-      "Follow project standards (CLAUDE.md / AGENTS.md and the surrounding code); no dead code.",
-      "Documentation: public APIs documented, complex logic commented, breaking changes noted.",
-      "Flag behavior-preserving simplifications at MEDIUM. Never trade clarity for brevity, and never propose a change that alters behavior.",
-    ],
-  },
-  {
-    name: "tests",
-    checklist: [
-      "Unit tests for every new behavior; edge cases and error paths covered.",
-      "Integration tests where the change crosses a boundary.",
-      "Tests bind to intent, not just to observable behavior.",
-      "No skipped or xfail test masks a failure.",
-      "Tests actually run and pass.",
-    ],
-  },
-  {
-    name: "security",
-    checklist: [
-      "No hardcoded secrets.",
-      "Input validated and sanitized at every boundary.",
-      "No SQL or command injection risk.",
-      "Auth/authz correctly applied.",
-      "Sensitive data never logged.",
-    ],
-  },
-];
-
 const input = coerceArgs(args);
 validateArgs(input);
 
@@ -458,59 +442,35 @@ const context = [
   .filter(Boolean)
   .join("\n\n");
 
-const REPORTING_RULES = [
-  "Report only defects you can ground in the diff above. Do not speculate.",
-  "Every finding carries: title, severity (CRITICAL|HIGH|MEDIUM|LOW), file, and evidence — the exact snippet you are accusing, quoted from the diff.",
-  "Every CRITICAL or HIGH also carries a proof: why the code is REALLY broken (the input, the path, the consequence), not why it looks suspicious. A CRITICAL or HIGH without a proof is demoted to MEDIUM and stops blocking.",
-  "Add a fix (the concrete change) and a task id when you know them.",
-  "Report nothing at all rather than padding the list.",
-].join("\n");
-
+// Every prompt below is the registry persona plus this run's inputs. The
+// personas carry their own checklists, reporting rules and instructions; the
+// only thing assembled here is the substitution and the context block.
 const dimensionPrompt = (d) =>
-  [
-    `You are the ${d.name.toUpperCase()} reviewer of a completed change. Review ONLY through the ${d.name} lens.`,
-    "",
-    "Checklist:",
-    ...d.checklist.map((c) => `- ${c}`),
-    "",
-    REPORTING_RULES,
-    "",
-    context,
-  ].join("\n");
+  assemblePersona(input.personas[d.persona], {}, context);
 
-const rubricPrompt = [
-  "You are the RUBRIC reviewer of a completed change. Answer every rule below with pass or fail.",
-  "A rule you cannot confirm from the diff is a fail. Add a short note for every fail.",
-  "",
-  "## Rubric",
-  "",
-  input.rubric_text,
-  "",
+const rubricPrompt = assemblePersona(
+  input.personas.trent,
+  { RUBRIC: input.rubric_text },
   context,
-].join("\n");
+);
 
 const skepticPrompt = (f) =>
-  [
-    "You are an adversarial verifier. Another reviewer raised the finding below. Your job is to REFUTE it.",
-    "",
-    `Title: ${f.title}`,
-    `Severity: ${f.severity}`,
-    `File: ${f.file}${f.line ? `:${f.line}` : ""}`,
-    `Evidence: ${f.evidence}`,
-    `Claimed proof: ${f.proof || "(none)"}`,
-    "",
-    "Read the diff (and the surrounding code if you need it). Look for the guard, the caller, the constant, or the invariant that makes this finding wrong.",
-    "Return refuted: true unless you can CONFIRM the defect is real from the code itself. Uncertainty refutes: if you cannot show the broken path, the finding does not survive.",
-    "Return refuted: false only when you can restate the concrete failing input and its consequence.",
-    "The reason field states, in one sentence, what refuted or confirmed it.",
-    "",
+  assemblePersona(
+    input.personas.victor,
+    {
+      FINDING_TITLE: f.title,
+      FINDING_SEVERITY: f.severity,
+      FINDING_FILE: `${f.file}${f.line ? `:${f.line}` : ""}`,
+      FINDING_EVIDENCE: f.evidence,
+      FINDING_PROOF: f.proof || "(none)",
+    },
     context,
-  ].join("\n");
+  );
 
 phase("Review");
 
 const armed = securityTriggered(input.diff, input.changed_files);
-const dims = DIMENSIONS.filter((d) => d.name !== "security" || armed);
+const dims = DIMENSION_PERSONAS.filter((d) => d.name !== "security" || armed);
 log(`review-fanout: ${dims.length} finding dimensions + rubric${armed ? " (security armed)" : ""}`);
 
 const dimResults = await parallel([
