@@ -53,7 +53,8 @@ from pathlib import Path
 
 VERDICT_RE = re.compile(r"^Verdict: (converged|\d+ findings?)\s*$", re.MULTILINE)
 TESTS_RE = re.compile(
-    r"^Tests: (\d+ passed.*|none \(docs-only\))\s*$", re.MULTILINE
+    r"^Tests: (\d+ passed.*|none \(docs-only\))\s*$",
+    re.MULTILINE,
 )
 CODEX_RUNG_GUARD_RE = re.compile(
     r"^codex_rung_guard: ("
@@ -92,7 +93,9 @@ def reviewer_section_nonempty(lines: list[str], name: str) -> bool:
 
 
 def check(
-    text: str, reviewers: list[str], require_codex_guard: bool = False
+    text: str,
+    reviewers: list[str],
+    require_codex_guard: bool = False,
 ) -> str | None:
     """Return a one-line gap description, or None when the shape holds."""
     lines = text.splitlines()
@@ -100,7 +103,9 @@ def check(
         if not reviewer_section_nonempty(lines, reviewer):
             return f"reviewer section missing or empty: {reviewer}"
     if not VERDICT_RE.search(text):
-        return "no verdict line (expected 'Verdict: converged' or 'Verdict: N findings')"
+        return (
+            "no verdict line (expected 'Verdict: converged' or 'Verdict: N findings')"
+        )
     if not TESTS_RE.search(text):
         return "no tests line (expected 'Tests: N passed ...' or 'Tests: none (docs-only)')"
     if require_codex_guard:
@@ -167,7 +172,7 @@ def main() -> int:
         # Fail open: infra error, not a coverage gap. Loud, never silent.
         sys.stderr.write(
             f"check_review_file: cannot read {args.review_file} ({exc}); "
-            "allowing hand-off (infrastructure error, not a coverage gap)\n"
+            "allowing hand-off (infrastructure error, not a coverage gap)\n",
         )
         return 0
 
@@ -175,9 +180,7 @@ def main() -> int:
         reviewers = [r for r in args.reviewers.split(",") if r.strip()]
     else:
         match = FRONTMATTER_REVIEWERS_RE.search(text)
-        reviewers = (
-            [r for r in match.group(1).split(",") if r.strip()] if match else []
-        )
+        reviewers = [r for r in match.group(1).split(",") if r.strip()] if match else []
 
     gap = check(text, reviewers, args.require_codex_guard)
     if gap is not None:
@@ -186,7 +189,7 @@ def main() -> int:
 
     if args.assert_constraint_met and CONSTRAINT_UNMET_RE.search(text):
         sys.stderr.write(
-            "codex_rung_guard: constraint UNMET; doubt-roster constraint not certified\n"
+            "codex_rung_guard: constraint UNMET; doubt-roster constraint not certified\n",
         )
         return 2
     return 0

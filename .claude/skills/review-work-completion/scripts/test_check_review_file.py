@@ -57,7 +57,9 @@ Tests: 34 passed, 0 failed, 1 skipped
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args], capture_output=True, text=True
+        [sys.executable, str(SCRIPT), *args],
+        capture_output=True,
+        text=True,
     )
 
 
@@ -87,8 +89,9 @@ class CheckReviewFileTests(unittest.TestCase):
     def test_docs_only_tests_line_exit_0(self) -> None:
         p = self._write(
             GOOD_FILE.replace(
-                "Tests: 34 passed, 0 failed, 1 skipped", "Tests: none (docs-only)"
-            )
+                "Tests: 34 passed, 0 failed, 1 skipped",
+                "Tests: none (docs-only)",
+            ),
         )
         proc = run_cli(["--review-file", str(p), "--reviewers", "alice,bob"])
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -118,7 +121,7 @@ class CheckReviewFileTests(unittest.TestCase):
 
     def test_missing_tests_line_exit_1(self) -> None:
         p = self._write(
-            GOOD_FILE.replace("Tests: 34 passed, 0 failed, 1 skipped\n", "")
+            GOOD_FILE.replace("Tests: 34 passed, 0 failed, 1 skipped\n", ""),
         )
         proc = run_cli(["--review-file", str(p), "--reviewers", "alice"])
         self.assertEqual(proc.returncode, 1)
@@ -151,7 +154,8 @@ class CheckReviewFileTests(unittest.TestCase):
     def test_frontmatter_reviewers_fallback_catches_gap(self) -> None:
         # frontmatter names bob, but his section is gone → exit 1
         text = GOOD_FILE.replace(
-            "## Bob\n\nFIX:\n- (none)\nR1: pass\nR2: pass\n", ""
+            "## Bob\n\nFIX:\n- (none)\nR1: pass\nR2: pass\n",
+            "",
         )
         p = self._write(text)
         proc = run_cli(["--review-file", str(p)])
@@ -168,20 +172,19 @@ class CheckReviewFileTests(unittest.TestCase):
             GOOD_FILE.replace(
                 "codex_rung_guard: not fired",
                 "codex_rung_guard: fired (3 codex-implemented task(s))",
-            )
-            .replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
+            ).replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
             + "\n## Eve\n\nNo constraint issues found; doubt lens confirmed.\n"
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_codex_rung_guard_not_fired_form_passes(self) -> None:
         p = self._write(GOOD_FILE)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -191,7 +194,7 @@ class CheckReviewFileTests(unittest.TestCase):
         text += "\ncodex_rung_guard: not fired\n"
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -199,7 +202,7 @@ class CheckReviewFileTests(unittest.TestCase):
         text = GOOD_FILE.replace("codex_rung_guard: not fired\n\n", "")
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
         self.assertIn("codex_rung_guard", proc.stderr.lower())
@@ -211,7 +214,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -222,17 +225,18 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
     def test_codex_rung_guard_bare_fired_no_parenthetical_exit_1(self) -> None:
         text = GOOD_FILE.replace(
-            "codex_rung_guard: not fired", "codex_rung_guard: fired"
+            "codex_rung_guard: not fired",
+            "codex_rung_guard: fired",
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -243,17 +247,18 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
     def test_codex_rung_guard_wrong_key_casing_exit_1(self) -> None:
         text = GOOD_FILE.replace(
-            "codex_rung_guard: not fired", "Codex_Rung_Guard: not fired"
+            "codex_rung_guard: not fired",
+            "Codex_Rung_Guard: not fired",
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -277,7 +282,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -288,7 +293,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -303,7 +308,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -315,7 +320,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -331,7 +336,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -344,7 +349,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 1)
         self.assertIn("eve", proc.stderr.lower())
@@ -354,13 +359,12 @@ class CheckReviewFileTests(unittest.TestCase):
             GOOD_FILE.replace(
                 "codex_rung_guard: not fired",
                 "codex_rung_guard: fired (3 codex-implemented task(s))",
-            )
-            .replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
+            ).replace("reviewers: alice,blake,bob", "reviewers: alice,blake,bob,eve")
             + "\n## Eve\n\nNo constraint issues found; doubt lens confirmed.\n"
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -377,7 +381,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -396,7 +400,7 @@ class CheckReviewFileTests(unittest.TestCase):
         )
         p = self._write(text)
         proc = run_cli(
-            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"]
+            ["--review-file", str(p), "--reviewers", "alice", "--require-codex-guard"],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -414,7 +418,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         # Guard against a false pass: argparse's own "unrecognized arguments"
         # error also exits non-zero, so a bare assertNotEqual(0) would pass
@@ -439,7 +443,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         # Same false-pass guard as above: code 2 must come from the
         # constraint check, not from argparse rejecting an unknown flag.
@@ -456,7 +460,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -484,7 +488,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -505,7 +509,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -526,7 +530,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         self.assertEqual(proc.returncode, 1)
 
@@ -546,7 +550,7 @@ class CheckReviewFileTests(unittest.TestCase):
                 "alice",
                 "--require-codex-guard",
                 "--assert-constraint-met",
-            ]
+            ],
         )
         self.assertEqual(proc.returncode, 1)
 
