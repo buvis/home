@@ -47,6 +47,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -270,7 +271,8 @@ def empty_old_trash(store: Path, now: float, days: float) -> int:
     return removed
 
 
-def process_store(label: str, store: Path, args, now: float) -> dict:
+def process_store(label: str, store: Path, args, now: float,
+                  engram_path: str | None) -> dict:
     live, done = prd_numbers(store)
     batch = time.strftime("%Y-%m-%d", time.localtime(now))
     trash_counts: Counter = Counter()
@@ -285,9 +287,27 @@ def process_store(label: str, store: Path, args, now: float) -> dict:
             trash_counts[rule] += 1
             trashed.append((rule, rel.as_posix()))
             if args.apply:
-                if len(rel.parts) > 1 and rel.parts[0] == "reviews" and rel.suffix == ".md":
-                    harvest_review_verdicts(store, rel, now)
-                trash_file(store, rel, rule, batch)
+                is_review_md = (len(rel.parts) > 1 and rel.parts[0] == "reviews"
+                                and rel.suffix == ".md")
+                harvested_ok = True
+                if is_review_md and engram_path is not None:
+                    try:
+                        result = subprocess.run(
+                            [engram_path, "harvest", str(store / rel)],
+                            capture_output=True, text=True, timeout=300,
+                        )
+                        harvested_ok = result.returncode == 0
+                        detail = (result.stdout + result.stderr).strip()
+                    except (OSError, subprocess.TimeoutExpired) as e:
+                        harvested_ok = False
+                        detail = str(e)
+                    if not harvested_ok:
+                        print(f"  WARN harvest failed for {rel.as_posix()}, "
+                              f"not trashing this run: {detail}")
+                if is_review_md and harvested_ok:
+                    harvest_review_verdicts(store, rel, now)  # unchanged, fire-and-forget
+                if harvested_ok:
+                    trash_file(store, rel, rule, batch)
         elif action == "flag":
             flags.append((rule, rel.as_posix()))
         elif rule.startswith("fresh:"):
@@ -344,9 +364,13 @@ def main(argv=None) -> int:
                 return 2
             stores[str(p)] = resolve_store(p)
 
+    engram_path = shutil.which("engram")
+    if engram_path is None:
+        print("WARN: engram not on PATH; skipping harvest pre-trash sweep this run")
+
     totals = Counter()
     for label, store in stores.items():
-        for k, v in process_store(label, store, args, now).items():
+        for k, v in process_store(label, store, args, now, engram_path).items():
             totals[k] += v
     mode = "APPLIED" if args.apply else "DRY-RUN (use --apply)"
     print(f"{mode}: trash={totals['trash']} flags={totals['flags']} "
