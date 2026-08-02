@@ -113,6 +113,15 @@ rules:
         description: Allow sourcing the development bash plugin
   - command: development.plugin.bash
     default: allow
+  # Plugin release script (dev/bin/release). Bare `patch` is the routine bump;
+  # minor/major still ask, since they signal a deliberate API-level change.
+  - command: release
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ['^patch$']
+        decision: allow
+        description: Allow the routine patch release bump
   # Git: allow most ops, ask for dangerous ones
   - command: git
     default: allow
