@@ -53,7 +53,7 @@ def _sample_state(**overrides) -> dict:
         "deferred_decisions": [{"cycle": 1, "issue": "y"}],
         "review_cycles": [{"cycle": 1, "review_file": "r.md"}],
         "doubts": [{"description": "z"}],
-        "doubts_rubric_verdicts": [{"rule_id": "R1", "verdict": "pass"}],
+        "doubts_rubric_verdicts": [{"rule_id": "D1", "verdict": "pass"}],
         "rework_task_ids": ["t3"],
         "work_start_sha": "abc123",
         "design_doc": "dev/local/designs/00004-x-design.md",

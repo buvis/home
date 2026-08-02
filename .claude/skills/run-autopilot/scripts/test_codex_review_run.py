@@ -353,12 +353,12 @@ class ExitContractTests(unittest.TestCase):
             ap.mkdir(parents=True)
             body = ("printf '%s\\n' "
                     "'{\"msg\":{\"type\":\"agent_message\",\"message\":"
-                    "\"FIX:\\n- none\\nR1: pass\"}}'\nexit 0")
+                    "\"FIX:\\n- none\\nD1: pass\"}}'\nexit 0")
             rc = self._run_with_fake_codex(body, cwd=Path(work))
             self.assertEqual(rc, 0)
             out = ap / "codex-review-output.md"
             self.assertTrue(out.exists())
-            self.assertIn("R1: pass", out.read_text())
+            self.assertIn("D1: pass", out.read_text())
 
     def test_codex_stdin_is_devnull(self) -> None:
         """codex reads stdin IN ADDITION to its prompt arg — an inherited

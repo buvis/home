@@ -321,4 +321,4 @@ Rows 1–8 are the PRD 00066 Success-Metrics list; rows 9–10 are the two syste
 - `references/dashboard-format.md` — live dashboard via tracon (render_stream fallback)
 - `references/batch-report-format.md` — batch audit report format
 - `references/audit-log-format.md` — audit entry format, render procedure, decisions.md projection
-- `references/doubt-review-rubric.md` — Bob's doubt-lens rubric (R1-R5)
+- `references/doubt-review-rubric.md` — Bob's doubt-lens rubric (D1-D5)

@@ -45,6 +45,6 @@ OUTPUT FORMAT IS MANDATORY. Follow exactly:
 {OUTPUT_FORMAT}
 
 PER-RULE VERDICTS ARE MANDATORY. For every rule in The Rubric above, emit one line:
-R{n}: pass   or   R{n}: fail
+B{n}: pass   or   B{n}: fail
 (one rule per line, no other text on the line, no rationale; a rule you
 cannot evaluate counts as fail; never omit the line; never renumber).

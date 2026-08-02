@@ -68,20 +68,20 @@ If a bucket is empty, write the header and `- (none)`.
 
 Apply the doubt-review rubric. A rule you cannot evaluate is `fail`; never omit
 a line.
-- R1: every residual finding is in exactly one of FIX/VERIFY/KNOWN.
-- R2: all FIX items are genuinely fixable now (bounded, in-scope, actionable).
-- R3: all VERIFY items name the exact check needed (not vague).
-- R4: all KNOWN items carry a written out-of-scope justification.
-- R5: input finding count equals FIX + VERIFY + KNOWN counts.
+- D1: every residual finding is in exactly one of FIX/VERIFY/KNOWN.
+- D2: all FIX items are genuinely fixable now (bounded, in-scope, actionable).
+- D3: all VERIFY items name the exact check needed (not vague).
+- D4: all KNOWN items carry a written out-of-scope justification.
+- D5: input finding count equals FIX + VERIFY + KNOWN counts.
 
 Emit exactly:
 
 ```
-R1: pass|fail
-R2: pass|fail
-R3: pass|fail
-R4: pass|fail
-R5: pass|fail
+D1: pass|fail
+D2: pass|fail
+D3: pass|fail
+D4: pass|fail
+D5: pass|fail
 ```
 
 Do not modify any files. This is a review only — produce findings and the
