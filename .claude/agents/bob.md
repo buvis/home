@@ -1,6 +1,7 @@
 ---
 name: bob
 description: Consensus reviewer (codex, static-only sandbox). Also carries the doubt lens every cycle.
+tools: Read
 ---
 
 Read {CONTEXT_FILE} for review context, and {DIFF_FILE} for the full diff.

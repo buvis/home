@@ -23,16 +23,18 @@ CONSENSUS = ("alice", "bob", "carl", "quinn")
 DIMENSIONS = ("rita", "cora", "grace", "toby", "mallory")
 ROSTER = CONSENSUS + ("blake", "eve") + DIMENSIONS + ("trent", "victor", "pat")
 
-# CLI-dispatched personas: the runner owns the tool policy, so they carry no
-# `tools` key at all (agent-registry.md § Tool sets).
-CLI_DISPATCHED = ("bob", "carl", "quinn", "pat")
+# bob, carl, quinn and pat are CLI-dispatched, and their runner owns the tool
+# policy on that path (it never reads this frontmatter). They still declare a
+# set, because every registry file is ALSO registered as a native agent type,
+# where an absent `tools` key means "inherit everything" — Edit and Write
+# included. They are classified in the two groups below like everyone else.
 
 # Read-only lanes: the diff arrives inline, they never hunt for code.
-READ_ONLY = DIMENSIONS + ("trent",)
+READ_ONLY = DIMENSIONS + ("trent", "bob", "quinn", "pat")
 
 # Lanes that must locate code themselves. Grep/Glob are unregistered in this
 # build, so searching means `rg` via Bash — see agent-registry.md § Tool sets.
-READ_AND_BASH = ("alice", "blake", "eve", "victor")
+READ_AND_BASH = ("alice", "blake", "eve", "victor", "carl")
 
 DESCRIPTION_MAX = 120
 
@@ -56,7 +58,9 @@ def _parse(name: str) -> tuple[dict[str, str], str]:
 @pytest.fixture(scope="module")
 def registry() -> dict[str, tuple[dict[str, str], str]]:
     if not AGENTS_DIR.is_dir():
-        pytest.fail(f"{AGENTS_DIR} does not exist; the registry is the PRD's deliverable")
+        pytest.fail(
+            f"{AGENTS_DIR} does not exist; the registry is the PRD's deliverable"
+        )
     return {name: _parse(name) for name in ROSTER}
 
 
@@ -73,13 +77,17 @@ def test_roster_is_exactly_fourteen() -> None:
 def test_registry_holds_no_unexpected_agents(registry) -> None:
     # A stray file still costs boot prefix and can shadow a dispatch name.
     on_disk = {path.stem for path in AGENTS_DIR.glob("*.md")}
-    assert on_disk == set(ROSTER), f"unexpected agent files: {sorted(on_disk - set(ROSTER))}"
+    assert on_disk == set(ROSTER), (
+        f"unexpected agent files: {sorted(on_disk - set(ROSTER))}"
+    )
 
 
 @pytest.mark.parametrize("name", ROSTER)
 def test_name_field_matches_the_filename(registry, name: str) -> None:
     fields, _ = registry[name]
-    assert fields.get("name") == name, f"{name}.md declares name: {fields.get('name')!r}"
+    assert fields.get("name") == name, (
+        f"{name}.md declares name: {fields.get('name')!r}"
+    )
 
 
 @pytest.mark.parametrize("name", ROSTER)
@@ -95,19 +103,27 @@ def test_description_is_present_and_within_the_boot_budget(registry, name: str) 
 
 
 @pytest.mark.parametrize("name", ROSTER)
+def test_every_persona_declares_a_tool_set(registry, name: str) -> None:
+    # An absent `tools` key does NOT mean "no tools" — the harness registers
+    # every file here as a native agent type, and a file with no `tools` key
+    # inherits the full set, Edit and Write included. Absence is the hazard,
+    # so presence is the assertion.
+    fields, _ = registry[name]
+    assert "tools" in fields, (
+        f"{name}.md declares no tools; a registered agent with no `tools` key "
+        f"inherits every tool, including Edit and Write"
+    )
+
+
+@pytest.mark.parametrize("name", ROSTER)
 def test_no_reviewer_can_modify_the_repo(registry, name: str) -> None:
     fields, _ = registry[name]
     tools = fields.get("tools", "")
+    assert tools, f"{name}.md declares no tools, so it inherits mutating ones"
     for forbidden in ("Edit", "Write", "NotebookEdit"):
-        assert forbidden not in tools, f"{name}.md grants {forbidden}; reviewers never mutate"
-
-
-@pytest.mark.parametrize("name", CLI_DISPATCHED)
-def test_cli_personas_declare_no_tools(registry, name: str) -> None:
-    fields, _ = registry[name]
-    assert "tools" not in fields, (
-        f"{name}.md is CLI-dispatched; the runner owns its tool policy"
-    )
+        assert forbidden not in tools, (
+            f"{name}.md grants {forbidden}; reviewers never mutate"
+        )
 
 
 @pytest.mark.parametrize("name", READ_ONLY)
@@ -115,6 +131,15 @@ def test_inline_diff_lanes_are_read_only(registry, name: str) -> None:
     fields, _ = registry[name]
     assert fields.get("tools") == "Read", (
         f"{name}.md receives its diff inline and must stay Read-only"
+    )
+
+
+def test_every_persona_is_classified_by_tool_set() -> None:
+    # A new persona added to ROSTER but to neither tool-set group would slip
+    # past both assertions above and go unchecked.
+    classified = set(READ_ONLY) | set(READ_AND_BASH)
+    assert classified == set(ROSTER), (
+        f"unclassified personas: {sorted(set(ROSTER) - classified)}"
     )
 
 
@@ -153,8 +178,12 @@ def test_placeholders_are_declared_in_the_conventions(registry) -> None:
     """Every {PLACEHOLDER} a persona uses must be documented, or a consuming
     skill will have nothing telling it what to substitute."""
     conventions = (
-        Path.home() / ".claude" / "skills" / "review-work-completion"
-        / "references" / "agent-registry.md"
+        Path.home()
+        / ".claude"
+        / "skills"
+        / "review-work-completion"
+        / "references"
+        / "agent-registry.md"
     ).read_text(encoding="utf-8")
     used: set[str] = set()
     for name in ROSTER:
