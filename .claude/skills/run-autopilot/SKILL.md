@@ -122,7 +122,14 @@ A running headless turn is never interrupted except by the wrapper's wall-clock 
 
 Run this hydration **before any phase invokes `/work` or queries TaskList for routing** — specifically: Phase 2 (before the skip-rule check), Phase 3 (before `/work`), Phase 6 (before rework `/work`).
 
-**Load if empty.** Query `TaskList`. If it returns **any** tasks, no-op (already populated this session). Otherwise read `state.tasks` from `dev/local/autopilot/state.json`; if absent or empty, no-op (nothing to hydrate). Otherwise, for each entry **in declared order** (do NOT reorder), `TaskCreate(subject: name)`, passing `model` / `estimated_tokens` / `est_context_peak` / `attempts` / `qwen_eligible` / `qwen_excluded_reason` straight through as `metadata` when present — `/work` reads `metadata.model` (PRD 00025) and `metadata.qwen_eligible` (PRD 00031/00019); the rest keep the round-trip lossless. `TaskCreate` assigns ids sequentially from 1, aligning with `state.tasks[].id` by construction. Then `TaskUpdate(status: ...)` each entry to its recorded status (`in_progress` / `completed`; `pending` is the `TaskCreate` default, skip it). The `attempts` array round-trips as-is — the hydration never inspects its rows, so any per-attempt field (`implementor`, `preflight_outcome`, `self_deslop`, future fields) survives the snapshot → hydration → `TaskGet` cycle intact.
+**Load if empty.** Query `TaskList`. If it returns **any** tasks, no-op (already populated this session). Otherwise read `state.tasks` from `dev/local/autopilot/state.json`; if absent or empty, no-op (nothing to hydrate). Otherwise hydrate in **two batched turns**:
+
+1. **One message containing every `TaskCreate` call**, in declared order (do NOT reorder), each `TaskCreate(subject: name)` passing `model` / `estimated_tokens` / `est_context_peak` / `attempts` / `qwen_eligible` / `qwen_excluded_reason` straight through as `metadata` when present — `/work` reads `metadata.model` (PRD 00025) and `metadata.qwen_eligible` (PRD 00031/00019); the rest keep the round-trip lossless. `TaskCreate` assigns ids sequentially from 1, aligning with `state.tasks[].id` by construction — **call order within the batch is what preserves that alignment**, so emit them in array order.
+2. **One message containing every status `TaskUpdate`**, setting each entry to its recorded status (`in_progress` / `completed`; `pending` is the `TaskCreate` default, skip it).
+
+**Batch them — do not issue one call per turn.** These are independent calls with no data dependency between them, so they belong in one message each. Issued serially they cost one full model round trip per task, measured at 10 `TaskCreate` turns plus ~7 `TaskUpdate` turns in *every* build session of a 10-task PRD (2026-08-02 engram analysis) — pure repeated overhead against a `SOFT_CAP` that decides how many tasks a session can hold.
+
+The `attempts` array round-trips as-is — the hydration never inspects its rows, so any per-attempt field (`implementor`, `preflight_outcome`, `self_deslop`, future fields) survives the snapshot → hydration → `TaskGet` cycle intact.
 
 **Idempotency:** if a phase re-enters this sub-step on the same session (e.g. Phase 6 after Phase 3), the TaskList-non-empty check short-circuits. Safe to call as a precondition on every `/work` entry point.
 
@@ -189,8 +196,12 @@ Batch end is NOT a handoff: it writes `phase: "done"` + `next_phase: ""` (the wr
 
 Within-session compaction can drop this skill's text mid-procedure, after which the session drifts off-contract with nothing to re-anchor it. To survive that, **at each gate transition write a compact contract card** — the current step, the active invariants, and the next gate:
 
-- **Autopilot (state.json world):** write it via statectl to `state.contract_card` (one `set`), in the same handoff write that advances `phase`/`next_phase`. Keep it a few lines: `step: <phase/step> | invariants: <the 2-3 that bind right now> | next: <the next gate + its precondition>`.
-- **Interactive (no state.json):** write the same card to the scratch file `dev/local/autopilot/contract-card.md` (Write tool).
+- **Autopilot (state.json world):** write the body to `dev/local/autopilot/contract-card.md` with the **Write tool**, then load it with one call:
+  ```bash
+  python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set-contract-card dev/local/autopilot/contract-card.md
+  ```
+  Keep it a few lines: `step: <phase/step> | invariants: <the 2-3 that bind right now> | next: <the next gate + its precondition>`. **Never pass the card as an inline shell argument** — it carries quotes, newlines and `$`, and the inline `set contract_card '<string>'` form failed three consecutive times on quoting in a real build session (2026-08-02, engram session 6).
+- **Interactive (no state.json):** the file write above is the whole step; skip the statectl call.
 
 `reinject_contract_card.py` is a SessionStart hook **matched to `compact` only** (startup/resume/clear stay unmatched, so there is no standing token cost); after a compaction it reads the card back and re-injects it as additionalContext. `/work` (task-boundary transitions) and `/review-work-completion` (cycle transitions) write their own cards the same way — `contract_card` in `references/state-schema.md`.
 
