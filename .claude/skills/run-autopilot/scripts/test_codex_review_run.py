@@ -37,7 +37,7 @@ class SummarizeEventTests(unittest.TestCase):
 
     def test_reasoning_delta_event_is_silent(self) -> None:
         summary, show = dr.summarize_event(
-            {"type": "agent_reasoning_delta", "text": "thinking"}
+            {"type": "agent_reasoning_delta", "text": "thinking"},
         )
         self.assertFalse(show)
 
@@ -45,8 +45,12 @@ class SummarizeEventTests(unittest.TestCase):
         """A command-begin event names the command so a long `cargo test`
         is visible as the thing codex is blocked on."""
         summary, show = dr.summarize_event(
-            {"msg": {"type": "exec_command_begin",
-                     "command": ["bash", "-lc", "cargo test --workspace"]}}
+            {
+                "msg": {
+                    "type": "exec_command_begin",
+                    "command": ["bash", "-lc", "cargo test --workspace"],
+                }
+            },
         )
         self.assertTrue(show)
         self.assertIn("running:", summary)
@@ -54,8 +58,13 @@ class SummarizeEventTests(unittest.TestCase):
 
     def test_exec_command_end_reports_exit_code(self) -> None:
         summary, show = dr.summarize_event(
-            {"msg": {"type": "exec_command_end",
-                     "command": "cargo clippy", "exit_code": 0}}
+            {
+                "msg": {
+                    "type": "exec_command_end",
+                    "command": "cargo clippy",
+                    "exit_code": 0,
+                }
+            },
         )
         self.assertTrue(show)
         self.assertIn("ran:", summary)
@@ -65,15 +74,17 @@ class SummarizeEventTests(unittest.TestCase):
         """The newer `{"type": "item.*", "item": {...}}` envelope is
         unwrapped the same as the `msg` envelope."""
         summary, show = dr.summarize_event(
-            {"type": "item.started",
-             "item": {"type": "command_execution", "command": "ls -la"}}
+            {
+                "type": "item.started",
+                "item": {"type": "command_execution", "command": "ls -la"},
+            },
         )
         self.assertTrue(show)
         self.assertIn("ls -la", summary)
 
     def test_error_event_is_flagged(self) -> None:
         summary, show = dr.summarize_event(
-            {"msg": {"type": "error", "message": "sandbox denied write"}}
+            {"msg": {"type": "error", "message": "sandbox denied write"}},
         )
         self.assertTrue(show)
         self.assertIn("error", summary.lower())
@@ -81,7 +92,7 @@ class SummarizeEventTests(unittest.TestCase):
 
     def test_agent_message_renders_text(self) -> None:
         summary, show = dr.summarize_event(
-            {"msg": {"type": "agent_message", "message": "Removed 2 dead fns"}}
+            {"msg": {"type": "agent_message", "message": "Removed 2 dead fns"}},
         )
         self.assertTrue(show)
         self.assertIn("Removed 2 dead fns", summary)
@@ -92,7 +103,7 @@ class SummarizeEventTests(unittest.TestCase):
 
     def test_patch_event_names_the_file(self) -> None:
         summary, show = dr.summarize_event(
-            {"msg": {"type": "patch_apply", "path": "src/lib.rs"}}
+            {"msg": {"type": "patch_apply", "path": "src/lib.rs"}},
         )
         self.assertTrue(show)
         self.assertIn("src/lib.rs", summary)
@@ -155,32 +166,51 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
 
     def test_collects_two_qwen_completed_task_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    {"id": "1", "attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                    {"id": "2", "attempts": [
-                        {"implementor": "claude", "outcome": "completed"},
-                    ]},
-                    {"id": "3", "attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        {
+                            "id": "1",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ],
+                        },
+                        {
+                            "id": "2",
+                            "attempts": [
+                                {"implementor": "claude", "outcome": "completed"},
+                            ],
+                        },
+                        {
+                            "id": "3",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ],
+                        },
+                    ],
+                },
+            )
             self.assertEqual(
-                dr._collect_qwen_task_ids(autopilot_dir), ["1", "3"]
+                dr._collect_qwen_task_ids(autopilot_dir),
+                ["1", "3"],
             )
 
     def test_returns_empty_when_no_qwen_completions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    {"id": "1", "attempts": [
-                        {"implementor": "claude", "outcome": "completed"},
-                    ]},
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        {
+                            "id": "1",
+                            "attempts": [
+                                {"implementor": "claude", "outcome": "completed"},
+                            ],
+                        },
+                    ],
+                },
+            )
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
 
     def test_excludes_qwen_aborted_attempts(self) -> None:
@@ -197,14 +227,20 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
         the cleanup of any residual qwen code still happens via the
         diff-wide pass."""
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    {"id": "1", "attempts": [
-                        {"implementor": "qwen", "outcome": "aborted"},
-                        {"implementor": "claude", "outcome": "completed"},
-                    ]},
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        {
+                            "id": "1",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "aborted"},
+                                {"implementor": "claude", "outcome": "completed"},
+                            ],
+                        },
+                    ],
+                },
+            )
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), [])
 
     def test_one_entry_per_task_even_with_multiple_qwen_completions(self) -> None:
@@ -212,14 +248,20 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
         task. Two completed qwen attempts on one task would otherwise yield
         the same id twice and inflate the QWEN_TASK_IDS hint."""
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    {"id": "1", "attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        {
+                            "id": "1",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ],
+                        },
+                    ],
+                },
+            )
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["1"])
 
     def test_handles_null_tasks_field(self) -> None:
@@ -235,27 +277,39 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
         or an array) must not crash — best-effort de-slop never breaks
         the loop."""
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    {"id": "1", "attempts": None},
-                    {"id": "2", "attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        {"id": "1", "attempts": None},
+                        {
+                            "id": "2",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ],
+                        },
+                    ],
+                },
+            )
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["2"])
 
     def test_skips_non_dict_task_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    "garbage",
-                    {"id": "1", "attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                    None,
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        "garbage",
+                        {
+                            "id": "1",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ],
+                        },
+                        None,
+                    ],
+                },
+            )
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["1"])
 
     def test_skips_qwen_attempt_with_missing_task_id(self) -> None:
@@ -263,16 +317,24 @@ class CollectQwenTaskIdsTests(unittest.TestCase):
         silently dropped — the QWEN_TASK_IDS hint requires an id to scope
         the codex pass."""
         with tempfile.TemporaryDirectory() as tmp:
-            autopilot_dir = self._write_state(Path(tmp), {
-                "tasks": [
-                    {"attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                    {"id": "2", "attempts": [
-                        {"implementor": "qwen", "outcome": "completed"},
-                    ]},
-                ],
-            })
+            autopilot_dir = self._write_state(
+                Path(tmp),
+                {
+                    "tasks": [
+                        {
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ]
+                        },
+                        {
+                            "id": "2",
+                            "attempts": [
+                                {"implementor": "qwen", "outcome": "completed"},
+                            ],
+                        },
+                    ],
+                },
+            )
             self.assertEqual(dr._collect_qwen_task_ids(autopilot_dir), ["2"])
 
 
@@ -322,26 +384,32 @@ class ExitContractTests(unittest.TestCase):
             os.environ["PATH"] = tmp  # empty dir: no codex on PATH
             try:
                 self.assertEqual(
-                    dr.main(["codex_review_run.py", str(prompt)]), 3
+                    dr.main(["codex_review_run.py", str(prompt)]),
+                    3,
                 )
             finally:
                 os.environ["PATH"] = old_path
 
     def test_usage_limit_event_returns_4(self) -> None:
-        body = ("printf '%s\\n' "
-                "'{\"message\":\"You have hit your usage limit\"}'\nexit 0")
+        body = (
+            "printf '%s\\n' '{\"message\":\"You have hit your usage limit\"}'\nexit 0"
+        )
         self.assertEqual(self._run_with_fake_codex(body), 4)
 
     def test_codex_nonzero_exit_returns_4(self) -> None:
-        body = ("printf '%s\\n' "
-                "'{\"msg\":{\"type\":\"agent_message\",\"message\":\"hi\"}}'"
-                "\nexit 7")
+        body = (
+            "printf '%s\\n' "
+            '\'{"msg":{"type":"agent_message","message":"hi"}}\''
+            "\nexit 7"
+        )
         self.assertEqual(self._run_with_fake_codex(body), 4)
 
     def test_clean_run_returns_0(self) -> None:
-        body = ("printf '%s\\n' "
-                "'{\"msg\":{\"type\":\"agent_message\",\"message\":\"ok\"}}'"
-                "\nexit 0")
+        body = (
+            "printf '%s\\n' "
+            '\'{"msg":{"type":"agent_message","message":"ok"}}\''
+            "\nexit 0"
+        )
         self.assertEqual(self._run_with_fake_codex(body), 0)
 
     def test_clean_run_captures_review_output_to_file(self) -> None:
@@ -351,9 +419,11 @@ class ExitContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             ap = Path(work) / "dev" / "local" / "autopilot"
             ap.mkdir(parents=True)
-            body = ("printf '%s\\n' "
-                    "'{\"msg\":{\"type\":\"agent_message\",\"message\":"
-                    "\"FIX:\\n- none\\nD1: pass\"}}'\nexit 0")
+            body = (
+                "printf '%s\\n' "
+                '\'{"msg":{"type":"agent_message","message":'
+                '"FIX:\\n- none\\nD1: pass"}}\'\nexit 0'
+            )
             rc = self._run_with_fake_codex(body, cwd=Path(work))
             self.assertEqual(rc, 0)
             out = ap / "codex-review-output.md"
@@ -371,11 +441,11 @@ class ExitContractTests(unittest.TestCase):
         """
         body = (
             "printf '%s\\n' "
-            "'{\"msg\":{\"type\":\"agent_message\",\"message\":\"ok\"}}'\n"
+            '\'{"msg":{"type":"agent_message","message":"ok"}}\'\n'
             "exec python3 -c '"
             "import os, stat, sys\n"
             "st = os.fstat(0)\n"
-            "dn = os.stat(\"/dev/null\")\n"
+            'dn = os.stat("/dev/null")\n'
             "sys.exit(0 if stat.S_ISCHR(st.st_mode) and "
             "st.st_rdev == dn.st_rdev else 7)"
             "'\n"
@@ -408,6 +478,7 @@ class ProcAliveTests(unittest.TestCase):
 
     def test_reaped_child_pid_is_not_alive(self) -> None:
         import subprocess
+
         proc = subprocess.Popen(["true"])
         proc.wait()  # reap, so the pid is gone
         self.assertFalse(dr._proc_alive(proc.pid))
@@ -425,6 +496,7 @@ class CpuSecondsTests(unittest.TestCase):
 
     def test_reaped_pid_returns_none(self) -> None:
         import subprocess
+
         proc = subprocess.Popen(["true"])
         proc.wait()
         self.assertIsNone(dr._cpu_seconds(proc.pid))
@@ -438,7 +510,8 @@ class LivenessPhraseTests(unittest.TestCase):
 
     def test_working_alive_no_children_reads_as_work_not_hung(self) -> None:
         phrase = dr._liveness_phrase(
-            alive=True, kids=[], advancing=True, codex_pid=17021)
+            alive=True, kids=[], advancing=True, codex_pid=17021
+        )
         self.assertIn("alive", phrase)
         self.assertIn("17021", phrase)
         self.assertIn("working", phrase.lower())
@@ -447,21 +520,24 @@ class LivenessPhraseTests(unittest.TestCase):
 
     def test_idle_alive_no_progress_flags_possibly_blocked(self) -> None:
         phrase = dr._liveness_phrase(
-            alive=True, kids=[], advancing=False, codex_pid=17021)
+            alive=True, kids=[], advancing=False, codex_pid=17021
+        )
         self.assertIn("alive", phrase)
         self.assertIn("IDLE", phrase)
         self.assertIn("blocked", phrase.lower())
 
     def test_alive_with_children_lists_tool_subprocs(self) -> None:
         phrase = dr._liveness_phrase(
-            alive=True, kids=["cargo", "rustc"], advancing=False, codex_pid=42)
+            alive=True, kids=["cargo", "rustc"], advancing=False, codex_pid=42
+        )
         self.assertIn("alive", phrase)
         self.assertIn("cargo", phrase)
         self.assertIn("rustc", phrase)
 
     def test_exited_is_reported(self) -> None:
         phrase = dr._liveness_phrase(
-            alive=False, kids=[], advancing=False, codex_pid=42)
+            alive=False, kids=[], advancing=False, codex_pid=42
+        )
         self.assertIn("EXITED", phrase)
 
 
@@ -472,21 +548,36 @@ class IdleBannerTests(unittest.TestCase):
 
     def test_no_banner_below_threshold(self) -> None:
         self.assertIsNone(
-            dr._idle_banner(alive=True, kids=[], idle=dr.IDLE_BANNER_SECS - 1,
-                            advancing=False, codex_pid=1))
+            dr._idle_banner(
+                alive=True,
+                kids=[],
+                idle=dr.IDLE_BANNER_SECS - 1,
+                advancing=False,
+                codex_pid=1,
+            )
+        )
 
     def test_no_banner_while_tool_subproc_runs(self) -> None:
         """Children churning means codex is plainly working — no note even
         past the quiet threshold."""
         self.assertIsNone(
-            dr._idle_banner(alive=True, kids=["cargo"],
-                            idle=dr.IDLE_BANNER_SECS * 5, advancing=False,
-                            codex_pid=1))
+            dr._idle_banner(
+                alive=True,
+                kids=["cargo"],
+                idle=dr.IDLE_BANNER_SECS * 5,
+                advancing=False,
+                codex_pid=1,
+            )
+        )
 
     def test_alive_and_advancing_says_working_not_blocked(self) -> None:
         banner = dr._idle_banner(
-            alive=True, kids=[], idle=dr.IDLE_BANNER_SECS, advancing=True,
-            codex_pid=17021)
+            alive=True,
+            kids=[],
+            idle=dr.IDLE_BANNER_SECS,
+            advancing=True,
+            codex_pid=17021,
+        )
         self.assertIsNotNone(banner)
         self.assertIn("working", banner.lower())
         self.assertNotIn("blocked", banner.lower())
@@ -497,16 +588,24 @@ class IdleBannerTests(unittest.TestCase):
         name it as likely BLOCKED so the operator aborts and falls back —
         instead of the old 'let it run' that would wait forever."""
         banner = dr._idle_banner(
-            alive=True, kids=[], idle=dr.IDLE_BANNER_SECS, advancing=False,
-            codex_pid=17021)
+            alive=True,
+            kids=[],
+            idle=dr.IDLE_BANNER_SECS,
+            advancing=False,
+            codex_pid=17021,
+        )
         self.assertIsNotNone(banner)
         self.assertIn("BLOCKED", banner)
         self.assertIn("fall", banner.lower())
 
     def test_gone_and_quiet_reports_death(self) -> None:
         banner = dr._idle_banner(
-            alive=False, kids=[], idle=dr.IDLE_BANNER_SECS, advancing=False,
-            codex_pid=17021)
+            alive=False,
+            kids=[],
+            idle=dr.IDLE_BANNER_SECS,
+            advancing=False,
+            codex_pid=17021,
+        )
         self.assertIsNotNone(banner)
         self.assertIn("GONE", banner)
 
