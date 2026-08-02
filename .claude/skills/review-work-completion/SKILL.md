@@ -230,6 +230,9 @@ Build `args` from the context already gathered in step 3:
 | `prd_text`, `prd_path`, `changed_files`, `context_path` | From step 3's gathered context. |
 | `head_sha`, `date`, `cycle`, `agent_name` | `head_sha` from step 3; `date` as `YYYY-MM-DD` (the sandbox cannot call `Date()`); `cycle` = this review cycle; `agent_name` = `ALICE`. |
 | `tests_line` | Omit on the live path — test counts do not exist until step 6. Shadow runs substitute it at step 8. |
+| `personas` | **Required** (PRD 00109). An object mapping each of `rita`, `cora`, `grace`, `toby`, `mallory`, `trent`, `victor` to the body of `~/.claude/agents/<name>.md` with its frontmatter stripped. The workflow carries no prompt text of its own; a missing or blank body is an `INVALID_ARGS` throw, never a weaker review. Read all seven regardless of whether the security dimension arms — the workflow decides that itself. |
+
+**Why the bodies travel as args rather than `agentType`.** The workflow could name a persona and let the harness supply it as the subagent's system prompt, but that splits the prompt into system + user and can only ever emit persona-then-inputs. Victor's prompt interleaves the finding's fields *between* persona text, so that split reorders his bytes and breaks the parity the goldens pin. Passing bodies keeps every lane byte-identical to its pre-registry prompt. The cost: the `tools` pins in those seven files do not apply on this path. Both facts are recorded in `references/agent-registry.md` § Dispatch mechanism.
 
 On return, write the result's `agent_output` verbatim to `dev/local/tmp/alice-output-{id}.txt`. Step 6 consolidates it unchanged: it already speaks the `[ALICE] {emoji} … | File: … | Task: …` line format, carries the twelve `R{n}` verdict lines, and ends with the engine's `stats_line`.
 

@@ -174,6 +174,68 @@ def test_body_is_not_empty(registry, name: str) -> None:
     assert body.strip(), f"{name}.md has no persona body"
 
 
+def test_dispatch_references_document_the_fail_closed_contract() -> None:
+    """There is no fallback prompt anywhere, and the references must say so.
+
+    Without this the registry degrades quietly: a lane whose persona file went
+    missing would be repaired by whoever hits it next writing a prompt inline,
+    which is precisely the scattering this PRD removed.
+    """
+    skill_dir = (
+        Path.home() / ".claude" / "skills" / "review-work-completion"
+    )
+    conventions = (skill_dir / "references" / "agent-registry.md").read_text(
+        encoding="utf-8"
+    )
+    skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    assert "fallback prompt" in conventions.lower(), (
+        "agent-registry.md must state that no fallback prompt exists"
+    )
+    assert "fail-closed" in skill.lower() or "fail closed" in skill.lower(), (
+        "SKILL.md must document the fail-closed preflight over the roster"
+    )
+    assert "never a fallback prompt" in skill.lower(), (
+        "SKILL.md must state that a missing roster file fails the reviewer "
+        "rather than falling back to an inline prompt"
+    )
+
+
+def test_no_persona_prompt_text_survives_outside_the_registry() -> None:
+    """The sweep PRD 00109 Phase 2 asks for, as an assertion rather than a
+    one-off grep: a distinctive line from each extracted source must appear in
+    its agent file and nowhere else under skills/ or workflows/."""
+    claude = Path.home() / ".claude"
+    signatures = {
+        "victor": "You are an adversarial verifier.",
+        "rita": "No scope creep: features nobody asked for.",
+        "mallory": "No SQL or command injection risk.",
+        "blake": "You are Blake, a hostile auditor",
+        "eve": "Assume the work is subtly wrong until proven",
+        "bob": "Perform STATIC analysis only",
+        "carl": "you are the panel's",
+    }
+    for name, signature in signatures.items():
+        assert signature.lower() in (AGENTS_DIR / f"{name}.md").read_text(
+            encoding="utf-8"
+        ).lower(), f"{name}.md no longer carries its signature line: {signature!r}"
+        for root in (claude / "skills", claude / "workflows"):
+            for path in root.rglob("*"):
+                if not path.is_file() or path.suffix not in {".md", ".js", ".mjs", ".py"}:
+                    continue
+                # The goldens fixture is the frozen pre-migration record and is
+                # SUPPOSED to hold this text; the sweep test names it here too.
+                if path.name in {"prompt-goldens.json", "test_agent_registry.py"}:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                assert signature.lower() not in text.lower(), (
+                    f"{name}'s persona text still lives in {path}; the registry "
+                    f"is meant to be its only home"
+                )
+
+
 def test_placeholders_are_declared_in_the_conventions(registry) -> None:
     """Every {PLACEHOLDER} a persona uses must be documented, or a consuming
     skill will have nothing telling it what to substitute."""
