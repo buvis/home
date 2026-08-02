@@ -4,9 +4,20 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 import purge_devlocal as gc
 
 NOW = time.time()
+
+
+@pytest.fixture(autouse=True)
+def engram_absent_by_default(monkeypatch):
+    """The pre-trash sweep shells out to a real `engram` binary, so without this
+    the suite's outcome depends on the host PATH: with engram installed, every
+    review-satellite test would attempt a live harvest. Pin it absent by
+    default; harvest-sweep tests install their own `shutil.which` fake."""
+    monkeypatch.setattr(gc.shutil, "which", lambda name: None)
 
 
 def touch(path: Path, days_old: float = 10) -> None:
