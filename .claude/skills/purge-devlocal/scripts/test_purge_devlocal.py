@@ -1,4 +1,5 @@
 """Tests for purge_devlocal.py, one per retention rule."""
+
 import os
 import time
 from pathlib import Path
@@ -178,6 +179,7 @@ def test_review_without_verdict_trashes_without_ledger_row(tmp_path):
 
 # --- PRD 00082: four blind spots the 2026-07-14 manual audit caught ---
 
+
 def test_root_stray_unnumbered_is_flagged_not_kept_silently(tmp_path, capsys):
     """Class 1: un-numbered root files (blake-*.md, probe scripts, test-run.log)
     must FLAG, not classify unclassified->keep. Root holds named keepers only."""
@@ -204,7 +206,7 @@ def test_done_linked_root_debris_trashes_when_past_min_age(tmp_path):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00054-x.md", days_old=30)
     touch(store / "alice_00054_gate.py", days_old=20)  # old: trashes
-    touch(store / "beta_00054_gate.py", days_old=1)    # fresh: guarded
+    touch(store / "beta_00054_gate.py", days_old=1)  # fresh: guarded
     run(store, "--apply")
     assert not (store / "alice_00054_gate.py").exists()
     assert "done-linked\talice_00054_gate.py" in manifest(store)
@@ -282,3 +284,242 @@ def test_empty_trash_ages_out_old_batches_only(tmp_path):
     run(store, "--apply")
     assert not (store / gc.TRASH_DIR / "2020-01-01").exists()
     assert recent.exists()
+
+
+# --- pre-trash harvest sweep: hand review satellites to `engram harvest` first ---
+
+
+class FakeCompletedProcess:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def review_with_verdict(
+    store: Path, prd: str, slug: str, verdict: str = "APPROVED", days_old: float = 10
+) -> Path:
+    path = store / "reviews" / f"{prd}-{slug}-alice.md"
+    touch(path, days_old=days_old)
+    path.write_text(f"---\nreviewers: alice\n---\nVerdict: {verdict}\nTests: pass\n")
+    ts = NOW - days_old * gc.DAY
+    os.utime(path, (ts, ts))
+    return path
+
+
+def test_harvest_success_for_each_satellite_trashes_all_with_ledger_rows(
+    tmp_path, monkeypatch
+):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "prds" / "done" / "00043-bar.md")
+    review_a = review_with_verdict(store, "00042", "foo")
+    review_b = review_with_verdict(store, "00043", "bar")
+    which_calls = []
+    run_calls = []
+    file_still_present = []
+
+    def fake_which(name):
+        which_calls.append(name)
+        return "/usr/local/bin/engram"
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append((cmd, kwargs))
+        file_still_present.append(Path(cmd[2]).is_file())
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    assert which_calls == ["engram"]
+    assert len(run_calls) == 2
+    invoked_paths = {cmd[2] for cmd, _ in run_calls}
+    assert invoked_paths == {str(review_a), str(review_b)}
+    for cmd, kwargs in run_calls:
+        assert cmd[0] == "/usr/local/bin/engram"
+        assert cmd[1] == "harvest"
+        assert kwargs == {"capture_output": True, "text": True, "timeout": 300}
+    assert file_still_present == [True, True]  # harvested while still on disk, before trashing
+    assert not review_a.exists()
+    assert not review_b.exists()
+    ledger = (store / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
+    assert '"prd": "00042"' in ledger
+    assert '"prd": "00043"' in ledger
+
+
+def test_harvest_failure_keeps_file_without_ledger_row_while_sibling_trashes(
+    tmp_path, monkeypatch, capsys
+):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "prds" / "done" / "00043-bar.md")
+    failing = review_with_verdict(store, "00042", "foo")
+    ok = review_with_verdict(store, "00043", "bar")
+
+    def fake_which(name):
+        return "/usr/local/bin/engram"
+
+    def fake_run(cmd, **kwargs):
+        if cmd[2] == str(failing):
+            return FakeCompletedProcess(1, stderr="boom")
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    out = capsys.readouterr().out
+    assert failing.exists()
+    assert not ok.exists()
+    assert "reviews/00042-foo-alice.md" not in manifest(store)
+    assert "reviews/00043-bar-alice.md" in manifest(store)
+    ledger = (store / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
+    assert '"prd": "00042"' not in ledger
+    assert '"prd": "00043"' in ledger
+    warn_lines = [line for line in out.splitlines() if "WARN" in line]
+    assert len(warn_lines) == 1
+    assert "reviews/00042-foo-alice.md" in warn_lines[0]
+
+
+def test_harvest_oserror_keeps_file_and_warns_without_aborting_sweep(
+    tmp_path, monkeypatch, capsys
+):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "prds" / "done" / "00043-bar.md")
+    failing = review_with_verdict(store, "00042", "foo")
+    ok = review_with_verdict(store, "00043", "bar")
+
+    def fake_which(name):
+        return "/usr/local/bin/engram"
+
+    def fake_run(cmd, **kwargs):
+        if cmd[2] == str(failing):
+            raise OSError("engram not executable")
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    out = capsys.readouterr().out
+    assert failing.exists()
+    assert not ok.exists()
+    warn_lines = [line for line in out.splitlines() if "WARN" in line]
+    assert len(warn_lines) == 1
+    assert "reviews/00042-foo-alice.md" in warn_lines[0]
+    assert "reviews/00043-bar-alice.md" in manifest(store)
+
+
+def test_harvest_timeout_expired_keeps_file_and_warns_without_aborting_sweep(
+    tmp_path, monkeypatch, capsys
+):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "prds" / "done" / "00043-bar.md")
+    failing = review_with_verdict(store, "00042", "foo")
+    ok = review_with_verdict(store, "00043", "bar")
+
+    def fake_which(name):
+        return "/usr/local/bin/engram"
+
+    def fake_run(cmd, **kwargs):
+        if cmd[2] == str(failing):
+            raise gc.subprocess.TimeoutExpired(cmd=cmd, timeout=300)
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    out = capsys.readouterr().out
+    assert failing.exists()
+    assert not ok.exists()
+    warn_lines = [line for line in out.splitlines() if "WARN" in line]
+    assert len(warn_lines) == 1
+    assert "reviews/00042-foo-alice.md" in warn_lines[0]
+    assert "reviews/00043-bar-alice.md" in manifest(store)
+
+
+def test_missing_engram_skips_sweep_with_single_warning_and_trashes_normally(
+    tmp_path, monkeypatch, capsys
+):
+    """The binary must resolve ONCE PER RUN, not once per store - so this test
+    sweeps two stores in a single gc.main call."""
+    store_a = make_store(tmp_path / "repo_a")
+    store_b = make_store(tmp_path / "repo_b")
+    touch(store_a / "prds" / "done" / "00042-foo.md")
+    touch(store_b / "prds" / "done" / "00043-bar.md")
+    review_a = review_with_verdict(store_a, "00042", "foo")
+    review_b = review_with_verdict(store_b, "00043", "bar")
+    which_calls = []
+    run_calls = []
+
+    def fake_which(name):
+        which_calls.append(name)
+        return None
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append((cmd, kwargs))
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert (
+        gc.main(["--repo", str(store_a), "--repo", str(store_b), "--apply"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert which_calls == ["engram"]
+    assert run_calls == []
+    warn_lines = [line for line in out.splitlines() if "WARN" in line]
+    assert len(warn_lines) == 1
+    assert not review_a.exists()
+    assert not review_b.exists()
+    ledger_a = (store_a / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
+    assert '"prd": "00042"' in ledger_a
+    ledger_b = (store_b / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
+    assert '"prd": "00043"' in ledger_b
+
+
+def test_non_review_artifacts_never_trigger_harvest_regardless_of_rule(
+    tmp_path, monkeypatch
+):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "designs" / "00042-foo-v1-design.md")
+    touch(store / "tmp" / "review-context-1781034671-89877.md", days_old=10)
+    touch(store / "alice.log", days_old=10)
+    run_calls = []
+
+    def fake_which(name):
+        return "/usr/local/bin/engram"
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append((cmd, kwargs))
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    assert run_calls == []
+    assert not (store / "designs" / "00042-foo-v1-design.md").exists()
+    assert not (store / "tmp" / "review-context-1781034671-89877.md").exists()
+    assert not (store / "alice.log").exists()
+
+
+def test_dry_run_never_invokes_harvest(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    review = review_with_verdict(store, "00042", "foo")
+    run_calls = []
+
+    def fake_which(name):
+        return "/usr/local/bin/engram"
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append((cmd, kwargs))
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", fake_which)
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store) == 0
+    assert run_calls == []
+    assert review.exists()
+    assert not (store / gc.TRASH_DIR).exists()
