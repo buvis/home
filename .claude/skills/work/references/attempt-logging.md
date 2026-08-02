@@ -67,7 +67,18 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
 | `escalation_reason:"gate_failure"` | the rung escalated INTO (higher)'s entry |
 | `escalated_from` | the rung escalated INTO (higher)'s entry |
 
-**Append procedure**: append the entry with `statectl` — `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> append tasks[i].attempts '<entry-json>'` — where `i` is this task's index in `state.tasks` and `<entry-json>` is the object above. `statectl append` creates the array if absent, appends under an advisory lock, and replaces the file atomically while preserving every sibling field, so the manual read-modify-write is gone (`run-autopilot` SKILL.md § State Management). Resolve `<state.json>` by walking up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in `SKILL.md` step 2.
+**Append procedure**: write the entry object to `dev/local/tmp/attempt-task-<id>.json` with the **Write tool** (never a shell redirect, and never an inline shell argument — an attempt record carries quotes and newlines), then pick the call by exit path:
+
+| Exit path | Call |
+|---|---|
+| **Task completed** (`SKILL.md` step 6) | `statectl.py <state.json> task-done <task-id> dev/local/tmp/attempt-task-<id>.json` |
+| **Abort or escalate-away** (step 4 timeout / context exceeded / error after debug, Subagent Dispatch Budget overrun, an `"escalated"` rung entry) | `statectl.py <state.json> append tasks[i].attempts '<entry-json>'` |
+
+`task-done` is the **only** call the success path makes: it appends the entry, sets `tasks[i].status = "completed"`, and recomputes `tasks_completed` in one locked atomic write, resolving the task by `tasks[].id` rather than array position. Do not pair it with a separate status write or a `tasks_completed` write — the count is derived and must never be passed in.
+
+The abort and escalate-away paths keep the generic `append` form precisely because the task does **not** become `completed` there: the entry is recorded while the task stays open, so the status and the count must not move. `i` is this task's index in `state.tasks`.
+
+Both forms create the array if absent, append under an advisory lock, and replace the file atomically while preserving every sibling field, so the manual read-modify-write is gone (`run-autopilot` SKILL.md § State Management). Resolve `<state.json>` by walking up from the resolved physical cwd to find the autopilot dir, same pattern as the cap-marker reset in `SKILL.md` step 2.
 
 Two top-level fields, `qwen_gate_failures_consecutive` and `qwen_breaker`, track the qwen capability breaker across the batch (PRD 00065); see `run-autopilot/references/state-schema.md` Field Descriptions for their canonical shape.
 

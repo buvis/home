@@ -3,12 +3,20 @@
 
 CLI:
     python3 statectl.py <state-path> get|set|append|del <json-path> [value]
+    python3 statectl.py <state-path> task-start <task-id>
+    python3 statectl.py <state-path> task-done <task-id> <attempt-json-file>
+    python3 statectl.py <state-path> set-contract-card <file>
 
-`get` prints the JSON value at <json-path> to stdout. `set`, `append`, and
-`del` mutate the file under an exclusive advisory lock, preserving every
-sibling field, writing one rotating `<state-path>.bak` before the change and
-replacing the file atomically. A missing or corrupt file exits 2 without
-touching it; a bad argument or unsupported json-path exits 1.
+`get` prints the JSON value at <json-path> to stdout. Every other verb mutates
+the file under an exclusive advisory lock, preserving every sibling field,
+writing one rotating `<state-path>.bak` before the change and replacing the
+file atomically. A missing or corrupt file exits 2 without touching it; a bad
+argument or unsupported json-path exits 1.
+
+The three task/card verbs are compound: each lands every field effect of one
+transition inside a single locked read-modify-write, so a crash cannot leave
+half a transition on disk. They also resolve tasks by `tasks[].id` rather than
+array position, which the `tasks[N]` json-paths could not do.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +60,7 @@ def parse_path(path: str) -> list[Token]:
             if close == -1:
                 raise UsageError(f"unclosed '[' in json-path: {path!r}")
             inner = path[i + 1 : close]
-            digits = inner[1:] if inner.startswith("-") else inner
+            digits = inner.removeprefix("-")
             if not digits.isdigit():
                 raise UsageError(f"non-numeric index in json-path: {path!r}")
             tokens.append(int(inner))
@@ -147,6 +156,56 @@ def do_del(data: Any, tokens: list[Token]) -> None:
         raise UsageError(f"cannot delete {last!r}: {err}") from err
 
 
+def _find_task(data: Any, task_id: str) -> dict[str, Any]:
+    """Return the `tasks[]` entry whose `id` matches, comparing as strings.
+
+    Resolves by id, never by array position: `state.tasks` is not guaranteed to
+    be ordered by id (rework appends `[D{cycle}]` follow-ups), so the `tasks[N]`
+    json-path form silently targeted the wrong task once the arrays diverged.
+    """
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(tasks, list):
+        raise UsageError("state has no tasks array")
+    for entry in tasks:
+        if isinstance(entry, dict) and str(entry.get("id")) == task_id:
+            return entry
+    raise UsageError(f"no task with id {task_id!r}")
+
+
+def _recount_completed(data: dict[str, Any]) -> None:
+    """Recompute `tasks_completed` from the task array itself.
+
+    Derived, never caller-supplied: the count and the statuses drifted apart
+    whenever a caller set one without the other.
+    """
+    data["tasks_completed"] = sum(
+        1
+        for entry in data["tasks"]
+        if isinstance(entry, dict) and entry.get("status") == "completed"
+    )
+
+
+def do_task_start(data: Any, task_id: str) -> None:
+    _find_task(data, task_id)["status"] = "in_progress"
+
+
+def do_task_done(data: Any, task_id: str, attempt: Any) -> None:
+    """Mark a task completed, append its attempt record, recount - atomically."""
+    task = _find_task(data, task_id)
+    attempts = task.setdefault("attempts", [])
+    if not isinstance(attempts, list):
+        raise UsageError(f"task {task_id!r} attempts is not an array")
+    task["status"] = "completed"
+    attempts.append(attempt)
+    _recount_completed(data)
+
+
+def do_set_contract_card(data: Any, text: str) -> None:
+    if not isinstance(data, dict):
+        raise UsageError("state root is not an object")
+    data["contract_card"] = text.rstrip("\n")
+
+
 def read_and_parse(state_path: Path) -> tuple[bytes, Any]:
     """Return (raw_bytes, parsed). A missing or corrupt file raises StateError.
 
@@ -163,7 +222,7 @@ def read_and_parse(state_path: Path) -> tuple[bytes, Any]:
         return raw, json.loads(raw)
     except json.JSONDecodeError as err:
         raise StateError(
-            f"state file is not valid JSON ({state_path}): {err}"
+            f"state file is not valid JSON ({state_path}): {err}",
         ) from err
 
 
@@ -188,12 +247,14 @@ def atomic_write(state_path: Path, data: Any) -> None:
         raise
 
 
-def mutate(state_path: Path, verb: str, tokens: list[Token], value: Any) -> None:
+def mutate(state_path: Path, apply: Callable[[Any], None]) -> None:
     """Read-modify-write `state_path` under an exclusive advisory lock.
 
-    Reads the current bytes, writes one rotating `<state>.bak`, applies the
-    mutation in memory, and replaces the file atomically. A missing or corrupt
-    file raises StateError before any backup or write happens.
+    Reads the current bytes, writes one rotating `<state>.bak`, calls `apply` on
+    the parsed data, and replaces the file atomically. A missing or corrupt file
+    raises StateError before any backup or write happens. `apply` may make
+    several changes - they all land in the one atomic replace, which is what
+    makes the compound task verbs crash-safe.
     """
     lock_path = Path(f"{state_path}.lock")
     with open(lock_path, "w", encoding="utf-8") as lock:
@@ -204,50 +265,91 @@ def mutate(state_path: Path, verb: str, tokens: list[Token], value: Any) -> None
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         raw, data = read_and_parse(state_path)
         Path(f"{state_path}.bak").write_bytes(raw)
-        if verb == "set":
-            do_set(data, tokens, value)
-        elif verb == "append":
-            do_append(data, tokens, value)
-        else:
-            do_del(data, tokens)
+        apply(data)
         atomic_write(state_path, data)
+
+
+USAGE = (
+    "usage: statectl.py <state-path> get|set|append|del <json-path> [value]\n"
+    "       statectl.py <state-path> task-start <task-id>\n"
+    "       statectl.py <state-path> task-done <task-id> <attempt-json-file>\n"
+    "       statectl.py <state-path> set-contract-card <file>"
+)
+
+_PATH_VERBS = ("get", "set", "append", "del")
+_TASK_VERBS = ("task-start", "task-done", "set-contract-card")
+
+
+def _read_json_file(path_str: str) -> Any:
+    """Load a JSON payload from a file (never an inline shell argument).
+
+    File-borne payloads exist because inline JSON in a shell argument kept
+    failing on quoting - an attempt record and a contract card both carry
+    quotes, newlines and `$`.
+    """
+    try:
+        raw = Path(path_str).read_text(encoding="utf-8")
+    except OSError as err:
+        raise UsageError(f"cannot read {path_str}: {err}") from err
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as err:
+        raise UsageError(f"{path_str} is not valid JSON: {err}") from err
+
+
+def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], None]:
+    """Return the mutation `mutate()` should apply for a non-`get` verb."""
+    if verb in _PATH_VERBS:
+        tokens = parse_path(arg)
+        if verb == "del":
+            return lambda data: do_del(data, tokens)
+        if not rest:
+            raise UsageError(f"{verb} requires a JSON value argument")
+        try:
+            value = json.loads(rest[0])
+        except json.JSONDecodeError as err:
+            raise UsageError(f"value is not valid JSON: {err}") from err
+        if verb == "set":
+            return lambda data: do_set(data, tokens, value)
+        return lambda data: do_append(data, tokens, value)
+
+    if verb == "set-contract-card":
+        # The file is argv[2] here - this verb takes no task id.
+        try:
+            text = Path(arg).read_text(encoding="utf-8")
+        except OSError as err:
+            raise UsageError(f"cannot read {arg}: {err}") from err
+        return lambda data: do_set_contract_card(data, text)
+
+    if verb == "task-start":
+        return lambda data: do_task_start(data, arg)
+
+    if not rest:
+        raise UsageError("task-done requires an attempt-json-file argument")
+    attempt = _read_json_file(rest[0])
+    return lambda data: do_task_done(data, arg, attempt)
 
 
 def main() -> int:
     argv = sys.argv[1:]
     if len(argv) < 3:
-        print(
-            "usage: statectl.py <state-path> get|set|append|del <json-path> [value]",
-            file=sys.stderr,
-        )
+        print(USAGE, file=sys.stderr)
         return 1
     state_path = Path(argv[0])
     verb = argv[1]
-    path_str = argv[2]
+    arg = argv[2]
     rest = argv[3:]
 
-    if verb not in ("get", "set", "append", "del"):
+    if verb not in _PATH_VERBS + _TASK_VERBS:
         print(f"unsupported verb: {verb!r}", file=sys.stderr)
         return 1
 
-    value: Any = None
-    if verb in ("set", "append"):
-        if not rest:
-            print(f"{verb} requires a JSON value argument", file=sys.stderr)
-            return 1
-        try:
-            value = json.loads(rest[0])
-        except json.JSONDecodeError as err:
-            print(f"value is not valid JSON: {err}", file=sys.stderr)
-            return 1
-
     try:
-        tokens = parse_path(path_str)
         if verb == "get":
             _raw, data = read_and_parse(state_path)
-            print(json.dumps(get_value(data, tokens)))
+            print(json.dumps(get_value(data, parse_path(arg))))
         else:
-            mutate(state_path, verb, tokens, value)
+            mutate(state_path, _build_apply(verb, arg, rest))
     except StateError as err:
         print(str(err), file=sys.stderr)
         return 2

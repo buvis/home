@@ -137,7 +137,18 @@ Codex (`use-codex`) is an implementor rung — activated by PRD 00077, sitting b
 
 ## Dashboard State Sync
 
-The dashboard (tracon; `render_stream.py` fallback) reads `dev/local/autopilot/state.json` directly. Keep `state.tasks[].status` accurate (updated in step 2 at task start and in step 6 at task end) and recompute `tasks_total`/`tasks_completed` alongside it — the pidash sync hooks are retired (PRD 00063) — and the dashboard reflects progress in real time. Apply every such change with `statectl` (`python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set|append|del ...`), not the editing tools — the sole-writer rule in `run-autopilot` SKILL.md § State Management, which also documents the one human fallback.
+The dashboard (tracon; `render_stream.py` fallback) reads `dev/local/autopilot/state.json` directly, so `state.tasks[].status` must stay accurate — set at task start (step 2) and task end (step 6) — with `tasks_completed` matching it. The pidash sync hooks are retired (PRD 00063); nothing else maintains these.
+
+Apply every such change with `statectl`, never the editing tools — the sole-writer rule in `run-autopilot` SKILL.md § State Management, which also documents the one human fallback. **Use the compound task verbs for the lifecycle transitions**, not a sequence of field writes:
+
+| Transition | Call |
+|---|---|
+| task start | `statectl.py <state.json> task-start <task-id>` |
+| task end | `statectl.py <state.json> task-done <task-id> <attempt-json-file>` |
+
+`task-done` lands status, the appended attempt record, and a **recomputed** `tasks_completed` in one locked atomic write. Never set `tasks_completed` by hand — it is derived from the array, and hand-setting it is what let the count and the statuses drift apart. Both verbs resolve the task by `tasks[].id`, not array position.
+
+The generic `set|append|del <json-path>` forms remain for everything that is not a task-lifecycle transition.
 
 ## Workflow
 
@@ -171,7 +182,10 @@ Cross-reference: `run-autopilot/references/state-schema.md` `rework_task_ids` ro
 For the first available task:
 
 1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
-2. **Sync state file** (see Dashboard State Sync)
+2. **Sync state file** with the single compound verb (see Dashboard State Sync):
+   ```bash
+   python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> task-start <task-id>
+   ```
 3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file, but the explicit clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Run the shared walk-up helper in `--clear-cap` mode — it resolves symlinks, walks up to the autopilot dir, and removes `<autopilot_dir>/.cap-fired` internally:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --clear-cap
@@ -703,9 +717,17 @@ Skip for documentation-only or configuration-only tasks.
 ### 6. Mark complete and sync
 
 1. Use `TaskUpdate` to set `status: completed`
-2. **Append an entry to `state.tasks[i].attempts[]`** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`) plus `fable` → `"full"` (the rescue rung runs the deepest pipeline, like `opus`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
-3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
-4. **Sync state file** (see Dashboard State Sync) — mandatory
+2. **Build the attempt record** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`) plus `fable` → `"full"` (the rescue rung runs the deepest pipeline, like `opus`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
+3. **Land the whole transition in ONE `statectl` call.** Write the record from step 2 to `dev/local/tmp/attempt-task-<id>.json` with the **Write tool** (never a shell redirect — an attempt record carries quotes and newlines), then:
+
+   ```bash
+   python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> task-done <task-id> dev/local/tmp/attempt-task-<id>.json
+   ```
+
+   `task-done` sets `tasks[i].status = "completed"`, appends the record to `tasks[i].attempts`, and **recomputes `tasks_completed` from the task array** — all three inside one locked atomic write. Do NOT set `status`, append the attempt, or set `tasks_completed` separately; the count is derived and must never be passed in. The task is resolved by matching `tasks[].id`, so the `tasks[N]` index form is not used here (rework appends `[D{cycle}]` follow-ups, after which array position stops matching id).
+
+   The matching call at task start (step 2) is `statectl <state.json> task-start <task-id>`.
+4. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
 5. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
 
 ### 6.5. Task-boundary handoff check
@@ -729,7 +751,7 @@ The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.hand
       ── {completed} tasks done, {pending} pending — context near soft cap
       ── fresh session resumes the remaining tasks ───────────────────
       ```
-   d. **Write the contract card** (run-autopilot § Contract card): the current step, the active invariants, and the next gate — via statectl `set contract_card` (autopilot) or the scratch `dev/local/autopilot/contract-card.md` (interactive), so a session compacted after this boundary re-anchors instead of drifting. Then ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP — end the turn. In loop mode the wrapper reads the non-empty `next_phase: "build"` and relaunches a fresh session (the headless hand-off contract in `run-autopilot/SKILL.md` § Session Loop); the model writes no signal.
+   d. **Write the contract card** (run-autopilot § Contract card): the current step, the active invariants, and the next gate, so a session compacted after this boundary re-anchors instead of drifting. Write the body to `dev/local/autopilot/contract-card.md` with the **Write tool**, then (autopilot only) load it with `statectl.py <state.json> set-contract-card dev/local/autopilot/contract-card.md`. Never pass the card as an inline shell argument — it carries quotes, newlines and `$`, and the inline form failed three times in a row on quoting in a real build session. Interactive runs stop after the file write. Then ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP — end the turn. In loop mode the wrapper reads the non-empty `next_phase: "build"` and relaunches a fresh session (the headless hand-off contract in `run-autopilot/SKILL.md` § Session Loop); the model writes no signal.
 
    **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3, hydrates TaskList from `state.tasks`, and re-invokes `/work` for the pending tasks.
 

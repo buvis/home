@@ -319,4 +319,4 @@ Place the `codex_rung_guard:` line composed in step 6 in the top matter: directl
 python3 ~/.claude/skills/review-work-completion/scripts/check_review_file.py --review-file $PWD/dev/local/reviews/<review-file> --require-codex-guard
 ```
 
-**Write the contract card** at this cycle transition (run-autopilot § Contract card): the current step, the active invariants, and the next gate (rework at cycle N+1, or converge → done) — via statectl `set contract_card` (autopilot) or the scratch `dev/local/autopilot/contract-card.md` (interactive), so a session compacted mid-review re-anchors to where the cycle stands.
+**Write the contract card** at this cycle transition (run-autopilot § Contract card): the current step, the active invariants, and the next gate (rework at cycle N+1, or converge → done), so a session compacted mid-review re-anchors to where the cycle stands. Write the body to `dev/local/autopilot/contract-card.md` with the **Write tool**, then (autopilot only) load it with `statectl.py <state.json> set-contract-card dev/local/autopilot/contract-card.md` — never as an inline shell argument, which fails on the card's own quotes and newlines.
