@@ -146,7 +146,9 @@ Apply every such change with `statectl`, never the editing tools — the sole-wr
 | task start | `statectl.py <state.json> task-start <task-id>` |
 | task end | `statectl.py <state.json> task-done <task-id> <attempt-json-file>` |
 
-`task-done` lands status, the appended attempt record, and a **recomputed** `tasks_completed` in one locked atomic write. Never set `tasks_completed` by hand — it is derived from the array, and hand-setting it is what let the count and the statuses drift apart. Both verbs resolve the task by `tasks[].id`, not array position.
+`task-done` lands status, the appended attempt record, and a **recomputed** `tasks_completed` in one locked atomic write. Both verbs resolve the task by `tasks[].id`, not array position.
+
+**Do not set `tasks_completed` alongside a task-lifecycle transition** — `task-done` derives it, and setting it too is what let the count and the statuses drift apart. This bans the per-task write only: the Phase 3 bulk snapshot (`run-autopilot/references/phase-build.md`) still writes `tasks_total`/`tasks_completed` in the same write that establishes the whole `tasks` array, which is the one legitimate hand-set and has no compound verb.
 
 The generic `set|append|del <json-path>` forms remain for everything that is not a task-lifecycle transition.
 
@@ -724,7 +726,7 @@ Skip for documentation-only or configuration-only tasks.
    python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> task-done <task-id> dev/local/tmp/attempt-task-<id>.json
    ```
 
-   `task-done` sets `tasks[i].status = "completed"`, appends the record to `tasks[i].attempts`, and **recomputes `tasks_completed` from the task array** — all three inside one locked atomic write. Do NOT set `status`, append the attempt, or set `tasks_completed` separately; the count is derived and must never be passed in. The task is resolved by matching `tasks[].id`, so the `tasks[N]` index form is not used here (rework appends `[D{cycle}]` follow-ups, after which array position stops matching id).
+   `task-done` sets `tasks[i].status = "completed"`, appends the record to `tasks[i].attempts`, and **recomputes `tasks_completed` from the task array** — all three inside one locked atomic write. Do NOT set `status`, append the attempt, or set `tasks_completed` separately here; the count is derived and is not passed in. The task is resolved by matching `tasks[].id`, so the `tasks[N]` index form is not used here (rework appends `[D{cycle}]` follow-ups, after which array position stops matching id).
 
    The matching call at task start (step 2) is `statectl <state.json> task-start <task-id>`.
 4. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
