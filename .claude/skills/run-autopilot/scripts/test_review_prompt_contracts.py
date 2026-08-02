@@ -14,7 +14,11 @@ import unittest
 from pathlib import Path
 
 _SKILLS = Path(__file__).resolve().parents[2]
-_DOUBT_PROMPT = Path(__file__).resolve().parent.parent / "prompts" / "doubt-review.md"
+# PRD 00109 moved the doubt lens out of run-autopilot/prompts/doubt-review.md
+# and into the agent registry. eve.md is now the single source: the native
+# doubt persona's system prompt, and the base the codex/Claude-fallback lanes
+# assemble from.
+_DOUBT_PROMPT = _SKILLS.parent / "agents" / "eve.md"
 _DOUBT_RUBRIC = (
     Path(__file__).resolve().parent.parent / "references" / "doubt-review-rubric.md"
 )

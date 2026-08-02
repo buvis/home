@@ -1,20 +1,26 @@
 # Agent Invocation
 
+Every persona below is sourced from the agent registry (`~/.claude/agents/`).
+Assembly rules, the placeholder table, and the fail-closed contract live in
+`references/agent-registry.md`; this file covers only how each lane is
+dispatched once its prompt is assembled.
+
 ## Alice (Claude subagent)
 
 Alice runs as a direct subagent (not a nested CLI invocation - `claude -p` inside a subagent doesn't work).
 
 ```
 Task tool:
-  subagent_type: general-purpose
+  subagent_type: alice
   description: "Alice reviews work against PRD requirements"
   prompt: |
-    You are Alice, a code reviewer.
-
-    {contents of alice_prompt_file}
+    {run inputs — the substituted context/diff paths for this cycle}
 ```
 
-The prompt file contents are inlined directly into the Task prompt. The subagent has native access to Read and Bash (`rg` for search; the Grep/Glob tools are absent in this build) - no need to shell out.
+`agents/alice.md` supplies the persona as the subagent's system prompt, so the
+Task prompt carries only the run inputs. Her `tools` pin (`Read, Bash`) is
+declared in that file: `rg` for search, since the Grep/Glob tools are absent in
+this build, and no Edit/Write ever.
 
 ## Bob (Codex)
 
@@ -40,7 +46,7 @@ Bash tool (run_in_background: true):
 
 ## Carl (Gemini)
 
-Carl is the frontend & design specialist (see `agent-prompts.md`). Like Bob, run gemini as a **direct background Bash command, NOT a Task subagent** - a subagent wrapping a CLI hangs (see Bob above).
+Carl is the frontend & design specialist (persona: `agents/carl.md`, which carries the frontend & design appendix). Like Bob, run gemini as a **direct background Bash command, NOT a Task subagent** - a subagent wrapping a CLI hangs (see Bob above).
 
 Write the prompt to a temp file, then dispatch (**absolute paths**):
 
@@ -64,23 +70,19 @@ Bash tool (run_in_background: true):
 
 `-o` writes Quinn's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. The script re-runs its own 1-token completion preflight before dispatch, so a backend that died between step 1 and step 5 exits non-zero fast instead of hanging; local inference then takes minutes, and only the Watcher subagent (SKILL.md step 5, headless/loop mode) keeps the session alive to see it finish — background Bash alone does not re-invoke a headless session. When it completes, read `quinn-output-{id}.txt`. If `qwen-run.sh` exits non-zero, skip Quinn and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
 
-Quinn's prompt is still built from Alice's shared template (`SKILL.md` step 4) - the standard implementation-aware review prompt, never the blind or doubt lens, and no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the local reviewer. Quinn's weight is ADVISORY (`SKILL.md` step 6): findings unique to him land under `advisory (local model, unconfirmed)` and create no tasks; his concurrence counts toward consensus normally.
+Quinn's prompt is built from `agents/quinn.md` (`SKILL.md` step 4) - the same standard implementation-aware review body Alice carries, never the blind or doubt lens, and no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the local reviewer. Quinn's weight is ADVISORY (`SKILL.md` step 6): findings unique to him land under `advisory (local model, unconfirmed)` and create no tasks; his concurrence counts toward consensus normally.
 
 ## Eve (Fable 5)
 
 Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl/Quinn). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Bash access (`rg` for search; Grep/Glob absent in this build) - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
 
-Assemble Eve's prompt from the **same base document codex uses** (`~/.claude/skills/run-autopilot/prompts/doubt-review.md`) plus the **same three appended inputs** codex receives - the PRD content, the diff range (`<base>..HEAD`), and the changed-file list - inlined directly into the Task prompt. (Alice inlines her prompt file the same way; the CLI reviewers write it to a temp file and pass `-f` instead. This is the only delivery difference.)
+Eve's persona is `agents/eve.md`, which is also the base Bob's doubt appendix is cut from - one source, so a future edit to the doubt lens reaches every reviewer that carries it. She takes the **same three appended inputs** codex receives: the PRD content, the diff range (`<base>..HEAD`), and the changed-file list.
 
 ```
 Task tool:
-  subagent_type: general-purpose
-  model: fable
+  subagent_type: eve
   description: "Eve doubt-reviews the work against the PRD"
   prompt: |
-    {contents of ~/.claude/skills/run-autopilot/prompts/doubt-review.md}
-
-    ---
     ## PRD
     {PRD content}
 
@@ -91,7 +93,7 @@ Task tool:
     {changed-file list, one path per line}
 ```
 
-Do NOT fork or modify `prompts/doubt-review.md` for Eve - the base prompt already prescribes the full output contract, and any future edit to it must apply to all reviewers uniformly (the codex/Claude-fallback paths and Eve share one base file).
+`agents/eve.md` supplies the persona as the system prompt and pins `model: fable` in its own frontmatter, so no `model` argument is passed here. Do NOT fork or modify `eve.md` for one lane - it already prescribes the full output contract, and any edit to it must apply to every reviewer carrying the doubt lens (the codex path, its Claude fallback, and Eve).
 
 Eve's output must satisfy the doubt-review contract exactly (PRD 00016 — no coverage block):
 - **FIX / VERIFY / KNOWN** sections, one finding per line; an empty bucket emits its header and `- (none)`.
