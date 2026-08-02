@@ -47,28 +47,65 @@ for _p in (str(SCRIPTS), str(HOOKS)):
 # Baked equivalence of settings.json (pre/post/stop scope), in declaration order.
 # NOT read back from settings.json at runtime; the test suite cross-checks it.
 ROUTES = [
-    Route("PreToolUse", "Edit|Write|MultiEdit", "enforce_prd_location",
-          HOOKS / "enforce_prd_location.py", 5),
-    Route("PreToolUse", "Edit|Write|MultiEdit", "cartographer-echo",
-          HOOKS / "cartographer-echo.py", 5),
-    Route("PreToolUse", "Edit|Write|MultiEdit", "strunk-ruling-inject",
-          HOOKS / "strunk-ruling-inject.py", 5),
-    Route("PreToolUse", "Bash", "enforce_prd_location",
-          HOOKS / "enforce_prd_location.py", 5),
-    Route("PreToolUse", "Bash", "cartographer-echo",
-          HOOKS / "cartographer-echo.py", 5),
-    Route("PostToolUse", "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*",
-          "autopilot_context_cap_hook",
-          SCRIPTS / "autopilot_context_cap_hook.py", 5),
-    Route("PostToolUse", "Edit|Write|MultiEdit", "validate_state_json_hook",
-          SCRIPTS / "validate_state_json_hook.py", 5),
-    Route("PostToolUse", "Bash|Edit|Write|MultiEdit", "observe_tool",
-          HOOKS / "observe_tool.py", 5),
-    Route("PostToolUse", "Edit|Write|MultiEdit", "check_skill_triggers",
-          HOOKS / "check_skill_triggers.py", 5),
+    Route(
+        "PreToolUse",
+        "Edit|Write|MultiEdit",
+        "enforce_prd_location",
+        HOOKS / "enforce_prd_location.py",
+        5,
+    ),
+    Route(
+        "PreToolUse",
+        "Edit|Write|MultiEdit",
+        "cartographer-echo",
+        HOOKS / "cartographer-echo.py",
+        5,
+    ),
+    Route(
+        "PreToolUse",
+        "Edit|Write|MultiEdit",
+        "strunk-ruling-inject",
+        HOOKS / "strunk-ruling-inject.py",
+        5,
+    ),
+    Route(
+        "PreToolUse",
+        "Bash",
+        "enforce_prd_location",
+        HOOKS / "enforce_prd_location.py",
+        5,
+    ),
+    Route("PreToolUse", "Bash", "cartographer-echo", HOOKS / "cartographer-echo.py", 5),
+    Route(
+        "PostToolUse",
+        "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*",
+        "autopilot_context_cap_hook",
+        SCRIPTS / "autopilot_context_cap_hook.py",
+        5,
+    ),
+    Route(
+        "PostToolUse",
+        "Edit|Write|MultiEdit",
+        "validate_state_json_hook",
+        SCRIPTS / "validate_state_json_hook.py",
+        5,
+    ),
+    Route(
+        "PostToolUse",
+        "Bash|Edit|Write|MultiEdit",
+        "observe_tool",
+        HOOKS / "observe_tool.py",
+        5,
+    ),
+    Route(
+        "PostToolUse",
+        "Edit|Write|MultiEdit",
+        "check_skill_triggers",
+        HOOKS / "check_skill_triggers.py",
+        5,
+    ),
     Route("Stop", None, "notify", HOOKS / "notify.py", 15),
-    Route("Stop", None, "review_coverage_hook",
-          SCRIPTS / "review_coverage_hook.py", 5),
+    Route("Stop", None, "review_coverage_hook", SCRIPTS / "review_coverage_hook.py", 5),
     Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10),
     Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10),
     Route("Stop", None, "analyze-instincts", HOOKS / "analyze-instincts.py", 10),
@@ -193,8 +230,10 @@ def _invoke(route, payload) -> tuple[int, str, str]:
             and isinstance(result[1], str)
             and isinstance(result[2], str)
         ):
-            msg = (f"[dispatch] {route.name}: malformed return {result!r}; "
-                   f"expected a (int, str, str) 3-tuple")
+            msg = (
+                f"[dispatch] {route.name}: malformed return {result!r}; "
+                f"expected a (int, str, str) 3-tuple"
+            )
             log(msg)
             return 0, "", msg + "\n"
         return result
@@ -237,8 +276,9 @@ def _envelope_of(name, out) -> dict | None:
         return None
     hso = obj["hookSpecificOutput"]
     if not isinstance(hso, dict):
-        log(f"[dispatch] non-dict hookSpecificOutput "
-            f"({type(hso).__name__}) from {name}")
+        log(
+            f"[dispatch] non-dict hookSpecificOutput ({type(hso).__name__}) from {name}"
+        )
         return None
     return hso
 
@@ -262,8 +302,10 @@ def _pick_decision(envelopes, blocking) -> tuple:
             continue
         rank = _RANK.get(hso["permissionDecision"], -1)
         if rank < 0:
-            log(f"[dispatch] unrecognized permissionDecision "
-                f"{hso['permissionDecision']!r} from {name}")
+            log(
+                f"[dispatch] unrecognized permissionDecision "
+                f"{hso['permissionDecision']!r} from {name}"
+            )
         # win_idx < 0 registers the FIRST decision even when unranked, so an
         # unrecognized value passes through (as the separate hooks would) and
         # never silently vanishes; a known decision still wins on rank.
@@ -278,8 +320,7 @@ def _pick_decision(envelopes, blocking) -> tuple:
             losers.append(name)
 
     for loser in losers:
-        msg = (f"[dispatch] permission conflict: dropped permissionDecision "
-               f"from {loser}")
+        msg = f"[dispatch] permission conflict: dropped permissionDecision from {loser}"
         (log if blocking else _warn)(msg)
 
     return win_decision, win_reason
@@ -315,8 +356,11 @@ def _merge_envelopes(named) -> str:
             else:
                 log(f"[dispatch] non-str additionalContext from {name}")
         for key, value in hso.items():
-            if key in ("additionalContext", "permissionDecision",
-                       "permissionDecisionReason"):
+            if key in (
+                "additionalContext",
+                "permissionDecision",
+                "permissionDecisionReason",
+            ):
                 continue
             if key in other:
                 if other[key] != value:
@@ -351,14 +395,11 @@ def _aggregate(results, names) -> tuple[int, str]:
     Parseable stdout envelopes merge into one {"hookSpecificOutput": {...}}.
     """
     code = 2 if any(c == 2 for (c, _o, _e) in results) else 0
-    for (c, _o, _e) in results:
+    for c, _o, _e in results:
         if c not in (0, 2):
             log(f"[dispatch] ignoring non-0/2 handler exit code {c}")
 
-    named = [
-        (names[idx], c, out, err)
-        for idx, (c, out, err) in enumerate(results)
-    ]
+    named = [(names[idx], c, out, err) for idx, (c, out, err) in enumerate(results)]
 
     for name, c, _out, err in named:
         if not err:
@@ -383,8 +424,7 @@ def main(event: str) -> None:
     selected = [
         r
         for r in ROUTES
-        if r.event == EVENTS[event]
-        and (r.matcher is None or _matches(r.matcher, tool))
+        if r.event == EVENTS[event] and (r.matcher is None or _matches(r.matcher, tool))
     ]
     results = [_invoke(r, payload) for r in selected]
     code, out = _aggregate(results, [r.name for r in selected])

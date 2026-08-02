@@ -59,7 +59,7 @@ def _parse(name: str) -> tuple[dict[str, str], str]:
 def registry() -> dict[str, tuple[dict[str, str], str]]:
     if not AGENTS_DIR.is_dir():
         pytest.fail(
-            f"{AGENTS_DIR} does not exist; the registry is the PRD's deliverable"
+            f"{AGENTS_DIR} does not exist; the registry is the PRD's deliverable",
         )
     return {name: _parse(name) for name in ROSTER}
 
