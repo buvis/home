@@ -22,11 +22,13 @@ degradation rules - see it, this list does not repeat them. What step 1 does
 not name:
 
 - Personal skills: `use-codex` (hard - `scripts/codex-run.sh`, STOP if missing)
+- The agent registry `~/.claude/agents/` (hard - every reviewer prompt is
+  assembled from it; conventions and the roster in
+  `references/agent-registry.md`). A missing or unparseable roster file is a
+  failed reviewer, never a fallback prompt.
 - Files read from other skill dirs:
-  - `~/.claude/skills/run-autopilot/prompts/doubt-review.md` - the doubt-lens
-    prompt carried by Bob (and Eve)
   - `~/.claude/skills/review-blindly/references/rubric.md` - inlined into
-    Blake's blind prompt
+    Blake's blind prompt at its `{RUBRIC}` placeholder
 - CLIs: `python3`, `git`
 - Optional (graceful degradation, detailed in step 1): `use-gemini`, `use-qwen`,
   `git-ferry:catchup`
@@ -37,7 +39,7 @@ Every review cycle runs all lenses (PRD 00015) — consensus, blind, and doubt
 are prompt disciplines carried by the roster, not separate phases:
 
 - **Alice** → Claude subagent (direct, not nested CLI); implementation-aware consensus lens. Her leg runs on the engine the PRD's `consensus_engine` flag selects (step 1): the legacy single subagent by default, or the `review-fanout` workflow — dimension fan-out, dedup, adversarial verification — when the flag opts in
-- **Blake** → Claude subagent, **blind lens**: PRD-only prompt — no diff, no file list, no review history, no design doc (see `references/blind-lens-prompt.md`)
+- **Blake** → Claude subagent, **blind lens**: PRD-only prompt — no diff, no file list, no review history, no design doc (persona: `agents/blake.md`)
 - **Bob** → Codex, **doubt lens**: carries the doubt rubric (R1-R5) and the de-slop lens every cycle; when codex is unavailable, a Claude subagent runs the same prompt so the lens never silently drops
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
 - **Quinn** → local qwen via `qwen-run.sh -R --approved-only` (background Bash: the `pi` agent against a llama.cpp-served model, read-only, pinned to the eval-approved registry; **advisory weight** — findings unique to Quinn create no tasks; active only when the qwen preflight probe passes, skipped otherwise with a note)
@@ -154,9 +156,31 @@ Both positional args are optional — omit if no tasks/PRD available. Outputs co
 
 Create prompt files in `dev/local/tmp/`:
 
-For each active agent, use the **Write tool** (not bash heredocs) to create `dev/local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). **Use absolute paths** (e.g. `/full/path/to/project/dev/local/tmp/...`) when writing and when referencing these files in agent prompts - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents. See `references/agent-prompts.md` for prompt template structure.
+For each active agent, use the **Write tool** (not bash heredocs) to create `dev/local/tmp/{agent}-prompt-{unique-id}.md` (use timestamp or UUID). **Use absolute paths** (e.g. `/full/path/to/project/dev/local/tmp/...`) when writing and when referencing these files in agent prompts - relative `dev/local/` paths get misresolved as `~/dev/local/` by subagents.
 
-**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking). Quinn and Alice share the same template (Quinn runs the standard implementation-aware review prompt — never the blind or doubt lens); Bob gets the sandbox constraints appendix PLUS the doubt-lens appendix (rubric R1-R5 + de-slop, per `references/agent-prompts.md` "Bob"); Blake's prompt is assembled from `references/blind-lens-prompt.md` + the PRD content ONLY (no context file, no diff file, no incremental-review addendum — blind every cycle); Eve (when active) reuses Bob's doubt-lens content per `references/agent-invocation.md`. Build each from its template directly.
+**Every prompt is assembled from the agent registry.** Read the persona's file
+under `~/.claude/agents/`, strip its frontmatter, and substitute its
+placeholders — the substitution table and the conventions live in
+`references/agent-registry.md`. There is no fallback prompt: if a roster file is
+missing or its frontmatter does not parse, mark that reviewer failed and let
+`references/retry-policy.md` handle it.
+
+**Fail-closed preflight.** Before writing any prompt file, verify every roster
+agent for this cycle exists and parses. A reviewer whose file fails this check
+never gets a prompt file written.
+
+Per persona:
+
+| Persona | Source | Substitutions |
+|---------|--------|---------------|
+| Alice | `agents/alice.md` | `{CONTEXT_FILE}`, `{DIFF_FILE}`, `{REVIEW_CHECKLIST}`, `{RUBRIC}`, `{OUTPUT_FORMAT}` |
+| Quinn | `agents/quinn.md` | same as Alice — the standard implementation-aware review, never the blind or doubt lens |
+| Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice |
+| Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice |
+| Blake | `agents/blake.md` | `{PRD}` and `{RUBRIC}` (from `review-blindly/references/rubric.md`) **only** — no context file, no diff file, no incremental addendum; blind every cycle |
+| Eve | `agents/eve.md` | none; the PRD, diff range and changed-file list are appended as run inputs (see `references/agent-invocation.md`) |
+
+**Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking).
 
 > **Why Write tool:** Prompt templates contain patterns like `{path or "N/A"}` that trigger bash permission checks ("brace with quote character - expansion obfuscation"). The Write tool bypasses this entirely since it doesn't go through the shell.
 

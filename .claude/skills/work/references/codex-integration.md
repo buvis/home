@@ -26,7 +26,7 @@ The dispatch is a Bash helper-script call from the parent session, governed by t
 
 Review prompts live with the reviewing skill, not here:
 
-- PRD-level reviewer ("Bob") prompts: `skills/review-work-completion/references/agent-prompts.md`
+- PRD-level reviewer ("Bob") persona: `agents/bob.md`, assembled per `skills/review-work-completion/references/agent-registry.md`
 - Batched de-slop prompt: `skills/run-autopilot/prompts/de-sloppify.md`
 
 This file does not duplicate those templates — they belong to the consumers that own the review semantics. A skill that adds a NEW Codex-driven review path should write its own prompt template adjacent to its SKILL.md, then link back here.
