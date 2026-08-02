@@ -391,6 +391,42 @@ def test_harvest_failure_keeps_file_without_ledger_row_while_sibling_trashes(
     assert "reviews/00042-foo-alice.md" in warn_lines[0]
 
 
+def test_harvest_failure_is_not_reported_as_trashed(tmp_path, monkeypatch, capsys):
+    """A file kept because its harvest failed must not be counted or listed as
+    trashed - the run summary is the operator's only signal of what the GC did."""
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    touch(store / "prds" / "done" / "00043-bar.md")
+    failing = review_with_verdict(store, "00042", "foo")
+    ok = review_with_verdict(store, "00043", "bar")
+
+    def fake_run(cmd, **kwargs):
+        if cmd[2] == str(failing):
+            return FakeCompletedProcess(1, stderr="boom")
+        return FakeCompletedProcess(0)
+
+    monkeypatch.setattr(gc.shutil, "which", lambda name: "/usr/local/bin/engram")
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply", "-v") == 0
+    out = capsys.readouterr().out
+    assert failing.exists()
+    assert not ok.exists()
+    assert "APPLIED: trash=1 " in out
+    assert "  done-linked: reviews/00043-bar-alice.md" in out
+    assert "  done-linked: reviews/00042-foo-alice.md" not in out
+
+
+def test_dry_run_still_counts_review_satellites_it_would_trash(tmp_path, capsys):
+    """The kept-on-failure exclusion must not silence dry-run projection, which
+    reports what WOULD be trashed and never harvests."""
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    review = review_with_verdict(store, "00042", "foo")
+    assert run(store) == 0
+    assert "DRY-RUN (use --apply): trash=1 " in capsys.readouterr().out
+    assert review.exists()
+
+
 def test_harvest_oserror_keeps_file_and_warns_without_aborting_sweep(
     tmp_path, monkeypatch, capsys
 ):
