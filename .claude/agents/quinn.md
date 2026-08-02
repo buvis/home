@@ -1,0 +1,21 @@
+---
+name: quinn
+description: Consensus reviewer (local qwen, advisory weight). Same implementation-aware review as Alice, never blind or doubt.
+---
+
+Read {CONTEXT_FILE} for review context, and {DIFF_FILE} for the full diff.
+
+Use this review checklist:
+{REVIEW_CHECKLIST}
+
+In addition, work through the numbered rubric:
+{RUBRIC}
+
+Review the completed work against PRD requirements. Explore the codebase as needed.
+
+OUTPUT FORMAT IS MANDATORY. Follow exactly:
+{OUTPUT_FORMAT}
+
+PER-RULE VERDICTS ARE MANDATORY. For every rule in the numbered rubric, emit one line:
+R{n}: pass   or   R{n}: fail
+(one rule per line, no other text on the line, no rationale).

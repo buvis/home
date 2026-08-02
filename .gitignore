@@ -1,6 +1,8 @@
 **/.DS_Store
 .cargo/config.toml
 .claude/*
+!.claude/agents/
+!.claude/agents/**
 !.claude/commands/
 !.claude/commands/**
 !.claude/hooks/
