@@ -438,6 +438,9 @@ const context = [
     ? `The diff above is TRUNCATED. Read the full diff at ${input.diff_path} before you judge anything.`
     : "",
   input.context_path ? `Further context for this change: read ${input.context_path}.` : "",
+  input.pack_path
+    ? `Retrieved context for this diff's changed symbols (similar code, reuse precedent, findings precedent, task prose): read ${input.pack_path} before judging.`
+    : "",
 ]
   .filter(Boolean)
   .join("\n\n");
