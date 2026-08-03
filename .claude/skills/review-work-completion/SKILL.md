@@ -192,7 +192,7 @@ Per persona:
 | Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice (including `{PACK_FILE}`), plus `{PACK_FINDINGS}` |
 | Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice |
 | Blake | `agents/blake.md` | `{PRD}` and `{RUBRIC}` (from `review-blindly/references/rubric.md`) **only** — no context file, no diff file, no incremental addendum; blind every cycle |
-| Eve | `agents/eve.md` | `{PACK_FINDINGS}`; the PRD, diff range and changed-file list are appended as run inputs (see `references/agent-invocation.md`) |
+| Eve | `agents/eve.md` | `{PACK_FINDINGS}`; the PRD, diff range, changed-file list and the pack's Findings-precedent section are appended as her four run inputs (see `references/agent-invocation.md`) |
 
 **Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking).
 
