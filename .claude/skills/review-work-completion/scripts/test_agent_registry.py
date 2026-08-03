@@ -82,7 +82,9 @@ def test_registry_holds_no_malformed_agents(registry) -> None:
     # frontmatter contract instead — above all `tools`, whose absence means
     # "inherit everything", Edit and Write included.
     on_disk = {path.stem for path in AGENTS_DIR.glob("*.md")}
-    assert set(ROSTER) <= on_disk, f"missing agent files: {sorted(set(ROSTER) - on_disk)}"
+    assert set(ROSTER) <= on_disk, (
+        f"missing agent files: {sorted(set(ROSTER) - on_disk)}"
+    )
     for name in sorted(on_disk - set(ROSTER)):
         fields, body = _parse(name)
         assert fields.get("name") == name, (
