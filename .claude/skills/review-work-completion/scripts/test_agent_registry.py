@@ -74,12 +74,24 @@ def test_roster_is_exactly_fourteen() -> None:
     assert len(set(ROSTER)) == 14, "duplicate persona name in the roster"
 
 
-def test_registry_holds_no_unexpected_agents(registry) -> None:
-    # A stray file still costs boot prefix and can shadow a dispatch name.
+def test_registry_holds_no_malformed_agents(registry) -> None:
+    # A stray file still costs boot prefix and can shadow a dispatch name, so
+    # every file here must be a real agent. It can no longer be an exact-set
+    # check: the directory is shared, and PRD 00100's agoge pack registers its
+    # own personas beside these. Each foreign file is held to the same
+    # frontmatter contract instead — above all `tools`, whose absence means
+    # "inherit everything", Edit and Write included.
     on_disk = {path.stem for path in AGENTS_DIR.glob("*.md")}
-    assert on_disk == set(ROSTER), (
-        f"unexpected agent files: {sorted(on_disk - set(ROSTER))}"
-    )
+    assert set(ROSTER) <= on_disk, f"missing agent files: {sorted(set(ROSTER) - on_disk)}"
+    for name in sorted(on_disk - set(ROSTER)):
+        fields, body = _parse(name)
+        assert fields.get("name") == name, (
+            f"{name}.md declares name={fields.get('name')!r}, which will not dispatch"
+        )
+        assert "tools" in fields, (
+            f"{name}.md omits `tools`, so it inherits Edit and Write"
+        )
+        assert body.strip(), f"{name}.md has an empty system prompt"
 
 
 @pytest.mark.parametrize("name", ROSTER)
@@ -286,7 +298,8 @@ def _table_row(text: str, persona: str) -> str:
 
 @pytest.mark.parametrize("name", CONSENSUS)
 def test_consensus_personas_carry_the_full_pack_placeholder(
-    registry, name: str
+    registry,
+    name: str,
 ) -> None:
     """Alice, Bob, Carl and Quinn are the consensus lens: each body must use
     {PACK_FILE} so the cycle's full context pack is prepended for it."""
@@ -357,9 +370,7 @@ def test_bob_prepare_prompts_row_names_both_pack_placeholders() -> None:
     already uses it."""
     row = _table_row(_skill_text(), "Bob")
     assert "{PACK_FILE}" in row, f"Bob's row must name {{PACK_FILE}}: {row!r}"
-    assert "{PACK_FINDINGS}" in row, (
-        f"Bob's row must name {{PACK_FINDINGS}}: {row!r}"
-    )
+    assert "{PACK_FINDINGS}" in row, f"Bob's row must name {{PACK_FINDINGS}}: {row!r}"
 
 
 def _eve_invocation_section() -> str:
