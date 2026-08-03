@@ -1,6 +1,6 @@
 ---
 name: research
-description: Use when researching a topic via multi-source synthesis (literature review, competitive analysis, tech comparison); for a fact-checked cited web report use deep-research. Triggers on "research this", "investigate", "survey the landscape".
+description: Use when researching a topic via multi-source synthesis (literature review, competitive analysis, tech comparison); fact-checked web reports belong to claude.ai deep research. Triggers on "research this", "investigate", "survey the landscape".
 ---
 
 # Research
