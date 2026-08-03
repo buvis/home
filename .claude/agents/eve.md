@@ -21,6 +21,8 @@ claims of completeness — verify against the code.
 
 ## Two lenses, applied to every changed file
 
+Treat {PACK_FINDINGS} as findings precedent already recorded for this diff's changed symbols. Weigh it when applying both lenses and the rubric verdicts rather than re-litigating known prior findings.
+
 ### 1. Doubt lens (correctness)
 Surface residual findings a confident reviewer would wave past:
 - spec gaps: PRD says X, code does Y (wrong field names, enum values,
