@@ -328,10 +328,12 @@ def process_store(label: str, store: Path, args, now: float,
         elif rule == "unclassified":
             top = rel.parts[0] if len(rel.parts) > 1 else "(root)"
             unclassified[top] += 1
+
     emptied = 0
     if args.apply:
         prune_empty_dirs(store)
         emptied = empty_old_trash(store, now, args.empty_trash_days)
+
     total = sum(trash_counts.values())
     if total or flags or args.verbose:
         detail = " ".join(f"{r}:{n}" for r, n in sorted(trash_counts.items()))
