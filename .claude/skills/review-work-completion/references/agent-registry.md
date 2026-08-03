@@ -114,15 +114,19 @@ still open.
 their `tools` and `model` pins applied, and the live listing is what exposed the
 inherit-everything hazard behind the `tools`-key rule above.
 
-*Corrected 2026-08-03 — do not rely on same-session registration.* This note
-used to say the registry needs no session restart, on the strength of the 14
-appearing as agent types in the session that wrote them. PRD 00100 then wrote
-`olivia.md` and dispatching `subagent_type: olivia` in that same session failed
-with `Agent type 'olivia' not found`, listing only the agents that existed when
-the session started. So registration is not reliably immediate: it happened
-within one session and not within another, and the difference is not understood.
-The safe rule is the conservative one — **a new agent file is dispatchable from
-a fresh session; verify it there, never in the session that created it.**
+*Refined 2026-08-03 — registration is same-session but NOT immediate.* This note
+used to say the registry needs no session restart, which is true but was read as
+"a new file is dispatchable the moment you write it". It is not. PRD 00100 wrote
+`olivia.md` and dispatched `subagent_type: olivia` in the next tool call: it
+failed with `Agent type 'olivia' not found`, listing only the agents that existed
+when the session started. Later in that same session the harness re-scanned and
+announced all seven new agoge types as available, without a restart.
+
+So the write-then-dispatch window is real. **After adding an agent file, do not
+dispatch it in the same breath.** Wait for the harness to announce the new type,
+or verify from a fresh session. Treating a failed immediate dispatch as "named
+agents do not work" is the wrong conclusion, and it is the one this note now
+exists to prevent.
 
 *Moot for now:* whether a workflow's `opts.agentType` resolves a user-level
 persona was never probed, and the workflow lanes no longer depend on it — they
