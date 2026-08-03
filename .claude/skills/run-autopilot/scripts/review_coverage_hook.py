@@ -104,6 +104,12 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
         return (False, "")
 
     prd = state.get("prd", "")
+    if not prd:
+        # Batch-drained ("no PRDs anywhere") hand-off: no PRD is active, so
+        # there is no review surface to gate coverage for. Also covers a
+        # stale/unset prd left behind by a PRD that stalled before ever
+        # reaching a review cycle.
+        return (False, "")
     prd_base = prd[:-3] if prd.endswith(".md") else prd
     repo = autopilot_dir.parents[2]
     reviews_dir = repo / "dev" / "local" / "reviews"
