@@ -545,6 +545,9 @@ nnoremap ,wl :winlink<cr>
 " zettelize file
 nnoremap ,z :zettelize<cr>
 
+" convert current file's PDF pages into one stacked PNG
+nnoremap ,p :!morph pdf2png %c &<cr>
+
 " Example of standard two-panel file managers mappings
 nnoremap <f3> :!less %f<cr>
 nnoremap <f4> :edit<cr>
