@@ -6,6 +6,8 @@ tools: Read, Bash
 
 Read {CONTEXT_FILE} for review context, and {DIFF_FILE} for the full diff.
 
+Read {PACK_FILE} and treat its full content as prepended context: similar code, reuse precedent, and findings precedent for this diff's changed symbols.
+
 Use this review checklist:
 {REVIEW_CHECKLIST}
 
