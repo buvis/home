@@ -111,3 +111,71 @@ test("an unsubstituted placeholder fails loudly instead of reaching a reviewer",
     /unsubstituted placeholder \{RUBRIC\}/,
   );
 });
+
+// PRD: carry the engram context pack (retrieved similar code, reuse precedent,
+// findings precedent, task prose for the diff's changed symbols) into the
+// shared context block, the same way `context_path` already works: an
+// optional `args.pack_path` that, when present, contributes one line to the
+// context block every dimension persona and trent's rubric prompt share.
+//
+// These build the pack-bearing args as a fresh spread of ARGS, never a
+// mutation of ARGS itself — ARGS is the fixture the golden-parity tests above
+// assert byte-identity against.
+
+const PACK_PATH = "/tmp/engram-pack-fixture.md";
+const PACK_LINE = `Retrieved context for this diff's changed symbols (similar code, reuse precedent, findings precedent, task prose): read ${PACK_PATH} before judging.`;
+
+test("every dimension persona's assembled prompt carries the pack line when pack_path is set", () => {
+  const { dims, dimensionPrompt } = assembleWith({ ...ARGS, pack_path: PACK_PATH });
+  for (const d of dims) {
+    assert.ok(
+      dimensionPrompt(d).includes(PACK_LINE),
+      `${d.persona}'s prompt is missing the pack line`,
+    );
+  }
+});
+
+test("trent's rubric prompt carries the same pack line, proving it rides the shared context block", () => {
+  const { rubricPrompt } = assembleWith({ ...ARGS, pack_path: PACK_PATH });
+  assert.ok(
+    rubricPrompt.includes(PACK_LINE),
+    "trent's rubric prompt is missing the pack line",
+  );
+});
+
+test("without pack_path, no dimension prompt or rubric prompt mentions the pack, and both stay byte-identical to the no-pack goldens", () => {
+  const { dims, dimensionPrompt, rubricPrompt } = assembleWith(ARGS);
+  for (const d of dims) {
+    const prompt = dimensionPrompt(d);
+    assert.doesNotMatch(
+      prompt,
+      /pack/i,
+      `${d.persona}'s prompt must not mention the pack when pack_path is absent`,
+    );
+    assert.equal(
+      prompt,
+      GOLDENS.prompts[d.persona],
+      `${d.persona}'s prompt must be unchanged from the no-pack golden`,
+    );
+  }
+  assert.doesNotMatch(
+    rubricPrompt,
+    /pack/i,
+    "trent's rubric prompt must not mention the pack when pack_path is absent",
+  );
+  assert.equal(
+    rubricPrompt,
+    GOLDENS.prompts.trent,
+    "trent's rubric prompt must be unchanged from the no-pack golden",
+  );
+});
+
+test("SKILL.md's step-5 Workflow() args table documents a pack_path row", () => {
+  const skillPath = join(process.env.HOME, ".claude", "skills", "review-work-completion", "SKILL.md");
+  const text = readFileSync(skillPath, "utf8");
+  const tableStart = text.indexOf("| arg | value |");
+  assert.ok(tableStart >= 0, "step-5 Workflow() args table not found in SKILL.md");
+  const tableEnd = text.indexOf("\n\n", tableStart);
+  const table = text.slice(tableStart, tableEnd >= 0 ? tableEnd : undefined);
+  assert.match(table, /`pack_path`/, "args table is missing a pack_path row");
+});
