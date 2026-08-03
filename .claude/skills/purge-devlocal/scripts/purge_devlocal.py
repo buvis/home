@@ -210,6 +210,35 @@ def harvest_review_verdicts(store: Path, rel: Path, now: float) -> None:
         print(f"  WARN verdict harvest failed for {rel.as_posix()}: {exc}")
 
 
+def harvest_before_trash(engram_path: str | None, store: Path, rel: Path,
+                         now: float) -> bool:
+    """Run `engram harvest` on a review satellite before it's trashed and, on
+    success, record its verdict in the ledger. Non-review files are left
+    alone and always return True. Prints a WARN line on harvest failure."""
+    is_review_md = (len(rel.parts) > 1 and rel.parts[0] == "reviews"
+                    and rel.suffix == ".md")
+    if not is_review_md:
+        return True
+    harvested_ok = True
+    if engram_path is not None:
+        try:
+            result = subprocess.run(
+                [engram_path, "harvest", str(store / rel)],
+                capture_output=True, text=True, timeout=300,
+            )
+            harvested_ok = result.returncode == 0
+            harvest_output = (result.stdout + result.stderr).strip()
+        except (OSError, subprocess.TimeoutExpired) as e:
+            harvested_ok = False
+            harvest_output = str(e)
+        if not harvested_ok:
+            print(f"  WARN harvest failed for {rel.as_posix()}, "
+                  f"not trashing this run: {harvest_output}")
+    if harvested_ok:
+        harvest_review_verdicts(store, rel, now)
+    return harvested_ok
+
+
 def _dedup_dest(batch_root: Path, rel: Path) -> Path:
     """A trash destination that collides with nothing: not a pre-existing dest,
     and no intermediate directory blocked by an existing file. Suffixes the
@@ -287,30 +316,11 @@ def process_store(label: str, store: Path, args, now: float,
             if not args.apply:
                 trash_counts[rule] += 1
                 trashed.append((rule, rel.as_posix()))
-            else:
-                is_review_md = (len(rel.parts) > 1 and rel.parts[0] == "reviews"
-                                and rel.suffix == ".md")
-                harvested_ok = True
-                if is_review_md and engram_path is not None:
-                    try:
-                        result = subprocess.run(
-                            [engram_path, "harvest", str(store / rel)],
-                            capture_output=True, text=True, timeout=300,
-                        )
-                        harvested_ok = result.returncode == 0
-                        detail = (result.stdout + result.stderr).strip()
-                    except (OSError, subprocess.TimeoutExpired) as e:
-                        harvested_ok = False
-                        detail = str(e)
-                    if not harvested_ok:
-                        print(f"  WARN harvest failed for {rel.as_posix()}, "
-                              f"not trashing this run: {detail}")
-                if is_review_md and harvested_ok:
-                    harvest_review_verdicts(store, rel, now)  # unchanged, fire-and-forget
-                if harvested_ok:
-                    trash_counts[rule] += 1
-                    trashed.append((rule, rel.as_posix()))
-                    trash_file(store, rel, rule, batch)
+                continue
+            if harvest_before_trash(engram_path, store, rel, now):
+                trash_counts[rule] += 1
+                trashed.append((rule, rel.as_posix()))
+                trash_file(store, rel, rule, batch)
         elif action == "flag":
             flags.append((rule, rel.as_posix()))
         elif rule.startswith("fresh:"):
@@ -318,12 +328,10 @@ def process_store(label: str, store: Path, args, now: float,
         elif rule == "unclassified":
             top = rel.parts[0] if len(rel.parts) > 1 else "(root)"
             unclassified[top] += 1
-
     emptied = 0
     if args.apply:
         prune_empty_dirs(store)
         emptied = empty_old_trash(store, now, args.empty_trash_days)
-
     total = sum(trash_counts.values())
     if total or flags or args.verbose:
         detail = " ".join(f"{r}:{n}" for r, n in sorted(trash_counts.items()))
