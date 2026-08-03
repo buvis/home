@@ -152,6 +152,18 @@ Both positional args are optional — omit if no tasks/PRD available. Outputs co
 
 **Bare-repo homes (e.g. `~/.buvis`: `git --git-dir=~/.buvis --work-tree=~`):** `gather-context.sh` assumes a normal checkout and fails here — do not fight it. Build the review inputs yourself: generate the diff with `git --git-dir=<bare-dir> --work-tree=<tree> diff <COVERAGE_DIFF_RANGE>` (the range captured above), write it plus the tasks/PRD/context files to `/tmp/` with the Write tool, and pass those absolute `/tmp` paths to the reviewer prompts. The script path stays primary for normal repos.
 
+**Generate the cycle's context pack.** After `gather-context.sh` has produced the diff, and before any prompt is assembled, run this from the project root:
+
+```bash
+uv run --project ~/git/src/github.com/buvis/engram engram pack --cycle {id} --prd dev/local/prds/wip/<target-prd>.md --capsule dev/local/project-capsule.md
+```
+
+`engram` is not on PATH in this environment, so the `uv run --project ...` form is required. A bare `engram pack` will fail. The command prints the pack's absolute path, its estimated token total, and the pre-pack reindex stats. `{id}` is the same cycle id used for the other `dev/local/tmp/review-*-{id}.*` staging files, so the pack lands at `dev/local/tmp/engram-pack-{id}.md`.
+
+Hold the printed absolute path. Step 4 substitutes it for `{PACK_FILE}`, and substitutes the file's "Findings precedent" section for `{PACK_FINDINGS}`. Pass the pack path to prompts as an absolute path, like the other staged inputs. Subagents misresolve relative `dev/local/` paths as `~/dev/local/`.
+
+**Failure is non-fatal and must never block the cycle.** If the command exits non-zero or writes no pack file, retry at most once and do not fail the review. Substitute the literal text `(no pack available this cycle)` for `{PACK_FILE}` and `{PACK_FINDINGS}` in every prompt that takes them, and note the pack failure in the review file. The pack is additive retrieval context. A review without it is degraded, not invalid. The blind lens (Blake) never receives a pack, by design.
+
 ### 4. Prepare agent prompts
 
 Create prompt files in `dev/local/tmp/`:
@@ -174,9 +186,9 @@ Per persona:
 | Persona | Source | Substitutions |
 |---------|--------|---------------|
 | Alice | `agents/alice.md` | `{CONTEXT_FILE}`, `{DIFF_FILE}`, `{REVIEW_CHECKLIST}`, `{RUBRIC}`, `{OUTPUT_FORMAT}` |
-| Quinn | `agents/quinn.md` | same as Alice — the standard implementation-aware review, never the blind or doubt lens |
-| Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice |
-| Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice |
+| Quinn | `agents/quinn.md` | same as Alice, plus `{PACK_FILE}` - the standard implementation-aware review, never the blind or doubt lens |
+| Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice, plus `{PACK_FILE}` |
+| Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice, plus `{PACK_FILE}` |
 | Blake | `agents/blake.md` | `{PRD}` and `{RUBRIC}` (from `review-blindly/references/rubric.md`) **only** — no context file, no diff file, no incremental addendum; blind every cycle |
 | Eve | `agents/eve.md` | none; the PRD, diff range and changed-file list are appended as run inputs (see `references/agent-invocation.md`) |
 

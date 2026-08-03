@@ -63,6 +63,8 @@ skill owns path resolution, the persona does not. Placeholders in use:
 | `{CONTEXT_FILE}` | Absolute path to the gathered review context file. |
 | `{DIFF_FILE}` | Absolute path to the full diff file. |
 | `{DIFF}` | The diff text itself, inlined. |
+| `{PACK_FILE}` | Absolute path to the cycle's engram context pack (`engram-pack-{id}.md`). Its full content counts as prepended review context. |
+| `{PACK_FINDINGS}` | The pack's "Findings precedent" section body, inlined as text. |
 | `{PRD}` | Full PRD content. |
 | `{RUBRIC}` | Contents of the lane's rubric source, inlined. |
 | `{REVIEW_CHECKLIST}` | Contents of `references/review-dimensions.md`. |
