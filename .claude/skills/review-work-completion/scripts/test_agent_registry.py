@@ -360,3 +360,46 @@ def test_bob_prepare_prompts_row_names_both_pack_placeholders() -> None:
     assert "{PACK_FINDINGS}" in row, (
         f"Bob's row must name {{PACK_FINDINGS}}: {row!r}"
     )
+
+
+def _eve_invocation_section() -> str:
+    """Return the '## Eve (Fable 5)' section of agent-invocation.md, from its
+    heading to the next '## ' heading or end of file.
+
+    Mirrors _table_row's row-scoping: agent-invocation.md legitimately
+    discusses the pack elsewhere (e.g. Bob's codex dispatch mentions the
+    doubt lens), and that mention must not make an assertion about Eve's own
+    dispatch contract lie.
+    """
+    text = (
+        Path.home()
+        / ".claude"
+        / "skills"
+        / "review-work-completion"
+        / "references"
+        / "agent-invocation.md"
+    ).read_text(encoding="utf-8")
+    match = re.search(
+        r"^## Eve \(Fable 5\)$(.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match, "no '## Eve (Fable 5)' section found in agent-invocation.md"
+    return match.group(1)
+
+
+def test_eve_dispatch_section_names_pack_findings_and_drops_three_input_claim() -> None:
+    """Eve's dispatch contract must document a fourth appended run input that
+    carries {PACK_FINDINGS} (or the no-pack sentinel), so the placeholder in
+    her persona body actually gets substituted on her path. Today the section
+    still claims she receives only the same three appended inputs codex
+    does, with no pack-findings input documented at all."""
+    section = _eve_invocation_section()
+    assert "{PACK_FINDINGS}" in section, (
+        "Eve's '## Eve (Fable 5)' section in agent-invocation.md must name "
+        "{PACK_FINDINGS} as one of her appended run inputs"
+    )
+    assert "three appended inputs" not in section, (
+        "Eve's '## Eve (Fable 5)' section still claims she receives only "
+        "three appended inputs; document a fourth carrying {PACK_FINDINGS}"
+    )
