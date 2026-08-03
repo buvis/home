@@ -76,7 +76,7 @@ Quinn's prompt is built from `agents/quinn.md` (`SKILL.md` step 4) - the same st
 
 Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl/Quinn). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Bash access (`rg` for search; Grep/Glob absent in this build) - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
 
-Eve's persona is `agents/eve.md`, which is also the base Bob's doubt appendix is cut from - one source, so a future edit to the doubt lens reaches every reviewer that carries it. She takes the **same three appended inputs** codex receives: the PRD content, the diff range (`<base>..HEAD`), and the changed-file list.
+Eve's persona is `agents/eve.md`, which is also the base Bob's doubt appendix is cut from - one source, so a future edit to the doubt lens reaches every reviewer that carries it. She takes four appended inputs: the PRD content, the diff range (`<base>..HEAD`), the changed-file list, and the pack's Findings precedent section, which fills the `{PACK_FINDINGS}` placeholder in her persona body. When the cycle produced no pack, pass the sentinel `(no pack available this cycle)` for that fourth input instead, matching the fallback SKILL.md step 3 prescribes for `{PACK_FILE}`/`{PACK_FINDINGS}`.
 
 ```
 Task tool:
@@ -91,6 +91,9 @@ Task tool:
 
     ## Changed files
     {changed-file list, one path per line}
+
+    ## Findings precedent
+    {PACK_FINDINGS}
 ```
 
 `agents/eve.md` supplies the persona as the system prompt and pins `model: fable` in its own frontmatter, so no `model` argument is passed here. Do NOT fork or modify `eve.md` for one lane - it already prescribes the full output contract, and any edit to it must apply to every reviewer carrying the doubt lens (the codex path, its Claude fallback, and Eve).
