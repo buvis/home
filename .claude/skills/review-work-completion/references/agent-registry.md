@@ -110,12 +110,19 @@ byte-parity.
 **On the `agentType` probe (PRD 00109 Phase 0, task 3).** Half observed, half
 still open.
 
-*Observed:* writing these files registered all 14 as native agent types **in
-the same session that created them**, with their `tools` and `model` pins
-applied. The registry does not require a session restart. (An earlier draft of
-this note claimed the opposite; it was wrong, and the `tools`-key rule above
-exists because the live registration is what exposed the inherit-everything
-hazard.)
+*Observed:* writing these files registered all 14 as native agent types, with
+their `tools` and `model` pins applied, and the live listing is what exposed the
+inherit-everything hazard behind the `tools`-key rule above.
+
+*Corrected 2026-08-03 — do not rely on same-session registration.* This note
+used to say the registry needs no session restart, on the strength of the 14
+appearing as agent types in the session that wrote them. PRD 00100 then wrote
+`olivia.md` and dispatching `subagent_type: olivia` in that same session failed
+with `Agent type 'olivia' not found`, listing only the agents that existed when
+the session started. So registration is not reliably immediate: it happened
+within one session and not within another, and the difference is not understood.
+The safe rule is the conservative one — **a new agent file is dispatchable from
+a fresh session; verify it there, never in the session that created it.**
 
 *Moot for now:* whether a workflow's `opts.agentType` resolves a user-level
 persona was never probed, and the workflow lanes no longer depend on it — they
