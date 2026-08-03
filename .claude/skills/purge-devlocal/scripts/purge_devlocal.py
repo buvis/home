@@ -57,8 +57,12 @@ DAY = 86400
 PRD_NUM = re.compile(r"(?<!\d)(\d{5})(?!\d)")
 TRASH_DIR = ".trash"
 KEEP_NAMES = {
-    "project-capsule.md", "decisions.md", "troubleshooting.md",
-    "assumptions.md", "ecc-cursor", "upstream-cursor",
+    "project-capsule.md",
+    "decisions.md",
+    "troubleshooting.md",
+    "assumptions.md",
+    "ecc-cursor",
+    "upstream-cursor",
 }
 FLAG_DIRS = {"discovery", "specs", "notes", "walkthroughs", "audit-results", "spikes"}
 # ponytail: missing-prd is scoped to dirs where 5-digit tokens are PRD prefixes
@@ -90,8 +94,11 @@ def find_stores(home: Path) -> dict[str, Path]:
                 for repo in sorted(org.iterdir()):
                     dl = repo / "dev" / "local"
                     if dl.is_dir() or dl.is_symlink():
-                        label = f"{org.name}/{repo.name}" if host.name == "github.com" \
+                        label = (
+                            f"{org.name}/{repo.name}"
+                            if host.name == "github.com"
                             else f"{host.name}/{org.name}/{repo.name}"
+                        )
                         add(label, dl)
     add("~/.claude", home / ".claude" / "dev" / "local")
     return stores
@@ -134,8 +141,9 @@ def walk_store(store: Path):
             yield fp.relative_to(store), st.st_mtime
 
 
-def classify_artifact(rel: Path, mtime: float, live: set[str], done: set[str],
-                      now: float, args) -> tuple[str, str]:
+def classify_artifact(
+    rel: Path, mtime: float, live: set[str], done: set[str], now: float, args
+) -> tuple[str, str]:
     """Return (action, rule); action is keep | trash | flag."""
     top = rel.parts[0] if len(rel.parts) > 1 else "(root)"
     age = (now - mtime) / DAY
@@ -157,8 +165,11 @@ def classify_artifact(rel: Path, mtime: float, live: set[str], done: set[str],
     action = rule = None
     if toks & done:
         action, rule = "trash", "done-linked"
-    elif toks and not toks & (live | done) \
-            and (top in MISSING_SCOPE or PRD_NUM.search(top)):
+    elif (
+        toks
+        and not toks & (live | done)
+        and (top in MISSING_SCOPE or PRD_NUM.search(top))
+    ):
         action, rule = "trash", "missing-prd"
     elif top == "tmp" and age > args.tmp_age_days:
         action, rule = "trash", "stale-tmp"
@@ -179,8 +190,8 @@ def classify_artifact(rel: Path, mtime: float, live: set[str], done: set[str],
     return "keep", "unclassified"
 
 
-VERDICT_RE = re.compile(r"^Verdict:\s*(.+)$", re.M)
-REVIEWERS_RE = re.compile(r"^reviewers?:\s*(.+)$", re.M)
+VERDICT_RE = re.compile(r"^Verdict:\s*(.+)$", re.MULTILINE)
+REVIEWERS_RE = re.compile(r"^reviewers?:\s*(.+)$", re.MULTILINE)
 
 
 def harvest_review_verdicts(store: Path, rel: Path, now: float) -> None:
@@ -210,13 +221,15 @@ def harvest_review_verdicts(store: Path, rel: Path, now: float) -> None:
         print(f"  WARN verdict harvest failed for {rel.as_posix()}: {exc}")
 
 
-def harvest_before_trash(engram_path: str | None, store: Path, rel: Path,
-                         now: float) -> bool:
+def harvest_before_trash(
+    engram_path: str | None, store: Path, rel: Path, now: float
+) -> bool:
     """Run `engram harvest` on a review satellite before it's trashed and, on
     success, record its verdict in the ledger. Non-review files are left
     alone and always return True. Prints a WARN line on harvest failure."""
-    is_review_md = (len(rel.parts) > 1 and rel.parts[0] == "reviews"
-                    and rel.suffix == ".md")
+    is_review_md = (
+        len(rel.parts) > 1 and rel.parts[0] == "reviews" and rel.suffix == ".md"
+    )
     if not is_review_md:
         return True
     harvested_ok = True
@@ -224,7 +237,9 @@ def harvest_before_trash(engram_path: str | None, store: Path, rel: Path,
         try:
             result = subprocess.run(
                 [engram_path, "harvest", str(store / rel)],
-                capture_output=True, text=True, timeout=300,
+                capture_output=True,
+                text=True,
+                timeout=300,
             )
             harvested_ok = result.returncode == 0
             harvest_output = (result.stdout + result.stderr).strip()
@@ -232,8 +247,10 @@ def harvest_before_trash(engram_path: str | None, store: Path, rel: Path,
             harvested_ok = False
             harvest_output = str(e)
         if not harvested_ok:
-            print(f"  WARN harvest failed for {rel.as_posix()}, "
-                  f"not trashing this run: {harvest_output}")
+            print(
+                f"  WARN harvest failed for {rel.as_posix()}, "
+                f"not trashing this run: {harvest_output}"
+            )
     if harvested_ok:
         harvest_review_verdicts(store, rel, now)
     return harvested_ok
@@ -253,8 +270,11 @@ def _dedup_dest(batch_root: Path, rel: Path) -> Path:
             candidate = batch_root.joinpath(*parts[: depth + 1])
             # a leaf collides if anything is there; an intermediate collides only
             # when a NON-directory blocks the nest (an existing dir is reusable).
-            collides = candidate.exists() if is_leaf else (
-                candidate.exists() and not candidate.is_dir())
+            collides = (
+                candidate.exists()
+                if is_leaf
+                else (candidate.exists() and not candidate.is_dir())
+            )
             if not collides:
                 break
             n += 1
@@ -268,7 +288,9 @@ def trash_file(store: Path, rel: Path, rule: str, batch: str) -> None:
     shutil.move(str(store / rel), str(final))
     manifest = store / TRASH_DIR / "manifest.tsv"
     with manifest.open("a") as fh:
-        fh.write(f"{batch}\t{rule}\t{rel.as_posix()}\t{final.relative_to(store).as_posix()}\n")
+        fh.write(
+            f"{batch}\t{rule}\t{rel.as_posix()}\t{final.relative_to(store).as_posix()}\n"
+        )
 
 
 def prune_empty_dirs(store: Path) -> None:
@@ -300,8 +322,9 @@ def empty_old_trash(store: Path, now: float, days: float) -> int:
     return removed
 
 
-def process_store(label: str, store: Path, args, now: float,
-                  engram_path: str | None) -> dict:
+def process_store(
+    label: str, store: Path, args, now: float, engram_path: str | None
+) -> dict:
     live, done = prd_numbers(store)
     batch = time.strftime("%Y-%m-%d", time.localtime(now))
     trash_counts: Counter = Counter()
@@ -349,17 +372,34 @@ def process_store(label: str, store: Path, args, now: float,
                 print(f"  {rule}: {rel}")
             for top, n in sorted(unclassified.items()):
                 print(f"  unclassified {top}/: {n} kept")
-    return {"trash": total, "flags": len(flags),
-            "unclassified": sum(unclassified.values())}
+    return {
+        "trash": total,
+        "flags": len(flags),
+        "unclassified": sum(unclassified.values()),
+    }
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Trash-first GC for dev/local stores")
     scope = ap.add_mutually_exclusive_group(required=True)
-    scope.add_argument("--all", action="store_true", help="all repos under ~/git/src plus ~/.claude")
-    scope.add_argument("--repo", action="append", type=Path, help="repo root or dev/local path (repeatable)")
-    ap.add_argument("--apply", action="store_true", help="move files to .trash (default: dry-run)")
-    ap.add_argument("--min-age-days", type=float, default=3, help="never trash files newer than this")
+    scope.add_argument(
+        "--all", action="store_true", help="all repos under ~/git/src plus ~/.claude"
+    )
+    scope.add_argument(
+        "--repo",
+        action="append",
+        type=Path,
+        help="repo root or dev/local path (repeatable)",
+    )
+    ap.add_argument(
+        "--apply", action="store_true", help="move files to .trash (default: dry-run)"
+    )
+    ap.add_argument(
+        "--min-age-days",
+        type=float,
+        default=3,
+        help="never trash files newer than this",
+    )
     ap.add_argument("--tmp-age-days", type=float, default=7)
     ap.add_argument("--autopilot-age-days", type=float, default=14)
     ap.add_argument("--empty-trash-days", type=float, default=30)
@@ -386,8 +426,10 @@ def main(argv=None) -> int:
         for k, v in process_store(label, store, args, now, engram_path).items():
             totals[k] += v
     mode = "APPLIED" if args.apply else "DRY-RUN (use --apply)"
-    print(f"{mode}: trash={totals['trash']} flags={totals['flags']} "
-          f"unclassified-kept={totals['unclassified']} across {len(stores)} store(s)")
+    print(
+        f"{mode}: trash={totals['trash']} flags={totals['flags']} "
+        f"unclassified-kept={totals['unclassified']} across {len(stores)} store(s)"
+    )
     return 0
 
 
