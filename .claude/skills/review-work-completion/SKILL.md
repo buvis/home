@@ -187,12 +187,12 @@ Per persona:
 
 | Persona | Source | Substitutions |
 |---------|--------|---------------|
-| Alice | `agents/alice.md` | `{CONTEXT_FILE}`, `{DIFF_FILE}`, `{REVIEW_CHECKLIST}`, `{RUBRIC}`, `{OUTPUT_FORMAT}` |
-| Quinn | `agents/quinn.md` | same as Alice, plus `{PACK_FILE}` - the standard implementation-aware review, never the blind or doubt lens |
-| Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice, plus `{PACK_FILE}` |
-| Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice, plus `{PACK_FILE}` |
+| Alice | `agents/alice.md` | `{CONTEXT_FILE}`, `{DIFF_FILE}`, `{PACK_FILE}`, `{REVIEW_CHECKLIST}`, `{RUBRIC}`, `{OUTPUT_FORMAT}` |
+| Quinn | `agents/quinn.md` | same as Alice - the standard implementation-aware review, never the blind or doubt lens |
+| Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice (including `{PACK_FILE}`), plus `{PACK_FINDINGS}` |
+| Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice |
 | Blake | `agents/blake.md` | `{PRD}` and `{RUBRIC}` (from `review-blindly/references/rubric.md`) **only** — no context file, no diff file, no incremental addendum; blind every cycle |
-| Eve | `agents/eve.md` | none; the PRD, diff range and changed-file list are appended as run inputs (see `references/agent-invocation.md`) |
+| Eve | `agents/eve.md` | `{PACK_FINDINGS}`; the PRD, diff range and changed-file list are appended as run inputs (see `references/agent-invocation.md`) |
 
 **Create each prompt independently.** Do NOT create one prompt and copy/sed it into another - this triggers bash permission warnings (quote characters in comments desync quote tracking).
 
