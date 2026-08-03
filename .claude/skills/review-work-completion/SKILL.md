@@ -155,7 +155,7 @@ Both positional args are optional — omit if no tasks/PRD available. Outputs co
 **Generate the cycle's context pack.** After `gather-context.sh` has produced the diff, and before any prompt is assembled, run this from the project root:
 
 ```bash
-uv run --project ~/git/src/github.com/buvis/engram engram pack --cycle {id} --prd dev/local/prds/wip/<target-prd>.md --capsule dev/local/project-capsule.md
+uv run --project ~/git/src/github.com/buvis/engram engram pack --cycle {id} --prd <absolute path of the review-target PRD resolved at the top of this step> --capsule dev/local/project-capsule.md
 ```
 
 `engram` is not on PATH in this environment, so the `uv run --project ...` form is required. A bare `engram pack` will fail. The command prints the pack's absolute path, its estimated token total, and the pre-pack reindex stats. `{id}` is the same cycle id used for the other `dev/local/tmp/review-*-{id}.*` staging files, so the pack lands at `dev/local/tmp/engram-pack-{id}.md`.
@@ -163,6 +163,8 @@ uv run --project ~/git/src/github.com/buvis/engram engram pack --cycle {id} --pr
 Hold the printed absolute path. Step 4 substitutes it for `{PACK_FILE}`, and substitutes the file's "Findings precedent" section for `{PACK_FINDINGS}`. Pass the pack path to prompts as an absolute path, like the other staged inputs. Subagents misresolve relative `dev/local/` paths as `~/dev/local/`.
 
 **Failure is non-fatal and must never block the cycle.** If the command exits non-zero or writes no pack file, retry at most once and do not fail the review. Substitute the literal text `(no pack available this cycle)` for `{PACK_FILE}` and `{PACK_FINDINGS}` in every prompt that takes them, and note the pack failure in the review file. The pack is additive retrieval context. A review without it is degraded, not invalid. The blind lens (Blake) never receives a pack, by design.
+
+In a **bare-repo home** (the carve-out one paragraph above), expect this step to fail and degrade through that same fallback: `gather-context.sh` never wrote `review-diff-{id}.diff`, and `engram pack` resolves `repo_root` from `git rev-parse --show-toplevel`, which exits non-zero there. Note it and move on rather than retrying.
 
 ### 4. Prepare agent prompts
 
