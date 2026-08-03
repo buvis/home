@@ -1,11 +1,4 @@
 [tools]
-deno = "latest"
-github-cli = "latest"
-helm = "latest"
-node = "latest"
-python = "latest"
-rust = "latest"
-uv = "latest"
 "cargo:rumdl" = "latest"
 "cargo:zoxide" = "latest"
 "github:neovim/neovim" = "latest"
@@ -31,6 +24,15 @@ uv = "latest"
 "pipx:showboat" = "latest"
 "pipx:yamllint" = "latest"
 "pipx:yt-dlp" = "latest"
+ast-grep = "latest"
+awscli = { version = "latest", symlink_bins = "true" }
+deno = "latest"
+github-cli = "latest"
+helm = "latest"
+node = "latest"
+python = "latest"
+rust = "latest"
+uv = "latest"
 
 [settings]
 experimental = true
