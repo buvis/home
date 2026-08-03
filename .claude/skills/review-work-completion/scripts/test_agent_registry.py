@@ -261,3 +261,102 @@ def test_placeholders_are_declared_in_the_conventions(registry) -> None:
         used.update(re.findall(r"\{([A-Z_]+)\}", body))
     undocumented = sorted(p for p in used if f"{{{p}}}" not in conventions)
     assert not undocumented, f"placeholders used but not documented: {undocumented}"
+
+
+def _skill_text() -> str:
+    return (
+        Path.home() / ".claude" / "skills" / "review-work-completion" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+
+
+def _table_row(text: str, persona: str) -> str:
+    """Return the sole markdown table row whose leading cell is `persona`.
+
+    Anchors on the leading cell rather than the whole file: SKILL.md
+    legitimately mentions the pack elsewhere (the step that generates it),
+    and that mention must not make an assertion about one persona's row lie.
+    """
+    matches = re.findall(rf"^\|\s*{re.escape(persona)}\s*\|.*$", text, re.MULTILINE)
+    assert len(matches) == 1, (
+        f"expected exactly one '| {persona} |' table row in SKILL.md, found "
+        f"{len(matches)}"
+    )
+    return matches[0]
+
+
+@pytest.mark.parametrize("name", CONSENSUS)
+def test_consensus_personas_carry_the_full_pack_placeholder(
+    registry, name: str
+) -> None:
+    """Alice, Bob, Carl and Quinn are the consensus lens: each body must use
+    {PACK_FILE} so the cycle's full context pack is prepended for it."""
+    _, body = registry[name]
+    assert "{PACK_FILE}" in body, f"{name}.md body must use {{PACK_FILE}}"
+
+
+def test_eve_body_uses_findings_precedent(registry) -> None:
+    """Eve is the doubt lens: she gets the pack's findings precedent, not the
+    full pack."""
+    _, body = registry["eve"]
+    assert "{PACK_FINDINGS}" in body, "eve.md body must use {PACK_FINDINGS}"
+
+
+def test_eve_body_does_not_use_the_full_pack_placeholder(registry) -> None:
+    """The doubt lens is the one lens where findings-only isolation is
+    mechanically enforceable: her body must not carry {PACK_FILE}."""
+    _, body = registry["eve"]
+    assert "{PACK_FILE}" not in body, "eve.md body must not use {PACK_FILE}"
+
+
+def test_blake_body_is_pack_free(registry) -> None:
+    """Blake is the blind lens by design: no pack placeholder, and no mention
+    of the pack artifact by name, anywhere in his body."""
+    _, body = registry["blake"]
+    for forbidden in ("{PACK_FILE}", "{PACK_FINDINGS}", "PACK_"):
+        assert forbidden not in body, (
+            f"blake.md body contains {forbidden!r}; the blind lens is "
+            f"pack-free by design"
+        )
+    assert "engram-pack" not in body.lower(), (
+        "blake.md body must not reference the pack artifact"
+    )
+
+
+def test_blake_prepare_prompts_row_names_no_pack_placeholder() -> None:
+    """The blind invocation path is pack-free too: Blake's row in the
+    'Prepare agent prompts' substitution table must not name a pack
+    placeholder."""
+    row = _table_row(_skill_text(), "Blake")
+    assert "PACK_" not in row, (
+        f"Blake's SKILL.md substitution-table row mentions a pack placeholder: {row!r}"
+    )
+
+
+def test_alice_and_eve_prepare_prompts_rows_name_their_pack_placeholders() -> None:
+    """Alice's row names the full pack; Eve's row names findings precedent
+    only, matching the wiring contract."""
+    text = _skill_text()
+    alice_row = _table_row(text, "Alice")
+    eve_row = _table_row(text, "Eve")
+    assert "{PACK_FILE}" in alice_row, (
+        f"Alice's row must name {{PACK_FILE}}: {alice_row!r}"
+    )
+    assert "{PACK_FINDINGS}" in eve_row, (
+        f"Eve's row must name {{PACK_FINDINGS}}: {eve_row!r}"
+    )
+
+
+def test_bob_prepare_prompts_row_names_both_pack_placeholders() -> None:
+    """Bob's row already declares his prompt is assembled from agents/bob.md
+    **plus** the "Two lenses" and "Rubric verdicts" sections of agents/eve.md
+    appended — exactly the sections that carry {PACK_FINDINGS}. So Bob's
+    assembled prompt contains that placeholder even though his own file
+    never will; if his row doesn't declare the substitution, an
+    unsubstituted literal `{PACK_FINDINGS}` ships to the reviewer. He must
+    keep naming {PACK_FILE} too: he's a consensus reviewer and his own body
+    already uses it."""
+    row = _table_row(_skill_text(), "Bob")
+    assert "{PACK_FILE}" in row, f"Bob's row must name {{PACK_FILE}}: {row!r}"
+    assert "{PACK_FINDINGS}" in row, (
+        f"Bob's row must name {{PACK_FINDINGS}}: {row!r}"
+    )
