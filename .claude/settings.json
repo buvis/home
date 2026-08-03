@@ -137,7 +137,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "sonnet",
+  "model": "opus[1m]",
   "hooks": {
     "SessionStart": [
       {
@@ -209,7 +209,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*|Edit|Write|MultiEdit",
+        "matcher": "Bash|Read|Agent|WebFetch|WebSearch|mcp__.*|Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -231,7 +231,8 @@
     "strunk@buvis-plugins": true,
     "aegis@buvis-plugins": true,
     "claude-checkup@buvis-plugins": true,
-    "ponytail@ponytail": true
+    "ponytail@ponytail": true,
+    "loupe@buvis-plugins": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {
@@ -249,6 +250,7 @@
     }
   },
   "effortLevel": "xhigh",
+  "fastMode": true,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
