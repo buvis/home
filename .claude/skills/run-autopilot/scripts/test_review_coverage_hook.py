@@ -408,6 +408,21 @@ class GateBlocksDecisionTests(unittest.TestCase):
         self.assertFalse(blocks)
         self.assertEqual(msg, "")
 
+    def test_empty_prd_does_not_block(self) -> None:
+        # Batch-drained ("no PRDs anywhere") hand-off: phase goes straight to
+        # "done" with no PRD selected. state.prd may still be "" (cleared) or
+        # stale from a PRD that stalled before ever reaching a review cycle -
+        # either way there is no review surface to gate coverage for.
+        def _fail(*a, **k):
+            raise AssertionError("run_gate must not run when no PRD is active")
+
+        with mock.patch.object(hook, "run_gate", side_effect=_fail):
+            blocks, msg = hook.gate_blocks(
+                self.autopilot_dir, {"phase": "done", "prd": ""}
+            )
+        self.assertFalse(blocks)
+        self.assertEqual(msg, "")
+
 
 if __name__ == "__main__":
     unittest.main()
