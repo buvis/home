@@ -39,6 +39,10 @@ first command to the last, and report what happens.
 
 ## Output
 
+When a journey runs through a page, your dispatch prompt carries a browser
+playbook. It is not background reading: it decides who owns the server and what
+evidence counts. Follow it.
+
 Return findings in the contract your dispatch prompt specifies, plus a line per
 journey you attempted with its status (`verified`, `unverified`, `mocked`,
 `skipped`) and, for anything not verified, exactly how far you got.

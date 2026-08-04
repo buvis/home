@@ -21,6 +21,9 @@ never a pass.** Every result carries `verified`, `unverified`, `mocked` or
   `trudy` — dispatched by `subagent_type`. Missing = this skill cannot run.
 - Path: `references/finding-contract.md` in this skill's directory — the
   finding, report and profile contracts. Read it before step 2.
+- Path: `references/{browser,data,perf,security}-playbook.md` in this skill's
+  directory — per-lane execution doctrine, pasted into the dispatch that needs
+  it. `references/authoring-playbook.md` is the master's own, never dispatched.
 - Conventions: `review-work-completion/references/agent-registry.md` (registry
   ownership), `rules/communication.md` (the findings walkthrough).
 - CLI: `git`, `python3`.
@@ -76,21 +79,46 @@ Dispatch every armed specialist **in one message**, one Agent call each, so they
 run concurrently. One that fails returns its error and the others are unaffected;
 record that lane `unverified` with the failure and finish the run.
 
-Each prompt is assembled from four parts, in this order:
+Each prompt is assembled from five parts, in this order:
 
 1. The absolute target repo path, and the one-line instruction: run the product,
    do not modify it.
 2. That specialist's row from the profile — its tactics and the exact commands
-   recon established — plus the mocking strategy and any authoring assignment.
-3. The `## Finding contract` section, pasted verbatim.
-4. For **trudy** only: the `Authorization:` line from the profile's pins section,
+   recon established — plus the mocking strategy.
+3. **The lane's playbook**, pasted verbatim from this skill's `references/`:
+
+   | Lane | Playbook |
+   |---|---|
+   | judy | `browser-playbook.md` |
+   | heidi | `data-playbook.md` |
+   | peggy | `perf-playbook.md` |
+   | trudy | `security-playbook.md` |
+   | walter | `browser-playbook.md`, **only** when the profile puts a journey through a page |
+   | wendy, olivia | none |
+
+   A lane never authors. If the profile assigns authoring, that is the master's
+   job in step 6 — say so in the prompt so the specialist puts its test in the
+   finding's `fix` field instead of on disk.
+4. The `## Finding contract` section, pasted verbatim.
+5. For **trudy** only: the `Authorization:` line from the profile's pins section,
    verbatim. If it reads `not asserted`, do not dispatch her — report the lane
    `skipped` with that reason. Only a human writes that assertion.
 
-Keep each prompt under 50 000 bytes (`work/references/subagent-dispatch.md`).
-Recon output is small, so this only binds if you paste files in — do not.
+Keep each prompt under 50 000 bytes — measure it, do not estimate. Recon output
+and one playbook are small; this only binds if you paste files in, so do not.
 
-### 4. Dedup
+### 4. Audit the statuses
+
+Before anything is merged or written, check every finding that arrived
+`verified` against its own evidence, per the finding contract's downgrade rule.
+Evidence that quotes a command and its output backs the claim; evidence that
+reads the code or names a mock does not, and the finding is downgraded with a
+note.
+
+A lane cannot audit its own claim. This step exists because the master is the
+only reader who did not make it.
+
+### 5. Dedup
 
 Collapse findings that are the same defect seen from two lanes (a dead
 integration also breaks a journey). Key on normalized path plus symptom, not on
@@ -99,7 +127,17 @@ every contributing lane's name.
 
 Do not merge two findings that share a file but not a symptom.
 
-### 5. Report
+### 6. Author, if the profile assigns it
+
+Only the master authors — every specialist is pinned read-and-run so the armed
+tree stays byte-identical while the lanes work. Read
+`references/authoring-playbook.md` and follow it: branch, write, run, commit
+tests only, return to the branch you started on.
+
+Skip the step, and say so in the report, when the profile assigns no authoring,
+no finding survived step 4 as `verified`, or the target's tree is dirty.
+
+### 7. Report
 
 Write both files into the target repo's `dev/local/audit-results/`:
 
@@ -112,9 +150,10 @@ Write both files into the target repo's `dev/local/audit-results/`:
   finding you cannot anchor to a file belongs in the markdown only.
 
 The summary header is the honesty ledger. A lane with zero findings still states
-which of the four statuses applies to it, and why.
+which of the four statuses applies to it, and why. Counts are post-downgrade.
+Name the authored branch and its runner command, or say nothing was authored.
 
-### 6. Close
+### 8. Close
 
 **Interactive**: walk the findings one at a time per `rules/communication.md` —
 one packet per message, at least three real options each, recommendation first.

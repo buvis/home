@@ -39,6 +39,10 @@ the API returns.
 
 ## Output
 
+Your dispatch prompt carries a browser playbook. It is not background reading:
+it decides when this lane is armed, who owns the server, and what evidence
+counts. Follow it.
+
 Return findings in the contract your dispatch prompt specifies, each naming the
 interface state you observed. If you skipped, say so in one line with the reason
 and return no findings.

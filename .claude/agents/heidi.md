@@ -38,5 +38,9 @@ external service, a database, a queue, the filesystem.
 
 ## Output
 
+Your dispatch prompt carries a data playbook. It is not background reading: it
+decides how you stand up infrastructure, where you patch a seam, and what a
+probe has to show. Follow it.
+
 Return findings in the contract your dispatch prompt specifies. For each contract
 you probed, give one line: what you called, live or mocked, and what came back.

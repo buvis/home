@@ -47,6 +47,10 @@ machine or infrastructure, treat the assertion as absent.
 
 ## Output
 
+Your dispatch prompt carries a security playbook. It is not background reading:
+it restates the authorization gate, ranks the probe classes, and rules out
+anything but benign markers. Follow it.
+
 Return findings in the contract your dispatch prompt specifies, each carrying the
 input used and the observed effect. If you refused for lack of authorization, say
 that in one line and return no findings.

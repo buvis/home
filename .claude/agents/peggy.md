@@ -35,5 +35,9 @@ not deal in opinions.
 
 ## Output
 
+Your dispatch prompt carries a perf playbook. It is not background reading: it
+decides what you count, at which sizes, and what a number must be reported with.
+Follow it.
+
 Return findings in the contract your dispatch prompt specifies, each carrying its
 measurement, the input size, and the method used to obtain it.
