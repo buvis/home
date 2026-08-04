@@ -37,6 +37,31 @@ A lane that produces no findings must still say which of the four applies to it.
 "No findings" from a lane that never ran is the failure this contract exists to
 prevent.
 
+### The master downgrades unbacked verified claims
+
+A specialist sets its own status; the master audits it. Every finding that
+arrives as `verified` is checked against its evidence **before** it reaches the
+report:
+
+- Evidence that backs `verified` **quotes an execution** — the command as it was
+  run, and the output or state that came back. `python3 -m pocket done 2` →
+  `done #3: write report` backs the claim.
+- Evidence that reads the code backs nothing. "`complete()` indexes by position,
+  so the wrong note is completed" is an inference, however correct.
+- Evidence naming a mock, stub or patched seam backs `mocked`, not `verified`.
+
+A `verified` claim whose evidence is missing, empty, or an inference is
+**downgraded to `unverified`** and carries a `downgraded` note saying what was
+missing. A claim backed only by a mock is downgraded to `mocked` the same way.
+
+The finding is never deleted — it is probably still real, and the human still
+wants it. What is removed is the claim that somebody watched it happen. The
+summary header counts post-downgrade statuses, so a lane that argued its way to
+`verified` shows up in the ledger as the lane that did not run its surface.
+
+This is the master's job precisely because it cannot be delegated to the lane
+that made the claim.
+
 ## Report contract
 
 One run writes two files into the target repo's `dev/local/audit-results/`:
@@ -78,6 +103,19 @@ Written for machine consumption, and shaped for `agoge-gym`'s `bin/score`:
 }
 ```
 
+A downgraded finding carries the post-downgrade status and one extra key:
+
+```json
+{
+  "domain": "integration",
+  "severity": "HIGH",
+  "paths": ["pocket/sync.py"],
+  "status": "unverified",
+  "downgraded": "claimed verified; evidence read the code and named no command",
+  "title": "`pocket sync` posts to the legacy host"
+}
+```
+
 `fixture` names the target the run was pointed at. The scorer requires it: two
 targets can share a relative path (both gym fixtures ship a root `CHANGELOG.md`)
 and without it one target's finding would credit another's seed.
@@ -112,13 +150,13 @@ Sections, in order:
    is the cost gate.
 3. **Mocking strategy** — for each unreachable external, what to mock and how.
    Anything probed this way reports `mocked`, never `verified`.
-4. **Authoring assignments** — which specialist, if any, should leave durable
-   tests behind. **No specialist can act on this yet**: every one of them is
-   pinned to `Read, Bash` on purpose, because a prober that can edit the thing
-   it probes invalidates its own result. Until a harness owns authoring
-   (PRD 00101), an assignment is a note for the human who fixes the finding, and
-   a specialist asked to author one puts the test in its finding's `fix` field
-   instead of on disk.
+4. **Authoring assignments** — which surface, if any, should get durable tests,
+   and under which runner. **No specialist executes this.** Every one of them is
+   pinned to `Read, Bash` on purpose, because a prober that can edit the thing it
+   probes invalidates its own result. The **master** authors, on a branch, after
+   the lanes report; a specialist asked to author puts its test in the finding's
+   `fix` field and nothing on disk. Recon names the surface and the runner, not a
+   specialist.
 5. **Pins and vetoes** — human-owned. A veto means that specialist never runs.
    **The machine never edits this section**; a refresh copies it through
    byte-identically. It also carries one line no machine may write for itself:

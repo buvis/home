@@ -23,10 +23,23 @@ from pathlib import Path
 import pytest
 
 AGENTS_DIR = Path.home() / ".claude" / "agents"
+REFERENCES = Path(__file__).resolve().parent.parent / "references"
 
 RECON = "olivia"
 SPECIALISTS = ("walter", "heidi", "judy", "wendy", "peggy", "trudy")
 ROSTER = (RECON, *SPECIALISTS)
+
+# Four are pasted into a lane's dispatch prompt; authoring is the master's own.
+PLAYBOOKS = ("browser", "data", "perf", "security", "authoring")
+
+# Which playbook a lane must acknowledge in its own body.
+HARNESS_LANES = {
+    "judy": "browser",
+    "walter": "browser",
+    "heidi": "data",
+    "peggy": "perf",
+    "trudy": "security",
+}
 
 DESCRIPTION_MAX = 120
 VALID_COLORS = {"blue", "cyan", "green", "yellow", "magenta", "red"}
@@ -128,6 +141,56 @@ def test_body_is_a_second_person_system_prompt(registry, name: str) -> None:
     _, body = registry[name]
     assert body.strip(), f"{name}.md has an empty system prompt"
     assert re.search(r"\bYou are\b", body), f"{name}.md should address the agent"
+
+
+@pytest.mark.parametrize("playbook", PLAYBOOKS)
+def test_every_playbook_exists_and_says_something(playbook: str) -> None:
+    path = REFERENCES / f"{playbook}-playbook.md"
+    assert path.is_file(), f"missing {path.name}"
+    assert len(path.read_text(encoding="utf-8").strip()) > 500, (
+        f"{path.name} is too thin to be doctrine"
+    )
+
+
+@pytest.mark.parametrize("playbook", PLAYBOOKS)
+def test_playbooks_are_extraction_clean(playbook: str) -> None:
+    """PRD 00103 lifts these into a released plugin, verbatim.
+
+    A playbook is pasted into a dispatch prompt, so a reference to a file only
+    this machine has is worse than useless: the agent cannot open it and does
+    not know that it could not.
+    """
+    text = (REFERENCES / f"{playbook}-playbook.md").read_text(encoding="utf-8")
+    for forbidden in ("/Users/", "~/.claude", "work/references/", "rules/"):
+        assert forbidden not in text, f"{playbook}-playbook.md names {forbidden}"
+
+
+@pytest.mark.parametrize("playbook", PLAYBOOKS)
+def test_playbooks_stay_inside_the_dispatch_budget(playbook: str) -> None:
+    """One playbook plus recon output plus the contract must fit in 50KB."""
+    size = (REFERENCES / f"{playbook}-playbook.md").stat().st_size
+    assert size < 10_000, f"{playbook}-playbook.md is {size} bytes; keep it lean"
+
+
+@pytest.mark.parametrize("name,playbook", sorted(HARNESS_LANES.items()))
+def test_each_harness_lane_points_at_its_playbook(registry, name, playbook) -> None:
+    """A pasted playbook a charter never mentions reads as optional context."""
+    _, raw = registry[name]
+    body = " ".join(raw.split())  # these bodies wrap at 80; the phrase may not
+    assert f"{playbook} playbook" in body, (
+        f"{name}.md must tell its agent the {playbook} playbook is binding"
+    )
+
+
+def test_only_the_master_authors(registry) -> None:
+    """The authoring playbook is never dispatched, so no charter may claim it."""
+    for name in ROSTER:
+        _, raw = registry[name]
+        body = " ".join(raw.split()).lower()
+        assert "authoring playbook" not in body, (
+            f"{name}.md points at the authoring playbook; every specialist is "
+            "pinned read-and-run, so the master authors and they do not"
+        )
 
 
 @pytest.mark.parametrize("name", SPECIALISTS)
