@@ -57,16 +57,14 @@ who runs, so a wrong profile is a wasted run.
   `--refresh-profile`: dispatch **olivia** (see the recon prompt below).
 - **Fresh**: read it and go to step 3.
 
-After a refresh, before anything else, prove the human-owned section survived:
+After a refresh, before anything else, prove the human-owned section survived.
+**Do not reach for `git diff`** — `dev/local/` is ignored almost everywhere, so
+that diff comes back empty whatever recon did, and a check that cannot fail is
+worse than none. Copy `## Pins and vetoes` to a scratch file *before* the
+dispatch, extract it again afterwards, and compare the bytes (`cksum` on both).
 
-```bash
-git -C /absolute/target/repo diff -- dev/local/agoge-profile.md
-```
-
-`dev/local` is usually ignored, so also keep a copy of section 5 from before the
-dispatch and compare it byte for byte. **If `## Pins and vetoes` changed, stop
-the run and report it.** Recon rewriting a human's veto is a defect in the pack,
-not a detail.
+**If the section changed, stop the run and report it.** Recon rewriting a
+human's veto is a defect in the pack, not a detail.
 
 ### 3. Dispatch the armed specialists
 
