@@ -89,12 +89,18 @@ scoring as a zero the pack did not earn.
 
 ## Strategy profile contract
 
-One content contract, two landing spots. `run-agoge` reads whichever exists,
-atlas preferred:
+One landing spot: `dev/local/agoge-profile.md` in the target repo. A named
+keeper, so it survives dev/local GC, and it sits in the repo it governs, where
+the human who owns the pins can read and edit it.
 
-- The `qa` layer of the target's cartographer atlas, when one exists.
-- Otherwise `dev/local/agoge-profile.md` in the target repo. A named keeper: it
-  survives dev/local GC.
+> The cartographer atlas was the second landing spot until 2026-08-04, when it
+> was dropped as unbuildable. `/survey` rebuilds `atlas.md` wholesale from the
+> freshly computed atlas dict — a planted `## QA strategy` section was wiped by
+> one `--refresh` in a throwaway HOME, while a `[manual]` block in `atlas.json`
+> survived. And `cartographer-recon-brief` injects only the first 1024 bytes of
+> `atlas.md`, so an appended QA section would never reach a session anyway. The
+> durable half would have been a JSON blob outside the target repo — a worse
+> home for a human-owned pins section than a file in the repo.
 
 Sections, in order:
 
@@ -107,10 +113,25 @@ Sections, in order:
 3. **Mocking strategy** — for each unreachable external, what to mock and how.
    Anything probed this way reports `mocked`, never `verified`.
 4. **Authoring assignments** — which specialist, if any, should leave durable
-   tests behind.
+   tests behind. **No specialist can act on this yet**: every one of them is
+   pinned to `Read, Bash` on purpose, because a prober that can edit the thing
+   it probes invalidates its own result. Until a harness owns authoring
+   (PRD 00101), an assignment is a note for the human who fixes the finding, and
+   a specialist asked to author one puts the test in its finding's `fix` field
+   instead of on disk.
 5. **Pins and vetoes** — human-owned. A veto means that specialist never runs.
    **The machine never edits this section**; a refresh copies it through
-   byte-identically.
+   byte-identically. It also carries one line no machine may write for itself:
+
+   ```
+   Authorization: this project is the operator's own or explicitly authorized.
+   ```
+
+   Trudy refuses to run without it, by her own charter. Recon writes
+   `Authorization: not asserted` on a fresh profile and says so in her summary;
+   only a human turns that into the assertion. Whether a repo belongs to the
+   operator is not a fact an agent can establish, so it is not one an agent may
+   claim.
 6. **Freshness stamp** — ISO date of the last recon, and the target's HEAD sha.
 
 A profile whose stamp is older than the target's current HEAD is stale: refresh
