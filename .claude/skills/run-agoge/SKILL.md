@@ -24,6 +24,11 @@ never a pass.** Every result carries `verified`, `unverified`, `mocked` or
 - Path: `references/{browser,data,perf,security}-playbook.md` in this skill's
   directory — per-lane execution doctrine, pasted into the dispatch that needs
   it. `references/authoring-playbook.md` is the master's own, never dispatched.
+- Path: `references/prd-emission.md` and
+  `scripts/allocate_prd_number.py` — how an accepted finding becomes a backlog
+  PRD, and the claim that keeps two writers off one number. Step 9 only.
+- Wrapper: `_autopilot_agoge` in the autoclaude drain branch fires one
+  unattended run per drained batch. Not needed to run this skill by hand.
 - Conventions: `review-work-completion/references/agent-registry.md` (registry
   ownership), `rules/communication.md` (the findings walkthrough).
 - CLI: `git`, `python3`.
@@ -33,6 +38,8 @@ never a pass.** Every result carries `verified`, `unverified`, `mocked` or
 - *(none)* — the current repo.
 - `<repo-path>` — an absolute path to the repo to run against.
 - `--refresh-profile` — re-run recon even when the profile is fresh.
+- `--resume <report>` — walk an existing report's packets and record decisions.
+  Dispatches nobody. Jump straight to step 9.
 
 ## Workflow
 
@@ -155,14 +162,40 @@ Name the authored branch and its runner command, or say nothing was authored.
 
 ### 8. Close
 
-**Interactive**: walk the findings one at a time per `rules/communication.md` —
-one packet per message, at least three real options each, recommendation first.
-Record accepted / deferred / rejected in the report as you go, then close with
-the minutes.
+**Interactive**: go to step 9 and walk the findings now.
 
 **Unattended** (an autopilot loop, a headless run, or no human to answer): write
-the packets and stop. Never auto-emit PRDs, never guess an approval. Say in the
-report that the walkthrough is pending.
+the packets and stop. Never auto-emit PRDs, never guess an approval. End the
+report with this line, exactly:
+
+```
+> **AGOGE-WALKTHROUGH-PENDING** — run `/run-agoge --resume <path to this file>` to walk these packets and record decisions.
+```
+
+That token is how a returning human and the resume path both find an unwalked
+report. A run that reaches step 9 removes the line.
+
+An unattended run writes **only** into `dev/local/audit-results/`. It never
+touches `dev/local/prds/`: a machine that files its own findings as work has
+approved them on the human's behalf.
+
+### 9. Walk the findings
+
+Reachable two ways: an interactive run arriving from step 8, or `--resume
+<report>` on a report someone left pending. On the resume path, dispatch nobody
+and re-run nothing — the findings are already established, and re-running them
+would produce a second set of numbers to reconcile.
+
+Walk them one at a time per `rules/communication.md`: one packet per message, at
+least three real options each, recommendation first. Record accepted / deferred /
+rejected in the report as you go, then close with the minutes and delete the
+pending line.
+
+**Accepted findings become PRDs**, one per finding or per cluster the human
+approved, in the target repo's `dev/local/prds/backlog/`. Read
+`references/prd-emission.md` and follow it. Emission happens on explicit
+acceptance and on nothing else: deferred and rejected findings stay in the
+report.
 
 ## The recon prompt
 
