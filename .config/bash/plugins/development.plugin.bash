@@ -467,6 +467,52 @@ _autopilot_fable_decide() {
   _autopilot_fable_unpark "$_prds" "$_prd"
 }
 
+# _autopilot_agoge <ap_dir> <batch_id> <prds_drained> — one product-QA run over
+# a batch that actually completed work (PRD 00102).
+#
+# Once per batch, never per cycle and never per PRD. A batch that drained
+# nothing gets a skip line and no run: there is no new product behaviour to
+# check. Every other review in the loop reads a diff; this one runs the product,
+# which is precisely what an unattended drain cannot otherwise catch.
+#
+# The run writes packets and stops. It never files its own findings as work — a
+# machine that opens PRDs for itself has approved them on the operator's behalf.
+#
+# Failure is recorded and swallowed, and a wall-clock cap bounds a hung run.
+# Both matter for the same reason: a QA run must never be able to turn a
+# successful drain into a failed or an unfinished one.
+_autopilot_agoge() {
+  local _ap_dir="$1" _batch="$2" _drained="$3"
+
+  case "$_drained" in
+    '' | null | 0)
+      printf 'agoge: skipped — the batch drained no PRDs.\n'
+      return 0
+      ;;
+  esac
+
+  local _log="$_ap_dir/reports/${_batch:-$(date +%Y%m%d%H%M)}-agoge.log"
+  printf 'agoge: product QA over the drained batch (log: %s)…\n' "$_log"
+
+  _autopilot_session_cap "$BASHPID" "${_AUTOPILOT_AGOGE_CAP:-3600}" 30 20 &
+  local _cap_pid=$!
+
+  local _rc=0
+  WARDEN_UNATTENDED=1 CLAUDE_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+    claude -p --permission-mode auto "/run-agoge $PWD" \
+    </dev/null >"$_log" 2>&1 || _rc=$?
+
+  kill "$_cap_pid" 2>/dev/null
+  wait "$_cap_pid" 2>/dev/null
+
+  if [ "$_rc" -eq 0 ]; then
+    printf 'agoge: packets written to dev/local/audit-results/; walkthrough pending.\n'
+  else
+    printf 'agoge: run failed (rc %s). The drain is unaffected; see %s\n' "$_rc" "$_log" >&2
+  fi
+  return 0
+}
+
 autoclaude() {
   # Operator subcommands FIRST: they decide a pending Fable rescue and return
   # without ever starting or attaching to a loop.
@@ -1006,6 +1052,10 @@ autoclaude() {
       printf '\nBacklog drained.%s\n' "${_prds_done:+ $_prds_done PRDs completed.}"
       python3 ~/.claude/hooks/notify.py --send "autopilot ✅ ${PWD##*/}" "Backlog drained.${_prds_done:+ $_prds_done PRDs completed.}"
       python3 ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py --repo "$PWD" --apply || true
+      # Last, and after the purge: the report it writes is a curated keeper, and
+      # running it here keeps a hung or failing QA pass off the drain's own
+      # messaging and exit status.
+      _autopilot_agoge "$_ap_dir" "$_batch" "$_prds_done"
       trap - INT TERM HUP
       [ -n "$_reg" ] && rm -f "$_reg"
       unset _AUTOPILOT_LOOP
