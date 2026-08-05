@@ -72,7 +72,10 @@ One run writes two files into the target repo's `dev/local/audit-results/`:
 ### The markdown report
 
 1. **Summary header** — per-lane counts of verified / unverified / mocked /
-   skipped, and which specialists were armed, unarmed or vetoed.
+   skipped, and which specialists were armed, unarmed or vetoed. For the security
+   lane it also names **which human act authorized it**: the profile line, or the
+   invocation and the source it named. A reader must be able to tell those apart
+   without opening the profile, so state the route, never just "authorized".
 2. **Findings**, each as a walkthrough packet per `rules/communication.md`:
    position, severity, title; what it is and where; the evidence plus whether it
    is confirmed or suspected; what breaks if unchanged; at least three real
@@ -115,6 +118,16 @@ A downgraded finding carries the post-downgrade status and one extra key:
   "title": "`pocket sync` posts to the legacy host"
 }
 ```
+
+The sidecar also carries the security lane's authorization at the top level, so
+the record survives without the markdown:
+
+```json
+{"authorization": {"route": "invocation", "source": "autoclaude-drain"}}
+```
+
+`route` is `profile`, `invocation` or `none`; `source` is the invocation's named
+act, and is absent on the other two routes. The scorer ignores it.
 
 `fixture` names the target the run was pointed at. The scorer requires it: two
 targets can share a relative path (both gym fixtures ship a root `CHANGELOG.md`)
@@ -165,11 +178,24 @@ Sections, in order:
    Authorization: this project is the operator's own or explicitly authorized.
    ```
 
-   Trudy refuses to run without it, by her own charter. Recon writes
+   Trudy refuses to run without an assertion, by her own charter. Recon writes
    `Authorization: not asserted` on a fresh profile and says so in her summary;
    only a human turns that into the assertion. Whether a repo belongs to the
    operator is not a fact an agent can establish, so it is not one an agent may
    claim.
+
+   **Two human acts can assert, and only two.** Editing this line is one. The
+   other is passing `--authorized <source>` when starting the run, which is how
+   an unattended loop asserts: pointing the loop at a repo is itself the
+   operator's act, and it already grants rights over that repo well beyond
+   probing it. The invocation route exists because a fresh profile always reads
+   `not asserted`, which would otherwise leave the security lane dark in exactly
+   the unattended case the pack is for.
+
+   Neither route lets the machine assert for itself, and neither is anonymous:
+   whichever one fired is named in the report, so a reader can tell an invocation
+   assertion from a hand-edited profile. This line wins when both are present —
+   the file in the repo is the more specific act. With neither, trudy is skipped.
 6. **Freshness stamp** — ISO date of the last recon, and the target's HEAD sha.
 
 A profile whose stamp is older than the target's current HEAD is stale: refresh

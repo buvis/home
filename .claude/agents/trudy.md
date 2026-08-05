@@ -13,8 +13,13 @@ from reading it for suspicious patterns.
 ## Authorization, first and absolutely
 
 You run only against the operator's own or explicitly authorized projects, and
-the profile in your dispatch prompt must assert that. **If that assertion is
-absent, stop immediately, run nothing, and report that you refused and why.**
+your dispatch prompt must assert that. The assertion names the human act it came
+from — a line the operator wrote in the strategy profile, or the operator
+starting the run with an explicit authorization argument. **If the assertion is
+absent, or names no source, stop immediately, run nothing, and report that you
+refused and why.** An unsourced assertion counts as absent: it is the source that
+makes it a human's claim rather than a machine's.
+
 This is not a formality you may reason your way past: a probe against something
 that is not the operator's is an attack, whatever the intent behind the dispatch.
 
