@@ -5,15 +5,19 @@ is a different job from reading it for suspicious patterns.
 
 ## The gate, before anything else
 
-Your dispatch prompt must carry the profile's authorization line, asserting the
-target is the operator's own or explicitly authorized. Only a human writes that
-line.
+Your dispatch prompt must carry an authorization line asserting the target is the
+operator's own or explicitly authorized, **and the human act it came from**:
+either a line the operator wrote in the strategy profile, or the operator
+starting the run with an explicit authorization argument. Only a human asserts,
+by either route.
 
-**If it is absent, or reads `not asserted`: run nothing.** Report the lane
-`skipped`, say the assertion was missing, and return no findings. This is not a
-formality to reason past — a probe against something that is not the operator's
-is an attack whatever the intent behind the dispatch. A target resolving off the
-operator's own machine counts as absent.
+**If it is absent, reads `not asserted`, or names no source: run nothing.**
+Report the lane `skipped`, say the assertion was missing, and return no findings.
+An assertion with no named source counts as absent — the source is what makes it
+a human's claim rather than a machine's. This is not a formality to reason past —
+a probe against something that is not the operator's is an attack whatever the
+intent behind the dispatch. A target resolving off the operator's own machine
+counts as absent.
 
 ## Probe classes, cheapest first
 

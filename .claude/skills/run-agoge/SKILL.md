@@ -38,6 +38,11 @@ never a pass.** Every result carries `verified`, `unverified`, `mocked` or
 - *(none)* — the current repo.
 - `<repo-path>` — an absolute path to the repo to run against.
 - `--refresh-profile` — re-run recon even when the profile is fresh.
+- `--authorized <source>` — assert, at invocation, that the target is the
+  operator's own or explicitly authorized, where `<source>` names the human act
+  it came from (an unattended loop passes its own name). Arms **trudy** only.
+  An empty or missing `<source>` is an error: stop and report. Never assert
+  anonymously, and never supply a source of your own.
 - `--resume <report>` — walk an existing report's packets and record decisions.
   Dispatches nobody. Jump straight to step 9.
 - `--decisions <file>` — with `--resume`, take the decisions from a JSON file
@@ -109,9 +114,23 @@ Each prompt is assembled from five parts, in this order:
    job in step 6 — say so in the prompt so the specialist puts its test in the
    finding's `fix` field instead of on disk.
 4. The `## Finding contract` section, pasted verbatim.
-5. For **trudy** only: the `Authorization:` line from the profile's pins section,
-   verbatim. If it reads `not asserted`, do not dispatch her — report the lane
-   `skipped` with that reason. Only a human writes that assertion.
+5. For **trudy** only: the authorization, and the human act it came from. Resolve
+   it in this order and stop at the first hit:
+
+   | Source | When | What her prompt carries |
+   |---|---|---|
+   | `profile` | the profile's `Authorization:` line is asserted (not `not asserted`) | that line verbatim, plus `Asserted by: profile (dev/local/agoge-profile.md)` |
+   | `invocation` | `--authorized <source>` was passed | the contract's assertion line, plus `Asserted by: invocation (<source>)` |
+   | none | neither | nothing — **do not dispatch her**; report the lane `skipped`, reason "authorization not asserted" |
+
+   The profile wins when both are present: the file in the repo is the more
+   specific act. Both routes are a human's — a machine never asserts for itself,
+   and recon still may not write that line. Pass the source through verbatim; do
+   not invent, shorten or supply one.
+
+   An `--authorized` with an empty source is an error. Stop the run and report
+   it, the same rule the decisions file follows in step 9: a path whose whole
+   point is that a human authorized it must not guess who.
 
 Keep each prompt under 50 000 bytes — measure it, do not estimate. Recon output
 and one playbook are small; this only binds if you paste files in, so do not.
@@ -165,6 +184,13 @@ clobber may still be carrying somebody's unwalked packets.
 The summary header is the honesty ledger. A lane with zero findings still states
 which of the four statuses applies to it, and why. Counts are post-downgrade.
 Name the authored branch and its runner command, or say nothing was authored.
+
+It also records **how the security lane was authorized** — the profile line, or
+the invocation and the source it named, or neither — in the header and in the
+sidecar's `authorization` object. Whether a probe was authorized by a file
+somebody wrote in that repo or by the flag on the command that started the run is
+exactly the kind of thing a reader cannot reconstruct later, so it is written
+down at the time.
 
 ### 8. Close
 
