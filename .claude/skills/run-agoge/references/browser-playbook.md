@@ -32,6 +32,9 @@ dies mid-lane or outlives the run as an orphan. Two safe shapes, in order:
      <wait for the port>; <run the probe>
    ```
 
+   If your shell refuses an inline `trap`, put the same command in a scratch
+   script and run that. The shape is what matters, not where it is typed.
+
 Before you finish, prove nothing is left: `lsof -ti tcp:<port>` must be empty.
 Report an orphan you could not kill as a finding against your own lane.
 

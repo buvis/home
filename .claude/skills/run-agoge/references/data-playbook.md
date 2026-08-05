@@ -28,8 +28,10 @@ docker compose up -d db && trap "docker compose down -v" EXIT && <probe>
 ```
 
 A background shell is not an option: a headless session kills it shortly after
-the final result, so a service parked there dies mid-lane or leaks. Before you
-finish, prove the containers, ports and temp databases you created are gone.
+the final result, so a service parked there dies mid-lane or leaks. If your
+shell refuses an inline `trap`, put the same command in a scratch script and run
+that. Before you finish, prove the containers, ports and temp databases you
+created are gone.
 
 Never point a probe at a host that is not clearly the operator's own. If in
 doubt, mock it and say so.
