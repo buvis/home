@@ -158,6 +158,10 @@ Write both files into the target repo's `dev/local/audit-results/`:
   the target directory's basename. Every finding needs a non-empty `paths`; a
   finding you cannot anchor to a file belongs in the markdown only.
 
+**Never overwrite a report.** If that date is taken, suffix yours (`-2`, `-3`).
+Two drained batches land on one day often enough, and the report you would
+clobber may still be carrying somebody's unwalked packets.
+
 The summary header is the honesty ledger. A lane with zero findings still states
 which of the four statuses applies to it, and why. Counts are post-downgrade.
 Name the authored branch and its runner command, or say nothing was authored.
