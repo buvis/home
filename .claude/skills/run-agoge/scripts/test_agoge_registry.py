@@ -204,3 +204,87 @@ def test_every_specialist_states_its_honesty_rule(registry, name: str) -> None:
     assert re.search(r"unverified|skipped|mocked|refused", body), (
         f"{name}.md must say what it reports when it cannot run its surface"
     )
+
+
+# ── The authorization gate (PRD 00117) ────────────────────────────────────────
+#
+# Two human acts may assert that a target is the operator's own: a line the
+# operator wrote in the strategy profile, or `--authorized <source>` passed at
+# invocation. The second exists because a fresh profile always reads `not
+# asserted` and recon may not change it, which left the security lane dark in
+# every unattended drain. Neither route lets the machine assert for itself.
+#
+# The gate is stated in four places that must agree: trudy's charter, the
+# security playbook, the profile contract, and the skill's dispatch step. These
+# assertions are what stops one of the four drifting out of step with the rest.
+
+SKILL = REFERENCES.parent / "SKILL.md"
+
+
+def _text(path) -> str:
+    """Collapsed to one line: these files wrap at 80, so a phrase may not be."""
+    return " ".join(path.read_text(encoding="utf-8").split())
+
+
+def test_trudy_requires_a_named_source_not_just_an_assertion(registry) -> None:
+    """An unsourced assertion is one nothing can attribute to a human."""
+    _, raw = registry["trudy"]
+    body = " ".join(raw.split())
+    assert "names the human act" in body, (
+        "trudy.md must require the assertion to name its source; without that "
+        "the machine's own claim is indistinguishable from the operator's"
+    )
+    assert "counts as absent" in body, (
+        "trudy.md must say what an unsourced assertion is treated as, or the "
+        "requirement is advice rather than a gate"
+    )
+
+
+def test_the_gate_still_fails_closed_everywhere_it_is_stated() -> None:
+    """Widening who may assert must not weaken what happens with no assertion."""
+    for path in (AGENTS_DIR / "trudy.md", REFERENCES / "security-playbook.md"):
+        text = _text(path)
+        assert "run nothing" in text or "run nothing," in text, (
+            f"{path.name} lost its refusal instruction"
+        )
+
+
+def test_the_security_playbook_names_both_routes() -> None:
+    """A pasted playbook is all the lane has; a route missing here is unusable."""
+    text = _text(REFERENCES / "security-playbook.md")
+    assert "strategy profile" in text, "the playbook must name the profile route"
+    assert "authorization argument" in text, (
+        "the playbook must name the invocation route, or a lane authorized that "
+        "way reads its own prompt as unauthorized and skips"
+    )
+
+
+def test_the_profile_contract_keeps_recon_out_of_the_assertion() -> None:
+    """The widened gate must not become a licence for the machine to assert."""
+    text = _text(REFERENCES / "finding-contract.md")
+    assert "The machine never edits this section" in text
+    assert "not a fact an agent can establish" in text
+    assert "Two human acts can assert, and only two" in text, (
+        "the contract must bound the routes; an open-ended list invites a third"
+    )
+
+
+def test_the_skill_documents_the_flag_and_its_resolution_order() -> None:
+    text = _text(SKILL)
+    assert "--authorized <source>" in text, "the argument must be documented"
+    assert "The profile wins when both are present" in text, (
+        "with two routes the skill has to say which one decides"
+    )
+    assert "empty source is an error" in text, (
+        "asserting anonymously is the one failure this gate cannot tolerate"
+    )
+
+
+def test_the_report_records_which_act_authorized_the_probe() -> None:
+    """A reader must tell an invocation assertion from a hand-edited profile."""
+    text = _text(REFERENCES / "finding-contract.md")
+    assert '"authorization"' in text, "the sidecar shape must carry the route"
+    assert "which human act authorized it" in text, (
+        "the markdown summary must name the route too; the sidecar alone is not "
+        "what a human reads"
+    )
