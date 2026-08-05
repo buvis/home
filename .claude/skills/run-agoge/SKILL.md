@@ -40,6 +40,8 @@ never a pass.** Every result carries `verified`, `unverified`, `mocked` or
 - `--refresh-profile` — re-run recon even when the profile is fresh.
 - `--resume <report>` — walk an existing report's packets and record decisions.
   Dispatches nobody. Jump straight to step 9.
+- `--decisions <file>` — with `--resume`, take the decisions from a JSON file
+  instead of asking. For headless verification, never for a real walkthrough.
 
 ## Workflow
 
@@ -190,6 +192,27 @@ Walk them one at a time per `rules/communication.md`: one packet per message, at
 least three real options each, recommendation first. Record accepted / deferred /
 rejected in the report as you go, then close with the minutes and delete the
 pending line.
+
+**With `--decisions <file>`**, read the decisions instead of asking. The file
+maps a finding's number in the report to `accept`, `defer` or `reject`, and an
+optional option label:
+
+```json
+{
+  "1": {"decision": "accept", "option": "Invalidate on write"},
+  "2": {"decision": "reject"}
+}
+```
+
+A finding the file does not mention is `deferred` — silence is never consent.
+An `option` that matches no option in that packet is an **error**: stop and
+report it. Do not map it to the nearest one. The point of this path is that its
+output is determined by its input, and a guess breaks exactly that.
+
+Record the minutes exactly as an interactive walk would, and note in the report
+that the decisions were scripted, so nobody later reads them as a human's.
+This path exists so a headless build can prove the walk works; it is not a way
+to run a real walkthrough without a human.
 
 **Accepted findings become PRDs**, one per finding or per cluster the human
 approved, in the target repo's `dev/local/prds/backlog/`. Read
