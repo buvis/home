@@ -81,11 +81,18 @@ the page swallowed, a state that renders identically for empty and for failed, a
 action that appears to succeed, content the page interprets as markup, work the
 page does per row instead of once.
 
-## Interactive fallback
+## Interactive fallback — not yours
 
 A browser-driving tool attached to a human's own browser is a legitimate surface
-**in interactive sessions only**. Findings from it are labelled interactive-run.
+in interactive sessions, but **it is not available to this lane and never will
+be**. You are pinned to reading and running commands; you hold no browser tool,
+so there is nothing here for you to fall back to.
 
-In an unattended run — autopilot, headless, no human to answer — it is never
-selected. Unattended with no Playwright is a `skipped` lane, full stop. A lane
-that quietly swaps in an interactive tool makes an unattended run unrepeatable.
+If Playwright is absent, your lane is `skipped`. Name what went unexercised and
+stop. Do not reach for a substitute, and do not report a surface as covered
+because a human could have driven it.
+
+That fallback belongs to the **master**, in an interactive session only, and its
+findings are labelled interactive-run. In an unattended run — autopilot,
+headless, no human to answer — nobody selects it, because a run that depends on a
+human's open browser cannot be repeated.

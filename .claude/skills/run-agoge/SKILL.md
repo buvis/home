@@ -187,6 +187,10 @@ She writes the profile and returns a summary. She writes nothing else.
   attempt and how far it got.
 - Judy on a repo with no browser surface must **skip loudly**. A skipped lane
   that invents findings to look useful is worse than no lane.
+- The interactive browser fallback is the **master's**, not a lane's. Every
+  specialist is pinned to `Read, Bash` and holds no browser tool, so a lane
+  cannot reach it however the prompt is worded. Use it only in an interactive
+  session, label those findings interactive-run, and never in an unattended run.
 - The pack scores itself against `buvis/agoge-gym`: arm a fixture, run this
   skill at `armed/<fixture>`, then `bin/score` the JSON sidecar against the
   manifest. The gym's manifests are the answer key and are never inside an armed
