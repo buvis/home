@@ -160,6 +160,14 @@ grep -q -- '--permission-mode auto' "$SBOX_A/claude-argv.log" \
   || FAIL "the agoge run is launched unattended" \
           "argv: $(cat "$SBOX_A/claude-argv.log")"
 
+# PRD 00117: without this flag the runtime-security lane is dark in every
+# unattended drain — a fresh profile reads `Authorization: not asserted` and
+# recon may not change it. The source must be named, never a bare --authorized:
+# an anonymous assertion is one the report cannot attribute to a human act.
+grep -q -- '--authorized autoclaude-drain' "$SBOX_A/claude-argv.log" \
+  || FAIL "the drain asserts trudy's authorization and names itself as the source" \
+          "argv: $(cat "$SBOX_A/claude-argv.log")"
+
 prds_after_a=$(cd "$SBOX_A" && find dev/local/prds -type f | sort)
 [ "$prds_before_a" = "$prds_after_a" ] \
   || FAIL "an unattended agoge run writes nothing into dev/local/prds/" \
