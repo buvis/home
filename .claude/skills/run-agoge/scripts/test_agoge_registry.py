@@ -251,9 +251,7 @@ def test_trudy_requires_a_named_source_not_just_an_assertion(registry) -> None:
 def test_the_gate_still_fails_closed_everywhere_it_is_stated() -> None:
     """Widening who may assert must not weaken what happens with no assertion."""
     for path in (AGENTS_DIR / "trudy.md", REFERENCES / "security-playbook.md"):
-        assert "run nothing" in _text(path), (
-            f"{path.name} lost its refusal instruction"
-        )
+        assert "run nothing" in _text(path), f"{path.name} lost its refusal instruction"
     # The prose above is advisory; this is the row the master actually acts on.
     # Deleting it while widening the gate would leave no skip instruction at all.
     skill = _text(SKILL)
