@@ -1,0 +1,16 @@
+{
+  "name": "debrief-meeting-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test src/lib/derive.test.js smoke.test.js"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "jsdom": "^30.0.1",
+    "svelte": "5.56.7",
+    "vite": "8.1.5",
+    "vite-plugin-singlefile": "2.3.3"
+  }
+}
