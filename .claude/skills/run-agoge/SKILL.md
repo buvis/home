@@ -89,6 +89,14 @@ From the profile's per-specialist strategy, dispatch **only** specialists marked
 `armed` and not vetoed. Unarmed and vetoed lanes are reported, never run —
 that is the cost gate.
 
+**One exception, and only one.** `unarmed` is a verdict about *surface*: recon
+found nothing here for that lane to run. Trudy is the one lane recon can also
+mark `unarmed` for a reason that is not about surface — a fresh profile always
+reads `not asserted`, and recon may not change it. That verdict is not a cost
+gate and does not survive an authorization arriving by the other route: part 5
+below decides whether she runs, not the table. A veto still stops her; a veto is
+the human saying no, which is the opposite of this case.
+
 Dispatch every armed specialist **in one message**, one Agent call each, so they
 run concurrently. One that fails returns its error and the others are unaffected;
 record that lane `unverified` with the failure and finish the run.

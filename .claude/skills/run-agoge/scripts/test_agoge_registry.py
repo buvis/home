@@ -280,6 +280,26 @@ def test_the_skill_documents_the_flag_and_its_resolution_order() -> None:
     )
 
 
+def test_an_authorization_unarmed_verdict_does_not_gate_the_security_lane() -> None:
+    """Found by running it: recon marks trudy `unarmed` when the profile says
+    `not asserted`, which collides with step 3's "dispatch only armed lanes".
+
+    The master resolved it correctly on the 2026-08-05 proof run, but by
+    reasoning rather than by instruction. Left unstated, the invocation route
+    arms her only when whoever runs the skill happens to read past the cost gate.
+    """
+    text = _text(SKILL)
+    assert "`unarmed` is a verdict about *surface*" in text, (
+        "step 3 must distinguish a surface verdict from an authorization one"
+    )
+    assert "part 5 below decides whether she runs, not the table" in text, (
+        "step 3 must say which rule wins, or the two contradict each other"
+    )
+    assert "A veto still stops her" in text, (
+        "widening the exception must not swallow the human's explicit no"
+    )
+
+
 def test_the_report_records_which_act_authorized_the_probe() -> None:
     """A reader must tell an invocation assertion from a hand-edited profile."""
     text = _text(REFERENCES / "finding-contract.md")
