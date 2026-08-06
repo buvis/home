@@ -5,7 +5,7 @@ writes, and what the strategy profile holds.
 
 The seven agent bodies carry none of this. They receive the finding contract in
 their dispatch prompt, so the personas stay portable and the skill owns every
-path (registry convention, `review-work-completion/references/agent-registry.md`).
+path — an agent file names no path at all.
 
 ## Finding contract
 
@@ -76,16 +76,42 @@ One run writes two files into the target repo's `dev/local/audit-results/`:
    lane it also names **which human act authorized it**: the profile line, or the
    invocation and the source it named. A reader must be able to tell those apart
    without opening the profile, so state the route, never just "authorized".
-2. **Findings**, each as a walkthrough packet per `rules/communication.md`:
-   position, severity, title; what it is and where; the evidence plus whether it
-   is confirmed or suspected; what breaks if unchanged; at least three real
-   options with benefit, drawback and effort; a marked recommendation naming the
-   strongest reason against it.
+2. **Findings**, each as a walkthrough packet in the shape below.
 3. **How-to-proceed block**, verbatim, at the end.
 
 Interactive runs walk the packets one at a time and record accepted / deferred /
 rejected in the report. Unattended runs write the packets and stop; they never
 auto-emit PRDs.
+
+### The walkthrough packet
+
+Write for a decider who has not seen the code and will not open it: plain words,
+expanded jargon, each packet under one screen. Per finding, in this order:
+
+1. **Header** — position ("2 of 6"), severity, short title.
+2. **What** — three sentences: what it is, where it lives, which lane found it.
+3. **Evidence** — one concrete fact (a number, a failing case, an excerpt) plus
+   confidence, `confirmed` or `suspected`. Never sell a guess as verified.
+4. **If unchanged** — what breaks or degrades, how likely, what is hit, and
+   whether it compounds over time or stays stable.
+5. **Options** — at least three real ones, with "accept or defer" last. The
+   patch / root fix / prevent-the-class ladder usually yields three honest ones;
+   if only two exist, say so in one line rather than padding with a fake third.
+6. **Per option** — benefit, drawback, effort (S/M/L), and what the change itself
+   could break. Mark guessed estimates as guesses.
+7. **Recommendation** — first and marked, naming the strongest honest reason
+   *against* picking it.
+
+Order findings by severity, CRITICAL first. Merge duplicates into one packet each
+rather than raising the same defect twice. Open with a one-line agenda: how many
+findings and the severity split.
+
+Close with **minutes**: one line per finding carrying its decision and status
+(applied / queued / deferred / rejected). Every deferred finding needs a durable
+home — the report itself counts; a chat message does not.
+
+An unattended run writes the packets in exactly this shape and stops. It never
+guesses an approval, and the walkthrough happens when a human returns.
 
 ### The JSON sidecar
 
@@ -144,14 +170,12 @@ One landing spot: `dev/local/agoge-profile.md` in the target repo. A named
 keeper, so it survives dev/local GC, and it sits in the repo it governs, where
 the human who owns the pins can read and edit it.
 
-> The cartographer atlas was the second landing spot until 2026-08-04, when it
-> was dropped as unbuildable. `/survey` rebuilds `atlas.md` wholesale from the
-> freshly computed atlas dict — a planted `## QA strategy` section was wiped by
-> one `--refresh` in a throwaway HOME, while a `[manual]` block in `atlas.json`
-> survived. And `cartographer-recon-brief` injects only the first 1024 bytes of
-> `atlas.md`, so an appended QA section would never reach a session anyway. The
-> durable half would have been a JSON blob outside the target repo — a worse
-> home for a human-owned pins section than a file in the repo.
+> One spot, deliberately. A generated codebase-map file was tried as a second
+> home on 2026-08-04 and dropped: the generator rebuilt the file wholesale, so a
+> planted QA section was wiped by the next refresh, and only a machine-readable
+> blob outside the target repo survived — a worse home for a human-owned pins
+> section than a plain file in the repo it governs. If your setup has such a map,
+> do not put the profile in it for the same reason.
 
 Sections, in order:
 

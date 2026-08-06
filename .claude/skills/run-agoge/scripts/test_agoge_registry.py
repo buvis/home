@@ -22,7 +22,14 @@ from pathlib import Path
 
 import pytest
 
-AGENTS_DIR = Path.home() / ".claude" / "agents"
+# Both anchors are relative to this file, never to $HOME. The roster sits beside
+# the skill in either layout - `~/.claude/{agents,skills/run-agoge}` personally,
+# `<plugin>/{agents,skills/run-agoge}` once PRD 00103 extracts it - so the same
+# expression resolves in both. A `Path.home()` anchor would have shipped with the
+# plugin and then validated the INSTALLER's personal agents instead of the
+# plugin's own: green on a machine carrying a stale copy, and green on one
+# carrying no copy at all only by accident.
+AGENTS_DIR = Path(__file__).resolve().parents[3] / "agents"
 REFERENCES = Path(__file__).resolve().parent.parent / "references"
 
 RECON = "olivia"
@@ -40,6 +47,10 @@ HARNESS_LANES = {
     "peggy": "perf",
     "trudy": "security",
 }
+
+# Paths that exist only on the author's machine. PRD 00103 ships this tree as a
+# public plugin, where each of these is a pointer an installer cannot follow.
+EXTRACTION_FORBIDDEN = ("/Users/", "~/.claude", "work/references/", "rules/")
 
 DESCRIPTION_MAX = 120
 VALID_COLORS = {"blue", "cyan", "green", "yellow", "magenta", "red"}
@@ -64,6 +75,14 @@ def _parse(name: str) -> tuple[dict[str, str], str]:
 @pytest.fixture(scope="module")
 def registry() -> dict[str, tuple[dict[str, str], str]]:
     return {name: _parse(name) for name in ROSTER}
+
+
+def test_the_roster_anchor_is_relative_to_this_skill_not_to_home() -> None:
+    """PRD 00103 ships this suite inside the plugin. A `$HOME` anchor would make
+    it validate the installer's own agents rather than the plugin's, so it would
+    pass on a machine with a stale personal copy and fail on a clean one."""
+    assert AGENTS_DIR == Path(__file__).resolve().parents[3] / "agents"
+    assert AGENTS_DIR.is_dir(), f"roster not found beside the skill at {AGENTS_DIR}"
 
 
 def test_every_specialist_has_a_file() -> None:
@@ -161,8 +180,35 @@ def test_playbooks_are_extraction_clean(playbook: str) -> None:
     not know that it could not.
     """
     text = (REFERENCES / f"{playbook}-playbook.md").read_text(encoding="utf-8")
-    for forbidden in ("/Users/", "~/.claude", "work/references/", "rules/"):
+    for forbidden in EXTRACTION_FORBIDDEN:
         assert forbidden not in text, f"{playbook}-playbook.md names {forbidden}"
+
+
+def _shipped_markdown() -> list[Path]:
+    """Every markdown file the plugin carries: the skill and all its references."""
+    return [REFERENCES.parent / "SKILL.md", *sorted(REFERENCES.glob("*.md"))]
+
+
+@pytest.mark.parametrize("path", _shipped_markdown(), ids=lambda p: p.name)
+def test_every_shipped_file_is_extraction_clean(path: Path) -> None:
+    """Widened past the playbooks on 2026-08-06, during the extraction itself.
+
+    It could not be widened before: `finding-contract.md` cited
+    `rules/communication.md` for the walkthrough packet, and `SKILL.md` cited a
+    sibling personal skill for the roster conventions. Both are now inlined, so
+    the whole shipped surface can hold the line the playbooks already held.
+
+    `dev/local/` is deliberately NOT forbidden here. It is a repo-relative
+    contract path - where the profile and the reports live inside the TARGET
+    repo - so it travels correctly to any installer. What does not travel is a
+    path only the author's machine has.
+    """
+    text = path.read_text(encoding="utf-8")
+    for forbidden in EXTRACTION_FORBIDDEN:
+        assert forbidden not in text, (
+            f"{path.name} names {forbidden}, which an installer cannot open and "
+            "will not be told it cannot open"
+        )
 
 
 @pytest.mark.parametrize("playbook", PLAYBOOKS)
