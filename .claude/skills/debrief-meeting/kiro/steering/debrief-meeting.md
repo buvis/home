@@ -1,23 +1,24 @@
 ---
-name: debrief-meeting
-description: Use when turning a meeting transcript (Teams/Webex/Zoom VTT, SRT, DOCX, TXT) into a self-contained interactive HTML debrief - agenda, notes, actions, decisions as ADRs, speaking share, timeline. Triggers on "debrief meeting", "process transcript".
+inclusion: manual
 ---
 
 # Debrief Meeting
 
 Turn a raw meeting transcript into `<transcript>-debrief/debrief.html`: one
-self-contained Svelte SPA with the agenda, notes, action items, decisions
-rendered as ADRs, participants and their speaking share, a clickable timeline,
-and the cleaned transcript. Every extracted item carries the timecode it came
-from, and clicking it jumps to that moment in the transcript.
+self-contained SPA with the agenda, notes, action items, decisions rendered as
+ADRs, participants and their speaking share, a clickable timeline, and the
+cleaned transcript. Every extracted item carries the timecode it came from, and
+clicking it jumps to that moment in the transcript.
+
+Ask for the transcript path if the user has not given one.
 
 ## Dependencies
 
-- CLIs: `python3` (stdlib only - DOCX is unzipped with `zipfile`).
-- Path: `${CLAUDE_SKILL_DIR}/assets/template.html` - the pre-built SPA. Missing
-  it means `build.py` exits; rebuild per the maintenance section.
-- Optional: `npm` plus node, only for the maintenance-only SPA rebuild.
-- Privacy: the debrief lands next to the input transcript and contains the full
+- `python3` on PATH (stdlib only - DOCX is unzipped with `zipfile`). On Windows
+  the command is usually `python`.
+- `~/.kiro/debrief-meeting/assets/template.html` - the pre-built SPA. Missing it
+  means `build.py` exits; copy the folder again from the source repo.
+- Privacy: the debrief lands next to the input transcript and contains the whole
   meeting. Treat it as confidential; never commit it to a repo.
 
 ## Workflow
@@ -25,7 +26,7 @@ from, and clicking it jumps to that moment in the transcript.
 ### 1. Normalize (deterministic)
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/parse.py /path/to/transcript.vtt
+python3 ~/.kiro/debrief-meeting/scripts/parse.py /path/to/transcript.vtt
 ```
 
 Reads `.vtt`, `.srt`, `.docx` and plain text (including the Teams "copy
@@ -116,60 +117,27 @@ fact, positions that never converged, jargon a newcomer would not follow,
 numbers and estimates, tickets and links mentioned aloud, praise worth
 repeating, and anything that needs escalating.
 
-### 3. Build and open
+### 3. Build
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/build.py /path/to/transcript-debrief
-open /path/to/transcript-debrief/debrief.html   # attended only
+python3 ~/.kiro/debrief-meeting/scripts/build.py /path/to/transcript-debrief
 ```
 
-`build.py` applies the corrections, injects `{transcript, extract}` into the
-template and writes `debrief.html` beside the JSON (`--out FILE` to redirect).
-It works without `extract.json` - you get the transcript view only, and it says
-so. It also warns about unknown top-level keys in `extract.json`, which is how a
-typo like `action_items` gets caught instead of silently rendering nothing.
+Applies the corrections, injects `{transcript, extract}` into the template and
+writes `debrief.html` beside the JSON (`--out FILE` to redirect). It works
+without `extract.json` - you get the transcript view only, and it says so. It
+also warns about unknown top-level keys in `extract.json`, which is how a typo
+like `action_items` gets caught instead of silently rendering nothing.
 
-`open` needs a desktop session. In an unattended run (`CLAUDE_UNATTENDED=1`),
-skip it and report the written path.
+Report the written path and let the user open it. The file needs no server: it
+is one HTML file with everything inlined, so it opens straight off disk.
 
 ## What the page shows
 
 Brief (glance tiles, TL;DR, notes, agenda coverage, open questions, follow-up
-email) · Timeline (topic gantt, decision/action/question/risk pins, who-is-talking
-strip) · Actions (filter by owner, tick off, copy markdown or CSV) · Decisions
-(each expandable into a copyable ADR) · People (speaking share, pace, questions,
-interruptions, turn-taking matrix) · Transcript (search, filter by speaker,
-original-wording toggle) · Insights (risks, blockers, assumptions, disagreements,
-quotes, numbers, jargon, cleanup log).
-
-## Tests
-
-```bash
-python3 -m pytest ${CLAUDE_SKILL_DIR}/scripts/test_parse.py -q
-npm --prefix ${CLAUDE_SKILL_DIR}/app test
-```
-
-The npm run includes a jsdom smoke test that mounts the built
-`assets/template.html` and drives every tab, so it fails if the template and the
-payload shape drift apart.
-
-## Rebuilding the SPA template (maintenance only)
-
-Only needed after changing `app/` sources:
-
-```bash
-npm --prefix ${CLAUDE_SKILL_DIR}/app install
-npm --prefix ${CLAUDE_SKILL_DIR}/app run build
-cp ${CLAUDE_SKILL_DIR}/app/dist/index.html ${CLAUDE_SKILL_DIR}/assets/template.html
-npm --prefix ${CLAUDE_SKILL_DIR}/app test
-```
-
-`kiro/` holds a standalone port of this skill for the Kiro IDE - the same two
-scripts and the same built template, with `SKILL.md` swapped for a Kiro steering
-file. Its copies are real copies, so a template rebuild has to be carried over
-or the port ships a stale page:
-
-```bash
-cp ${CLAUDE_SKILL_DIR}/assets/template.html ${CLAUDE_SKILL_DIR}/kiro/debrief-meeting/assets/template.html
-cp ${CLAUDE_SKILL_DIR}/scripts/parse.py ${CLAUDE_SKILL_DIR}/scripts/build.py ${CLAUDE_SKILL_DIR}/kiro/debrief-meeting/scripts/
-```
+email) · Timeline (topic gantt, decision/action/question/risk pins,
+who-is-talking strip) · Actions (filter by owner, tick off, copy markdown or
+CSV) · Decisions (each expandable into a copyable ADR) · People (speaking share,
+pace, questions, interruptions, turn-taking matrix) · Transcript (search, filter
+by speaker, original-wording toggle) · Insights (risks, blockers, assumptions,
+disagreements, quotes, numbers, jargon, cleanup log).
