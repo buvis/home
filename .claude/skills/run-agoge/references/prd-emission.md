@@ -38,7 +38,8 @@ catalogue` becomes `added-book-missing-from-catalogue`.
 
 ## Mapping the packet onto the template
 
-The PRD follows the same template `/create-prd` writes, filled from the packet:
+The PRD follows this template, filled from the packet. If the target repo already
+has a PRD template of its own, use that one and map the same way:
 
 | PRD section | Comes from |
 |---|---|
@@ -66,6 +67,6 @@ State in the report's minutes, on the finding's line, that a PRD was emitted and
 under which number. A finding whose minutes say "accepted" with no number is a
 finding that was lost between the walkthrough and the backlog.
 
-Emitted PRDs are ordinary backlog PRDs from that moment on. They get reviewed by
-`/review-prd-backlog` like any other, and nothing about their origin exempts
-them from it.
+Emitted PRDs are ordinary backlog PRDs from that moment on. Whatever backlog
+review the repo runs applies to them like any other, and nothing about their
+origin exempts them from it.

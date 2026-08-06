@@ -27,11 +27,14 @@ never a pass.** Every result carries `verified`, `unverified`, `mocked` or
 - Path: `references/prd-emission.md` and
   `scripts/allocate_prd_number.py` — how an accepted finding becomes a backlog
   PRD, and the claim that keeps two writers off one number. Step 9 only.
-- Wrapper: `_autopilot_agoge` in the autoclaude drain branch fires one
-  unattended run per drained batch. Not needed to run this skill by hand.
-- Conventions: `review-work-completion/references/agent-registry.md` (registry
-  ownership), `rules/communication.md` (the findings walkthrough).
+- Optional: an unattended runner may fire one run per batch of completed work,
+  passing `--authorized <its own name>`. Nothing here needs one; running this
+  skill by hand is the ordinary case.
 - CLI: `git`, `python3`.
+
+The walkthrough packet shape lives in `references/finding-contract.md`, and the
+roster conventions in each agent file's own frontmatter. This skill depends on
+no file outside its own directory and the seven agent files.
 
 ## Arguments
 
@@ -236,10 +239,10 @@ Reachable two ways: an interactive run arriving from step 8, or `--resume
 and re-run nothing — the findings are already established, and re-running them
 would produce a second set of numbers to reconcile.
 
-Walk them one at a time per `rules/communication.md`: one packet per message, at
-least three real options each, recommendation first. Record accepted / deferred /
-rejected in the report as you go, then close with the minutes and delete the
-pending line.
+Walk them one at a time in the finding contract's `## The walkthrough packet`
+shape: one packet per message, at least three real options each, recommendation
+first. Record accepted / deferred / rejected in the report as you go, then close
+with the minutes and delete the pending line.
 
 **With `--decisions <file>`**, read the decisions instead of asking. The file
 maps a finding's number in the report to `accept`, `defer` or `reject`, and an
