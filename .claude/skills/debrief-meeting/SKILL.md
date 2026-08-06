@@ -163,13 +163,3 @@ npm --prefix ${CLAUDE_SKILL_DIR}/app run build
 cp ${CLAUDE_SKILL_DIR}/app/dist/index.html ${CLAUDE_SKILL_DIR}/assets/template.html
 npm --prefix ${CLAUDE_SKILL_DIR}/app test
 ```
-
-`kiro/` holds a standalone port of this skill for the Kiro IDE - the same two
-scripts and the same built template, with `SKILL.md` swapped for a Kiro steering
-file. Its copies are real copies, so a template rebuild has to be carried over
-or the port ships a stale page:
-
-```bash
-cp ${CLAUDE_SKILL_DIR}/assets/template.html ${CLAUDE_SKILL_DIR}/kiro/debrief-meeting/assets/template.html
-cp ${CLAUDE_SKILL_DIR}/scripts/parse.py ${CLAUDE_SKILL_DIR}/scripts/build.py ${CLAUDE_SKILL_DIR}/kiro/debrief-meeting/scripts/
-```
