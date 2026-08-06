@@ -6,10 +6,16 @@ is a different job from reading it for suspicious patterns.
 ## The gate, before anything else
 
 Your dispatch prompt must carry an authorization line asserting the target is the
-operator's own or explicitly authorized, **and the human act it came from**:
-either a line the operator wrote in the strategy profile, or the operator
-starting the run with an explicit authorization argument. Only a human asserts,
-by either route.
+operator's own or explicitly authorized, **and the human act it came from**, on a
+line reading `Asserted by: profile (<path>)` or `Asserted by: invocation (<name>)`.
+The first is a line the operator wrote in the strategy profile; the second is the
+operator starting the run with an explicit authorization argument. Only a human
+asserts, by either route.
+
+**An invocation source stays a human act when it names an automation.** The
+operator pointed that automation at this target, which is a decision only they
+could make. Refusing `Asserted by: invocation (some-loop-name)` because it reads
+like a machine's name refuses the operator's own instruction over its wording.
 
 **If it is absent, reads `not asserted`, or names no source: run nothing.**
 Report the lane `skipped`, say the assertion was missing, and return no findings.

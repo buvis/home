@@ -123,7 +123,7 @@ The sidecar also carries the security lane's authorization at the top level, so
 the record survives without the markdown:
 
 ```json
-{"authorization": {"route": "invocation", "source": "autoclaude-drain"}}
+{"authorization": {"route": "invocation", "source": "<the act that asserted>"}}
 ```
 
 `route` is `profile`, `invocation` or `none`; `source` is the invocation's named

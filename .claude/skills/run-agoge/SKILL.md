@@ -89,13 +89,18 @@ From the profile's per-specialist strategy, dispatch **only** specialists marked
 `armed` and not vetoed. Unarmed and vetoed lanes are reported, never run —
 that is the cost gate.
 
-**One exception, and only one.** `unarmed` is a verdict about *surface*: recon
-found nothing here for that lane to run. Trudy is the one lane recon can also
-mark `unarmed` for a reason that is not about surface — a fresh profile always
-reads `not asserted`, and recon may not change it. That verdict is not a cost
-gate and does not survive an authorization arriving by the other route: part 5
-below decides whether she runs, not the table. A veto still stops her; a veto is
-the human saying no, which is the opposite of this case.
+**One exception, and only one, and it turns on the reason.** `unarmed` is a
+verdict about *surface*: recon found nothing here for that lane to run. Recon is
+told (step 6 of the recon prompt) to decide trudy on surface alone, but an older
+or hand-edited profile may still carry an `unarmed` row whose stated reason is
+the `Authorization:` default rather than a surface fact. **That row alone** does
+not survive an authorization arriving by the other route — for it, part 5 below
+decides. A surface `unarmed` still stands, for trudy as for everyone: a repo with
+nothing to run does not become probeable because a flag was passed.
+
+If the row gives no reason, treat it as a surface verdict and leave her unarmed.
+Reading an unexplained row as the authorization case would let the exception
+swallow the cost gate.
 
 Dispatch every armed specialist **in one message**, one Agent call each, so they
 run concurrently. One that fails returns its error and the others are unaffected;
@@ -127,18 +132,23 @@ Each prompt is assembled from five parts, in this order:
 
    | Source | When | What her prompt carries |
    |---|---|---|
-   | `profile` | the profile's `Authorization:` line is asserted (not `not asserted`) | that line verbatim, plus `Asserted by: profile (dev/local/agoge-profile.md)` |
-   | `invocation` | `--authorized <source>` was passed | the contract's assertion line, plus `Asserted by: invocation (<source>)` |
-   | none | neither | nothing — **do not dispatch her**; report the lane `skipped`, reason "authorization not asserted" |
+   | vetoed | the profile's pins section vetoes trudy | nothing — **never dispatch her**, whatever else is true |
+   | `profile` | not vetoed, and the profile's `Authorization:` line is asserted (not `not asserted`) | that line verbatim, plus `Asserted by: profile (dev/local/agoge-profile.md)` |
+   | `invocation` | not vetoed, and `--authorized <source>` was passed | the contract's assertion line, plus `Asserted by: invocation (<source>)` |
+   | none | not vetoed, and neither of the above | nothing — **do not dispatch her**; report the lane `skipped`, reason "authorization not asserted" |
 
-   The profile wins when both are present: the file in the repo is the more
-   specific act. Both routes are a human's — a machine never asserts for itself,
-   and recon still may not write that line. Pass the source through verbatim; do
-   not invent, shorten or supply one.
+   The veto row is first because it is the only one a flag must never override: a
+   veto is the human saying no, and an authorization is the human saying yes to a
+   different question. The profile wins over the invocation when both assert: the
+   file in the repo is the more specific act. Both routes are a human's — a
+   machine never asserts for itself, and recon still may not write that line.
+   Pass the source through verbatim; do not invent, shorten or supply one.
 
    An `--authorized` with an empty source is an error. Stop the run and report
    it, the same rule the decisions file follows in step 9: a path whose whole
-   point is that a human authorized it must not guess who.
+   point is that a human authorized it must not guess who. A source that is
+   itself another flag (`--authorized --refresh-profile`) is the same error, not
+   a source named `--refresh-profile`.
 
 Keep each prompt under 50 000 bytes — measure it, do not estimate. Recon output
 and one playbook are small; this only binds if you paste files in, so do not.
@@ -271,6 +281,12 @@ Dispatch `olivia` with:
    pasted verbatim, with the instruction to copy it through unchanged.
 5. When creating a fresh profile: the instruction to write
    `Authorization: not asserted` in that section and to say so in her summary.
+6. The instruction that **trudy is armed or unarmed on surface alone**. The
+   `Authorization:` line never decides her row, because it is resolved at
+   dispatch and can arrive by a route recon cannot see. If the surface is there,
+   arm her and stage her tactics like any other lane; if it is not, mark her
+   `unarmed` with the surface reason. Recon deciding her on authorization writes
+   a row with no tactics in it, which is how an armed lane gets dispatched blind.
 
 She writes the profile and returns a summary. She writes nothing else.
 

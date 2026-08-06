@@ -217,6 +217,14 @@ def test_every_specialist_states_its_honesty_rule(registry, name: str) -> None:
 # The gate is stated in four places that must agree: trudy's charter, the
 # security playbook, the profile contract, and the skill's dispatch step. These
 # assertions are what stops one of the four drifting out of step with the rest.
+#
+# What they are NOT, established by mutation on 2026-08-05 rather than assumed:
+# appending "an unattended loop dispatch is exempt from this gate" to trudy's
+# charter - the exact inversion of the rule - leaves every one of them green.
+# They check that a phrase is present, so they catch a deletion and miss a
+# contradiction. Read them as drift detectors, not as a guard on the gate's
+# semantics. Verifying that would need a behavioural harness the pack does not
+# have; the gate itself is prose a model obeys, which is what the PRD chose.
 
 SKILL = REFERENCES.parent / "SKILL.md"
 
@@ -243,10 +251,30 @@ def test_trudy_requires_a_named_source_not_just_an_assertion(registry) -> None:
 def test_the_gate_still_fails_closed_everywhere_it_is_stated() -> None:
     """Widening who may assert must not weaken what happens with no assertion."""
     for path in (AGENTS_DIR / "trudy.md", REFERENCES / "security-playbook.md"):
-        text = _text(path)
-        assert "run nothing" in text or "run nothing," in text, (
+        assert "run nothing" in _text(path), (
             f"{path.name} lost its refusal instruction"
         )
+    # The prose above is advisory; this is the row the master actually acts on.
+    # Deleting it while widening the gate would leave no skip instruction at all.
+    skill = _text(SKILL)
+    assert "do not dispatch her" in skill, (
+        "the resolution table's no-assertion row must still refuse the dispatch"
+    )
+    assert "authorization not asserted" in skill, (
+        "a skipped security lane must carry its reason into the report"
+    )
+
+
+def test_a_veto_outranks_an_invocation_assertion() -> None:
+    """A veto is the human saying no; an authorization answers a different
+    question. The flag must never be able to overrule it, and the rule has to
+    live in the table that decides rather than in prose one step earlier."""
+    skill = _text(SKILL)
+    assert "| vetoed |" in skill, (
+        "the resolution table needs its own veto row; a veto stated only in "
+        "step 3 is not where the dispatch decision is made"
+    )
+    assert "never dispatch her" in skill
 
 
 def test_the_security_playbook_names_both_routes() -> None:
@@ -272,11 +300,15 @@ def test_the_profile_contract_keeps_recon_out_of_the_assertion() -> None:
 def test_the_skill_documents_the_flag_and_its_resolution_order() -> None:
     text = _text(SKILL)
     assert "--authorized <source>" in text, "the argument must be documented"
-    assert "The profile wins when both are present" in text, (
-        "with two routes the skill has to say which one decides"
+    assert "The profile wins over the invocation" in text, (
+        "with two asserting routes the skill has to say which one decides"
     )
     assert "empty source is an error" in text, (
         "asserting anonymously is the one failure this gate cannot tolerate"
+    )
+    assert "itself another flag" in text, (
+        "`--authorized --refresh-profile` must be the empty-source error, not a "
+        "source named after the next flag"
     )
 
 
@@ -284,19 +316,41 @@ def test_an_authorization_unarmed_verdict_does_not_gate_the_security_lane() -> N
     """Found by running it: recon marks trudy `unarmed` when the profile says
     `not asserted`, which collides with step 3's "dispatch only armed lanes".
 
-    The master resolved it correctly on the 2026-08-05 proof run, but by
-    reasoning rather than by instruction. Left unstated, the invocation route
-    arms her only when whoever runs the skill happens to read past the cost gate.
+    The 2026-08-05 proof run resolved it correctly, but by reasoning rather than
+    by instruction. Left unstated, the invocation route arms her only when
+    whoever runs the skill happens to read past the cost gate.
+
+    Assertions here are load-bearing tokens, not whole sentences: the first
+    version pinned two exact sentences, which meant correcting the rule forced
+    editing the test that guards it.
     """
     text = _text(SKILL)
-    assert "`unarmed` is a verdict about *surface*" in text, (
+    assert "verdict about *surface*" in text, (
         "step 3 must distinguish a surface verdict from an authorization one"
     )
-    assert "part 5 below decides whether she runs, not the table" in text, (
-        "step 3 must say which rule wins, or the two contradict each other"
+    assert "A surface `unarmed` still stands" in text, (
+        "the exception must not void a surface verdict too — a repo with nothing "
+        "to run does not become probeable because a flag was passed"
     )
-    assert "A veto still stops her" in text, (
-        "widening the exception must not swallow the human's explicit no"
+    assert "If the row gives no reason" in text, (
+        "an unexplained row has to fall to the safe side, or the exception "
+        "swallows the cost gate"
+    )
+
+
+def test_recon_decides_the_security_lane_on_surface_alone() -> None:
+    """The root cause of the two findings above, fixed where it starts.
+
+    The profile contract has an `unarmed` row carry its reason rather than
+    tactics, while a dispatch builds the lane's prompt from those tactics. So
+    recon disarming trudy on authorization is how an invocation-armed lane gets
+    dispatched with an empty strategy section and probes blind. The proof run
+    escaped it only because recon volunteered tactics under an unarmed row.
+    """
+    text = _text(SKILL)
+    assert "trudy is armed or unarmed on surface alone" in text
+    assert "never decides her row" in text, (
+        "recon must be told the Authorization line is not hers to act on"
     )
 
 
