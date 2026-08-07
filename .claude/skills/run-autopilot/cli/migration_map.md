@@ -1,8 +1,12 @@
-# Park/Stall Migration Map
+# Lifecycle Migration Map
 
 Maps every behavior ID in `migration_manifest.txt` to where it lives in the
-`references/*.md` prose today, what happens to it as the park/stall logic
-moves into the `cli/` CLI, and the test that proves the disposition.
+`references/*.md` prose today, what happens to it as the logic moves into the
+`cli/` CLI, and the test that proves the disposition.
+
+Two waves are recorded here: PRD 00051's park/stall recovery procedures, and
+PRD 00089's lifecycle half — selection, frontmatter parse, phase transitions
+and resume mapping — plus statectl's absorption into the validated writer.
 
 Disposition legend:
 
@@ -37,13 +41,24 @@ Disposition legend:
 | stall-oversized-task-via-cli | references/recovery.md § plan-tasks stall: oversized task | ported | test_records_stall.py::test_exit_4_when_prd_absent_from_both_wip_and_hold, test_cli_default_paths.py::test_bare_stall_resolves_state_and_prds_by_walking_up_from_cwd |
 | stall-escalation-exhausted-via-cli | references/recovery.md § Rework escalation exhausted → Stall move | ported | test_records_stall.py::test_exit_9_when_deferred_dir_path_is_occupied_by_a_file, test_cli_default_paths.py::test_bare_stall_from_nested_subdir_still_resolves_the_project_root_dirs |
 | reset-repo-root-always | references/phase-done.md § Phase 9 step 10 | behavior_change | test_records.py::test_removes_every_per_prd_reset_field |
-| reset-unlisted-fields-now-cleared | references/phase-build.md § Frontmatter parse table | behavior_change | test_records.py::test_clears_the_four_fields_that_leak_today |
+| reset-unlisted-fields-now-cleared | references/phase-build.md § Frontmatter parse (step 4) | behavior_change | test_records.py::test_clears_the_four_fields_that_leak_today |
 | statectl-transaction-ordering | scripts/statectl.py § mutate | behavior_change | test_state.py::test_raising_fn_leaves_state_and_bak_byte_unchanged |
 | park-marker-wrapper-call-site | references/phase-build.md § Handle park request | retired | Interim call site only — PRD 00052 moves the call to `autopilot park` directly; do_park is written caller-agnostic so the call site can move without touching the logic |
 | lifecycle-mkdir-p-block | references/phase-build.md § Ensure lifecycle directories exist | stays_prose | test_autopilot_lifecycle.py::test_phase0_ensures_lifecycle_dirs_with_mkdir_p |
 | backlog-to-wip-verified-move | references/phase-build.md § Normal PRD selection | stays_prose | test_autopilot_lifecycle.py::test_backlog_to_wip_move_is_verified |
 | wip-to-done-verified-move | references/phase-done.md § Phase 9 step 3 | stays_prose | test_autopilot_lifecycle.py::test_wip_to_done_move_is_verified |
 | work-start-sha-recapture-guard | references/phase-build.md § Phase 3: Work | stays_prose | test_autopilot_lifecycle.py::test_phase3_guards_work_start_sha_against_recapture_on_resume |
+| prd-selection-lowest-sequence | references/phase-build.md § Normal PRD selection | ported | test_selection.py::SelectTests, test_lifecycle_cli.py::SelectTests::test_picks_lowest_sequence_in_wip |
+| prd-selection-never-scans-hold | references/phase-build.md § Normal PRD selection | ported | test_selection.py::SelectTests::test_selection_cannot_reach_hold, test_lifecycle_cli.py::SelectTests::test_never_picks_from_hold |
+| frontmatter-parse-defaults | references/phase-build.md § Frontmatter parse (step 4) | ported | test_frontmatter.py::RecognizedValueTests, test_frontmatter.py::InvalidValueTests |
+| frontmatter-malformed-single-warning | references/phase-build.md § Frontmatter parse (step 4) | ported | test_frontmatter.py::MalformedBlockTests |
+| phase-transition-effects-one-commit | SKILL.md § Session handoff procedure | ported | test_transitions.py::ReworkTests, test_lifecycle_cli.py::PhaseDoneTests::test_rework_increments_cycle_and_clears_ids_in_one_commit |
+| phase-transition-convergence-marker | references/phase-review.md § Hand off to the finalize session | ported | test_transitions.py::ConvergedTests, test_lifecycle_cli.py::PhaseDoneTests::test_converged_lands_phase_and_marker_in_one_commit |
+| phase-transition-drained-empty-next-phase | references/phase-done.md § Continuation | ported | test_transitions.py::DrainedTests, test_lifecycle_cli.py::PhaseDoneTests::test_drained_writes_the_empty_next_phase |
+| resume-target-mapping | references/phase-build.md § Handle park request | ported | test_resume.py::GoldenFixtureTests, test_lifecycle_cli.py::ResumeTargetTests |
+| statectl-absorbed-into-boundary | scripts/statectl.py | ported | test_shims.py::StatectlShimSymbolTests |
+| statectl-rejects-malformed-own-field | scripts/statectl.py | behavior_change | test_shims.py::ShimValidationTests::test_malformed_value_for_the_targeted_field_is_rejected_loudly |
+| statectl-tolerates-unrelated-odd-field | scripts/statectl.py | behavior_change | test_shims.py::ShimValidationTests::test_unrelated_pre_existing_odd_field_blocks_nothing |
 
 ## Notes
 
@@ -67,3 +82,20 @@ Disposition legend:
   pinned the retired multi-step prose (proven: the lifecycle and phase2-stall
   suites stayed green through the rewrite), so zero test retirements were
   needed.
+- PRD 00089 (2026-08-07) retired four prose derivations and zero tests. The
+  doc-contract tests in `scripts/test_autopilot_lifecycle.py` all survive
+  untouched, because what they guard is what deliberately STAYED prose: the
+  `mkdir -p` block, the three verified moves, and the `work_start_sha`
+  recapture guard. `autopilot select` decides which PRD is next; the verified
+  backlog→wip move it implies remains the caller's, which is why
+  `backlog-to-wip-verified-move` keeps its `stays_prose` row above.
+- `scripts/test_golden_contracts.py` documents a limitation in its own header:
+  the Phase-0 frontmatter fixture was a PRODUCER-side pin only, "no Python
+  consumer parser exists (the Phase 0 parse is model-driven)". `cli/frontmatter.py`
+  is that consumer now, and `test_frontmatter.py::GoldenFixtureTests` parses
+  the same fixture with it. The golden suite itself is left byte-unchanged on
+  purpose — it is the regression gate on the shims — so its header comment
+  understates what the fixture is bound to. Read this note, not that comment.
+- The `statectl-*` rows sit beside `statectl-transaction-ordering`, which PRD
+  00051 recorded as a `behavior_change` in advance. 00089 is what made it
+  true: the `.bak` is now written after validation rather than before.

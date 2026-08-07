@@ -71,7 +71,7 @@ dev/local/autopilot/
 
 State file: `dev/local/autopilot/state.json` — see `references/state-schema.md` for schema.
 
-**`statectl` is the sole writer of `state.json`.** Apply every field mutation with `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set|append|del <json-path> <json-value>` (read one field with `get`); it takes an advisory lock, backs up to `<state.json>.bak`, changes only the named path while preserving all siblings, and replaces the file atomically — so it cannot leave a half-written or unparseable state, and it never trips the "not read yet" / "modified since read" errors the editing tools hit. Resolve `<state.json>` by walking up from the resolved physical cwd to the autopilot dir (the `_walk_up.py` pattern in `/work` step 2). The terse `set X` / `write field Y` / per-PRD-reset instructions throughout these skills and the gate files name the fields to change; each is applied with `statectl`, never by hand-editing the file.
+**`statectl` is the sole writer of `state.json`.** Apply every field mutation with `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set|append|del <json-path> <json-value>` (read one field with `get`); it takes an advisory lock, backs up to `<state.json>.bak`, changes only the named path while preserving all siblings, and replaces the file atomically — so it cannot leave a half-written or unparseable state, and it never trips the "not read yet" / "modified since read" errors the editing tools hit. Since PRD 00089 it is a shim over `cli/state.transaction`, so every write is schema-validated too: a value that is malformed **for the field it targets** is rejected with exit 1 and the file left byte-unchanged (an unrelated pre-existing odd field blocks nothing). **Phase transitions are not field mutations** — use `autopilot phase-done --outcome <outcome>` (§ Session handoff procedure), never a hand-written `set phase` / `set next_phase` pair, so a transition cannot land without the effects it mandates. Resolve `<state.json>` by walking up from the resolved physical cwd to the autopilot dir (the `_walk_up.py` pattern in `/work` step 2). The terse `set X` / `write field Y` / per-PRD-reset instructions throughout these skills and the gate files name the fields to change; each is applied with `statectl`, never by hand-editing the file.
 
 Documented human fallback: outside the loop a person may still Edit or Write `state.json` by hand (for forensics or recovery — the model itself never hand-edits `state.json`; a statectl failure has its own marker-based recovery below); `validate_state_json_hook.py` catches a hand-edit that leaves the file unparseable and now also runs `cli.schema.validate` on it, and `statectl` reads whatever valid JSON it finds on its next mutation.
 
@@ -179,18 +179,19 @@ For long **Bash** (builds, tests), still prefer the FOREGROUND with an explicit 
 
 Every session handoff is the same three steps:
 
-1. **Apply the site's state fields** (table below) to `dev/local/autopilot/state.json` with `statectl set` (one `set` per field; statectl merges — it never replaces sibling fields).
+1. **Apply the transition** with one `autopilot phase-done --outcome <outcome>` call (table below). It reads the current phase from `state.json`, looks the pair up in `cli/transitions.py`, and commits the next phase together with every field effect that transition mandates — in ONE transaction. There is no `--phase` flag and no per-effect flag: a caller cannot supply a mismatched phase, and cannot forget an effect.
 2. **Print the site's banner** (shown at the invoking site in the gate file).
 3. **End the turn.** In loop mode the wrapper reads `state.json` and relaunches per its decision table above; outside the loop the user re-invokes `/run-autopilot` and the same resume logic applies. Do NOT continue into the next gate's phases in this session, even if context budget appears sufficient.
 
-| site | state writes | `phases_completed` |
-|------|--------------|--------------------|
-| **build → review** (`phase-build.md`, after Phase 3) | `phase: "review"`, `next_phase: "review"`, updated `tasks` snapshot | unchanged — the build gate leaves no membership marker |
-| **review → review** (`phase-review.md` Phase 6, after rework when the loop continues) | `phase: "review"`, `next_phase: "review"` (Phase 6 steps 1-3 already wrote these plus the incremented `cycle`); do NOT rewrite `state.tasks` | unchanged — only convergence (review → done) adds `"review"` |
-| **review → done** (`phase-review.md`, on loop convergence) | `phase: "done"`, `next_phase: "done"` | add `"review"` — the convergence marker the review gate's loop-level skip reads |
-| **PRD → PRD** (`phase-done.md`, step 10 more-PRDs branch) | `phase: "build"`, `next_phase: "build"`, plus the per-PRD reset list (`phase-done.md` § Continuation); preserve `batch` in full | reset to `[]` |
+| site | `--outcome` | what the transition commits |
+|------|-------------|-----------------------------|
+| **build → review** (`phase-build.md`, after Phase 3) | `tasks_done` | `phase`/`next_phase: "review"`. `phases_completed` unchanged — the build gate leaves no membership marker. Write the `tasks` snapshot separately: it comes from a TaskList query, so no transition can derive it. |
+| **review → review** (`phase-review.md` Phase 6, after rework when the loop continues) | `rework` | `phase`/`next_phase: "review"`, `cycle` incremented, `rework_task_ids` cleared — all in one commit. `state.tasks` untouched. `phases_completed` unchanged — only convergence adds `"review"`. |
+| **review → done** (`phase-review.md`, on loop convergence) | `converged` | `phase`/`next_phase: "done"`, and `"review"` appended to `phases_completed` — the convergence marker the review gate's loop-level skip reads. It lands *because this is convergence*, not because a flag asked for it. |
+| **PRD → PRD** (`phase-done.md`, step 10 more-PRDs branch) | `more_prds` | `phase`/`next_phase: "build"`, `phases_completed` reset to `[]`, and the whole per-PRD reset (`cli/records.PER_PRD_RESET_FIELDS` — the one authoritative list); `batch` preserved in full. |
+| **batch end** (`phase-done.md`, no more PRDs) | `drained` | `phase: "done"` and the EMPTY `next_phase` the wrapper reads as drained. Not a handoff — nothing relaunches. Also legal from `build`, which is where Phase 0's "No PRDs anywhere" reaches it. |
 
-Batch end is NOT a handoff: it writes `phase: "done"` + `next_phase: ""` (the wrapper's drained branch) and stops — see `references/phase-done.md`.
+Writing any of these fields by hand with `statectl set` is a bug: it is how a mandatory effect gets dropped. The `cycle` increment is the one that has already cost a real batch — the Phase 5 cap gate reads it, and losing it once let a loop run past its cap.
 
 ### Contract card (compaction re-anchor)
 
@@ -277,7 +278,7 @@ The check is deterministic (the pinned `awk` above), NOT a model judgment.
 | Situation | Interactive | Loop mode (`$_AUTOPILOT_LOOP` set, PRD 00017) |
 |-----------|-------------|------------------------------------------------|
 | Sub-skill invocation fails outright (no usable result; the phase cannot proceed) | PAUSE, report which skill failed and error. A transient reviewer/sub-skill error *during the review-rework cycle* is the review gate's Safety Checks row's domain instead (graceful degradation, not a PAUSE). | Re-invoke the sub-skill ONCE; if it fails again, stall the PRD (`recovery.md` → "Loop-mode stall procedure", `site: "sub_skill_fail"`) and continue the batch |
-| No PRDs anywhere | STOP with message about /create-prd | Write `state.phase = "done"` and `state.next_phase = ""` first so the wrapper stops as drained, not died |
+| No PRDs anywhere | STOP with message about /create-prd | Run `autopilot phase-done --outcome drained` first (it writes `phase: "done"` and the empty `next_phase`) so the wrapper stops as drained, not died |
 | State file corrupted | Delete it, restart from Phase 0 | Same (in-session recovery, no pause) |
 | `statectl` state-write fails (lock contention, python error, unreadable state) | Retry once; still failing → `autopilot restore` and retry once more; still failing → write the `state-write-failed` marker (`site: "statectl_fail"`) with the raw stderr in `detail`, end the turn, and also report the failure to the user directly — never proceed on the stale state | Retry once; still failing → `autopilot restore` and retry once more; still failing → write the `state-write-failed` marker (`site: "statectl_fail"`) with the raw stderr in `detail`, end the turn — the wrapper halts on it and surfaces the detail |
 | Review produces no parseable output | PAUSE, report — don't retry | Re-run the review ONCE; still unparseable → stall the PRD (`site: "reviewer_fail"`), continue the batch |
