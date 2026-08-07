@@ -58,4 +58,25 @@ A non-zero exit is not one failure — recognize the class and act per its row b
 | **CLI died mid-run** | non-zero exit with a truncated/partial `-o` file (crash, OOM-kill, SIGKILL) | **Salvage** what landed in the `-o` file, mark it **PARTIAL** in the run report, and treat the run as FAILED-with-partial — never present a truncated result as the full answer. |
 | **Empty output despite rc 0** | helper exited 0 but the `-o` file is empty (0 bytes) or whitespace-only | Treat as **FAILED**, not success (a silent empty result reads as a passed review that never happened). **Quote the run's stderr** in the report — the real cause is usually there. |
 
-**Codex exit-4 salvage (codex backend).** `codex-run.sh` exit 4 (codex ran but the wrapper flagged failure, e.g. quota) has a documented FALSE-POSITIVE mode: the quota/error markers can match codex's own command-line args or gateguard ERROR noise while codex actually finished, and the `-o` file may be unwritten even though the work completed. Before treating exit 4 as the Quota class above, check the wrapper's `codex-review-last.jsonl` sidecar (its last-run JSONL): if it holds a COMPLETE result (the expected findings/verdict content), **salvage it and treat the run as succeeded**. Only when nothing salvageable is in the sidecar → FAILED. Encoded here so every codex caller inherits it, not just `review-work-completion` (which carries the review-specific `D{n}:`-verdict variant, the doubt lens Bob runs). Memory: `project_codex_review_run_exit4_false_positive`.
+**Codex exit-4 salvage (`codex_review_run.py` callers only).** Exit 4 and the `codex-review-last.jsonl` sidecar are produced by `run-autopilot/scripts/codex_review_run.py`, **not** by `codex-run.sh` — that helper returns codex's real exit code and writes no sidecar. So this row applies to callers dispatching through `codex_review_run.py` (the review path); a caller using `codex-run.sh` directly never sees exit 4 and has nothing to salvage. Exit 4 means codex ran but the wrapper flagged failure (e.g. quota), and it has a documented FALSE-POSITIVE mode: the quota/error markers can match codex's own command-line args or gateguard ERROR noise while codex actually finished, and the `-o` file may be unwritten even though the work completed. Before treating exit 4 as the Quota class above, check the sidecar (its last-run JSONL): if it holds a COMPLETE result (the expected findings/verdict content), **salvage it and treat the run as succeeded**. Only when nothing salvageable is in the sidecar → FAILED. `review-work-completion` carries the review-specific `D{n}:`-verdict variant (the doubt lens Bob runs). Memory: `project_codex_review_run_exit4_false_positive`.
+
+### Implementor-mode divergence (codex, PRD 00105)
+
+Everything above describes codex in its **reviewer/analysis** role, where a run
+produces text and the caller reads it. PRD 00105 added codex as an
+**implementor** rung (`work/SKILL.md` step 3; fences and arms in
+`run-autopilot/references/model-ladder.md` § Codex rung), where a run edits the
+work-tree and a test gate judges it. That path deliberately departs from three
+rules above. This file wins on disagreement, so the departures are recorded
+here rather than asserted only at the call site:
+
+| Rule above | Implementor path | Why |
+|---|---|---|
+| "Stop and report failures whenever a run-script command exits non-zero" | Exit code never decides the outcome. Completion is judged by the `-o` file plus the step-5.5 test gate. | Exit-code trust is exactly what the exit-4 false positive punished. A codex run that edited the tree correctly but exited non-zero has still done the work, and the gate can see that; the exit code cannot. |
+| "Unattended: retry at most 2 times, then mark the step FAILED" | No retry at this rung. An infra failure falls back to Claude at the task's tier immediately, with no `escalation_reason` stamp. | The ladder, not the contract, owns implementor budgets (`model-ladder.md` § Per-rung budgets: 2 dispatches, initial + one feedback retry, never a repair). A contract-level retry would stack on top of the ladder's budget and double-spend it. |
+| "Before using high-impact permission flags (`-y`/`--yolo` and backend equivalents) ask user permission … unattended, use them only where the calling skill's documented defaults already grant them" | Dispatches with `-a` (edit-enabled sandbox) unattended. | This IS the calling-skill grant the rule points at: `work/SKILL.md` § Codex dispatch documents `-a` as the rung's default, and `model-ladder.md` § Codex rung records that it runs under a strictly weaker `Bash`-hook set than any Claude rung, with `_WORK_CODEX_RUNG=off` as the revert. The grant is narrow — it covers the implementor rung only, never a reviewer dispatch. |
+
+An implementor run also has a failure mode no reviewer run has: the helper
+exits 0 with non-empty output but changes **nothing**, because this host's
+PreToolUse hooks denied the edits and codex explained the denial in prose. That
+is classified infra, not capability — see `model-ladder.md` § Codex rung arm 2.

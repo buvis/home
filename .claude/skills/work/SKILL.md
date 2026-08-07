@@ -436,7 +436,7 @@ Verdict is `"healthy"` iff ALL of: the helper exited 0, the `-o` file is non-emp
 
 #### Codex dispatch
 
-Reuses `use-codex/references/dispatch-contract.md` unchanged:
+Reuses `use-codex/references/dispatch-contract.md`, whose § Implementor-mode divergence records the three rules this path departs from (exit-code trust, contract-level retry, the `-a` grant) — that file wins on disagreement, so read the departures there, not here:
 
 - **No-edit probe: before-capture.** Immediately before this background Bash dispatch, capture porcelain for the task's own file slice — never the whole worktree, so a concurrent user edit elsewhere cannot mask this arm: `git --git-dir=<bare-git-dir> --work-tree=<work-tree> status --porcelain -- <file slice>`;
 - background Bash, never Agent-wrapped (era invariant: a subagent that shells out to a CLI hangs);
@@ -444,7 +444,7 @@ Reuses `use-codex/references/dispatch-contract.md` unchanged:
 - `TaskOutput(task_id, block=true, timeout=600000)` as the watchdog;
 - **No-edit probe: after-capture.** Immediately after `TaskOutput` returns, before step 4 hands off, capture porcelain again with the same command and file slice. Latch the before/after comparison as `codex_no_edit` in the attempt record — step 5.5 reads only this latched flag and never re-runs `git status`. A non-zero exit on either capture is INDETERMINATE, not "no change": do not latch `codex_no_edit`; record the exit code in `codex_no_edit_probe_exit` instead and continue through the capability path normally;
 - completion judged by the `-o` file plus the step-5.5 test gate — **never by exit code alone**;
-- **edit-enabled sandbox: `-a` (`--sandbox workspace-write`), never `-y`.** `-y` maps to `--dangerously-bypass-approvals-and-sandbox`, i.e. no sandbox at all; granting that to an unattended autonomous implementor is unbounded write access for no added capability, and the dispatch contract requires an explicit calling-skill grant before any unattended `-y`. `-a` needs no such grant.
+- **edit-enabled sandbox: `-a` (`--sandbox workspace-write`), never `-y`.** `-y` maps to `--dangerously-bypass-approvals-and-sandbox`, i.e. no sandbox at all; granting that to an unattended autonomous implementor is unbounded write access for no added capability, and the dispatch contract requires an explicit calling-skill grant before any unattended high-impact flag. **This bullet is that grant, and it covers `-a` at this rung only** — never `-y`, and never a reviewer dispatch.
 - **`-d <realpath of dev/local>`** whenever the task's file slice includes a `dev/local/` path: that path is a symlink outside the workspace here and CLI backends cannot follow it without `--add-dir`. Omit it otherwise, keeping the sandbox as narrow as the task requires.
 - **On a `TaskOutput` timeout, kill before falling back.** `TaskStop` the codex background task and verify it is gone BEFORE dispatching the Claude fallback, then capture `git status --porcelain`. An orphaned `--sandbox workspace-write` codex keeps write access to the very files the Claude implementor is about to edit; without the kill, its late writes either get swept into that commit or land as unexplained foreign paths.
 - **Hook-coverage delta**: this dispatch runs under a weaker `Bash`-hook set than a Claude implementor — see `model-ladder.md` § Codex rung ("Hook coverage").
