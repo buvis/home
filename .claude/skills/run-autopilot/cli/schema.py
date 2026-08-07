@@ -70,7 +70,9 @@ def require(value: Any, type_: type, field: str) -> None:
     if isinstance(value, bool) and type_ is int:
         raise SchemaError(f"{field}: expected int, got {_bounded_repr(value)}")
     if not isinstance(value, type_):
-        raise SchemaError(f"{field}: expected {type_.__name__}, got {_bounded_repr(value)}")
+        raise SchemaError(
+            f"{field}: expected {type_.__name__}, got {_bounded_repr(value)}"
+        )
 
 
 def validate(state: dict) -> None:
@@ -85,7 +87,9 @@ def validate(state: dict) -> None:
             except TypeError:
                 invalid = True
             if invalid:
-                raise SchemaError(f"{field}: invalid value {_bounded_repr(state[field])}")
+                raise SchemaError(
+                    f"{field}: invalid value {_bounded_repr(state[field])}"
+                )
 
     for field in _INT_FIELDS:
         if field in state:
@@ -104,7 +108,9 @@ def validate(state: dict) -> None:
         if not isinstance(batch, dict):
             raise SchemaError(f"batch: expected dict, got {_bounded_repr(batch)}")
         if "id" in batch and not isinstance(batch["id"], str):
-            raise SchemaError(f"batch.id: expected str, got {_bounded_repr(batch['id'])}")
+            raise SchemaError(
+                f"batch.id: expected str, got {_bounded_repr(batch['id'])}"
+            )
         if "parks_consecutive" in batch:
             require(batch["parks_consecutive"], int, "batch.parks_consecutive")
         if "completed_prds" in batch:

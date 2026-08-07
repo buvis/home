@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Sanctioned test for PRD 00051 review cycle 1 task #14, Item 4: importing
-cli.records must not leave scripts/ on sys.path as a side effect. The
-park_decision import (from scripts/resume_target.py) is scoped lazily -
-insert -> import -> remove - inside a module function, called only where
-park_decision is actually used, so a bare `import cli.records` never
-touches sys.path at all.
+cli.records must not leave scripts/ on sys.path as a side effect.
+
+The hazard it guards has shrunk twice and the assertion still holds. It was a
+lazily-scoped insert -> import -> remove around `park_decision`, imported from
+scripts/resume_target.py. PRD 00089 absorbed that function into cli/resume.py,
+so records now reaches it as an ordinary package import and touches sys.path
+nowhere at all. The test stays because the invariant is what matters, not the
+mechanism: a future module-level `sys.path.insert(scripts_dir)` in records
+would fail it again.
 """
 
 from __future__ import annotations

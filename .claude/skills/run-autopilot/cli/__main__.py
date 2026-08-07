@@ -23,10 +23,24 @@ Subcommands:
         records.record_defer() with a JSON-parsed record payload.
     restore   --state
         state.restore(): rolls <state>.bak back over state.json.
+    check-plan --state --ceiling
+        policy.plan_over_ceiling(); exit 3 above the loop task ceiling.
+    select    --prds
+        selection.select() over the wip/ and backlog/ listings. Prints
+        {"prd": ..., "source": "wip"|"backlog"|"drained"}. Decides only -
+        the verified backlog->wip move stays with the caller.
+    frontmatter --state --prd
+        frontmatter.parse(), applied to state in ONE transaction and echoed
+        as JSON; warnings go to stderr.
+    phase-done --state --outcome
+        transitions.apply(): the next phase AND every field effect the
+        transition mandates, in one commit. The current phase comes from the
+        state; there is no --phase flag and no per-effect flag.
+    resume-target --state
+        resume.resume_target(), after the schema-version preflight.
 
-    select, frontmatter, phase-done, resume-target, check-plan and other
-    subcommands are deferred to later PRDs (00052/00053/00089); the
-    subcommand registry below is where they get added.
+Further subcommands belong to PRD 00106 (the orchestrator cutover); the
+subcommand registry below is where they get added.
 
 --state, when omitted, resolves by walking up from cwd via
 _walk_up.find_autopilot_dir() to <dir>/state.json. park's --autopilot-dir,
@@ -68,7 +82,16 @@ _SKILL_ROOT = _CLI_DIR.parent
 # never shadow the real one this script belongs to.
 sys.path.insert(0, str(_SKILL_ROOT))
 
-from cli import policy, records, schema, state
+from cli import (
+    frontmatter,
+    policy,
+    records,
+    resume,
+    schema,
+    selection,
+    state,
+    transitions,
+)
 
 # Explicit guarded insert (mirrors records.py's own): no longer relies on
 # importing cli.records having put scripts/ on sys.path as a side effect,
@@ -204,7 +227,9 @@ def _run_park(args: argparse.Namespace) -> int:
     if refuse is not None:
         return refuse
     autopilot_dir = (
-        Path(args.autopilot_dir) if args.autopilot_dir is not None else state_path.parent
+        Path(args.autopilot_dir)
+        if args.autopilot_dir is not None
+        else state_path.parent
     )
     prds_dir = _resolve_prds_path(args.prds, autopilot_dir)
     return records.do_park(state_path, prds_dir=prds_dir, autopilot_dir=autopilot_dir)
@@ -233,7 +258,9 @@ def _run_reset_prd(args: argparse.Namespace) -> int:
     if refuse is not None:
         return refuse
     try:
-        state.transaction(state_path, records.reset_prd_fields, validator=_validate_reset_prd)
+        state.transaction(
+            state_path, records.reset_prd_fields, validator=_validate_reset_prd
+        )
     except (state.StateError, OSError):
         return 2
     return 0
@@ -294,6 +321,147 @@ def _run_check_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _listdir(path: Path) -> list[str]:
+    """Basenames in `path`, or [] when it does not exist.
+
+    An absent lifecycle dir is not an error here: Phase 0's `mkdir -p` block
+    runs before selection, and a directory that is missing anyway holds no
+    PRDs, which is what "empty" already means.
+    """
+    try:
+        return [entry.name for entry in path.iterdir()]
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+
+
+def _add_select(subparsers) -> None:
+    p = subparsers.add_parser("select")
+    p.add_argument("--prds")
+    # Deliberately no --hold and no --include-parked: hold/ is unreachable
+    # from selection.select() by construction, and a flag would make the
+    # parked/deferred exclusion optional.
+
+
+def _run_select(args: argparse.Namespace) -> int:
+    if args.prds is not None:
+        prds_dir = Path(args.prds)
+    else:
+        prds_dir = _walk_up_or_exit("--prds").parent / "prds"
+    prd, source = selection.select(
+        _listdir(prds_dir / "wip"),
+        _listdir(prds_dir / "backlog"),
+    )
+    print(json.dumps({"prd": prd, "source": source}))
+    # Exit 0 even when drained: nothing failed, and the caller branches on
+    # "source", which cannot be confused with an error the way an exit code
+    # shared with real failures could.
+    return 0
+
+
+def _add_frontmatter(subparsers) -> None:
+    p = subparsers.add_parser("frontmatter")
+    p.add_argument("--state")
+    p.add_argument("--prd", required=True)
+
+
+def _run_frontmatter(args: argparse.Namespace) -> int:
+    prd_path = Path(args.prd)
+    try:
+        text = prd_path.read_text(encoding="utf-8")
+    except OSError as err:
+        print(f"autopilot: cannot read PRD {prd_path}: {err}", file=sys.stderr)
+        return 1
+    fields, warnings = frontmatter.parse(text)
+    for line in warnings:
+        print(line, file=sys.stderr)
+
+    state_path = _resolve_state_path(args.state)
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
+    try:
+        state.transaction(
+            state_path,
+            lambda current: {**current, **fields},
+            validator=lambda new_state: schema.validate(
+                {key: value for key, value in new_state.items() if key in fields}
+            ),
+        )
+    except (state.StateError, OSError) as err:
+        print(f"autopilot: frontmatter write failed: {err}", file=sys.stderr)
+        return 2
+    print(json.dumps(fields, sort_keys=True))
+    return 0
+
+
+def _add_phase_done(subparsers) -> None:
+    p = subparsers.add_parser("phase-done")
+    p.add_argument("--state")
+    p.add_argument("--outcome", required=True, choices=transitions.OUTCOMES)
+    # Deliberately no --phase and no per-effect flags: the current phase comes
+    # from the state, and every effect a transition mandates is the
+    # transition's own, never something a caller can forget to pass.
+
+
+def _run_phase_done(args: argparse.Namespace) -> int:
+    state_path = _resolve_state_path(args.state)
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
+
+    before: dict = {}
+
+    def advance(current: dict) -> dict:
+        before.update(current)
+        return transitions.apply(current, args.outcome)
+
+    try:
+        committed = state.transaction(
+            state_path,
+            advance,
+            validator=lambda new_state: schema.validate_changed(before, new_state),
+        )
+    except transitions.UnknownTransition as err:
+        print(f"autopilot: {err}", file=sys.stderr)
+        return 1
+    except schema.SchemaError as err:
+        print(f"autopilot: phase-done rejected: {err}", file=sys.stderr)
+        return 1
+    except (state.StateError, OSError) as err:
+        print(f"autopilot: phase-done failed: {err}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "phase": committed.get("phase"),
+                "next_phase": committed.get("next_phase"),
+            },
+        ),
+    )
+    return 0
+
+
+def _add_resume_target(subparsers) -> None:
+    p = subparsers.add_parser("resume-target")
+    p.add_argument("--state")
+
+
+def _run_resume_target(args: argparse.Namespace) -> int:
+    state_path = _resolve_state_path(args.state)
+    # The version signal comes BEFORE the target: an old or future state.json
+    # must be surfaced rather than resumed blindly.
+    refuse = _schema_version_preflight(state_path)
+    if refuse is not None:
+        return refuse
+    try:
+        loaded, _version = state.load(state_path)
+    except state.StateError as err:
+        print(f"autopilot: resume-target failed: {err}", file=sys.stderr)
+        return 2
+    print(resume.resume_target(loaded))
+    return 0
+
+
 def _add_restore(subparsers) -> None:
     p = subparsers.add_parser("restore")
     p.add_argument("--state")
@@ -314,8 +482,8 @@ def _run_restore(args: argparse.Namespace) -> int:
     return 0
 
 
-# Registry, not an if/elif chain over sys.argv: PRDs 00052/00053 add entries
-# here (an (add_parser_fn, run_fn) pair per subcommand name).
+# Registry, not an if/elif chain over sys.argv: PRD 00106 adds entries here
+# (an (add_parser_fn, run_fn) pair per subcommand name).
 _SUBCOMMANDS: dict[str, tuple] = {
     "init": (_add_init, _run_init),
     "stall": (_add_stall, _run_stall),
@@ -324,6 +492,10 @@ _SUBCOMMANDS: dict[str, tuple] = {
     "defer": (_add_defer, _run_defer),
     "restore": (_add_restore, _run_restore),
     "check-plan": (_add_check_plan, _run_check_plan),
+    "select": (_add_select, _run_select),
+    "frontmatter": (_add_frontmatter, _run_frontmatter),
+    "phase-done": (_add_phase_done, _run_phase_done),
+    "resume-target": (_add_resume_target, _run_resume_target),
 }
 
 

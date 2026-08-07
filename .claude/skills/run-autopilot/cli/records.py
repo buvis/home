@@ -48,32 +48,13 @@ import sys
 import uuid
 from pathlib import Path
 
+from . import resume
 from . import schema
 from . import state
 
-# scripts/ is a sibling of cli/ under the skill root; resume_target.py is
-# stdlib-pure (no circular import risk) and exposes park_decision.
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-
-_park_decision = None
-
-
-def _load_park_decision():
-    """Lazily import resume_target.park_decision, scoping the scripts/
-    sys.path insert to just the import itself (insert -> import -> remove)
-    so importing this module never leaves scripts/ on sys.path as a side
-    effect. Caches the imported function in a module global so the insert/
-    remove dance runs at most once."""
-    global _park_decision
-    if _park_decision is None:
-        scripts_dir = str(_SCRIPTS_DIR)
-        sys.path.insert(0, scripts_dir)
-        try:
-            from resume_target import park_decision
-        finally:
-            sys.path.remove(scripts_dir)
-        _park_decision = park_decision
-    return _park_decision
+# park_decision used to be imported from scripts/resume_target.py behind a
+# scoped sys.path insert. PRD 00089 absorbed it into cli/resume.py, so it is
+# now an ordinary package import and the dance is gone.
 
 # Fields removed by the per-PRD reset, grouped by why they're here:
 #
@@ -183,7 +164,7 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
         item["prd"] = prd
         content["items"].append(item)
 
-        state._atomic_write(file_path, content)
+        state.atomic_write(file_path, content)
 
 
 def _new_op_id() -> str:
@@ -502,7 +483,7 @@ def _finish_park(
         return 2
     parks_consecutive = (consult_state.get("batch") or {}).get("parks_consecutive", 0)
 
-    decision = _load_park_decision()(marker, wip_filenames, parks_consecutive)
+    decision = resume.park_decision(marker, wip_filenames, parks_consecutive)
     if decision.endswith("systemic halt"):
         pause_detail = f"{parks_consecutive + 1} consecutive PRDs parked via wrapper_died; batch halted"
         extra = _park_mutator(pause_detail=pause_detail)
