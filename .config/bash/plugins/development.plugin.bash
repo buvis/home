@@ -504,9 +504,16 @@ _autopilot_agoge() {
   # unattended, leaving store permissions, path handling and TLS posture
   # unprobed. The source names the act, so a report can never present this as a
   # human's per-repo profile edit.
+  #
+  # _AUTOPILOT_AGOGE_AUTHORIZED=0 is a brake on that default-on assertion, not
+  # an alternative way to make it (PRD 00117 R5): it only removes the flag, it
+  # never renames or resources the assertion. Unset or any value other than 0
+  # keeps today's behaviour.
   local _rc=0
+  local _auth_flag=" --authorized autoclaude-drain"
+  [ "${_AUTOPILOT_AGOGE_AUTHORIZED:-1}" = 0 ] && _auth_flag=""
   WARDEN_UNATTENDED=1 CLAUDE_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-    claude -p --permission-mode auto "/run-agoge $PWD --authorized autoclaude-drain" \
+    claude -p --permission-mode auto "/run-agoge $PWD$_auth_flag" \
     </dev/null >"$_log" 2>&1 || _rc=$?
 
   kill "$_cap_pid" 2>/dev/null
