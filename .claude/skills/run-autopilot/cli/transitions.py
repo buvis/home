@@ -105,7 +105,7 @@ def apply(state: dict, outcome: str) -> dict:
     effect = TRANSITIONS.get((phase, outcome))
     if effect is None:
         raise UnknownTransition(
-            f"no transition from phase {phase!r} on outcome {outcome!r}"
+            f"no transition from phase {phase!r} on outcome {outcome!r}",
         )
     return effect(state)
 

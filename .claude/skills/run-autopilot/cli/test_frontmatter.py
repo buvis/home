@@ -87,7 +87,7 @@ class RecognizedValueTests(unittest.TestCase):
         # default_model belongs to /plan-tasks and is re-read at Phase 6;
         # Phase 0 must not claim it.
         fields, warnings = frontmatter.parse(
-            _block("prd: 00118", "title: A: colonated title", "default_model: opus")
+            _block("prd: 00118", "title: A: colonated title", "default_model: opus"),
         )
         self.assertEqual(warnings, [])
         self.assertNotIn("default_model", fields)
@@ -124,7 +124,7 @@ class InvalidValueTests(unittest.TestCase):
                 "design: nope",
                 "doubt_reviewer: nope",
                 "consensus_engine: nope",
-            )
+            ),
         )
         self.assertEqual(fields, frontmatter.defaults())
         self.assertEqual(len(warnings), 5, "one warning per invalid field")
@@ -159,8 +159,13 @@ class MalformedBlockTests(unittest.TestCase):
         self.assertEqual(warnings, [frontmatter.MALFORMED_WARNING])
 
     def test_malformed_warning_names_every_default_it_applied(self) -> None:
-        for token in ("catchup_mode=run", "rework_cap=2", "design_mode=run",
-                      "doubt_reviewer=codex", "consensus_engine=legacy"):
+        for token in (
+            "catchup_mode=run",
+            "rework_cap=2",
+            "design_mode=run",
+            "doubt_reviewer=codex",
+            "consensus_engine=legacy",
+        ):
             self.assertIn(token, frontmatter.MALFORMED_WARNING)
 
 

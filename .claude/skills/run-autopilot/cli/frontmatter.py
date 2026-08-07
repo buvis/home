@@ -120,7 +120,7 @@ def parse(text: str) -> tuple[dict, list[str]]:
         else:
             warnings.append(
                 f"autopilot: PRD frontmatter {prd_key}={value!r} is not one of "
-                f"{'/'.join(allowed)}; defaulting to {default}"
+                f"{'/'.join(allowed)}; defaulting to {default}",
             )
 
     if "rework_cap" in declared:
@@ -128,7 +128,7 @@ def parse(text: str) -> tuple[dict, list[str]]:
         if capped is None:
             warnings.append(
                 f"autopilot: PRD frontmatter rework_cap={declared['rework_cap']!r} "
-                f"is not a positive integer; defaulting to {_REWORK_CAP_DEFAULT}"
+                f"is not a positive integer; defaulting to {_REWORK_CAP_DEFAULT}",
             )
         else:
             fields["rework_cap"] = capped

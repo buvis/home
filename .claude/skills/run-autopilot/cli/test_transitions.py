@@ -40,7 +40,8 @@ class BuildToReviewTests(unittest.TestCase):
     def test_leaves_no_membership_marker(self) -> None:
         # The build gate adds nothing to phases_completed; only convergence does.
         new = transitions.apply(
-            {"phase": "build", "phases_completed": []}, "tasks_done"
+            {"phase": "build", "phases_completed": []},
+            "tasks_done",
         )
         self.assertEqual(new["phases_completed"], [])
 
@@ -85,7 +86,8 @@ class ConvergedTests(unittest.TestCase):
 
     def test_marker_is_appended_not_replaced(self) -> None:
         new = transitions.apply(
-            _review_state(phases_completed=["something"]), "converged"
+            _review_state(phases_completed=["something"]),
+            "converged",
         )
         self.assertEqual(new["phases_completed"], ["something", "review"])
 
@@ -96,9 +98,11 @@ class ConvergedTests(unittest.TestCase):
 
     def test_needs_no_flag_to_produce_the_marker(self) -> None:
         self.assertEqual(
-            list(transitions.apply.__code__.co_varnames[
-                : transitions.apply.__code__.co_argcount
-            ]),
+            list(
+                transitions.apply.__code__.co_varnames[
+                    : transitions.apply.__code__.co_argcount
+                ]
+            ),
             ["state", "outcome"],
             "apply() takes an outcome only - a caller cannot pass, or forget, "
             "a flag for a mandatory effect",
@@ -126,7 +130,8 @@ class MorePrdsTests(unittest.TestCase):
     def test_delegates_to_the_one_authoritative_reset_list(self) -> None:
         state = _review_state(phase="done")
         self.assertEqual(
-            transitions.apply(state, "more_prds"), records.reset_prd_fields(state)
+            transitions.apply(state, "more_prds"),
+            records.reset_prd_fields(state),
         )
 
 
@@ -157,7 +162,7 @@ class TableTests(unittest.TestCase):
             transitions.apply({}, "rework")
 
     def test_next_phase_agrees_with_what_apply_writes(self) -> None:
-        for (phase, outcome) in transitions.TRANSITIONS:
+        for phase, outcome in transitions.TRANSITIONS:
             with self.subTest(phase=phase, outcome=outcome):
                 self.assertEqual(
                     transitions.next_phase(phase, outcome),
@@ -177,7 +182,7 @@ class TableTests(unittest.TestCase):
         )
 
     def test_every_transition_is_pure(self) -> None:
-        for (phase, outcome) in transitions.TRANSITIONS:
+        for phase, outcome in transitions.TRANSITIONS:
             with self.subTest(phase=phase, outcome=outcome):
                 state = _review_state(phase=phase)
                 before = json.dumps(state, sort_keys=True)

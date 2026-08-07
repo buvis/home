@@ -71,7 +71,9 @@ def resume_target(state: dict) -> str:
     if stalled == "escalation_exhausted":
         return "crash-recovery at selection"
     if stalled == "subagent_prompt_overrun":
-        return "replan: clear tasks, re-enter build at planning, write replan-context.md"
+        return (
+            "replan: clear tasks, re-enter build at planning, write replan-context.md"
+        )
 
     phase = state.get("phase", "")
 
@@ -103,8 +105,9 @@ def resume_target(state: dict) -> str:
     return f"unknown phase: {phase}"
 
 
-def park_decision(marker: dict | None, wip_filenames: list[str],
-                  parks_consecutive: int) -> str:
+def park_decision(
+    marker: dict | None, wip_filenames: list[str], parks_consecutive: int
+) -> str:
     """Decide what Phase 0 does with a park-requested marker.
 
     Returns one of:
