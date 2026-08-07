@@ -610,5 +610,42 @@ class IdleBannerTests(unittest.TestCase):
         self.assertIn("GONE", banner)
 
 
+class ExitFourOwnershipTests(unittest.TestCase):
+    """Exit 4 and the codex-review-last.jsonl sidecar belong to THIS module,
+    never to use-codex/scripts/codex-run.sh.
+
+    The dispatch contract used to claim the opposite ("encoded here so every
+    codex caller inherits it"), which sent the codex IMPLEMENTOR rung looking
+    for a salvage path that does not exist on its helper. PRD 00105 corrected
+    the contract; this pins the fact the correction rests on, so adding exit 4
+    to codex-run.sh flips red instead of silently re-rotting the prose.
+    """
+
+    RUN_SH = (
+        Path.home() / ".claude/skills/use-codex/scripts/codex-run.sh"
+    )
+    CONTRACT = (
+        Path.home() / ".claude/skills/use-codex/references/dispatch-contract.md"
+    )
+
+    def test_codex_run_sh_has_no_exit_4_and_no_sidecar(self) -> None:
+        body = self.RUN_SH.read_text()
+        # Non-vacuous: the helper does exit, just never 4.
+        self.assertIn("exit 1", body)
+        self.assertNotIn("exit 4", body)
+        self.assertNotIn("codex-review-last", body)
+
+    def test_this_module_owns_exit_4_and_the_sidecar(self) -> None:
+        body = Path(dr.__file__).read_text()
+        self.assertIn("return 4", body)
+        self.assertIn("codex-review-last.jsonl", body)
+
+    def test_contract_records_the_implementor_divergence(self) -> None:
+        body = self.CONTRACT.read_text()
+        self.assertIn("Implementor-mode divergence", body)
+        # The salvage row must not re-claim universal inheritance.
+        self.assertNotIn("every codex caller inherits it", body)
+
+
 if __name__ == "__main__":
     unittest.main()
