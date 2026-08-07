@@ -111,6 +111,36 @@ def validate(state: dict) -> None:
             require(batch["completed_prds"], list, "batch.completed_prds")
 
 
+_MISSING = object()
+
+
+def changed_fields(before: dict, after: dict) -> set[str]:
+    """Top-level field names whose value differs between `before` and `after`.
+
+    Covers additions, removals and edits alike, so a caller can ask "what did
+    this write actually touch?" without declaring it by hand and watching the
+    declaration drift away from the code.
+    """
+    return {
+        key
+        for key in set(before) | set(after)
+        if before.get(key, _MISSING) != after.get(key, _MISSING)
+    }
+
+
+def validate_changed(before: dict, after: dict) -> None:
+    """Validate ONLY the fields `after` changed relative to `before`.
+
+    Whole-state validate() is the wrong gate for a targeted mutation: a
+    pre-existing odd field, left there by a forensic hand-edit, would block
+    every unrelated write afterwards and wedge the loop. Scoping to the
+    changed set still rejects a mutation that writes a malformed value for
+    the field it targets, which is the failure worth catching.
+    """
+    fields = changed_fields(before, after)
+    validate({key: value for key, value in after.items() if key in fields})
+
+
 def version_status(state: dict) -> str:
     """Classify state["schema_version"]: unstamped/current/old/future/invalid."""
     if not isinstance(state, dict):
