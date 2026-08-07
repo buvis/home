@@ -514,5 +514,76 @@ class SchemaErrorReprBoundedTest(unittest.TestCase):
         self.assertIsNone(schema.validate({"prd": "x" * 100_000}))
 
 
+class ChangedFieldsTest(unittest.TestCase):
+    """The scoping primitive behind statectl's shim and `phase-done`: what did
+    this write actually touch?"""
+
+    def test_edited_field_is_changed(self) -> None:
+        self.assertEqual(
+            schema.changed_fields({"phase": "build"}, {"phase": "review"}),
+            {"phase"},
+        )
+
+    def test_added_field_is_changed(self) -> None:
+        self.assertEqual(schema.changed_fields({}, {"cycle": 1}), {"cycle"})
+
+    def test_removed_field_is_changed(self) -> None:
+        # `del` is a mutation like any other; a removal that leaves the state
+        # invalid must not slip past because the key is gone.
+        self.assertEqual(schema.changed_fields({"cycle": 1}, {}), {"cycle"})
+
+    def test_untouched_fields_are_not_changed(self) -> None:
+        before = {"phase": "build", "batch": {"id": "b1"}, "tasks": [{"id": "1"}]}
+        self.assertEqual(schema.changed_fields(before, dict(before)), set())
+
+    def test_nested_edit_reports_its_top_level_owner(self) -> None:
+        self.assertEqual(
+            schema.changed_fields({"batch": {"id": "b1"}}, {"batch": {"id": "b2"}}),
+            {"batch"},
+        )
+
+    def test_a_value_reassigned_to_an_equal_copy_is_not_a_change(self) -> None:
+        # Equality, not identity: statectl rebuilds nested containers, and a
+        # rebuilt-but-identical list is not a write worth validating.
+        self.assertEqual(
+            schema.changed_fields({"tasks": [{"id": "1"}]}, {"tasks": [{"id": "1"}]}),
+            set(),
+        )
+
+
+class ValidateChangedTest(unittest.TestCase):
+    def test_malformed_value_for_the_targeted_field_is_rejected(self) -> None:
+        with self.assertRaises(schema.SchemaError) as ctx:
+            schema.validate_changed({"phase": "build"}, {"phase": "nonsense"})
+        self.assertIn("phase", str(ctx.exception))
+
+    def test_untouched_pre_existing_odd_field_blocks_nothing(self) -> None:
+        # A forensic hand-edit left `cycle` malformed. Every later write to an
+        # unrelated field must still land, or one bad field wedges the loop.
+        before = {"cycle": "not-an-int", "phase": "build"}
+        after = {"cycle": "not-an-int", "phase": "review"}
+        self.assertIsNone(schema.validate_changed(before, after))
+
+    def test_valid_change_beside_an_odd_field_still_passes(self) -> None:
+        before = {"weird": object.__class__.__name__, "next_phase": "build"}
+        after = {**before, "next_phase": "review"}
+        self.assertIsNone(schema.validate_changed(before, after))
+
+    def test_touching_the_odd_field_itself_is_rejected(self) -> None:
+        with self.assertRaises(schema.SchemaError):
+            schema.validate_changed(
+                {"cycle": "not-an-int"}, {"cycle": "still-not-an-int-but-different"}
+            )
+
+    def test_removing_a_field_is_allowed(self) -> None:
+        # statectl's `del` verb removes fields outright and must keep working:
+        # every schema rule is "if present, must match", never "must exist".
+        self.assertIsNone(schema.validate_changed({"phase": "build"}, {}))
+
+    def test_no_change_validates_nothing(self) -> None:
+        state = {"cycle": "not-an-int"}
+        self.assertIsNone(schema.validate_changed(state, dict(state)))
+
+
 if __name__ == "__main__":
     unittest.main()
