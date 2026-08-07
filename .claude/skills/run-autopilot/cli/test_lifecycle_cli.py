@@ -186,6 +186,28 @@ class FrontmatterTests(_ProjectTestCase):
         self.assertEqual(len(proc.stderr.strip().splitlines()), 1)
         self.assertEqual(self.read_state()["catchup_mode"], "run")
 
+    def test_a_stale_state_prd_path_fails_loud_rather_than_writing_defaults(
+self,
+    ) -> None:
+        # The multi-PRD trap found in 00089's review pass: `more_prds`
+        # preserves `state.prd`, and Phase 9 already moved that PRD to done/.
+        # Running frontmatter against `wip/<state.prd>` before the selected
+        # basename is written therefore points at a file that is not there.
+        # It must exit 1, NOT quietly apply every default to the new PRD.
+        self.write_state(prd="00088-previous-v1.md")
+        self.put_prd("wip", "00089-example-v1.md", "---\ncatchup: skip\n---\n")
+        gone = self.prds_dir / "wip" / "00088-previous-v1.md"
+        proc = _run(
+            ["frontmatter", "--state", str(self.state_path), "--prd", str(gone)],
+            cwd=self.root,
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn(
+            "catchup_mode",
+            self.read_state(),
+            "a missing PRD must not write defaults for the one that was selected",
+        )
+
     def test_missing_prd_file_is_a_usage_error(self) -> None:
         self.write_state()
         proc = _run(
