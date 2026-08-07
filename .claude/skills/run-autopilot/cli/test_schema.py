@@ -330,7 +330,8 @@ class VersionStatusTest(unittest.TestCase):
 
     def test_current_when_equal_to_schema_version(self) -> None:
         self.assertEqual(
-            schema.version_status({"schema_version": schema.SCHEMA_VERSION}), "current"
+            schema.version_status({"schema_version": schema.SCHEMA_VERSION}),
+            "current",
         )
 
     def test_old_when_zero(self) -> None:
@@ -434,11 +435,23 @@ class GoldenFixturesTest(unittest.TestCase):
 
 WIDENED_SCALAR_REJECT_CASES = (
     ("prd", lambda s: s.__setitem__("prd", 123), "prd"),
-    ("work_start_sha", lambda s: s.__setitem__("work_start_sha", 123), "work_start_sha"),
+    (
+        "work_start_sha",
+        lambda s: s.__setitem__("work_start_sha", 123),
+        "work_start_sha",
+    ),
     ("repo_root", lambda s: s.__setitem__("repo_root", 123), "repo_root"),
     ("design_doc", lambda s: s.__setitem__("design_doc", 123), "design_doc"),
-    ("replan_count_non_int", lambda s: s.__setitem__("replan_count", "3"), "replan_count"),
-    ("replan_count_bool", lambda s: s.__setitem__("replan_count", True), "replan_count"),
+    (
+        "replan_count_non_int",
+        lambda s: s.__setitem__("replan_count", "3"),
+        "replan_count",
+    ),
+    (
+        "replan_count_bool",
+        lambda s: s.__setitem__("replan_count", True),
+        "replan_count",
+    ),
     (
         "batch_parks_consecutive_non_int",
         lambda s: s["batch"].__setitem__("parks_consecutive", "3"),
@@ -461,16 +474,22 @@ WIDENED_SCALAR_ACCEPT_CASES = (
     ("work_start_sha", lambda s: s.__setitem__("work_start_sha", "3f2c1a9")),
     (
         "repo_root",
-        lambda s: s.__setitem__("repo_root", "/Users/bob/git/src/github.com/buvis/run-autopilot"),
+        lambda s: s.__setitem__(
+            "repo_root", "/Users/bob/git/src/github.com/buvis/run-autopilot"
+        ),
     ),
     (
         "design_doc",
         lambda s: s.__setitem__(
-            "design_doc", "dev/local/prds/wip/00004-feature-x/design.md"
+            "design_doc",
+            "dev/local/prds/wip/00004-feature-x/design.md",
         ),
     ),
     ("replan_count", lambda s: s.__setitem__("replan_count", 0)),
-    ("batch_parks_consecutive", lambda s: s["batch"].__setitem__("parks_consecutive", 0)),
+    (
+        "batch_parks_consecutive",
+        lambda s: s["batch"].__setitem__("parks_consecutive", 0),
+    ),
     (
         "batch_completed_prds",
         lambda s: s["batch"].__setitem__("completed_prds", ["00001-x.md"]),
@@ -483,7 +502,9 @@ class ValidateWidenedScalarFieldsTest(unittest.TestCase):
     (str), replan_count and batch.parks_consecutive (int, bool rejected),
     batch.completed_prds (list). Each is optional -- only checked if present."""
 
-    def test_rejects_malformed_widened_scalar_fields_naming_the_offending_field(self) -> None:
+    def test_rejects_malformed_widened_scalar_fields_naming_the_offending_field(
+        self,
+    ) -> None:
         for label, mutate, expected_name in WIDENED_SCALAR_REJECT_CASES:
             with self.subTest(label=label):
                 state = valid_state()
@@ -572,7 +593,8 @@ class ValidateChangedTest(unittest.TestCase):
     def test_touching_the_odd_field_itself_is_rejected(self) -> None:
         with self.assertRaises(schema.SchemaError):
             schema.validate_changed(
-                {"cycle": "not-an-int"}, {"cycle": "still-not-an-int-but-different"}
+                {"cycle": "not-an-int"},
+                {"cycle": "still-not-an-int-but-different"},
             )
 
     def test_removing_a_field_is_allowed(self) -> None:

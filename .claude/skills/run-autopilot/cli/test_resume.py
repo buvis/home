@@ -21,8 +21,7 @@ GOLDEN = Path(__file__).resolve().parent.parent / "scripts" / "golden"
 
 # The three fixtures and the target each documents.
 GOLDEN_TARGETS = [
-    ("state-build-pending.json",
-     "/work continues at first non-completed task task-2"),
+    ("state-build-pending.json", "/work continues at first non-completed task task-2"),
     ("state-review-cycle2.json", "run review loop at cycle 2"),
     ("state-review-converged.json", "skip review -> done"),
 ]
@@ -41,18 +40,22 @@ class ResolutionOrderTests(unittest.TestCase):
     crash/replan stalls outrank phase routing."""
 
     def test_stall_op_wins_over_every_other_branch(self) -> None:
-        target = resume.resume_target({
-            "stall_op": {"op_id": "op-1", "prd": "00089-x.md"},
-            "stall_reason": {"stalled": "escalation_exhausted"},
-            "phase": "build",
-        })
+        target = resume.resume_target(
+            {
+                "stall_op": {"op_id": "op-1", "prd": "00089-x.md"},
+                "stall_reason": {"stalled": "escalation_exhausted"},
+                "phase": "build",
+            }
+        )
         self.assertEqual(target, "reconcile stall op-1 for 00089-x.md")
 
     def test_stall_reason_outranks_phase_routing(self) -> None:
-        target = resume.resume_target({
-            "stall_reason": {"stalled": "escalation_exhausted"},
-            "phase": "review",
-        })
+        target = resume.resume_target(
+            {
+                "stall_reason": {"stalled": "escalation_exhausted"},
+                "phase": "review",
+            }
+        )
         self.assertEqual(target, "crash-recovery at selection")
 
     def test_legacy_phases_run_a_full_review_cycle(self) -> None:
@@ -106,7 +109,7 @@ class ParkDecisionTests(unittest.TestCase):
 class PurityTests(unittest.TestCase):
     def test_resume_target_does_not_mutate_the_state_it_reads(self) -> None:
         state = json.loads(
-            (GOLDEN / "state-build-pending.json").read_text(encoding="utf-8")
+            (GOLDEN / "state-build-pending.json").read_text(encoding="utf-8"),
         )
         before = json.dumps(state, sort_keys=True)
         resume.resume_target(state)
