@@ -52,6 +52,8 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
 - `state.cap_rotations` has a new entry but none of the above holds — the previous session hit the Work-turn context cap and the cap hook rotated to a fresh session. The cap hook recorded the rotation (appended `cap_rotations`, reset the in-flight task to `pending`, set `next_phase: "build"`); that session then ended its turn and the loop wrapper relaunched on the non-empty `next_phase`. NOT a replan. A `cap_rotations` entry is **informational only** and needs no special handling here: fall through to Normal PRD selection, which resumes `build` by artifact (capsule fresh → skip catchup; tasks exist → skip planning; `/work` continues at the first non-completed task — the rotated task, now reset to `pending`).
 - None of the above (neither a recognised `stall_reason` value nor the cap-pause condition `phase == "paused"` + `cap_pause_reason`) — continue with Normal PRD selection below.
 
+Before acting on whichever branch matched, run `autopilot resume-target` (one Bash call) and compare its line to the handler you picked. It is the executable form of this same contract (`cli/resume.py`), so a disagreement means the prose and the encoding have drifted — follow the encoding and say so. It also runs the schema-version preflight, refusing with exit 6 on a future-schema `state.json` rather than resuming it blindly. Exit 2 means there is no state file yet, which is a normal fresh start, not an error.
+
 ### Normal PRD selection
 
 1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, move it to `wip/` under the **verified-move invariant** (core `SKILL.md` § "Phase 0 invariants"): confirm arrival, else pause with `site: "mv_verify"`; do not continue.
@@ -61,24 +63,29 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
    |---|---|
    | `wip` | announce the PRD and resume it in place — no move |
    | `backlog` | move it to `wip/` under the **verified-move invariant** above (confirm arrival, else PAUSE with `site: "mv_verify"`), then announce |
-   | `drained` | STOP: "No PRDs found. Create one with /create-prd." (Loop mode: first write the drained state per the Error Handling row "No PRDs anywhere".) |
+   | `drained` | STOP: "No PRDs found. Create one with /create-prd." (Loop mode: first write the drained state per the Error Handling row "No PRDs anywhere" — which also covers the case where `state.json` does not exist yet, since `phase-done` cannot advance a file that is not there.) |
 
    `select` decides only. The move stays here on purpose — it is the one step that must be verified, and `autopilot stall`/`park` own the other lifecycle moves.
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`, and **`plugin_versions`** — a pin of the enforcement plugins' resolved versions so the wrapper can refuse to run the batch on rotated enforcement code (PRD 00086 R3). Read `aegis` and `warden` versions from `~/.claude/plugins/installed_plugins.json` (`.plugins["aegis@buvis-plugins"][0].version`, `.plugins["warden@buvis-plugins"][0].version`) and write `plugin_versions: {"aegis@buvis-plugins": "<v>", "warden@buvis-plugins": "<v>"}` via statectl. (Extend the pinned set if other enforcement plugins are added.) The `autoclaude` wrapper's plugin-pin preflight compares these at each relaunch and halts loud on any drift. If `state.batch` IS already present, apply the **batch-identity rollover invariant** (core `SKILL.md` § "Phase 0 invariants") — mint a fresh `batch.id` only for a genuinely closed surviving batch; every normal in-progress resume preserves `batch.id` unchanged (and its `plugin_versions` pin); a fresh rollover re-pins from the current install.
-4. Apply the PRD frontmatter with one `autopilot frontmatter` call (below).
-5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
-6. Initialize/update state with selected PRD, preserve `batch` field
-7. Print progress:
+4. Write the selected PRD's basename to `state.prd` **before** the frontmatter call. On a multi-PRD batch `state.prd` still names the PREVIOUS PRD at this point — `more_prds` deliberately preserves it, and Phase 9 already moved that PRD to `done/` — so anything reading `state.prd` here reads a stale name pointing at a file no longer in `wip/`.
+5. Apply the PRD frontmatter with one `autopilot frontmatter` call (below).
+6. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
+7. Update the remaining state fields for the selected PRD, preserve `batch` field
+8. Print progress:
    ```
    ── AUTOPILOT ── PRD {n}: {prd-name} ─────────────────────────────
    ```
    Where `{n}` = `len(batch.completed_prds) + 1`
 
-### Frontmatter parse (step 4)
+### Frontmatter parse (step 5)
 
 ```bash
 autopilot frontmatter --prd dev/local/prds/wip/<state.prd>
 ```
+
+`<state.prd>` is correct here only because step 4 already wrote the selected
+basename. Run them in that order, or a multi-PRD batch reads the PREVIOUS
+PRD's path, finds nothing in `wip/`, and exits 1.
 
 One Bash call does all of it: parses the block, applies the Phase-0 defaults,
 writes every resulting field to `state.json` in ONE transaction, echoes the

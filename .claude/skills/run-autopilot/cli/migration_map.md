@@ -55,7 +55,7 @@ Disposition legend:
 | phase-transition-effects-one-commit | SKILL.md § Session handoff procedure | ported | test_transitions.py::ReworkTests, test_lifecycle_cli.py::PhaseDoneTests::test_rework_increments_cycle_and_clears_ids_in_one_commit |
 | phase-transition-convergence-marker | references/phase-review.md § Hand off to the finalize session | ported | test_transitions.py::ConvergedTests, test_lifecycle_cli.py::PhaseDoneTests::test_converged_lands_phase_and_marker_in_one_commit |
 | phase-transition-drained-empty-next-phase | references/phase-done.md § Continuation | ported | test_transitions.py::DrainedTests, test_lifecycle_cli.py::PhaseDoneTests::test_drained_writes_the_empty_next_phase |
-| resume-target-mapping | references/phase-build.md § Handle park request | ported | test_resume.py::GoldenFixtureTests, test_lifecycle_cli.py::ResumeTargetTests |
+| resume-target-mapping | SKILL.md § State Management | ported | test_resume.py::GoldenFixtureTests, test_lifecycle_cli.py::ResumeTargetTests |
 | statectl-absorbed-into-boundary | scripts/statectl.py | ported | test_shims.py::StatectlShimSymbolTests |
 | statectl-rejects-malformed-own-field | scripts/statectl.py | behavior_change | test_shims.py::ShimValidationTests::test_malformed_value_for_the_targeted_field_is_rejected_loudly |
 | statectl-tolerates-unrelated-odd-field | scripts/statectl.py | behavior_change | test_shims.py::ShimValidationTests::test_unrelated_pre_existing_odd_field_blocks_nothing |
@@ -99,3 +99,27 @@ Disposition legend:
 - The `statectl-*` rows sit beside `statectl-transaction-ordering`, which PRD
   00051 recorded as a `behavior_change` in advance. 00089 is what made it
   true: the `.bak` is now written after validation rather than before.
+- **`resume-target-mapping` is the weakest row here and the wording is
+  deliberate.** The pure function predates 00089 (PRD 00047 C11 extracted it
+  to `scripts/resume_target.py`); 00089 only moved it into the package and
+  gave it a subcommand. What the subcommand does NOT do is replace the resume
+  procedure: the abort handlers in `phase-build.md` and the phase→gate router
+  in `SKILL.md` still carry the operational steps, because `resume_target()`
+  returns a DESCRIPTION, not an action. It is wired in as a cross-check
+  against those handlers, not as their replacement, and it answers only for
+  the `build` and `review` gates (`phase: "done"` returns
+  `unknown phase: done`, unchanged since 00047).
+- **Two validation limits the boundary does NOT close, found in 00089's
+  review pass and left deliberately.** (1) Validation is only as deep as
+  `cli/schema.py`: `tasks` must be a list, but nothing checks the shape of its
+  ELEMENTS, so `task-done` can append a non-object to `tasks[].attempts` even
+  though `state-schema.md` documents it as `object[]`. Fields with no rule at
+  all (`pause_reason`, `stall_reason`, `contract_card`) are unvalidated by the
+  same design that tolerates unknown fields. Deepening the schema is its own
+  change; it is not what "one validated writer" claims. (2) `validate_changed`
+  keys on a CHANGED value, so re-writing a malformed field with the identical
+  malformed value passes and the transaction still stamps `schema_version`.
+  The write cannot make the field worse, and scoping to "fields the mutation
+  targeted" would mean threading the json-path through `mutate()` for a case
+  nobody has hit — so it stays as documented in `test_schema.py`'s
+  `test_no_change_validates_nothing`.
