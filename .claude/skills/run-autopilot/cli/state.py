@@ -18,6 +18,15 @@ Exposes:
     restore(path) -> None
         Roll `<path>.bak` back over the state file, only after the backup
         parses AND passes schema.validate.
+    read_and_parse(path) -> (raw_bytes, state)
+        Read + parse with no lock and no validation. Public because
+        cli/statectl.py's `get` verb and its shim re-export it; raises
+        StateError so the exit-2 contract holds.
+    atomic_write(path, data) -> None
+        Same-dir temp file + os.replace. Public for the same reason, and
+        because scripts/fablectl.py writes its own (non-state) ledger with
+        it - so this one takes NO schema stamp and runs NO validator. Every
+        state.json write goes through transaction(), never here directly.
 
 StateError, StateExistsError, BackupError are the three exception classes.
 """
@@ -46,7 +55,7 @@ class BackupError(Exception):
     """restore() found no usable `.bak`: missing, corrupt, or schema-invalid."""
 
 
-def _read_and_parse(path: Path) -> tuple[bytes, dict]:
+def read_and_parse(path: Path) -> tuple[bytes, dict]:
     try:
         raw = path.read_bytes()
     except FileNotFoundError as err:
@@ -62,7 +71,7 @@ def _read_and_parse(path: Path) -> tuple[bytes, dict]:
     return raw, parsed
 
 
-def _atomic_write(path: Path, data: dict) -> None:
+def atomic_write(path: Path, data: dict) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -93,7 +102,7 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
 
 def load(path: Path) -> tuple[dict, str]:
     """Read-only, lock-free load. Missing/corrupt file raises StateError."""
-    _raw, state = _read_and_parse(Path(path))
+    _raw, state = read_and_parse(Path(path))
     return state, schema.version_status(state)
 
 
@@ -117,7 +126,7 @@ def transaction(
         # lock followed by a write inside it would let a concurrent writer's
         # commit land in the gap and get silently overwritten.
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        raw, current = _read_and_parse(path)
+        raw, current = read_and_parse(path)
         new_state = fn(current)
         validator(new_state)
         new_state["schema_version"] = schema.SCHEMA_VERSION
@@ -128,7 +137,7 @@ def transaction(
         # Bytes read before fn ran can't be touched by fn, so this is
         # immune to that aliasing by construction.
         _atomic_write_bytes(Path(f"{path}.bak"), raw)
-        _atomic_write(path, new_state)
+        atomic_write(path, new_state)
     return new_state
 
 
@@ -177,7 +186,7 @@ def restore(path: Path) -> None:
         if not bak_path.exists():
             raise BackupError(f"no backup to restore: {bak_path}")
         try:
-            _raw, parsed = _read_and_parse(bak_path)
+            _raw, parsed = read_and_parse(bak_path)
         except StateError as err:
             raise BackupError(str(err)) from err
         try:
@@ -187,9 +196,9 @@ def restore(path: Path) -> None:
                 f"backup fails schema validation ({bak_path}): {err}"
             ) from err
         try:
-            _current_raw, current = _read_and_parse(path)
+            _current_raw, current = read_and_parse(path)
         except StateError:
             current = {}
         if schema.version_status(current) != "unstamped":
             parsed["schema_version"] = schema.SCHEMA_VERSION
-        _atomic_write(path, parsed)
+        atomic_write(path, parsed)
