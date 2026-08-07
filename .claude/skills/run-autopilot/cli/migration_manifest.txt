@@ -50,3 +50,21 @@ lifecycle-mkdir-p-block
 backlog-to-wip-verified-move
 wip-to-done-verified-move
 work-start-sha-recapture-guard
+
+# --- PRD 00089: the four lifecycle decisions leave prose for cli/ ----------
+# Selection, frontmatter parse, phase transitions and resume mapping were
+# English executed by a model every session. Each is now a pure function with
+# a subcommand; the prose calls it instead of deriving the answer.
+prd-selection-lowest-sequence
+prd-selection-never-scans-hold
+frontmatter-parse-defaults
+frontmatter-malformed-single-warning
+phase-transition-effects-one-commit
+phase-transition-convergence-marker
+phase-transition-drained-empty-next-phase
+resume-target-mapping
+
+# --- PRD 00089: statectl stops being a second, unvalidated state writer ----
+statectl-absorbed-into-boundary
+statectl-rejects-malformed-own-field
+statectl-tolerates-unrelated-odd-field

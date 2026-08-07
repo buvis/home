@@ -90,6 +90,10 @@ TRANSITIONS = {
     ("review", "converged"): _converged,
     ("done", "more_prds"): _more_prds,
     ("done", "drained"): _drained,
+    # A batch can also drain at Phase 0 selection rather than at Phase 9: the
+    # "No PRDs anywhere" row is reached with phase still "build", and it needs
+    # the same empty next_phase so the wrapper stops as drained, not died.
+    ("build", "drained"): _drained,
 }
 
 OUTCOMES = tuple(sorted({outcome for _phase, outcome in TRANSITIONS}))

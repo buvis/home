@@ -21,10 +21,11 @@ The wrapper parks a sick PRD by writing `dev/local/autopilot/park-requested` (a
 one-line JSON `{"prd": "<basename>", "reason": "<one-line cause>"}`) and
 relaunching — never by editing `state.json` (state surgery stays in-skill). This
 handler runs BEFORE the `stall_reason` checks below. The pure decision core
-`park_decision(marker, wip_filenames, parks_consecutive)` in
-`scripts/resume_target.py` encodes the classification (no marker / malformed /
-stale / park→continue / park→systemic-halt); `autopilot park` executes its
-verdict.
+`park_decision(marker, wip_filenames, parks_consecutive)` in `cli/resume.py`
+encodes the classification (no marker / malformed / stale / park→continue /
+park→systemic-halt); `autopilot park` executes its verdict.
+(`scripts/resume_target.py` still re-exports it for callers that name that
+path.)
 
 Run `autopilot park` (one Bash call). It consumes the marker, reconciles any
 pending `stall_op` first, performs the verified `wip/`→`hold/` move, the
@@ -54,14 +55,17 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
 ### Normal PRD selection
 
 1. If argument provided, find that PRD in `dev/local/prds/wip/` or `dev/local/prds/backlog/`. If found in backlog, move it to `wip/` under the **verified-move invariant** (core `SKILL.md` § "Phase 0 invariants"): confirm arrival, else pause with `site: "mv_verify"`; do not continue.
-2. Otherwise, auto-select (never ask the user):
-   a. Check `dev/local/prds/wip/`:
-      - 1+ found → auto-pick lowest sequence number (by `00XXX-` prefix), announce
-   b. If wip is empty, check `dev/local/prds/backlog/`:
-      - PRDs available → auto-pick lowest sequence number, move to `wip/` under the same verified-move invariant
-      - Empty → STOP: "No PRDs found. Create one with /create-prd." (Loop mode: first write the drained state per the Error Handling row "No PRDs anywhere".)
+2. Otherwise, auto-select (never ask the user). Run `autopilot select` (one Bash call). It reads `wip/` then `backlog/` and picks the lowest `00XXX-` sequence in the first that has one; it never scans `hold/` — `cli/selection.py`'s `select()` takes no hold argument at all, so the parked/deferred exclusion is structural rather than a rule to remember. It prints one JSON line, `{"prd": ..., "source": ...}`, and exits 0 in every case including drained. Do NOT list the lifecycle directories and re-derive the choice yourself.
+
+   | `source` | Action |
+   |---|---|
+   | `wip` | announce the PRD and resume it in place — no move |
+   | `backlog` | move it to `wip/` under the **verified-move invariant** above (confirm arrival, else PAUSE with `site: "mv_verify"`), then announce |
+   | `drained` | STOP: "No PRDs found. Create one with /create-prd." (Loop mode: first write the drained state per the Error Handling row "No PRDs anywhere".) |
+
+   `select` decides only. The move stays here on purpose — it is the one step that must be verified, and `autopilot stall`/`park` own the other lifecycle moves.
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`, and **`plugin_versions`** — a pin of the enforcement plugins' resolved versions so the wrapper can refuse to run the batch on rotated enforcement code (PRD 00086 R3). Read `aegis` and `warden` versions from `~/.claude/plugins/installed_plugins.json` (`.plugins["aegis@buvis-plugins"][0].version`, `.plugins["warden@buvis-plugins"][0].version`) and write `plugin_versions: {"aegis@buvis-plugins": "<v>", "warden@buvis-plugins": "<v>"}` via statectl. (Extend the pinned set if other enforcement plugins are added.) The `autoclaude` wrapper's plugin-pin preflight compares these at each relaunch and halts loud on any drift. If `state.batch` IS already present, apply the **batch-identity rollover invariant** (core `SKILL.md` § "Phase 0 invariants") — mint a fresh `batch.id` only for a genuinely closed surviving batch; every normal in-progress resume preserves `batch.id` unchanged (and its `plugin_versions` pin); a fresh rollover re-pins from the current install.
-4. Parse the PRD frontmatter per the table below and write the results to state.
+4. Apply the PRD frontmatter with one `autopilot frontmatter` call (below).
 5. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 6. Initialize/update state with selected PRD, preserve `batch` field
 7. Print progress:
@@ -70,29 +74,31 @@ Before anything else, read `dev/local/autopilot/state.json` and check `stall_rea
    ```
    Where `{n}` = `len(batch.completed_prds) + 1`
 
-### Frontmatter parse table (step 4)
+### Frontmatter parse (step 4)
 
-Read the first 20 lines of the selected PRD. If it begins with a `---` line,
-parse the YAML block between the opening `---` and the next `---`, then apply:
+```bash
+autopilot frontmatter --prd dev/local/prds/wip/<state.prd>
+```
 
-| field | accepted values | default | state target | on invalid / absent |
-|-------|-----------------|---------|--------------|---------------------|
-| `catchup` | `run`, `skip`, `force` | `run` | `state.catchup_mode` | default + warn |
-| `rework_cap` | positive integer (or string that parses cleanly as one) | `2` | `state.rework_cap` | default + warn |
-| `design` | `run`, `skip` | `run` | `state.design_mode` | default + warn |
-| `design_gate` | exact `user` | field left absent | `state.design_gate` | leave absent, no warn |
-| `doubt_reviewer` | `codex`, `fable` | `codex` | `state.doubt_reviewer` | default + warn |
-| `consensus_engine` | `legacy`, `shadow`, `workflow` | `legacy` | `state.consensus_engine` | default + warn |
-| `pause_on_ambiguity` | exact `true` (PRD 00017) | treat as `false`, field left absent | `state.pause_on_ambiguity` | treat as `false`, no warn |
+One Bash call does all of it: parses the block, applies the Phase-0 defaults,
+writes every resulting field to `state.json` in ONE transaction, echoes the
+applied fields as JSON on stdout, and prints any warning to stderr. Do NOT
+read the PRD and derive these fields yourself, and do NOT write them with
+`statectl` — `cli/frontmatter.py` is the single definition of which fields are
+recognized, what values they accept, and what each defaults to.
 
-Shared fallback: on malformed YAML or missing frontmatter, log ONE warning line
-("autopilot: PRD frontmatter malformed; defaulting catchup_mode=run,
-rework_cap=2, design_mode=run, doubt_reviewer=codex, consensus_engine=legacy"),
-take every default, and continue — never crash Phase 0 on a frontmatter
-problem. Frontmatter is the source of truth; once Phase 0 has parsed it, do
-not re-parse it after Phase 0.
-(Exception by design: `default_model` belongs to `/plan-tasks` and is re-read
-from the PRD at Phase 6 rework dispatch — Phase 0 never touches it.)
+Fields it recognizes and their state targets: `catchup`→`catchup_mode`,
+`rework_cap`, `design`→`design_mode`, `design_gate`, `doubt_reviewer`,
+`consensus_engine`, `pause_on_ambiguity`. Three dispositions, and the
+difference between them matters when reading the output: an **invalid** value
+takes the default and warns naming the field; an **absent** field takes the
+default silently; a **malformed or missing block** takes every default and
+warns exactly once. It never crashes Phase 0 on a frontmatter problem.
+
+Frontmatter is the source of truth; once Phase 0 has applied it, do not
+re-parse it after Phase 0. (Exception by design: `default_model` belongs to
+`/plan-tasks` and is re-read from the PRD at Phase 6 rework dispatch — Phase 0
+never touches it, and `frontmatter.py` deliberately does not recognize it.)
 
 Semantics the table cannot carry:
 
@@ -213,7 +219,7 @@ While `/work` runs (Phases 3 and 6), it uses these superpowers when available (a
 
 (Deliberately unused superpowers and the review-layering rationale: `references/design-rationale.md`.)
 
-After completion, query `TaskList` again and update state: set `phase: "review"` and `next_phase: "review"`, write the updated `tasks` snapshot (the sync hook maintains `tasks_total`/`tasks_completed`). Do NOT add anything to `phases_completed` here — the `build` gate leaves no membership marker; review-loop convergence is the only `phases_completed` entry.
+After completion, query `TaskList` again and write the updated `tasks` snapshot with `statectl` (the sync hook maintains `tasks_total`/`tasks_completed`) — the snapshot is data the transition cannot derive, so it stays a separate write. Then advance the gate with `autopilot phase-done --outcome tasks_done`, which sets `phase: "review"` and `next_phase: "review"` and adds nothing to `phases_completed` — the `build` gate leaves no membership marker; review-loop convergence is the only `phases_completed` entry.
 
 ### Hand off to a fresh session for reviews
 

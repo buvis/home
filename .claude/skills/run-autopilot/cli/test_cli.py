@@ -17,9 +17,10 @@ exits 5, 9, and 10 as real CLI process exits (fixture shapes mirrored from
 the library tests), not their full internal matrices. The CLI runs a
 schema-version preflight on stall/park/reset-prd/restore before dispatch;
 every fixture here leaves state.json's schema_version unstamped (or at 1) so
-the preflight stays silent. Exit 6 (future-schema preflight), the bash
-`autopilot` alias, and the select/frontmatter/phase-done/resume-target/
-check-plan subcommands (deferred to PRD 00089) are out of scope here.
+the preflight stays silent. Exit 6 (future-schema preflight) and the bash
+`autopilot` alias are out of scope here. So are the lifecycle subcommands
+select/frontmatter/phase-done/resume-target (PRD 00089, covered by
+test_lifecycle_cli.py) and check-plan (F5, covered by test_policy.py).
 """
 
 from __future__ import annotations

@@ -144,6 +144,13 @@ class DrainedTests(unittest.TestCase):
         self.assertEqual(new["phase"], "done")
         self.assertEqual(new["next_phase"], "")
 
+    def test_a_batch_can_also_drain_at_phase_0_selection(self) -> None:
+        # "No PRDs anywhere" is reached with phase still "build" and needs the
+        # same effect, or the wrapper reads the exit as died rather than drained.
+        new = transitions.apply({"phase": "build", "next_phase": "build"}, "drained")
+        self.assertEqual(new["phase"], "done")
+        self.assertEqual(new["next_phase"], "")
+
 
 class TableTests(unittest.TestCase):
     def test_unknown_pair_raises_naming_both_halves(self) -> None:
@@ -169,10 +176,11 @@ class TableTests(unittest.TestCase):
                     transitions.apply({"phase": phase}, outcome)["next_phase"],
                 )
 
-    def test_the_table_holds_exactly_the_five_documented_rows(self) -> None:
+    def test_the_table_holds_exactly_the_documented_rows(self) -> None:
         self.assertEqual(
             sorted(transitions.TRANSITIONS),
             [
+                ("build", "drained"),
                 ("build", "tasks_done"),
                 ("done", "drained"),
                 ("done", "more_prds"),
