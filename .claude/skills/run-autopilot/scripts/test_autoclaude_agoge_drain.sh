@@ -248,6 +248,68 @@ grep -qi "agoge: run failed" "$SBOX_D/stderr.log" \
 PASS "a failing agoge run is reported on stderr, is not retried, and leaves the drain exiting 0"
 
 # =============================================================================
+# Coverage 5 — kill switch OFF (_AUTOPILOT_AGOGE_AUTHORIZED=0). Requirement R5:
+# every neighbouring knob in the wrapper (_AUTOPILOT_AGOGE_CAP,
+# _AUTOPILOT_MODEL_BUILD, _AUTOPILOT_SESSION_MAX) is overridable without
+# editing the plugin; --authorized was not. The switch only removes the flag —
+# the agoge QA pass itself still runs. Asserting on the bare substring
+# '--authorized' (not just the sourced form) closes the gap a bug that swapped
+# in an unnamed or differently-sourced assertion would otherwise slip through.
+# =============================================================================
+
+SBOX_E=$(build_sandbox '["00001-x.md"]' 0)
+
+export _AUTOPILOT_AGOGE_AUTHORIZED=0
+run_with_timeout "$SBOX_E" 20
+unset _AUTOPILOT_AGOGE_AUTHORIZED
+
+[ -f "$SBOX_E/.timeout-fired" ] \
+  && FAIL "kill-switch-off batch converges" "loop did not converge within 20s"
+
+[ "$RUN_RC" -eq 0 ] || FAIL "kill-switch-off batch exits 0" "rc=$RUN_RC"
+
+calls_e=$(agoge_calls "$SBOX_E")
+[ "$calls_e" -eq 1 ] \
+  || FAIL "the kill switch does not disable the agoge run itself, only the flag" \
+          "expected 1 /run-agoge invocation, got $calls_e; argv log: $(cat "$SBOX_E/claude-argv.log" 2>/dev/null)"
+
+grep -q -- '--authorized' "$SBOX_E/claude-argv.log" \
+  && FAIL "_AUTOPILOT_AGOGE_AUTHORIZED=0 removes --authorized entirely, bare or sourced" \
+          "argv still carries --authorized: $(cat "$SBOX_E/claude-argv.log")"
+
+PASS "_AUTOPILOT_AGOGE_AUTHORIZED=0 still fires the agoge run once but strips --authorized from its argv completely"
+
+# =============================================================================
+# Coverage 6 — kill switch explicitly ON (_AUTOPILOT_AGOGE_AUTHORIZED=1): the
+# --authorized autoclaude-drain assertion still fires, named exactly as today.
+# Paired with Coverage 5, this makes the pair non-vacuous — the same grep on
+# the same argv shape must flip depending only on the variable, so a wrapper
+# that always/never emitted the flag could not pass both.
+# =============================================================================
+
+SBOX_F=$(build_sandbox '["00001-x.md"]' 0)
+
+export _AUTOPILOT_AGOGE_AUTHORIZED=1
+run_with_timeout "$SBOX_F" 20
+unset _AUTOPILOT_AGOGE_AUTHORIZED
+
+[ -f "$SBOX_F/.timeout-fired" ] \
+  && FAIL "kill-switch-on batch converges" "loop did not converge within 20s"
+
+[ "$RUN_RC" -eq 0 ] || FAIL "kill-switch-on batch exits 0" "rc=$RUN_RC"
+
+calls_f=$(agoge_calls "$SBOX_F")
+[ "$calls_f" -eq 1 ] \
+  || FAIL "the kill switch left ON still fires the agoge run once" \
+          "expected 1 /run-agoge invocation, got $calls_f; argv log: $(cat "$SBOX_F/claude-argv.log" 2>/dev/null)"
+
+grep -q -- '--authorized autoclaude-drain' "$SBOX_F/claude-argv.log" \
+  || FAIL "_AUTOPILOT_AGOGE_AUTHORIZED=1 keeps the named assertion unchanged" \
+          "argv: $(cat "$SBOX_F/claude-argv.log")"
+
+PASS "_AUTOPILOT_AGOGE_AUTHORIZED=1 leaves --authorized autoclaude-drain in the argv unchanged"
+
+# =============================================================================
 echo ""
 echo "All checks passed."
 exit 0
