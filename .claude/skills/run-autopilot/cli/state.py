@@ -23,7 +23,10 @@ Exposes:
         cli/statectl.py's `get` verb and its shim re-export it; raises
         StateError so the exit-2 contract holds.
     atomic_write(path, data) -> None
-        Same-dir temp file + os.replace. Public for the same reason, and
+        Same-dir temp file, fsynced, then os.replace. The fsync is what makes
+        the rename safe: without it the directory entry can reach disk before
+        the data, so a power loss leaves a renamed but empty state file.
+        Public for the same reason, and
         because scripts/fablectl.py writes its own (non-state) ledger with
         it - so this one takes NO schema stamp and runs NO validator. Every
         state.json write goes through transaction(), never here directly.
@@ -77,6 +80,8 @@ def atomic_write(path: Path, data: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
             fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except OSError:
         try:
@@ -91,6 +96,8 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except OSError:
         try:
@@ -154,6 +161,8 @@ def init(path: Path, initial: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(initial, fh, indent=2)
             fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
         try:
             # os.link, not os.replace: os.replace would silently clobber an
             # existing state file, destroying the exclusivity guarantee

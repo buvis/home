@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from cli import schema, state
@@ -571,6 +573,61 @@ class RestoreSchemaVersionStampTest(_TempDirTestCase):
         restored, _ = state.load(self.path)
         self.assertEqual(restored["schema_version"], schema.SCHEMA_VERSION)
         self.assertEqual(restored["cycle"], 1)
+
+
+class DurabilityBeforePublishTest(_TempDirTestCase):
+    """Every write path fsyncs its payload before the rename publishes it.
+
+    Regression for #111. os.replace makes the swap atomic against a *crash*,
+    but not against power loss: the directory entry can reach disk before the
+    file's data, leaving a renamed but empty state.json and a loop that
+    resumes from nothing. The fsync must land while the temp fd is still open,
+    so the assertion is on ordering, not merely on fsync being called.
+    """
+
+    def _publish_order(self, write, publisher: str) -> list[str]:
+        """Run `write` and return the fsync/publish call sequence it produced."""
+        calls: list[str] = []
+        real_fsync = os.fsync
+        real_publish = getattr(os, publisher)
+
+        def spy_fsync(fd: int) -> None:
+            calls.append("fsync")
+            real_fsync(fd)
+
+        def spy_publish(src, dst) -> None:
+            calls.append(publisher)
+            real_publish(src, dst)
+
+        with (
+            mock.patch.object(os, "fsync", spy_fsync),
+            mock.patch.object(os, publisher, spy_publish),
+        ):
+            write()
+        return calls
+
+    def test_atomic_write_fsyncs_payload_before_replacing_the_target(self) -> None:
+        calls = self._publish_order(
+            lambda: state.atomic_write(self.path, {"phase": "build"}), "replace"
+        )
+        self.assertEqual(calls, ["fsync", "replace"])
+
+    def test_transaction_fsyncs_both_the_backup_and_the_state_before_each_replace(
+        self,
+    ) -> None:
+        _write_json(self.path, {"phase": "build", "schema_version": schema.SCHEMA_VERSION})
+
+        calls = self._publish_order(
+            lambda: state.transaction(self.path, lambda current: {**current, "cycle": 2}),
+            "replace",
+        )
+
+        # .bak first, then the state file; neither may be published unsynced.
+        self.assertEqual(calls, ["fsync", "replace", "fsync", "replace"])
+
+    def test_init_fsyncs_payload_before_linking_the_new_state_file(self) -> None:
+        calls = self._publish_order(lambda: state.init(self.path, {"phase": "build"}), "link")
+        self.assertEqual(calls, ["fsync", "link"])
 
 
 if __name__ == "__main__":
