@@ -276,6 +276,8 @@ def _write_state_write_failed_marker(autopilot_dir: Path, detail: str) -> None:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(line)
+                fh.flush()
+                os.fsync(fh.fileno())
             os.replace(tmp_name, marker_path)
         except OSError:
             try:
@@ -520,7 +522,13 @@ def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
         data["fired"].append(session_id)
     try:
         tmp = counts_file.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data))
+        # Explicit handle rather than write_text: the counter must be on disk
+        # before the rename publishes it, or a power loss resurrects an old
+        # count and the tripwire re-fires (or never fires) for that session.
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(data))
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, counts_file)
     except OSError:
         # A counter we cannot persist must not fire (it would re-fire forever).
