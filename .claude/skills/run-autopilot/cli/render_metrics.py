@@ -15,6 +15,13 @@ Both render existing fields only; a row without `cost_usd` leaves the cell
 blank rather than faking zeros (the wrapper omits the key when the session
 carried no usage payload). `load_rows` skips malformed lines loud on
 stderr - a metrics render must never fail its report.
+
+`load_rows` returns SESSION rows only. Since PRD 00094 the review gate also
+appends event rows (`{"event": "review_converged", ...}`) to the same file:
+one per PRD, with no `wall_secs` and no `cost_usd`. Counting those as
+sessions would inflate every Sessions and Total cell and open a bogus `?`
+phase row, so any row carrying an `event` key is dropped here. Whatever
+wants those rows reads them itself.
 """
 
 from __future__ import annotations
@@ -27,7 +34,9 @@ NO_METRICS = "no loop metrics (manual run)"
 
 
 def load_rows(path: Path) -> list[dict]:
-    """Parse a jsonl metrics file; missing file is [], malformed lines skip."""
+    """Parse a jsonl metrics file into SESSION rows; missing file is [],
+    malformed lines skip, and event rows (any row with an `event` key) are
+    dropped - see the module docstring."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -44,7 +53,7 @@ def load_rows(path: Path) -> list[dict]:
                 file=sys.stderr,
             )
             continue
-        if isinstance(row, dict):
+        if isinstance(row, dict) and "event" not in row:
             rows.append(row)
     return rows
 

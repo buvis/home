@@ -79,6 +79,16 @@ class MetricsFilterTests(unittest.TestCase):
         self.assertTrue(all(r["prd"] == state["prd"] for r in rows))
         self.assertTrue(all(r["batch"] == state["batch"]["id"] for r in rows))
 
+    def test_event_rows_are_not_counted_as_sessions(self) -> None:
+        # PRD 00094: the review gate appends {"event": "review_converged", ...}
+        # rows to the same file, sharing the fixture's prd+batch. They are not
+        # sessions - counting one would inflate every Sessions and Total cell
+        # and open a bogus `?` phase row. The fixture carries exactly one.
+        raw = (GOLDEN / "metrics-render.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(raw.count('"event":"review_converged"'), 1)
+        self.assertTrue(all("event" not in row for row in _rows()))
+        self.assertEqual(len(_rows()), 6)
+
     def test_empty_rows_render_the_manual_run_line(self) -> None:
         self.assertEqual(render_metrics.phase_table([]), render_metrics.NO_METRICS)
 
