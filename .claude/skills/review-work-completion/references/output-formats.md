@@ -64,7 +64,7 @@ never a rule number. Reviewers MUST answer every rule. A rule the reviewer
 cannot evaluate (insufficient context, blocked by sandbox, etc.) counts as a
 `fail` — never omit the line.
 
-> **Note:** `consolidate-findings.sh` parses only lines matching the
+> **Note:** `consolidate_findings.py` parses only lines matching the
 > `[{AGENT}] {emoji} ... | File: ... | Task: ...` issue format and silently
 > drops everything else. So `R`/`B`/`D` verdict lines do NOT survive
 > consolidation into the findings table — they live only in the raw

@@ -269,16 +269,16 @@ Read these before proceeding:
 Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) or her Claude substitute (when it ran instead) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's and Carl's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` in step 5. Then run:
 
 ```bash
-~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
+python3 ~/.claude/skills/review-work-completion/scripts/consolidate_findings.py \
   ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
   BLAKE:$PWD/dev/local/tmp/blake-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
   CARL:$PWD/dev/local/tmp/carl-output-{id}.txt
 ```
 
-Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped; append an `EVE:` pair when Eve or her Claude substitute ran). The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped; append an `EVE:` pair when Eve or her Claude substitute ran). The script computes consensus dynamically from the number of agent pairs provided, and **merges paraphrases**: two reviewers describing one defect in different words land in one row with the higher consensus, provided they name the same file (PRD 00095; the bash predecessor matched on exact strings, so real 3/4 agreement always read [1/4]).
 
-**If `consolidate-findings.sh` exits nonzero, or warden denies it:** do not skip consolidation (that would silently drop every finding). Read the deny/error reason from the tool result; a fixable invocation problem (a passed path that does not exist for a reviewer that did run) → fix and retry ONCE. Otherwise **fall back to model-side consolidation**: read each reviewer's `*-output-{id}.txt`, group the findings that name the same issue at the same `File:` across reviewers, set each finding's consensus to the count of distinct reviewers that flagged it, and sort by consensus then severity — the same shape the script emits. **Note in the review file that consolidation was model-side** (fail loud — a hand-rolled consolidation must not read as the script's). The `Verdict:`/`Tests:` composition below applies unchanged to the model-side result.
+**If `consolidate_findings.py` exits nonzero, or warden denies it:** do not skip consolidation (that would silently drop every finding). Read the deny/error reason from the tool result; a fixable invocation problem (a passed path that does not exist for a reviewer that did run) → fix and retry ONCE. Otherwise **fall back to model-side consolidation**: read each reviewer's `*-output-{id}.txt`, group the findings that name the same issue at the same `File:` across reviewers, set each finding's consensus to the count of distinct reviewers that flagged it, and sort by consensus then severity — the same shape the script emits. **Note in the review file that consolidation was model-side** (fail loud — a hand-rolled consolidation must not read as the script's). The `Verdict:`/`Tests:` composition below applies unchanged to the model-side result.
 
 **Compose the `Verdict:` line.** Zero consolidated findings → `Verdict: converged`; otherwise `Verdict: N findings` (the consolidated count). Step 8 writes it into the review file.
 

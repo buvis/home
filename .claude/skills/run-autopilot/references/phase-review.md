@@ -126,6 +126,18 @@ Execute the research protocol. If verdict is "proceed", treat as auto-fix. If ve
 
 Log every decision in the state file (`autonomous_decisions` or `deferred_decisions`); note the review cycle (`state.cycle`) in the entry's Decision text. The Phase 9 audit render reads these arrays — do not write `audit.md` here.
 
+### Settled-decisions ledger (PRD 00095)
+
+**Every deferral and every discard also appends to `dev/local/reviews/{prd-stem}-ledger.json`**, a JSON array created on first write (`{prd-stem}` = `state.prd` minus `.md`). It lives beside the review files rather than in `state.json` so it survives batch end and parked-PRD resumes, and dies with the PRD like the other review satellites.
+
+```json
+{"cycle": <state.cycle>, "disposition": "settled-deferral"|"discarded", "severity": ..., "issue": "<the finding text, verbatim>", "file": ..., "reason": "<why it was settled>"}
+```
+
+`issue` is the finding's own words, not a summary — the matcher in `consolidate_findings.py` compares against it. Write it with the Write tool (read the existing array, append, write back); a ledger that fails to write is logged and does not block the cycle.
+
+The ledger is what stops a settled call from being re-argued every cycle. It is read in three places: `review-work-completion` step 4 appends it to the implementation-aware prompts, step 6 passes it as `--ledger` so Blake's re-raises are auto-dismissed, and the Cap check's settled-deferral exclusion above is decided from it.
+
 ### Outcomes:
 
 The first three rows describe a cycle that did NOT converge — the Cap check above already routed a converged cycle to the last row. A cycle whose only survivors are Medium/Low has converged; it does not "proceed to Phase 6" for another cycle.
@@ -163,7 +175,7 @@ Runs once, on the converged outcome above, after the metric is emitted and befor
 
 **1. Select.** Take the converging cycle's actionable Medium/Low findings. Exclude settled deferrals, findings this gate discarded, and anything already in `deferred_decisions` — a decision already taken is not swept again. **Zero actionable Medium/Low → skip the sweep entirely** and go straight to the finalize hand-off (today's clean path, unchanged).
 
-**2. Hydrate, then create.** Run the "Hydrate TaskList from state.tasks" sub-step (core `SKILL.md` § State Management) FIRST, for the same reason Phase 6 does: the review session inherits an empty TaskList from the post-Phase-3 handoff, and Phase 6's "Dispatch rework" mechanics below are written assuming hydration already ran. Then build ONE `[D{cycle}]` task through those mechanics for decision-gate follow-ups: tier from the `/plan-tasks` classifier when its inputs are available, otherwise `sonnet`, then the `default_model` floor exactly as that section computes it; `TaskCreate`, append the id to `state.rework_task_ids`, and insert the merge-preserving `state.tasks[]` snapshot. **The task description lists every swept finding verbatim** — severity, text, file — never a summary or a count.
+**2. Hydrate, then create.** Run the "Hydrate TaskList from state.tasks" sub-step (core `SKILL.md` § State Management) FIRST, for the same reason Phase 6 does: the review session inherits an empty TaskList from the post-Phase-3 handoff, and Phase 6's "Dispatch rework" mechanics below are written assuming hydration already ran. Then build ONE `[D{cycle}]` task through those mechanics for decision-gate follow-ups: tier from the `/plan-tasks` classifier when its inputs are available, otherwise `sonnet`, then the `default_model` floor exactly as that section computes it; `TaskCreate`, append the id to `state.rework_task_ids`, and insert the merge-preserving `state.tasks[]` snapshot. **The task description carries the same `### Findings (verbatim)` block** Phase 6 D-tasks use (PRD 00095) — one line per swept finding, severity, text, file, consensus — never a summary or a count.
 
 **Split rule:** more than 10 findings → split into 2-4 tasks grouped by file or theme per `work/references/task-splitting.md` (10 is the same constant the Phase 5 scope alarm uses). The existing max-2-parallel rework rule applies unchanged.
 
@@ -234,6 +246,7 @@ Build the rework batch from two sources:
 
 1. **Review-flagged `[C{cycle}]` tasks** — `state.rework_task_ids` already contains their IDs (appended in step 4 above), and their `metadata.model` + `state.tasks[i].model` already carry the escalated tier.
 2. **Decision gate `[D{cycle}]` follow-ups** — for each new task created from a decision gate resolution:
+   - **Transcribe the findings verbatim (PRD 00095).** The task description carries a `### Findings (verbatim)` block: one line per source finding, quoted exactly as consolidated — severity, text, file, consensus. N findings routed into a task produce N lines. **No paraphrase, no merging findings into a theme**, and the task's acceptance criterion is "every quoted finding no longer reproduces". This is the whole point: the measured failure was an orchestrator compressing five consensus themes into three tasks, after which the finding that survived was the one nobody had written down. It also costs nothing downstream — `/work` step 2.7 writes tests from the task description, so the tests bind to the finding's own words with no change to step 2.7, and step 5.7 checks closure against the same block.
    - Compute the tier: start with the `/plan-tasks` Tier classifier output if the inputs are available (PRD slice, files-touched estimate); otherwise default to `sonnet`. Then apply the `default_model` floor **exactly as `/plan-tasks` step 4.7 defines it** (the single source of truth): `final_tier = max(tier, default_model)`; re-parse the PRD frontmatter from `dev/local/prds/wip/<state.prd>` at Phase 6 runtime, tolerating the same flat `key: value` block Phase 0 reads; absent frontmatter or unset field → silent pass-through of the classifier tier; malformed YAML or invalid value → warn one line and pass through. Read `default_model` yourself here — `autopilot frontmatter` deliberately does NOT recognize it, because Phase 0 must never write it to state (the PRD frontmatter is the single source of truth for this field). `default_model` is intentionally NOT persisted to state — the PRD frontmatter is the single source of truth.
    - `TaskCreate(metadata={"model": final_tier, ...})`.
    - Append the new task's ID to `state.rework_task_ids` AND insert a merge-preserving snapshot into `state.tasks[]` carrying `{id, name, status, model}` plus any classifier-produced fields (`estimated_tokens`, `est_context_peak`) — same merge-preserving rule Phase 3 establishes for the original-plan snapshot. The dashboard sees the new task and `/work` rework mode iterates it.
