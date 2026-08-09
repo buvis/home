@@ -3,8 +3,9 @@
 
 Reads dev/local/autopilot/state.json, determines whether the current phase is a
 review handoff, locates the saved review file, and shells out to
-check_review_file.py (PRD 00016 — the minimal shape check: reviewer sections,
-verdict line, tests line). Returns 0 to allow the session to exit, 2 to block it
+cli/gate.py (PRD 00016's minimal shape check — reviewer sections, verdict
+line, tests line — absorbed into the CLI by PRD 00107). Returns 0 to allow the
+session to exit, 2 to block it
 so the model can finish the review before the turn ends (exit-2 Stop blocking
 works headless — 00014 spike (c)).
 """
@@ -56,22 +57,19 @@ def review_file_for(surface: str, prd_base: str, reviews_dir: Path) -> Path | No
 
 
 def run_gate(review_file: Path) -> tuple[int, str]:
-    """Delegate to check_review_file.py — the same shape check the review
-    skill runs. Reviewer names come from the file's own `reviewers:`
-    frontmatter (written by consolidation); no git, no PRD parsing.
+    """Delegate to cli/gate.py — the same shape check the review skill runs
+    (PRD 00107 moved it into this skill's CLI; the old
+    check_review_file.py path survives as a re-export shim). Reviewer names
+    come from the file's own `reviewers:` frontmatter (written by
+    consolidation); no git, no PRD parsing.
 
     Passes --require-codex-guard: this hook gates only the consolidated
     review file for a review-gated phase (see surface_for_phase/gate_blocks
     above), and that is the one file kind that carries the codex_rung_guard
-    line. Other callers of check_review_file.py (review-blindly, the
-    shadow-run gate) gate blind reviews and shadow renders, which legitimately
-    have no guard line, so they must stay unflagged."""
-    gate_path = (
-        Path(__file__).resolve().parents[2]
-        / "review-work-completion"
-        / "scripts"
-        / "check_review_file.py"
-    )
+    line. Other callers of the gate (review-blindly, the shadow-run gate)
+    gate blind reviews and shadow renders, which legitimately have no guard
+    line, so they must stay unflagged."""
+    gate_path = Path(__file__).resolve().parents[1] / "cli" / "gate.py"
     argv = [
         "python3",
         str(gate_path),
@@ -90,7 +88,7 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
     review surface just completed (the phase is review-gated) AND its saved
     review file is missing or fails the shape check. Returns ``(False, "")``
     when the phase is not review-gated or the gate passes. Infrastructure
-    failures fail open INSIDE check_review_file.py (unreadable file → exit 0
+    failures fail open INSIDE cli/gate.py (unreadable file → exit 0
     with a loud stderr note), so an infra error never blocks the hand-off.
 
     This is a PURE decision: no side effects, no exit codes. ``main()`` blocks

@@ -245,8 +245,8 @@ class RunGateTests(unittest.TestCase):
         self.assertIn("--review-file", argv)
         self.assertIn("/tmp/rev.md", argv)
         self.assertTrue(
-            any(elem.endswith("check_review_file.py") for elem in argv),
-            msg=f"No element ending with 'check_review_file.py' found in argv: {argv}",
+            any(elem.endswith("cli/gate.py") for elem in argv),
+            msg=f"No element ending with 'cli/gate.py' found in argv: {argv}",
         )
 
     def test_run_gate_passes_require_codex_guard_flag(self) -> None:

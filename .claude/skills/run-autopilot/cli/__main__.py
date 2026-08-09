@@ -38,6 +38,11 @@ Subcommands:
         state; there is no --phase flag and no per-effect flag.
     resume-target --state
         resume.resume_target(), after the schema-version preflight.
+    gate      --review-file [--reviewers] [--require-codex-guard]
+              [--assert-constraint-met]
+        gate.run_gate() — the review-file shape gate (PRD 00107). Takes no
+        --state and keeps the gate's own exit contract (0 pass / 1 shape gap
+        / 2 constraint UNMET, see cli/gate.py), NOT the state-CLI codes below.
 
 Further subcommands belong to PRD 00106 (the orchestrator cutover); the
 subcommand registry below is where they get added.
@@ -84,6 +89,7 @@ sys.path.insert(0, str(_SKILL_ROOT))
 
 from cli import (
     frontmatter,
+    gate,
     policy,
     records,
     resume,
@@ -462,6 +468,23 @@ def _run_resume_target(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_gate(subparsers) -> None:
+    p = subparsers.add_parser("gate")
+    p.add_argument("--review-file", type=Path, required=True)
+    p.add_argument("--reviewers", default=None)
+    p.add_argument("--require-codex-guard", action="store_true", default=False)
+    p.add_argument("--assert-constraint-met", action="store_true", default=False)
+
+
+def _run_gate(args: argparse.Namespace) -> int:
+    return gate.run_gate(
+        args.review_file,
+        args.reviewers,
+        args.require_codex_guard,
+        args.assert_constraint_met,
+    )
+
+
 def _add_restore(subparsers) -> None:
     p = subparsers.add_parser("restore")
     p.add_argument("--state")
@@ -496,6 +519,7 @@ _SUBCOMMANDS: dict[str, tuple] = {
     "frontmatter": (_add_frontmatter, _run_frontmatter),
     "phase-done": (_add_phase_done, _run_phase_done),
     "resume-target": (_add_resume_target, _run_resume_target),
+    "gate": (_add_gate, _run_gate),
 }
 
 
