@@ -43,6 +43,18 @@ Subcommands:
         gate.run_gate() — the review-file shape gate (PRD 00107). Takes no
         --state and keeps the gate's own exit contract (0 pass / 1 shape gap
         / 2 constraint UNMET, see cli/gate.py), NOT the state-CLI codes below.
+    render    {audit|report|metrics} --state [--stdout] [--now ISO]
+              [--summary] [--stalled --site --detail] [--metrics PATH]
+        The deterministic render surfaces (PRD 00107): `audit` writes
+        <repo>/dev/local/reviews/<prd-base>-audit.md from the state decision
+        arrays (preserving an existing file's Started: stamp); `report`
+        appends the per-PRD section to reports/{batch_id}-report.md
+        (creating it with the header), or the batch summary under --summary,
+        or the short STALLED form under --stalled; `metrics` prints a
+        per-PRD summary of loop-metrics.jsonl. --stdout prints instead of
+        writing; --now pins the timestamp (tests/goldens).
+    status    --state
+        status.render_status(): a plain-text one-screen state view.
 
 Further subcommands belong to PRD 00106 (the orchestrator cutover); the
 subcommand registry below is where they get added.
@@ -92,10 +104,14 @@ from cli import (
     gate,
     policy,
     records,
+    render_audit,
+    render_metrics,
+    render_report,
     resume,
     schema,
     selection,
     state,
+    status,
     transitions,
 )
 
@@ -485,6 +501,142 @@ def _run_gate(args: argparse.Namespace) -> int:
     )
 
 
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _add_render(subparsers) -> None:
+    p = subparsers.add_parser("render")
+    p.add_argument("surface", choices=["audit", "report", "metrics"])
+    p.add_argument("--state")
+    p.add_argument("--metrics")
+    p.add_argument("--now")
+    p.add_argument("--stdout", action="store_true", default=False)
+    p.add_argument("--summary", action="store_true", default=False)
+    p.add_argument("--stalled", action="store_true", default=False)
+    p.add_argument("--site")
+    p.add_argument("--detail")
+
+
+def _load_state_or_exit(state_path: Path) -> dict | int:
+    try:
+        loaded, _version = state.load(state_path)
+    except state.StateError as err:
+        print(f"autopilot: cannot load state: {err}", file=sys.stderr)
+        return 2
+    return loaded
+
+
+def _emit(text: str, out_path: Path, to_stdout: bool, append: bool) -> int:
+    """Write a rendered block: print under --stdout, else create/append the
+    target file with one blank line between blocks."""
+    if to_stdout:
+        print(text)
+        return 0
+    try:
+        if append and out_path.exists():
+            existing = out_path.read_text(encoding="utf-8")
+            merged = existing.rstrip("\n") + "\n\n" + text.rstrip("\n") + "\n"
+        else:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            merged = text.rstrip("\n") + "\n"
+        out_path.write_text(merged, encoding="utf-8")
+    except OSError as err:
+        print(f"autopilot: render write failed: {err}", file=sys.stderr)
+        return 2
+    print(str(out_path))
+    return 0
+
+
+def _run_render(args: argparse.Namespace) -> int:
+    now = args.now or _utc_now()
+
+    if args.surface == "metrics":
+        if args.metrics is not None:
+            metrics_path = Path(args.metrics)
+        else:
+            metrics_path = _resolve_state_path(args.state).parent / "loop-metrics.jsonl"
+        print(render_metrics.render_metrics(render_metrics.load_rows(metrics_path)))
+        return 0
+
+    state_path = _resolve_state_path(args.state)
+    loaded = _load_state_or_exit(state_path)
+    if isinstance(loaded, int):
+        return loaded
+    autopilot_dir = state_path.parent
+
+    if args.surface == "audit":
+        prd = str(loaded.get("prd", ""))
+        if not prd:
+            print("autopilot: render audit needs state.prd", file=sys.stderr)
+            return 2
+        prd_base = prd[:-3] if prd.endswith(".md") else prd
+        out_path = autopilot_dir.parents[2] / "dev" / "local" / "reviews" / f"{prd_base}-audit.md"
+        started = now
+        if out_path.exists():
+            try:
+                started = (
+                    render_audit.existing_started(out_path.read_text(encoding="utf-8"))
+                    or now
+                )
+            except OSError:
+                pass
+        text = render_audit.render_audit(loaded, started, now)
+        return _emit(text, out_path, args.stdout, append=False)
+
+    # report
+    batch_id = (loaded.get("batch") or {}).get("id")
+    if not batch_id:
+        print("autopilot: render report needs state.batch.id", file=sys.stderr)
+        return 2
+    metrics_path = (
+        Path(args.metrics) if args.metrics is not None
+        else autopilot_dir / "loop-metrics.jsonl"
+    )
+    rows = render_metrics.load_rows(metrics_path)
+    if args.stalled:
+        if not args.site or not args.detail:
+            print("autopilot: --stalled needs --site and --detail", file=sys.stderr)
+            return 1
+        block = render_report.stalled_section(
+            str(loaded.get("prd", "")), args.site, args.detail, now
+        )
+    elif args.summary:
+        deferred_count = None
+        deferred_path = autopilot_dir / "deferred" / f"{batch_id}-deferred.json"
+        if deferred_path.exists():
+            try:
+                deferred_count = len(
+                    json.loads(deferred_path.read_text(encoding="utf-8")).get("items", [])
+                )
+            except (OSError, json.JSONDecodeError, AttributeError):
+                deferred_count = None
+        block = render_report.batch_summary(loaded, rows, deferred_count)
+    else:
+        prd_rows = render_metrics.matching_rows(rows, str(loaded.get("prd", "")), batch_id)
+        block = render_report.prd_section(loaded, prd_rows, now)
+    out_path = autopilot_dir / "reports" / f"{batch_id}-report.md"
+    if not out_path.exists() and not args.stdout:
+        block = render_report.header(batch_id, now) + "\n" + block.rstrip("\n") + "\n"
+    return _emit(block, out_path, args.stdout, append=True)
+
+
+def _add_status(subparsers) -> None:
+    p = subparsers.add_parser("status")
+    p.add_argument("--state")
+
+
+def _run_status(args: argparse.Namespace) -> int:
+    state_path = _resolve_state_path(args.state)
+    loaded = _load_state_or_exit(state_path)
+    if isinstance(loaded, int):
+        return loaded
+    print(status.render_status(loaded))
+    return 0
+
+
 def _add_restore(subparsers) -> None:
     p = subparsers.add_parser("restore")
     p.add_argument("--state")
@@ -520,6 +672,8 @@ _SUBCOMMANDS: dict[str, tuple] = {
     "phase-done": (_add_phase_done, _run_phase_done),
     "resume-target": (_add_resume_target, _run_resume_target),
     "gate": (_add_gate, _run_gate),
+    "render": (_add_render, _run_render),
+    "status": (_add_status, _run_status),
 }
 
 
