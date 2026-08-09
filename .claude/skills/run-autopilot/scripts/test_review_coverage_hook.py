@@ -27,7 +27,8 @@ if _scripts_dir not in sys.path:
 
 def _load_module():
     spec = importlib.util.spec_from_file_location(
-        "review_coverage_hook_under_test", HOOK_PATH
+        "review_coverage_hook_under_test",
+        HOOK_PATH,
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -111,16 +112,26 @@ class MainTests(unittest.TestCase):
 
     def test_main_blocks_on_gate_failure(self) -> None:
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="done", prd="X.md", work_start_sha="abc"
+            self.repo,
+            phase="done",
+            prd="X.md",
+            work_start_sha="abc",
         )
         reviews_dir = self._make_reviews_dir()
         # Create the review file that main() will discover.
         (reviews_dir / "X-review-1.md").write_text("review content")
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(
-            hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(
+                hook,
+                "run_gate",
+                return_value=(2, "MISSING_FILES foo.py"),
+            ),
         ):
             result = hook.main()
 
@@ -133,15 +144,24 @@ class MainTests(unittest.TestCase):
         # a leftover review-phase state must not deadlock unrelated sessions
         # that merely share the cwd tree.
         _make_autopilot_dir(
-            self.repo, phase="blind", prd="X.md", work_start_sha="abc"
+            self.repo,
+            phase="blind",
+            prd="X.md",
+            work_start_sha="abc",
         )
 
         def _must_not_be_called(*args, **kwargs):
             raise AssertionError("hook must not act outside the autopilot loop")
 
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
-            hook, "find_autopilot_dir", side_effect=_must_not_be_called
-        ), mock.patch.object(hook, "run_gate", side_effect=_must_not_be_called):
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                side_effect=_must_not_be_called,
+            ),
+            mock.patch.object(hook, "run_gate", side_effect=_must_not_be_called),
+        ):
             result = hook.main()
 
         self.assertEqual(result, 0)
@@ -152,9 +172,14 @@ class MainTests(unittest.TestCase):
         def _fail_if_called(*args, **kwargs):
             raise AssertionError("run_gate must NOT be called for non-review phases")
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(hook, "run_gate", side_effect=_fail_if_called):
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(hook, "run_gate", side_effect=_fail_if_called),
+        ):
             result = hook.main()
 
         self.assertEqual(result, 0)
@@ -166,9 +191,14 @@ class MainTests(unittest.TestCase):
         reviews_dir = self._make_reviews_dir()
         (reviews_dir / "Y-review-1.md").write_text("review content")
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(hook, "run_gate", return_value=(0, "")):
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(hook, "run_gate", return_value=(0, "")),
+        ):
             result = hook.main()
 
         self.assertEqual(result, 0)
@@ -194,14 +224,24 @@ class BlockCapTests(unittest.TestCase):
 
     def test_main_stops_blocking_after_block_cap(self) -> None:
         autopilot_dir = _make_autopilot_dir(
-            self.repo, phase="done", prd="X.md", work_start_sha="abc"
+            self.repo,
+            phase="done",
+            prd="X.md",
+            work_start_sha="abc",
         )
         (self._reviews_dir() / "X-review-1.md").write_text("review content")
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(
-            hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(
+                hook,
+                "run_gate",
+                return_value=(2, "MISSING_FILES foo.py"),
+            ),
         ):
             for _ in range(hook.BLOCK_CAP):
                 self.assertEqual(hook.main(), 2)
@@ -216,9 +256,14 @@ class BlockCapTests(unittest.TestCase):
         (autopilot_dir / ".review-gate-blocks").write_text("2")
         (autopilot_dir / ".review-gate-failed").write_text("stale")
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(hook, "run_gate", return_value=(0, "")):
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(hook, "run_gate", return_value=(0, "")),
+        ):
             self.assertEqual(hook.main(), 0)
 
         self.assertFalse((autopilot_dir / ".review-gate-blocks").exists())
@@ -230,7 +275,9 @@ class RunGateTests(unittest.TestCase):
         import types
 
         fake_result = types.SimpleNamespace(returncode=1, stderr="no verdict line\n")
-        with mock.patch.object(hook.subprocess, "run", return_value=fake_result) as patched:
+        with mock.patch.object(
+            hook.subprocess, "run", return_value=fake_result
+        ) as patched:
             code, msg = hook.run_gate(Path("/tmp/rev.md"))
 
         self.assertEqual(code, 1)
@@ -256,7 +303,9 @@ class RunGateTests(unittest.TestCase):
         import types
 
         fake_result = types.SimpleNamespace(returncode=0, stderr="")
-        with mock.patch.object(hook.subprocess, "run", return_value=fake_result) as patched:
+        with mock.patch.object(
+            hook.subprocess, "run", return_value=fake_result
+        ) as patched:
             hook.run_gate(Path("/tmp/rev.md"))
 
         patched.assert_called_once()
@@ -271,7 +320,7 @@ class RunGateTests(unittest.TestCase):
             good.write_text(
                 "---\nreviewers: alice\n---\n\n## Alice\n\nall clear\n\n"
                 "Verdict: converged\nTests: 3 passed, 0 failed\n"
-                "codex_rung_guard: not fired\n"
+                "codex_rung_guard: not fired\n",
             )
             code, msg = hook.run_gate(good)
             self.assertEqual(code, 0, msg)
@@ -310,9 +359,14 @@ class MainPassesCorrectReviewFileTests(unittest.TestCase):
 
         gate_mock = mock.MagicMock(return_value=(0, ""))
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(hook, "run_gate", gate_mock):
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(hook, "run_gate", gate_mock),
+        ):
             hook.main()
 
         gate_mock.assert_called_once()
@@ -339,11 +393,18 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
         reviews_dir.mkdir(parents=True, exist_ok=True)
 
         def _gate_must_not_be_called(*args, **kwargs):
-            raise AssertionError("run_gate must NOT be called when review file is missing")
+            raise AssertionError(
+                "run_gate must NOT be called when review file is missing"
+            )
 
-        with mock.patch.object(
-            hook, "find_autopilot_dir", return_value=autopilot_dir
-        ), mock.patch.object(hook, "run_gate", side_effect=_gate_must_not_be_called):
+        with (
+            mock.patch.object(
+                hook,
+                "find_autopilot_dir",
+                return_value=autopilot_dir,
+            ),
+            mock.patch.object(hook, "run_gate", side_effect=_gate_must_not_be_called),
+        ):
             result = hook.main()
 
         self.assertEqual(result, 2)
@@ -372,7 +433,8 @@ class GateBlocksDecisionTests(unittest.TestCase):
 
         with mock.patch.object(hook, "run_gate", side_effect=_fail):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "build", "prd": "X.md"}
+                self.autopilot_dir,
+                {"phase": "build", "prd": "X.md"},
             )
         self.assertFalse(blocks)
         self.assertEqual(msg, "")
@@ -381,20 +443,26 @@ class GateBlocksDecisionTests(unittest.TestCase):
         self._reviews_dir()  # empty: no Z-review-*.md
 
         def _fail(*a, **k):
-            raise AssertionError("run_gate must not run when the review file is missing")
+            raise AssertionError(
+                "run_gate must not run when the review file is missing"
+            )
 
         with mock.patch.object(hook, "run_gate", side_effect=_fail):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "done", "prd": "Z.md"}
+                self.autopilot_dir,
+                {"phase": "done", "prd": "Z.md"},
             )
         self.assertTrue(blocks)
         self.assertIn("no work-completion review file", msg)
 
     def test_coverage_gap_blocks(self) -> None:
         (self._reviews_dir() / "X-review-1.md").write_text("r")
-        with mock.patch.object(hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")):
+        with mock.patch.object(
+            hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")
+        ):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "done", "prd": "X.md"}
+                self.autopilot_dir,
+                {"phase": "done", "prd": "X.md"},
             )
         self.assertTrue(blocks)
         self.assertIn("review coverage gap [work-completion]", msg)
@@ -403,7 +471,8 @@ class GateBlocksDecisionTests(unittest.TestCase):
         (self._reviews_dir() / "Y-review-1.md").write_text("r")
         with mock.patch.object(hook, "run_gate", return_value=(0, "")):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "done", "prd": "Y.md"}
+                self.autopilot_dir,
+                {"phase": "done", "prd": "Y.md"},
             )
         self.assertFalse(blocks)
         self.assertEqual(msg, "")
@@ -418,7 +487,8 @@ class GateBlocksDecisionTests(unittest.TestCase):
 
         with mock.patch.object(hook, "run_gate", side_effect=_fail):
             blocks, msg = hook.gate_blocks(
-                self.autopilot_dir, {"phase": "done", "prd": ""}
+                self.autopilot_dir,
+                {"phase": "done", "prd": ""},
             )
         self.assertFalse(blocks)
         self.assertEqual(msg, "")

@@ -70,7 +70,9 @@ def _assumptions(decisions: list[dict]) -> list[str]:
     ]
     if not rows:
         return []
-    return ["### Assumptions Made", ""] + _table(["Question", "Assumption"], rows) + [""]
+    return (
+        ["### Assumptions Made", ""] + _table(["Question", "Assumption"], rows) + [""]
+    )
 
 
 def _autonomous(decisions: list[dict]) -> list[str]:
@@ -135,9 +137,7 @@ def _deferred_to_batch_end(deferred: list[dict]) -> list[str]:
 
 
 def _doubt_findings(doubts: list[dict]) -> list[str]:
-    rows = [
-        [d.get("description"), d.get("severity"), d.get("status")] for d in doubts
-    ]
+    rows = [[d.get("description"), d.get("severity"), d.get("status")] for d in doubts]
     if not rows:
         return []
     return (
@@ -161,18 +161,15 @@ def _rubric_verdicts(verdicts: list[dict]) -> list[str]:
     for rule_id, entries in by_rule.items():
         if tagged:
             cell = " / ".join(
-                f"{e.get('verdict', '?')} ({e['source']})" if "source" in e
+                f"{e.get('verdict', '?')} ({e['source']})"
+                if "source" in e
                 else str(e.get("verdict", "?"))
                 for e in sorted(entries, key=lambda e: str(e.get("source", "")))
             )
         else:
             cell = str(entries[0].get("verdict", "?"))
         rows.append([rule_id, cell])
-    return (
-        ["### Doubt Rubric Verdicts", ""]
-        + _table(["Rule", "Verdict"], rows)
-        + [""]
-    )
+    return ["### Doubt Rubric Verdicts", ""] + _table(["Rule", "Verdict"], rows) + [""]
 
 
 def _implementor_mix(state: dict) -> list[str]:
@@ -203,7 +200,7 @@ def _implementor_mix(state: dict) -> list[str]:
         )
         lines.append(
             "Qwen preflight outcomes: "
-            + ", ".join(f"{o} {preflight[o]}" for o in ordered)
+            + ", ".join(f"{o} {preflight[o]}" for o in ordered),
         )
 
     # Exclusion line: two populations sharing one line (batch-report format
@@ -239,7 +236,7 @@ def _implementor_mix(state: dict) -> list[str]:
             ", ".join(f"{b} {n}" for b, n in dispatch.items()) if dispatch else "none"
         )
         lines.append(
-            f"Excluded from qwen: {plan_part}; dispatch-time reroutes: {dispatch_part}"
+            f"Excluded from qwen: {plan_part}; dispatch-time reroutes: {dispatch_part}",
         )
 
     probe = state.get("codex_probe") or {}
@@ -249,11 +246,11 @@ def _implementor_mix(state: dict) -> list[str]:
     elif probe.get("verdict") == "unhealthy":
         lines.append(
             f"codex probe: unhealthy (backend: {probe.get('backend')}; "
-            f"detail: {probe.get('detail')})"
+            f"detail: {probe.get('detail')})",
         )
     else:
         lines.append(
-            f"codex probe: {probe.get('verdict')} (backend: {probe.get('backend')})"
+            f"codex probe: {probe.get('verdict')} (backend: {probe.get('backend')})",
         )
 
     breaker = state.get("qwen_breaker") or {}
@@ -265,7 +262,7 @@ def _implementor_mix(state: dict) -> list[str]:
         lines.append(
             f"capability breaker: tripped after {breaker.get('after_task')} "
             f"(2 consecutive gate failures: {failed[0]}, {failed[1]}); "
-            f"{rerouted} tasks rerouted"
+            f"{rerouted} tasks rerouted",
         )
     lines.append("")
     return lines
@@ -274,7 +271,9 @@ def _implementor_mix(state: dict) -> list[str]:
 def prd_section(state: dict, metrics_rows: list[dict], completed: str) -> str:
     """The completed-PRD section appended at Phase 9 step 7."""
     prd = str(state.get("prd", ""))
-    autonomous = [d for d in state.get("autonomous_decisions") or [] if isinstance(d, dict)]
+    autonomous = [
+        d for d in state.get("autonomous_decisions") or [] if isinstance(d, dict)
+    ]
     deferred = [d for d in state.get("deferred_decisions") or [] if isinstance(d, dict)]
     doubts = [d for d in state.get("doubts") or [] if isinstance(d, dict)]
     lines = [
@@ -297,7 +296,9 @@ def prd_section(state: dict, metrics_rows: list[dict], completed: str) -> str:
 
 
 def batch_summary(
-    state: dict, metrics_rows: list[dict], deferred_count: int | None = None
+    state: dict,
+    metrics_rows: list[dict],
+    deferred_count: int | None = None,
 ) -> str:
     """The batch-completion block. Cycle/decision sums cover dict-shaped
     `completed_prds` entries; bare-string entries (live legacy state) count
@@ -321,7 +322,7 @@ def batch_summary(
 
         def _iso(epoch) -> str:
             return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
+                "%Y-%m-%dT%H:%M:%SZ",
             )
 
         first = min(int(r.get("ts_start", 0)) for r in batch_rows)

@@ -51,13 +51,15 @@ class GoldenRenderTests(unittest.TestCase):
         rows = render_metrics.matching_rows(_rows(), state["prd"], state["batch"]["id"])
         text = render_report.prd_section(state, rows, NOW)
         self.assertEqual(
-            text, (EXPECTED / "report-section.md").read_text(encoding="utf-8")
+            text,
+            (EXPECTED / "report-section.md").read_text(encoding="utf-8"),
         )
 
     def test_batch_summary_matches_golden(self) -> None:
         text = render_report.batch_summary(_state(), _rows(), 2)
         self.assertEqual(
-            text, (EXPECTED / "report-summary.md").read_text(encoding="utf-8")
+            text,
+            (EXPECTED / "report-summary.md").read_text(encoding="utf-8"),
         )
 
     def test_metrics_summary_matches_golden(self) -> None:
@@ -82,7 +84,7 @@ class MetricsFilterTests(unittest.TestCase):
 
     def test_missing_cost_renders_blank_not_zero(self) -> None:
         table = render_metrics.phase_table(
-            [{"phase_launched": "done", "wall_secs": 10}]
+            [{"phase_launched": "done", "wall_secs": 10}],
         )
         self.assertIn("| done | 1 | 10 |  |  |", table)
         self.assertNotIn("0.00", table)
@@ -144,12 +146,14 @@ class ReportEdgeTests(unittest.TestCase):
     def test_pipes_in_issue_text_stay_table_safe(self) -> None:
         state = _state()
         state["autonomous_decisions"] = [
-            {"cycle": 1, "issue": "a | b", "action": "auto-fix"}
+            {"cycle": 1, "issue": "a | b", "action": "auto-fix"},
         ]
         self.assertIn("a \\| b", render_report.prd_section(state, [], NOW))
 
     def test_stalled_section_shape(self) -> None:
-        text = render_report.stalled_section("00040-x.md", "oversized_plan", "34 tasks", NOW)
+        text = render_report.stalled_section(
+            "00040-x.md", "oversized_plan", "34 tasks", NOW
+        )
         self.assertIn("## 00040-x.md — STALLED (oversized_plan)", text)
         self.assertIn("- Detail: 34 tasks", text)
         self.assertIn("move back to dev/local/prds/wip/", text)
@@ -252,8 +256,17 @@ class CliWiringTests(unittest.TestCase):
 
     def test_render_report_stalled_appends_the_short_form(self) -> None:
         proc = self._run(
-            ["render", "report", "--stalled", "--site", "oversized_plan",
-             "--detail", "34 tasks", "--now", NOW]
+            [
+                "render",
+                "report",
+                "--stalled",
+                "--site",
+                "oversized_plan",
+                "--detail",
+                "34 tasks",
+                "--now",
+                NOW,
+            ],
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         report = self.ap_dir / "reports" / "202607202320-report.md"
@@ -280,6 +293,38 @@ class CliWiringTests(unittest.TestCase):
         self.state_path.unlink()
         proc = self._run(["status"])
         self.assertEqual(proc.returncode, 2)
+
+    def test_render_audit_outside_a_dev_local_autopilot_tree_refuses(self) -> None:
+        """A --state outside dev/local/autopilot must exit 2, never derive a
+        repo root from an arbitrary ancestor and plant dev/local/reviews
+        there (the committed first version did exactly that)."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stray = Path(tmp) / "state.json"
+            stray.write_text(
+                (GOLDEN / "state-render.json").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLI_MAIN),
+                    "render",
+                    "audit",
+                    "--now",
+                    NOW,
+                    "--state",
+                    str(stray),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            planted = list(Path(tmp).parents[2].glob("dev/local/reviews/*"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("not a dev/local/autopilot dir", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertEqual(planted, [])
 
 
 if __name__ == "__main__":

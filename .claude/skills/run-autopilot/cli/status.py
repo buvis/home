@@ -26,17 +26,21 @@ def render_status(state: dict) -> str:
     batch = state.get("batch") or {}
     if batch:
         completed = batch.get("completed_prds") or []
-        lines.append(f"Batch:  {batch.get('id', '?')} — {len(completed)} PRD(s) completed")
+        lines.append(
+            f"Batch:  {batch.get('id', '?')} — {len(completed)} PRD(s) completed"
+        )
 
     stall = state.get("stall_reason") or {}
     if stall:
-        lines.append(f"STALL:  {stall.get('stalled', '?')} (task: {stall.get('task', '-')})")
+        lines.append(
+            f"STALL:  {stall.get('stalled', '?')} (task: {stall.get('task', '-')})"
+        )
     cap_pause = state.get("cap_pause_reason") or {}
     if cap_pause:
         unresolved = len(cap_pause.get("unresolved_findings") or [])
         lines.append(
             f"CAP-PAUSE: cycle {cap_pause.get('cycle', '?')} at cap "
-            f"{cap_pause.get('cap', '?')}, {unresolved} unresolved finding(s)"
+            f"{cap_pause.get('cap', '?')}, {unresolved} unresolved finding(s)",
         )
     pause = state.get("pause_reason") or {}
     if pause:

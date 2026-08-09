@@ -72,7 +72,9 @@ Tests: 3 passed, 0 failed
 
 def _run(entry: list[str], args: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, *entry, *args], capture_output=True, text=True
+        [sys.executable, *entry, *args],
+        capture_output=True,
+        text=True,
     )
 
 
@@ -118,7 +120,8 @@ class GateSubcommandTests(unittest.TestCase):
 
     def test_missing_file_exits_1(self) -> None:
         proc = _run(
-            [str(CLI_MAIN)], ["gate", "--review-file", "/nonexistent/rev.md"]
+            [str(CLI_MAIN)],
+            ["gate", "--review-file", "/nonexistent/rev.md"],
         )
         self.assertEqual(proc.returncode, 1)
         self.assertIn("missing review file", proc.stderr)

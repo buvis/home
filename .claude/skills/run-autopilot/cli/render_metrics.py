@@ -39,7 +39,10 @@ def load_rows(path: Path) -> list[dict]:
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
-            print(f"render_metrics: skipping malformed line {i} of {path}", file=sys.stderr)
+            print(
+                f"render_metrics: skipping malformed line {i} of {path}",
+                file=sys.stderr,
+            )
             continue
         if isinstance(row, dict):
             rows.append(row)
@@ -74,12 +77,12 @@ def phase_table(rows: list[dict]) -> str:
         costs = [row["cost_usd"] for row in group if "cost_usd" in row]
         wall = sum(int(row.get("wall_secs", 0)) for row in group)
         lines.append(
-            f"| {phase} | {len(group)} | {wall} | {', '.join(models)} | {_cost_cell(costs)} |"
+            f"| {phase} | {len(group)} | {wall} | {', '.join(models)} | {_cost_cell(costs)} |",
         )
     total_wall = sum(int(row.get("wall_secs", 0)) for row in rows)
     total_costs = [row["cost_usd"] for row in rows if "cost_usd" in row]
     lines.append(
-        f"| **Total** | {len(rows)} | {total_wall} | | {_cost_cell(total_costs)} |"
+        f"| **Total** | {len(rows)} | {total_wall} | | {_cost_cell(total_costs)} |",
     )
     return "\n".join(lines)
 
@@ -102,6 +105,6 @@ def render_metrics(rows: list[dict]) -> str:
     total_wall = sum(int(row.get("wall_secs", 0)) for row in rows)
     total_costs = [row["cost_usd"] for row in rows if "cost_usd" in row]
     lines.append(
-        f"| **Total** | {len(rows)} | {total_wall} | {_cost_cell(total_costs)} |"
+        f"| **Total** | {len(rows)} | {total_wall} | {_cost_cell(total_costs)} |",
     )
     return "\n".join(lines)
