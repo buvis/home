@@ -1,5 +1,12 @@
 # Live Dashboard
 
+For a one-shot plain-text view (no tty, scripts, quick checks), run
+`autopilot status` (cli/status.py, PRD 00107) — it renders PRD, phase,
+cycle/cap, task counts, batch progress and any stall/pause flags straight
+from `state.json`. Everything below is the live watch surface; a watch mode
+for the CLI stays out of scope (the discovery's open question, resolved
+"plain status only").
+
 `tracon` (this skill's `scripts/tracon/`) is the autopilot dashboard. It
 replaces the retired `pidash` (PRD 00063). `autoclaude` launches tracon as
 its default front-end (PRD 00062): on a tty with `uv` available and
