@@ -1,0 +1,167 @@
+{
+  "prd": "00040-feature-x-v1.md",
+  "phase": "done",
+  "next_phase": "done",
+  "phases_completed": ["review"],
+  "cycle": 2,
+  "rework_cap": 3,
+  "tasks_total": 3,
+  "tasks_completed": 3,
+  "schema_version": 1,
+  "batch": {
+    "id": "202607202320",
+    "mode": "autopilot",
+    "parks_consecutive": 0,
+    "completed_prds": [
+      "00001-legacy-string-entry-v1.md",
+      {
+        "filename": "00002-object-entry-v1.md",
+        "cycles": 2,
+        "autonomous_decisions": 3,
+        "escalated_decisions": 1
+      }
+    ]
+  },
+  "codex_probe": {
+    "batch_id": "202607202320",
+    "verdict": "healthy",
+    "backend": "codex",
+    "detail": null,
+    "checked_at": "2026-07-22T15:10:44Z"
+  },
+  "qwen_breaker": {
+    "tripped": false,
+    "after_task": null,
+    "failed_tasks": [],
+    "batch_id": "202607202320"
+  },
+  "tasks": [
+    {
+      "id": "t1",
+      "name": "Add validation endpoint",
+      "status": "completed",
+      "model": "sonnet",
+      "qwen_eligible": false,
+      "qwen_excluded_reason": "contract",
+      "attempts": [
+        {
+          "attempt": 1,
+          "model": "sonnet",
+          "outcome": "escalated",
+          "implementor": "qwen",
+          "preflight_outcome": "healthy",
+          "pipeline": "lean",
+          "qwen_gate_failed": true
+        },
+        {
+          "attempt": 2,
+          "model": "sonnet",
+          "outcome": "completed",
+          "implementor": "claude",
+          "preflight_outcome": null,
+          "pipeline": "lean",
+          "escalation_reason": "gate_failure",
+          "escalated_from": "qwen"
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "name": "Update API types",
+      "status": "completed",
+      "model": "sonnet",
+      "qwen_eligible": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "model": "sonnet",
+          "outcome": "completed",
+          "implementor": "codex",
+          "preflight_outcome": null,
+          "pipeline": "lean"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "name": "Write integration tests",
+      "status": "completed",
+      "attempts": [
+        {
+          "attempt": 1,
+          "model": "sonnet",
+          "outcome": "completed",
+          "pipeline": "lean",
+          "qwen_excluded_reason": "memory_pressure"
+        }
+      ]
+    }
+  ],
+  "autonomous_decisions": [
+    {
+      "cycle": 1,
+      "issue": "Missing null check in parser",
+      "severity": "medium",
+      "consensus": "2/3",
+      "action": "auto-fix",
+      "reason": "mechanical fix, additive only"
+    },
+    {
+      "cycle": 2,
+      "issue": "New dependency needed: zod",
+      "severity": "high",
+      "action": "auto-fix",
+      "reason": "research-passed: MIT, active, no CVEs",
+      "research": {
+        "category": "new-dependency",
+        "verdict": "proceed",
+        "checks": [
+          {"check": "license", "result": "MIT", "pass": true}
+        ],
+        "evidence_summary": "zod: MIT license, active, no CVEs"
+      }
+    },
+    {
+      "type": "clarification",
+      "label": "autonomous",
+      "question": "Which tree gets the phases?",
+      "resolution": "Operator chose the plugin tree."
+    },
+    {
+      "type": "assumed-ambiguity",
+      "question": "Should the endpoint paginate?",
+      "assumption": "No pagination; the list is bounded at 50 rows."
+    }
+  ],
+  "deferred_decisions": [
+    {
+      "cycle": 1,
+      "issue": "API signature change needed",
+      "severity": "high",
+      "consensus": "3/3",
+      "reason": "touches public API",
+      "status": "pending"
+    },
+    {
+      "cycle": 2,
+      "issue": "Rename the config key",
+      "severity": "medium",
+      "reason": "user-visible rename",
+      "status": "approved",
+      "user_decision": "proceed with v2 naming"
+    }
+  ],
+  "doubts": [
+    {
+      "description": "Edge case in token refresh",
+      "category": "verify",
+      "status": "resolved"
+    }
+  ],
+  "doubts_rubric_verdicts": [
+    {"rule_id": "D1", "verdict": "pass"},
+    {"rule_id": "D2", "verdict": "pass"},
+    {"rule_id": "D3", "verdict": "fail"}
+  ],
+  "needs_attention": false
+}
