@@ -628,7 +628,8 @@ def _run_render(args: argparse.Namespace) -> int:
             try:
                 deferred_count = len(
                     json.loads(deferred_path.read_text(encoding="utf-8")).get(
-                        "items", []
+                        "items",
+                        [],
                     ),
                 )
             except (OSError, json.JSONDecodeError, AttributeError):
@@ -636,7 +637,9 @@ def _run_render(args: argparse.Namespace) -> int:
         block = render_report.batch_summary(loaded, rows, deferred_count)
     else:
         prd_rows = render_metrics.matching_rows(
-            rows, str(loaded.get("prd", "")), batch_id
+            rows,
+            str(loaded.get("prd", "")),
+            batch_id,
         )
         block = render_report.prd_section(loaded, prd_rows, now)
     out_path = autopilot_dir / "reports" / f"{batch_id}-report.md"

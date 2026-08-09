@@ -152,7 +152,10 @@ class ReportEdgeTests(unittest.TestCase):
 
     def test_stalled_section_shape(self) -> None:
         text = render_report.stalled_section(
-            "00040-x.md", "oversized_plan", "34 tasks", NOW
+            "00040-x.md",
+            "oversized_plan",
+            "34 tasks",
+            NOW,
         )
         self.assertIn("## 00040-x.md — STALLED (oversized_plan)", text)
         self.assertIn("- Detail: 34 tasks", text)

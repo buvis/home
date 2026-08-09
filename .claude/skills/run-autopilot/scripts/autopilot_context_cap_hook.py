@@ -55,8 +55,9 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from _walk_up import find_autopilot_dir
 
@@ -95,6 +96,7 @@ TURN_TRIPWIRE = 300
 TAIL_CHUNK_BYTES = 64 * 1024
 MAX_TAIL_BYTES = 4 * 1024 * 1024
 
+
 def _rotation_instructions(limit: int) -> str:
     """Build the rotation handoff instructions.
 
@@ -125,7 +127,7 @@ def _oversized_stall_instructions(task_id: str) -> str:
     return (
         f"Context cap reached again on the same task ({task_id}) after a prior "
         "rotation — the task is oversized for a single build session. The hook "
-        "has set state.stall_reason to {\"stalled\": \"oversized_task\"}. "
+        'has set state.stall_reason to {"stalled": "oversized_task"}. '
         "Perform the oversized-task stall recovery (references/recovery.md): "
         "move the PRD from dev/local/prds/wip/ to dev/local/prds/hold/, "
         "reset PRD-specific state fields, and advance to the next PRD. Then STOP. "
@@ -287,8 +289,7 @@ def _write_state_write_failed_marker(autopilot_dir: Path, detail: str) -> None:
             raise
     except OSError as exc:
         print(
-            f"autopilot_context_cap_hook: failed to write state-write-failed "
-            f"marker ({exc})",
+            f"autopilot_context_cap_hook: failed to write state-write-failed marker ({exc})",
             file=sys.stderr,
         )
 
@@ -353,9 +354,7 @@ def _write_via_transaction(
     return True
 
 
-def _append_rotation_to_state(
-    autopilot_dir: Path, task_id: str
-) -> bool:
+def _append_rotation_to_state(autopilot_dir: Path, task_id: str) -> bool:
     """Append one cap_rotations entry, reset the in-flight task to pending,
     write through cli.state.transaction (the advisory-locked read-modify-
     write boundary).
@@ -400,9 +399,7 @@ def _append_rotation_to_state(
         schema.require(new_state.get("cap_rotations"), list, "cap_rotations")
         schema.require(new_state.get("next_phase"), str, "next_phase")
 
-    return _write_via_transaction(
-        autopilot_dir, "rotation", _mutate, _validate, op_desc="rotation envelope"
-    )
+    return _write_via_transaction(autopilot_dir, "rotation", _mutate, _validate, op_desc="rotation envelope")
 
 
 def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
@@ -433,7 +430,10 @@ def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
         schema.require(stall_reason.get("stalled"), str, "stall_reason.stalled")
 
     return _write_via_transaction(
-        autopilot_dir, "oversized-task stall", _mutate, _validate,
+        autopilot_dir,
+        "oversized-task stall",
+        _mutate,
+        _validate,
     )
 
 
@@ -495,16 +495,14 @@ def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
             loaded = None
             reset_reason = "unreadable"
         if isinstance(loaded, dict) and isinstance(loaded.get("counts"), dict):
-            data = {"counts": dict(loaded["counts"]),
-                    "fired": list(loaded.get("fired", []))}
+            data = {"counts": dict(loaded["counts"]), "fired": list(loaded.get("fired", []))}
         elif loaded is not None:
             reset_reason = "wrong shape"
         # A present-but-broken file is corruption and logs; a missing file is
         # the normal first-call state and must stay silent (else every session
         # logs on its first tool call).
         if reset_reason:
-            print(f"autopilot_context_cap_hook: turn-counts reset ({reset_reason})",
-                  file=sys.stderr)
+            print(f"autopilot_context_cap_hook: turn-counts reset ({reset_reason})", file=sys.stderr)
     # Coerce this session's prior count defensively: a valid-JSON file with a
     # non-int value (null, "x") must reset that entry, never raise (the hook's
     # never-crash contract; PRD error case).
@@ -512,8 +510,7 @@ def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
         prior = int(data["counts"].get(session_id, 0))
     except (TypeError, ValueError):
         prior = 0
-        print("autopilot_context_cap_hook: turn-counts reset (bad count value)",
-              file=sys.stderr)
+        print("autopilot_context_cap_hook: turn-counts reset (bad count value)", file=sys.stderr)
     count = prior + 1
     data["counts"][session_id] = count
     already_fired = session_id in data["fired"]
@@ -537,8 +534,12 @@ def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
 
 
 def _fire_breach(
-    autopilot_dir: Path, marker_file: Path, task_id: str,
-    last_rotation_task: str | None, limit: int, total: int,
+    autopilot_dir: Path,
+    marker_file: Path,
+    task_id: str,
+    last_rotation_task: str | None,
+    limit: int,
+    total: int,
 ) -> None:
     """Shared hard-breach action for both the context cap and the turn
     tripwire: livelock-stall when this task already rotated once, else rotate.
@@ -549,9 +550,7 @@ def _fire_breach(
         _handle_rotation(autopilot_dir, marker_file, task_id, limit)
 
 
-def _marker_dedup_blocks(
-    marker_file: Path, task_id: str, last_rotation_task: str | None
-) -> bool:
+def _marker_dedup_blocks(marker_file: Path, task_id: str, last_rotation_task: str | None) -> bool:
     """Return True if a `.cap-fired` marker means main() should stop now.
 
     The marker carries the task id the cap fired for. If the in-progress
@@ -570,11 +569,7 @@ def _marker_dedup_blocks(
         marker_task = ""
     if marker_task and marker_task == task_id:
         return True
-    if (
-        marker_task
-        and task_id == "unknown"
-        and marker_task == last_rotation_task
-    ):
+    if marker_task and task_id == "unknown" and marker_task == last_rotation_task:
         # Post-reset wind-down re-fire: a rotation already reset the in-flight
         # task to pending, so there is no in-progress task to act on and the
         # model was already told to STOP. Keep the marker and block. Scoped to
@@ -598,8 +593,10 @@ def _handle_below_cap(autopilot_dir: Path, task_id: str, total: int) -> None:
 
 
 def _handle_livelock(
-    autopilot_dir: Path, marker_file: Path,
-    task_id: str, total: int,
+    autopilot_dir: Path,
+    marker_file: Path,
+    task_id: str,
+    total: int,
 ) -> None:
     # Marker first, gated (same invariant as _handle_rotation): the marker is
     # present iff the stall is recorded, so a marker-write failure cannot leave
@@ -620,7 +617,10 @@ def _handle_livelock(
 
 
 def _handle_rotation(
-    autopilot_dir: Path, marker_file: Path, task_id: str, limit: int,
+    autopilot_dir: Path,
+    marker_file: Path,
+    task_id: str,
+    limit: int,
 ) -> None:
     # Marker first, gated: if it can't be written, return and retry on the next
     # PostToolUse. The marker is present iff the rotation is recorded, so a
@@ -683,10 +683,10 @@ def main() -> None:
     # breach. Runs before the usage check so a low-context runaway is still
     # bounded (and so a missing usage line does not skip the count).
     session_id = stdin.get("session_id")
-    if isinstance(session_id, str) and session_id and \
-            _bump_and_check_tripwire(autopilot_dir, session_id):
-        _fire_breach(autopilot_dir, marker_file, task_id, last_rotation_task,
-                     limit, total if total is not None else limit)
+    if isinstance(session_id, str) and session_id and _bump_and_check_tripwire(autopilot_dir, session_id):
+        _fire_breach(
+            autopilot_dir, marker_file, task_id, last_rotation_task, limit, total if total is not None else limit
+        )
         return
 
     if total is None:
@@ -696,8 +696,7 @@ def main() -> None:
         return
 
     # Hard-cap breach: livelock-stall if this task already rotated, else rotate.
-    _fire_breach(autopilot_dir, marker_file, task_id, last_rotation_task,
-                 limit, total)
+    _fire_breach(autopilot_dir, marker_file, task_id, last_rotation_task, limit, total)
 
 
 def run(payload):

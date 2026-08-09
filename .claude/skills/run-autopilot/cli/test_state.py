@@ -294,9 +294,7 @@ class InitFailureTest(_TempDirTestCase):
             "would then block every retry and the loop could never bootstrap",
         )
         state.init(self.path, {"phase": "build"})
-        self.assertEqual(
-            json.loads(self.path.read_text(encoding="utf-8"))["phase"], "build"
-        )
+        self.assertEqual(json.loads(self.path.read_text(encoding="utf-8"))["phase"], "build")
 
 
 class TransactionBackupAliasingTest(_TempDirTestCase):
@@ -449,12 +447,8 @@ class TransactionConcurrencyTest(_TempDirTestCase):
         _write_json(self.path, {"items": []})
 
         barrier = multiprocessing.Barrier(2)
-        p1 = multiprocessing.Process(
-            target=_concurrent_append_worker, args=(str(self.path), barrier, "a")
-        )
-        p2 = multiprocessing.Process(
-            target=_concurrent_append_worker, args=(str(self.path), barrier, "b")
-        )
+        p1 = multiprocessing.Process(target=_concurrent_append_worker, args=(str(self.path), barrier, "a"))
+        p2 = multiprocessing.Process(target=_concurrent_append_worker, args=(str(self.path), barrier, "b"))
         p1.start()
         p2.start()
         p1.join(timeout=15)
@@ -503,9 +497,7 @@ class InitSchemaVersionStampTest(_TempDirTestCase):
         state.init(self.path, {"phase": "build"})
 
         on_disk, _ = state.load(self.path)
-        self.assertEqual(
-            on_disk, {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
-        )
+        self.assertEqual(on_disk, {"phase": "build", "schema_version": schema.SCHEMA_VERSION})
 
     def test_initial_already_at_current_version_is_unchanged(self) -> None:
         initial = {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
@@ -607,9 +599,7 @@ class DurabilityBeforePublishTest(_TempDirTestCase):
         return calls
 
     def test_atomic_write_fsyncs_payload_before_replacing_the_target(self) -> None:
-        calls = self._publish_order(
-            lambda: state.atomic_write(self.path, {"phase": "build"}), "replace"
-        )
+        calls = self._publish_order(lambda: state.atomic_write(self.path, {"phase": "build"}), "replace")
         self.assertEqual(calls, ["fsync", "replace"])
 
     def test_transaction_fsyncs_both_the_backup_and_the_state_before_each_replace(
