@@ -48,7 +48,7 @@ Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5
 
 When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND an unresolved CRITICAL/HIGH remains), branch on loop mode (PRD 00017). Under the severity bar these branches can only fire while a CRITICAL/HIGH persists; they are otherwise unchanged:
 
-- **Loop mode (`$_AUTOPILOT_LOOP` set) — cap-out defers, never pauses.** Any unresolved CRITICAL finding → stall the PRD (follow `references/recovery.md` → "Loop-mode stall procedure", `site: "cap_critical"`) and continue the batch. Otherwise (all unresolved findings ≤ high): append each to `deferred_decisions` as `{"type": "cap-overflow", "issue": ..., "severity": ..., "consensus": ...}`, proceed to the finalize hand-off as converged-with-deferrals, and make the banner name the deferral count (`── cap reached: {k} findings deferred to batch end ──`). Stop polishing, not the batch.
+- **Loop mode (`$_AUTOPILOT_LOOP` set) — cap-out defers, never pauses.** Any unresolved CRITICAL finding → stall the PRD (follow `references/recovery.md` → "Loop-mode stall procedure", `site: "cap_critical"`) and continue the batch. Otherwise (all unresolved findings ≤ high): append each to `deferred_decisions` as `{"type": "cap-overflow", "issue": ..., "severity": ..., "consensus": ...}`, append the `review_converged` line from **Convergence metric** below with `outcome: "cap_deferred"`, proceed to the finalize hand-off as converged-with-deferrals, and make the banner name the deferral count (`── cap reached: {k} findings deferred to batch end ──`). Stop polishing, not the batch.
 - **Interactive — perform the Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes).
 
 When the cap is NOT hit (or the review converged), continue with the normal Outcomes flow below.
@@ -133,7 +133,46 @@ The first four rows describe a cycle that did NOT converge — the Cap check abo
 - **Has blocking escalation** →
   - **Interactive:** PAUSE. Present only the blocking issue(s) to user via `AskUserQuestion`. Wait for decision. After user responds, proceed to Phase 6.
   - **Loop mode (`$_AUTOPILOT_LOOP` set):** there is no human to answer — do NOT pause the batch. Follow the **Loop-mode stall procedure** (`references/recovery.md`) with `site: "blocking_escalation"`, recording the blocking issue(s) in the deferred JSON `detail`, and continue the batch. The parked PRD, on un-park, re-enters the build gate and the decision resurfaces interactively.
-- **Converged (no unresolved CRITICAL/HIGH)** → before treating the cycle as converged, run `autopilot gate --review-file <this cycle's review file> --require-codex-guard --assert-constraint-met` (flag semantics: `cli/gate.py` module docstring; PRD 00107 absorbed the old `check_review_file.py` path, which survives as a shim). It checks the constraint line only, so a converging cycle may legitimately carry `Verdict: N findings`. Exit 0 → the doubt-roster constraint certified; the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Emit the convergence metric, run the **Tail sweep** below, then hand off to the finalize session (see below). Exit 2 → the constraint did NOT hold; do NOT converge this cycle. Do NOT re-run the Cap check above — its own convergence test already needs this same gate (see "Cap check" above), so re-entering it only recreates this same bullet. Instead, classify the unmet constraint as one unresolved CRITICAL finding and route forward directly on `state.cycle` vs `state.rework_cap`: below cap → continue to Phase 6 for another review cycle; at cap → the existing cap-out machinery applies with no new mechanism — **loop mode**: the "Any unresolved CRITICAL finding" branch above (stall via `references/recovery.md` → Loop-mode stall procedure, `site: "cap_critical"`; the batch continues); **interactive**: the Cap-pause behavior above (include the constraint among the collected `unresolved_findings`). The batch keeps draining either way; this does not create a new batch-halt class.
+- **Converged (no unresolved CRITICAL/HIGH)** → before treating the cycle as converged, run `autopilot gate --review-file <this cycle's review file> --require-codex-guard --assert-constraint-met` (flag semantics: `cli/gate.py` module docstring; PRD 00107 absorbed the old `check_review_file.py` path, which survives as a shim). It checks the constraint line only, so a converging cycle may legitimately carry `Verdict: N findings`. Exit 0 → the doubt-roster constraint certified; the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Append the `review_converged` line from **Convergence metric** below with `outcome: "converged"`, run the **Tail sweep** below, then hand off to the finalize session (see below). Exit 2 → the constraint did NOT hold; do NOT converge this cycle. Do NOT re-run the Cap check above — its own convergence test already needs this same gate (see "Cap check" above), so re-entering it only recreates this same bullet. Instead, classify the unmet constraint as one unresolved CRITICAL finding and route forward directly on `state.cycle` vs `state.rework_cap`: below cap → continue to Phase 6 for another review cycle; at cap → the existing cap-out machinery applies with no new mechanism — **loop mode**: the "Any unresolved CRITICAL finding" branch above (stall via `references/recovery.md` → Loop-mode stall procedure, `site: "cap_critical"`; the batch continues); **interactive**: the Cap-pause behavior above (include the constraint among the collected `unresolved_findings`). The batch keeps draining either way; this does not create a new batch-halt class.
+
+### Convergence metric
+
+Both finalize paths append ONE line to `dev/local/autopilot/loop-metrics.jsonl` — the converged path (below, before the tail sweep is dispatched) and the loop-mode cap-out path (Cap check above). Cap-outs are the baseline failures, so a median computed only from clean convergences would flatter the gate:
+
+```json
+{"event": "review_converged", "prd": <state.prd>, "batch": <state.batch.id>, "cycles_to_converge": <state.cycle>, "outcome": "converged"|"cap_deferred", "ts": <epoch seconds>}
+```
+
+`outcome` is `"converged"` on the converged path and `"cap_deferred"` on the cap-out path. Append it, then mirror it into the GC-exempt ledger the same way the wrapper mirrors its own rows (`loop-metrics.jsonl` is trashed at 14 days; `ledger/` is not):
+
+```bash
+printf '%s\n' '<the json line>' >>dev/local/autopilot/loop-metrics.jsonl
+printf '%s\n' '<the json line>' >>dev/local/autopilot/ledger/loop-metrics.jsonl
+```
+
+Existing wrapper rows carry no `event` key and are one-per-session; these rows are one-per-PRD and carry no `wall_secs`/`cost_usd`. Consumers filter on `event` — `cli/render_metrics.load_rows` already drops any row that has one, so these never inflate a session count. Read the metric back with `rg '"event":"review_converged"'` over either file; nothing renders it.
+
+### Tail sweep
+
+Runs once, on the converged outcome above, after the metric is emitted and before the finalize hand-off. The Medium/Low tail is **swept, not dropped**: one normal `/work` task fixes it, then the PRD finalizes. No new verification machinery.
+
+**1. Select.** Take the converging cycle's actionable Medium/Low findings. Exclude settled deferrals, findings this gate discarded, and anything already in `deferred_decisions` — the same exclusions the convergence test uses. **Zero actionable Medium/Low → skip the sweep entirely** and go straight to the finalize hand-off (today's clean path, unchanged).
+
+**2. Create.** Build ONE `[D{cycle}]` task through the existing Phase 6 "Dispatch rework" mechanics for decision-gate follow-ups: tier from the `/plan-tasks` classifier when its inputs are available, otherwise `sonnet`, then the `default_model` floor exactly as that section computes it; `TaskCreate`, append the id to `state.rework_task_ids`, and insert the merge-preserving `state.tasks[]` snapshot. **The task description lists every swept finding verbatim** — severity, text, file — never a summary or a count.
+
+**Split rule:** more than 10 findings → split into 2-4 tasks grouped by file or theme per `work/references/task-splitting.md` (10 is the same constant the Phase 5 scope alarm uses). The existing max-2-parallel rework rule applies unchanged.
+
+**3. Dispatch.** Invoke `/work` in rework mode exactly as Phase 6 does. The mandatory one-verification-pass constraint is satisfied by `/work`'s own pipeline — tests-first 2.7 for behavioral fixes, the 5.5 gate, 5.6 self-deslop, 5.7 per-task review. Nothing extra runs here.
+
+**4. Finalize.** When `/work` returns, go to the finalize hand-off below. **Do NOT increment `state.cycle`, do NOT hand off review → review, and do NOT run another review cycle.** Phase 5 never reopens after convergence — reopening rebuilds the polish loop this gate exists to remove. Print, before the hand-off banner:
+
+```
+── converged (cycle {n}): {k} medium/low findings swept ────────────
+```
+
+`{n}` is `state.cycle` (unchanged by the sweep) and `{k}` the number of findings swept, not the number of tasks.
+
+**Sweep escapes.** A CRITICAL/HIGH raised by the sweep's own step-5.7 review is handled inside step 5.7 as today (verify, fix inline, max 3 review cycles). One that survives that cap is appended to the batch deferred JSON as `{"type": "sweep-escape", "issue": ..., "severity": ...}` and **the PRD still finalizes**. The deferred record is what keeps the escape visible at batch end; the zero-escaped-C/H guard is measured net of these entries.
 
 ### Hand off to the finalize session
 
