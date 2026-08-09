@@ -29,13 +29,13 @@ the repo is not a reviewer (discovery 00092 must-have 5). Beyond that:
 | rita, cora, grace, toby, mallory, trent | `Read` | The diff arrives inline in the dispatch prompt; these lanes never hunt for code. `Read` covers the truncated-diff path. |
 | victor | `Read, Bash` | Explicitly told to check the surrounding code, not just the quoted finding. |
 | alice, blake, eve | `Read, Bash` | Each is instructed to find the code itself. |
-| bob, quinn, pat | `Read` | CLI-dispatched, and each is read-only on its own lane: Bob's prompt forbids running commands outright, Quinn runs `-R --approved-only`, Pat is dispatched with no `-a`/`-y`. |
+| bob, pat | `Read` | CLI-dispatched, and each is read-only on its own lane: Bob's prompt forbids running commands outright, Pat is dispatched with no `-a`/`-y`. |
 | carl | `Read, Bash` | CLI-dispatched; documented as able to execute tests, linters and build commands. |
 
-**The CLI four still declare tools.** Their runner owns the tool policy on the
+**The CLI three still declare tools.** Their runner owns the tool policy on the
 CLI path and never reads this frontmatter — the consuming skill strips it and
 passes only the body. But the same files are registered as native agent types,
-so leaving `tools` off would make `bob`, `carl`, `quinn` and `pat` dispatchable
+so leaving `tools` off would make `bob`, `carl` and `pat` dispatchable
 with Edit and Write. Bob in particular has a documented native fallback (when
 codex is unavailable the same prompt runs on a Claude subagent), so this is not
 hypothetical. Declaring a set costs nothing on the CLI path and closes the
@@ -73,7 +73,7 @@ skill owns path resolution, the persona does not. Placeholders in use:
 | `{TASK_SUBJECT}`, `{TASK_DESCRIPTION}`, `{TASK_ACCEPTANCE_CRITERIA}` | The task under per-task review. |
 | `{SIMPLIFICATION_MANDATE}` | `work/references/simplification-mandate.md`, verbatim. |
 
-A rubric is always inlined, never referenced by path: Bob, Carl and Quinn run
+A rubric is always inlined, never referenced by path: Bob and Carl run
 as external CLIs that cannot resolve a relative path, and native subagents get
 self-contained prompts too.
 
@@ -145,11 +145,12 @@ existing `decide_verdict` fail-closed path turns into CHANGES_REQUESTED.
 
 ## The roster
 
-14 personas, names fixed:
+13 personas, names fixed (PRD 00109 registered 14; PRD 00094 removed the
+advisory local-model consensus lane):
 
 | Lane | Personas |
 |------|----------|
-| Consensus | alice, bob, carl, quinn |
+| Consensus | alice, bob, carl |
 | Blind | blake |
 | Doubt | eve |
 | Fan-out dimensions | rita (requirements), cora (correctness), grace (quality), toby (tests), mallory (security) |

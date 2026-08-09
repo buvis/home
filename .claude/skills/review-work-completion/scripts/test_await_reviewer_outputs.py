@@ -57,7 +57,7 @@ def test_fresh_mtime_counts_as_pending(tmp_path: Path) -> None:
 
 
 def test_empty_file_counts_as_pending(tmp_path: Path) -> None:
-    f = tmp_path / "quinn-output.txt"
+    f = tmp_path / "carl-output.txt"
     f.touch()
     _backdate(f, 60)
     result = _run("--budget", "1", "--poll", "1", str(f))

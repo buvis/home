@@ -24,7 +24,7 @@ this build, and no Edit/Write ever.
 
 ## Bob (Codex)
 
-Run codex as a **direct background Bash command - do NOT wrap it in a Task subagent.** A subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "codex still running" and the reviewer never reports. That is the recurring Phase 4 review thrash-halt (playground 00007, 2026-06-30). Run codex directly and the harness tracks the background process. **In an interactive session** this re-invokes you when it finishes; **in headless/loop mode (`$_AUTOPILOT_LOOP` set) it does not** — headless `claude -p` kills background Bash ~5s after your turn ends, so ending the turn to "wait" for Bob kills him mid-review (2026-07-15 loop death, PRD 00062 cycle 3: Bob/Quinn killed with empty output). Dispatch the Watcher subagent from SKILL.md step 5 in the same message, or you will not be re-invoked.
+Run codex as a **direct background Bash command - do NOT wrap it in a Task subagent.** A subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "codex still running" and the reviewer never reports. That is the recurring Phase 4 review thrash-halt (playground 00007, 2026-06-30). Run codex directly and the harness tracks the background process. **In an interactive session** this re-invokes you when it finishes; **in headless/loop mode (`$_AUTOPILOT_LOOP` set) it does not** — headless `claude -p` kills background Bash ~5s after your turn ends, so ending the turn to "wait" for Bob kills him mid-review (2026-07-15 loop death, PRD 00062 cycle 3: the CLI reviewers killed with empty output). Dispatch the Watcher subagent from SKILL.md step 5 in the same message, or you will not be re-invoked.
 
 Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved).
 
@@ -57,24 +57,9 @@ Bash tool (run_in_background: true):
 
 `-o` writes Carl's output straight to the file step 6 consolidates. When the background command completes, read `carl-output-{id}.txt`. If `gemini-run.sh` exits non-zero (e.g. monthly quota exceeded), skip Carl and proceed with the other reviewers (graceful degradation).
 
-## Quinn (Qwen, local)
-
-Quinn runs local qwen as a **direct background Bash command - do NOT wrap it in a Task subagent.** Like Bob and Carl, a subagent that shells out to a CLI hangs: the CLI spawns its own child process the subagent wrapper never gets a completion signal from, so the subagent yields "still running" and the reviewer never reports. Run `qwen-run.sh` (the `pi` agent against a llama.cpp-served model) directly and the harness tracks the background process. **This only re-invokes you in an interactive session.** In headless/loop mode (`$_AUTOPILOT_LOOP` set), the Watcher subagent from SKILL.md step 5 is what keeps the session alive while Quinn runs — dispatch it in the same message, or ending your turn kills Quinn mid-review.
-
-Write the prompt to a temp file, then dispatch (**absolute paths** - relative `dev/local/` paths get misresolved). Pass `-R` (read-only tools — a reviewer must never edit the repo; pi's default mode auto-approves edit tools):
-
-```
-Bash tool (run_in_background: true):
-  ~/.claude/skills/use-qwen/scripts/qwen-run.sh -R --approved-only -f "{quinn_prompt_file_absolute_path}" -o "{abs_repo_path}/dev/local/tmp/quinn-output-{id}.txt"
-```
-
-`-o` writes Quinn's output straight to the file step 6 consolidates - no manual save, no Agent round-trip. The script re-runs its own 1-token completion preflight before dispatch, so a backend that died between step 1 and step 5 exits non-zero fast instead of hanging; local inference then takes minutes, and only the Watcher subagent (SKILL.md step 5, headless/loop mode) keeps the session alive to see it finish — background Bash alone does not re-invoke a headless session. When it completes, read `quinn-output-{id}.txt`. If `qwen-run.sh` exits non-zero, skip Quinn and proceed with the other reviewers (graceful degradation); a single failed reviewer does not block the cycle.
-
-Quinn's prompt is built from `agents/quinn.md` (`SKILL.md` step 4) - the same standard implementation-aware review body Alice carries, never the blind or doubt lens, and no sandbox-constraints appendix (that is Bob/codex only). The prompt uses absolute paths, so it resolves correctly for the local reviewer. Quinn's weight is ADVISORY (`SKILL.md` step 6): findings unique to him land under `advisory (local model, unconfirmed)` and create no tasks; his concurrence counts toward consensus normally.
-
 ## Eve (Fable 5)
 
-Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl/Quinn). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Bash access (`rg` for search; Grep/Glob absent in this build) - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
+Eve runs Claude Fable 5 as a **native Task subagent** (like Alice - NOT a background-Bash CLI like Bob/Carl). There is no `fable-run.sh` wrapper and none is needed: the Task/Agent tool's `model` parameter accepts `"fable"` directly (the same tier alias as `"sonnet"`/`"opus"`/`"haiku"`; Fable 5 is model id `claude-fable-5`), so Eve dispatches in-process with native Read/Bash access (`rg` for search; Grep/Glob absent in this build) - no CLI shell-out, no `-o` output file, no background-Bash hang risk. Eve is a skeptical, high-scrutiny reviewer suited to final doubt review.
 
 Eve's persona is `agents/eve.md`, which is also the base Bob's doubt appendix is cut from - one source, so a future edit to the doubt lens reaches every reviewer that carries it. She takes four appended inputs: the PRD content, the diff range (`<base>..HEAD`), the changed-file list, and the pack's Findings precedent section, which fills the `{PACK_FINDINGS}` placeholder in her persona body. When the cycle produced no pack, pass the sentinel `(no pack available this cycle)` for that fourth input instead, matching the fallback SKILL.md step 3 prescribes for `{PACK_FILE}`/`{PACK_FINDINGS}`.
 
