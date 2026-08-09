@@ -253,6 +253,28 @@ def test_read_metrics_survives_non_utf8_line(tmp_path: Path) -> None:
     assert isinstance(rows, list)
 
 
+def test_read_metrics_excludes_review_gate_event_rows(tmp_path: Path) -> None:
+    # PRD 00094: the review gate appends one event row per PRD to the same
+    # file. discovery reports len(rows) as the batch's session count, so an
+    # event row counted here overstates it.
+    event = json.dumps(
+        {
+            "event": "review_converged",
+            "prd": "00054-x.md",
+            "batch": "A",
+            "cycles_to_converge": 2,
+            "outcome": "converged",
+            "ts": 1784701300,
+        }
+    )
+    path = _write_lines(
+        tmp_path / "loop-metrics.jsonl",
+        [_metrics_line(batch="A", phase_end="build"), event],
+    )
+    rows = model.read_metrics(path, batch="A")
+    assert [r.phase_end for r in rows] == ["build"]
+
+
 def test_read_metrics_survives_missing_file(tmp_path: Path) -> None:
     assert model.read_metrics(tmp_path / "nope.jsonl") == []
 
