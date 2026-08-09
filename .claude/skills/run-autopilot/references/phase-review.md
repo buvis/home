@@ -15,7 +15,7 @@ separate phases. Core `SKILL.md` (always loaded) carries the shared mechanics.
 
 **Skip this cycle's review if:** A review file exists in `dev/local/reviews/` for the current cycle (filename pattern `{prd-name}-review-{cycle}.md`).
 
-Invoke `/review-work-completion` skill. Every cycle runs ALL lenses (its roster, PRD 00015): Alice (consensus), Blake (blind, PRD-only), Bob (doubt rubric D1-D5 + de-slop; Claude fallback when codex is down), Carl (UI, optional), Quinn (local qwen, advisory weight — unique findings create no tasks; optional, active only when the qwen preflight completion probe passes), plus Eve as a fifth lens when that skill's step 1 doubt-reviewer resolution rule activates her. That rule is the single home of the Codex doubt-roster guard; this phase only invokes it. The skill's consolidation records `state.doubts_rubric_verdicts` from Bob's rubric lines (replaced each cycle; the final cycle's verdicts are what Phase 9 renders).
+Invoke `/review-work-completion` skill. Every cycle runs ALL lenses (its roster, PRD 00015): Alice (consensus), Blake (blind, PRD-only), Bob (doubt rubric D1-D5 + de-slop; Claude fallback when codex is down), Carl (UI, optional), plus Eve as a fifth lens when that skill's step 1 doubt-reviewer resolution rule activates her. That rule is the single home of the Codex doubt-roster guard; this phase only invokes it. The skill's consolidation records `state.doubts_rubric_verdicts` from Bob's rubric lines (replaced each cycle; the final cycle's verdicts are what Phase 9 renders).
 
 After completion, stay on `phase: "review"` and `next_phase: "review"` (the decision gate is part of the review surface).
 
@@ -23,11 +23,15 @@ After completion, stay on `phase: "review"` and `next_phase: "review"` (the deci
 
 ### Cap check — evaluate after reading review, before rework dispatch
 
-The cap is a gate on REWORK, not on Phase 5 itself. **First, read the review output** (see "Read the review output" further below). Convergence requires BOTH conditions: no unresolved findings remain, AND the doubt-roster constraint gate certifies (the exact command lives in Outcomes "No issues found" below — run it now when traditional findings are already zero). If both hold, the cap is irrelevant — proceed directly to Outcomes "No issues found" → finalize hand-off. The PRD success metric "passes review within three cycles is completely unaffected" requires this: a clean cycle-3 convergence at cap=3 must reach the finalize session, not cap-pause.
+The cap is a gate on REWORK, not on Phase 5 itself. **First, read the review output** (see "Read the review output" further below). Convergence requires BOTH conditions: **no unresolved CRITICAL or HIGH finding remains**, AND the doubt-roster constraint gate certifies (the exact command lives in Outcomes "Converged (no unresolved CRITICAL/HIGH)" below — run it now when no CRITICAL/HIGH is left). If both hold, the cap is irrelevant — proceed directly to Outcomes "Converged (no unresolved CRITICAL/HIGH)" → tail sweep → finalize hand-off. The PRD success metric "passes review within three cycles is completely unaffected" requires this: a clean cycle-3 convergence at cap=3 must reach the finalize session, not cap-pause.
 
-If traditional findings are zero but the constraint gate exits 2 (unmet), this is NOT convergence and NOT the "unresolved findings remain" case below — the Outcomes "No issues found" exit-2 branch routes it forward (below cap / at cap) directly, without re-entering this Cap check.
+**"Unresolved" excludes** (PRD 00094): findings this cycle's gate discarded with a verified reason, and **settled deferrals** — a CRITICAL/HIGH matching an entry already in `state.deferred_decisions` or recorded as deferred by a prior cycle. Counting a settled deferral blocks convergence for a decision already taken (2 of 3 oranges in the 00105 batch's cycle 2 were exactly this). Until PRD 00095's deterministic matcher lands, matching a finding to a settled deferral is this gate's judgment call on issue text plus file.
 
-Otherwise (unresolved findings remain), before evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
+**Medium and Low findings never block convergence.** They are swept, not dropped — see "Tail sweep" below. Nothing else about non-converged cycles changes: Classification and rework still process every severity; only the exit test moved.
+
+If no CRITICAL/HIGH remains but the constraint gate exits 2 (unmet), this is NOT convergence — the Outcomes "Converged (no unresolved CRITICAL/HIGH)" exit-2 branch routes it forward (below cap / at cap) directly, without re-entering this Cap check.
+
+Otherwise (an unresolved CRITICAL/HIGH remains), before evaluating the Safety Checks table below, check whether the review-rework cycle cap has been reached.
 
 Read `state.cycle` (starts at 1; the number of the review cycle just completed) and `state.rework_cap` (the effective cap, written by Phase 0's `autopilot frontmatter` call from the PRD frontmatter — default 2; `cli/frontmatter.py` defines the accepted values, `references/phase-build.md` § Frontmatter parse shows the call).
 
@@ -38,16 +42,16 @@ Worked example, cap 3:
 - cycle 1 review fails → `1 < 3` → rework → cycle 2.
 - cycle 2 fails → `2 < 3` → rework → cycle 3.
 - cycle 3 fails → `3 >= 3` → **pause, no 4th rework**.
-- cycle 3 converges (0 findings) → cap irrelevant → finalize hand-off (no pause).
+- cycle 3 converges (no unresolved CRITICAL/HIGH) → cap irrelevant → sweep, then finalize hand-off (no pause).
 
 Cap 5 yields five review cycles before the pause (cycles 1-4 → rework, cycle 5 → pause).
 
-When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND unresolved findings remain), branch on loop mode (PRD 00017):
+When the cap is hit AND the review did not converge (`state.cycle >= state.rework_cap` AND an unresolved CRITICAL/HIGH remains), branch on loop mode (PRD 00017). Under the severity bar these branches can only fire while a CRITICAL/HIGH persists; they are otherwise unchanged:
 
 - **Loop mode (`$_AUTOPILOT_LOOP` set) — cap-out defers, never pauses.** Any unresolved CRITICAL finding → stall the PRD (follow `references/recovery.md` → "Loop-mode stall procedure", `site: "cap_critical"`) and continue the batch. Otherwise (all unresolved findings ≤ high): append each to `deferred_decisions` as `{"type": "cap-overflow", "issue": ..., "severity": ..., "consensus": ...}`, proceed to the finalize hand-off as converged-with-deferrals, and make the banner name the deferral count (`── cap reached: {k} findings deferred to batch end ──`). Stop polishing, not the batch.
 - **Interactive — perform the Cap-pause behavior** (see below) and STOP — do NOT continue into the rest of Phase 5 (no Classification, no Outcomes).
 
-When the cap is NOT hit (or the review converged with no findings), continue with the normal Outcomes flow below.
+When the cap is NOT hit (or the review converged), continue with the normal Outcomes flow below.
 
 ### Cap-pause behavior
 
@@ -122,16 +126,18 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 
 ### Outcomes:
 
+The first four rows describe a cycle that did NOT converge — the Cap check above already routed a converged cycle to the last row. A cycle whose only survivors are Medium/Low has converged; it does not "proceed to Phase 6" for another cycle.
+
 - **All auto-fixable, no deferrals, no blockers** → proceed to Phase 6
 - **Has deferrals but no blockers** → log deferred items to `dev/local/autopilot/deferred/{batch_id}-deferred.json`, proceed to Phase 6 with auto-fixable items only
 - **Has blocking escalation** →
   - **Interactive:** PAUSE. Present only the blocking issue(s) to user via `AskUserQuestion`. Wait for decision. After user responds, proceed to Phase 6.
   - **Loop mode (`$_AUTOPILOT_LOOP` set):** there is no human to answer — do NOT pause the batch. Follow the **Loop-mode stall procedure** (`references/recovery.md`) with `site: "blocking_escalation"`, recording the blocking issue(s) in the deferred JSON `detail`, and continue the batch. The parked PRD, on un-park, re-enters the build gate and the decision resurfaces interactively.
-- **No issues found** → before treating the cycle as converged, run `autopilot gate --review-file <this cycle's review file> --require-codex-guard --assert-constraint-met` (flag semantics: `cli/gate.py` module docstring; PRD 00107 absorbed the old `check_review_file.py` path, which survives as a shim). Exit 0 → the doubt-roster constraint certified; the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Hand off to the finalize session (see below). Exit 2 → the constraint did NOT hold; do NOT converge this cycle. Do NOT re-run the Cap check above — its own convergence test already needs this same gate (see "Cap check" above), so re-entering it only recreates this same bullet. Instead, classify the unmet constraint as one unresolved CRITICAL finding and route forward directly on `state.cycle` vs `state.rework_cap`: below cap → continue to Phase 6 for another review cycle; at cap → the existing cap-out machinery applies with no new mechanism — **loop mode**: the "Any unresolved CRITICAL finding" branch above (stall via `references/recovery.md` → Loop-mode stall procedure, `site: "cap_critical"`; the batch continues); **interactive**: the Cap-pause behavior above (include the constraint among the collected `unresolved_findings`). The batch keeps draining either way; this does not create a new batch-halt class.
+- **Converged (no unresolved CRITICAL/HIGH)** → before treating the cycle as converged, run `autopilot gate --review-file <this cycle's review file> --require-codex-guard --assert-constraint-met` (flag semantics: `cli/gate.py` module docstring; PRD 00107 absorbed the old `check_review_file.py` path, which survives as a shim). It checks the constraint line only, so a converging cycle may legitimately carry `Verdict: N findings`. Exit 0 → the doubt-roster constraint certified; the review-rework loop has converged (all lenses, including blind and doubt, passed this cycle). Emit the convergence metric, run the **Tail sweep** below, then hand off to the finalize session (see below). Exit 2 → the constraint did NOT hold; do NOT converge this cycle. Do NOT re-run the Cap check above — its own convergence test already needs this same gate (see "Cap check" above), so re-entering it only recreates this same bullet. Instead, classify the unmet constraint as one unresolved CRITICAL finding and route forward directly on `state.cycle` vs `state.rework_cap`: below cap → continue to Phase 6 for another review cycle; at cap → the existing cap-out machinery applies with no new mechanism — **loop mode**: the "Any unresolved CRITICAL finding" branch above (stall via `references/recovery.md` → Loop-mode stall procedure, `site: "cap_critical"`; the batch continues); **interactive**: the Cap-pause behavior above (include the constraint among the collected `unresolved_findings`). The batch keeps draining either way; this does not create a new batch-halt class.
 
 ### Hand off to the finalize session
 
-When the review-rework loop has converged (the "No issues found" outcome above, including loop-mode converged-with-deferrals from the cap check), do NOT continue into Phase 9 in this session. Run the **Session handoff procedure** (core `SKILL.md` § Session Loop) with the **review → done** site row — one `autopilot phase-done --outcome converged` call, which sets `phase`/`next_phase` to `"done"` and appends `"review"` to `phases_completed` (the marker Phase 4's loop-level skip reads on resume) in the same commit. The marker lands because this is convergence; there is no flag to pass and none to forget. Then print:
+When the review-rework loop has converged (the "Converged (no unresolved CRITICAL/HIGH)" outcome above, including loop-mode converged-with-deferrals from the cap check), do NOT continue into Phase 9 in this session. Run the **Session handoff procedure** (core `SKILL.md` § Session Loop) with the **review → done** site row — one `autopilot phase-done --outcome converged` call, which sets `phase`/`next_phase` to `"done"` and appends `"review"` to `phases_completed` (the marker Phase 4's loop-level skip reads on resume) in the same commit. The marker lands because this is convergence; there is no flag to pass and none to forget. Then print:
 
 ```
 ── AUTOPILOT ── PRD: {prd-name} ── review-rework loop complete ─────

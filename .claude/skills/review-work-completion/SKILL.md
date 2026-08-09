@@ -30,7 +30,7 @@ not name:
   - `~/.claude/skills/review-blindly/references/rubric.md` - inlined into
     Blake's blind prompt at its `{RUBRIC}` placeholder
 - CLIs: `python3`, `git`
-- Optional (graceful degradation, detailed in step 1): `use-gemini`, `use-qwen`,
+- Optional (graceful degradation, detailed in step 1): `use-gemini`,
   `git-ferry:catchup`
 
 ## Reviewers
@@ -42,7 +42,6 @@ are prompt disciplines carried by the roster, not separate phases:
 - **Blake** → Claude subagent, **blind lens**: PRD-only prompt — no diff, no file list, no review history, no design doc (persona: `agents/blake.md`)
 - **Bob** → Codex, **doubt lens**: carries the doubt rubric (D1-D5) and the de-slop lens every cycle; when codex is unavailable, a Claude subagent runs the same prompt so the lens never silently drops
 - **Carl** → Gemini (frontend & design specialist; skipped when the Gemini CLI is unavailable)
-- **Quinn** → local qwen via `qwen-run.sh -R --approved-only` (background Bash: the `pi` agent against a llama.cpp-served model, read-only, pinned to the eval-approved registry; **advisory weight** — findings unique to Quinn create no tasks; active only when the qwen preflight probe passes, skipped otherwise with a note)
 - **Eve** → Claude Fable 5 Task subagent, opt-in fifth lens: joins the batch when the resolved doubt reviewer says so (step 1), running the same doubt prompt as Bob (see `references/agent-invocation.md` "Eve (Fable 5)"); absent otherwise
 
 ## Workflow
@@ -64,8 +63,6 @@ Check these exist:
 Under autopilot, `state.prd` names the PRD, so this guard does not apply — review that PRD's work. A single wip PRD is unambiguous and passes straight through.
 
 **Optional - Carl (Gemini):** check `~/.claude/skills/use-gemini/scripts/gemini-run.sh` is executable AND a backend CLI resolves - `copilot` (preferred; serves `gemini-3.1-pro-preview`) OR native `gemini` (`mise which`/`command -v` succeeds for either). If both pass, Carl is active. If neither CLI resolves, skip Carl and proceed with the three remaining reviewers - this is graceful degradation, not a failure. Note in the final review file which reviewers ran. (Carl on the copilot backend spends Copilot AI credits; a "monthly quota exceeded" error from the helper is a runtime skip, not a prerequisite failure.)
-
-**Optional - Quinn (local qwen):** run `~/.claude/skills/use-qwen/scripts/qwen-run.sh --preflight --approved-only` (foreground). It passes ONLY when a real 1-token completion succeeds against the served model — a `/v1/models` listing alone never passes (the false-healthy class). Exit 0 → Quinn is active. Any failure (`pi_missing`, `endpoint_unreachable`, `model_id_missing` — no approved model is live — `completion_failed`, or the script missing/non-executable) → skip Quinn and proceed with the remaining reviewers - graceful degradation, not a failure; llama-server down degrades to today's roster. Note in the final review file which reviewers ran and Quinn's skip reason when he was skipped. (The probe can take up to ~2 min on a cold backend — it doubles as the model warm-up for step 5.)
 
 Create if missing: `dev/local/tmp/`, `dev/local/reviews/`
 
@@ -188,7 +185,6 @@ Per persona:
 | Persona | Source | Substitutions |
 |---------|--------|---------------|
 | Alice | `agents/alice.md` | `{CONTEXT_FILE}`, `{DIFF_FILE}`, `{PACK_FILE}`, `{REVIEW_CHECKLIST}`, `{RUBRIC}`, `{OUTPUT_FORMAT}` |
-| Quinn | `agents/quinn.md` | same as Alice - the standard implementation-aware review, never the blind or doubt lens |
 | Bob | `agents/bob.md` (carries the sandbox appendix) **plus** the "Two lenses" and "Rubric verdicts" sections of `agents/eve.md` appended | same as Alice (including `{PACK_FILE}`), plus `{PACK_FINDINGS}` |
 | Carl | `agents/carl.md` (carries the frontend & design appendix) | same as Alice |
 | Blake | `agents/blake.md` | `{PRD}` and `{RUBRIC}` (from `review-blindly/references/rubric.md`) **only** — no context file, no diff file, no incremental addendum; blind every cycle |
@@ -206,9 +202,9 @@ With 1M context, agent prompts can include more background — full PRD, archite
 
 ### 5. Run agent review
 
-**Stamp the lens roster (autopilot runs).** When `dev/local/autopilot/state.json` exists, REPLACE `state.review_lenses` (merge into state.json, do NOT replace sibling fields) with one key per active lens set to `"running"`: `consensus` (Alice), `blind` (Blake), `doubt` (Bob), plus `ui` (Carl), `qwen` (Quinn), and `fable` (Eve) only when active. tracon renders these as the review phase's sub-steps; step 6 flips them to `"done"`/`"failed"`. Skip entirely on standalone (non-autopilot) runs.
+**Stamp the lens roster (autopilot runs).** When `dev/local/autopilot/state.json` exists, REPLACE `state.review_lenses` (merge into state.json, do NOT replace sibling fields) with one key per active lens set to `"running"`: `consensus` (Alice), `blind` (Blake), `doubt` (Bob), plus `ui` (Carl) and `fable` (Eve) only when active. tracon renders these as the review phase's sub-steps; step 6 flips them to `"done"`/`"failed"`. Skip entirely on standalone (non-autopilot) runs.
 
-**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob, Carl, and Quinn are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini/qwen) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls, the Watcher (below, if `$_AUTOPILOT_LOOP` is set), and the background Bash calls in the one message - if any CLI reviewer is in the dispatch, the Watcher goes in the same message or nothing holds the session open to see it finish.
+**Launch ALL active reviewers in a SINGLE message so they run concurrently.** Alice, Blake, and Eve (when active) are Task subagent calls (native Claude tools). Bob and Carl are parallel **background Bash** commands (`run_in_background: true`) - never wrap a CLI reviewer (codex/gemini) in a subagent, it hangs and strands the whole cycle (see `references/agent-invocation.md`). Put the Task calls, the Watcher (below, if `$_AUTOPILOT_LOOP` is set), and the background Bash calls in the one message - if any CLI reviewer is in the dispatch, the Watcher goes in the same message or nothing holds the session open to see it finish.
 
 **Eve unavailable (codex doubt-roster guard active).** When Eve's dispatch fails after her one-retry budget (`references/agent-invocation.md` for the retry/unavailability semantics), dispatch a Claude Task subagent with Bob's exact assembled doubt prompt as a substitute for her, so a non-codex doubt voice still exists, and use its output as Eve's. Step 6 records which of the three `codex_rung_guard` outcomes resulted.
 
@@ -259,7 +255,7 @@ Three failure classes, three different answers — **only the last one may fall 
 
 On `shadow`, legacy Alice still runs and still gates; the workflow's output is never written to `alice-output-{id}.txt` and never consolidated. Step 8 records it.
 
-Active reviewers: Alice, Blake, Bob, Carl, Quinn, plus Eve when the resolved doubt-reviewer rule in step 1 activates her. Include Carl only if the optional Gemini check in step 1 passed, and Quinn only if the optional qwen preflight in step 1 passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
+Active reviewers: Alice, Blake, Bob, Carl, plus Eve when the resolved doubt-reviewer rule in step 1 activates her. Include Carl only if the optional Gemini check in step 1 passed; otherwise run the remaining reviewers. Use one `{id}` for the cycle so the `-o` output paths here match the consolidation paths in step 6.
 
 Read these before proceeding:
 
@@ -270,22 +266,19 @@ Read these before proceeding:
 
 **Close out the lens roster (autopilot runs).** When `state.review_lenses` was stamped in step 5, set each lens to `"done"`, or `"failed"` for a reviewer that failed per `references/retry-policy.md` (a lens rescued by a fallback — e.g. Bob's Claude fallback — is `"done"`). Skip on standalone runs.
 
-Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) or her Claude substitute (when it ran instead) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's, Carl's, and Quinn's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` / `quinn-output-{id}.txt` in step 5. Then run:
+Save each subagent reviewer's returned text to `dev/local/tmp/` — **Alice** to `alice-output-{id}.txt`, **Blake** to `blake-output-{id}.txt`, **Eve** (when she ran) or her Claude substitute (when it ran instead) to `eve-output-{id}.txt`, and Bob's Claude fallback (when it ran) to `bob-output-{id}.txt`. Bob's and Carl's CLI outputs are already on disk - their `-o` flag wrote them straight to `bob-output-{id}.txt` / `carl-output-{id}.txt` in step 5. Then run:
 
 ```bash
 ~/.claude/skills/review-work-completion/scripts/consolidate-findings.sh \
   ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
   BLAKE:$PWD/dev/local/tmp/blake-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
-  CARL:$PWD/dev/local/tmp/carl-output-{id}.txt \
-  QUINN:$PWD/dev/local/tmp/quinn-output-{id}.txt
+  CARL:$PWD/dev/local/tmp/carl-output-{id}.txt
 ```
 
-Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped, the `QUINN:` pair when Quinn was skipped; append an `EVE:` pair when Eve or her Claude substitute ran). The script computes consensus dynamically from the number of agent pairs provided.
+Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped; append an `EVE:` pair when Eve or her Claude substitute ran). The script computes consensus dynamically from the number of agent pairs provided.
 
-**If `consolidate-findings.sh` exits nonzero, or warden denies it:** do not skip consolidation (that would silently drop every finding). Read the deny/error reason from the tool result; a fixable invocation problem (a passed path that does not exist for a reviewer that did run) → fix and retry ONCE. Otherwise **fall back to model-side consolidation**: read each reviewer's `*-output-{id}.txt`, group the findings that name the same issue at the same `File:` across reviewers, set each finding's consensus to the count of distinct reviewers that flagged it, and sort by consensus then severity — the same shape the script emits. **Note in the review file that consolidation was model-side** (fail loud — a hand-rolled consolidation must not read as the script's). The Quinn advisory-weighting rule and the `Verdict:`/`Tests:` composition below apply unchanged to the model-side result.
-
-**Advisory weighting for Quinn (local model).** After consolidation, split the findings: any finding whose only finder is Quinn is ADVISORY — list it in the review file under an `### Advisory (local model, unconfirmed)` heading (same line format, no consensus score) and create NO follow-up tasks from it in step 7. Findings where Quinn concurs with at least one other reviewer stay in the consolidated table and count toward consensus normally — his concurrence raises the score like any other reviewer's. Local-model noise must never create rework tasks alone. See `references/output-formats.md` "Advisory bucket (Quinn)".
+**If `consolidate-findings.sh` exits nonzero, or warden denies it:** do not skip consolidation (that would silently drop every finding). Read the deny/error reason from the tool result; a fixable invocation problem (a passed path that does not exist for a reviewer that did run) → fix and retry ONCE. Otherwise **fall back to model-side consolidation**: read each reviewer's `*-output-{id}.txt`, group the findings that name the same issue at the same `File:` across reviewers, set each finding's consensus to the count of distinct reviewers that flagged it, and sort by consensus then severity — the same shape the script emits. **Note in the review file that consolidation was model-side** (fail loud — a hand-rolled consolidation must not read as the script's). The `Verdict:`/`Tests:` composition below applies unchanged to the model-side result.
 
 **Compose the `Verdict:` line.** Zero consolidated findings → `Verdict: converged`; otherwise `Verdict: N findings` (the consolidated count). Step 8 writes it into the review file.
 
@@ -307,7 +300,6 @@ Outputs consolidated issues sorted by consensus then severity. See `references/o
 - Max 25 tasks (batch overflow into "Misc fixes")
 - Group by theme
 - Tag complexity: `(S)` small, `(M)` medium, `(L)` large
-- **Skip advisory-bucket findings** (Quinn-only, per step 6) — they are recorded in the review file but never become tasks
 
 See `references/output-formats.md` for task description format.
 
@@ -321,7 +313,7 @@ Stamp the `head_sha` frontmatter field with the HEAD sha captured in step 3 — 
 
 Stamp the `codex_thread_id` frontmatter field with the thread id from `dev/local/tmp/bob-thread-{id}.txt` when that file exists and is non-empty AND Bob produced output this cycle — the next rework cycle reads it (step 3) to resume Bob's codex session via `--resume-thread`; omit the field otherwise (Bob was skipped, or thread-id capture failed).
 
-Stamp the `reviewers:` frontmatter field with the comma-separated lowercase names of every reviewer that actually ran (e.g. `reviewers: alice,blake,bob,quinn`) — `check_review_file.py` reads it to verify each section.
+Stamp the `reviewers:` frontmatter field with the comma-separated lowercase names of every reviewer that actually ran (e.g. `reviewers: alice,blake,bob,carl`) — `check_review_file.py` reads it to verify each section.
 
 **Stamp `consensus_run_id`** with the `runId` the Workflow tool returned, whenever the engine ran (`workflow` or `shadow`) — same pattern as `codex_thread_id`, and the forensic handle for that cycle's run. It is deliberately not written to `state.json`: `resumeFromRunId` is same-session only, so a stored id would outlive its own usefulness.
 

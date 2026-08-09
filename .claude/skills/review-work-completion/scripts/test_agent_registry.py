@@ -19,18 +19,18 @@ import pytest
 
 AGENTS_DIR = Path.home() / ".claude" / "agents"
 
-CONSENSUS = ("alice", "bob", "carl", "quinn")
+CONSENSUS = ("alice", "bob", "carl")
 DIMENSIONS = ("rita", "cora", "grace", "toby", "mallory")
 ROSTER = CONSENSUS + ("blake", "eve") + DIMENSIONS + ("trent", "victor", "pat")
 
-# bob, carl, quinn and pat are CLI-dispatched, and their runner owns the tool
+# bob, carl and pat are CLI-dispatched, and their runner owns the tool
 # policy on that path (it never reads this frontmatter). They still declare a
 # set, because every registry file is ALSO registered as a native agent type,
 # where an absent `tools` key means "inherit everything" — Edit and Write
 # included. They are classified in the two groups below like everyone else.
 
 # Read-only lanes: the diff arrives inline, they never hunt for code.
-READ_ONLY = DIMENSIONS + ("trent", "bob", "quinn", "pat")
+READ_ONLY = DIMENSIONS + ("trent", "bob", "pat")
 
 # Lanes that must locate code themselves. Grep/Glob are unregistered in this
 # build, so searching means `rg` via Bash — see agent-registry.md § Tool sets.
@@ -69,9 +69,11 @@ def test_every_roster_persona_has_a_file() -> None:
     assert not missing, f"missing agent files: {missing}"
 
 
-def test_roster_is_exactly_fourteen() -> None:
-    assert len(ROSTER) == 14
-    assert len(set(ROSTER)) == 14, "duplicate persona name in the roster"
+def test_roster_is_exactly_thirteen() -> None:
+    # PRD 00109 registered 14; PRD 00094 removed the advisory local-model
+    # consensus lane, whose file is deleted.
+    assert len(ROSTER) == 13
+    assert len(set(ROSTER)) == 13, "duplicate persona name in the roster"
 
 
 def test_registry_holds_no_malformed_agents(registry) -> None:
@@ -303,7 +305,7 @@ def test_consensus_personas_carry_the_full_pack_placeholder(
     registry,
     name: str,
 ) -> None:
-    """Alice, Bob, Carl and Quinn are the consensus lens: each body must use
+    """Alice, Bob and Carl are the consensus lens: each body must use
     {PACK_FILE} so the cycle's full context pack is prepended for it."""
     _, body = registry[name]
     assert "{PACK_FILE}" in body, f"{name}.md body must use {{PACK_FILE}}"
