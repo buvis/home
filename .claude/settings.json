@@ -137,7 +137,7 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "SessionStart": [
       {
@@ -232,7 +232,8 @@
     "aegis@buvis-plugins": true,
     "claude-checkup@buvis-plugins": true,
     "ponytail@ponytail": true,
-    "loupe@buvis-plugins": true
+    "loupe@buvis-plugins": true,
+    "agoge@buvis-plugins": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {
