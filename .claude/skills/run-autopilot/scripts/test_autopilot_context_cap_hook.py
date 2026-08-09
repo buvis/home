@@ -34,9 +34,7 @@ def _load_hook_module():
     """Load the hook as an importable module so its `main()` can be called
     in-process. Used by the perf test to time only the hook's work,
     excluding subprocess fork + Python interpreter startup."""
-    spec = importlib.util.spec_from_file_location(
-        "autopilot_context_cap_hook", HOOK
-    )
+    spec = importlib.util.spec_from_file_location("autopilot_context_cap_hook", HOOK)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -97,9 +95,7 @@ class HookFixture:
             },
         }
 
-    def run_hook(
-        self, stdin_payload: dict | None = None, *, in_loop: bool = True
-    ) -> subprocess.CompletedProcess:
+    def run_hook(self, stdin_payload: dict | None = None, *, in_loop: bool = True) -> subprocess.CompletedProcess:
         if stdin_payload is None:
             stdin_payload = {
                 "session_id": "test-session",
@@ -172,9 +168,11 @@ class ContextCapHookTests(unittest.TestCase):
 
     def test_usage_under_threshold_is_noop(self) -> None:
         self.fx.write_state(phase="build")
-        self.fx.write_transcript_lines([
-            self.fx.usage_line(input_tokens=50_000, cache_read=40_000, cache_create=10_000),
-        ])
+        self.fx.write_transcript_lines(
+            [
+                self.fx.usage_line(input_tokens=50_000, cache_read=40_000, cache_create=10_000),
+            ]
+        )
         result = self.fx.run_hook()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
@@ -209,13 +207,9 @@ class ContextCapHookTests(unittest.TestCase):
         result = self.fx.run_hook(in_loop=False)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
-        self.assertEqual(
-            (self.fx.autopilot_dir / "state.json").read_text(), before
-        )
+        self.assertEqual((self.fx.autopilot_dir / "state.json").read_text(), before)
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
-        self.assertFalse(
-            (self.fx.autopilot_dir / ".handoff-requested").exists()
-        )
+        self.assertFalse((self.fx.autopilot_dir / ".handoff-requested").exists())
 
     # Single hard cap --------------------------------------------------------
 
@@ -419,7 +413,6 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertIn("hookSpecificOutput", emitted)
         self.assertIn("context cap reached", emitted.lower())
 
-
     # Marker self-clearing -------------------------------------------------
 
     def test_stale_marker_for_different_task_is_cleared_and_hook_fires(self) -> None:
@@ -530,7 +523,6 @@ class ContextCapHookTests(unittest.TestCase):
         self.assertEqual(captured.getvalue().strip(), "")
         # Bounded read should still complete fast — well under 500ms.
         self.assertLess(elapsed_ms, 500, f"hook took {elapsed_ms:.0f}ms")
-
 
     # Soft-threshold handoff ------------------------------------------------
 
@@ -888,9 +880,7 @@ class TurnTripwireTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
         # a wrong-shape file (counts not a dict) also resets cleanly
-        (self.fx.autopilot_dir / ".turn-counts.json").write_text(
-            json.dumps({"counts": "nope"})
-        )
+        (self.fx.autopilot_dir / ".turn-counts.json").write_text(json.dumps({"counts": "nope"}))
         result2 = self.fx.run_hook()
         self.assertEqual(result2.returncode, 0)
 
@@ -944,15 +934,11 @@ class DurabilityBeforePublishTests(unittest.TestCase):
         return calls
 
     def test_turn_counter_is_fsynced_before_the_rename_publishes_it(self) -> None:
-        calls = self._publish_order(
-            lambda: self.module._bump_and_check_tripwire(self.ap, "sess-1")
-        )
+        calls = self._publish_order(lambda: self.module._bump_and_check_tripwire(self.ap, "sess-1"))
         self.assertEqual(calls, ["fsync", "replace"])
 
     def test_state_write_failed_marker_is_fsynced_before_the_rename(self) -> None:
-        calls = self._publish_order(
-            lambda: self.module._write_state_write_failed_marker(self.ap, "detail")
-        )
+        calls = self._publish_order(lambda: self.module._write_state_write_failed_marker(self.ap, "detail"))
         self.assertEqual(calls, ["fsync", "replace"])
 
     def test_turn_counter_still_survives_a_write_failure_without_firing(self) -> None:

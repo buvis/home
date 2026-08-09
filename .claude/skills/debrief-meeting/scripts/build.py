@@ -18,10 +18,27 @@ from pathlib import Path
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets/template.html"
 PLACEHOLDER = "__MEETING_PAYLOAD__"
 KNOWN_KEYS = {
-    "meta", "tldr", "summary", "agenda", "topics", "decisions", "actions",
-    "questions", "risks", "blockers", "assumptions", "disagreements", "entities",
-    "glossary", "quotes", "sentiment", "followups", "quality", "dynamics",
-    "email", "corrections",
+    "meta",
+    "tldr",
+    "summary",
+    "agenda",
+    "topics",
+    "decisions",
+    "actions",
+    "questions",
+    "risks",
+    "blockers",
+    "assumptions",
+    "disagreements",
+    "entities",
+    "glossary",
+    "quotes",
+    "sentiment",
+    "followups",
+    "quality",
+    "dynamics",
+    "email",
+    "corrections",
 }
 
 
@@ -49,8 +66,15 @@ def apply_corrections(turns: list[dict], corrections: list[dict]) -> list[dict]:
                 turn.setdefault("raw", turn["text"])
                 turn["text"] = text
                 hits += count
-        log.append({"kind": "text", "from": old, "to": new,
-                    "reason": fix.get("reason"), "applied": hits})
+        log.append(
+            {
+                "kind": "text",
+                "from": old,
+                "to": new,
+                "reason": fix.get("reason"),
+                "applied": hits,
+            }
+        )
     return log
 
 
@@ -70,28 +94,35 @@ def main() -> None:
     if extract_file.is_file():
         extract = json.loads(extract_file.read_text(encoding="utf-8"))
     else:
-        print(f"WARN: {extract_file} not found — building the transcript view only",
-              file=sys.stderr)
+        print(
+            f"WARN: {extract_file} not found — building the transcript view only",
+            file=sys.stderr,
+        )
         extract = {}
 
     for key in extract:
         if key not in KNOWN_KEYS:
-            print(f"WARN: extract.json has unknown key '{key}' — the page will ignore it",
-                  file=sys.stderr)
+            print(
+                f"WARN: extract.json has unknown key '{key}' — the page will ignore it",
+                file=sys.stderr,
+            )
 
     fixes = apply_corrections(transcript["turns"], extract.get("corrections") or [])
     for fix in fixes:
         if not fix["applied"]:
-            print(f"WARN: correction '{fix['from']}' -> '{fix['to']}' matched nothing",
-                  file=sys.stderr)
+            print(
+                f"WARN: correction '{fix['from']}' -> '{fix['to']}' matched nothing",
+                file=sys.stderr,
+            )
     transcript["corrections"] = (transcript.get("corrections") or []) + fixes
 
     template = TEMPLATE.read_text(encoding="utf-8")
     if PLACEHOLDER not in template:
         sys.exit(f"template {TEMPLATE} has no {PLACEHOLDER} marker")
     # <\/ keeps a literal </script> inside the transcript from ending the tag
-    payload = json.dumps({"transcript": transcript, "extract": extract},
-                         ensure_ascii=False).replace("</", "<\\/")
+    payload = json.dumps(
+        {"transcript": transcript, "extract": extract}, ensure_ascii=False
+    ).replace("</", "<\\/")
 
     out = Path(args.out).expanduser() if args.out else workdir / "debrief.html"
     out.write_text(template.replace(PLACEHOLDER, payload), encoding="utf-8")

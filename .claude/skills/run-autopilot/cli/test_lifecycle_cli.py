@@ -165,7 +165,9 @@ class FrontmatterTests(_ProjectTestCase):
     def test_invalid_value_warns_on_stderr_and_still_writes_the_default(self) -> None:
         self.write_state()
         prd = self.put_prd(
-            "wip", "00089-example-v1.md", "---\ncatchup: sometimes\n---\n"
+            "wip",
+            "00089-example-v1.md",
+            "---\ncatchup: sometimes\n---\n",
         )
         proc = _run(
             ["frontmatter", "--state", str(self.state_path), "--prd", str(prd)],
@@ -187,7 +189,7 @@ class FrontmatterTests(_ProjectTestCase):
         self.assertEqual(self.read_state()["catchup_mode"], "run")
 
     def test_a_stale_state_prd_path_fails_loud_rather_than_writing_defaults(
-self,
+        self,
     ) -> None:
         # The multi-PRD trap found in 00089's review pass: `more_prds`
         # preserves `state.prd`, and Phase 9 already moved that PRD to done/.
