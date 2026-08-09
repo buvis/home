@@ -166,6 +166,10 @@ def _parse_metrics_row(data: dict[str, Any]) -> MetricsRow:
 
 
 def read_metrics(path: Path, batch: str | None = None) -> list[MetricsRow]:
+    """Session rows only. The review gate also appends event rows to this
+    file (PRD 00094: {"event": "review_converged", ...}) — one per PRD, with
+    no ts_start/ts_end/wall_secs/cost_usd. They are not sessions, and
+    discovery counts len(rows) as the session total."""
     if batch == "":
         return []
     try:
@@ -175,7 +179,7 @@ def read_metrics(path: Path, batch: str | None = None) -> list[MetricsRow]:
     rows: list[MetricsRow] = []
     for line in lines:
         data = _parse_json_object_line(line)
-        if data is None:
+        if data is None or "event" in data:
             continue
         row = _parse_metrics_row(data)
         if batch is not None and row.batch != batch:

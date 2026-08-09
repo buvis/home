@@ -25,7 +25,9 @@ After completion, stay on `phase: "review"` and `next_phase: "review"` (the deci
 
 The cap is a gate on REWORK, not on Phase 5 itself. **First, read the review output** (see "Read the review output" further below). Convergence requires BOTH conditions: **no unresolved CRITICAL or HIGH finding remains**, AND the doubt-roster constraint gate certifies (the exact command lives in Outcomes "Converged (no unresolved CRITICAL/HIGH)" below — run it now when no CRITICAL/HIGH is left). If both hold, the cap is irrelevant — proceed directly to Outcomes "Converged (no unresolved CRITICAL/HIGH)" → tail sweep → finalize hand-off. The PRD success metric "passes review within three cycles is completely unaffected" requires this: a clean cycle-3 convergence at cap=3 must reach the finalize session, not cap-pause.
 
-**"Unresolved" excludes** (PRD 00094): findings this cycle's gate discarded with a verified reason, and **settled deferrals** — a CRITICAL/HIGH matching an entry already in `state.deferred_decisions` or recorded as deferred by a prior cycle. Counting a settled deferral blocks convergence for a decision already taken (2 of 3 oranges in the 00105 batch's cycle 2 were exactly this). Until PRD 00095's deterministic matcher lands, matching a finding to a settled deferral is this gate's judgment call on issue text plus file.
+**"Unresolved" excludes** (PRD 00094): findings this cycle's gate discarded with a verified reason, and **settled deferrals** — a HIGH matching an entry already in `state.deferred_decisions` or recorded as deferred by a prior cycle. Counting a settled deferral blocks convergence for a decision already taken (2 of 3 oranges in the 00105 batch's cycle 2 were exactly this). Until PRD 00095's deterministic matcher lands, matching a finding to a settled deferral is this gate's judgment call on issue text plus file.
+
+**A CRITICAL is never a settled deferral.** Classification below routes "Critical severity, always" to Defer-to-batch-end, so every CRITICAL lands in `deferred_decisions` the cycle it is raised. If the exclusion covered CRITICALs, one raised in cycle 1 would be "settled" by cycle 2 and converge — turning the cap-out branch's `site: "cap_critical"` stall into a path that ships an open CRITICAL. **Deliberate narrowing of PRD 00094**, whose text says "C/H" here but whose guard metric is zero escaped CRITICAL/HIGH, whose cap-out prose assumes C/H persists across cycles, and whose own worked test case is a HIGH. A CRITICAL blocks until it is fixed or the cap-out branch stalls the PRD.
 
 **Medium and Low findings never block convergence.** They are swept, not dropped — see "Tail sweep" below. Nothing else about non-converged cycles changes: Classification and rework still process every severity; only the exit test moved.
 
@@ -126,7 +128,7 @@ Log every decision in the state file (`autonomous_decisions` or `deferred_decisi
 
 ### Outcomes:
 
-The first four rows describe a cycle that did NOT converge — the Cap check above already routed a converged cycle to the last row. A cycle whose only survivors are Medium/Low has converged; it does not "proceed to Phase 6" for another cycle.
+The first three rows describe a cycle that did NOT converge — the Cap check above already routed a converged cycle to the last row. A cycle whose only survivors are Medium/Low has converged; it does not "proceed to Phase 6" for another cycle.
 
 - **All auto-fixable, no deferrals, no blockers** → proceed to Phase 6
 - **Has deferrals but no blockers** → log deferred items to `dev/local/autopilot/deferred/{batch_id}-deferred.json`, proceed to Phase 6 with auto-fixable items only
@@ -147,8 +149,11 @@ Both finalize paths append ONE line to `dev/local/autopilot/loop-metrics.jsonl` 
 
 ```bash
 printf '%s\n' '<the json line>' >>dev/local/autopilot/loop-metrics.jsonl
+mkdir -p dev/local/autopilot/ledger
 printf '%s\n' '<the json line>' >>dev/local/autopilot/ledger/loop-metrics.jsonl
 ```
+
+The `mkdir -p` is not optional: `ledger/` is created lazily by whichever writer gets there first, and on a repo whose batch has not yet mirrored a session row the second append fails without it.
 
 Existing wrapper rows carry no `event` key and are one-per-session; these rows are one-per-PRD and carry no `wall_secs`/`cost_usd`. Consumers filter on `event` — `cli/render_metrics.load_rows` already drops any row that has one, so these never inflate a session count. Read the metric back with `rg '"event":"review_converged"'` over either file; nothing renders it.
 
@@ -156,9 +161,9 @@ Existing wrapper rows carry no `event` key and are one-per-session; these rows a
 
 Runs once, on the converged outcome above, after the metric is emitted and before the finalize hand-off. The Medium/Low tail is **swept, not dropped**: one normal `/work` task fixes it, then the PRD finalizes. No new verification machinery.
 
-**1. Select.** Take the converging cycle's actionable Medium/Low findings. Exclude settled deferrals, findings this gate discarded, and anything already in `deferred_decisions` — the same exclusions the convergence test uses. **Zero actionable Medium/Low → skip the sweep entirely** and go straight to the finalize hand-off (today's clean path, unchanged).
+**1. Select.** Take the converging cycle's actionable Medium/Low findings. Exclude settled deferrals, findings this gate discarded, and anything already in `deferred_decisions` — a decision already taken is not swept again. **Zero actionable Medium/Low → skip the sweep entirely** and go straight to the finalize hand-off (today's clean path, unchanged).
 
-**2. Create.** Build ONE `[D{cycle}]` task through the existing Phase 6 "Dispatch rework" mechanics for decision-gate follow-ups: tier from the `/plan-tasks` classifier when its inputs are available, otherwise `sonnet`, then the `default_model` floor exactly as that section computes it; `TaskCreate`, append the id to `state.rework_task_ids`, and insert the merge-preserving `state.tasks[]` snapshot. **The task description lists every swept finding verbatim** — severity, text, file — never a summary or a count.
+**2. Hydrate, then create.** Run the "Hydrate TaskList from state.tasks" sub-step (core `SKILL.md` § State Management) FIRST, for the same reason Phase 6 does: the review session inherits an empty TaskList from the post-Phase-3 handoff, and Phase 6's "Dispatch rework" mechanics below are written assuming hydration already ran. Then build ONE `[D{cycle}]` task through those mechanics for decision-gate follow-ups: tier from the `/plan-tasks` classifier when its inputs are available, otherwise `sonnet`, then the `default_model` floor exactly as that section computes it; `TaskCreate`, append the id to `state.rework_task_ids`, and insert the merge-preserving `state.tasks[]` snapshot. **The task description lists every swept finding verbatim** — severity, text, file — never a summary or a count.
 
 **Split rule:** more than 10 findings → split into 2-4 tasks grouped by file or theme per `work/references/task-splitting.md` (10 is the same constant the Phase 5 scope alarm uses). The existing max-2-parallel rework rule applies unchanged.
 
