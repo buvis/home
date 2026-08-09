@@ -181,9 +181,16 @@ fi
 # check_review_file.py enforces this grammar under --require-codex-guard:
 # shelling out to the real gate here is what binds prose to script, so if
 # the implementor's regex ever disagrees with this prose-extracted fired
-# form, this goes red.
+# form, this goes red. The fixture carries a non-empty Eve section because
+# the gate's consistency half (2026-08-02) requires one to back a PLAIN
+# fired line — a plain line with no eve section is a recorded lie, not a
+# valid instance of the grammar.
 review_fired="$TMP/review-fired.md"
 cat >"$review_fired" <<REVIEW
+## Eve
+
+D1: pass
+
 Verdict: converged
 Tests: none (docs-only)
 $concrete_fired_line
