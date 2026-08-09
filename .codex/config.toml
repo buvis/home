@@ -78,6 +78,9 @@ trust_level = "trusted"
 [projects."/Users/bob/git/src/github.com/doogat/jink"]
 trust_level = "trusted"
 
+[projects."/Users/bob/git/src/github.com/buvis/engram"]
+trust_level = "trusted"
+
 [features]
 multi_agent = true
 
