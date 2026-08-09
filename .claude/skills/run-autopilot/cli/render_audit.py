@@ -55,7 +55,7 @@ def _entry(item: dict, label: str, stamp: str) -> str:
 def render_audit(state: dict, started: str, completed: str) -> str:
     """The full audit.md text for the current PRD."""
     prd = str(state.get("prd", ""))
-    prd_base = prd[:-3] if prd.endswith(".md") else prd
+    prd_base = prd.removesuffix(".md")
     counts = {key: len(state.get(key) or []) for key, _label in _SOURCES}
     header = [
         f"# Decision Audit Log: {prd_base}",

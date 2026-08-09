@@ -9,6 +9,7 @@ session to exit, 2 to block it
 so the model can finish the review before the turn ends (exit-2 Stop blocking
 works headless — 00014 spike (c)).
 """
+
 from __future__ import annotations
 
 import json
@@ -108,7 +109,7 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
         # stale/unset prd left behind by a PRD that stalled before ever
         # reaching a review cycle.
         return (False, "")
-    prd_base = prd[:-3] if prd.endswith(".md") else prd
+    prd_base = prd.removesuffix(".md")
     repo = autopilot_dir.parents[2]
     reviews_dir = repo / "dev" / "local" / "reviews"
 
@@ -172,9 +173,8 @@ def main() -> int:
     blocks += 1
     if blocks > BLOCK_CAP:
         sys.stderr.write(
-            message
-            + f"; review_gate: failed - giving up after {BLOCK_CAP} blocked "
-            "exits to preserve session liveness\n"
+            message + f"; review_gate: failed - giving up after {BLOCK_CAP} blocked "
+            "exits to preserve session liveness\n",
         )
         try:
             (autopilot_dir / ".review-gate-failed").write_text(message + "\n")
