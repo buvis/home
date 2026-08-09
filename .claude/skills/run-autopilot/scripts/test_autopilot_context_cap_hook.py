@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HOOK = Path(__file__).parent / "autopilot_context_cap_hook.py"
@@ -904,6 +905,67 @@ class TurnTripwireTests(unittest.TestCase):
         result = self.fx.run_hook(in_loop=False)
         self.assertEqual(result.returncode, 0)
         self.assertFalse((self.fx.autopilot_dir / ".cap-fired").exists())
+
+
+class DurabilityBeforePublishTests(unittest.TestCase):
+    """Every temp-then-rename in this hook fsyncs before publishing.
+
+    os.replace is atomic against a crash but not against power loss: the
+    directory entry can reach disk before the payload. For the turn counter
+    that resurrects a stale count, so the tripwire re-fires or never fires for
+    that session; for the state-write-failed marker it silently loses the halt
+    record the recovery path reads. Asserts ordering, not merely that fsync
+    was called, because a sync after the rename would be useless.
+    """
+
+    def setUp(self) -> None:
+        self.module = _load_hook_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.ap = Path(self.tmp.name)
+
+    def _publish_order(self, write) -> list[str]:
+        calls: list[str] = []
+        real_fsync, real_replace = os.fsync, os.replace
+
+        def spy_fsync(fd: int) -> None:
+            calls.append("fsync")
+            real_fsync(fd)
+
+        def spy_replace(src, dst) -> None:
+            calls.append("replace")
+            real_replace(src, dst)
+
+        with (
+            unittest.mock.patch.object(os, "fsync", spy_fsync),
+            unittest.mock.patch.object(os, "replace", spy_replace),
+        ):
+            write()
+        return calls
+
+    def test_turn_counter_is_fsynced_before_the_rename_publishes_it(self) -> None:
+        calls = self._publish_order(
+            lambda: self.module._bump_and_check_tripwire(self.ap, "sess-1")
+        )
+        self.assertEqual(calls, ["fsync", "replace"])
+
+    def test_state_write_failed_marker_is_fsynced_before_the_rename(self) -> None:
+        calls = self._publish_order(
+            lambda: self.module._write_state_write_failed_marker(self.ap, "detail")
+        )
+        self.assertEqual(calls, ["fsync", "replace"])
+
+    def test_turn_counter_still_survives_a_write_failure_without_firing(self) -> None:
+        """The added fsync must not break the never-fire-what-we-cannot-persist
+        rule: an OSError anywhere in the write path still returns False."""
+        self.module._bump_and_check_tripwire(self.ap, "sess-1")
+
+        def boom(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        with unittest.mock.patch.object(os, "fsync", boom):
+            fired = self.module._bump_and_check_tripwire(self.ap, "sess-1")
+        self.assertFalse(fired)
 
 
 if __name__ == "__main__":
