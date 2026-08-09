@@ -113,6 +113,8 @@ Read the review output. Categorize each finding using `references/decision-frame
 
 Execute the research protocol. If verdict is "proceed", treat as auto-fix. If verdict is "escalate", defer to batch end. Log with full `research` field in either case.
 
+**Discard — contradicts computed facts** (PRD 00095): a finding asserting a countable value about an entity the cycle's mechanical-facts block covers, where the block says otherwise (a claimed 58-line function the block computes at 44), is **discarded, not researched**. The block is computed from `ast`; the reviewer is guessing. Record the discard in the ledger with reason `contradicts computed facts`, which is also what stops the same wrong claim returning next cycle. This applies only to values the block actually covers — a countable claim about anything else is judged normally.
+
 **Defer to batch end** (log, don't PAUSE):
 - Critical severity, always
 - Requirements ambiguity (PRD says X, code does Y)

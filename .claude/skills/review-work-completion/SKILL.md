@@ -149,6 +149,16 @@ Both positional args are optional — omit if no tasks/PRD available. Outputs co
 
 **Bare-repo homes (e.g. `~/.buvis`: `git --git-dir=~/.buvis --work-tree=~`):** `gather-context.sh` assumes a normal checkout and fails here — do not fight it. Build the review inputs yourself: generate the diff with `git --git-dir=<bare-dir> --work-tree=<tree> diff <COVERAGE_DIFF_RANGE>` (the range captured above), write it plus the tasks/PRD/context files to `/tmp/` with the Write tool, and pass those absolute `/tmp` paths to the reviewer prompts. The script path stays primary for normal repos.
 
+**Append the mechanical-facts block (PRD 00095).** After `gather-context.sh` has written the context file, compute the countable facts for the changed Python files and append the block to that context file, so every implementation-aware prompt carries it:
+
+```bash
+python3 ~/.claude/skills/review-work-completion/scripts/compute_mech_facts.py <changed file>...
+```
+
+Pass the changed-file list this step already gathered; the script prints a markdown block of per-function line counts from `ast`, lists non-Python and unparseable files as skipped, and always exits 0. Append its stdout to the context file with the Write tool. A reviewer citing this block cannot get a line count wrong, and step 6's gate discards any finding that contradicts it — the measured cost of the alternative was a whole orchestrator refutation pass over one reviewer's 58-vs-44 line claim.
+
+**Append the settled-decisions ledger (PRD 00095).** Read `dev/local/reviews/<prd-stem>-ledger.json` (`<prd-stem>` = the review-target PRD's filename minus `.md`; absent on cycle 1, which is normal). When it exists and parses, hold its entries for step 4 — they become the "Settled decisions — do not re-raise" section of the implementation-aware prompts — and hold the path for step 6's `--ledger` flag. A malformed ledger is logged and skipped, never fatal.
+
 **Generate the cycle's context pack.** After `gather-context.sh` has produced the diff, and before any prompt is assembled, run this from the project root:
 
 ```bash
@@ -179,6 +189,19 @@ missing or its frontmatter does not parse, mark that reviewer failed and let
 **Fail-closed preflight.** Before writing any prompt file, verify every roster
 agent for this cycle exists and parses. A reviewer whose file fails this check
 never gets a prompt file written.
+
+**Settled decisions — do not re-raise (PRD 00095).** When step 3 loaded ledger
+entries, append this section to **Alice's, Bob's, Carl's and Eve's** prompts,
+one line per entry (`disposition`, `severity`, `issue`, `file`, `reason`), under
+the heading `## Settled decisions — do not re-raise`:
+
+> These calls were already made in an earlier cycle of this same review, with
+> the reasons given. Do not re-raise them. Raise a NEW finding only if you can
+> show the settled reason no longer holds.
+
+**Blake never receives it.** His prompt is PRD-only by design, and a blind lens
+fed the review's own history is no longer blind. His re-raises are absorbed
+mechanically instead, by step 6's `--ledger-dismiss BLAKE`.
 
 Per persona:
 
@@ -273,8 +296,11 @@ python3 ~/.claude/skills/review-work-completion/scripts/consolidate_findings.py 
   ALICE:$PWD/dev/local/tmp/alice-output-{id}.txt \
   BLAKE:$PWD/dev/local/tmp/blake-output-{id}.txt \
   BOB:$PWD/dev/local/tmp/bob-output-{id}.txt \
-  CARL:$PWD/dev/local/tmp/carl-output-{id}.txt
+  CARL:$PWD/dev/local/tmp/carl-output-{id}.txt \
+  --ledger $PWD/dev/local/reviews/<prd-stem>-ledger.json --ledger-dismiss BLAKE
 ```
+
+**Drop the two `--ledger` flags when no ledger file exists** (cycle 1). With them, Blake findings matching a settled entry are excluded from the table and from task creation, and listed instead under a trailing `### Auto-dismissed (ledger)` section naming the reason each matched — copy that section into the review file, so a wrong dismissal is visible rather than silent. The filter is **Blake-only**: an implementation-aware reviewer re-raising despite the step-4 prompt feed is signal, not noise, and stays in the table.
 
 Pass only agents that produced output (omit the `CARL:` pair when Carl was skipped; append an `EVE:` pair when Eve or her Claude substitute ran). The script computes consensus dynamically from the number of agent pairs provided, and **merges paraphrases**: two reviewers describing one defect in different words land in one row with the higher consensus, provided they name the same file (PRD 00095; the bash predecessor matched on exact strings, so real 3/4 agreement always read [1/4]).
 
