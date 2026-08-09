@@ -179,6 +179,56 @@ def test_four_reviewers_wording_one_defect_merge_to_one_row(tmp_path: Path) -> N
     assert "ALICE, BLAKE, BOB, CARL" in rows[0]
 
 
+def test_merging_is_transitive_across_a_spectrum_of_wordings() -> None:
+    """Reviewers word one defect along a spectrum. The two extreme wordings
+    need not match each other as long as both match a middle one, and all
+    three must still land in one row - comparing only against a cluster
+    representative reports [2/3] plus [1/3] where the truth is [3/3]."""
+    extreme_a = SYS_EXIT_WORDINGS[0]
+    middle = SYS_EXIT_WORDINGS[1]
+    extreme_b = "exception handling absent: library calls exit rather than raising it"
+
+    assert cf.match(_finding(extreme_a), _finding(middle))
+    assert cf.match(_finding(middle), _finding(extreme_b))
+    assert not cf.match(_finding(extreme_a), _finding(extreme_b))  # the whole point
+
+    rows = cf.consolidate([
+        cf.Finding("ALICE", "🟡", extreme_a, "src/cli.py", "4"),
+        cf.Finding("BOB", "🟡", middle, "src/cli.py", "4"),
+        cf.Finding("CARL", "🟡", extreme_b, "src/cli.py", "4"),
+    ])
+    assert len(rows) == 1
+    assert rows[0].finders == ["ALICE", "BOB", "CARL"]
+
+
+def test_two_clusters_join_when_a_later_finding_bridges_them() -> None:
+    """The bridging wording can arrive last. Both existing clusters must
+    then become one, not just whichever was created first."""
+    extreme_a = SYS_EXIT_WORDINGS[0]
+    extreme_b = "exception handling absent: library calls exit rather than raising it"
+    middle = SYS_EXIT_WORDINGS[1]
+
+    rows = cf.consolidate([
+        cf.Finding("ALICE", "🟡", extreme_a, "src/cli.py", "4"),
+        cf.Finding("CARL", "🔴", extreme_b, "src/cli.py", "4"),
+        cf.Finding("BOB", "🟡", middle, "src/cli.py", "4"),
+    ])
+    assert len(rows) == 1
+    assert rows[0].finders == ["ALICE", "CARL", "BOB"]
+    assert rows[0].severity == "🔴"
+    assert rows[0].desc == extreme_a
+
+
+def test_consolidate_does_not_mutate_its_input() -> None:
+    findings = [
+        cf.Finding("ALICE", "🟡", SYS_EXIT_WORDINGS[0], "src/cli.py", "4"),
+        cf.Finding("BOB", "🔴", SYS_EXIT_WORDINGS[1], "src/cli.py", "4"),
+    ]
+    cf.consolidate(findings)
+    assert findings[0].severity == "🟡"
+    assert findings[0].finders == ["ALICE"]
+
+
 def test_distinct_defects_stay_separate_rows(tmp_path: Path) -> None:
     a = _write(
         tmp_path,

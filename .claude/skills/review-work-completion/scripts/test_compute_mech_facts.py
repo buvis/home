@@ -36,6 +36,12 @@ def outer():
         return 1
 
     return inner
+
+
+@staticmethod
+@some_decorator("x")
+def decorated(a, b):
+    return a + b
 '''
 
 
@@ -63,12 +69,11 @@ def test_line_counts_match_the_hand_counted_fixture(tmp_path: Path) -> None:
         "Handler.close": (12, 2),
         "outer": (16, 5),
         "outer.inner": (17, 2),
+        # The two decorators sit on lines 23-24; the reported start is the
+        # `def` on 25 and the length excludes them. The module's own comment
+        # claims this; the fixture is what makes the claim checkable.
+        "decorated": (25, 2),
     }
-
-
-def test_async_methods_are_counted(tmp_path: Path) -> None:
-    _, rows = mf.facts_for_file(_write(tmp_path, "mod.py", MODULE))
-    assert "Handler.close" in {name for name, _, _ in rows}
 
 
 def test_a_non_python_file_is_skipped_not_parsed(tmp_path: Path) -> None:
