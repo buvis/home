@@ -58,8 +58,11 @@ may might must no not of on or that the their then there these this to under use
 uses using was were when which while will with without would
 """.split())
 
+# The bracketed name is skipped, not captured: the NAME half of the caller's
+# NAME:FILE pair is authoritative, so a reviewer whose output mislabels its
+# own bracket is still attributed to the file it was read from.
 _LINE_RE = re.compile(
-    r"^\[(?P<agent>[^\]]+)\]\s+(?P<severity>.)\s+(?P<desc>.*?)"
+    r"^\[[^\]]+\]\s+(?P<severity>.)\s+(?P<desc>.*?)"
     r"\s+\|\s+File:\s*(?P<file>.*?)"
     r"\s+\|\s+Task:\s*(?P<task>.*?)\s*$"
 )
@@ -74,11 +77,13 @@ class Finding:
     desc: str
     file: str
     task: str
+    # Ledger entries only: why the call was settled. Rendered beside an
+    # auto-dismissed finding so a wrong dismissal is visible, not silent.
+    reason: str = ""
     finders: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if not self.finders:
-            self.finders = [self.agent] if self.agent else []
+        self.finders = [self.agent] if self.agent else []
 
 
 def normalize_file(path: str) -> tuple[str, ...]:
@@ -144,30 +149,56 @@ def parse_agent_output(path: Path, agent: str) -> list[Finding]:
     return [f for f in (parse_line(line, agent) for line in text.splitlines()) if f]
 
 
-def _absorb(into: Finding, other: Finding) -> None:
-    """Fold `other` into `into`: most severe severity wins, first-seen
-    description and file stay, finders accumulate without duplicates."""
-    if SEVERITY_ORDER.get(other.severity, UNKNOWN_SEVERITY_RANK) < SEVERITY_ORDER.get(
-        into.severity, UNKNOWN_SEVERITY_RANK
-    ):
-        into.severity = other.severity
-    for finder in other.finders:
-        if finder not in into.finders:
-            into.finders.append(finder)
+def _fold(group: list[Finding]) -> Finding:
+    """One row from a cluster: the first-seen description, file and task,
+    the most severe severity any member reported, and every finder in
+    first-seen order. Returns a NEW Finding - the inputs are not mutated."""
+    head = group[0]
+    row = Finding(
+        agent=head.agent,
+        severity=head.severity,
+        desc=head.desc,
+        file=head.file,
+        task=head.task,
+    )
+    for other in group[1:]:
+        if SEVERITY_ORDER.get(other.severity, UNKNOWN_SEVERITY_RANK) < SEVERITY_ORDER.get(
+            row.severity, UNKNOWN_SEVERITY_RANK
+        ):
+            row.severity = other.severity
+        for finder in other.finders:
+            if finder not in row.finders:
+                row.finders.append(finder)
+    return row
 
 
 def consolidate(findings: list[Finding]) -> list[Finding]:
-    """Merge matching findings, preserving first-seen order. Each finding
-    folds into the first existing group it matches."""
-    merged: list[Finding] = []
+    """Merge matching findings into one row each, first-seen order kept.
+
+    Single-linkage and genuinely transitive: a finding joins every cluster
+    any of whose members it matches, and those clusters then become one. It
+    has to be transitive — reviewers word one defect along a spectrum, so
+    the two extreme wordings routinely fail to match each other while both
+    match the middle one. Comparing only against a cluster representative
+    drops the third reviewer's concurrence and reports [2/3] plus [1/3]
+    where the truth is [3/3], which is the very undercount this script
+    replaced the bash matcher to fix.
+    """
+    clusters: list[list[Finding]] = []
     for finding in findings:
-        for group in merged:
-            if match(group, finding):
-                _absorb(group, finding)
-                break
-        else:
-            merged.append(finding)
-    return merged
+        hits = [c for c in clusters if any(match(member, finding) for member in c)]
+        if not hits:
+            clusters.append([finding])
+            continue
+        # Absorb the bridged clusters BEFORE the bridging finding, so
+        # `finders` stays in first-seen order: the clusters were all seen
+        # before the finding that joined them.
+        first = hits[0]
+        for other in hits[1:]:
+            first.extend(other)
+            clusters.remove(other)
+        first.append(finding)
+    return [_fold(cluster) for cluster in clusters]
 
 
 def load_ledger(path: Path) -> list[Finding]:
@@ -191,7 +222,8 @@ def load_ledger(path: Path) -> list[Finding]:
                     severity="",
                     desc=str(entry["issue"]),
                     file=str(entry.get("file", "")),
-                    task=str(entry.get("reason", "")),
+                    task="",
+                    reason=str(entry.get("reason", "")),
                 )
             )
     return settled
@@ -238,7 +270,7 @@ def render(merged: list[Finding], total_agents: int) -> str:
 def render_dismissed(dismissed: list[tuple[Finding, Finding]]) -> str:
     lines = ["### Auto-dismissed (ledger)", ""]
     for finding, entry in dismissed:
-        reason = entry.task or "settled in an earlier cycle"
+        reason = entry.reason or "settled in an earlier cycle"
         lines.append(
             f"- [{finding.agent}] {finding.severity} {finding.desc} | "
             f"File: {finding.file} — {reason}"
