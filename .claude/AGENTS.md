@@ -45,4 +45,7 @@ With 1M context, research stays in-flight through implementation.
 ## Dotfiles repo
 
 - Tracked in a bare repo at `~/.buvis`, work-tree is `$HOME`. Run git as `git --git-dir=~/.buvis --work-tree=~ <cmd>` (no shell alias assumed).
+- **This repo answers "not tracked" by staying silent, in two different ways. Both have already caused a wrong conclusion.** Treat ANY empty output from `~/.buvis` as unverified until a known-tracked control path proves the command shape works.
+  - The index is unpopulated, so `ls-files` returns empty for everything and plain `git diff` (index-vs-worktree) is meaningless. Use `ls-tree -r --name-only HEAD` to check tracking and `git diff HEAD` to see changes.
+  - Pathspecs resolve against **cwd**, not the work-tree. From anywhere but `~`, `-- .claude/foo` silently searches `<cwd>/.claude/foo` and finds nothing. Anchor every pathspec with `:(top)`, e.g. `add ':(top).claude/skills/foo'`. `git log` and `show --stat` keep working regardless, which makes the repo look fine while the path looks absent.
 - The `rules/changelog.md` mandate does **not** apply here: no releases, no CHANGELOG. Commit `feat`/`fix` directly without a CHANGELOG entry, and don't add a CHANGELOG.md to this repo.
