@@ -211,8 +211,8 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except (PermissionError, OSError):
-        return True
+    except OSError:
+        return True  # EPERM etc.: it exists, we just can't signal it
     return True
 
 
@@ -554,7 +554,13 @@ class Loop:
         suffix = "/dev/local/autopilot"
         root = Path(root_str[: -len(suffix)]) if root_str.endswith(suffix) else ap_dir
         incumbent = live_wrapper_pid(root, loops_dir)
-        if incumbent is not None:
+        # An incumbent carrying OUR OWN pid is this shell's earlier loop
+        # that died without teardown (SIGKILL of the python driver leaves
+        # the entry naming the still-alive shell). The bash loop could
+        # never reach this state - killing the loop killed the shell - so
+        # prune's own-pid skip was enough there; here the stale self-entry
+        # must be overwritten, never treated as a live duplicate.
+        if incumbent is not None and incumbent != self.loop_pid:
             print(
                 f"autoclaude: a loop is already running for {root} "
                 f"(pid {incumbent}). Refusing to start a second loop on the "
