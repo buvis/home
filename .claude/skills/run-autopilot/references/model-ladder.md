@@ -187,13 +187,13 @@ exit 2 (`state-schema.md` `tasks[].attempts`).
 headroom from host memory stats. The script actually reads
 `kern.memorystatus_vm_pressure_level`, the kernel's pressure notification
 level (1 normal, 2 warning, 4 critical), not computed free RAM. Deliberate:
-it reuses the signal the autoclaude wrapper's memory circuit breaker already
-trusts (`~/.config/bash/plugins/development.plugin.bash`), one definition of
+it reuses the signal the autopilot loop's memory circuit breaker already
+trusts (`cli/loop.py`, since PRD 00106), one definition of
 pressure on this host instead of two. Tradeoff: it lags true headroom, only
 rising once the kernel is already compressing and swapping, a coarse stop.
 
-**Unmeasured under load:** `1` was set by symmetry with the autoclaude
-wrapper's memory circuit breaker, not by measurement with a qwen server
+**Unmeasured under load:** `1` was set by symmetry with the autopilot
+loop's memory circuit breaker, not by measurement with a qwen server
 resident. If a loaded server holds the pressure level at 2, routing row 4
 fires on every qwen-eligible task forever, a silent permanent qwen-off
 switch, the opposite of this gate's intent. To close this, next time a
@@ -268,11 +268,12 @@ chain. They are scoped to different moments.
 Escalation without decay is a ratchet, and every silent ratchet refunds the
 savings the cheaper defaults earned. These rows are the single statement of
 which build-phase promotion signals stop firing when their cause passes
-(PRD 00111). They govern `_autopilot_build_model`; the signals themselves are
-specified in `state-schema.md` § Build-phase model routing.
+(PRD 00111). They govern `build_model` in `cli/routing.py` (since PRD 00106);
+the signals themselves are specified in `state-schema.md` § Build-phase model
+routing.
 
-**The wrapper recomputes, never remembers.** There is no stored promotion
-latch anywhere: `_autopilot_build_model` re-derives the launch model from
+**The loop recomputes, never remembers.** There is no stored promotion
+latch anywhere: `build_model` re-derives the launch model from
 current state at every relaunch. A live signal therefore decays by
 construction the moment its state field clears — the rows below say when that
 happens, they do not add a second mechanism.

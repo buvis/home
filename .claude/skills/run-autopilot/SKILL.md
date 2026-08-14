@@ -20,7 +20,9 @@ Makes autonomous decisions backed by research (dependencies, recurring issues, A
   (Watcher keep-alive)
 - Hooks outside the skill dir: `~/.claude/hooks/notify.py`
 - Shell wrapper outside `~/.claude`: `autoclaude` in
-  `~/.config/bash/plugins/development.plugin.bash` - the unattended session loop
+  `~/.config/bash/plugins/development.plugin.bash` - operator subcommands +
+  tracon front-end; it hands off to `autopilot loop` (`cli/loop.py`), the
+  unattended session loop since PRD 00106
 - Scripts (own dir, model-invoked as a CLI): `scripts/statectl.py` — the sole
   `state.json` mutator (`get`/`set`/`append`/`del`; atomic, advisory-locked,
   one rotating `.bak`)
@@ -64,7 +66,7 @@ All autopilot artifacts live under `dev/local/autopilot/`, organized by type:
 ```
 dev/local/autopilot/
   state.json                              # current cycle state
-  last-session.log                        # wrapper-teed output of the last headless session
+  last-session.log                        # loop-teed raw output of the last headless session
   reports/{batch_id}-report.md            # batch audit report
   deferred/{batch_id}-deferred.json       # unresolved items across PRDs
 ```
@@ -152,26 +154,26 @@ Print a banner at each phase transition:
 
 ## Session Loop
 
-Unattended mode runs each session headless: the `autoclaude` wrapper (in `~/.config/bash/plugins/development.plugin.bash`) launches `claude -p "/run-autopilot"`, the session runs exactly one turn, and the process exits at turn end. There is no signal file and no Stop-hook choreography — **`state.json` is the entire hand-off contract** (`references/design-rationale.md` § Headless sessions).
+Unattended mode runs each session headless: the `autoclaude` wrapper (in `~/.config/bash/plugins/development.plugin.bash`) hands off to `autopilot loop` — the CLI loop driver, `cli/loop.py` (PRD 00106) — which launches `claude -p "/run-autopilot"`; the session runs exactly one turn, and the process exits at turn end. There is no signal file and no Stop-hook choreography — **`state.json` is the entire hand-off contract** (`references/design-rationale.md` § Headless sessions).
 
-**Hand-off = write state, print banner, end the turn.** After the process exits, the wrapper reads `state.json` and branches:
+**Hand-off = write state, print banner, end the turn.** After the process exits, the loop driver reads `state.json` and branches:
 
 0. `state-write-failed` marker present → stop the loop and notify with its `detail`, without needing `state.json` to be readable.
 1. `pause_reason` set or `phase == "paused"` → notify the user with the pause detail, stop the loop, state left intact.
 2. `stall_reason.stalled == "subagent_prompt_overrun"` (set by `/work`'s Subagent Dispatch Budget when an assembled subagent prompt exceeded 50K after one trim pass; `/work` also appends to `state.task_aborts`) → continue the loop; Phase 0 of the next session replans the PRD in place (PRD stays in `wip/`; see the build gate's abort handlers). This is the one surviving replan path.
-3. `next_phase == ""` (empty) → backlog drained: the wrapper archives `state.json` to `reports/{batch_id}-state-final.json`, notifies, and stops the loop.
+3. `next_phase == ""` (empty) → backlog drained: the loop archives `state.json` to `reports/{batch_id}-state-final.json`, notifies, and stops the loop.
 4. `next_phase` non-empty → relaunch a fresh session, which resumes from state by artifact — capsule fresh → skip catchup, tasks exist → skip planning, `/work` continues at the first non-completed task.
-5. `state.json` missing, unreadable, or untouched by the session → usage-limit check against the captured session log (`last-session.log`; a live limit means sleep-until-reset and continue). Otherwise a genuine death: with a PRD selected (`state.prd` non-empty) the wrapper retries the relaunch once (`_AUTOPILOT_DIED_RETRIES_MAX`, default 1), then on exhaustion PARKS it — writes `dev/local/autopilot/park-requested` (`{prd, reason}`) and relaunches, so the next session's Phase 0 park handler sidelines the sick PRD to `hold/` and the batch keeps draining (PRD 00066). Only a **bootstrap** death (no PRD selected — nothing to park) notifies "died" and stops loud; an unconsumed park marker trips the wrapper's park-loop guard (also a loud stop; guarded relaunches back off `_AUTOPILOT_PARK_BACKOFF`, default 30s, and a marker whose write fails outright halts loud rather than handing off an empty marker). These two are rows 8 and 10 of the Error Handling § sanctioned batch-halt list.
+5. `state.json` missing, unreadable, or untouched by the session → usage-limit check against the captured session log (`last-session.log`; a live limit means sleep-until-reset and continue). Otherwise a genuine death: with a PRD selected (`state.prd` non-empty) the loop retries the relaunch once (`_AUTOPILOT_DIED_RETRIES_MAX`, default 1), then on exhaustion PARKS it — writes `dev/local/autopilot/park-requested` (`{prd, reason}`) and relaunches, so the next session's Phase 0 park handler sidelines the sick PRD to `hold/` and the batch keeps draining (PRD 00066). Only a **bootstrap** death (no PRD selected — nothing to park) notifies "died" and stops loud; an unconsumed park marker trips the loop's park-loop guard (also a loud stop; guarded relaunches back off `_AUTOPILOT_PARK_BACKOFF`, default 30s, and a marker whose write fails outright halts loud rather than handing off an empty marker). These two are rows 8 and 10 of the Error Handling § sanctioned batch-halt list.
 
 A Work-turn context-cap overrun is just branch 4: `autopilot_context_cap_hook.py` records the rotation (appends to `state.cap_rotations`, resets the in-flight task to `pending`, sets `next_phase: "build"`), the turn ends, and the fresh session resumes `build` by artifact — NO replan.
 
-The model's only job at a hand-off is to write `state.next_phase` (and `phase`/`stall_reason`) accurately, print the banner, and end the turn. The model never writes any signal and never inspects the wrapper's decision table — writing accurate state IS the hand-off. Interactive (non-loop) semantics are identical minus the wrapper: the same state writes happen, and the user re-invokes `/run-autopilot` manually.
+The model's only job at a hand-off is to write `state.next_phase` (and `phase`/`stall_reason`) accurately, print the banner, and end the turn. The model never writes any signal and never inspects the loop's decision table — writing accurate state IS the hand-off. Interactive (non-loop) semantics are identical minus the loop: the same state writes happen, and the user re-invokes `/run-autopilot` manually.
 
 **End the turn only at a real hand-off.** A phase is complete only when its artifacts are written and `state` is advanced (`phases_completed` updated, `next_phase` set). Dispatched work — `Agent` calls and background Bash — returns its results **within the same headless turn**: the harness re-invokes you with each `<task-notification>` before the turn can end, so dispatch, overlap independent work, wait for the results, and finish the phase. Do not end the turn to "wait for" something you dispatched.
 
-**Background Bash alone cannot hold a headless session open.** Documented `-p` behavior: live subagents keep the process alive across turn ends and re-invoke on completion, but background Bash tasks are killed ~5s after the final result. A turn that ends while ONLY background Bash (codex/gemini/qwen, `cargo test`, …) is still running kills that work and strands the phase (2026-07-12: the review session died this way twice — codex killed mid-review, state untouched, loop halted). Whenever dispatched background Bash may outlive every live subagent, dispatch a **Watcher subagent** in the same message that re-runs `~/.claude/skills/review-work-completion/scripts/await_reviewer_outputs.py` against the expected output files until `DONE` (procedure: `/review-work-completion` step 5). The wrapper exports `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` so the subagent wait has no 10-minute ceiling; the session wall-clock cap stays the backstop.
+**Background Bash alone cannot hold a headless session open.** Documented `-p` behavior: live subagents keep the process alive across turn ends and re-invoke on completion, but background Bash tasks are killed ~5s after the final result. A turn that ends while ONLY background Bash (codex/gemini/qwen, `cargo test`, …) is still running kills that work and strands the phase (2026-07-12: the review session died this way twice — codex killed mid-review, state untouched, loop halted). Whenever dispatched background Bash may outlive every live subagent, dispatch a **Watcher subagent** in the same message that re-runs `~/.claude/skills/review-work-completion/scripts/await_reviewer_outputs.py` against the expected output files until `DONE` (procedure: `/review-work-completion` step 5). The loop's session runner exports `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` so the subagent wait has no 10-minute ceiling; the session wall-clock cap stays the backstop.
 
-An idle end-of-turn (phase unfinished, nothing pending) no longer thrashes anything — the wrapper relaunches and the next session resumes the phase by artifact (self-healing) — but it burns a session start, so treat it as waste, not as a mechanism.
+An idle end-of-turn (phase unfinished, nothing pending) no longer thrashes anything — the loop relaunches and the next session resumes the phase by artifact (self-healing) — but it burns a session start, so treat it as waste, not as a mechanism.
 
 For long **Bash** (builds, tests), still prefer the FOREGROUND with an explicit `timeout` (up to 600000 ms) so the result is in hand directly. If genuine work cannot finish in this session, that is a PAUSE (`phase: "paused"` + `state.pause_reason = {"site": "work_incomplete", "detail": "<what could not finish>"}` + end turn), not a silent idle stop.
 
@@ -181,7 +183,7 @@ Every session handoff is the same three steps:
 
 1. **Apply the transition** with one `autopilot phase-done --outcome <outcome>` call (table below). It reads the current phase from `state.json`, looks the pair up in `cli/transitions.py`, and commits the next phase together with every field effect that transition mandates — in ONE transaction. There is no `--phase` flag and no per-effect flag: a caller cannot supply a mismatched phase, and cannot forget an effect.
 2. **Print the site's banner** (shown at the invoking site in the gate file).
-3. **End the turn.** In loop mode the wrapper reads `state.json` and relaunches per its decision table above; outside the loop the user re-invokes `/run-autopilot` and the same resume logic applies. Do NOT continue into the next gate's phases in this session, even if context budget appears sufficient.
+3. **End the turn.** In loop mode the loop driver reads `state.json` and relaunches per its decision table above; outside the loop the user re-invokes `/run-autopilot` and the same resume logic applies. Do NOT continue into the next gate's phases in this session, even if context budget appears sufficient.
 
 | site | `--outcome` | what the transition commits |
 |------|-------------|-----------------------------|
@@ -189,7 +191,7 @@ Every session handoff is the same three steps:
 | **review → review** (`phase-review.md` Phase 6, after rework when the loop continues) | `rework` | `phase`/`next_phase: "review"`, `cycle` incremented, `rework_task_ids` cleared — all in one commit. `state.tasks` untouched. `phases_completed` unchanged — only convergence adds `"review"`. |
 | **review → done** (`phase-review.md`, on loop convergence) | `converged` | `phase`/`next_phase: "done"`, and `"review"` appended to `phases_completed` — the convergence marker the review gate's loop-level skip reads. It lands *because this is convergence*, not because a flag asked for it. |
 | **PRD → PRD** (`phase-done.md`, step 10 more-PRDs branch) | `more_prds` | `phase`/`next_phase: "build"`, `phases_completed` reset to `[]`, and the whole per-PRD reset (`cli/records.PER_PRD_RESET_FIELDS` — the one authoritative list); `batch` preserved in full. |
-| **batch end** (`phase-done.md`, no more PRDs) | `drained` | `phase: "done"` and the EMPTY `next_phase` the wrapper reads as drained. Not a handoff — nothing relaunches. Also legal from `build`, which is where Phase 0's "No PRDs anywhere" reaches it. |
+| **batch end** (`phase-done.md`, no more PRDs) | `drained` | `phase: "done"` and the EMPTY `next_phase` the loop reads as drained. Not a handoff — nothing relaunches. Also legal from `build`, which is where Phase 0's "No PRDs anywhere" reaches it. |
 
 Writing any of these fields by hand with `statectl set` is a bug: it is how a mandatory effect gets dropped. The `cycle` increment is the one that has already cost a real batch — the Phase 5 cap gate reads it, and losing it once let a loop run past its cap.
 
@@ -214,15 +216,15 @@ The `autoclaude` wrapper exports `_AUTOPILOT_LOOP=$$` before launching each head
 
 **State-write gate (in-session integrity gate).** `statectl` is the normal writer and cannot produce an invalid `state.json`, but a stray hand-edit still can, so `validate_state_json_hook.py` stays registered on PostToolUse for the `Edit`/`Write`/`MultiEdit` matchers: any such mutation that leaves the file unparseable exit-2-feeds the parse error back to the model immediately, while the session can still rewrite it. Without it, the corruption surfaces only at session exit, where the wrapper's `jq` check misreads a healthy PAUSE as `died` (state file unreadable) and halts the loop (harness-tag bleed appended `</content>` to a hand-edited write, ddb 2026-07-16).
 
-**Wrapper sketch** (the real `autoclaude` adds the memory circuit-breaker, the session wall-clock cap, orphan cleanup, metrics, notifications, and the operator-view renderer — `scripts/render_stream.py` turns the stream-json terminal output into one-line summaries while `last-session.log` keeps the raw events):
+**Loop sketch** (the real driver — `cli/loop.py`, invoked as `autopilot loop` — adds the memory circuit-breaker, the session wall-clock cap, orphan cleanup, metrics, notifications, and the operator-view renderer — `scripts/render_stream.py` turns the stream-json terminal output into one-line summaries while `last-session.log` keeps the raw events; the bash `autoclaude` wrapper keeps only the operator subcommands, the tracon presentation front-end, and the hand-off):
 
-```bash
-while true; do
-  [ -f dev/local/autopilot/pause-requested ] && break   # operator pause
-  WARDEN_UNATTENDED=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-    claude -p "/run-autopilot" 2>&1 | tee dev/local/autopilot/last-session.log
-  # read state.json and branch per the decision table above (1-5)
-done
+```
+autoclaude                 # bash: subcommands + tracon front-end, then
+  -> autopilot loop        # cli/loop.py, the driver:
+       while True:
+           pause marker?  -> consume it, notify, stop
+           spawn the routed `claude -p "/run-autopilot"` (raw events kept in last-session.log)
+           read state.json, branch per the decision table above (0-5)
 ```
 
 ## Phase 0 invariants (selection — full procedure: `references/phase-build.md`)
@@ -304,7 +306,7 @@ The check is deterministic (the pinned `awk` above), NOT a model judgment.
 8. **Died bootstrap session** — a session died before any PRD was selected, so there is nothing to park (wrapper `died`).
 9. **Systemic-park breaker** — 2 consecutive `wrapper_died` parks with nothing healthy between (skill PAUSE, `systemic_park`; Phase 0 park handler, `references/phase-build.md`).
 10. **Unwritable or unconsumed park marker** — the park hand-off itself is broken: the wrapper cannot write the `park-requested` marker (the write-failure guard in the `park)` else branch, so it never hands off an empty marker) OR a written marker is never consumed (the park-loop guard). Either is a wrapper loud halt.
-11. **Plugin version drift** (PRD 00086 R3) — the wrapper's plugin-pin preflight (`_autopilot_plugin_drift`) found an enforcement plugin (aegis/warden) whose installed version differs from the `state.batch.plugin_versions` pin recorded at batch selection: the batch's enforcement code auto-updated mid-run, so the wrapper halts loud with state intact rather than run a session on unpinned enforcement code.
+11. **Plugin version drift** (PRD 00086 R3) — the loop's plugin-pin preflight (`plugin_drift` in `cli/loop.py`) found an enforcement plugin (aegis/warden) whose installed version differs from the `state.batch.plugin_versions` pin recorded at batch selection: the batch's enforcement code auto-updated mid-run, so the wrapper halts loud with state intact rather than run a session on unpinned enforcement code.
 
 Rows 1–8 are the PRD 00066 Success-Metrics list; rows 9–10 are the two systemic backstops the PRD Risks section mandates (adopted at the design gate, 2026-07-18); row 11 is the plugin-pin preflight (PRD 00086 R3). Nothing outside these eleven stops the batch — Success Metric 2 is read as "no UNSANCTIONED halts".
 

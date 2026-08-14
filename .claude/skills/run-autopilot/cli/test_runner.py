@@ -152,8 +152,11 @@ def test_spawn_caps_a_hung_session(tmp_path, capsys):
         'import time\nprint("started", flush=True)\ntime.sleep(300)',
     )
     ap = _ap_dir(tmp_path)
+    # The cap must comfortably outlast interpreter startup, or the stub is
+    # TERM'd before its "started" line ever reaches the pipe (measured
+    # flaky at 0.3s under parallel suite load).
     result = spawn(
-        "m", "low", cap_secs=0.3, autopilot_dir=ap, env={}, runner_bin=stub,
+        "m", "low", cap_secs=2, autopilot_dir=ap, env={}, runner_bin=stub,
         grace_secs=5, presenter=_Collector(),
     )
     assert result.cap_fired is True
