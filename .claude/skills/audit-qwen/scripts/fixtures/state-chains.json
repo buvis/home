@@ -1,0 +1,64 @@
+{
+  "prd": "00901-fixture-prd-v1.md",
+  "phase": "review",
+  "batch": {"id": "202608140000"},
+  "tasks": [
+    {
+      "id": "t1",
+      "name": "qwen completes cleanly",
+      "status": "completed",
+      "qwen_eligible": true,
+      "attempts": [
+        {"attempt": 1, "model": "sonnet", "outcome": "completed", "review_cycle": null, "cause": null, "implementor": "qwen", "preflight_outcome": "healthy", "pipeline": "lean"}
+      ]
+    },
+    {
+      "id": "t2",
+      "name": "qwen flagged by review, claude rework follows",
+      "status": "completed",
+      "qwen_eligible": true,
+      "attempts": [
+        {"attempt": 1, "model": "sonnet", "outcome": "review_flagged", "review_cycle": 1, "cause": "fixture finding", "implementor": "qwen", "preflight_outcome": "healthy", "pipeline": "lean"},
+        {"attempt": 2, "model": "sonnet", "outcome": "completed", "review_cycle": 1, "cause": null, "implementor": "claude", "preflight_outcome": null, "pipeline": "lean", "escalation_reason": "review_flag"}
+      ]
+    },
+    {
+      "id": "t3",
+      "name": "qwen gate fails, escalates to claude in the same pass",
+      "status": "completed",
+      "qwen_eligible": true,
+      "attempts": [
+        {"attempt": 1, "model": "sonnet", "outcome": "escalated", "review_cycle": null, "cause": "gate red", "implementor": "qwen", "preflight_outcome": "healthy", "pipeline": "lean", "qwen_gate_failed": true},
+        {"attempt": 2, "model": "sonnet", "outcome": "completed", "review_cycle": null, "cause": null, "implementor": "claude", "preflight_outcome": null, "pipeline": "lean", "escalation_reason": "gate_failure", "escalated_from": "qwen"}
+      ]
+    },
+    {
+      "id": "t4",
+      "name": "qwen aborted mid-flight",
+      "status": "pending",
+      "qwen_eligible": true,
+      "attempts": [
+        {"attempt": 1, "model": "sonnet", "outcome": "aborted", "review_cycle": null, "cause": "session died", "implementor": "qwen", "preflight_outcome": "pi_missing", "pipeline": "lean"}
+      ]
+    },
+    {
+      "id": "t5",
+      "name": "ui task, plan-time ineligible",
+      "status": "completed",
+      "qwen_eligible": false,
+      "qwen_excluded_reason": "ui",
+      "attempts": [
+        {"attempt": 1, "model": "sonnet", "outcome": "completed", "review_cycle": null, "cause": null, "implementor": "claude", "preflight_outcome": null, "pipeline": "lean"}
+      ]
+    },
+    {
+      "id": "t6",
+      "name": "eligible but rerouted by the memory gate",
+      "status": "completed",
+      "qwen_eligible": true,
+      "attempts": [
+        {"attempt": 1, "model": "sonnet", "outcome": "completed", "review_cycle": null, "cause": null, "implementor": "claude", "preflight_outcome": null, "pipeline": "lean", "qwen_excluded_reason": "memory_pressure"}
+      ]
+    }
+  ]
+}
