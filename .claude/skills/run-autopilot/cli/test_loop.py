@@ -140,7 +140,7 @@ def make_loop(tmp_path: Path, steps, env: dict | None = None, **kwargs):
     lp = Loop(
         cwd=repo,
         env=full_env,
-        spawn_fn=spawn,
+        spawn_fn=kwargs.pop("spawn_fn", None) or spawn,
         notify_fn=notify,
         sleep_fn=sleep,
         pressure_fn=kwargs.pop("pressure_fn", lambda: 1),
@@ -809,6 +809,39 @@ def test_prune_removes_dead_untagged_and_malformed_entries(tmp_path):
     assert not (loops / "junk.json").exists()
     assert not (loops / "recycled.json").exists()
     assert (loops / "own.json").exists()  # never our own entry
+
+
+def test_interrupt_tears_down_and_returns_130(tmp_path):
+    # Ctrl-C reaches the loop as KeyboardInterrupt (the group signal):
+    # teardown must remove the registry entry, terminate a mid-flight
+    # child, and return the bash-parity code.
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+    def interrupting_spawn(model, effort, *, cap_secs, autopilot_dir, env,
+                           runner_bin, proc_slot=None, **kwargs):
+        if proc_slot is not None:
+            proc_slot[0] = child
+        raise KeyboardInterrupt
+
+    lp = make_loop(tmp_path, [], spawn_fn=interrupting_spawn)
+    try:
+        assert lp.run() == 130
+        assert list((tmp_path / "loops").glob("*.json")) == []
+        child.wait(timeout=10)
+        assert child.returncode != 0  # terminated, not exited
+    finally:
+        child.kill()
+        child.wait()
+
+
+def test_sigterm_translates_to_143(tmp_path):
+    def terminating_spawn(model, effort, *, cap_secs, autopilot_dir, env,
+                          runner_bin, proc_slot=None, **kwargs):
+        raise loop_mod._Terminated(143)
+
+    lp = make_loop(tmp_path, [], spawn_fn=terminating_spawn)
+    assert lp.run() == 143
+    assert list((tmp_path / "loops").glob("*.json")) == []
 
 
 def test_loop_verb_is_registered_in_the_cli():
