@@ -168,10 +168,12 @@ def spawn(
     prompt: str = DEFAULT_PROMPT,
     grace_secs: float = DEFAULT_GRACE_SECS,
     presenter=None,
+    proc_slot: list | None = None,
 ) -> SpawnResult:
     """Run one phase session: launch, tee to last-session.log, present,
     enforce the wall-clock cap. Returns after the session exits (on its
-    own or capped)."""
+    own or capped). `proc_slot[0]` receives the live Popen so the
+    caller's signal teardown can terminate a mid-flight session."""
     if env is None:
         env = dict(os.environ)
     fallback = env.get("_AUTOPILOT_FALLBACK_MODEL", "claude-sonnet-5[1m]")
@@ -189,6 +191,8 @@ def spawn(
             stderr=subprocess.STDOUT,
             env=child_env,
         )
+        if proc_slot is not None:
+            proc_slot[0] = proc
         dog = Watchdog(proc, cap_secs=cap_secs, grace_secs=grace_secs).start()
         assert proc.stdout is not None
         try:

@@ -55,9 +55,14 @@ Subcommands:
         writing; --now pins the timestamp (tests/goldens).
     status    --state
         status.render_status(): a plain-text one-screen state view.
-
-Further subcommands belong to PRD 00106 (the orchestrator cutover); the
-subcommand registry below is where they get added.
+    loop
+        loop.Loop().run() - loop-mode orchestration (PRD 00106): drives
+        routed phase sessions over the decision table until drain,
+        pause, halt, or an operator signal. Takes no flags; it anchors
+        on cwd (walk-up) and the _AUTOPILOT_* env knobs, exactly as the
+        bash wrapper loop did. Its exit code IS the loop outcome (0
+        drained/paused-on-purpose, 1 halted, 130/143/129 on signals),
+        not the state-CLI codes below.
 
 --state, when omitted, resolves by walking up from cwd via
 _walk_up.find_autopilot_dir() to <dir>/state.json. park's --autopilot-dir,
@@ -648,6 +653,22 @@ def _run_render(args: argparse.Namespace) -> int:
     return _emit(block, out_path, args.stdout, append=True)
 
 
+def _add_loop(subparsers) -> None:
+    subparsers.add_parser("loop")
+    # Deliberately no flags: the loop anchors on cwd (walk-up) and reads
+    # its knobs from the _AUTOPILOT_* environment, exactly as the bash
+    # wrapper did. An explicit --state here would let loop-mode drive a
+    # tree the pause/park markers don't live in.
+
+
+def _run_loop_cmd(args: argparse.Namespace) -> int:
+    # Imported here, not at module top: the loop pulls in urllib and the
+    # runner stack, which the other verbs never need.
+    from cli import loop
+
+    return loop.Loop().run()
+
+
 def _add_status(subparsers) -> None:
     p = subparsers.add_parser("status")
     p.add_argument("--state")
@@ -699,6 +720,7 @@ _SUBCOMMANDS: dict[str, tuple] = {
     "gate": (_add_gate, _run_gate),
     "render": (_add_render, _run_render),
     "status": (_add_status, _run_status),
+    "loop": (_add_loop, _run_loop_cmd),
 }
 
 
