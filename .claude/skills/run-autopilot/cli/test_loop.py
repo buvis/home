@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -808,9 +809,68 @@ def test_registry_entry_carries_the_tracon_contract_shape(tmp_path):
     assert Path(entry["root"]).is_absolute()
     assert str(ap_dir) == entry["root"] + "/dev/local/autopilot"
     assert entries[0].name == f"{lp.loop_pid}.json"
-    import re as _re
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", entry["started_at"])
 
-    assert _re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", entry["started_at"])
+
+def test_own_stale_registry_entry_is_overwritten_not_refused(tmp_path):
+    # A SIGKILLed python driver leaves an entry naming this shell's own
+    # (still-alive) pid; the relaunch from the same shell must overwrite
+    # it rather than refuse against itself.
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    lp = make_loop(tmp_path, [terminal_step()])
+    (loops / f"{lp.loop_pid}.json").write_text(
+        json.dumps({"pid": lp.loop_pid, "root": str(tmp_path / "repo")})
+    )
+    assert lp.run() == 0
+    assert "already running" not in lp._test["err"].getvalue()
+    assert list(loops.glob("*.json")) == []  # teardown removed the rewrite
+
+
+def test_loop_drives_the_real_runner_spawn_end_to_end(tmp_path):
+    # The scripted spawns mirror runner.spawn's signature; this test binds
+    # Loop to the REAL runner.spawn with a stub claude binary, so a
+    # signature drift between the two fails here, not in a live batch.
+    stub = tmp_path / "stub-claude"
+    ap_rel = "repo/dev/local/autopilot"
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import json, pathlib, sys\n"
+        f"ap = pathlib.Path({str(tmp_path)!r}) / {ap_rel!r}\n"
+        "(ap / 'state.json').write_text(json.dumps("
+        "{'prd': 'p.md', 'next_phase': '', 'batch': {'id': 'real-1'}}))\n"
+        "print(json.dumps({'type': 'result', 'total_cost_usd': 0.02,"
+        " 'usage': {'output_tokens': 7}}))\n"
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+
+    repo = tmp_path / "repo"
+    ap_dir = repo / "dev" / "local" / "autopilot"
+    ap_dir.mkdir(parents=True)
+    notify = Recorder()
+    out, err = io.StringIO(), io.StringIO()
+    lp = Loop(
+        cwd=repo,
+        env={
+            "PATH": os.environ["PATH"],
+            "_AUTOPILOT_LOOPS_DIR": str(tmp_path / "loops"),
+            "_AUTOPILOT_TRACON_CHILD": "1",  # discard presenter: no render child
+        },
+        notify_fn=notify,
+        pressure_fn=lambda: 1,
+        out=out,
+        err=err,
+        runner_bin=str(stub),
+    )
+    lp._cleanup_orphans = lambda: None  # keep the real-spawn test hermetic too
+    assert lp.run() == 0
+    assert "Backlog drained." in out.getvalue()
+    row = json.loads(
+        (ap_dir / "loop-metrics.jsonl").read_text().strip().splitlines()[0]
+    )
+    assert row["signal"] == "done"
+    assert row["cost_usd"] == 0.02
+    assert (ap_dir / "last-session.log").read_bytes().startswith(b'{"type": "result"')
 
 
 def test_registry_write_failure_runs_unregistered_loud(tmp_path):
