@@ -75,7 +75,7 @@ def parse_report(path: Path) -> dict:
     }
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         result["unparsed"] = f"unreadable: {exc}"
         return result
     current, in_mix, saw_mix_heading = None, False, False
@@ -135,7 +135,7 @@ def parse_state(path: Path) -> dict:
     }
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         result["unparsed"] = f"{type(exc).__name__}: {exc}"
         return result
     if not isinstance(data, dict):
@@ -226,6 +226,18 @@ def scan_repo(repo: Path) -> dict:
     return record
 
 
+def _row_note(preflight: dict, plan: dict, dispatch: dict) -> str:
+    """Per-batch detail for the table's Notes column."""
+    parts = []
+    if preflight:
+        parts.append(f"preflight: {_hist(preflight)}")
+    if plan:
+        parts.append(f"excluded: {_hist(plan)}")
+    if dispatch:
+        parts.append(f"reroutes: {_hist(dispatch)}")
+    return "; ".join(parts)
+
+
 def compute(records: list[dict]) -> dict:
     """Merge per-repo parses into the aggregate rate inputs. A report
     section whose (repo, prd) a state also covers is skipped - the state
@@ -247,10 +259,13 @@ def compute(records: list[dict]) -> dict:
             qwen = [a for a in state["attempts"] if a.get("implementor") == "qwen"]
             agg["state_qwen"] += len(qwen)
             agg["eligible"] += state["eligible"]
+            preflight: dict[str, int] = {}
             for attempt in qwen:
                 _add(agg["gate"], classify_gate(attempt))
                 if attempt.get("preflight_outcome"):
-                    _add(agg["preflight"], attempt["preflight_outcome"])
+                    _add(preflight, attempt["preflight_outcome"])
+            for bucket, n in preflight.items():
+                _add(agg["preflight"], bucket, n)
             for hist in ("plan", "dispatch"):
                 for bucket, n in state[hist].items():
                     _add(agg[hist], bucket, n)
@@ -261,7 +276,7 @@ def compute(records: list[dict]) -> dict:
                     "state (live)",
                     state["prd"] or "?",
                     len(qwen),
-                    "",
+                    _row_note(preflight, state["plan"], state["dispatch"]),
                 ],
             )
         for report in record["reports"]:
@@ -272,7 +287,12 @@ def compute(records: list[dict]) -> dict:
                     agg["superseded"] += 1
                     continue
                 mix = section["mix"]
-                note = "" if mix else "legacy (no mix data)"
+                if mix is None:
+                    note = "legacy (no mix data)"
+                elif not mix["attempts"]:
+                    note = "no implementor data"
+                else:
+                    note = _row_note(mix["preflight"], mix["plan"], mix["dispatch"])
                 qwen = mix["attempts"].get("qwen", 0) if mix else 0
                 agg["report_qwen"] += qwen
                 if mix:

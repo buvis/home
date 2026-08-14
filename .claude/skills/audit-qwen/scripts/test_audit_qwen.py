@@ -81,6 +81,30 @@ def test_renamed_mix_heading_lands_in_unparsed(tmp_path):
     assert "report.md" in path and "format drift" in why
 
 
+def test_undecodable_report_lands_in_unparsed_not_a_crash(tmp_path):
+    repo = make_repo(tmp_path, "latin")
+    (repo / "dev" / "local" / "autopilot" / "reports" / "202601010000-report.md").write_bytes(
+        b"# Autopilot Batch Report\xff\xfe broken bytes",
+    )
+    record = aq.scan_repo(repo)
+    assert record["reports"] == []
+    assert any("unreadable" in why for _, why in record["unparsed"])
+
+
+def test_batch_rows_carry_per_batch_detail_notes(tmp_path):
+    repo = make_repo(tmp_path, "detail", reports=("report-modern.md",), state="state-chains.json")
+    rows = aq.compute([aq.scan_repo(repo)])["batch_rows"]
+    notes = {row[3]: row[5] for row in rows}
+    assert notes["00901-fixture-prd-v1.md"] == (
+        "preflight: healthy 3, pi_missing 1; excluded: ui 1; reroutes: memory_pressure 1"
+    )
+    assert notes["00801-fixture-alpha-v1.md"] == (
+        "preflight: completion_failed 1, healthy 2; excluded: tier 1, ui 2;"
+        " reroutes: memory_pressure 1"
+    )
+    assert notes["00802-fixture-beta-v1.md"] == "no implementor data"
+
+
 def test_malformed_state_lands_in_unparsed(tmp_path):
     repo = make_repo(tmp_path, "broken", state="state-malformed.json")
     record = aq.scan_repo(repo)
