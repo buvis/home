@@ -74,7 +74,7 @@ Executed only when the Cap check above fired on the INTERACTIVE branch (`state.c
 
 4. **Best-effort dashboard hint (optional).** MAY set `state.needs_attention = true`. This is a hint only — `needs_attention` is dashboard-only state with no automatic clearer since the pidash hooks were retired (PRD 00063; tracon owns the lifecycle per PRD 00062), and it MUST NOT be relied on as the pause indicator. The authoritative cap-pause signal is `phase == "paused"` PLUS `cap_pause_reason` being set (NOT `needs_attention`).
 
-5. **The pause halts the loop by state alone.** Step 3 set `state.phase = "paused"`; the loop wrapper's decision table maps a paused state to "notify the user and stop the loop", leaving `state.json` intact. The user re-invokes `/run-autopilot` to handle the pause.
+5. **The pause halts the loop by state alone.** Step 3 set `state.phase = "paused"`; the loop driver's decision table (`cli/loop.py`) maps a paused state to "notify the user and stop the loop", leaving `state.json` intact. The user re-invokes `/run-autopilot` to handle the pause.
 
 6. **Print the cap-pause banner:**
    ```

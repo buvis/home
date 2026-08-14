@@ -794,6 +794,50 @@ def test_registry_entry_written_and_removed_at_teardown(tmp_path):
     assert list((tmp_path / "loops").glob("*.json")) == []
 
 
+def test_registry_entry_carries_the_tracon_contract_shape(tmp_path):
+    # tracon.discovery parses these entries: pid int, root/ap_dir absolute
+    # strings (root = ap_dir minus /dev/local/autopilot), started_at ISO.
+    lp = make_loop(tmp_path, [])
+    ap_dir = lp._resolve_ap_dir()
+    assert lp._register(ap_dir) is None
+    entries = list((tmp_path / "loops").glob("*.json"))
+    assert len(entries) == 1
+    entry = json.loads(entries[0].read_text())
+    assert entry["pid"] == lp.loop_pid
+    assert entry["ap_dir"] == str(ap_dir)
+    assert Path(entry["root"]).is_absolute()
+    assert str(ap_dir) == entry["root"] + "/dev/local/autopilot"
+    assert entries[0].name == f"{lp.loop_pid}.json"
+    import re as _re
+
+    assert _re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", entry["started_at"])
+
+
+def test_registry_write_failure_runs_unregistered_loud(tmp_path):
+    # A read-only loops dir: the write fails, the loop says so and keeps
+    # going rather than halting (the bash jq-failure contract).
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    loops.chmod(0o500)
+    try:
+        lp = make_loop(tmp_path, [terminal_step()])
+        assert lp.run() == 0
+        assert "registry write failed; running unregistered" in (
+            lp._test["err"].getvalue()
+        )
+    finally:
+        loops.chmod(0o700)
+
+
+def test_loops_dir_is_propagated_to_session_children(tmp_path):
+    # The resolved loops dir must reach children via the env (tracon's
+    # discovery.py reads it from its own environment at import time).
+    lp = make_loop(tmp_path, [terminal_step()])
+    assert lp.run() == 0
+    assert lp.env["_AUTOPILOT_LOOPS_DIR"] == str(tmp_path / "loops")
+    assert lp.env["_AUTOPILOT_LOOP"] == str(lp.loop_pid)
+
+
 def test_prune_removes_dead_untagged_and_malformed_entries(tmp_path):
     loops = tmp_path / "loops"
     loops.mkdir()
