@@ -93,6 +93,21 @@ def needs_probe(state: dict, batch_id: str) -> bool:
     return state.get("codex_probe", {}).get("batch_id") != batch_id
 
 
+def needs_qwen_probe(state: dict, batch_id: str) -> bool:
+    """True when no qwen preflight verdict is cached for exactly this batch."""
+    return state.get("qwen_preflight", {}).get("batch_id") != batch_id
+
+
+def red_check_disposition(
+    contract_paths: list[str], imported_paths: list[str], existing_paths: list[str]
+) -> str:
+    """Skip the red check only when an imported Contract-named path is missing."""
+    candidates = [path for path in contract_paths if path in imported_paths]
+    if any(path not in existing_paths for path in candidates):
+        return "n/a:new_module"
+    return "run"
+
+
 def codex_attempt_outcome(signals: dict) -> dict:
     """Classify a codex implementor attempt and name its next action."""
     if signals["watchdog_timeout"]:
