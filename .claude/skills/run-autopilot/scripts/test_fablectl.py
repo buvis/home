@@ -870,8 +870,8 @@ class Doc:
         return Flow(self.path, list(enumerate(self.lines, 1)))
 
 
-def combined_doc(primary: Path, *extra: Path) -> Doc:
-    """A Doc over `primary`'s text with `extra` files' text appended.
+def combined_doc(primary: Path, extra: Path) -> Doc:
+    """A Doc over `primary`'s text with `extra`'s text appended.
 
     Existing headings that repeat across files (e.g. `### 5.5.` restated
     verbatim at the top of an extracted reference file) are merged by
@@ -882,9 +882,7 @@ def combined_doc(primary: Path, *extra: Path) -> Doc:
     because `_cite` output is diagnostic only; no check's PASS/FAIL verdict
     depends on it.
     """
-    text = primary.read_text()
-    for path in extra:
-        text += "\n" + path.read_text()
+    text = primary.read_text() + "\n" + extra.read_text()
     return Doc(primary, text=text)
 
 
