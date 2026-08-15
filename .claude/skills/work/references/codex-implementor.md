@@ -8,8 +8,8 @@ first codex probe or dispatch of a batch.
 
 ## Codex batch health probe
 
-Same placement as the qwen preflight, but scoped per **batch**, not per task —
-one probe decides the codex rung for every task in the batch:
+Same placement and the same batch scope as the qwen preflight — one probe
+decides the codex rung for every task in the batch:
 
 ```
 state.codex_probe = {
