@@ -2,6 +2,22 @@
 
 Devon tries to break Tess's tests by writing a wrong implementation that passes them. If it succeeds, the tests are too weak. Unlike a thought exercise, Devon must actually write the code and run the tests to prove its exploit works.
 
+## Procedure
+
+Dispatch Devon to try to write a **wrong** implementation that passes all of Tess's tests. Devon's goal is to exploit weak tests.
+
+**Devon runs as:** Claude Code subagent (Agent tool) — it needs file write access and the project's test runner to execute its wrong implementation against the tests. **Devon receives only:** the test files from Tess, public interfaces/types (so its wrong implementation compiles), and test-runner access. No task description, no acceptance criteria, no architecture docs.
+
+**Devon's job:** Write an implementation that is clearly wrong (hardcoded values, ignored edge cases, shortcut if/else chains), run the tests against it, and report which tests it broke through.
+
+**Outcomes:**
+
+| Devon result | Action |
+|----------------|--------|
+| Cannot break tests (tests catch all exploits) | Tests are strong. Proceed to 2.9. |
+| Breaks tests with wrong impl that passes | Send Devon's exploit back to Tess: "These tests can be passed by: {wrong impl}. Strengthen them." Then re-run Devon against strengthened tests. Max 2 Tess/Devon rounds. |
+| 2 A/C rounds exhausted | Flag weakness in task output, proceed anyway. |
+
 ## Prompt Template
 
 ```
