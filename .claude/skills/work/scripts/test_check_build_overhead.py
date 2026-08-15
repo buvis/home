@@ -209,9 +209,9 @@ def test_completed_tasks_counts_only_taskupdate_calls_with_status_completed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     lines = [
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T1", "status": "completed"})),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T2", "status": "in_progress"})),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T3", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T2", "status": "in_progress"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T3", "status": "completed"})),
     ]
     transcript = _write_transcript(tmp_path, lines)
 
@@ -227,8 +227,8 @@ def test_completed_tasks_counts_each_call_even_when_batched_in_one_turn(
 ) -> None:
     lines = [
         _assistant_turn(
-            _tool_use("TaskUpdate", {"task_id": "T1", "status": "completed"}),
-            _tool_use("TaskUpdate", {"task_id": "T2", "status": "completed"}),
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
+            _tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"}),
         ),
     ]
     transcript = _write_transcript(tmp_path, lines)
@@ -250,9 +250,9 @@ def test_statectl_ratio_rounds_to_two_decimal_places(
         _assistant_turn(
             *[_tool_use("Bash", {"command": "python3 work/scripts/statectl.py x"}) for _ in range(10)]
         ),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T1", "status": "completed"})),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T2", "status": "completed"})),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T3", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T3", "status": "completed"})),
     ]
     # 10 statectl calls / 3 completed tasks = 3.333... -> 3.33
     transcript = _write_transcript(tmp_path, lines)
@@ -267,7 +267,7 @@ def test_statectl_ratio_rounds_to_two_decimal_places(
 def test_statectl_ratio_is_zero_when_no_statectl_calls(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lines = [_assistant_turn(_tool_use("TaskUpdate", {"task_id": "T1", "status": "completed"}))]
+    lines = [_assistant_turn(_tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}))]
     transcript = _write_transcript(tmp_path, lines)
 
     exit_code = check_build_overhead.main([str(transcript)])
@@ -284,8 +284,8 @@ def test_statectl_ratio_formatted_with_two_decimals_for_whole_number(
         _assistant_turn(
             *[_tool_use("Bash", {"command": "python3 statectl.py x"}) for _ in range(4)]
         ),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T1", "status": "completed"})),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T2", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"})),
     ]
     # 4 statectl calls / 2 completed tasks = 2.0 -> "2.00", not "2" or "2.0"
     transcript = _write_transcript(tmp_path, lines)
@@ -312,7 +312,7 @@ def test_stdout_report_has_exact_five_line_format_in_order(
                 {"file_path": "/Users/bob/.claude/dev/local/tmp/dispatch-x.txt", "content": "y"},
             )
         ),
-        _assistant_turn(_tool_use("TaskUpdate", {"task_id": "T1", "status": "completed"})),
+        _assistant_turn(_tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})),
     ]
     transcript = _write_transcript(tmp_path, lines)
 
@@ -455,3 +455,178 @@ def test_golden_baseline_engram_session_matches_recorded_numbers(
     ratio_line = next(line for line in out_lines if line.startswith("statectl calls per completed task:"))
     ratio = float(ratio_line.split(":", 1)[1].strip())
     assert ratio == 2.80
+
+
+# --- completed-task counting dedupes by distinct task id ------------------
+
+
+def test_completed_tasks_deduplicates_repeated_completion_of_same_task_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A rework cycle re-opens and re-completes the same task id; the report
+    # must count it once, and the derived ratio must use that deduped count.
+    lines = [
+        _assistant_turn(_tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"})),
+        _assistant_turn(_tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"})),
+        _assistant_turn(
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+        ),
+        _assistant_turn(
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+        ),
+    ]
+    transcript = _write_transcript(tmp_path, lines)
+
+    exit_code = check_build_overhead.main([str(transcript)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    out_lines = captured.out.splitlines()
+    assert "completed tasks: 1" in out_lines
+    assert "statectl calls per completed task: 2.00" in out_lines
+
+
+def test_completed_tasks_does_not_collapse_distinct_task_ids_when_one_repeats(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # T1 is completed twice (a rework re-completion) and T2 once; the dedupe
+    # must land on 2 distinct ids, not collapse everything down to 1.
+    lines = [
+        _assistant_turn(
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+        ),
+        _assistant_turn(
+            _tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"})
+        ),
+        _assistant_turn(
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+        ),
+    ]
+    transcript = _write_transcript(tmp_path, lines)
+
+    exit_code = check_build_overhead.main([str(transcript)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "completed tasks: 2" in captured.out.splitlines()
+
+
+# --- transcript path is a directory ------------------
+
+
+def test_directory_passed_as_transcript_exits_one_with_one_line_stderr_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = tmp_path / "not_a_file"
+    directory.mkdir()
+
+    exit_code = check_build_overhead.main([str(directory)])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    stderr_lines = captured.err.strip("\n").splitlines()
+    assert len(stderr_lines) == 1
+    assert stderr_lines[0] != ""
+
+
+# --- malformed message.content shapes are skipped, not raised ------------------
+
+
+def test_string_valued_message_content_is_skipped_without_raising(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines: list[object] = [
+        _assistant_turn(_tool_use("TaskCreate", {"title": "a"})),
+        {"type": "assistant", "message": {"content": "plain string content, not a list"}},
+        _assistant_turn(_tool_use("TaskCreate", {"title": "b"})),
+    ]
+    transcript = _write_transcript(tmp_path, lines)
+
+    exit_code = check_build_overhead.main([str(transcript)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "TaskCreate turns: 2" in captured.out.splitlines()
+
+
+def test_content_list_with_non_object_entry_is_skipped_without_raising(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines: list[object] = [
+        _assistant_turn(_tool_use("TaskCreate", {"title": "a"})),
+        {"type": "assistant", "message": {"content": ["not a dict", 42, None]}},
+        _assistant_turn(_tool_use("TaskCreate", {"title": "b"})),
+    ]
+    transcript = _write_transcript(tmp_path, lines)
+
+    exit_code = check_build_overhead.main([str(transcript)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "TaskCreate turns: 2" in captured.out.splitlines()
+
+
+# --- portable synthetic golden-baseline (replaces machine-local dependency) ---
+
+
+def test_synthetic_fixture_report_matches_expected_metrics_without_machine_local_transcript(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Committed, self-contained replacement for the machine-local golden
+    # baseline: this fixture is written by the test itself, so the full
+    # five-line report is exercised on every machine, not just the one that
+    # happens to have the real transcript on disk.
+    lines = [
+        _assistant_turn(_tool_use("TaskCreate", {"title": "a"})),
+        _assistant_turn(_tool_use("TaskCreate", {"title": "b"})),
+        _assistant_turn(
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"}),
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"}),
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"}),
+        ),
+        _assistant_turn(
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py complete"}),
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py complete"}),
+        ),
+        _assistant_turn(
+            _tool_use(
+                "Write",
+                {
+                    "file_path": "/Users/bob/.claude/dev/local/tmp/task-prompt-9.txt",
+                    "content": "x",
+                },
+            )
+        ),
+        _assistant_turn(
+            _tool_use(
+                "Write",
+                {
+                    "file_path": "/Users/bob/.claude/dev/local/tmp/dispatch-tess-99.txt",
+                    "content": "y",
+                },
+            )
+        ),
+        _assistant_turn(
+            _tool_use(
+                "TaskUpdate", {"taskId": "T-alpha", "status": "completed"}
+            )
+        ),
+        _assistant_turn(
+            _tool_use(
+                "TaskUpdate", {"taskId": "T-beta", "status": "completed"}
+            )
+        ),
+    ]
+    transcript = _write_transcript(tmp_path, lines)
+
+    exit_code = check_build_overhead.main([str(transcript)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out == (
+        "TaskCreate turns: 2\n"
+        "statectl calls: 5\n"
+        "statectl calls per completed task: 2.50\n"
+        "prompt-authoring Write calls: 2\n"
+        "completed tasks: 2\n"
+    )
