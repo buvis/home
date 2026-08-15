@@ -58,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     completed_task_ids: set[object] = set()
     completed_tasks_without_id = 0
     any_parseable = False
+    malformed_line_count = 0
 
     with handle as f:
         for raw_line in f:
@@ -67,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 entry = json.loads(raw_line)
             except json.JSONDecodeError:
+                malformed_line_count += 1
                 continue
             any_parseable = True
 
@@ -113,6 +115,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"statectl calls per completed task: {ratio:.2f}")
     print(f"prompt-authoring Write calls: {prompt_write_calls}")
     print(f"completed tasks: {completed_tasks}")
+
+    if malformed_line_count > 0:
+        print(
+            f"warning: skipped {malformed_line_count} unparseable line(s) "
+            f"in {transcript_path}",
+            file=sys.stderr,
+        )
 
     return 0
 
