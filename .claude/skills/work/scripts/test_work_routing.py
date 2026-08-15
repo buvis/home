@@ -782,3 +782,179 @@ def test_legacy_task_with_files_exclusion_reaches_codex_interception_at_sonnet()
         "tier": "sonnet",
         "rule": "codex_interception",
     }
+
+
+# --- needs_qwen_probe ---------------------------------------------------
+#
+# Same contract as needs_probe above, against state["qwen_preflight"] instead
+# of state["codex_probe"]: True when no qwen preflight verdict is cached for
+# exactly this batch. needs_qwen_probe(state, batch_id) -> bool does not
+# exist yet — every test below is expected to fail (AttributeError) until it
+# does.
+
+
+def _qwen_preflight_state(
+    verdict: str | None = "healthy", **overrides: object
+) -> dict[str, object]:
+    """Autopilot state; default is a qwen preflight cached healthy for BATCH_ID.
+
+    `verdict=None` drops the `qwen_preflight` key entirely (no cache).
+    """
+    state: dict[str, object] = {}
+    if verdict is not None:
+        state["qwen_preflight"] = {"batch_id": BATCH_ID, "verdict": verdict}
+    state.update(overrides)
+    return state
+
+
+def test_qwen_probe_needed_when_no_verdict_is_cached() -> None:
+    assert work_routing.needs_qwen_probe({}, BATCH_ID) is True
+
+
+@pytest.mark.parametrize(
+    "queried_batch_id",
+    [
+        OTHER_BATCH_ID,
+        "batch-0007",
+        "batch-000771",
+        "batch-00077-retry",
+        "rerun-batch-00077",
+        "BATCH-00077",
+        "",
+    ],
+    ids=[
+        "sibling_batch",
+        "prefix_of_cached_id",
+        "cached_id_is_a_prefix",
+        "cached_id_plus_suffix",
+        "cached_id_with_prefix",
+        "case_differs",
+        "empty",
+    ],
+)
+def test_qwen_probe_needed_when_cached_verdict_is_for_another_batch(
+    queried_batch_id: str,
+) -> None:
+    # Batch identity is an exact string match, not a prefix or substring test.
+    assert (
+        work_routing.needs_qwen_probe(_qwen_preflight_state(), queried_batch_id)
+        is True
+    )
+
+
+def test_qwen_probe_needed_when_cached_slice_has_no_batch_id() -> None:
+    # A malformed cache cannot be attributed to this batch, so it is re-probed
+    # rather than trusted.
+    malformed = {"qwen_preflight": {"verdict": "healthy"}}
+
+    assert work_routing.needs_qwen_probe(malformed, BATCH_ID) is True
+
+
+@pytest.mark.parametrize("verdict", ["healthy"] + QWEN_PREFLIGHT_FAILURES)
+def test_cached_qwen_verdict_for_the_same_batch_is_reused(verdict: str) -> None:
+    # The cache is keyed on batch identity alone, whatever the verdict string
+    # says — reused for "healthy" and for every recorded infra-failure verdict
+    # alike.
+    assert (
+        work_routing.needs_qwen_probe(_qwen_preflight_state(verdict), BATCH_ID)
+        is False
+    )
+
+
+# --- needs_qwen_probe: cache invalidation on backend-health signals --------
+#
+# Only two signals invalidate the qwen preflight cache: the Subagent Watchdog
+# judging the qwen dispatch hung/lost, and qwen-run.sh itself failing at real
+# dispatch time with an infra-shaped outcome despite a cached "healthy"
+# verdict. Invalidation is expressed as deleting the `qwen_preflight` key —
+# modeled here by starting from a matching cached state and deleting the key,
+# the way either signal's `statectl.py ... del qwen_preflight` call would.
+
+
+def test_qwen_probe_needed_again_after_a_health_signal_clears_the_cache() -> None:
+    # Both backend-health signals reduce to the same state transition: the
+    # cached slice is gone, so the batch-scope check finds "absent" and must
+    # re-probe.
+    cached = _qwen_preflight_state("healthy")
+    after_signal = {k: v for k, v in cached.items() if k != "qwen_preflight"}
+
+    assert work_routing.needs_qwen_probe(after_signal, BATCH_ID) is True
+
+
+def test_qwen_probe_still_not_needed_after_an_ordinary_gate_failure() -> None:
+    # Negative case, and the whole reason the design was corrected once: an
+    # ordinary step-5.5 test-gate failure is a task-difficulty signal, not a
+    # backend-health signal, so it must NOT delete `qwen_preflight`. The
+    # cache is untouched and the probe must not fire again.
+    cached = _qwen_preflight_state("healthy")
+
+    assert work_routing.needs_qwen_probe(cached, BATCH_ID) is False
+
+
+# --- red_check_disposition -----------------------------------------------
+#
+# Step 2.95's new-module pre-check as a pure function: only Contract paths the
+# test file actually imports are candidates; if any imported candidate is
+# missing on disk, skip the pytest run ("n/a:new_module") — otherwise, or when
+# there is no imported candidate at all, run it normally ("run").
+# red_check_disposition(contract_paths, imported_paths, existing_paths) -> str
+# does not exist yet — every test below is expected to fail (AttributeError)
+# until it does.
+
+
+def test_new_imported_contract_path_records_new_module() -> None:
+    # The one candidate (Contract-named AND imported) does not exist yet —
+    # genuinely a new module, so the pytest invocation is skipped.
+    verdict = work_routing.red_check_disposition(
+        contract_paths=["new_feature.py"],
+        imported_paths=["new_feature.py"],
+        existing_paths=[],
+    )
+
+    assert verdict == "n/a:new_module"
+
+
+def test_existing_imported_contract_path_runs_the_check() -> None:
+    verdict = work_routing.red_check_disposition(
+        contract_paths=["existing_module.py"],
+        imported_paths=["existing_module.py"],
+        existing_paths=["existing_module.py"],
+    )
+
+    assert verdict == "run"
+
+
+def test_mixed_new_and_existing_imported_contract_paths_skip() -> None:
+    # The missing half guarantees an ImportError on its own, so partial
+    # existence among the imported candidates still takes the skip branch.
+    verdict = work_routing.red_check_disposition(
+        contract_paths=["new_feature.py", "existing_module.py"],
+        imported_paths=["new_feature.py", "existing_module.py"],
+        existing_paths=["existing_module.py"],
+    )
+
+    assert verdict == "n/a:new_module"
+
+
+def test_missing_contract_path_not_imported_still_runs() -> None:
+    # A Contract routinely names files the new tests never import (an edited
+    # caller, a schema doc) — a missing one of those does not imply an
+    # ImportError, so it must not suppress the run. This is the case the
+    # review found wrong.
+    verdict = work_routing.red_check_disposition(
+        contract_paths=["reference_doc.md"],
+        imported_paths=["existing_module.py"],
+        existing_paths=["existing_module.py"],
+    )
+
+    assert verdict == "run"
+
+
+def test_empty_contract_runs_the_check() -> None:
+    verdict = work_routing.red_check_disposition(
+        contract_paths=[],
+        imported_paths=["existing_module.py"],
+        existing_paths=["existing_module.py"],
+    )
+
+    assert verdict == "run"
