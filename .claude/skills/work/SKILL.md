@@ -224,16 +224,25 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 - Existing test patterns (one sample test file from the project)
 - Test framework and conventions used
 
-**Scope the agent explicitly.** Add to the prompt: "Read only the files listed above. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope." Open-ended discovery is where subagents burn turns and stall.
-
-Tess prompts also end with the **Assumptions footer** instruction (see section above) - tests are the spec in this pipeline, so a contract Tess guessed silently becomes the contract.
+Render: one Bash call, every interpolated path `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
+```bash
+python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/skills/work/references/tess-prompt.md \
+  --out dev/local/tmp/dispatch-tess-<task-id>.txt \
+  --set TASK_SUBJECT="<task subject>" \
+  --set-file TASK_DESCRIPTION=<scratch file: task description plus the exact file paths and symbol names to test> \
+  --set TASK_ACCEPTANCE_CRITERIA="<task acceptance criteria>" \
+  --set-file SAMPLE_TEST_FILE=<one representative existing test file> \
+  --set-cmd PUBLIC_INTERFACES="cat $(printf '%q ' <interface files>)" \
+  --set TEST_FRAMEWORK="<pytest/jest/vitest/etc>"
+```
+The stdout integer from this call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`. `tess-prompt.md` bakes in the read-only-scope instruction, the dispatch prologue, and the Assumptions footer permanently (mirroring `ivan.md`), so nothing further needs adding to the prompt by hand — open-ended discovery is where subagents burn turns and stall, and keeping Tess scoped to the listed files/symbols is the template's job now. Dispatch the Agent tool with the file at `dev/local/tmp/dispatch-tess-<task-id>.txt` as the prompt source.
 
 **Tess does NOT receive:**
 - Implementation strategy or architecture docs (loaded in step 2.5 for the main session and Ivan only)
 - "How to build this" context
 - Access to modify non-test files
 
-See `references/test-author-prompt.md` for the full prompt template — it embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Tess from writing speculative tests or silently assuming input shape.
+See `references/tess-prompt.md` for the full prompt template — it embeds Simplicity/Think-Before-Coding/Surgical rules to prevent Tess from writing speculative tests or silently assuming input shape.
 
 Tess prompts must satisfy the **Subagent Dispatch Budget**.
 
@@ -311,13 +320,16 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 
 **Ivan receives:** failing test file paths and their content, architecture context (AGENTS.md, interfaces, relevant modules), and existing code patterns to follow. **Ivan does NOT receive:** the task's acceptance criteria prose (tests replace this) or permission to modify test files.
 
-**Prompt must include:**
-
-1. "Make all failing tests pass. Do NOT modify test files."
-2. The code quality rules block from `references/code-quality-principles.md` (copy the "Prompt Snippet" section verbatim). These counter the anti-patterns LLMs produce by default: speculative abstractions, drive-by refactoring, style drift, silent assumptions. Concrete before/after examples are in `references/code-quality-examples.md` if the agent needs them.
-3. The abort-instruction line, with the assembled prompt measured against the **Subagent Dispatch Budget** before dispatching.
-4. The **exact file paths** Ivan may read and modify, plus: "Read only the files listed. If a file or symbol you need is not listed, stop and report it as a blocker — do not run broad `rg` sweeps to discover scope."
-5. The assumptions-footer instruction from the **Assumptions footer** section above, verbatim.
+Render: one Bash call, every interpolated path `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
+```bash
+python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/agents/ivan.md \
+  --out dev/local/tmp/dispatch-ivan-<task-id>.txt \
+  --set-cmd FAILING_TESTS="cat $(printf '%q ' <test_file_1> [test_file_2 ...])" \
+  --set-file ARCHITECTURE_CONTEXT=<a single existing file, e.g. AGENTS.md, when one file covers it> \
+  --set FILE_PATHS="<newline-separated list from the task's Contract section>" \
+  --set RETRY_INSTRUCTION=""
+```
+When architecture context spans more than one file, use the same `--set-cmd ARCHITECTURE_CONTEXT="cat $(printf '%q ' <file_1> <file_2>)"` shape. `RETRY_INSTRUCTION` is the literal empty string on this, the initial dispatch. The stdout integer from this call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`. If the printed size exceeds 50 000, trim per the existing one-pass rule in `references/subagent-dispatch.md`, then re-render (still one call). Dispatch the Agent tool with the file at `dev/local/tmp/dispatch-ivan-<task-id>.txt` as the prompt source, watchdog per the existing Subagent Watchdog section — unchanged. `ivan.md` bakes in the code-quality rules block, the abort-instruction line, the read-only-scope note, the dispatch prologue, and the Assumptions/FILES_TOUCHED footers permanently — nothing further needs adding to the prompt by hand.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
 
@@ -452,7 +464,7 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - Never dispatch Tess to weaken tests.
-- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) **must re-include the code-quality rules block** from `references/code-quality-principles.md`, plus an explicit SURGICAL instruction: "Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
+- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) re-render `ivan.md` with `--set RETRY_INSTRUCTION="Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."` (the code-quality rules block is already permanent in `ivan.md`, so there is nothing to re-include) plus `--set-cmd FAILING_TESTS="cat $(printf '%q ' <test files>)"` updated with the failure output appended via a small scratch file written once per retry — `--set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md` (original failing tests + new failure output).
 
 **Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
 
@@ -633,7 +645,17 @@ A `haiku`-tier task commits after per-task test verification (step 5.5) with **n
 Dispatch the reviewer after commit and verification — a native lane, no plugin dependency:
 
 1. Get SHAs: `BASE_SHA` = the parent of this task's test commit (`<test_commit_sha>` from step 2.9), `HEAD_SHA` = current HEAD (includes the step-5.6 deslop commit when one landed).
-2. Assemble the review prompt in `dev/local/tmp/review-task-<id>-prompt.md` (Write tool, never shell redirects) from the **Pat persona**, `~/.claude/agents/pat.md`: strip its frontmatter and substitute `{TASK_SUBJECT}`, `{TASK_DESCRIPTION}`, `{TASK_ACCEPTANCE_CRITERIA}`, `{DIFF}` (the output of `git diff BASE_SHA..HEAD_SHA`), and `{SIMPLIFICATION_MANDATE}` (the block from `references/simplification-mandate.md`, verbatim). The persona already carries the read-only statement and the reporting contract — one finding per line as `SEVERITY | file:line | issue | fix` (severities CRITICAL/HIGH/MEDIUM/LOW), or the literal line `NO FINDINGS` — so do not restate them here. Conventions and the placeholder table: `review-work-completion/references/agent-registry.md`. If `pat.md` is missing or its frontmatter does not parse, treat it as a runner failure (step 4's retry-once branch) — never fall back to a hand-written prompt. The assembled prompt must satisfy the **Subagent Dispatch Budget**.
+2. Render the review prompt with one Bash call, every interpolated path `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
+   ```bash
+   python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/agents/pat.md \
+     --out dev/local/tmp/review-task-<id>-prompt.md \
+     --set TASK_SUBJECT="<task subject>" \
+     --set TASK_DESCRIPTION="<task description>" \
+     --set TASK_ACCEPTANCE_CRITERIA="<task acceptance criteria>" \
+     --set-cmd DIFF="git diff BASE_SHA..HEAD_SHA" \
+     --set-file SIMPLIFICATION_MANDATE=references/simplification-mandate.md
+   ```
+   The **Pat persona** (`~/.claude/agents/pat.md`) already carries the read-only statement and the reporting contract — one finding per line as `SEVERITY | file:line | issue | fix` (severities CRITICAL/HIGH/MEDIUM/LOW), or the literal line `NO FINDINGS` — so do not restate them here. Conventions and the placeholder table: `review-work-completion/references/agent-registry.md`. If `pat.md` is missing or its frontmatter does not parse, treat it as a runner failure (step 4's retry-once branch) — never fall back to a hand-written prompt. The stdout integer from the render call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`.
 3. Dispatch via the sonnet runner (helper-script dispatch — the **Subagent Watchdog** applies):
    ```bash
    bash ~/.claude/skills/use-sonnet/scripts/sonnet-run.sh -f dev/local/tmp/review-task-<id>-prompt.md -o dev/local/tmp/review-task-<id>.md
@@ -708,7 +730,7 @@ Run each as a separate Bash call. Do not chain with `&&`.
 
 1. Identify which task(s) introduced the regression. The failing test output usually points at a specific module; cross-reference against the task commits.
 2. Re-open the offending task via `TaskUpdate(status: in_progress)` and sync state file.
-3. Dispatch Ivan with the failure output to fix it. Include the code-quality rules block from `references/code-quality-principles.md` and add: "Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code." Do NOT relax the failing test.
+3. Dispatch Ivan with the failure output to fix it: re-render `ivan.md` with `--set RETRY_INSTRUCTION="Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code."` (the code-quality rules block is already permanent in `ivan.md`), with `FAILING_TESTS` filled from the step-7 failure output the same way as step 5.5's retry (`--set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md`). Do NOT relax the failing test.
 4. After the fix commits, re-run **only** the previously failing commands from step 7 (not the whole suite again) to confirm the fix.
 5. Mark the task completed and re-sync.
 6. Repeat until the full suite is green.
