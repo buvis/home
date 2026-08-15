@@ -37,7 +37,7 @@ class _RecordAssignment(argparse.Action):
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Render a persona prompt with {PLACEHOLDER} substitution."
+        description="Render a persona prompt with {PLACEHOLDER} substitution.",
     )
     parser.add_argument("persona")
     parser.add_argument("--out", required=True)
@@ -56,6 +56,76 @@ def _strip_frontmatter(text: str) -> str | None:
         if lines[i] == "---":
             return "\n".join(lines[i + 1 :])
     return None
+
+
+def _run_set_cmd(key: str, cmd: str) -> tuple[str | None, int]:
+    """Run a --set-cmd command, returning (value, 0) or (None, exit_code)
+    after printing the cause."""
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=SET_CMD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"render_prompt: --set-cmd failed for {{{key}}}: {cmd} "
+            f"(timed out after {SET_CMD_TIMEOUT_SECONDS}s)",
+            file=sys.stderr,
+        )
+        return None, 4
+    if result.returncode != 0:
+        stderr_line = " ".join(result.stderr.split())
+        print(
+            f"render_prompt: --set-cmd failed for {{{key}}}: {cmd} "
+            f"(exit {result.returncode}): {stderr_line}",
+            file=sys.stderr,
+        )
+        return None, 4
+    stdout = result.stdout
+    stdout = stdout.removesuffix("\n")
+    if stdout == "":
+        print(
+            f"render_prompt: --set-cmd produced no output for {{{key}}}: {cmd}",
+            file=sys.stderr,
+        )
+        return None, 4
+    return stdout, 0
+
+
+def _resolve_assignments(
+    assignments: list[tuple[str, str]],
+) -> tuple[dict[str, str] | None, int]:
+    """Return (values, 0) or (None, exit_code) after printing the cause."""
+    flag_names = {"set": "--set", "set_file": "--set-file", "set_cmd": "--set-cmd"}
+    values: dict[str, str] = {}
+    for kind, raw in assignments:
+        if "=" not in raw:
+            print(
+                f"render_prompt: {flag_names[kind]} argument missing '=': {raw}",
+                file=sys.stderr,
+            )
+            return None, 6
+        key, _, val = raw.partition("=")
+        if kind == "set":
+            values[key] = val
+        elif kind == "set_file":
+            try:
+                values[key] = Path(val).read_text(encoding="utf-8")
+            except OSError:
+                print(
+                    f"render_prompt: --set-file path not found for {{{key}}}: {val}",
+                    file=sys.stderr,
+                )
+                return None, 4
+        else:  # set_cmd
+            value, code = _run_set_cmd(key, val)
+            if value is None:
+                return None, code
+            values[key] = value
+    return values, 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,61 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 3
 
-    flag_names = {"set": "--set", "set_file": "--set-file", "set_cmd": "--set-cmd"}
-    values: dict[str, str] = {}
-    for kind, raw in getattr(args, "assignments", None) or []:
-        if "=" not in raw:
-            print(
-                f"render_prompt: {flag_names[kind]} argument missing '=': {raw}",
-                file=sys.stderr,
-            )
-            return 6
-        key, _, val = raw.partition("=")
-        if kind == "set":
-            values[key] = val
-        elif kind == "set_file":
-            try:
-                values[key] = Path(val).read_text(encoding="utf-8")
-            except OSError:
-                print(
-                    f"render_prompt: --set-file path not found for {{{key}}}: {val}",
-                    file=sys.stderr,
-                )
-                return 4
-        else:  # set_cmd
-            try:
-                result = subprocess.run(
-                    val,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=SET_CMD_TIMEOUT_SECONDS,
-                )
-            except subprocess.TimeoutExpired:
-                print(
-                    f"render_prompt: --set-cmd failed for {{{key}}}: {val} "
-                    f"(timed out after {SET_CMD_TIMEOUT_SECONDS}s)",
-                    file=sys.stderr,
-                )
-                return 4
-            if result.returncode != 0:
-                stderr_line = " ".join(result.stderr.split())
-                print(
-                    f"render_prompt: --set-cmd failed for {{{key}}}: {val} "
-                    f"(exit {result.returncode}): {stderr_line}",
-                    file=sys.stderr,
-                )
-                return 4
-            stdout = result.stdout
-            if stdout.endswith("\n"):
-                stdout = stdout[:-1]
-            if stdout == "":
-                print(
-                    f"render_prompt: --set-cmd produced no output for {{{key}}}: {val}",
-                    file=sys.stderr,
-                )
-                return 4
-            values[key] = stdout
+    values, code = _resolve_assignments(getattr(args, "assignments", None) or [])
+    if values is None:
+        return code
 
     found = {match.group(0)[1:-1] for match in PLACEHOLDER_RE.finditer(body)}
     missing = sorted(found - values.keys())
