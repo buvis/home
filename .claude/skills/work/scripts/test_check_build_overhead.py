@@ -421,6 +421,34 @@ def test_malformed_json_lines_are_skipped_when_some_valid_lines_exist(
     assert "TaskCreate turns: 1" in captured.out.splitlines()
 
 
+def test_malformed_json_lines_emit_stderr_warning_naming_skipped_count(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines: list[object] = [
+        "not valid json at all",
+        _assistant_turn(_tool_use("TaskCreate", {"title": "a"})),
+        "{broken",
+    ]
+    transcript = _write_transcript(tmp_path, lines)
+
+    exit_code = check_build_overhead.main([str(transcript)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == [
+        "TaskCreate turns: 1",
+        "statectl calls: 0",
+        "statectl calls per completed task: 0.00",
+        "prompt-authoring Write calls: 0",
+        "completed tasks: 0",
+    ]
+    assert (
+        captured.err.strip()
+        == f"warning: skipped 2 unparseable line(s) in {transcript}"
+    )
+
+
 # --- exit codes ---------------------------------------------------
 
 
