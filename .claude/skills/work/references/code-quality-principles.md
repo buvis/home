@@ -4,11 +4,16 @@ Rules injected into implementor (Ivan) prompts. Ivan runs as a Codex/Gemini
 subagent and does NOT inherit the user's global `~/.claude/rules/`, so the
 dispatch prompt must carry these rules itself.
 
-`/work` steps 3, 5.5, 5.7, and 7 copy the **Prompt Snippet** section below
-verbatim into every Ivan dispatch (initial implementation, test-failure retry,
-review-fix retry, regression fix). The four rule families counter the
-anti-patterns LLM coding agents produce by default: speculative abstractions,
-drive-by refactoring, style drift, and silent assumptions.
+The **Prompt Snippet** section below is baked verbatim into `~/.claude/agents/ivan.md`,
+so every Ivan dispatch that renders from that persona carries it by
+construction — initial implementation (step 3), test-failure retry (5.5),
+review-fix retry (5.7) and regression fix (step 7).
+**Do not copy it into a dispatch prompt**: `ivan.md` already has it, and adding
+it again duplicates the block in the prompt. This file remains the source of
+truth — edit the snippet here, then propagate it to `ivan.md`. The four rule
+families counter the anti-patterns LLM coding agents produce by default:
+speculative abstractions, drive-by refactoring, style drift, and silent
+assumptions.
 
 ## Prompt Snippet
 

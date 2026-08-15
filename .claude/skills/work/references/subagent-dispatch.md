@@ -14,8 +14,8 @@ PostToolUse hooks do not fire inside subagents (see `SKILL.md` "CRITICAL: One Ta
 
 **Procedure before every Agent dispatch:**
 
-1. Assemble the prompt string (task description + relevant file paths + test patterns + code-quality rules block + abort instruction).
-2. Measure: write the assembled prompt to `/tmp/dispatch-prompt-<task-id>.txt` (per-task filename — a fixed name collides when independent rework tasks dispatch in parallel), then check size with `wc -c /tmp/dispatch-prompt-<task-id>.txt` (pass the path as an argument — no `<` redirect). **Absolute path required** — relative `tmp/...` or `../../tmp/...` paths trip auto-mode's classifier and stall an unattended autopilot run on a permission prompt, even though `/tmp/**` is in `permissions.allow`. The autoMode allowlist matches the *literal* path the tool was invoked with.
+1. Render the prompt from its persona with `scripts/render_prompt.py`, per the call shape `SKILL.md` gives for that dispatch (Tess 2.7, Ivan 3 / 5.5 / 7, Pat 5.7). The orchestrator does **not** assemble the prompt string itself: the persona files carry every fixed block, and `SKILL.md` § Passing values to render_prompt.py decides which flag each value takes.
+2. Measure: the byte count `render_prompt.py` prints on stdout **is** the measurement. There is no separate `wc -c` step and no scratch copy to measure — the render already wrote the file to its `--out` path (`dev/local/tmp/dispatch-<persona>-<task-id>.txt`, a per-task filename, since a fixed name collides when independent rework tasks dispatch in parallel).
 3. If the prompt exceeds 50 000 bytes:
    - Trim by removing the lowest-priority context first (large example files, full architecture docs). Re-measure.
    - If still oversized after one trim pass, abort the task. Wire the abort
@@ -47,10 +47,11 @@ PostToolUse hooks do not fire inside subagents (see `SKILL.md` "CRITICAL: One Ta
         `model` from `task.metadata.model`,
         `review_cycle: null` (Phase 3) or current `state.cycle` (rework).
      5. Report cause `subagent_prompt_overrun` and stop work on this task.
-4. Prepend the abort-instruction line verbatim to the prompt:
+4. The abort-instruction line is **baked into the persona files**, so there is nothing to prepend:
    ```
    Abort and report if you read more than 100K of total input. Return the partial result and an abort_reason: context_overrun field.
    ```
+   `agents/ivan.md` and `references/tess-prompt.md` both carry it verbatim, and a render therefore cannot omit it. Trimming at step 3 removes context, never this line. If you add a new persona to the dispatch set, put the line in the persona file rather than re-introducing a prepend step here — a prepend that some call sites remember and others forget is exactly how Tess lost this guard once.
 
 **Rationale:** soft enforcement — the subagent honors the instruction — but `/plan-tasks`'s 150K per-task budget bounds how much context `/work` can plausibly hand off anyway. Combined, the 50K dispatch cap, the 100K subagent-internal cap, and the 150K per-task cap keep subagent contexts well under any work-tier model's window (200K for the base tiers; the `claude-fable-5[1m]` default carries 1M).
 
