@@ -289,6 +289,63 @@ class StatectlTest(unittest.TestCase):
             [{"n": 0}, {"attempt": 2}],
         )
 
+    def test_append_attempt_records_the_entry_without_completing_the_task(
+        self,
+    ) -> None:
+        # The abort and escalate-away paths record an attempt while the task
+        # stays open, so neither status nor the derived count may move.
+        self.three_tasks()
+        attempt = self.write_json("a.json", {"attempt": 1, "outcome": "aborted"})
+        result = self.run_cli("append-attempt", "2", attempt)
+        self.assertEqual(result.returncode, 0)
+        state = self.load_state()
+        self.assertEqual(
+            state["tasks"][1]["attempts"],
+            [{"attempt": 1, "outcome": "aborted"}],
+        )
+        self.assertEqual(state["tasks"][1]["status"], "pending")
+        self.assertEqual(state["tasks_completed"], 1)
+
+    def test_append_attempt_appends_beside_existing_attempts(self) -> None:
+        self.three_tasks()
+        attempt = self.write_json("a.json", {"attempt": 2, "outcome": "escalated"})
+        self.assertEqual(self.run_cli("append-attempt", "1", attempt).returncode, 0)
+        self.assertEqual(
+            self.load_state()["tasks"][0]["attempts"],
+            [{"n": 0}, {"attempt": 2, "outcome": "escalated"}],
+        )
+
+    def test_append_attempt_resolves_by_id_not_array_position(self) -> None:
+        # Same hazard task-done exists to avoid: once rework appends
+        # [D{cycle}] follow-ups, tasks[] order stops matching id order.
+        self.write_state(
+            {
+                "tasks_completed": 0,
+                "tasks": [
+                    {"id": "17", "status": "pending"},
+                    {"id": "3", "status": "pending"},
+                ],
+            },
+        )
+        attempt = self.write_json("a.json", {"attempt": 1})
+        self.assertEqual(self.run_cli("append-attempt", "3", attempt).returncode, 0)
+        state = self.load_state()
+        self.assertEqual(state["tasks"][1]["attempts"], [{"attempt": 1}])
+        self.assertNotIn("attempts", state["tasks"][0])
+
+    def test_append_attempt_unknown_id_exits_1_leaving_state_untouched(self) -> None:
+        self.three_tasks()
+        before = self.state.read_bytes()
+        attempt = self.write_json("a.json", {"attempt": 1})
+        result = self.run_cli("append-attempt", "99", attempt)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.state.read_bytes(), before)
+
+    def test_append_attempt_missing_file_exits_1(self) -> None:
+        self.three_tasks()
+        missing = str(Path(self.tmp.name) / "nope.json")
+        self.assertEqual(self.run_cli("append-attempt", "2", missing).returncode, 1)
+
     def test_task_verbs_resolve_by_id_not_array_position(self) -> None:
         # The whole point of the verbs: rework appends [D{cycle}] follow-ups, so
         # tasks[] order stops matching id order and a tasks[N] path targets the

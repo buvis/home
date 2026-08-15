@@ -670,7 +670,7 @@ Compute `net_lines = insertions - deletions` (from `--shortstat`) and `file_coun
 - `{{diff_files}}` from `git diff-tree --no-commit-id --name-only -r HEAD`.
 - `{{slop_catalog}}` from the `## What to remove` section of `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` — read the file at dispatch time and inline the section verbatim. This keeps the deslop prompt as the single source of truth for slop patterns; when it grows entries, the next step-5.6 dispatch picks them up without a code change here.
 
-**Outcome logging.** Write the result to `state.tasks[i].attempts[-1].self_deslop` (the most recent attempt entry, written by step 6's Attempt logging):
+**Outcome logging.** Hold the result in-session and write it as the `self_deslop` field of the attempt record step 6 builds — do NOT write it here as a separate indexed state mutation. On a first attempt `tasks[i].attempts` is still empty at this point (step 6 is what appends the entry), so a `tasks[i].attempts[-1].self_deslop` write fails outright: `statectl` exits 1 with `json-path index out of range: [-1]`, reproduced against a scratch state. Carrying the value into step 6's payload also keeps the whole task transition in the one `task-done` write.
 
 | Subagent outcome | `self_deslop` value | Proceed to 5.7 against |
 |------------------|---------------------|------------------------|
@@ -795,7 +795,9 @@ When reporting the phase result, include the contents of `dev/local/assumptions.
 
 ## Reference Files
 
-- `references/test-author-prompt.md` - Test author (Tess) prompt template
+- `references/test-author-prompt.md` - Tess context-selection rules; points at the two templates below
+- `references/tess-prompt.md` - Tess initial dispatch template (rendered by `render_prompt.py`)
+- `references/tess-retry-prompt.md` - Tess quality-gate retry template (rendered by `render_prompt.py`)
 - `references/adversarial-test-prompt.md` - Adversarial validator (Devon) prompt template
 - `references/codex-integration.md` - Codex review-only usage
 - `references/codex-implementor.md` - Codex rung mechanics: batch health probe, dispatch checklist, TOOL-GATE NOTICE (read before any codex probe/dispatch)

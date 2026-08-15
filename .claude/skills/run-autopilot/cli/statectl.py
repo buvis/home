@@ -221,9 +221,29 @@ def do_task_done(data: Any, task_id: str, attempt: Any) -> None:
     _recount_completed(data)
 
 
+def do_append_attempt(data: Any, task_id: str, attempt: Any) -> None:
+    """Append an attempt record WITHOUT completing the task.
+
+    The abort and escalate-away paths record an attempt while the task stays
+    open, so unlike `task-done` this moves neither `status` nor the derived
+    `tasks_completed`. It resolves by id for the same reason `task-done` does:
+    once rework appends `[D{cycle}]` follow-ups, array position stops matching
+    id and an index path appends to the wrong task.
+    """
+    task = _find_task(data, task_id)
+    attempts = task.setdefault("attempts", [])
+    if not isinstance(attempts, list):
+        raise UsageError(f"task {task_id!r} attempts is not an array")
+    attempts.append(attempt)
+
+
 def do_set_contract_card(data: Any, text: str) -> None:
     if not isinstance(data, dict):
         raise UsageError("state root is not an object")
+    # Trailing newlines are stripped deliberately: the card is re-injected as
+    # additionalContext by the SessionStart hook, which supplies its own
+    # framing, so a trailing blank line is noise in the stored string. The
+    # file's own bytes are otherwise preserved exactly.
     data["contract_card"] = text.rstrip("\n")
 
 
@@ -261,11 +281,12 @@ USAGE = (
     "usage: statectl.py <state-path> get|set|append|del <json-path> [value]\n"
     "       statectl.py <state-path> task-start <task-id>\n"
     "       statectl.py <state-path> task-done <task-id> <attempt-json-file>\n"
+    "       statectl.py <state-path> append-attempt <task-id> <attempt-json-file>\n"
     "       statectl.py <state-path> set-contract-card <file>"
 )
 
 _PATH_VERBS = ("get", "set", "append", "del")
-_TASK_VERBS = ("task-start", "task-done", "set-contract-card")
+_TASK_VERBS = ("task-start", "task-done", "append-attempt", "set-contract-card")
 
 
 def _read_json_file(path_str: str) -> Any:
@@ -311,6 +332,11 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], None]:
 
     if verb == "task-start":
         return lambda data: do_task_start(data, arg)
+
+    if verb == "append-attempt":
+        if not rest:
+            raise UsageError("append-attempt requires an attempt-json-file argument")
+        return lambda data: do_append_attempt(data, arg, _read_json_file(rest[0]))
 
     if not rest:
         raise UsageError("task-done requires an attempt-json-file argument")
