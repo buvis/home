@@ -46,7 +46,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from cli import notify_out, pause, routing, runner, state as state_mod, usage_limit
+from cli import notify_out, pause, routing, runner, usage_limit
+from cli import state as state_mod
 from cli.routing import _load_json
 from cli.watchdog import Watchdog
 
@@ -58,13 +59,18 @@ import _walk_up
 
 DEFAULT_LOOPS_DIR = Path.home() / ".claude" / "autopilot-loops"
 PURGE_SCRIPT = (
-    Path.home() / ".claude" / "skills" / "purge-devlocal" / "scripts" / "purge_devlocal.py"
+    Path.home()
+    / ".claude"
+    / "skills"
+    / "purge-devlocal"
+    / "scripts"
+    / "purge_devlocal.py"
 )
 
 _CONNECTION_FAIL = re.compile(
     r"unable to connect|connection ?(refused|reset|error)|econn|etimedout"
     r"|enotfound|eai_again|network is unreachable|fetch failed",
-    re.I,
+    re.IGNORECASE,
 )
 
 _API_PROBE_URL = "https://api.anthropic.com"
@@ -270,7 +276,11 @@ def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
         if not isinstance(data, dict):
             continue
         pid, reg_root = data.get("pid"), data.get("root")
-        if not isinstance(pid, int) or isinstance(pid, bool) or not isinstance(reg_root, str):
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or not isinstance(reg_root, str)
+        ):
             continue
         try:
             if Path(reg_root).resolve() == resolved and _pid_alive(pid):
@@ -485,9 +495,10 @@ class Loop:
     def _resolve_ap_dir(self) -> Path:
         ap_dir = _walk_up.find_autopilot_dir(self.cwd)
         if ap_dir is None:
+            # walk-up miss = no dir exists yet (normal on a fresh repo), not a failure
             print(
-                f"autoclaude: _walk_up.py failed; falling back to "
-                f"{self.cwd}/dev/local/autopilot",
+                f"autoclaude: no existing autopilot dir found (fresh start); "
+                f"creating {self.cwd}/dev/local/autopilot",
                 file=self.err,
             )
             ap_dir = self.cwd / "dev" / "local" / "autopilot"
@@ -595,7 +606,7 @@ class Loop:
         state_path = ap_dir / "state.json"
         plugins_json = Path(
             self.env.get("_AUTOPILOT_PLUGINS_JSON")
-            or Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+            or Path.home() / ".claude" / "plugins" / "installed_plugins.json",
         )
         if not state_path.is_file() or not plugins_json.is_file():
             return None
@@ -667,7 +678,7 @@ class Loop:
             decision["signal"] = "state_write_failed"
             data = _load_json(marker)
             detail = data.get("detail") if isinstance(data, dict) else None
-            decision["detail"] = detail if detail else "state write failed"
+            decision["detail"] = detail or "state write failed"
 
         state_touched = False
         mtime = _mtime(state_path)
@@ -704,7 +715,9 @@ class Loop:
             self._decide_no_progress(decision, ap_dir, state_path)
         return decision
 
-    def _decide_no_progress(self, decision: dict, ap_dir: Path, state_path: Path) -> None:
+    def _decide_no_progress(
+        self, decision: dict, ap_dir: Path, state_path: Path
+    ) -> None:
         """Branch 5: limit-hit is scheduling, network outage is
         infrastructure, anything else died."""
         reset = self._detect_limit(ap_dir / "last-session.log")
@@ -728,7 +741,9 @@ class Loop:
             return
 
         api_fail = last_result_field(
-            ap_dir / "last-session.log", "result", error_only=True
+            ap_dir / "last-session.log",
+            "result",
+            error_only=True,
         )
         if isinstance(api_fail, str) and _CONNECTION_FAIL.search(api_fail):
             retries_max = self._int("_AUTOPILOT_NET_RETRIES_MAX", 3)
@@ -885,7 +900,9 @@ class Loop:
             "pause again):\033[0m\n",
             file=self.err,
         )
-        print("  1. claude            # interactive session in this repo", file=self.err)
+        print(
+            "  1. claude            # interactive session in this repo", file=self.err
+        )
         print(
             "  2. /run-autopilot    # resumes from state.json; blockers become questions",
             file=self.err,
@@ -895,7 +912,8 @@ class Loop:
             file=self.err,
         )
         self._notify(
-            f"autopilot ⚠️ {self._repo_name()}", f"Paused: {decision['detail']}"
+            f"autopilot ⚠️ {self._repo_name()}",
+            f"Paused: {decision['detail']}",
         )
         return 1
 
@@ -922,7 +940,8 @@ class Loop:
         suffix = f" {prds_done} PRDs completed." if prds_done is not None else ""
         print(f"\nBacklog drained.{suffix}", file=self.out)
         self._notify(
-            f"autopilot ✅ {self._repo_name()}", f"Backlog drained.{suffix}"
+            f"autopilot ✅ {self._repo_name()}",
+            f"Backlog drained.{suffix}",
         )
         run_purge(self.cwd)
         run_agoge(
@@ -942,7 +961,9 @@ class Loop:
         if marker.is_file():
             self._park_relaunches += 1
             marker_mtime = _mtime(marker)
-            age = 0 if marker_mtime is None else max(0, int(self._clock()) - marker_mtime)
+            age = (
+                0 if marker_mtime is None else max(0, int(self._clock()) - marker_mtime)
+            )
             stale_max = max(
                 self._int("_AUTOPILOT_SESSION_MAX", 7200),
                 self._int("_AUTOPILOT_SESSION_MAX_REVIEW", 10800),
@@ -972,7 +993,7 @@ class Loop:
         self._park_relaunches = 0
         try:
             marker.write_text(
-                json.dumps({"prd": decision["prd"], "reason": decision["detail"]})
+                json.dumps({"prd": decision["prd"], "reason": decision["detail"]}),
             )
             written = marker.stat().st_size > 0
         except OSError:
@@ -998,7 +1019,8 @@ class Loop:
             file=self.out,
         )
         self._notify(
-            f"autopilot ⏭ {self._repo_name()}", f"Parking {decision['prd']}."
+            f"autopilot ⏭ {self._repo_name()}",
+            f"Parking {decision['prd']}.",
         )
         return None
 
@@ -1098,7 +1120,12 @@ class Loop:
             self._fingerprint_bound(decision, ap_dir / "state.json")
             ts_end = self._clock()
             self._append_metrics(
-                ap_dir, ts_start, ts_end, decision, phase_launched, plan.model
+                ap_dir,
+                ts_start,
+                ts_end,
+                decision,
+                phase_launched,
+                plan.model,
             )
 
             branch = decision["signal"]
