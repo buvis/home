@@ -644,6 +644,83 @@ class FablectlTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# PRD 00119 anchor inventory (Phase 0)
+#
+# work/SKILL.md step 5.5 (today's lines 501-648) and step 2.85 (lines 287-315)
+# are shrinking; the situational body of each moves to a reference file
+# (references/gate-failure.md, references/adversarial-test-prompt.md). This
+# table maps every check/test below that anchors content in either moving
+# range to its post-move home. Anchors outside both ranges are omitted -
+# they are unaffected by this PRD.
+#
+# step 2.85 (287-315): the tier-gate table (289-297) STAYS in SKILL.md. The
+# narrative (299-311: "Devon runs as...", "receives only...", "job:", the
+# Outcomes table) MOVES to adversarial-test-prompt.md Procedure section. No
+# check or fixture below anchors the moved narrative - confirmed by
+# inspection: `rg -n "Devon"` on this file matches only the tier-gate table,
+# DEVON_ACTION, and check_devon_row/its fixture, none of which touch the
+# narrative text.
+#
+# step 5.5 (501-648): the heading, scope note, retry snippet, and the
+# `_AUTOPILOT_ESCALATION == "legacy"` branch (501-529) STAY. Everything from
+# the per-rung-budget citation sentence through the deterministic-precedence
+# paragraph (530-648) MOVES to gate-failure.md.
+#
+# test / check                                              | anchor                                              | new home
+# -----------------------------------------------------------+------------------------------------------------------+----------------------------------
+# check_line_enumerations                                    | any WORK_SKILL/GATE_FAILURE_REF line naming all 3   | unchanged - both files scanned
+#   (FableTierEnumerationTest.                                | Claude tiers                                        | independently, TIER_TABLE_FILES
+#   test_fable_row_present_in_every_tier_enumeration)         |                                                      | gains GATE_FAILURE_REF (item 2)
+# check_denials (FableTierEnumerationTest.                    | any line that DENIES the fable contract              | unchanged - per-file scan, same
+#   test_no_tier_table_denies_the_fable_contract)             |                                                      | TIER_TABLE_FILES coverage
+# check_pinned_enumerations (FableTierEnumerationTest.        | "### 5.5." and "### 2.85." sections, joined,        | gate-failure.md (the 5.5 half) -
+#   test_pinned_sections_name_fable_even_when_rewrapped)      | must enumerate tiers + name fable                   | needs combined_doc (call site 1)
+# check_routing_override (WorkSkillFableContractTest.         | "## Per-task model dispatch" / "### 3."             | unaffected - neither section moves
+#   test_fable_overrides_the_deterministic_routing_table)     |                                                      |
+# check_pipeline_mapping (WorkSkillFableContractTest.         | "## Attempt logging" / "### 6."                     | unaffected - neither section moves
+#   test_fable_maps_to_full_pipeline)                         |                                                      |
+# check_devon_row (WorkSkillFableContractTest.                | "### 2.85." tier-gate TABLE fable row (line 294)    | unaffected - table stays inline
+#   test_devon_is_dispatched_for_a_fable_task)                |                                                      |
+# check_review_row (WorkSkillFableContractTest.                | "### 5.7." tier-gate TABLE                          | unaffected - out of this PRD's scope
+#   test_a_fable_task_is_reviewed_by_the_per_task_review_gate)|                                                      |
+# check_no_rung_above (WorkSkillFableContractTest.             | "A `fable` attempt has no rung above it" (~line 624)| gate-failure.md - needs combined_doc
+#   test_a_fable_gate_failure_has_no_rung_above_it, part 1)   |                                                      | (call site 2)
+# check_no_auto_escalation (same test, part 2)                | the ESCALATE dispatch chain line (~lines 612-613)   | gate-failure.md - needs combined_doc
+# check_budget (WorkSkillFableContractTest.                    | the FABLE_OWN_BUDGET sentence (~line 532) + the     | gate-failure.md - needs combined_doc
+#   test_fable_carries_its_own_dispatch_budget)               | folded-budget/two-dispatch guards                   |
+# check_retry_repair_excludes_fable (WorkSkillFableContractTest.| the 3 RETRY_REPAIR_SITES anchors, all inside the   | gate-failure.md - needs combined_doc
+#   test_feedback_retry_and_repair_gates_exclude_fable_by_name)| ``` pseudocode block (~lines 551-572)              |
+# WorkSkillExploitRejectionTest.                               | (11 subTests, one per WORK_SKILL_CHECKS entry       | combined_doc regardless
+#   test_the_unmodified_real_file_passes_every_check           | above) - the shipped-file baseline                  | (call site 3)
+# ...test_rejects_negated_accepted_values_line (#1)            | accepted-values line (~line 89, outside both ranges)| skill_text - unaffected
+# ...test_rejects_fable_mapped_to_the_shallowest_pipeline (#2) | step-6 pipeline-depth mapping (outside both ranges) | skill_text - unaffected
+# ...test_rejects_fable_folded_into_the_claude_rungs_budget(#3)| the per-rung budget sentence (line 532)             | gate_text - MOVED
+# ...test_rejects_fable_on_an_automatic_escalation_edge (#4)   | the ESCALATE dispatch line (~lines 612-613)         | gate_text - MOVED
+# ...test_rejects_a_rewrapped_enumeration_that_drops_fable (#5)| step-6 pipeline-depth mapping (outside both ranges) | skill_text - unaffected
+# ...test_rejects_a_contract_stated_only_in_an_html_comment(#6)| routing-override paragraphs (~lines 91, 415)        | skill_text - unaffected
+# ...test_rejects_a_see_also_line_in_place_of_a_devon_row (#7) | 2.85 table's fable row (294) + the "step-2.8...     | skill_text - table stays inline
+#                                                               | unchanged" sentence (297)                           |
+# ...test_rejects_a_skip_row_worded_as_no_reviewer_dispatch(#8)| 5.7 tier-gate table's fable row (outside both)      | skill_text - unaffected
+# ...test_rejects_no_rung_above_attached_to_the_wrong_rung (#9)| escalation-chain line (~612-613) + "no rung above"  | gate_text - MOVED
+#                                                               | paragraph (~624)                                    |
+# ...test_rejects_fable_granted_a_feedback_retry (#10)         | feedback-retry gate-fail-#1 pseudocode line         | gate_text - MOVED
+#                                                               | (~lines 552-553, inside the ``` block)              |
+# ...test_anti_vacuity_reports_the_reworded_anchor_site        | FEEDBACK_RETRY_ANCHOR boilerplate ("...1-dispatch   | gate_text - MOVED
+#                                                               | budget)", ~line 554)                                |
+#
+# Coverage: 22 distinct test methods enumerated above, reaching all 11
+# WORK_SKILL_CHECKS entries both by name (FableTierEnumerationTest /
+# WorkSkillFableContractTest rows) and via the 11 subTest iterations inside
+# test_the_unmodified_real_file_passes_every_check (the design doc's "~25"
+# count includes those 11 subTests as separate assertions). None dropped:
+# every check and fixture in this file as of this session's catchup (buvis
+# HEAD e39296e60) is accounted for above. Rows marked "unaffected" anchor
+# content outside both moving ranges, or (line_enumerations/denials) are
+# already covered once GATE_FAILURE_REF joins TIER_TABLE_FILES - no
+# retargeting needed for either.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # Fable documentation contract
 #
 # `fable` is a real model tier - the human-gated rescue rung above `opus`. The
