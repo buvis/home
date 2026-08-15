@@ -33,7 +33,7 @@ def test_uses_persona_as_is_when_no_frontmatter(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"],
     )
 
     assert exit_code == 0
@@ -51,7 +51,7 @@ def test_strips_frontmatter_before_scanning_placeholders(tmp_path: Path) -> None
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"],
     )
 
     assert exit_code == 0
@@ -70,7 +70,7 @@ def test_returns_exit_3_when_frontmatter_never_closes(tmp_path: Path) -> None:
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"],
     )
 
     assert exit_code == 3
@@ -104,7 +104,7 @@ def test_set_literal_value_is_substituted(tmp_path: Path) -> None:
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "GREETING=hello"]
+        [str(persona), "--out", str(out_path), "--set", "GREETING=hello"],
     )
 
     assert exit_code == 0
@@ -253,7 +253,7 @@ def test_lowercase_braces_are_not_treated_as_placeholders(tmp_path: Path) -> Non
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "REAL=World"]
+        [str(persona), "--out", str(out_path), "--set", "REAL=World"],
     )
 
     assert exit_code == 0
@@ -265,7 +265,7 @@ def test_duplicate_placeholder_occurrences_all_substituted(tmp_path: Path) -> No
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "X=Yo"]
+        [str(persona), "--out", str(out_path), "--set", "X=Yo"],
     )
 
     assert exit_code == 0
@@ -377,7 +377,7 @@ def test_returns_exit_5_when_out_parent_dir_missing(
     out_path = tmp_path / "missing_dir" / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"],
     )
 
     assert exit_code == 5
@@ -397,7 +397,7 @@ def test_stdout_prints_byte_count_not_character_count_for_multibyte_value(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "V=café"]
+        [str(persona), "--out", str(out_path), "--set", "V=café"],
     )
 
     assert exit_code == 0
@@ -446,7 +446,7 @@ def test_exit_3_prints_stderr_line_naming_the_persona_path_when_frontmatter_unte
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"],
     )
 
     assert exit_code == 3
@@ -471,7 +471,7 @@ def test_set_without_equals_sign_exits_6_and_names_the_offending_argument(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME"]
+        [str(persona), "--out", str(out_path), "--set", "NAME"],
     )
 
     assert exit_code == 6
@@ -491,7 +491,7 @@ def test_set_file_without_equals_sign_exits_6_and_names_the_offending_argument(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-file", "VAL"]
+        [str(persona), "--out", str(out_path), "--set-file", "VAL"],
     )
 
     assert exit_code == 6
@@ -511,7 +511,7 @@ def test_set_cmd_without_equals_sign_exits_6_and_names_the_offending_argument(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING"]
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING"],
     )
 
     assert exit_code == 6
@@ -530,7 +530,7 @@ def test_set_with_explicit_empty_value_after_equals_sign_still_renders_successfu
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "NAME="]
+        [str(persona), "--out", str(out_path), "--set", "NAME="],
     )
 
     assert exit_code == 0
@@ -550,7 +550,7 @@ def test_set_cmd_succeeding_with_empty_stdout_exits_4_and_names_the_key(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=true"]
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=true"],
     )
 
     assert exit_code == 4
@@ -577,7 +577,7 @@ def test_set_cmd_timeout_exits_4_and_names_the_key_without_the_real_wait(
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=sleep 1"]
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=sleep 1"],
     )
 
     assert exit_code == 4
