@@ -296,21 +296,7 @@ Write the gate findings (one per line) to the `QUALITY_FEEDBACK` scratch file wi
 
 The step-2.8 test quality gate is **unchanged** and runs for every tier — only this Agent dispatch is conditional. A Devon dispatch obeys the **Per-task model dispatch** rule (passes `model: opus`, or `model: fable` on a rescued task). Escalation interplay is automatic: when the review gate escalates a review-flagged task to `opus`, the rework attempt regains Devon with no extra mechanism. (Why tier-gated: `references/design-rationale.md` § tier-gated pipeline.)
 
-Dispatch Devon to try to write a **wrong** implementation that passes all of Tess's tests. Devon's goal is to exploit weak tests.
-
-**Devon runs as:** Claude Code subagent (Agent tool) — it needs file write access and the project's test runner to execute its wrong implementation against the tests. **Devon receives only:** the test files from Tess, public interfaces/types (so its wrong implementation compiles), and test-runner access. No task description, no acceptance criteria, no architecture docs.
-
-**Devon's job:** Write an implementation that is clearly wrong (hardcoded values, ignored edge cases, shortcut if/else chains), run the tests against it, and report which tests it broke through.
-
-**Outcomes:**
-
-| Devon result | Action |
-|----------------|--------|
-| Cannot break tests (tests catch all exploits) | Tests are strong. Proceed to 2.9. |
-| Breaks tests with wrong impl that passes | Send Devon's exploit back to Tess: "These tests can be passed by: {wrong impl}. Strengthen them." Then re-run Devon against strengthened tests. Max 2 Tess/Devon rounds. |
-| 2 A/C rounds exhausted | Flag weakness in task output, proceed anyway. |
-
-See `references/adversarial-test-prompt.md` for the full prompt template. Devon prompts must satisfy the **Subagent Dispatch Budget**.
+See `references/adversarial-test-prompt.md` § Procedure for how Devon runs, and the file's prompt template section for what it receives. Devon prompts must satisfy the **Subagent Dispatch Budget**.
 
 ### 2.9. Commit tests
 
