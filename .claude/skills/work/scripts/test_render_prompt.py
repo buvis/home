@@ -408,3 +408,182 @@ def test_stdout_prints_byte_count_not_character_count_for_multibyte_value(
     captured = capsys.readouterr()
     assert captured.out.rstrip("\n") == str(byte_count)
     assert len(out_path.read_bytes()) == byte_count
+
+
+# ---------------------------------------------------------------------------
+# Regression: silent exit codes must name their cause on stderr
+# ---------------------------------------------------------------------------
+
+
+def test_exit_2_prints_stderr_line_naming_the_missing_persona_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing_persona = tmp_path / "does-not-exist.md"
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(missing_persona), "--out", str(out_path), "--set", "NAME=World"],
+    )
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert str(missing_persona) in stderr_line
+    assert not out_path.exists()
+
+
+def test_exit_3_prints_stderr_line_naming_the_persona_path_when_frontmatter_unterminated(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(
+        tmp_path,
+        "---\ntitle: Test Persona\nBody without a closing marker {NAME}\n",
+    )
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+    )
+
+    assert exit_code == 3
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert str(persona) in stderr_line
+    assert not out_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Regression: a --set*/--set-file/--set-cmd argument with no "=" is a usage error
+# ---------------------------------------------------------------------------
+
+
+def test_set_without_equals_sign_exits_6_and_names_the_offending_argument(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME"]
+    )
+
+    assert exit_code == 6
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert "NAME" in stderr_line
+    assert not out_path.exists()
+
+
+def test_set_file_without_equals_sign_exits_6_and_names_the_offending_argument(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "X:{VAL}:Y")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set-file", "VAL"]
+    )
+
+    assert exit_code == 6
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert "VAL" in stderr_line
+    assert not out_path.exists()
+
+
+def test_set_cmd_without_equals_sign_exits_6_and_names_the_offending_argument(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Say {GREETING}!")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING"]
+    )
+
+    assert exit_code == 6
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert "GREETING" in stderr_line
+    assert not out_path.exists()
+
+
+def test_set_with_explicit_empty_value_after_equals_sign_still_renders_successfully(
+    tmp_path: Path,
+) -> None:
+    persona = _persona(tmp_path, "Value:[{NAME}]")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME="]
+    )
+
+    assert exit_code == 0
+    assert out_path.read_text(encoding="utf-8") == "Value:[]"
+
+
+# ---------------------------------------------------------------------------
+# Regression: a --set-cmd that succeeds with empty stdout is never silently substituted
+# ---------------------------------------------------------------------------
+
+
+def test_set_cmd_succeeding_with_empty_stdout_exits_4_and_names_the_key(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Say {GREETING}!")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=true"]
+    )
+
+    assert exit_code == 4
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert "GREETING" in stderr_line
+    assert not out_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: --set-cmd timeout branch (passes against current code)
+# ---------------------------------------------------------------------------
+
+
+def test_set_cmd_timeout_exits_4_and_names_the_key_without_the_real_wait(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(render_prompt, "SET_CMD_TIMEOUT_SECONDS", 0.05)
+    persona = _persona(tmp_path, "Say {GREETING}!")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=sleep 1"]
+    )
+
+    assert exit_code == 4
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert stderr_line != ""
+    assert "\n" not in stderr_line
+    assert "GREETING" in stderr_line
+    assert not out_path.exists()
