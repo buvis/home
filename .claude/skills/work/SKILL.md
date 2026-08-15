@@ -308,6 +308,12 @@ Hold the returned SHA in-session as `<test_commit_sha>` for this task; step 5.5'
 
 Run the newly committed tests once, before any Ivan dispatch, at the narrowest scope (the same commands step 5.5 uses). Red is the point: a failure proves the tests bind behavior that does not exist yet (rules/testing.md fail-first). Implicitly skipped when step 2.7 was skipped (no new tests).
 
+**New-module pre-check — skip the pytest invocation, don't just expect it to fail.** Before running the pytest command below, identify the target module using the task's own `Contract` section (the exact file path(s) the task implements, per `plan-tasks`' own contract convention) — not every import in the test file, only the one under test. The target module is the test file's import whose resolved filesystem path matches one of those Contract paths; this sidesteps import-parsing ambiguity entirely, since the task plan already names the file being built.
+
+If any Contract-named target path does not yet exist on disk, skip the pytest invocation for this step entirely: write `red_check = "n/a:new_module"` to the attempt entry and proceed straight to step 3 (still "expected red" semantically — a module that doesn't exist cannot pass). A Contract naming multiple files, some new and some existing, still takes this branch if ANY named target is missing — partial existence still guarantees an `ImportError` on the missing half, so running pytest gains nothing.
+
+Otherwise (every Contract-named target already exists — this is an edit to an existing module, not a new one), run the check exactly as below.
+
 | Outcome | Action |
 |---------|--------|
 | ≥1 test fails | Expected red. Proceed to step 3. |
