@@ -22,7 +22,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
   "codex_no_edit": true | null,
   "codex_no_edit_probe_exit": <int | null>,
   "verification": "skipped:<cause>" | null,
-  "red_check": "skipped:<cause>" | null,
+  "red_check": "skipped:<cause>" | "n/a:new_module" | null,
   "self_deslop": "committed:<sha>" | "noop" | "skipped:trivial" | "timeout" | "errored:<cause>" | null,
   "review": "failed:<cause>" | null
 }
@@ -53,7 +53,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
 **Best-effort gate stamps (fail-loud markers, PRD 00084 R2d)**: each records that a per-task gate was skipped or failed rather than passed, so a skipped check never reads as a passed one (`rules/operating-principles.md`). All optional — absent means the gate ran normally (or its tier-skip applied). They are pass-through markers: none blocks the task or changes `outcome`.
 
 - `verification`: string?; `"skipped:<cause>"` when step 5.5's per-task test verification could not run (e.g. the build lock was contended and cargo was backgrounded — `SKILL.md` step 5.5 / the "test verification is blocked" rule). Absent when the task's tests ran.
-- `red_check`: string?; `"skipped:<cause>"` when step 2.95's red-check could not run standalone (tests import the not-yet-built feature, or the runner cannot execute them). Absent when the red-check ran (saw red, or strengthened-then-red).
+- `red_check`: string?; `"skipped:<cause>"` when step 2.95's red-check could not run standalone (tests import the not-yet-built feature, or the runner cannot execute them), or `"n/a:new_module"` when the check was inapplicable because a Contract-named target the tests import does not exist on disk yet — a module that cannot be imported can only fail with `ImportError`, which proves nothing, so step 2.95 records this and skips both pytest invocations. The two are deliberately distinct: `skipped:` means the check could not be run, `n/a:` means it had no signal to give. Absent when the red-check ran (saw red, or strengthened-then-red).
 - `self_deslop`: string?; the step-5.6 self-deslop outcome — `"committed:<sha>"` (a `chore: prune slop` cleanup landed), `"noop"` (ran, no slop), `"skipped:trivial"` (skip rule fired — diff <30 net lines OR <2 files), `"timeout"` (watchdog killed it), or `"errored:<cause>"` (dispatch failed). Canonical shape mirrored in `run-autopilot/references/state-schema.md` `tasks[].attempts[].self_deslop`. Absent on legacy attempts.
 - `review`: string?; `"failed:<cause>"` when the step-5.7 reviewer lane (Sonnet via `use-sonnet`) failed twice (runner unavailable, nonzero exit, or empty output). Absent when the review ran or its haiku tier-gate skipped it.
 
@@ -72,7 +72,7 @@ At every task exit — success in `SKILL.md` step 6, abort in step 4 (timeout / 
 | Exit path | Call |
 |---|---|
 | **Task completed** (`SKILL.md` step 6) | `statectl.py <state.json> task-done <task-id> dev/local/tmp/attempt-task-<id>.json` |
-| **Abort or escalate-away** (step 4 timeout / context exceeded / error after debug, Subagent Dispatch Budget overrun, an `"escalated"` rung entry) | `statectl.py <state.json> append tasks[i].attempts '<entry-json>'` |
+| **Abort or escalate-away** (step 4 timeout / context exceeded / error after debug, Subagent Dispatch Budget overrun, an `"escalated"` rung entry) | `statectl.py <state.json> append-attempt <task-id> dev/local/tmp/attempt-task-<id>.json` |
 
 `task-done` is the **only** call the success path makes: it appends the entry, sets `tasks[i].status = "completed"`, and recomputes `tasks_completed` in one locked atomic write, resolving the task by `tasks[].id` rather than array position. Do not pair it with a separate status write or a `tasks_completed` write — the count is derived and must never be passed in.
 
