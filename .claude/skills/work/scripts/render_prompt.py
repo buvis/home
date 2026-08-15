@@ -3,6 +3,11 @@
 Strips a leading YAML frontmatter block (if present) from a persona file,
 substitutes {PLACEHOLDER} tokens using values supplied via --set/--set-file/
 --set-cmd, and writes the rendered body to --out.
+
+Exit codes: 0 success, 1 unfilled placeholder, 2 persona file unreadable,
+3 unterminated frontmatter, 4 --set-file unreadable or --set-cmd
+failed/timed out/produced no output, 5 --out parent directory missing,
+6 a --set/--set-file/--set-cmd argument is missing its '=' separator.
 """
 
 from __future__ import annotations
@@ -59,14 +64,29 @@ def main(argv: list[str] | None = None) -> int:
     try:
         text = Path(args.persona).read_text(encoding="utf-8")
     except OSError:
+        print(
+            f"render_prompt: persona file not found: {args.persona}",
+            file=sys.stderr,
+        )
         return 2
 
     body = _strip_frontmatter(text)
     if body is None:
+        print(
+            f"render_prompt: unterminated frontmatter: {args.persona}",
+            file=sys.stderr,
+        )
         return 3
 
+    flag_names = {"set": "--set", "set_file": "--set-file", "set_cmd": "--set-cmd"}
     values: dict[str, str] = {}
     for kind, raw in getattr(args, "assignments", None) or []:
+        if "=" not in raw:
+            print(
+                f"render_prompt: {flag_names[kind]} argument missing '=': {raw}",
+                file=sys.stderr,
+            )
+            return 6
         key, _, val = raw.partition("=")
         if kind == "set":
             values[key] = val
@@ -106,6 +126,12 @@ def main(argv: list[str] | None = None) -> int:
             stdout = result.stdout
             if stdout.endswith("\n"):
                 stdout = stdout[:-1]
+            if stdout == "":
+                print(
+                    f"render_prompt: --set-cmd produced no output for {{{key}}}: {val}",
+                    file=sys.stderr,
+                )
+                return 4
             values[key] = stdout
 
     found = {match.group(0)[1:-1] for match in PLACEHOLDER_RE.finditer(body)}
