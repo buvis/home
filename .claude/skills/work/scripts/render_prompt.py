@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         text = Path(args.persona).read_text(encoding="utf-8")
     except OSError:
         print(
-            f"render_prompt: persona file not found: {args.persona}",
+            f"render_prompt: persona file unreadable: {args.persona}",
             file=sys.stderr,
         )
         return 2
