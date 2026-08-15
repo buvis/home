@@ -732,9 +732,10 @@ class FablectlTest(unittest.TestCase):
 
 SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
 WORK_SKILL = SKILLS_DIR / "work" / "SKILL.md"
+GATE_FAILURE_REF = SKILLS_DIR / "work" / "references" / "gate-failure.md"
 STATE_SCHEMA = SKILLS_DIR / "run-autopilot" / "references" / "state-schema.md"
 MODEL_LADDER = SKILLS_DIR / "run-autopilot" / "references" / "model-ladder.md"
-TIER_TABLE_FILES = (WORK_SKILL, STATE_SCHEMA, MODEL_LADDER)
+TIER_TABLE_FILES = (WORK_SKILL, STATE_SCHEMA, MODEL_LADDER, GATE_FAILURE_REF)
 
 # One line at a time: "names all three tiers", and the same with "and does not
 # name fable" - the offending shape.
@@ -793,7 +794,8 @@ def _section(lines: list[str], heading: str) -> list[tuple[int, str]]:
             continue
         if inside:
             if text.startswith("## ") or text.startswith("### "):
-                break
+                inside = False
+                continue
             body.append((number, text))
     return body
 
@@ -866,6 +868,24 @@ class Doc:
 
     def whole(self) -> Flow:
         return Flow(self.path, list(enumerate(self.lines, 1)))
+
+
+def combined_doc(primary: Path, *extra: Path) -> Doc:
+    """A Doc over `primary`'s text with `extra` files' text appended.
+
+    Existing headings that repeat across files (e.g. `### 5.5.` restated
+    verbatim at the top of an extracted reference file) are merged by
+    `_section`, which does not stop scanning at the first following heading -
+    it re-enters on a later match of the same heading text. Citations from
+    `extra` content report `primary`'s path and a line number counted through
+    the concatenation, not the physical file - a precision loss accepted
+    because `_cite` output is diagnostic only; no check's PASS/FAIL verdict
+    depends on it.
+    """
+    text = primary.read_text()
+    for path in extra:
+        text += "\n" + path.read_text()
+    return Doc(primary, text=text)
 
 
 # --- the pinned sites -------------------------------------------------------
@@ -1314,7 +1334,9 @@ class FableTierEnumerationTest(unittest.TestCase):
         # The per-line scan above dies to a hard wrap: split a mapping across two
         # lines and neither half names all three tiers. Each pinned section is
         # therefore also read as ONE joined string.
-        offenders = check_pinned_enumerations(Doc(WORK_SKILL))
+        offenders = check_pinned_enumerations(
+            combined_doc(WORK_SKILL, GATE_FAILURE_REF)
+        )
         if offenders:
             self.fail(
                 "these sections enumerate the Claude tiers with no `fable` "
@@ -1342,7 +1364,7 @@ class WorkSkillFableContractTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.assertTrue(WORK_SKILL.exists(), f"missing tier-table file: {WORK_SKILL}")
-        self.doc = Doc(WORK_SKILL)
+        self.doc = combined_doc(WORK_SKILL, GATE_FAILURE_REF)
         # Positive control: every section these contracts pin still exists, so a
         # clean verdict cannot come from scanning an empty section.
         for heading in PINNED_SECTIONS:
@@ -1445,36 +1467,49 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        self.copy = Path(self.tmp.name) / "SKILL.md"
-        shutil.copyfile(WORK_SKILL, self.copy)
+        self.skill_copy = Path(self.tmp.name) / "SKILL.md"
+        self.gate_copy = Path(self.tmp.name) / "gate-failure.md"
+        shutil.copyfile(WORK_SKILL, self.skill_copy)
+        shutil.copyfile(GATE_FAILURE_REF, self.gate_copy)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def patch(self, text: str, patches: tuple) -> str:
+    def patch(
+        self,
+        skill_text: str,
+        gate_text: str,
+        patches: tuple,
+    ) -> tuple[str, str]:
         for old, new in patches:
-            self.assertIn(
-                old,
-                text,
-                f"fixture drift: {WORK_SKILL} no longer contains {old[:70]!r}, so "
-                "this fixture is testing something else - re-anchor it",
-            )
-            text = text.replace(old, new, 1)
-        return text
+            if old in skill_text:
+                skill_text = skill_text.replace(old, new, 1)
+            elif old in gate_text:
+                gate_text = gate_text.replace(old, new, 1)
+            else:
+                self.fail(
+                    f"fixture drift: neither {WORK_SKILL} nor {GATE_FAILURE_REF} "
+                    f"contains {old[:70]!r} - re-anchor it"
+                )
+        return skill_text, gate_text
 
-    def write(self, text: str) -> Doc:
-        self.copy.write_text(text)
-        return Doc(self.copy)
+    def write(self, skill_text: str, gate_text: str) -> Doc:
+        self.skill_copy.write_text(skill_text)
+        self.gate_copy.write_text(gate_text)
+        return combined_doc(self.skill_copy, self.gate_copy)
 
     def exploited(self, *patches: tuple) -> Doc:
-        return self.write(self.patch(self.copy.read_text(), patches))
+        skill_text, gate_text = self.patch(
+            self.skill_copy.read_text(), self.gate_copy.read_text(), patches
+        )
+        return self.write(skill_text, gate_text)
 
     def test_the_unmodified_real_file_passes_every_check(self) -> None:
         # Without this, "the check rejects the exploit" is worthless: a check
         # that rejects everything would pass all nine fixtures below. Pinning
         # the baseline to the SHIPPED file also makes every fixture non-vacuous
         # by construction - an exploit can only bite by removing real wiring.
-        doc = Doc(self.copy)
+        doc = combined_doc(self.skill_copy, self.gate_copy)
         for name, check in WORK_SKILL_CHECKS:
             with self.subTest(check=name):
                 self.assertEqual(
