@@ -28,17 +28,16 @@ When building Tess's prompt, include:
 
 ## Retry Prompt (after quality gate failure)
 
-```
-Your tests have quality issues. Fix them:
+The retry template lives in `work/references/tess-retry-prompt.md` (single
+source of truth, registry-shaped single-brace placeholders — `render_prompt.py`
+consumes it directly; see `agent-registry.md` for the placeholder table). It
+takes `{QUALITY_FEEDBACK}`, `{TASK_DESCRIPTION}` and
+`{TASK_ACCEPTANCE_CRITERIA}`, and bakes in the same fixed guards the initial
+template carries (read-only scope, 100K abort line, dispatch prologue,
+ASSUMPTIONS footer).
 
-{specific feedback from quality gate, e.g.:}
+`{QUALITY_FEEDBACK}` is the step-2.8 gate's own findings, one per line, e.g.:
+
 - Test "handles validation" is too vague. Name the specific behavior.
 - Test 3 would pass with a function that always returns true. Add constraints.
 - No edge case for empty input.
-
-Original requirements (unchanged):
-{task.description}
-{task.acceptance_criteria}
-
-Rewrite the tests addressing each issue above.
-```

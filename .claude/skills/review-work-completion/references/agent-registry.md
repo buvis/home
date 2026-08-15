@@ -76,6 +76,7 @@ skill owns path resolution, the persona does not. Placeholders in use:
 | `{ARCHITECTURE_CONTEXT}` | AGENTS.md/interface/relevant-module context Ivan needs to implement against (Ivan). |
 | `{FILE_PATHS}` | The exact file paths Ivan may read and modify for this task (Ivan). |
 | `{RETRY_INSTRUCTION}` | Empty string on the initial dispatch (step 3); a retry-specific one-line instruction on a re-dispatch (step 5.5's SURGICAL line or step 7's regression-fix line) (Ivan). |
+| `{QUALITY_FEEDBACK}` | The step-2.8 test-quality-gate findings, one per line, for a Tess retry (Tess). |
 | `{SAMPLE_TEST_FILE}` | One representative existing test file, for style/convention (Tess). |
 | `{PUBLIC_INTERFACES}` | Type definitions / function signatures / module exports the new tests will call (Tess). |
 | `{TEST_FRAMEWORK}` | The project's test framework name (pytest/jest/vitest/etc.) (Tess). |
