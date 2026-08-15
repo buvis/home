@@ -26,12 +26,15 @@ def _persona(tmp_path: Path, content: str, name: str = "persona.md") -> Path:
 
 
 def test_uses_persona_as_is_when_no_frontmatter(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "Hello {NAME}!")
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "NAME=World"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+    )
 
     assert exit_code == 0
     rendered = out_path.read_text(encoding="utf-8")
@@ -47,7 +50,9 @@ def test_strips_frontmatter_before_scanning_placeholders(tmp_path: Path) -> None
     )
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "NAME=World"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+    )
 
     assert exit_code == 0
     rendered = out_path.read_text(encoding="utf-8")
@@ -64,7 +69,9 @@ def test_returns_exit_3_when_frontmatter_never_closes(tmp_path: Path) -> None:
     )
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "NAME=World"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+    )
 
     assert exit_code == 3
     assert not out_path.exists()
@@ -80,7 +87,7 @@ def test_returns_exit_2_when_persona_file_missing(tmp_path: Path) -> None:
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(missing_persona), "--out", str(out_path), "--set", "NAME=World"]
+        [str(missing_persona), "--out", str(out_path), "--set", "NAME=World"],
     )
 
     assert exit_code == 2
@@ -96,7 +103,9 @@ def test_set_literal_value_is_substituted(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "Say {GREETING}!")
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "GREETING=hello"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "GREETING=hello"]
+    )
 
     assert exit_code == 0
     assert out_path.read_text(encoding="utf-8") == "Say hello!"
@@ -109,7 +118,7 @@ def test_set_file_uses_full_contents_including_trailing_newline(tmp_path: Path) 
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-file", f"VAL={value_path}"]
+        [str(persona), "--out", str(out_path), "--set-file", f"VAL={value_path}"],
     )
 
     assert exit_code == 0
@@ -117,14 +126,21 @@ def test_set_file_uses_full_contents_including_trailing_newline(tmp_path: Path) 
 
 
 def test_rejects_missing_set_file_path_with_exit_4(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "X:{VAL}:Y")
     missing_value_path = tmp_path / "does-not-exist.txt"
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-file", f"VAL={missing_value_path}"]
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set-file",
+            f"VAL={missing_value_path}",
+        ],
     )
 
     assert exit_code == 4
@@ -141,7 +157,7 @@ def test_set_cmd_uses_trailing_newline_stripped_stdout(tmp_path: Path) -> None:
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=echo hello"]
+        [str(persona), "--out", str(out_path), "--set-cmd", "GREETING=echo hello"],
     )
 
     assert exit_code == 0
@@ -149,14 +165,15 @@ def test_set_cmd_uses_trailing_newline_stripped_stdout(tmp_path: Path) -> None:
 
 
 def test_rejects_nonzero_set_cmd_with_exit_4_ignoring_stdout(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "Say {GREETING}!")
     out_path = tmp_path / "out.txt"
     cmd = "echo partial; echo boom >&2; exit 7"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set-cmd", f"GREETING={cmd}"]
+        [str(persona), "--out", str(out_path), "--set-cmd", f"GREETING={cmd}"],
     )
 
     assert exit_code == 4
@@ -174,7 +191,8 @@ def test_rejects_nonzero_set_cmd_with_exit_4_ignoring_stdout(
 
 
 def test_returns_exit_1_naming_the_missing_placeholder(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "Hi {NAME}!")
     out_path = tmp_path / "out.txt"
@@ -187,7 +205,8 @@ def test_returns_exit_1_naming_the_missing_placeholder(
 
 
 def test_missing_placeholder_message_names_first_name_sorted(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "{ZEBRA} and {APPLE}")
     out_path = tmp_path / "out.txt"
@@ -214,7 +233,15 @@ def test_unused_set_key_is_not_an_error(tmp_path: Path) -> None:
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "USED=foo", "--set", "UNUSED=bar"]
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "USED=foo",
+            "--set",
+            "UNUSED=bar",
+        ],
     )
 
     assert exit_code == 0
@@ -225,7 +252,9 @@ def test_lowercase_braces_are_not_treated_as_placeholders(tmp_path: Path) -> Non
     persona = _persona(tmp_path, "{notaplaceholder} then {REAL}")
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "REAL=World"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "REAL=World"]
+    )
 
     assert exit_code == 0
     assert out_path.read_text(encoding="utf-8") == "{notaplaceholder} then World"
@@ -235,7 +264,9 @@ def test_duplicate_placeholder_occurrences_all_substituted(tmp_path: Path) -> No
     persona = _persona(tmp_path, "{X} and {X} again")
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "X=Yo"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "X=Yo"]
+    )
 
     assert exit_code == 0
     assert out_path.read_text(encoding="utf-8") == "Yo and Yo again"
@@ -246,12 +277,14 @@ def test_duplicate_placeholder_occurrences_all_substituted(tmp_path: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_substituted_value_containing_brace_sequence_is_not_rescanned(tmp_path: Path) -> None:
+def test_substituted_value_containing_brace_sequence_is_not_rescanned(
+    tmp_path: Path,
+) -> None:
     persona = _persona(tmp_path, "Start {A} End")
     out_path = tmp_path / "out.txt"
 
     exit_code = render_prompt.main(
-        [str(persona), "--out", str(out_path), "--set", "A=value with {B} inside"]
+        [str(persona), "--out", str(out_path), "--set", "A=value with {B} inside"],
     )
 
     assert exit_code == 0
@@ -278,7 +311,7 @@ def test_last_write_wins_set_file_after_set(tmp_path: Path) -> None:
             "KEY=SETVAL",
             "--set-file",
             f"KEY={value_path}",
-        ]
+        ],
     )
 
     assert exit_code == 0
@@ -300,7 +333,7 @@ def test_last_write_wins_set_after_set_file(tmp_path: Path) -> None:
             f"KEY={value_path}",
             "--set",
             "KEY=SETVAL",
-        ]
+        ],
     )
 
     assert exit_code == 0
@@ -324,7 +357,7 @@ def test_all_three_source_kinds_combine_in_one_render(tmp_path: Path) -> None:
             f"B={value_path}",
             "--set-cmd",
             "C=echo 3",
-        ]
+        ],
     )
 
     assert exit_code == 0
@@ -337,12 +370,15 @@ def test_all_three_source_kinds_combine_in_one_render(tmp_path: Path) -> None:
 
 
 def test_returns_exit_5_when_out_parent_dir_missing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "Hi {NAME}!")
     out_path = tmp_path / "missing_dir" / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "NAME=World"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "NAME=World"]
+    )
 
     assert exit_code == 5
     captured = capsys.readouterr()
@@ -354,12 +390,15 @@ def test_returns_exit_5_when_out_parent_dir_missing(
 
 
 def test_stdout_prints_byte_count_not_character_count_for_multibyte_value(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     persona = _persona(tmp_path, "Value: {V}")
     out_path = tmp_path / "out.txt"
 
-    exit_code = render_prompt.main([str(persona), "--out", str(out_path), "--set", "V=café"])
+    exit_code = render_prompt.main(
+        [str(persona), "--out", str(out_path), "--set", "V=café"]
+    )
 
     assert exit_code == 0
     rendered = out_path.read_text(encoding="utf-8")
