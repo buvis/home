@@ -325,9 +325,13 @@ Run the newly committed tests once, before any Ivan dispatch, at the narrowest s
 
 **New-module pre-check — skip the pytest invocation, don't just expect it to fail.** Before running the pytest command below, identify the target module using the task's own `Contract` section (the exact file path(s) the task implements, per `plan-tasks`' own contract convention) — not every import in the test file, only the one under test. The target module is the test file's import whose resolved filesystem path matches one of those Contract paths; this sidesteps import-parsing ambiguity entirely, since the task plan already names the file being built.
 
-If any Contract-named target path does not yet exist on disk, skip the pytest invocation for this step entirely: write `red_check = "n/a:new_module"` to the attempt entry and proceed straight to step 3 (still "expected red" semantically — a module that doesn't exist cannot pass). A Contract naming multiple files, some new and some existing, still takes this branch if ANY named target is missing — partial existence still guarantees an `ImportError` on the missing half, so running pytest gains nothing.
+**Only the Contract paths the test file actually imports are candidates.** A Contract routinely names files the new tests never import — an edited caller, a schema doc, a reference page — and a missing one of those does not imply an `ImportError`, so it must not suppress the run. Intersect first: take the Contract paths, keep those the test file imports, and judge existence on that set alone.
 
-Otherwise (every Contract-named target already exists — this is an edit to an existing module, not a new one), run the check exactly as below.
+If any **imported** Contract-named target path does not yet exist on disk, skip the pytest invocation for this step entirely: write `red_check = "n/a:new_module"` to the attempt entry and proceed straight to step 3 (still "expected red" semantically — a module that doesn't exist cannot pass). A Contract naming multiple imported files, some new and some existing, still takes this branch if ANY of them is missing — partial existence still guarantees an `ImportError` on the missing half, so running pytest gains nothing.
+
+**No Contract section, or no Contract path the tests import** (a legacy plan task, or a task whose Contract names only non-imported files): there is nothing to resolve, so do NOT skip. Run the check exactly as below — an unresolvable target is a reason to gather real evidence, never a reason to record `n/a:new_module` on a module that may well exist.
+
+Otherwise (every imported Contract-named target already exists — this is an edit to an existing module, not a new one), run the check exactly as below.
 
 | Outcome | Action |
 |---------|--------|
@@ -419,10 +423,10 @@ qwen never sees `opus`-tier or UI tasks — `task.metadata.qwen_eligible` is alr
 **Qwen infra preflight — batch-scoped.** When (and only when) the routing table picks qwen, consult `state.qwen_preflight` instead of probing per task — the same lazy-reset batch-scope idiom `codex_probe` already uses (`references/codex-implementor.md` § Codex batch health probe):
 
 1. **Batch-scope check, before any read or write:** compute the effective batch id `(state.batch.id // "no-batch")` and compare it to `qwen_preflight.batch_id`.
-2. **Mismatch or field absent** → run the four-check probe defined in `references/qwen-integration.md` (Preflight section) once (`qwen-run.sh --preflight --approved-only`), write the verdict via `statectl set qwen_preflight '{"batch_id": <effective id>, "verdict": <the verdict>, "detail": <the failing checks detail string, or null on healthy>, "checked_at": <ISO 8601>}'`, then proceed using that verdict.
+2. **Mismatch or field absent** → run the four-check probe defined in `references/qwen-integration.md` (Preflight section) once (`qwen-run.sh --preflight --approved-only`), write the verdict via `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> set qwen_preflight '{"batch_id": <effective id>, "verdict": <the verdict>, "detail": <the failing checks detail string, or null on healthy>, "checked_at": <ISO 8601>}'`, then proceed using that verdict.
 3. **Match** → reuse the cached verdict, skip the probe entirely.
 4. `"healthy"` → proceed with the qwen dispatch; any other verdict (`"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`) → fall back to Claude at the task's original tier, byte-for-byte identical to a normal Claude dispatch apart from the recorded `preflight_outcome`. Record the outcome for the attempt-log entry; the dispatch decision determines `implementor`. Preflight does NOT run on Claude or Gemini dispatches.
-5. **Re-probe trigger — scoped to backend-health signals, not task-outcome signals.** A qwen-routed task's step-5.5 gate failing on its own is NOT a re-probe trigger: ordinary task-difficulty failures on a healthy backend are expected and already handled by the one-shot-to-Sonnet escalation (`references/qwen-integration.md` § One-shot attempt budget) — treating every such failure as a health signal would degrade the cache toward "probe before every task." Only two signals invalidate the cache: (a) the Subagent Watchdog judges the qwen dispatch itself hung/lost, or (b) the qwen helper script's own exit reports an infra-shaped failure at dispatch time (`"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`), surfaced when `qwen-run.sh` (not the preflight probe) fails at the real dispatch despite a cached `"healthy"` verdict. On either trigger, run `statectl del qwen_preflight` immediately — the next qwen-eligible task's batch-scope check then sees "absent" and re-probes via the mismatch-or-absent path above.
+5. **Re-probe trigger — scoped to backend-health signals, not task-outcome signals.** A qwen-routed task's step-5.5 gate failing on its own is NOT a re-probe trigger: ordinary task-difficulty failures on a healthy backend are expected and already handled by the one-shot-to-Sonnet escalation (`references/qwen-integration.md` § One-shot attempt budget) — treating every such failure as a health signal would degrade the cache toward "probe before every task." Only two signals invalidate the cache: (a) the Subagent Watchdog judges the qwen dispatch itself hung/lost, or (b) the qwen helper script's own exit reports an infra-shaped failure at dispatch time (`"pi_missing"` / `"endpoint_unreachable"` / `"model_id_missing"` / `"completion_failed"`), surfaced when `qwen-run.sh` (not the preflight probe) fails at the real dispatch despite a cached `"healthy"` verdict. On either trigger, run `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> del qwen_preflight` immediately — the next qwen-eligible task's batch-scope check then sees "absent" and re-probes via the mismatch-or-absent path above. The field may already be absent (an earlier trigger this batch deleted it and no qwen-eligible task has re-probed since); treat a "key not found" exit from that call as success, not as an error to escalate.
 6. The per-task memory-pressure gate (routing row 4) is untouched — it stays a per-task host-memory check, independent of this cache.
 
 #### Codex implementor mechanics (probe, dispatch, hook gate)
@@ -493,7 +497,16 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - Never dispatch Tess to weaken tests.
-- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) re-render `ivan.md` with `--set RETRY_INSTRUCTION="Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."` (the code-quality rules block is already permanent in `ivan.md`, so there is nothing to re-include). `FAILING_TESTS` comes from **one** source on a retry: write the original failing tests plus the new failure output to a scratch file once per retry and pass `--set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md`. Do not also pass `--set-cmd FAILING_TESTS` — the last flag would silently win, and the failure output is exactly what the retry needs to carry.
+- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) re-render `ivan.md` in full. A render fills EVERY placeholder the persona carries or it exits 1 naming the first missing one, so a retry re-passes `ARCHITECTURE_CONTEXT` and `FILE_PATHS` exactly as the step-3 dispatch did — only `FAILING_TESTS` and `RETRY_INSTRUCTION` change:
+  ```bash
+  python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/agents/ivan.md \
+    --out dev/local/tmp/dispatch-ivan-<task-id>-retry-<n>.txt \
+    --set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md \
+    --set-file ARCHITECTURE_CONTEXT=<the same source step 3 used> \
+    --set-file FILE_PATHS=dev/local/tmp/ivan-<task-id>-files.txt \
+    --set RETRY_INSTRUCTION="Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."
+  ```
+  The code-quality rules block is already permanent in `ivan.md`, so there is nothing to re-include. `FAILING_TESTS` comes from **one** source on a retry: write the original failing tests plus the new failure output to `dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md` once per retry and pass it with `--set-file`. Do not also pass `--set-cmd FAILING_TESTS` — the last flag would silently win, and the failure output is exactly what the retry needs to carry.
 
 **Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
 
@@ -682,7 +695,7 @@ Dispatch the reviewer after commit and verification — a native lane, no plugin
      --set-file TASK_DESCRIPTION=dev/local/tmp/review-task-<id>-description.txt \
      --set-file TASK_ACCEPTANCE_CRITERIA=dev/local/tmp/review-task-<id>-acceptance.txt \
      --set-cmd DIFF="git diff BASE_SHA..HEAD_SHA" \
-     --set-file SIMPLIFICATION_MANDATE=references/simplification-mandate.md
+     --set-file SIMPLIFICATION_MANDATE=~/.claude/skills/work/references/simplification-mandate.md
    ```
    The **Pat persona** (`~/.claude/agents/pat.md`) already carries the read-only statement and the reporting contract — one finding per line as `SEVERITY | file:line | issue | fix` (severities CRITICAL/HIGH/MEDIUM/LOW), or the literal line `NO FINDINGS` — so do not restate them here. Conventions and the placeholder table: `review-work-completion/references/agent-registry.md`. If `pat.md` is missing or its frontmatter does not parse, treat it as a runner failure (step 4's retry-once branch) — never fall back to a hand-written prompt. The stdout integer from the render call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`.
 3. Dispatch via the sonnet runner (helper-script dispatch — the **Subagent Watchdog** applies):
@@ -759,7 +772,7 @@ Run each as a separate Bash call. Do not chain with `&&`.
 
 1. Identify which task(s) introduced the regression. The failing test output usually points at a specific module; cross-reference against the task commits.
 2. Re-open the offending task via `TaskUpdate(status: in_progress)` and sync state file.
-3. Dispatch Ivan with the failure output to fix it: re-render `ivan.md` with `--set RETRY_INSTRUCTION="Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code."` (the code-quality rules block is already permanent in `ivan.md`), with `FAILING_TESTS` filled from the step-7 failure output the same way as step 5.5's retry (`--set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md`). Do NOT relax the failing test.
+3. Dispatch Ivan with the failure output to fix it: re-render `ivan.md` using the **full** retry command shape from step 5.5 (every placeholder filled, explicit `--out`), with `FAILING_TESTS` filled from the step-7 failure output and `--set RETRY_INSTRUCTION="Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code."`. The code-quality rules block is already permanent in `ivan.md`. Do NOT relax the failing test.
 4. After the fix commits, re-run **only** the previously failing commands from step 7 (not the whole suite again) to confirm the fix.
 5. Mark the task completed and re-sync.
 6. Repeat until the full suite is green.
