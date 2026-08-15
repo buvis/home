@@ -114,6 +114,21 @@ Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism
 
 > Read every file before your first Edit to it. Never call bash `head`, `tail`, `cat`, `grep`, or `find` - a hook blocks them. Use the Read tool (offset/limit), `rg`, or `rg --files` instead.
 
+## Passing values to render_prompt.py
+
+Every render call in this skill (Tess 2.7, Ivan 3 / 5.5 / 7, Pat 5.7) picks a flag by where the value comes from, not by convenience:
+
+| Value | Flag |
+|---|---|
+| Task-authored prose — subject, description, acceptance criteria, Contract file paths, findings blocks | `--set-file`, from a scratch file written with the **Write tool** |
+| A file that already exists on disk | `--set-file <path>` |
+| Several existing files concatenated | `--set-cmd "cat $(printf '%q ' <paths>)"` |
+| A fixed string this skill composes itself, containing no task text | `--set` |
+
+**Task-authored prose must never be passed with `--set`.** A `--set KEY=VALUE` word is expanded by the shell before `render_prompt.py` ever sees it, and task text in this repo routinely contains backticks and `$( )` — bash executes the command substitution and strips it, so the subagent silently receives a corrupted prompt, and the substituted command runs. Writing the prose to a scratch file and passing the path removes the shell from the path entirely; it costs one Write call, which the render call was already saving.
+
+The `--set-cmd` quoting rule is separate and still applies: any path interpolated into a `--set-cmd` value crosses into a nested shell (`subprocess.run(..., shell=True)`), so quote it with `printf '%q '` or `shlex.quote()` before composing the flag.
+
 ## Attempt logging
 
 At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`. Each entry carries:
@@ -224,13 +239,13 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 - Existing test patterns (one sample test file from the project)
 - Test framework and conventions used
 
-Render: one Bash call, every interpolated path `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
+Render: one Bash call. **Task-authored prose never crosses the shell** — write it to a scratch file with the Write tool and pass `--set-file`; see § Passing values to render_prompt.py. Every interpolated path is `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
 ```bash
 python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/skills/work/references/tess-prompt.md \
   --out dev/local/tmp/dispatch-tess-<task-id>.txt \
-  --set TASK_SUBJECT="<task subject>" \
+  --set-file TASK_SUBJECT=dev/local/tmp/tess-<task-id>-subject.txt \
   --set-file TASK_DESCRIPTION=<scratch file: task description plus the exact file paths and symbol names to test> \
-  --set TASK_ACCEPTANCE_CRITERIA="<task acceptance criteria>" \
+  --set-file TASK_ACCEPTANCE_CRITERIA=dev/local/tmp/tess-<task-id>-acceptance.txt \
   --set-file SAMPLE_TEST_FILE=<one representative existing test file> \
   --set-cmd PUBLIC_INTERFACES="cat $(printf '%q ' <interface files>)" \
   --set TEST_FRAMEWORK="<pytest/jest/vitest/etc>"
@@ -326,15 +341,16 @@ Ivan's job: make the failing tests pass. Tests ARE the spec.
 
 **Ivan receives:** failing test file paths and their content, architecture context (AGENTS.md, interfaces, relevant modules), and existing code patterns to follow. **Ivan does NOT receive:** the task's acceptance criteria prose (tests replace this) or permission to modify test files.
 
-Render: one Bash call, every interpolated path `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
+Render: one Bash call. **Task-authored prose never crosses the shell** — write it to a scratch file with the Write tool and pass `--set-file`; see § Passing values to render_prompt.py. Every interpolated path is `shlex.quote()`-d (or bash's `printf '%q '`) before it lands inside a `--set-cmd` value:
 ```bash
 python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/agents/ivan.md \
   --out dev/local/tmp/dispatch-ivan-<task-id>.txt \
   --set-cmd FAILING_TESTS="cat $(printf '%q ' <test_file_1> [test_file_2 ...])" \
   --set-file ARCHITECTURE_CONTEXT=<a single existing file, e.g. AGENTS.md, when one file covers it> \
-  --set FILE_PATHS="<newline-separated list from the task's Contract section>" \
+  --set-file FILE_PATHS=dev/local/tmp/ivan-<task-id>-files.txt \
   --set RETRY_INSTRUCTION=""
 ```
+`FILE_PATHS` is the newline-separated list from the task's Contract section, written to that scratch file — a Contract path can contain a space or a shell metacharacter, so it is never passed as a `--set` word.
 When architecture context spans more than one file, use the same `--set-cmd ARCHITECTURE_CONTEXT="cat $(printf '%q ' <file_1> <file_2>)"` shape. `RETRY_INSTRUCTION` is the literal empty string on this, the initial dispatch. The stdout integer from this call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`. If the printed size exceeds 50 000, trim per the existing one-pass rule in `references/subagent-dispatch.md`, then re-render (still one call). Dispatch the Agent tool with the file at `dev/local/tmp/dispatch-ivan-<task-id>.txt` as the prompt source, watchdog per the existing Subagent Watchdog section — unchanged. `ivan.md` bakes in the code-quality rules block, the abort-instruction line, the read-only-scope note, the dispatch prologue, and the Assumptions/FILES_TOUCHED footers permanently — nothing further needs adding to the prompt by hand.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
@@ -477,7 +493,7 @@ Run **only** the specific tests Tess wrote in step 2.7. Do NOT run the full proj
   - Python: `pytest path/to/test_file.py::test_name`
   - JS/TS: `vitest run path/to/test_file` or `jest path/to/test_file`
 - Never dispatch Tess to weaken tests.
-- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) re-render `ivan.md` with `--set RETRY_INSTRUCTION="Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."` (the code-quality rules block is already permanent in `ivan.md`, so there is nothing to re-include) plus `--set-cmd FAILING_TESTS="cat $(printf '%q ' <test files>)"` updated with the failure output appended via a small scratch file written once per retry — `--set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md` (original failing tests + new failure output).
+- **Retry prompts** (feedback retry, repair re-dispatch, or escalation dispatch) re-render `ivan.md` with `--set RETRY_INSTRUCTION="Fix only what the failing test output points to. Do not refactor passing code, adjust unrelated files, or change style."` (the code-quality rules block is already permanent in `ivan.md`, so there is nothing to re-include). `FAILING_TESTS` comes from **one** source on a retry: write the original failing tests plus the new failure output to a scratch file once per retry and pass `--set-file FAILING_TESTS=dev/local/tmp/ivan-retry-tests-<task-id>-<n>.md`. Do not also pass `--set-cmd FAILING_TESTS` — the last flag would silently win, and the failure output is exactly what the retry needs to carry.
 
 **Do not run here:** `cargo test --workspace`, `cargo clippy --workspace`, `./tests/smoke.sh`, `./tests/integration.sh`, `cargo test-full`, or any equivalent full-suite command. These are batched into step 7.
 
@@ -662,9 +678,9 @@ Dispatch the reviewer after commit and verification — a native lane, no plugin
    ```bash
    python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/agents/pat.md \
      --out dev/local/tmp/review-task-<id>-prompt.md \
-     --set TASK_SUBJECT="<task subject>" \
-     --set TASK_DESCRIPTION="<task description>" \
-     --set TASK_ACCEPTANCE_CRITERIA="<task acceptance criteria>" \
+     --set-file TASK_SUBJECT=dev/local/tmp/review-task-<id>-subject.txt \
+     --set-file TASK_DESCRIPTION=dev/local/tmp/review-task-<id>-description.txt \
+     --set-file TASK_ACCEPTANCE_CRITERIA=dev/local/tmp/review-task-<id>-acceptance.txt \
      --set-cmd DIFF="git diff BASE_SHA..HEAD_SHA" \
      --set-file SIMPLIFICATION_MANDATE=references/simplification-mandate.md
    ```
