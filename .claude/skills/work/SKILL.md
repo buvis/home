@@ -270,7 +270,17 @@ Before committing Tess's tests, review them in the main session against this che
 3. **Edge cases?** Empty, null, boundary, error, and concurrent cases covered where relevant
 4. **No tautologies?** Tests don't just restate what the code obviously does
 
-If any check fails, dispatch Tess again with specific feedback about what's weak. Max 2 quality gate retries.
+If any check fails, dispatch Tess again with specific feedback about what's weak. Render the retry the same way as the initial dispatch — never author it by hand:
+
+```bash
+python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/skills/work/references/tess-retry-prompt.md \
+  --out dev/local/tmp/dispatch-tess-<task-id>-retry-<n>.txt \
+  --set-file QUALITY_FEEDBACK=dev/local/tmp/tess-<task-id>-gate-<n>.txt \
+  --set-file TASK_DESCRIPTION=<the same scratch file step 2.7 used> \
+  --set-file TASK_ACCEPTANCE_CRITERIA=dev/local/tmp/tess-<task-id>-acceptance.txt
+```
+
+Write the gate findings (one per line) to the `QUALITY_FEEDBACK` scratch file with the Write tool. Max 2 quality gate retries.
 
 **Total Tess budget:** max 5 dispatches across the entire test authoring phase (quality gate + adversarial rounds combined). If exhausted, flag weakness in task output and proceed. Don't block the pipeline forever.
 
@@ -705,7 +715,7 @@ Dispatch the reviewer after commit and verification — a native lane, no plugin
    No `-a`/`-y` — the reviewer needs no write access, and a read-only dispatch must never run with bypassed permissions.
 4. Read the output file and handle the result:
    - **`CLOSURE | resolved|unresolved | ...` verdicts** (rework tasks only — the persona emits one per finding when the task description carries a `### Findings (verbatim)` block, per PRD 00095). A `resolved` verdict needs nothing. **Treat every `unresolved` verdict as a HIGH finding** and run it through the same loop as the row below: verify it against the code first, then dispatch Ivan with the confirmed gap. This exists because "the diff looks fine" and "the reported defect is gone" are different questions, and the review that answered only the first let a task ship with `_run_status` still swallowing `FileNotFoundError` while its review read "fixed inline". Step 5.5 already covers findings that produced a test; these verdicts are what closes the ones that did not.
-   - **CRITICAL or HIGH findings** — treat like a failed verification: verify each finding against the code first and discard wrong ones (the reviewer can be wrong), then dispatch Ivan with the confirmed findings, the code-quality rules block from `references/code-quality-principles.md`, and: "Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice." Re-commit (step 5), re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
+   - **CRITICAL or HIGH findings** — treat like a failed verification: verify each finding against the code first and discard wrong ones (the reviewer can be wrong), then re-render `ivan.md` using the full retry command shape from step 5.5, writing the confirmed findings to the `FAILING_TESTS` scratch file and passing `--set RETRY_INSTRUCTION="Apply ONLY the specific fixes listed below. Do not refactor surrounding code or address unrelated issues you notice."`. The code-quality rules block is already permanent in `ivan.md` — do not re-include it. Re-commit (step 5), re-verify (step 5.5), re-review. Max 3 review cycles, then proceed with warning.
    - **MEDIUM/LOW only, or `NO FINDINGS`** — note them in the task output, proceed to step 6.
    - **Runner unavailable, exit nonzero, or output file missing/empty** — retry ONCE. On the second failure: record `review: failed:<cause>` in the task's attempt entry and the phase report (fail loud), then proceed to step 6 — the reviewer lane never blocks the batch; the PRD-level review lenses catch what it missed.
 
