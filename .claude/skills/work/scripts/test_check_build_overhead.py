@@ -202,7 +202,7 @@ def test_write_calls_outside_prompt_glob_patterns_are_not_counted(
     file_path: str,
 ) -> None:
     lines = [
-        _assistant_turn(_tool_use("Write", {"file_path": file_path, "content": "x"}))
+        _assistant_turn(_tool_use("Write", {"file_path": file_path, "content": "x"})),
     ]
     transcript = _write_transcript(tmp_path, lines)
 
@@ -222,13 +222,13 @@ def test_completed_tasks_counts_only_taskupdate_calls_with_status_completed(
 ) -> None:
     lines = [
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T2", "status": "in_progress"})
+            _tool_use("TaskUpdate", {"taskId": "T2", "status": "in_progress"}),
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T3", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T3", "status": "completed"}),
         ),
     ]
     transcript = _write_transcript(tmp_path, lines)
@@ -274,13 +274,13 @@ def test_statectl_ratio_rounds_to_two_decimal_places(
             ],
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"}),
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T3", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T3", "status": "completed"}),
         ),
     ]
     # 10 statectl calls / 3 completed tasks = 3.333... -> 3.33
@@ -299,8 +299,8 @@ def test_statectl_ratio_is_zero_when_no_statectl_calls(
 ) -> None:
     lines = [
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
-        )
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
+        ),
     ]
     transcript = _write_transcript(tmp_path, lines)
 
@@ -323,10 +323,10 @@ def test_statectl_ratio_formatted_with_two_decimals_for_whole_number(
             ],
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T2", "status": "completed"}),
         ),
     ]
     # 4 statectl calls / 2 completed tasks = 2.0 -> "2.00", not "2" or "2.0"
@@ -349,7 +349,7 @@ def test_stdout_report_has_exact_five_line_format_in_order(
     lines = [
         _assistant_turn(_tool_use("TaskCreate", {"title": "a"})),
         _assistant_turn(
-            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"})
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"}),
         ),
         _assistant_turn(
             _tool_use(
@@ -361,7 +361,7 @@ def test_stdout_report_has_exact_five_line_format_in_order(
             ),
         ),
         _assistant_turn(
-            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"})
+            _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
         ),
     ]
     transcript = _write_transcript(tmp_path, lines)
@@ -556,10 +556,10 @@ def test_completed_tasks_deduplicates_repeated_completion_of_same_task_id(
     # must count it once, and the derived ratio must use that deduped count.
     lines = [
         _assistant_turn(
-            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"})
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"}),
         ),
         _assistant_turn(
-            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"})
+            _tool_use("Bash", {"command": "python3 work/scripts/statectl.py update"}),
         ),
         _assistant_turn(
             _tool_use("TaskUpdate", {"taskId": "T1", "status": "completed"}),
