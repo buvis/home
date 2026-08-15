@@ -104,7 +104,8 @@ def _env(**overrides: object) -> dict[str, object]:
 
 
 def _state(
-    probe_verdict: str | None = "healthy", **overrides: object
+    probe_verdict: str | None = "healthy",
+    **overrides: object,
 ) -> dict[str, object]:
     """Autopilot state; default is a codex probe cached healthy for BATCH_ID.
 
@@ -118,7 +119,8 @@ def _state(
 
 
 def _probes(
-    qwen_preflight: str | None = "healthy", **overrides: object
+    qwen_preflight: str | None = "healthy",
+    **overrides: object,
 ) -> dict[str, object]:
     """Probe results; default is memory headroom OK, qwen healthy, gemini up.
 
@@ -190,7 +192,9 @@ def test_fable_task_always_routes_to_claude_at_fable(
 @pytest.mark.parametrize("gemini_available", [True, False])
 @pytest.mark.parametrize("ui_fields", UI_TASK_SHAPES)
 def test_ui_task_routes_to_gemini_at_task_tier_only_when_gemini_is_available(
-    ui_fields: dict[str, object], gemini_available: bool, model: str
+    ui_fields: dict[str, object],
+    gemini_available: bool,
+    model: str,
 ) -> None:
     # `gemini_available` is the only thing that moves between the two halves of
     # this matrix: same tiers, same UI entry shapes, same everything else. The
@@ -276,7 +280,8 @@ def test_legacy_plan_without_qwen_eligible_routes_to_claude_at_tier(model: str) 
 @pytest.mark.parametrize("model", BACKEND_MODELS)
 @pytest.mark.parametrize("reason", ["tier", "contract"])
 def test_non_files_exclusion_reasons_are_not_codex_eligible(
-    reason: str, model: str
+    reason: str,
+    model: str,
 ) -> None:
     verdict = _route(_task(model, qwen_eligible=False, qwen_excluded_reason=reason))
 
@@ -292,7 +297,8 @@ def test_non_files_exclusion_reasons_are_not_codex_eligible(
 @pytest.mark.parametrize("model", BACKEND_MODELS)
 @pytest.mark.parametrize("files_fields", FILES_TASK_SHAPES)
 def test_files_exclusion_reason_routes_to_codex_at_task_tier(
-    files_fields: dict[str, object], model: str
+    files_fields: dict[str, object],
+    model: str,
 ) -> None:
     verdict = _route(_task(model, **files_fields))
 
@@ -315,10 +321,13 @@ def test_codex_rung_off_preserves_row7_claude_verdict(model: str) -> None:
 
 @pytest.mark.parametrize("model", BACKEND_MODELS)
 @pytest.mark.parametrize(
-    "probe_verdict", ["unhealthy", None], ids=["probe_unhealthy", "no_cached_probe"]
+    "probe_verdict",
+    ["unhealthy", None],
+    ids=["probe_unhealthy", "no_cached_probe"],
 )
 def test_unusable_codex_probe_preserves_row7_claude_verdict(
-    probe_verdict: str | None, model: str
+    probe_verdict: str | None,
+    model: str,
 ) -> None:
     # Identical to the codex-positive fixture above except for the cached probe,
     # so passing this test requires actually reading state["codex_probe"].
@@ -472,7 +481,8 @@ def test_codex_rung_off_preserves_row6_for_every_preflight_failure(
 @pytest.mark.parametrize("model", BACKEND_MODELS)
 @pytest.mark.parametrize("memory_gate_exit", [1, 2])
 def test_tripped_breaker_outranks_the_memory_gate(
-    memory_gate_exit: int, model: str
+    memory_gate_exit: int,
+    model: str,
 ) -> None:
     # Both row 3 and row 4 apply; first-match-wins makes it row 3. Only the
     # rung-off verdict can show which row decided, since the interception
@@ -768,7 +778,9 @@ def test_legacy_task_that_is_qwen_eligible_still_reaches_the_qwen_row() -> None:
     assert verdict == {"implementor": "qwen", "tier": "sonnet", "rule": "row5"}
 
 
-def test_legacy_task_with_files_exclusion_reaches_codex_interception_at_sonnet() -> None:
+def test_legacy_task_with_files_exclusion_reaches_codex_interception_at_sonnet() -> (
+    None
+):
     # Row 7's codex-eligible files family, on a legacy task: no `model` key,
     # `qwen_excluded_reason` "files", a healthy cached codex probe and the
     # rung on must still intercept, and the reported tier must be "sonnet".
@@ -794,7 +806,8 @@ def test_legacy_task_with_files_exclusion_reaches_codex_interception_at_sonnet()
 
 
 def _qwen_preflight_state(
-    verdict: str | None = "healthy", **overrides: object
+    verdict: str | None = "healthy",
+    **overrides: object,
 ) -> dict[str, object]:
     """Autopilot state; default is a qwen preflight cached healthy for BATCH_ID.
 
@@ -837,8 +850,7 @@ def test_qwen_probe_needed_when_cached_verdict_is_for_another_batch(
 ) -> None:
     # Batch identity is an exact string match, not a prefix or substring test.
     assert (
-        work_routing.needs_qwen_probe(_qwen_preflight_state(), queried_batch_id)
-        is True
+        work_routing.needs_qwen_probe(_qwen_preflight_state(), queried_batch_id) is True
     )
 
 
@@ -856,8 +868,7 @@ def test_cached_qwen_verdict_for_the_same_batch_is_reused(verdict: str) -> None:
     # says — reused for "healthy" and for every recorded infra-failure verdict
     # alike.
     assert (
-        work_routing.needs_qwen_probe(_qwen_preflight_state(verdict), BATCH_ID)
-        is False
+        work_routing.needs_qwen_probe(_qwen_preflight_state(verdict), BATCH_ID) is False
     )
 
 
