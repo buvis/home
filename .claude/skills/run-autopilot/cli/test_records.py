@@ -404,6 +404,7 @@ class SchemaResetParityTest(unittest.TestCase):
             "qwen_gate_failures_consecutive",
             "qwen_breaker",
             "codex_probe",
+            "qwen_preflight",
             "phase_guard",
             "thrash_halt",
         }
