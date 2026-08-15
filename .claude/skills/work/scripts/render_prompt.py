@@ -15,6 +15,11 @@ from pathlib import Path
 
 PLACEHOLDER_RE = re.compile(r"\{[A-Z_][A-Z0-9_]*\}")
 
+# --set-cmd runs arbitrary shell commands as part of automated dispatch; bound
+# it so a hung/interactive command can't wedge the pipeline forever (see
+# check_memory_pressure.py's bounded-subprocess convention in this directory).
+SET_CMD_TIMEOUT_SECONDS = 30
+
 
 class _RecordAssignment(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -75,7 +80,21 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 4
         else:  # set_cmd
-            result = subprocess.run(val, shell=True, capture_output=True, text=True)
+            try:
+                result = subprocess.run(
+                    val,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=SET_CMD_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                print(
+                    f"render_prompt: --set-cmd failed for {{{key}}}: {val} "
+                    f"(timed out after {SET_CMD_TIMEOUT_SECONDS}s)",
+                    file=sys.stderr,
+                )
+                return 4
             if result.returncode != 0:
                 stderr_line = " ".join(result.stderr.split())
                 print(
