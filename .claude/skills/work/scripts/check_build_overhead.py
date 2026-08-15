@@ -45,6 +45,9 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError:
         print(f"error: transcript file not found: {transcript_path}", file=sys.stderr)
         return 1
+    except IsADirectoryError:
+        print(f"error: not a file: {transcript_path}", file=sys.stderr)
+        return 1
     except PermissionError:
         print(f"error: permission denied: {transcript_path}", file=sys.stderr)
         return 1
@@ -52,7 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     taskcreate_turns = 0
     statectl_calls = 0
     prompt_write_calls = 0
-    completed_tasks = 0
+    completed_task_ids: set[object] = set()
+    completed_tasks_without_id = 0
     any_parseable = False
 
     with handle as f:
@@ -69,8 +73,12 @@ def main(argv: list[str] | None = None) -> int:
             if entry.get("type") != "assistant":
                 continue
             content = entry.get("message", {}).get("content", [])
+            if not isinstance(content, list):
+                continue
             turn_has_taskcreate = False
             for block in content:
+                if not isinstance(block, dict):
+                    continue
                 if block.get("type") != "tool_use":
                     continue
                 name = block.get("name")
@@ -85,7 +93,11 @@ def main(argv: list[str] | None = None) -> int:
                         prompt_write_calls += 1
                 elif name == "TaskUpdate":
                     if tool_input.get("status") == "completed":
-                        completed_tasks += 1
+                        task_id = tool_input.get("taskId")
+                        if task_id:
+                            completed_task_ids.add(task_id)
+                        else:
+                            completed_tasks_without_id += 1
             if turn_has_taskcreate:
                 taskcreate_turns += 1
 
@@ -93,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: no parseable JSON lines in {transcript_path}", file=sys.stderr)
         return 2
 
+    completed_tasks = len(completed_task_ids) + completed_tasks_without_id
     ratio = (statectl_calls / completed_tasks) if completed_tasks else 0.0
 
     print(f"TaskCreate turns: {taskcreate_turns}")
