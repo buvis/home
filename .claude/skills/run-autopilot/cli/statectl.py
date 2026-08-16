@@ -303,19 +303,13 @@ def do_task_set_meta(data: Any, task_id: str, meta: dict[str, Any]) -> None:
             task.pop(key, None)
         else:
             task[key] = value
-    data["tasks_total"] = len(data["tasks"])
 
 
 _TASK_STATUSES = ("pending", "in_progress", "completed")
 
 
 def do_task_set_status(data: Any, task_id: str, status: str) -> None:
-    """Set a task's status, with no attempt record - that is `task-done`'s job.
-
-    The check is an explicit allowlist, not a heuristic on the string's shape:
-    `"done"` and `"Completed"` are exactly the near-misses that would slip past
-    a length or case test and leave a status no consumer recognises.
-    """
+    """Set a task's status, with no attempt record - that is `task-done`'s job."""
     if status not in _TASK_STATUSES:
         raise UsageError(f"invalid status: {status!r}")
     _find_task(data, task_id)["status"] = status
