@@ -21,7 +21,7 @@ loaded) carries the shared mechanics and the test-pinned invariants.
    `references/recovery.md` § Systemic-park breaker interaction). `batch` is
    preserved in full at step 10, so this reset value carries into the next PRD.
 
-5. Delete all tasks from the completed PRD: query `TaskList`, mark every task as `deleted` via `TaskUpdate`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
+5. Delete all tasks from the completed PRD: run `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json tasks-clear`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
 
 6. Append items to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (create if missing). Collect from the current state file:
    - `deferred_decisions` with status `"pending"` or `"deferred"` -> type `"deferred_decision"` (preserve original `type` field if present, e.g. `"doubt-overflow"`)
