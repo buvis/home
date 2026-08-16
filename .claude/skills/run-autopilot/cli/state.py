@@ -68,7 +68,9 @@ def read_and_parse(path: Path) -> tuple[bytes, dict]:
     except (json.JSONDecodeError, UnicodeDecodeError) as err:
         raise StateError(f"state file is not valid JSON ({path}): {err}") from err
     if not isinstance(parsed, dict):
-        raise StateError(f"state root must be a JSON object, got {type(parsed).__name__}: {path}")
+        raise StateError(
+            f"state root must be a JSON object, got {type(parsed).__name__}: {path}"
+        )
     return raw, parsed
 
 
@@ -199,7 +201,9 @@ def restore(path: Path) -> None:
         try:
             schema.validate(parsed)
         except schema.SchemaError as err:
-            raise BackupError(f"backup fails schema validation ({bak_path}): {err}") from err
+            raise BackupError(
+                f"backup fails schema validation ({bak_path}): {err}"
+            ) from err
         try:
             _current_raw, current = read_and_parse(path)
         except StateError:

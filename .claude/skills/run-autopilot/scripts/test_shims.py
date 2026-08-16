@@ -101,7 +101,8 @@ class ResumeTargetShimSymbolTests(unittest.TestCase):
         # The shim inserts the skill root at the FRONT of sys.path; the module
         # it resolves must be the one beside it, not some other `cli`.
         self.assertEqual(
-            Path(cli_resume.__file__).resolve().parent.parent, SKILL_ROOT
+            Path(cli_resume.__file__).resolve().parent.parent,
+            SKILL_ROOT,
         )
 
 
@@ -130,7 +131,9 @@ class ShimValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("phase", result.stderr)
         self.assertEqual(
-            self.state.read_bytes(), before, "a rejected write must change nothing"
+            self.state.read_bytes(),
+            before,
+            "a rejected write must change nothing",
         )
 
     def test_unrelated_pre_existing_odd_field_blocks_nothing(self) -> None:
@@ -155,7 +158,8 @@ class ShimValidationTests(unittest.TestCase):
         self.write({"phase": "build", "cycle": 1})
         self.assertEqual(self.run_cli("set", "cycle", "3").returncode, 0)
         self.assertEqual(
-            json.loads(self.state.read_text(encoding="utf-8"))["cycle"], 3
+            json.loads(self.state.read_text(encoding="utf-8"))["cycle"],
+            3,
         )
 
     def test_unvalidated_fields_pass_through_untouched(self) -> None:
@@ -176,7 +180,8 @@ class ShimValidationTests(unittest.TestCase):
         self.write({"phase": "build"})
         with self.assertRaises(cli_schema.SchemaError):
             statectl.mutate(
-                self.state, lambda data: data.__setitem__("phase", "nonsense")
+                self.state,
+                lambda data: data.__setitem__("phase", "nonsense"),
             )
 
 

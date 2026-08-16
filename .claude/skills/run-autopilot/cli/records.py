@@ -48,9 +48,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from . import resume
-from . import schema
-from . import state
+from . import resume, schema, state
 
 # park_decision used to be imported from scripts/resume_target.py behind a
 # scoped sys.path insert. PRD 00089 absorbed it into cli/resume.py, so it is
@@ -104,15 +102,17 @@ def reset_prd_fields(state: dict) -> dict:
     counters/phase markers reset by assignment. Pure: does not mutate
     `state`; every other key is preserved unchanged."""
     new_state = {k: v for k, v in state.items() if k not in PER_PRD_RESET_FIELDS}
-    new_state.update({
-        "phases_completed": [],
-        "cycle": 1,
-        "tasks_total": 0,
-        "tasks_completed": 0,
-        "replan_count": 0,
-        "phase": "build",
-        "next_phase": "build",
-    })
+    new_state.update(
+        {
+            "phases_completed": [],
+            "cycle": 1,
+            "tasks_total": 0,
+            "tasks_completed": 0,
+            "replan_count": 0,
+            "phase": "build",
+            "next_phase": "build",
+        },
+    )
     return new_state
 
 
@@ -132,7 +132,12 @@ def record_defer(path: str | Path, prd: str, batch_id: str, record: dict) -> Non
     """
     if "/" in prd or prd == "..":
         raise ValueError(f"record_defer: invalid prd {prd!r}")
-    if not isinstance(batch_id, str) or not batch_id or "/" in batch_id or ".." in batch_id:
+    if (
+        not isinstance(batch_id, str)
+        or not batch_id
+        or "/" in batch_id
+        or ".." in batch_id
+    ):
         raise ValueError(f"record_defer: invalid batch_id {batch_id!r}")
 
     deferred_dir = Path(path) / "deferred"
@@ -256,10 +261,15 @@ def _mkdir_hold(prds_dir: Path) -> int | None:
 
 
 def _stamp_stall_intent(
-    state_path: Path, op_id: str, prd: str, site: str, detail: str
+    state_path: Path,
+    op_id: str,
+    prd: str,
+    site: str,
+    detail: str,
 ) -> int | None:
     """do_stall's step 2: stamp the intent (idempotent on retry: same
     op_id). Returns an exit code (2) on failure, None on success."""
+
     def _stamp_intent(s: dict) -> dict:
         new_s = dict(s)
         new_s["stall_op"] = {"op_id": op_id, "prd": prd, "site": site, "detail": detail}
@@ -289,7 +299,12 @@ def _move_prd_to_hold(prds_dir: Path, prd: str) -> int | None:
 
 
 def _append_stall_deferred(
-    autopilot_dir: Path, current: dict, prd: str, site: str, detail: str, op_id: str
+    autopilot_dir: Path,
+    current: dict,
+    prd: str,
+    site: str,
+    detail: str,
+    op_id: str,
 ) -> int | None:
     """do_stall's step 4: append the deferred record, deduped by op_id.
     Returns an exit code (9) on failure, None on success."""
@@ -309,6 +324,7 @@ def _commit_stall(state_path: Path, site: str, extra_mutator) -> int:
     """do_stall's step 5: single commit - reset_prd_fields, the
     parks_consecutive rule, extra_mutator, then the stall_op delete.
     Returns the exit code (0 on success, 2 on failure)."""
+
     def _commit(s: dict) -> dict:
         new_s = reset_prd_fields(s)
         batch = dict(new_s.get("batch") or {})
@@ -344,7 +360,11 @@ def do_stall(
     failed | 2 state unreadable | 10 stall_op conflict). See
     test_records_stall.py's module docstring for the full contract.
     """
-    state_path, prds_dir, autopilot_dir = Path(state_path), Path(prds_dir), Path(autopilot_dir)
+    state_path, prds_dir, autopilot_dir = (
+        Path(state_path),
+        Path(prds_dir),
+        Path(autopilot_dir),
+    )
 
     try:
         current, _version = state.load(state_path)
@@ -381,6 +401,7 @@ def _park_mutator(pause_detail: str | None = None):
     """Compose into do_stall's step-5 commit: increment
     batch.parks_consecutive by 1; when `pause_detail` is given, also set the
     systemic-halt phase/next_phase/pause_reason fields."""
+
     def _mutator(s: dict) -> dict:
         new_s = dict(s)
         batch = dict(new_s.get("batch") or {})
@@ -391,10 +412,11 @@ def _park_mutator(pause_detail: str | None = None):
             new_s["next_phase"] = "paused"
             new_s["pause_reason"] = {"site": "systemic_park", "detail": pause_detail}
         return new_s
+
     return _mutator
 
 
-def _parse_marker(marker_path: Path) -> None | str | dict:
+def _parse_marker(marker_path: Path) -> str | dict | None:
     """Return None (absent), "malformed" (unparseable or missing/empty
     prd), or {"prd": str, "reason": str} for a present, usable marker."""
     if not marker_path.exists():
@@ -426,8 +448,13 @@ def _reconcile_stall_op(stall_op, state_path, prds_dir, autopilot_dir) -> int | 
     do_stall succeeded (rc == 0), otherwise the nonzero rc to propagate."""
     extra = _park_mutator() if stall_op["site"] == "wrapper_died" else None
     rc = do_stall(
-        state_path, prd=stall_op["prd"], site=stall_op["site"], detail=stall_op["detail"],
-        prds_dir=prds_dir, autopilot_dir=autopilot_dir, extra_mutator=extra,
+        state_path,
+        prd=stall_op["prd"],
+        site=stall_op["site"],
+        detail=stall_op["detail"],
+        prds_dir=prds_dir,
+        autopilot_dir=autopilot_dir,
+        extra_mutator=extra,
     )
     return rc if rc != 0 else None
 
@@ -442,11 +469,20 @@ def _park_marker_absent(stall_op, state_path, prds_dir, autopilot_dir) -> int:
     rc = _reconcile_stall_op(stall_op, state_path, prds_dir, autopilot_dir)
     if rc is not None:
         return rc
-    print(f"autopilot: reconciled pending {stall_op['site']} stall for {stall_op['prd']}")
+    print(
+        f"autopilot: reconciled pending {stall_op['site']} stall for {stall_op['prd']}",
+    )
     return 3
 
 
-def _park_marker_present(marker, stall_op, state_path, prds_dir, autopilot_dir, delete_marker):
+def _park_marker_present(
+    marker,
+    stall_op,
+    state_path,
+    prds_dir,
+    autopilot_dir,
+    delete_marker,
+):
     """do_park's valid-marker path: reconcile any stall_op that isn't
     simply the same wrapper_died park resuming, then confirm the PRD is
     still in wip/. Returns (prd, reason, wip_filenames, None) to continue
@@ -471,7 +507,14 @@ def _park_marker_present(marker, stall_op, state_path, prds_dir, autopilot_dir, 
 
 
 def _finish_park(
-    state_path, prds_dir, autopilot_dir, delete_marker, marker, prd, reason, wip_filenames
+    state_path,
+    prds_dir,
+    autopilot_dir,
+    delete_marker,
+    marker,
+    prd,
+    reason,
+    wip_filenames,
 ) -> int:
     """do_park's tail once the marker's PRD is confirmed present in wip/:
     consult parks_consecutive, decide (park_decision), run do_stall, delete
@@ -493,8 +536,13 @@ def _finish_park(
         exit_code = 0
 
     rc = do_stall(
-        state_path, prd=prd, site="wrapper_died", detail=reason,
-        prds_dir=prds_dir, autopilot_dir=autopilot_dir, extra_mutator=extra,
+        state_path,
+        prd=prd,
+        site="wrapper_died",
+        detail=reason,
+        prds_dir=prds_dir,
+        autopilot_dir=autopilot_dir,
+        extra_mutator=extra,
     )
     if rc != 0:
         return rc
@@ -517,7 +565,11 @@ def do_park(
     systemic halt | 10 stall_op conflict | 2 state error | 4/9 propagated
     from an inner do_stall move/append failure).
     """
-    state_path, prds_dir, autopilot_dir = Path(state_path), Path(prds_dir), Path(autopilot_dir)
+    state_path, prds_dir, autopilot_dir = (
+        Path(state_path),
+        Path(prds_dir),
+        Path(autopilot_dir),
+    )
     marker_path = autopilot_dir / "park-requested"
 
     def _delete_marker() -> None:
@@ -542,10 +594,22 @@ def do_park(
         return _park_marker_absent(stall_op, state_path, prds_dir, autopilot_dir)
 
     prd, reason, wip_filenames, rc = _park_marker_present(
-        marker, stall_op, state_path, prds_dir, autopilot_dir, _delete_marker,
+        marker,
+        stall_op,
+        state_path,
+        prds_dir,
+        autopilot_dir,
+        _delete_marker,
     )
     if rc is not None:
         return rc
     return _finish_park(
-        state_path, prds_dir, autopilot_dir, _delete_marker, marker, prd, reason, wip_filenames,
+        state_path,
+        prds_dir,
+        autopilot_dir,
+        _delete_marker,
+        marker,
+        prd,
+        reason,
+        wip_filenames,
     )

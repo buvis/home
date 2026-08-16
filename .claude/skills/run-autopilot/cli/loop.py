@@ -46,8 +46,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from cli import notify_out, pause, routing, runner, usage_limit
-from cli import state as state_mod
+from cli import notify_out, pause, routing, runner, state as state_mod, usage_limit
 from cli.routing import _load_json
 from cli.watchdog import Watchdog
 
@@ -58,14 +57,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import _walk_up
 
 DEFAULT_LOOPS_DIR = Path.home() / ".claude" / "autopilot-loops"
-PURGE_SCRIPT = (
-    Path.home()
-    / ".claude"
-    / "skills"
-    / "purge-devlocal"
-    / "scripts"
-    / "purge_devlocal.py"
-)
+PURGE_SCRIPT = Path.home() / ".claude" / "skills" / "purge-devlocal" / "scripts" / "purge_devlocal.py"
 
 _CONNECTION_FAIL = re.compile(
     r"unable to connect|connection ?(refused|reset|error)|econn|etimedout"
@@ -121,10 +113,7 @@ def pause_detail(state: dict) -> str:
         cap = state.get("cap_pause_reason")
         if isinstance(cap, dict) and "cycle" in cap:
             count = len(cap.get("unresolved_findings") or [])
-            value = (
-                f"review cap hit: cycle {cap.get('cycle')}/{cap.get('cap')}"
-                f" · {count} unresolved findings"
-            )
+            value = f"review cap hit: cycle {cap.get('cycle')}/{cap.get('cap')} · {count} unresolved findings"
         else:
             value = cap
     if value is None:
@@ -250,12 +239,7 @@ def prune_registry(loops_dir: Path, own_pid: int) -> None:
         pid = data.get("pid") if isinstance(data, dict) else None
         if pid == own_pid:
             continue
-        if (
-            not isinstance(pid, int)
-            or isinstance(pid, bool)
-            or not _pid_alive(pid)
-            or not _pid_tagged(pid, pid)
-        ):
+        if not isinstance(pid, int) or isinstance(pid, bool) or not _pid_alive(pid) or not _pid_tagged(pid, pid):
             try:
                 path.unlink()
             except OSError:
@@ -276,11 +260,7 @@ def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
         if not isinstance(data, dict):
             continue
         pid, reg_root = data.get("pid"), data.get("root")
-        if (
-            not isinstance(pid, int)
-            or isinstance(pid, bool)
-            or not isinstance(reg_root, str)
-        ):
+        if not isinstance(pid, int) or isinstance(pid, bool) or not isinstance(reg_root, str):
             continue
         try:
             if Path(reg_root).resolve() == resolved and _pid_alive(pid):
@@ -497,8 +477,7 @@ class Loop:
         if ap_dir is None:
             # walk-up miss = no dir exists yet (normal on a fresh repo), not a failure
             print(
-                f"autoclaude: no existing autopilot dir found (fresh start); "
-                f"creating {self.cwd}/dev/local/autopilot",
+                f"autoclaude: no existing autopilot dir found (fresh start); creating {self.cwd}/dev/local/autopilot",
                 file=self.err,
             )
             ap_dir = self.cwd / "dev" / "local" / "autopilot"
@@ -515,8 +494,7 @@ class Loop:
         if level is None or level < 2:
             return None
         print(
-            f"\nautoclaude: memory pressure (level {level}); waiting for it "
-            "to clear before launching next session.",
+            f"\nautoclaude: memory pressure (level {level}); waiting for it to clear before launching next session.",
             file=self.err,
         )
         self._notify(
@@ -605,8 +583,7 @@ class Loop:
     def _plugin_gate(self, ap_dir: Path) -> int | None:
         state_path = ap_dir / "state.json"
         plugins_json = Path(
-            self.env.get("_AUTOPILOT_PLUGINS_JSON")
-            or Path.home() / ".claude" / "plugins" / "installed_plugins.json",
+            self.env.get("_AUTOPILOT_PLUGINS_JSON") or Path.home() / ".claude" / "plugins" / "installed_plugins.json",
         )
         if not state_path.is_file() or not plugins_json.is_file():
             return None
@@ -715,9 +692,7 @@ class Loop:
             self._decide_no_progress(decision, ap_dir, state_path)
         return decision
 
-    def _decide_no_progress(
-        self, decision: dict, ap_dir: Path, state_path: Path
-    ) -> None:
+    def _decide_no_progress(self, decision: dict, ap_dir: Path, state_path: Path) -> None:
         """Branch 5: limit-hit is scheduling, network outage is
         infrastructure, anything else died."""
         reset = self._detect_limit(ap_dir / "last-session.log")
@@ -773,9 +748,7 @@ class Loop:
                     decision["detail"] = f"API unreachable for {net_max}s"
             else:
                 decision["signal"] = "died"
-                decision["detail"] = (
-                    f"repeated API connection failures ({retries_max} relaunches)"
-                )
+                decision["detail"] = f"repeated API connection failures ({retries_max} relaunches)"
             return
 
         verdict = died_next(
@@ -787,14 +760,11 @@ class Loop:
             self._died_retries += 1
             decision["signal"] = "continue"
             decision["detail"] = (
-                f"session died; retry {self._died_retries}"
-                f"/{self._int('_AUTOPILOT_DIED_RETRIES_MAX', 1)}"
+                f"session died; retry {self._died_retries}/{self._int('_AUTOPILOT_DIED_RETRIES_MAX', 1)}"
             )
         elif verdict == "park":
             decision["signal"] = "park"
-            decision["detail"] = (
-                f"died after {self._died_retries} retries; parking {decision['prd']}"
-            )
+            decision["detail"] = f"died after {self._died_retries} retries; parking {decision['prd']}"
         else:
             decision["signal"] = "died"
             if not state_path.is_file():
@@ -808,11 +778,7 @@ class Loop:
         """N identical progress fingerprints in a row = the loop is
         burning sessions on nothing. Cap deliberately generous
         (default 5); any progress resets it."""
-        if (
-            decision["signal"] == "continue"
-            and decision.get("state_touched")
-            and decision["detail"] != "replan"
-        ):
+        if decision["signal"] == "continue" and decision.get("state_touched") and decision["detail"] != "replan":
             state = _load_json(state_path)
             fp = fingerprint(state) if isinstance(state, dict) else ""
             if fp and fp == self._fp_prev:
@@ -821,8 +787,7 @@ class Loop:
                     if decision["prd"]:
                         decision["signal"] = "park"
                         decision["detail"] = (
-                            f"no progress across {self._fp_repeats} sessions; "
-                            f"parking {decision['prd']}"
+                            f"no progress across {self._fp_repeats} sessions; parking {decision['prd']}"
                         )
                     else:
                         decision["signal"] = "paused"
@@ -882,8 +847,7 @@ class Loop:
     # ── act branches ──
     def _act_paused(self, decision: dict, state_path: Path) -> int:
         print(
-            f"\n\033[1;33m⏸ autoclaude: session paused ON PURPOSE — "
-            f"{decision['detail']}\033[0m",
+            f"\n\033[1;33m⏸ autoclaude: session paused ON PURPOSE — {decision['detail']}\033[0m",
             file=self.err,
         )
         state = _load_json(state_path)
@@ -896,13 +860,10 @@ class Loop:
                     issue = (finding.get("issue") or "")[:90]
                     print(f"  · [{severity}] {issue}", file=self.err)
         print(
-            "\n\n\033[1;36mTo resume (re-running autoclaude now would just "
-            "pause again):\033[0m\n",
+            "\n\n\033[1;36mTo resume (re-running autoclaude now would just pause again):\033[0m\n",
             file=self.err,
         )
-        print(
-            "  1. claude            # interactive session in this repo", file=self.err
-        )
+        print("  1. claude            # interactive session in this repo", file=self.err)
         print(
             "  2. /run-autopilot    # resumes from state.json; blockers become questions",
             file=self.err,
@@ -961,17 +922,12 @@ class Loop:
         if marker.is_file():
             self._park_relaunches += 1
             marker_mtime = _mtime(marker)
-            age = (
-                0 if marker_mtime is None else max(0, int(self._clock()) - marker_mtime)
-            )
+            age = 0 if marker_mtime is None else max(0, int(self._clock()) - marker_mtime)
             stale_max = max(
                 self._int("_AUTOPILOT_SESSION_MAX", 7200),
                 self._int("_AUTOPILOT_SESSION_MAX_REVIEW", 10800),
             )
-            if (
-                self._park_relaunches > self._int("_AUTOPILOT_DIED_RETRIES_MAX", 1)
-                or age >= stale_max
-            ):
+            if self._park_relaunches > self._int("_AUTOPILOT_DIED_RETRIES_MAX", 1) or age >= stale_max:
                 print(
                     f"\nautoclaude: park-requested unconsumed "
                     f"({self._park_relaunches} relaunches, {age}s) — halting "
@@ -1000,8 +956,7 @@ class Loop:
             written = False
         if not written:
             print(
-                f"\nautoclaude: park-requested write failed for "
-                f"{decision['prd']} — halting (cannot hand off).",
+                f"\nautoclaude: park-requested write failed for {decision['prd']} — halting (cannot hand off).",
                 file=self.err,
             )
             self._notify(
@@ -1014,8 +969,7 @@ class Loop:
                 pass
             return 1
         print(
-            f"\nautoclaude: parking {decision['prd']} ({decision['detail']}); "
-            "continuing batch.",
+            f"\nautoclaude: parking {decision['prd']} ({decision['detail']}); continuing batch.",
             file=self.out,
         )
         self._notify(
@@ -1156,8 +1110,7 @@ class Loop:
                     self._sleep(decision["limit_wait"])
                 elif decision["detail"] == "replan":
                     print(
-                        "\nWork task prompt overran budget; PRD will be "
-                        "replanned. Continuing…",
+                        "\nWork task prompt overran budget; PRD will be replanned. Continuing…",
                         file=self.out,
                     )
                 else:
