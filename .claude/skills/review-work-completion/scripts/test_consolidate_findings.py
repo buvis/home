@@ -192,11 +192,13 @@ def test_merging_is_transitive_across_a_spectrum_of_wordings() -> None:
     assert cf.match(_finding(middle), _finding(extreme_b))
     assert not cf.match(_finding(extreme_a), _finding(extreme_b))  # the whole point
 
-    rows = cf.consolidate([
-        cf.Finding("ALICE", "🟡", extreme_a, "src/cli.py", "4"),
-        cf.Finding("BOB", "🟡", middle, "src/cli.py", "4"),
-        cf.Finding("CARL", "🟡", extreme_b, "src/cli.py", "4"),
-    ])
+    rows = cf.consolidate(
+        [
+            cf.Finding("ALICE", "🟡", extreme_a, "src/cli.py", "4"),
+            cf.Finding("BOB", "🟡", middle, "src/cli.py", "4"),
+            cf.Finding("CARL", "🟡", extreme_b, "src/cli.py", "4"),
+        ]
+    )
     assert len(rows) == 1
     assert rows[0].finders == ["ALICE", "BOB", "CARL"]
 
@@ -208,11 +210,13 @@ def test_two_clusters_join_when_a_later_finding_bridges_them() -> None:
     extreme_b = "exception handling absent: library calls exit rather than raising it"
     middle = SYS_EXIT_WORDINGS[1]
 
-    rows = cf.consolidate([
-        cf.Finding("ALICE", "🟡", extreme_a, "src/cli.py", "4"),
-        cf.Finding("CARL", "🔴", extreme_b, "src/cli.py", "4"),
-        cf.Finding("BOB", "🟡", middle, "src/cli.py", "4"),
-    ])
+    rows = cf.consolidate(
+        [
+            cf.Finding("ALICE", "🟡", extreme_a, "src/cli.py", "4"),
+            cf.Finding("CARL", "🔴", extreme_b, "src/cli.py", "4"),
+            cf.Finding("BOB", "🟡", middle, "src/cli.py", "4"),
+        ]
+    )
     assert len(rows) == 1
     assert rows[0].finders == ["ALICE", "CARL", "BOB"]
     assert rows[0].severity == "🔴"
@@ -324,10 +328,12 @@ def test_blake_reraising_a_settled_deferral_is_auto_dismissed(tmp_path: Path) ->
                 "issue": SYS_EXIT_WORDINGS[0],
                 "file": "src/cli.py",
                 "reason": "deferred to batch end, out of PRD scope",
-            }
+            },
         ],
     )
-    result = _run(f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE")
+    result = _run(
+        f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE"
+    )
     assert result.returncode == 0
     assert "✅ No issues found" in result.stdout
     assert "### Auto-dismissed (ledger)" in result.stdout
@@ -347,7 +353,9 @@ def test_the_filter_is_blake_only(tmp_path: Path) -> None:
         tmp_path,
         [{"issue": SYS_EXIT_WORDINGS[0], "file": "src/cli.py", "reason": "settled"}],
     )
-    result = _run(f"ALICE:{alice}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE")
+    result = _run(
+        f"ALICE:{alice}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE"
+    )
     assert "[1/1]" in result.stdout
     assert "Auto-dismissed" not in result.stdout
 
@@ -362,7 +370,9 @@ def test_an_unsettled_blake_finding_is_untouched(tmp_path: Path) -> None:
         tmp_path,
         [{"issue": SYS_EXIT_WORDINGS[0], "file": "src/cli.py", "reason": "settled"}],
     )
-    result = _run(f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE")
+    result = _run(
+        f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE"
+    )
     assert "[1/1]" in result.stdout
     assert "Auto-dismissed" not in result.stdout
 
@@ -375,7 +385,9 @@ def test_malformed_ledger_warns_once_and_drops_no_findings(tmp_path: Path) -> No
     )
     ledger = tmp_path / "ledger.json"
     ledger.write_text("{not json at all", encoding="utf-8")
-    result = _run(f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE")
+    result = _run(
+        f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE"
+    )
     assert result.returncode == 0
     assert "[1/1]" in result.stdout
     assert len(result.stderr.strip().splitlines()) == 1
@@ -390,7 +402,9 @@ def test_ledger_that_is_not_a_list_drops_no_findings(tmp_path: Path) -> None:
     )
     ledger = tmp_path / "ledger.json"
     ledger.write_text('{"issue": "wrong shape"}', encoding="utf-8")
-    result = _run(f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE")
+    result = _run(
+        f"BLAKE:{blake}", "--ledger", str(ledger), "--ledger-dismiss", "BLAKE"
+    )
     assert "[1/1]" in result.stdout
     assert "not a list" in result.stderr
 
