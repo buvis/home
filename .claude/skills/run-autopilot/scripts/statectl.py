@@ -15,6 +15,11 @@ CLI and exit codes are unchanged:
     python3 statectl.py <state-path> task-start <task-id>
     python3 statectl.py <state-path> task-done <task-id> <attempt-json-file>
     python3 statectl.py <state-path> set-contract-card <file>
+    python3 statectl.py <state-path> task-add <task-json-file>
+    python3 statectl.py <state-path> task-set-body <task-id> <body-file>
+    python3 statectl.py <state-path> task-set-meta <task-id> <meta-json-file>
+    python3 statectl.py <state-path> task-set-status <task-id> <status>
+    python3 statectl.py <state-path> tasks-clear
 
     0  ok
     1  bad argument, unsupported json-path, or a value the schema rejects
@@ -41,11 +46,17 @@ from cli.statectl import (
     UsageError,
     atomic_write,
     do_append,
+    do_append_attempt,
     do_del,
     do_set,
     do_set_contract_card,
+    do_task_add,
     do_task_done,
+    do_task_set_body,
+    do_task_set_meta,
+    do_task_set_status,
     do_task_start,
+    do_tasks_clear,
     get_value,
     main,
     mutate,
@@ -60,11 +71,17 @@ __all__ = [
     "UsageError",
     "atomic_write",
     "do_append",
+    "do_append_attempt",
     "do_del",
     "do_set",
     "do_set_contract_card",
+    "do_task_add",
     "do_task_done",
+    "do_task_set_body",
+    "do_task_set_meta",
+    "do_task_set_status",
     "do_task_start",
+    "do_tasks_clear",
     "get_value",
     "main",
     "mutate",

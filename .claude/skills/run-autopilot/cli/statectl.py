@@ -13,6 +13,11 @@ CLI:
     python3 statectl.py <state-path> task-start <task-id>
     python3 statectl.py <state-path> task-done <task-id> <attempt-json-file>
     python3 statectl.py <state-path> set-contract-card <file>
+    python3 statectl.py <state-path> task-add <task-json-file>
+    python3 statectl.py <state-path> task-set-body <task-id> <body-file>
+    python3 statectl.py <state-path> task-set-meta <task-id> <meta-json-file>
+    python3 statectl.py <state-path> task-set-status <task-id> <status>
+    python3 statectl.py <state-path> tasks-clear
 
 `get` prints the JSON value at <json-path> to stdout. Every other verb mutates
 the file under an exclusive advisory lock, preserving every sibling field,
@@ -247,7 +252,88 @@ def do_set_contract_card(data: Any, text: str) -> None:
     data["contract_card"] = text.rstrip("\n")
 
 
-def mutate(state_path: Path, apply: Callable[[Any], None]) -> None:
+def do_task_add(data: Any, task_json: dict[str, Any]) -> str:
+    """Append a pending task, returning the id assigned to it.
+
+    The id is the highest numeric `tasks[].id` plus one, not `len(tasks) + 1`
+    and not the last entry's id plus one: rework appends leave `tasks[]` out of
+    id order, so both shortcuts hand out an id that is already taken.
+    """
+    tasks = data["tasks"]
+    task_id = str(
+        max(
+            (
+                int(entry["id"])
+                for entry in tasks
+                if isinstance(entry, dict) and str(entry.get("id", "")).isdigit()
+            ),
+            default=0,
+        )
+        + 1,
+    )
+    # The payload passes through whole rather than field by field: /work renders
+    # its dispatch from these keys, and an allowlist silently drops the ones a
+    # later caller adds. An absent optional field stays absent - never a null,
+    # which every consumer would read as a real value.
+    tasks.append({**task_json, "id": task_id, "status": "pending"})
+    data["tasks_total"] = len(tasks)
+    return task_id
+
+
+def do_task_set_body(data: Any, task_id: str, body_text: str) -> None:
+    """Replace a task's description with raw file bytes, newline and all.
+
+    Unlike `set-contract-card` the trailing newline survives: nothing
+    downstream of `description` re-frames it, so the file is stored verbatim.
+    """
+    _find_task(data, task_id)["description"] = body_text
+
+
+def do_task_set_meta(data: Any, task_id: str, meta: dict[str, Any]) -> None:
+    """Merge `meta`'s keys onto the task entry; a null value deletes its key.
+
+    Flattened onto the entry, not nested under a `metadata` key, because every
+    reader of these fields (model, estimates, qwen gating) reads them off the
+    task itself. Keys the payload omits are left untouched, and `status` never
+    moves here, so the derived count is not recomputed.
+    """
+    task = _find_task(data, task_id)
+    for key, value in meta.items():
+        if value is None:
+            task.pop(key, None)
+        else:
+            task[key] = value
+    data["tasks_total"] = len(data["tasks"])
+
+
+_TASK_STATUSES = ("pending", "in_progress", "completed")
+
+
+def do_task_set_status(data: Any, task_id: str, status: str) -> None:
+    """Set a task's status, with no attempt record - that is `task-done`'s job.
+
+    The check is an explicit allowlist, not a heuristic on the string's shape:
+    `"done"` and `"Completed"` are exactly the near-misses that would slip past
+    a length or case test and leave a status no consumer recognises.
+    """
+    if status not in _TASK_STATUSES:
+        raise UsageError(f"invalid status: {status!r}")
+    _find_task(data, task_id)["status"] = status
+    _recount_completed(data)
+
+
+def do_tasks_clear(data: Any) -> None:
+    """Empty the task array and zero both counts in one write.
+
+    Scoped to exactly those three fields: `rework_task_ids`, `task_aborts` and
+    the rest of the batch record outlive a replan.
+    """
+    data["tasks"] = []
+    data["tasks_total"] = 0
+    data["tasks_completed"] = 0
+
+
+def mutate(state_path: Path, apply: Callable[[Any], Any]) -> Any:
     """Read-modify-write `state_path` through the validated boundary.
 
     `apply` mutates the parsed state IN PLACE - the signature every existing
@@ -262,12 +348,18 @@ def mutate(state_path: Path, apply: Callable[[Any], None]) -> None:
     corrupt file raises StateError before anything is written, and a mutation
     whose own field value is malformed raises schema.SchemaError with the file
     byte-unchanged.
+
+    Whatever `apply` returns is returned back, so a verb that assigns something
+    (`task-add`'s new id) can report it without a second read. Every other
+    `apply` returns None implicitly, so nothing else sees a change.
     """
     before: dict = {}
+    outcome: Any = None
 
     def fn(current: dict) -> dict:
+        nonlocal outcome
         before.update(copy.deepcopy(current))
-        apply(current)
+        outcome = apply(current)
         return current
 
     state.transaction(
@@ -275,6 +367,7 @@ def mutate(state_path: Path, apply: Callable[[Any], None]) -> None:
         fn,
         validator=lambda new_state: schema.validate_changed(before, new_state),
     )
+    return outcome
 
 
 USAGE = (
@@ -282,11 +375,27 @@ USAGE = (
     "       statectl.py <state-path> task-start <task-id>\n"
     "       statectl.py <state-path> task-done <task-id> <attempt-json-file>\n"
     "       statectl.py <state-path> append-attempt <task-id> <attempt-json-file>\n"
-    "       statectl.py <state-path> set-contract-card <file>"
+    "       statectl.py <state-path> set-contract-card <file>\n"
+    "       statectl.py <state-path> task-add <task-json-file>\n"
+    "       statectl.py <state-path> task-set-body <task-id> <body-file>\n"
+    "       statectl.py <state-path> task-set-meta <task-id> <meta-json-file>\n"
+    "       statectl.py <state-path> task-set-status <task-id> "
+    "pending|in_progress|completed\n"
+    "       statectl.py <state-path> tasks-clear"
 )
 
 _PATH_VERBS = ("get", "set", "append", "del")
-_TASK_VERBS = ("task-start", "task-done", "append-attempt", "set-contract-card")
+_TASK_VERBS = (
+    "task-start",
+    "task-done",
+    "append-attempt",
+    "set-contract-card",
+    "task-add",
+    "task-set-body",
+    "task-set-meta",
+    "task-set-status",
+    "tasks-clear",
+)
 
 
 def _read_json_file(path_str: str) -> Any:
@@ -306,7 +415,7 @@ def _read_json_file(path_str: str) -> Any:
         raise UsageError(f"{path_str} is not valid JSON: {err}") from err
 
 
-def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], None]:
+def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
     """Return the mutation `mutate()` should apply for a non-`get` verb."""
     if verb in _PATH_VERBS:
         tokens = parse_path(arg)
@@ -330,6 +439,34 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], None]:
             raise UsageError(f"cannot read {arg}: {err}") from err
         return lambda data: do_set_contract_card(data, text)
 
+    if verb == "tasks-clear":
+        return do_tasks_clear
+
+    if verb == "task-add":
+        # The file is argv[2] here - this verb takes no task id either.
+        payload = _read_json_file(arg)
+        return lambda data: do_task_add(data, payload)
+
+    if verb == "task-set-body":
+        if not rest:
+            raise UsageError("task-set-body requires a body-file argument")
+        try:
+            body = Path(rest[0]).read_text(encoding="utf-8")
+        except OSError as err:
+            raise UsageError(f"cannot read {rest[0]}: {err}") from err
+        return lambda data: do_task_set_body(data, arg, body)
+
+    if verb == "task-set-meta":
+        if not rest:
+            raise UsageError("task-set-meta requires a meta-json-file argument")
+        meta = _read_json_file(rest[0])
+        return lambda data: do_task_set_meta(data, arg, meta)
+
+    if verb == "task-set-status":
+        if not rest:
+            raise UsageError("task-set-status requires a status argument")
+        return lambda data: do_task_set_status(data, arg, rest[0])
+
     if verb == "task-start":
         return lambda data: do_task_start(data, arg)
 
@@ -346,12 +483,14 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], None]:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) < 3:
+    # `tasks-clear` is the one verb that takes no third argv entry; every other
+    # verb still needs its own, so the relaxation is named rather than general.
+    if len(argv) < 2 or (len(argv) < 3 and argv[1] != "tasks-clear"):
         print(USAGE, file=sys.stderr)
         return 1
     state_path = Path(argv[0])
     verb = argv[1]
-    arg = argv[2]
+    arg = argv[2] if len(argv) > 2 else ""
     rest = argv[3:]
 
     if verb not in _PATH_VERBS + _TASK_VERBS:
@@ -363,7 +502,11 @@ def main(argv: list[str] | None = None) -> int:
             _raw, data = read_and_parse(state_path)
             print(json.dumps(get_value(data, parse_path(arg))))
         else:
-            mutate(state_path, _build_apply(verb, arg, rest))
+            result = mutate(state_path, _build_apply(verb, arg, rest))
+            if verb == "task-add":
+                # The only mutating verb that answers: callers need the id it
+                # assigned. Every other verb stays silent on success.
+                print(result)
     except StateError as err:
         print(str(err), file=sys.stderr)
         return 2
