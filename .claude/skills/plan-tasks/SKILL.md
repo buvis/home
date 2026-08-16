@@ -71,7 +71,7 @@ Persist each task with statectl — the sole writer for state.json (never hand-e
 python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json task-add <task-json-file>
 ```
 
-Build one JSON object per task and write it to `<task-json-file>` with the Write tool — a task body carries backticks, quotes and newlines, which break as an inline shell argument. Required key: `"name"` (the task title). The body composed per the "Task description format" below goes in `"description"`; every other field this skill assigns (`blocked_by` in step 5, `estimated_tokens` and `est_context_peak` in step 4.5, `model`, `qwen_eligible` and `qwen_excluded_reason` in step 4.7) is a top-level key on the same object — flattened, never nested under a `metadata` key. `task-add` assigns the id and prints it to stdout; capture it (`id=$(python3 …/statectl.py dev/local/autopilot/state.json task-add /tmp/task-3.json)`) so later tasks in this same pass can name it in their own `blocked_by` array.
+Build one JSON object per task and write it to `<task-json-file>` with the Write tool — a task body carries backticks, quotes and newlines, which break as an inline shell argument. Required key: `"name"` (the task title). The body composed per the "Task description format" below goes in `"description"`; every other field this skill assigns (`blocked_by` in step 5, `estimated_tokens` and `est_context_peak` in step 4.5, `model`, `qwen_eligible` and `qwen_excluded_reason` in step 4.7) is a top-level key on the same object — flattened, never nested under a `metadata` key. `task-add` assigns the id and prints it to stdout; capture it (`id=$(python3 …/statectl.py dev/local/autopilot/state.json task-add /tmp/task-3.json)`) so later tasks in this same pass can name it in their own `blocked_by` array. Create the tasks in the PRD's dependency/phase order (earlier phases first, so every blocker exists before the tasks it blocks), which is what makes those captured ids available when step 5 builds each `blocked_by` array.
 
 To fix a task after creation (not the normal create path): `task-set-body <task-id> <body-file>` replaces `description` verbatim from a raw text file, and `task-set-meta <task-id> <meta-json-file>` merges JSON keys onto the task entry (a `null` value deletes that key).
 
@@ -242,7 +242,7 @@ The bytes/4 heuristic is accurate within ±20% for source code, less accurate fo
 
 ### 4.7. Assign per-task model tier
 
-For each task, classify a model tier and persist it as `metadata.model: "haiku"|"sonnet"|"opus"` so `/work` can dispatch each subagent at the right tier (PRD 00025).
+For each task, classify a model tier and persist it as a top-level `model: "haiku"|"sonnet"|"opus"` key so `/work` can dispatch each subagent at the right tier (PRD 00025).
 
 **Inputs:** task title + description (string), `files_touched` count, estimated lines-changed (rough — pull from the task plan or estimate from the file slice), the `estimated_tokens` computed in step 4.5, and the active PRD body (for novelty signals).
 
@@ -306,7 +306,7 @@ After Rules 1-3 produce a tier and the PRD frontmatter override (above) settles 
 qwen_eligible = task is backend (not UI) AND model in {haiku, sonnet} AND files_touched <= 3 AND task edits no public contract
 ```
 
-- `model` is the tier produced by Rules 1-3 + override (the same value persisted as `metadata.model`).
+- `model` is the tier produced by Rules 1-3 + override (the same value persisted as the top-level `model` key).
 - `files_touched` is the per-task file count already used in step 4.5 / Rule 1 / Rule 2.
 - **UI** = the task matches the **"Gemini-first tasks"** list in `~/.claude/skills/work/SKILL.md`. Anything not matching that list is **backend**. Reuse `work`'s list as the single source of truth so producer and consumer agree by construction — do not restate the list here; if it changes in `work`, this rule inherits the change.
 - **Public contract** = the task's planned edits touch an exported API signature, a schema, a wire format, or a hook registration shape (judge from the task's file slice, its `Contract`, and the PRD's Functional Decomposition). Purely internal changes — private helpers, implementation bodies, tests, docs — edit no public contract.
@@ -345,7 +345,7 @@ Follow PRD's dependency graph:
 - Phase 1 tasks: blocked by Phase 0
 - etc.
 
-A dependency discovered only after its task was created (rare — e.g. a step-4.6 split) is added afterwards with `task-set-meta <task-id> <meta-json-file>`, the file holding `{"blocked_by": [...]}`.
+**Correctness rule:** before you put a task id in a `blocked_by` array, that blocker must already have been created — its id captured from an earlier `task-add` call in this same pass. Never guess an id for a task that does not exist yet (statectl validates `blocked_by` as a list of ints, not that the ids resolve, so a guessed id lands on disk unchallenged). If a dependency only surfaces after its task already exists — a step-4.6 split, or creation order that ends up not matching phase order — add it afterwards with `task-set-meta <task-id> <meta-json-file>`, the file holding `{"blocked_by": [...]}`.
 
 ### 5.5. Check the plan against the loop task ceiling (F5)
 
