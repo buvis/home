@@ -638,6 +638,26 @@ class StatectlNewTaskVerbsTest(unittest.TestCase):
         self.assertEqual(task_description, "Legacy task")
         self.assertEqual(criteria, "(none recorded)")
 
+    def test_task_add_round_trip_treats_an_empty_description_as_present_not_absent(
+        self,
+    ) -> None:
+        # An empty string is a present description, not an absent one: the
+        # name-only fallback in work/SKILL.md is documented for `description`
+        # being absent, not merely empty. No "Acceptance criteria:" section
+        # exists in an empty body either way.
+        self.write_state({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
+        result = self.run_cli(
+            "task-add",
+            self.write_json("t.json", {"name": "Empty body task", "description": ""}),
+        )
+        self.assertEqual(result.returncode, 0)
+
+        task = self.load_state()["tasks"][0]
+        subject, task_description, criteria = _derive_dispatch_placeholders(task)
+        self.assertEqual(subject, "Empty body task")
+        self.assertEqual(task_description, "")
+        self.assertEqual(criteria, "(none recorded)")
+
 
 def _derive_dispatch_placeholders(task: dict) -> tuple:
     """Local pin of the /work dispatch placeholder derivation documented in
@@ -645,14 +665,15 @@ def _derive_dispatch_placeholders(task: dict) -> tuple:
 
     - task_subject            <- task["name"]
     - task_description        <- task["description"] (full text), or a
-      name-only body when no description was ever recorded.
+      name-only body when `description` is absent (the key missing, not
+      merely an empty string).
     - task_acceptance_criteria <- text-extracted out of the "Acceptance
       criteria:" section of that same description; "(none recorded)" when
-      there is no description to extract from.
+      there is no "Acceptance criteria:" section to extract from.
     """
     subject = task["name"]
     description = task.get("description")
-    if not description:
+    if description is None:
         return subject, subject, "(none recorded)"
     marker = "Acceptance criteria:"
     idx = description.find(marker)
