@@ -15,7 +15,7 @@ import compute_mech_facts as mf
 
 SCRIPT = Path(__file__).with_name("compute_mech_facts.py")
 
-MODULE = '''\
+MODULE = """\
 def top(a):
     b = a + 1
     return b
@@ -42,7 +42,7 @@ def outer():
 @some_decorator("x")
 def decorated(a, b):
     return a + b
-'''
+"""
 
 
 def _write(tmp_path: Path, name: str, text: str) -> Path:

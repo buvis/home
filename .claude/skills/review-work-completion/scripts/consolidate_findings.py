@@ -52,11 +52,62 @@ UNKNOWN_SEVERITY_RANK = 5
 
 # Dropped before comparing descriptions: they carry no defect identity, so
 # leaving them in inflates the overlap between unrelated findings.
-STOPWORDS = frozenset("""
-a an and are as at be been but by can could does for from has have in into is it its
-may might must no not of on or that the their then there these this to under use used
-uses using was were when which while will with without would
-""".split())
+STOPWORDS = frozenset(
+    [
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "but",
+        "by",
+        "can",
+        "could",
+        "does",
+        "for",
+        "from",
+        "has",
+        "have",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "may",
+        "might",
+        "must",
+        "no",
+        "not",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "their",
+        "then",
+        "there",
+        "these",
+        "this",
+        "to",
+        "under",
+        "use",
+        "used",
+        "uses",
+        "using",
+        "was",
+        "were",
+        "when",
+        "which",
+        "while",
+        "will",
+        "with",
+        "without",
+        "would",
+    ]
+)
 
 # The bracketed name is skipped, not captured: the NAME half of the caller's
 # NAME:FILE pair is authoritative, so a reviewer whose output mislabels its
@@ -64,7 +115,7 @@ uses using was were when which while will with without would
 _LINE_RE = re.compile(
     r"^\[[^\]]+\]\s+(?P<severity>.)\s+(?P<desc>.*?)"
     r"\s+\|\s+File:\s*(?P<file>.*?)"
-    r"\s+\|\s+Task:\s*(?P<task>.*?)\s*$"
+    r"\s+\|\s+Task:\s*(?P<task>.*?)\s*$",
 )
 _TRAILING_LINENO_RE = re.compile(r":\d+(?:-\d+)?$")
 _WORD_RE = re.compile(r"[a-z0-9_]+")
@@ -102,7 +153,7 @@ def files_match(a: str, b: str) -> bool:
     if not sa or not sb:
         return sa == sb
     short, long_ = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
-    return long_[-len(short):] == short
+    return long_[-len(short) :] == short
 
 
 def tokens(desc: str) -> frozenset[str]:
@@ -162,8 +213,11 @@ def _fold(group: list[Finding]) -> Finding:
         task=head.task,
     )
     for other in group[1:]:
-        if SEVERITY_ORDER.get(other.severity, UNKNOWN_SEVERITY_RANK) < SEVERITY_ORDER.get(
-            row.severity, UNKNOWN_SEVERITY_RANK
+        if SEVERITY_ORDER.get(
+            other.severity, UNKNOWN_SEVERITY_RANK
+        ) < SEVERITY_ORDER.get(
+            row.severity,
+            UNKNOWN_SEVERITY_RANK,
         ):
             row.severity = other.severity
         for finder in other.finders:
@@ -211,7 +265,9 @@ def load_ledger(path: Path) -> list[Finding]:
         print(f"consolidate_findings: ignoring ledger {path}: {exc}", file=sys.stderr)
         return []
     if not isinstance(entries, list):
-        print(f"consolidate_findings: ignoring ledger {path}: not a list", file=sys.stderr)
+        print(
+            f"consolidate_findings: ignoring ledger {path}: not a list", file=sys.stderr
+        )
         return []
     settled = []
     for entry in entries:
@@ -224,13 +280,15 @@ def load_ledger(path: Path) -> list[Finding]:
                     file=str(entry.get("file", "")),
                     task="",
                     reason=str(entry.get("reason", "")),
-                )
+                ),
             )
     return settled
 
 
 def split_ledger_dismissed(
-    findings: list[Finding], settled: list[Finding], dismiss_agent: str
+    findings: list[Finding],
+    settled: list[Finding],
+    dismiss_agent: str,
 ) -> tuple[list[Finding], list[tuple[Finding, Finding]]]:
     """Partition into (kept, dismissed) where dismissed are `dismiss_agent`'s
     findings matching a settled entry, paired with the entry they matched."""
@@ -262,7 +320,7 @@ def render(merged: list[Finding], total_agents: int) -> str:
     for _, f in ordered:
         rows.append(
             f"| [{len(f.finders)}/{total_agents}] | {f.severity} | {f.desc} | "
-            f"{f.file} | {f.task} | {', '.join(f.finders)} |"
+            f"{f.file} | {f.task} | {', '.join(f.finders)} |",
         )
     return "\n".join(rows)
 
@@ -273,7 +331,7 @@ def render_dismissed(dismissed: list[tuple[Finding, Finding]]) -> str:
         reason = entry.reason or "settled in an earlier cycle"
         lines.append(
             f"- [{finding.agent}] {finding.severity} {finding.desc} | "
-            f"File: {finding.file} — {reason}"
+            f"File: {finding.file} — {reason}",
         )
     return "\n".join(lines)
 
@@ -297,7 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     dismissed: list[tuple[Finding, Finding]] = []
     if args.ledger is not None and args.ledger_dismiss:
         findings, dismissed = split_ledger_dismissed(
-            findings, load_ledger(args.ledger), args.ledger_dismiss
+            findings,
+            load_ledger(args.ledger),
+            args.ledger_dismiss,
         )
 
     merged = consolidate(findings)
