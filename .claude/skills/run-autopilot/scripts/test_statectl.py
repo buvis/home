@@ -552,6 +552,39 @@ class StatectlTest(unittest.TestCase):
         ):
             self.assertNotIn(absent, entry)
 
+    def test_task_add_rejects_a_payload_without_a_name(self) -> None:
+        # `name` is the dispatch subject: a nameless task is a caller mistake
+        # that must surface here, not a blank prompt an implementor reads later.
+        self.write_state({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
+        before = self.state.read_bytes()
+        for label, payload in (
+            ("empty", {}),
+            ("no name key", {"description": "body only"}),
+            ("empty name", {"name": ""}),
+            ("non-string name", {"name": 7}),
+        ):
+            result = self.run_cli("task-add", self.write_json("t.json", payload))
+            self.assertEqual(result.returncode, 1, f"{label} should exit 1")
+            self.assertEqual(result.stdout, "", f"{label} should print no id")
+            self.assertEqual(
+                self.state.read_bytes(),
+                before,
+                f"{label} must leave the state file byte-identical",
+            )
+
+    def test_task_add_rejects_a_non_object_payload(self) -> None:
+        # A JSON array parses fine but has no fields to merge: the failure is a
+        # clean bad-argument error naming the file, not a raw traceback.
+        self.write_state({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
+        before = self.state.read_bytes()
+        payload = self.write_json("t.json", [{"name": "Wrapped in an array"}])
+        result = self.run_cli("task-add", payload)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn(payload, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
     # 13. task-set-body ----------------------------------------------------------
 
     def test_task_set_body_replaces_description_verbatim(self) -> None:
@@ -670,6 +703,31 @@ class StatectlTest(unittest.TestCase):
         )
         self.assertEqual(state["tasks"][0], {"id": "17", "status": "pending"})
         self.assertEqual(state["tasks"][2], {"id": "8", "status": "pending"})
+
+    def test_task_set_meta_rejects_reserved_keys(self) -> None:
+        # `id` and `status` are verb-owned. Merging `id` would put two entries
+        # under one id, hiding the first from every id lookup; merging `status`
+        # would walk past both the enum check and the tasks_completed recount.
+        # Rejected, never silently stripped - the caller made a mistake.
+        self.three_tasks()
+        # Control first: a legal payload must succeed, so the rejections below
+        # prove the reserved-key guard and not a broken verb.
+        legal = self.write_json("ok.json", {"model": "opus"})
+        self.assertEqual(self.run_cli("task-set-meta", "2", legal).returncode, 0)
+        before = self.state.read_bytes()
+        for label, meta in (
+            ("id", {"id": "3"}),
+            ("status", {"status": "completed"}),
+            ("bad status", {"status": "banana"}),
+            ("beside a legal key", {"model": "sonnet", "status": "completed"}),
+        ):
+            result = self.run_cli("task-set-meta", "2", self.write_json("m.json", meta))
+            self.assertEqual(result.returncode, 1, f"{label} should exit 1")
+            self.assertEqual(
+                self.state.read_bytes(),
+                before,
+                f"{label} must leave the state file byte-identical",
+            )
 
     # 15. task-set-status --------------------------------------------------------
 
