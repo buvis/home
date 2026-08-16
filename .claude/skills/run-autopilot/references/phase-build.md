@@ -125,7 +125,7 @@ Otherwise, decide between **full catchup** and **delta refresh** using the batch
 
 ### Batch cache check
 
-The capsule (`dev/local/project-capsule.md`) is the persisted output of catchup: invariants, architecture decisions, GitHub state, project memories. Subsequent phases and their subagents read the capsule when they need that context — not TaskList, not state.json. Between PRDs in the same batch on the same branch, re-running the heavy gather phase costs ~60-95s and ~50K tokens with no information gain (`references/design-rationale.md` § Batch catchup cache).
+The capsule (`dev/local/project-capsule.md`) is the persisted output of catchup: invariants, architecture decisions, GitHub state, project memories. Subsequent phases and their subagents read the capsule when they need that context — not `state.json`. Between PRDs in the same batch on the same branch, re-running the heavy gather phase costs ~60-95s and ~50K tokens with no information gain (`references/design-rationale.md` § Batch catchup cache).
 
 `state.batch.catchup_completed_at` (ISO 8601) and `state.batch.catchup_head_sha` (current branch HEAD when last full catchup completed) record the cache. **Skip the full catchup and run a delta refresh** when ALL of the following hold:
 
@@ -168,9 +168,7 @@ After design completes (run, skipped, or reused), stay on `phase: "build"` and `
 
 ## Phase 2: Planning
 
-**First, run the "Hydrate TaskList from state.tasks" sub-step** (core `SKILL.md` § State Management). This is mandatory — the skip rule below depends on it. Initial planning has nothing to hydrate (no-ops on empty `state.tasks`) and replan clears `state.tasks` deliberately (also no-ops); the case the hydration covers is a resumed PRD whose prior session populated `state.tasks` and handed off (e.g., a context-cap rotation into a fresh session). Without the hydration, the skip rule below sees an empty TaskList and mistakenly re-runs `/plan-tasks`.
-
-**Skip if:** `TaskList` returns any pending or completed tasks (tasks already exist). Evaluate this **after** the hydration step above completes. This skip is by ARTIFACT (tasks exist), not `phases_completed` membership.
+**Skip if:** `state.tasks` contains any pending or completed tasks (tasks already exist). This skip is by ARTIFACT (tasks exist), not `phases_completed` membership.
 
 ### Replan mode
 
@@ -194,20 +192,13 @@ Invoke `/plan-tasks` with the selected PRD.
 - **Exits zero**: no stall. Continue normally to the post-completion state update below.
 - **Exits non-zero without `stall_reason`** (or with a `stall_reason.stalled` value other than `"oversized_task"`): treat as a sub-skill failure. PAUSE and report the error per the "Sub-skill invocation fails" entry in the Error Handling table — also write `state.pause_reason = {"site": "plan_tasks_fail", "detail": "<one-line error>"}` alongside `phase="paused"`. Do NOT proceed to Phase 3 or move the PRD.
 
-After completion, query `TaskList` and update state: stay on `phase: "build"` and `next_phase: "build"`, write the `tasks` snapshot (see Phase 3 for format; the sync hook maintains `tasks_total`/`tasks_completed`). Do NOT add anything to `phases_completed`. Flow continues DIRECTLY into Phase 3 (work) in this same session — there is no planning→work handoff.
+After completion, `state.tasks` is already current — every `task-add` call `/plan-tasks` made wrote it directly. Stay on `phase: "build"` and `next_phase: "build"`. Do NOT add anything to `phases_completed`. Flow continues DIRECTLY into Phase 3 (work) in this same session — there is no planning→work handoff.
 
 ## Phase 3: Work
 
-**Skip if:** All tasks completed, none pending. Evaluate **after** running the hydration sub-step (below) — otherwise a fresh session sees TaskList empty and mistakenly treats "no pending" as "all done". This skip is by ARTIFACT (all tasks done), not `phases_completed` membership. When all tasks are done, the build is complete → hand off to the review session (see below).
+**Skip if:** All tasks completed, none pending (read directly from `state.tasks`). This skip is by ARTIFACT (all tasks done), not `phases_completed` membership. When all tasks are done, the build is complete → hand off to the review session (see below).
 
-**First, run the "Hydrate TaskList from state.tasks" sub-step** (core `SKILL.md` § State Management). This is the critical entry point for the post-context-cap-rotation session path.
-
-Before invoking `/work`, query `TaskList` and apply the full `tasks` snapshot to `dev/local/autopilot/state.json` with `statectl set ... tasks '<array>'` (then `set tasks_total`/`set tasks_completed` per core `SKILL.md` § Task Counts):
-- `tasks`: array of `{"id": "<task-id>", "name": "<title>", "status": "pending|in_progress|completed", ...metadata}` for EVERY task. The snapshot **must preserve every field plan-tasks or the review gate's rework may have written** — at minimum: `model` (when set by plan-tasks tier classifier or Phase 6 escalation), `attempts` (the per-attempt log; see "Attempt logging" in `/work`), `estimated_tokens` and `est_context_peak` (when plan-tasks recorded a budget estimate), `qwen_eligible` and `qwen_excluded_reason` (when plan-tasks classified qwen eligibility — the Phase 9 Implementor Mix render reads them, PRD 00019). Stripping these on snapshot would break the hydration round-trip (subsequent sessions read them back into TaskList metadata) and lose Phase 6's tier-escalation history across the handoff. Treat the snapshot as merge-preserving over `state.tasks[i]`, not a three-field replacement.
-
-`tasks_total`/`tasks_completed` ARE written here, derived from the snapshot in the same write: `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` — the pidash-era sync hook is retired (PRD 00063; core `SKILL.md` § Task Counts).
-
-**Include the task `id` field** — state readers and the hydration round-trip key on it (`rework_task_ids` targeting, attempt logging, tracon). This is mandatory.
+`state.tasks` is already current — every producer (`task-add`/`task-start`/`task-done`/`task-set-meta`) writes it directly via `statectl`, so there is nothing to query or snapshot before invoking `/work`.
 
 **Capture `work_start_sha`** per the invariant in core `SKILL.md` § "Phase 3 invariants": once per PRD, before `/work` runs, only when unset — never re-captured on a cap-rotation or resume re-entry.
 
@@ -226,7 +217,7 @@ While `/work` runs (Phases 3 and 6), it uses these superpowers when available (a
 
 (Deliberately unused superpowers and the review-layering rationale: `references/design-rationale.md`.)
 
-After completion, query `TaskList` again and write the updated `tasks` snapshot with `statectl` (the sync hook maintains `tasks_total`/`tasks_completed`) — the snapshot is data the transition cannot derive, so it stays a separate write. Then advance the gate with `autopilot phase-done --outcome tasks_done`, which sets `phase: "review"` and `next_phase: "review"` and adds nothing to `phases_completed` — the `build` gate leaves no membership marker; review-loop convergence is the only `phases_completed` entry.
+After completion, `state.tasks` is already current — every task-lifecycle transition (`task-start`/`task-done`) wrote it directly during the phase. Then advance the gate with `autopilot phase-done --outcome tasks_done`, which sets `phase: "review"` and `next_phase: "review"` and adds nothing to `phases_completed` — the `build` gate leaves no membership marker; review-loop convergence is the only `phases_completed` entry.
 
 ### Hand off to a fresh session for reviews
 

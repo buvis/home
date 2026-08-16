@@ -119,24 +119,7 @@ The agoge run above arms the runtime-security lane by default, passing `--author
 
 ### Task Counts
 
-`tasks_total` and `tasks_completed` are maintained by whoever writes the `state.tasks` snapshot: recompute both in the same write — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` (the pidash-era PostToolUse sync hook is retired, PRD 00063). The model does NOT query `TaskList` to mirror counts at each state update; the arithmetic runs on the snapshot already in hand. Keep `state.tasks` accurate at phase transitions and recompute the counts alongside each `tasks` snapshot, applying all three with `statectl set` (§ State Management), keeping the dashboard progress bar live.
-
-### Hydrate TaskList from state.tasks (shared sub-step)
-
-`TaskList` is per-session storage (`~/.claude/tasks/<session-id>/`). Every fresh autopilot session — handoff to a review surface, restart after a context-cap rotation, or any manual re-invocation — starts with an **empty** TaskList even when `state.tasks` carries the full snapshot from the prior session. Phase skipping (planning, work) and per-task model dispatch both rely on TaskList, so without rehydration the new session operates with no task tracker at all.
-
-Run this hydration **before any phase invokes `/work` or queries TaskList for routing** — specifically: Phase 2 (before the skip-rule check), Phase 3 (before `/work`), Phase 6 (before rework `/work`).
-
-**Load if empty.** Query `TaskList`. If it returns **any** tasks, no-op (already populated this session). Otherwise read `state.tasks` from `dev/local/autopilot/state.json`; if absent or empty, no-op (nothing to hydrate). Otherwise hydrate in **two batched turns**:
-
-1. **One message containing every `TaskCreate` call**, in declared order (do NOT reorder), each `TaskCreate(subject: name)` passing `model` / `estimated_tokens` / `est_context_peak` / `attempts` / `qwen_eligible` / `qwen_excluded_reason` straight through as `metadata` when present — `/work` reads `metadata.model` (PRD 00025) and `metadata.qwen_eligible` (PRD 00031/00019); the rest keep the round-trip lossless. `TaskCreate` assigns ids sequentially from 1, aligning with `state.tasks[].id` by construction — **call order within the batch is what preserves that alignment**, so emit them in array order.
-2. **One message containing every status `TaskUpdate`**, setting each entry to its recorded status (`in_progress` / `completed`; `pending` is the `TaskCreate` default, skip it).
-
-**Batch them — do not issue one call per turn.** These are independent calls with no data dependency between them, so they belong in one message each. Issued serially they cost one full model round trip per task, measured at 10 `TaskCreate` turns plus ~7 `TaskUpdate` turns in *every* build session of a 10-task PRD (2026-08-02 engram analysis) — pure repeated overhead against a `SOFT_CAP` that decides how many tasks a session can hold.
-
-The `attempts` array round-trips as-is — the hydration never inspects its rows, so any per-attempt field (`implementor`, `preflight_outcome`, `self_deslop`, future fields) survives the snapshot → hydration → `TaskGet` cycle intact.
-
-**Idempotency:** if a phase re-enters this sub-step on the same session (e.g. Phase 6 after Phase 3), the TaskList-non-empty check short-circuits. Safe to call as a precondition on every `/work` entry point.
+`tasks_total` and `tasks_completed` are maintained by whoever writes the `state.tasks` snapshot: recompute both in the same write — `tasks_total = len(tasks)`, `tasks_completed = count(status == "completed")` (the pidash-era PostToolUse sync hook is retired, PRD 00063). The model does not re-derive these counts by any other means; the arithmetic runs on the snapshot already in hand. Keep `state.tasks` accurate at phase transitions and recompute the counts alongside each `tasks` snapshot, applying all three with `statectl set` (§ State Management), keeping the dashboard progress bar live.
 
 ### Live Dashboard
 
@@ -190,7 +173,7 @@ Every session handoff is the same three steps:
 
 | site | `--outcome` | what the transition commits |
 |------|-------------|-----------------------------|
-| **build → review** (`phase-build.md`, after Phase 3) | `tasks_done` | `phase`/`next_phase: "review"`. `phases_completed` unchanged — the build gate leaves no membership marker. Write the `tasks` snapshot separately: it comes from a TaskList query, so no transition can derive it. |
+| **build → review** (`phase-build.md`, after Phase 3) | `tasks_done` | `phase`/`next_phase: "review"`. `phases_completed` unchanged — the build gate leaves no membership marker. `state.tasks` is already current — every producer (`task-add`/`task-start`/`task-done`/`task-set-meta`) writes it directly via `statectl`, so there is nothing to query or snapshot at this handoff. |
 | **review → review** (`phase-review.md` Phase 6, after rework when the loop continues) | `rework` | `phase`/`next_phase: "review"`, `cycle` incremented, `rework_task_ids` cleared — all in one commit. `state.tasks` untouched. `phases_completed` unchanged — only convergence adds `"review"`. |
 | **review → done** (`phase-review.md`, on loop convergence) | `converged` | `phase`/`next_phase: "done"`, and `"review"` appended to `phases_completed` — the convergence marker the review gate's loop-level skip reads. It lands *because this is convergence*, not because a flag asked for it. |
 | **PRD → PRD** (`phase-done.md`, step 10 more-PRDs branch) | `more_prds` | `phase`/`next_phase: "build"`, `phases_completed` reset to `[]`, and the whole per-PRD reset (`cli/records.PER_PRD_RESET_FIELDS` — the one authoritative list); `batch` preserved in full. |
