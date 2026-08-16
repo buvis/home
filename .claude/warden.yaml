@@ -37,6 +37,8 @@ alwaysAllow:
   - pytest
   - bats
   # Dev tools
+  - autopilot
+  - engram
   - showboat
   - zdb
   - ast-grep
@@ -108,7 +110,11 @@ rules:
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ['^~/\.config/bash/plugins/development\.plugin\.bash$', '^/Users/bob/\.config/bash/plugins/development\.plugin\.bash$']
+          anyArgMatches:
+            [
+              '^~/\.config/bash/plugins/development\.plugin\.bash$',
+              '^/Users/bob/\.config/bash/plugins/development\.plugin\.bash$',
+            ]
         decision: allow
         description: Allow sourcing the development bash plugin
   - command: development.plugin.bash
@@ -119,7 +125,7 @@ rules:
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ['^patch$']
+          anyArgMatches: ["^patch$"]
         decision: allow
         description: Allow the routine patch release bump
   # Git: allow most ops, ask for dangerous ones
@@ -241,6 +247,6 @@ rules:
     default: ask
     argPatterns:
       - match:
-          anyArgMatches: ['tbouska/playground/hardware/']
+          anyArgMatches: ["tbouska/playground/hardware/"]
         decision: allow
         description: Allow render on playground hardware layouts
