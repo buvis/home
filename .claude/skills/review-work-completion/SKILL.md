@@ -30,8 +30,7 @@ not name:
   - `~/.claude/skills/review-blindly/references/rubric.md` - inlined into
     Blake's blind prompt at its `{RUBRIC}` placeholder
 - CLIs: `python3`, `git`
-- Optional (graceful degradation, detailed in step 1): `use-gemini`,
-  `git-ferry:catchup`
+- Optional (graceful degradation, detailed in step 1): `use-gemini`
 
 ## Reviewers
 
@@ -94,7 +93,7 @@ Cannot proceed: {missing prerequisite}
 
 Read `state.tasks` from `dev/local/autopilot/state.json` (walk up from cwd to find the autopilot dir) — it is the canonical, complete task store, so nothing needs hydrating first. The gates below read each entry's `status`; an empty `state.tasks`, or an absent state file (a standalone run has none), is "no tasks exist".
 
-**If no tasks exist:** If `catchup` skill is available, invoke it to populate tasks from branch history, then return here. If `catchup` is unavailable, proceed without task context.
+**If no tasks exist:** proceed without task context, noting the absence in the review file.
 
 **If ANY task is `in_progress`:** STOP and report:
 
@@ -320,7 +319,7 @@ Outputs consolidated issues sorted by consensus then severity. See `references/o
 
 **If no issues found:** Skip task creation. Report clean review to user.
 
-**If issues found:** Create each follow-up with `task-add`, prioritizing multi-agent consensus:
+**If issues found, and `dev/local/autopilot/state.json` exists (autopilot run):** Create each follow-up with `task-add`, prioritizing multi-agent consensus:
 
 - Process 🔴 → 🟠 → 🟡 order
 - Max 25 tasks (batch overflow into "Misc fixes")
@@ -334,6 +333,8 @@ python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/s
 Build one JSON object per follow-up and write it to `<task-json-file>` with the Write tool — a finding body carries backticks, quotes and newlines, which break as an inline shell argument. Required key: `"name"` (the task title); the finding's full body goes in `"description"`.
 
 See `references/output-formats.md` for task description format.
+
+**If issues found, and `dev/local/autopilot/state.json` is absent (standalone run):** Do not create one — a standalone review must never fabricate autopilot state that no `/run-autopilot` build phase wrote. Skip `task-add` entirely; report the findings in the review file's consolidated table (step 6/8) and directly to the user, and say plainly that they were reported rather than written as tasks.
 
 ### 8. Save review file
 
