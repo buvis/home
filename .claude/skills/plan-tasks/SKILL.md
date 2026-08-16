@@ -10,7 +10,6 @@ Create implementation tasks from PRD documents.
 ## Dependencies
 
 - Personal skills (files read at runtime): `work` - its `SKILL.md` "Gemini-first tasks" list is the single source of truth for the UI/backend split that sets `qwen_eligible`, and `references/qwen-integration.md` carries the qwen infra preflight (absent: qwen counts as unavailable and the eligibility trigger is skipped)
-- Harness tools: `TaskCreate`, `TaskUpdate`, `TaskList`
 - State contract with `run-autopilot`: `dev/local/autopilot/state.json`, `dev/local/autopilot/replan-context.md`
 - Optional: `pi` binary plus a reachable llama.cpp endpoint (gated by the preflight, never fatal)
 
@@ -45,7 +44,7 @@ When `replan-context.md` exists:
 1. Read it. The file lists completed-work entries (tasks already done, code already shipped — do NOT re-plan these), an aborted task (the trigger), and a `Budget:` line.
 2. Read the `Budget: {n} tokens per task` line from the file. Use that value as the per-task budget for the rest of this invocation — treat it as the hard threshold in step 4.6's split logic, not 150K. If the line is absent, fall back to 75 000.
 3. Treat the PRD scope as "everything the PRD asks for **minus** the completed-work entries." When analyzing the PRD in step 3 and decomposing in step 4, skip capabilities already listed under "Completed work" in `replan-context.md`.
-4. After all `TaskCreate` calls in step 4 succeed (planning completes without stalling), delete `replan-context.md` — it's consumed. Do NOT delete on stall.
+4. After all `task-add` calls in step 4 succeed (planning completes without stalling), delete `replan-context.md` — it's consumed. Do NOT delete on stall.
 
 When `replan-context.md` is absent → normal first-pass planning. Use the 150K threshold.
 
@@ -66,7 +65,17 @@ Extract:
 
 ### 4. Create tasks
 
-Use `TaskCreate` for each task. Follow these rules:
+Persist each task with statectl — the sole writer for state.json (never hand-edit with Read/Write/Edit):
+
+```bash
+python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json task-add <task-json-file>
+```
+
+Build one JSON object per task and write it to `<task-json-file>` with the Write tool — a task body carries backticks, quotes and newlines, which break as an inline shell argument. Required key: `"name"` (the task title). The body composed per the "Task description format" below goes in `"description"`; every other field this skill assigns (`blocked_by` in step 5, `estimated_tokens` and `est_context_peak` in step 4.5, `model`, `qwen_eligible` and `qwen_excluded_reason` in step 4.7) is a top-level key on the same object — flattened, never nested under a `metadata` key. `task-add` assigns the id and prints it to stdout; capture it (`id=$(python3 …/statectl.py dev/local/autopilot/state.json task-add /tmp/task-3.json)`) so later tasks in this same pass can name it in their own `blocked_by` array.
+
+To fix a task after creation (not the normal create path): `task-set-body <task-id> <body-file>` replaces `description` verbatim from a raw text file, and `task-set-meta <task-id> <meta-json-file>` merges JSON keys onto the task entry (a `null` value deletes that key).
+
+Follow these rules:
 
 **Task qualities**:
 - **Atomic**: Single focused change
@@ -135,9 +144,9 @@ conflict, the design doc wins** (it refines the PRD): use the design doc's
 contract and log the conflict in the step-6 planning summary. This rule works
 unchanged in replan mode.
 
-**If a `TaskCreate` call fails mid-plan** (harness error, task tool unavailable — NOT the oversize stall handled in step 4.6): stop creating tasks and **roll back cleanly**. Query `TaskList` and `TaskUpdate(status: "deleted")` every task created this invocation (same cleanup as the oversize stall below) so no orphan tasks survive to make the next PRD's Phase 2 skip planning. Then record the cause via statectl — `set stall_reason '{"stalled": "taskcreate_failed", "detail": "<the TaskCreate error>"}'` — and report the failure. `/run-autopilot` Phase 2 reads a non-`oversized_task` stall as a plan-tasks failure (PAUSE interactive; loop mode re-invokes once, then stalls the PRD `sub_skill_fail`); the rollback guarantees the retry starts from a clean tracker. Do NOT move the PRD to `hold/` — a transient `TaskCreate` failure is not an un-splittable PRD.
+**If a `task-add` call fails mid-plan** (a statectl error — NOT the oversize stall handled in step 4.6): stop creating tasks and **roll back cleanly**. Run `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json tasks-clear`, which empties the whole task array in one write (same cleanup as the oversize stall below) so no orphan tasks survive to make the next PRD's Phase 2 skip planning. Then record the cause via statectl — `set stall_reason '{"stalled": "taskcreate_failed", "detail": "<the statectl error>"}'` — and report the failure. `/run-autopilot` Phase 2 reads a non-`oversized_task` stall as a plan-tasks failure (PAUSE interactive; loop mode re-invokes once, then stalls the PRD `sub_skill_fail`); the rollback guarantees the retry starts from a clean tracker. Do NOT move the PRD to `hold/` — a transient `task-add` failure is not an un-splittable PRD.
 
-**On successful completion of all `TaskCreate` calls, clear a stale failure marker:** `statectl get stall_reason` → if it reads `"taskcreate_failed"` (a prior attempt failed and this retry succeeded), `statectl del stall_reason`. Otherwise leave it untouched — an `oversized_task` marker is owned by step 4.6, and a fresh plan usually has no marker (do NOT blind-`del`; statectl errors on an absent key).
+**On successful completion of all `task-add` calls, clear a stale failure marker:** `statectl get stall_reason` → if it reads `"taskcreate_failed"` (a prior attempt failed and this retry succeeded), `statectl del stall_reason`. Otherwise leave it untouched — an `oversized_task` marker is owned by step 4.6, and a fresh plan usually has no marker (do NOT blind-`del`; statectl errors on an absent key).
 
 ### 4.5. Estimate per-task context budget
 
@@ -159,7 +168,7 @@ estimated_tokens = sum(file_bytes/4 for file in task.files_touched)
 
 **Threshold:** 150 000 tokens normally; in replan mode, the value from `replan-context.md`'s `Budget:` line (step 2.5). `est_context_peak = estimated_tokens + 20000` (20K headroom for response generation).
 
-**Persist** both values in the task's `TaskCreate(metadata={...})` field:
+**Persist** both values as top-level keys in the task's `task-add` JSON payload (flattened, not nested under a `metadata` key):
 
 ```json
 {"estimated_tokens": 87000, "est_context_peak": 107000}
@@ -219,7 +228,7 @@ python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/s
 
 statectl merges the key and preserves the existing `phase`, `phases_completed`, `tasks`, `batch`, etc.
 
-**Then delete every task you already created** via `TaskCreate` for this PRD: query `TaskList`, call `TaskUpdate(status: "deleted")` on each. `/plan-tasks` calls `TaskCreate` before the per-task budget check, so by the time the stall fires there are orphan tasks in the tracker. Cleaning up here makes the stall self-contained: any caller (not just `/run-autopilot`) gets the same post-stall state. `/run-autopilot` Phase 2 also performs this cleanup as a backstop.
+**Then delete every task you already created** for this PRD with a single call: `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json tasks-clear`. `/plan-tasks` calls `task-add` before the per-task budget check, so by the time the stall fires there are orphan tasks in the tracker. Cleaning up here makes the stall self-contained: any caller (not just `/run-autopilot`) gets the same post-stall state. `/run-autopilot` Phase 2 also performs this cleanup as a backstop.
 
 After both writes succeed, end the session's work with the stall recorded (the `stall_reason` key in state.json IS the observable stall signal — a model-followed skill has no exit code); `/run-autopilot` Phase 2 reads it, detects the stall, moves the PRD from `dev/local/prds/wip/` to `dev/local/prds/hold/` (creating the directory if missing), clears the stall key from state, and proceeds to the next backlog item without user prompt. See `/run-autopilot` Phase 2 for the consumer-side contract.
 
@@ -313,7 +322,7 @@ Each of the following yields `qwen_eligible = false` independently, with the nam
 
 The flag is computed **from** the classifier output; it does **not** alter the classifier. Rules 1-3 above are unchanged.
 
-**Persist** the tier, the `qwen_eligible` flag, and (on ineligible tasks) the `qwen_excluded_reason` alongside the existing token estimate in `TaskCreate(metadata={...})`, e.g.:
+**Persist** the tier, the `qwen_eligible` flag, and (on ineligible tasks) the `qwen_excluded_reason` alongside the existing token estimate as top-level keys in the task's `task-add` JSON payload, e.g.:
 
 ```json
 {"estimated_tokens": 72000, "est_context_peak": 92000, "model": "sonnet", "qwen_eligible": true}
@@ -329,12 +338,14 @@ On legacy plans created before PRD 00025, `metadata.model` is simply absent — 
 
 ### 5. Set dependencies
 
-Use `TaskUpdate` with `addBlockedBy` to link dependent tasks.
+Dependencies are set **inline at creation**, not in a follow-up pass. `task-add` prints each new task's id, and step 4 creates tasks in the PRD's phase order (earlier phases first), so a later task's blockers are already-captured ids by the time its payload is built — put them straight in that task's `"blocked_by"` array (array of ints).
 
 Follow PRD's dependency graph:
 - Phase 0 tasks: no blockers
 - Phase 1 tasks: blocked by Phase 0
 - etc.
+
+A dependency discovered only after its task was created (rare — e.g. a step-4.6 split) is added afterwards with `task-set-meta <task-id> <meta-json-file>`, the file holding `{"blocked_by": [...]}`.
 
 ### 5.5. Check the plan against the loop task ceiling (F5)
 
