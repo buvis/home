@@ -258,7 +258,13 @@ def do_task_add(data: Any, task_json: dict[str, Any]) -> str:
     The id is the highest numeric `tasks[].id` plus one, not `len(tasks) + 1`
     and not the last entry's id plus one: rework appends leave `tasks[]` out of
     id order, so both shortcuts hand out an id that is already taken.
+
+    `name` is required: /work renders its dispatch subject from it, so a
+    nameless task surfaces as a blank prompt rather than as an error here.
     """
+    name = task_json.get("name")
+    if not isinstance(name, str) or not name:
+        raise UsageError("task-add payload requires a non-empty 'name' string")
     tasks = data["tasks"]
     task_id = str(
         max(
@@ -296,7 +302,18 @@ def do_task_set_meta(data: Any, task_id: str, meta: dict[str, Any]) -> None:
     reader of these fields (model, estimates, qwen gating) reads them off the
     task itself. Keys the payload omits are left untouched, and `status` never
     moves here, so the derived count is not recomputed.
+
+    `id` and `status` are verb-owned, exactly as they are in `task-add`, and a
+    payload carrying either is rejected rather than stripped: `id` would put two
+    entries under one id (making the first unreachable), and `status` would move
+    a status past both the enum check and the `tasks_completed` recount.
     """
+    for reserved in ("id", "status"):
+        if reserved in meta:
+            raise UsageError(
+                f"task-set-meta cannot set {reserved!r}"
+                " - use task-add or task-set-status",
+            )
     task = _find_task(data, task_id)
     for key, value in meta.items():
         if value is None:
@@ -439,6 +456,8 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
     if verb == "task-add":
         # The file is argv[2] here - this verb takes no task id either.
         payload = _read_json_file(arg)
+        if not isinstance(payload, dict):
+            raise UsageError(f"{arg} is not a JSON object")
         return lambda data: do_task_add(data, payload)
 
     if verb == "task-set-body":
