@@ -18,8 +18,8 @@ crash window `references/phase-review.md` documents between its four separate
 losing it once let a loop run past its cap.
 
 The caller still supplies DATA the transition cannot derive. `tasks_done`
-advances the phase; the `tasks` snapshot that lands with it comes from a
-TaskList query, so the caller writes that itself.
+advances the phase; `state.tasks` is maintained by the statectl task verbs as
+work proceeds, so no transition rewrites it.
 """
 
 from __future__ import annotations

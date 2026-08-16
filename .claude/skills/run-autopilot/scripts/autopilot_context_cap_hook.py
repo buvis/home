@@ -9,8 +9,8 @@ thresholds against a single cost ceiling:
   `{task_id, cycle}` entry to `state.cap_rotations`, sets `next_phase` to
   `"build"`, and emits an `additionalContext` envelope telling the model to
   hand off to a fresh session (write the loop signal, then STOP). The fresh
-  session re-hydrates the TaskList from `state.tasks`, skips finished build
-  sub-steps by artifact, and `/work` continues at the first non-completed
+  session reads the pending tasks straight from `state.tasks`, skips finished
+  build sub-steps by artifact, and `/work` continues at the first non-completed
   task. No replan, no `stall_reason`, no lost work.
   **Livelock guard:** if `cap_rotations`' last entry already names the
   in-flight task, this is the second consecutive rotation for the same task
@@ -109,10 +109,10 @@ def _rotation_instructions(limit: int) -> str:
         "in-flight task was reset to pending so /work re-attempts it as the "
         "first pending task, and next_phase is set to build. Commit any safe "
         "partial work, then STOP. The autopilot Stop hook performs the loop "
-        "handoff from next_phase. The fresh session re-hydrates the TaskList "
-        "from state.tasks, skips finished build sub-steps by artifact, and "
-        "/work continues at the first non-completed task. Do NOT set "
-        "stall_reason; the PRD is not being re-planned."
+        "handoff from next_phase. The fresh session reads the pending tasks "
+        "straight from state.tasks, skips finished build sub-steps by "
+        "artifact, and /work continues at the first non-completed task. Do "
+        "NOT set stall_reason; the PRD is not being re-planned."
     )
 
 

@@ -46,8 +46,8 @@ class BuildToReviewTests(unittest.TestCase):
         self.assertEqual(new["phases_completed"], [])
 
     def test_does_not_touch_the_task_snapshot(self) -> None:
-        # The snapshot is a TaskList query, not a derivable effect - the caller
-        # writes it, and the transition must not blank it.
+        # The snapshot is written by the statectl task verbs, not a derivable
+        # effect - the transition must not blank it.
         tasks = [{"id": "1", "status": "completed"}]
         new = transitions.apply({"phase": "build", "tasks": tasks}, "tasks_done")
         self.assertEqual(new["tasks"], tasks)

@@ -12,9 +12,8 @@ Covers the SKILL.md stall steps that have a checkable invariant:
   - PRD moved from wip/ to hold/
   - stall_reason cleared from state
   - PRD-specific fields reset (phases_completed, cycle, tasks, etc.) — note
-    `tasks` reset to [] stands in for the SKILL.md "delete pre-stall tasks"
-    step; the real TaskUpdate(status="deleted") calls are a model action
-    against the TaskList API and are out of scope for a stdlib unittest
+    `tasks` reset to [] mirrors the SKILL.md "delete pre-stall tasks" step,
+    which the model performs with one `statectl tasks-clear` call
   - batch field preserved
   - hold/ directory created if absent
   - sequence prefix preserved on moved PRD
@@ -81,7 +80,8 @@ def apply_stall_procedure(
 
     Steps:
     1. Read current state.
-    2. Delete tasks from TaskList (simulated: clear state.tasks).
+    2. Clear the pre-stall tasks (`statectl tasks-clear`; here: clear
+       state.tasks directly).
     3. mkdir -p hold/.
     4. mv PRD from wip/ to hold/.
     5. Clear stall_reason; reset PRD-specific fields; preserve batch.
