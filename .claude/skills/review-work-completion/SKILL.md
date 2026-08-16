@@ -92,7 +92,7 @@ Cannot proceed: {missing prerequisite}
 
 ### 2. Check task status
 
-Use `TaskList`.
+Read `state.tasks` from `dev/local/autopilot/state.json` (walk up from cwd to find the autopilot dir) — it is the canonical, complete task store, so nothing needs hydrating first. The gates below read each entry's `status`; an empty `state.tasks`, or an absent state file (a standalone run has none), is "no tasks exist".
 
 **If no tasks exist:** If `catchup` skill is available, invoke it to populate tasks from branch history, then return here. If `catchup` is unavailable, proceed without task context.
 
@@ -320,12 +320,18 @@ Outputs consolidated issues sorted by consensus then severity. See `references/o
 
 **If no issues found:** Skip task creation. Report clean review to user.
 
-**If issues found:** Use `TaskCreate`, prioritizing multi-agent consensus:
+**If issues found:** Create each follow-up with `task-add`, prioritizing multi-agent consensus:
 
 - Process 🔴 → 🟠 → 🟡 order
 - Max 25 tasks (batch overflow into "Misc fixes")
 - Group by theme
 - Tag complexity: `(S)` small, `(M)` medium, `(L)` large
+
+```bash
+python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json task-add <task-json-file>
+```
+
+Build one JSON object per follow-up and write it to `<task-json-file>` with the Write tool — a finding body carries backticks, quotes and newlines, which break as an inline shell argument. Required key: `"name"` (the task title); the finding's full body goes in `"description"`.
 
 See `references/output-formats.md` for task description format.
 
