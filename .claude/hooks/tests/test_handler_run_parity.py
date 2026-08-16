@@ -607,7 +607,19 @@ def test_review_coverage_hook_blocks_missing_review_exit_2(tmp_path, monkeypatch
         home, cwd = _fresh_env(tmp_path, tag)
         state = cwd / "dev" / "local" / "autopilot" / "state.json"
         state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(json.dumps({"phase": "done", "prd": "00099-demo.md"}))
+        # phases_completed carries the "review" convergence marker: since
+        # 0b0cd6f1a the gate skips a prd that never converged (prd stays stale
+        # after a stall), so without it this reaches the skip path, not the
+        # exit-2 path this parity test exists to exercise.
+        state.write_text(
+            json.dumps(
+                {
+                    "phase": "done",
+                    "prd": "00099-demo.md",
+                    "phases_completed": ["review"],
+                },
+            ),
+        )
         return home, cwd
 
     sub_home, sub_cwd = prep("sub")
