@@ -99,7 +99,9 @@ def needs_qwen_probe(state: dict, batch_id: str) -> bool:
 
 
 def red_check_disposition(
-    contract_paths: list[str], imported_paths: list[str], existing_paths: list[str]
+    contract_paths: list[str],
+    imported_paths: list[str],
+    existing_paths: list[str],
 ) -> str:
     """Skip the red check only when an imported Contract-named path is missing."""
     candidates = [path for path in contract_paths if path in imported_paths]
@@ -133,7 +135,8 @@ def _table_row(task: dict, env: dict, state: dict, probes: dict) -> str:
     if not task.get("qwen_eligible", False):
         return "row7"
     if env.get("_AUTOPILOT_ESCALATION") != "legacy" and state.get(
-        "qwen_breaker", {}
+        "qwen_breaker",
+        {},
     ).get("tripped"):
         return "row3"
     if probes["memory_gate_exit"] != 0:

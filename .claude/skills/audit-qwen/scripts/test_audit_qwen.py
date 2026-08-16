@@ -10,18 +10,25 @@ import audit_qwen as aq
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def make_repo(tmp_path: Path, name: str, reports: tuple = (), state: str | None = None) -> Path:
+def make_repo(
+    tmp_path: Path, name: str, reports: tuple = (), state: str | None = None
+) -> Path:
     repo = tmp_path / name
     auto = repo / "dev" / "local" / "autopilot"
     (auto / "reports").mkdir(parents=True)
     for fixture in reports:
-        shutil.copy(FIXTURES / fixture, auto / "reports" / f"20260812000{len(fixture)}-report.md")
+        shutil.copy(
+            FIXTURES / fixture,
+            auto / "reports" / f"20260812000{len(fixture)}-report.md",
+        )
     if state:
         shutil.copy(FIXTURES / state, auto / "state.json")
     return repo
 
 
-def agg_for_verdict(passed=0, failed=0, unclassified=0, report_qwen=0, plan=None) -> dict:
+def agg_for_verdict(
+    passed=0, failed=0, unclassified=0, report_qwen=0, plan=None
+) -> dict:
     return {
         "state_qwen": passed + failed + unclassified,
         "report_qwen": report_qwen,
@@ -52,7 +59,9 @@ def test_modern_report_parses_mix_preflight_and_split_exclusions():
 
 
 def test_prose_era_exclusion_line_counts_as_plan_time():
-    plan, dispatch = aq.parse_exclusion_line("tier 1, files 1, docs-judgment 2, backend_down 4")
+    plan, dispatch = aq.parse_exclusion_line(
+        "tier 1, files 1, docs-judgment 2, backend_down 4"
+    )
     assert plan == {"tier": 1, "files": 1, "docs-judgment": 2, "backend_down": 4}
     assert dispatch == {}
 
@@ -62,7 +71,9 @@ def test_code_era_exclusion_line_none_variants():
         "none (plan-time); dispatch-time reroutes: memory_pressure 1",
     )
     assert plan == {} and dispatch == {"memory_pressure": 1}
-    plan, dispatch = aq.parse_exclusion_line("ui 2 (plan-time); dispatch-time reroutes: none")
+    plan, dispatch = aq.parse_exclusion_line(
+        "ui 2 (plan-time); dispatch-time reroutes: none"
+    )
     assert plan == {"ui": 2} and dispatch == {}
 
 
@@ -83,7 +94,9 @@ def test_renamed_mix_heading_lands_in_unparsed(tmp_path):
 
 def test_undecodable_report_lands_in_unparsed_not_a_crash(tmp_path):
     repo = make_repo(tmp_path, "latin")
-    (repo / "dev" / "local" / "autopilot" / "reports" / "202601010000-report.md").write_bytes(
+    (
+        repo / "dev" / "local" / "autopilot" / "reports" / "202601010000-report.md"
+    ).write_bytes(
         b"# Autopilot Batch Report\xff\xfe broken bytes",
     )
     record = aq.scan_repo(repo)
@@ -92,7 +105,9 @@ def test_undecodable_report_lands_in_unparsed_not_a_crash(tmp_path):
 
 
 def test_batch_rows_carry_per_batch_detail_notes(tmp_path):
-    repo = make_repo(tmp_path, "detail", reports=("report-modern.md",), state="state-chains.json")
+    repo = make_repo(
+        tmp_path, "detail", reports=("report-modern.md",), state="state-chains.json"
+    )
     rows = aq.compute([aq.scan_repo(repo)])["batch_rows"]
     notes = {row[3]: row[5] for row in rows}
     assert notes["00901-fixture-prd-v1.md"] == (
@@ -115,7 +130,13 @@ def test_malformed_state_lands_in_unparsed(tmp_path):
 def test_repo_without_autopilot_dir_is_a_quiet_no_data_row(tmp_path):
     (tmp_path / "bare").mkdir()
     record = aq.scan_repo(tmp_path / "bare")
-    assert record == {"repo": "bare", "reports": [], "states": [], "archived": 0, "unparsed": []}
+    assert record == {
+        "repo": "bare",
+        "reports": [],
+        "states": [],
+        "archived": 0,
+        "unparsed": [],
+    }
 
 
 # --- Phase 0/1: state chains ------------------------------------------------
@@ -137,7 +158,9 @@ def test_gate_classification_rules():
     # same task in the same pass is encoded post-00065 as outcome "escalated"
     # (and usually qwen_gate_failed) on the qwen entry.
     assert aq.classify_gate({"outcome": "escalated"}) == "failed"
-    assert aq.classify_gate({"qwen_gate_failed": True, "outcome": "completed"}) == "failed"
+    assert (
+        aq.classify_gate({"qwen_gate_failed": True, "outcome": "completed"}) == "failed"
+    )
     # Review-driven rework is the non-rework carve-out: the gate PASSED.
     assert aq.classify_gate({"outcome": "review_flagged"}) == "passed"
     assert aq.classify_gate({"outcome": "rework_failed"}) == "passed"
@@ -207,7 +230,9 @@ def test_report_section_superseded_by_state_for_same_prd(tmp_path):
 
 
 def test_render_names_dropped_quinn_metric_and_legacy_rows(tmp_path):
-    repo = make_repo(tmp_path, "mixed", reports=("report-legacy.md",), state="state-chains.json")
+    repo = make_repo(
+        tmp_path, "mixed", reports=("report-legacy.md",), state="state-chains.json"
+    )
     records = [aq.scan_repo(repo)]
     card = aq.render(records, aq.compute(records), "")
     assert "Quinn precision: **not computable**" in card
