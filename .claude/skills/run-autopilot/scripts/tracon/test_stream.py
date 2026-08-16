@@ -14,10 +14,10 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import pytest
+import render_stream
 from rich.text import Text
 
 from tracon import stream
-
 
 # --- fixtures grounded in the real captured event shapes --------------------
 # (see /tmp/tracon-event-fixtures.jsonl; field names/values below mirror it)
@@ -195,7 +195,7 @@ def _bg_bash_tool_use_event(tool_use_id: str, command: str) -> dict[str, Any]:
                     "id": tool_use_id,
                     "name": "Bash",
                     "input": {"command": command, "run_in_background": True},
-                }
+                },
             ],
         },
     }
@@ -245,7 +245,9 @@ def test_log_tail_in_place_truncation_triggers_session_reset(tmp_path: Path) -> 
     assert reset1 is False
     assert log_tail.session_start is None
 
-    path.write_text("X\nY\n")  # tee truncates the same inode in place for a fresh session
+    path.write_text(
+        "X\nY\n"
+    )  # tee truncates the same inode in place for a fresh session
     lines2, reset2 = log_tail.read_new()
     assert lines2 == ["X", "Y"]
     assert reset2 is True
@@ -262,7 +264,9 @@ def test_log_tail_inode_swap_triggers_session_reset(tmp_path: Path) -> None:
 
     replacement = tmp_path / "last-session.log.new"
     replacement.write_text("Q\nR\nS\n")
-    replacement.replace(path)  # atomic rename swaps the inode, unlike in-place truncation
+    replacement.replace(
+        path
+    )  # atomic rename swaps the inode, unlike in-place truncation
 
     lines2, reset2 = log_tail.read_new()
     assert lines2 == ["Q", "R", "S"]
@@ -284,7 +288,9 @@ def test_log_tail_file_disappearance_triggers_session_reset_without_raising(
     assert reset2 is True
 
 
-def test_log_tail_file_appearing_while_watched_sets_session_start(tmp_path: Path) -> None:
+def test_log_tail_file_appearing_while_watched_sets_session_start(
+    tmp_path: Path,
+) -> None:
     # We were already polling (log file did not exist yet) when the session's log
     # appeared and started receiving lines -- we watched it begin, so session_start
     # must be set, unlike attaching to a log that already had content on first look.
@@ -307,7 +313,9 @@ def test_log_tail_file_appearing_while_watched_sets_session_start(tmp_path: Path
 # --- LogTail: partial trailing line buffering --------------------------------
 
 
-def test_log_tail_partial_trailing_line_buffered_until_completed(tmp_path: Path) -> None:
+def test_log_tail_partial_trailing_line_buffered_until_completed(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "last-session.log"
     path.write_text("A\n")
     log_tail = stream.LogTail(path, tail_bytes=1_000_000)
@@ -352,7 +360,7 @@ def test_totals_up_bucket_includes_cache_creation_not_cache_read() -> None:
             cache_read_input_tokens=20,
             cache_creation_input_tokens=7,
             output_tokens=3,
-        )
+        ),
     )
     up, cached, out = usage.totals()
     assert up == 100 + 7  # input_tokens + cache_creation_input_tokens
@@ -369,7 +377,7 @@ def test_totals_sums_tokens_across_distinct_message_ids() -> None:
             cache_read_input_tokens=5,
             cache_creation_input_tokens=0,
             output_tokens=3,
-        )
+        ),
     )
     usage.feed(
         _assistant_event(
@@ -378,7 +386,7 @@ def test_totals_sums_tokens_across_distinct_message_ids() -> None:
             cache_read_input_tokens=2,
             cache_creation_input_tokens=4,
             output_tokens=7,
-        )
+        ),
     )
     # up = (10+0) + (1+4) = 15; cached = 5 + 2 = 7; out = 0 (no content blocks)
     assert usage.totals() == (15, 7, 0)
@@ -393,7 +401,7 @@ def test_context_size_reflects_only_the_last_fed_message() -> None:
             cache_read_input_tokens=50,
             cache_creation_input_tokens=25,
             output_tokens=1,
-        )
+        ),
     )
     usage.feed(
         _assistant_event(
@@ -402,7 +410,7 @@ def test_context_size_reflects_only_the_last_fed_message() -> None:
             cache_read_input_tokens=3,
             cache_creation_input_tokens=4,
             output_tokens=1,
-        )
+        ),
     )
     assert usage.context_size() == 2 + 3 + 4
 
@@ -435,7 +443,9 @@ def test_out_estimates_from_emitted_chars_not_usage_snapshots() -> None:
 
 def test_out_counts_tool_use_input_chars() -> None:
     usage = stream.SessionUsage()
-    usage.feed(_content_event("msg_1", {"type": "tool_use", "input": {"cmd": "a" * 78}}))
+    usage.feed(
+        _content_event("msg_1", {"type": "tool_use", "input": {"cmd": "a" * 78}})
+    )
     _, _, out = usage.totals()
     assert out > 0
 
@@ -443,7 +453,9 @@ def test_out_counts_tool_use_input_chars() -> None:
 def test_result_event_anchors_exact_out_and_clears_estimate() -> None:
     usage = stream.SessionUsage()
     usage.feed(_content_event("msg_1", {"type": "text", "text": "x" * 400}))
-    usage.feed({"type": "result", "subtype": "success", "usage": {"output_tokens": 5000}})
+    usage.feed(
+        {"type": "result", "subtype": "success", "usage": {"output_tokens": 5000}}
+    )
     assert usage.totals()[2] == 5000  # exact, estimate absorbed
     assert usage.out_estimated is False
     usage.feed(_content_event("msg_2", {"type": "text", "text": "y" * 400}))
@@ -479,7 +491,12 @@ def test_session_usage_reset_clears_totals_cost_and_model() -> None:
     usage.feed(_system_init_event())
     usage.feed(_real_assistant_event())
     usage.feed(
-        {"type": "result", "subtype": "success", "total_cost_usd": 9.99, "usage": {"output_tokens": 321}}
+        {
+            "type": "result",
+            "subtype": "success",
+            "total_cost_usd": 9.99,
+            "usage": {"output_tokens": 321},
+        },
     )
     usage.reset()
     assert usage.totals() == (0, 0, 0)
@@ -495,7 +512,9 @@ def test_task_started_local_agent_registers_live_lane_with_defaults() -> None:
     tracker = stream.AgentTracker()
     description = "Fix the flaky test suite across three modules"
     tracker.feed(
-        _task_started("t1", "tool_1", description, "local_agent", subagent_type="general-purpose")
+        _task_started(
+            "t1", "tool_1", description, "local_agent", subagent_type="general-purpose"
+        ),
     )
     lanes = tracker.live_lanes()
     assert len(lanes) == 1
@@ -503,7 +522,7 @@ def test_task_started_local_agent_registers_live_lane_with_defaults() -> None:
     assert lane.task_id == "t1"
     assert lane.tool_use_id == "tool_1"
     assert lane.kind == "local_agent"
-    assert lane.label == description[:20]
+    assert lane.label == render_stream._trunc(description, 40)
     assert lane.color in stream.LANE_COLORS
     assert lane.last == ""
     assert lane.n == 0
@@ -534,7 +553,7 @@ def test_task_progress_updates_activity_tokens_and_duration() -> None:
             description="Reading review-prd-00067c1.md",
             total_tokens=36316,
             duration_ms=5792,
-        )
+        ),
     )
     lane = tracker.live_lanes()[0]
     assert lane.activity == "Reading review-prd-00067c1.md"
@@ -551,7 +570,7 @@ def test_bash_lane_captures_out_path_from_backgrounded_launch_command() -> None:
         _bg_bash_tool_use_event(
             "toolu_bob",
             'codex-run.sh -f "/tmp/bob prompt.md" -o "/tmp/bob output.txt" --emit-thread-id x',
-        )
+        ),
     )
     tracker.feed(_task_started("b1", "toolu_bob", "Bob (codex) review", "local_bash"))
     lane = tracker.live_tasks()[0]
@@ -561,7 +580,9 @@ def test_bash_lane_captures_out_path_from_backgrounded_launch_command() -> None:
 
 def test_bash_lane_without_output_flag_gets_empty_out_path() -> None:
     tracker = stream.AgentTracker()
-    tracker.feed(_bg_bash_tool_use_event("toolu_q", "qwen-run.sh --preflight --approved-only"))
+    tracker.feed(
+        _bg_bash_tool_use_event("toolu_q", "qwen-run.sh --preflight --approved-only")
+    )
     tracker.feed(_task_started("q1", "toolu_q", "Qwen preflight probe", "local_bash"))
     assert tracker.live_tasks()[0].out_path == ""
 
@@ -577,11 +598,63 @@ def test_task_started_stores_full_description_and_agent_type() -> None:
     tracker = stream.AgentTracker()
     description = "Alice reviews work vs PRD and the design doc in detail"
     tracker.feed(
-        _task_started("t1", "tool_1", description, "local_agent", subagent_type="general-purpose")
+        _task_started(
+            "t1", "tool_1", description, "local_agent", subagent_type="general-purpose"
+        ),
     )
     lane = tracker.live_lanes()[0]
-    assert lane.desc == description  # untrimmed, unlike the 20-char label
+    assert lane.desc == description  # untrimmed, unlike the truncated label
     assert lane.agent_type == "general-purpose"
+
+
+# --- AgentTracker: Lane.label truncation --------------------------------------
+
+
+def test_label_untouched_at_exactly_40_chars() -> None:
+    tracker = stream.AgentTracker()
+    description = "D" * 40
+    tracker.feed(_task_started("t1", "tool_1", description, "local_agent"))
+    assert tracker.live_lanes()[0].label == description
+
+
+def test_label_truncates_to_39_chars_plus_ellipsis_at_41_chars() -> None:
+    tracker = stream.AgentTracker()
+    description = "D" * 41
+    tracker.feed(_task_started("t1", "tool_1", description, "local_agent"))
+    label = tracker.live_lanes()[0].label
+    assert label == "D" * 39 + "…"
+    assert len(label) == 40
+
+
+def test_label_truncation_never_leaves_a_dangling_open_paren() -> None:
+    """Regression: Lane.label used to be a bare desc[:20] slice with no
+    ellipsis marker, so a description whose closing paren landed past the
+    cutoff rendered as an orphaned open-paren with no visible sign of
+    truncation (real sightings: "Dispatch Carl (gemin", "Dispatch codex
+    desig"). The wider, ellipsis-safe truncator must never reproduce that."""
+    tracker = stream.AgentTracker()
+    description = "Dispatch Carl (gemini-3.1-pro-preview) to check the frontend design"
+    tracker.feed(_task_started("t1", "tool_1", description, "local_bash"))
+    label = tracker.live_tasks()[0].label
+    assert not label.endswith("(gemin")
+    assert label.endswith("…")
+
+
+def test_background_tasks_changed_registers_lane_with_ellipsis_safe_label() -> None:
+    """Same truncation contract via the other Lane.label call site
+    (_apply_background_tasks, fed by background_tasks_changed rather than
+    task_started) -- the second reported sighting ("Dispatch codex desig")
+    came from a description long enough to hit this path's cutoff too."""
+    tracker = stream.AgentTracker()
+    description = "Dispatch codex (Bob) to run the design-solution doubt-lens review"
+    tracker.feed(
+        _background_tasks_changed(
+            [{"task_id": "t9", "task_type": "local_bash", "description": description}]
+        )
+    )
+    label = tracker.live_tasks()[0].label
+    assert not label.endswith("desig")
+    assert label.endswith("…")
 
 
 # --- AgentTracker: local_bash background tasks -------------------------------
@@ -598,33 +671,67 @@ def test_task_started_local_bash_registers_as_background_task_not_agent_lane() -
     assert tasks[0].done is False
 
 
-def test_background_tasks_changed_empty_list_retires_running_task() -> None:
+def test_background_tasks_changed_empty_list_marks_pending_retire_not_done() -> None:
+    """AgentTracker alone must not finalize done on snapshot absence anymore
+    -- that would reintroduce the false "done" bug for a still-writing bash
+    process. Final retirement is Collector.reconcile_bash_liveness's call,
+    made against the lane's -o file mtime (see test_screens.py)."""
     tracker = stream.AgentTracker()
     tracker.feed(_task_started("t2", "tool_2", "codex review", "local_bash"))
     assert len(tracker.live_tasks()) == 1
     tracker.feed(_background_tasks_changed([]))
-    assert tracker.live_tasks() == []
+    lane = tracker.live_tasks()[0]
+    assert lane.task_id == "t2"
+    assert lane.pending_retire is True
+    assert lane.done is False
 
 
-def test_background_tasks_changed_membership_retires_absent_keeps_present() -> None:
+def test_background_tasks_changed_membership_marks_absent_pending_keeps_present_clear() -> None:
     tracker = stream.AgentTracker()
     tracker.feed(_task_started("t2", "tool_2", "codex review", "local_bash"))
     tracker.feed(_task_started("t3", "tool_3", "gemini review", "local_bash"))
     tracker.feed(
         _background_tasks_changed(
-            [{"task_id": "t3", "task_type": "local_bash", "description": "gemini review"}]
+            [
+                {
+                    "task_id": "t3",
+                    "task_type": "local_bash",
+                    "description": "gemini review",
+                }
+            ],
+        ),
+    )
+    live = {lane.task_id: lane for lane in tracker.live_tasks()}
+    assert set(live) == {"t2", "t3"}  # absence alone doesn't finalize done
+    assert live["t2"].pending_retire is True
+    assert live["t3"].pending_retire is False
+
+
+def test_background_tasks_changed_reappearance_clears_pending_retire() -> None:
+    tracker = stream.AgentTracker()
+    tracker.feed(_task_started("t2", "tool_2", "codex review", "local_bash"))
+    tracker.feed(_background_tasks_changed([]))
+    assert tracker.live_tasks()[0].pending_retire is True
+    tracker.feed(
+        _background_tasks_changed(
+            [{"task_id": "t2", "task_type": "local_bash", "description": "codex review"}]
         )
     )
-    remaining_ids = {lane.task_id for lane in tracker.live_tasks()}
-    assert remaining_ids == {"t3"}
+    assert tracker.live_tasks()[0].pending_retire is False
 
 
 def test_background_tasks_changed_registers_a_task_id_not_seen_before() -> None:
     tracker = stream.AgentTracker()
     tracker.feed(
         _background_tasks_changed(
-            [{"task_id": "t9", "task_type": "local_bash", "description": "unseen reviewer"}]
-        )
+            [
+                {
+                    "task_id": "t9",
+                    "task_type": "local_bash",
+                    "description": "unseen reviewer",
+                }
+            ],
+        ),
     )
     live = tracker.live_tasks()
     assert len(live) == 1
@@ -640,8 +747,14 @@ def test_background_tasks_changed_missing_status_key_fails_open_to_running() -> 
     tracker = stream.AgentTracker()
     tracker.feed(
         _background_tasks_changed(
-            [{"task_id": "t9", "task_type": "local_bash", "description": "no status field"}]
-        )
+            [
+                {
+                    "task_id": "t9",
+                    "task_type": "local_bash",
+                    "description": "no status field",
+                }
+            ],
+        ),
     )
     lane = tracker.live_tasks()[0]
     assert lane.status == "running"
@@ -719,9 +832,9 @@ def test_launch_ack_tool_result_does_not_retire_task_started_agent_lane() -> Non
                     "task_id": task_id,
                     "task_type": "local_agent",
                     "description": "Alice reviews work vs PRD",
-                }
-            ]
-        )
+                },
+            ],
+        ),
     )
     tracker.feed(
         _task_started(
@@ -730,7 +843,7 @@ def test_launch_ack_tool_result_does_not_retire_task_started_agent_lane() -> Non
             "Alice reviews work vs PRD",
             "local_agent",
             subagent_type="general-purpose",
-        )
+        ),
     )
     tracker.feed(_user_tool_result_event(tool_use_id))  # launch ack, not completion
     assert len(tracker.live_lanes()) == 1
@@ -748,7 +861,7 @@ def test_launch_ack_tool_result_does_not_retire_background_bash_lane() -> None:
             "toolu_01GBXQkKxznMREg9spEUAbq9",
             "Bob (codex) doubt-lens review, background",
             "local_bash",
-        )
+        ),
     )
     tracker.feed(_user_tool_result_event("toolu_01GBXQkKxznMREg9spEUAbq9"))
     assert len(tracker.live_tasks()) == 1
@@ -769,14 +882,14 @@ def test_tool_result_still_retires_fallback_lane_registered_from_parent_id() -> 
             cache_creation_input_tokens=0,
             output_tokens=1,
             parent_tool_use_id="toolu_sync_agent",
-        )
+        ),
     )
     assert len(tracker.live_lanes()) == 1
     tracker.feed(_user_tool_result_event("toolu_sync_agent"))
     assert tracker.live_lanes() == []
 
 
-# --- AgentTracker: auto-registration and tag_for -----------------------------
+# --- AgentTracker: auto-registration ------------------------------------------
 
 
 def test_unknown_parent_tool_use_id_auto_registers_agent_lane() -> None:
@@ -789,43 +902,12 @@ def test_unknown_parent_tool_use_id_auto_registers_agent_lane() -> None:
             cache_creation_input_tokens=0,
             output_tokens=1,
             parent_tool_use_id="tool_unknown",
-        )
+        ),
     )
     lanes = tracker.live_lanes()
     assert len(lanes) == 1
     assert lanes[0].kind == "local_agent"
     assert re.fullmatch(r"agent\d+", lanes[0].label)
-
-    tag = tracker.tag_for(
-        _assistant_event(
-            "msg_b",
-            input_tokens=1,
-            cache_read_input_tokens=0,
-            cache_creation_input_tokens=0,
-            output_tokens=1,
-            parent_tool_use_id="tool_unknown",
-        )
-    )
-    assert tag == (lanes[0].label, lanes[0].color)
-
-
-def test_tag_for_none_event_returns_none() -> None:
-    tracker = stream.AgentTracker()
-    assert tracker.tag_for(None) is None
-
-
-def test_tag_for_unmapped_parent_tool_use_id_returns_none() -> None:
-    tracker = stream.AgentTracker()
-    tracker.feed(_task_started("t1", "tool_1", "desc", "local_agent"))
-    event = _assistant_event(
-        "msg_c",
-        input_tokens=1,
-        cache_read_input_tokens=0,
-        cache_creation_input_tokens=0,
-        output_tokens=1,
-        parent_tool_use_id="some-other-tool-id",
-    )
-    assert tracker.tag_for(event) is None
 
 
 # --- AgentTracker: unknown events are ignored, never crash -------------------
@@ -857,11 +939,19 @@ def test_agent_tracker_reset_clears_all_lanes() -> None:
 # --- AgentTracker: parallel-reviewer attribution (pinned product metric) ----
 
 
-def test_three_concurrent_reviewers_produce_three_distinct_live_entries_and_colors() -> None:
+def test_three_concurrent_reviewers_produce_three_distinct_live_entries_and_colors() -> (
+    None
+):
     tracker = stream.AgentTracker()
-    tracker.feed(_task_started("bash-1", "tool_bash_1", "codex doubt review", "local_bash"))
-    tracker.feed(_task_started("bash-2", "tool_bash_2", "gemini blind review", "local_bash"))
-    tracker.feed(_task_started("agent-1", "tool_agent_1", "consensus reviewer", "local_agent"))
+    tracker.feed(
+        _task_started("bash-1", "tool_bash_1", "codex doubt review", "local_bash")
+    )
+    tracker.feed(
+        _task_started("bash-2", "tool_bash_2", "gemini blind review", "local_bash")
+    )
+    tracker.feed(
+        _task_started("agent-1", "tool_agent_1", "consensus reviewer", "local_agent")
+    )
 
     live_tasks = tracker.live_tasks()
     live_lanes = tracker.live_lanes()
@@ -923,4 +1013,11 @@ def test_render_line_falls_back_to_raw_when_delegate_raises() -> None:
 
 
 def test_lane_colors_tuple_matches_spec() -> None:
-    assert stream.LANE_COLORS == ("magenta", "blue", "green", "yellow", "red", "bright_cyan")
+    assert stream.LANE_COLORS == (
+        "magenta",
+        "blue",
+        "green",
+        "yellow",
+        "red",
+        "bright_cyan",
+    )

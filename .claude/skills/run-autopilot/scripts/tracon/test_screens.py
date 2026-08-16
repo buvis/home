@@ -59,7 +59,9 @@ def _init_event() -> str:
     return json.dumps({"type": "system", "subtype": "init", "model": "claude-opus-4-8"})
 
 
-def _make_loop(root: Path, *, batch_id: str = "B1", log_lines: list[str] | None = None) -> Path:
+def _make_loop(
+    root: Path, *, batch_id: str = "B1", log_lines: list[str] | None = None
+) -> Path:
     """A fake loop root: state.json + loop-metrics.jsonl + last-session.log.
 
     `log_lines=[]` gives an existing but EMPTY log — an idle loop that has not
@@ -81,7 +83,7 @@ def _make_loop(root: Path, *, batch_id: str = "B1", log_lines: list[str] | None 
     if log_lines is None:
         log_lines = [_init_event()]
     (autopilot_dir / "last-session.log").write_text(
-        "".join(line + "\n" for line in log_lines)
+        "".join(line + "\n" for line in log_lines),
     )
     return root
 
@@ -181,7 +183,8 @@ def test_collector_feed_fails_open_on_non_json_line(tmp_path: Path) -> None:
 
 
 def test_collector_feed_does_not_prepend_a_second_lane_tag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """render_stream already lane-tags subagent lines with ⟨label⟩; feed
     prepending its own tag doubled it (two truncated labels per line)."""
@@ -196,7 +199,7 @@ def test_collector_feed_does_not_prepend_a_second_lane_tag(
             "tool_use_id": "tu_1",
             "description": "Tess: write is_valid_shape tests",
             "task_type": "local_agent",
-        }
+        },
     )
     collector.feed(started)
 
@@ -206,7 +209,7 @@ def test_collector_feed_does_not_prepend_a_second_lane_tag(
         lambda raw, event: [Text("⟨Tess: write is_valid_sh…⟩ ↳ Read · /x")],
     )
     sub = json.dumps(
-        {"type": "assistant", "parent_tool_use_id": "tu_1", "message": {"id": "m1"}}
+        {"type": "assistant", "parent_tool_use_id": "tu_1", "message": {"id": "m1"}},
     )
 
     _, texts = collector.feed(sub)
@@ -234,7 +237,9 @@ def test_collector_poll_returns_lines_appended_since_the_last_call(
     assert second_lines == [second_event]
 
 
-def _bash_launch_lines(tool_use_id: str, command: str, task_id: str, desc: str) -> list[str]:
+def _bash_launch_lines(
+    tool_use_id: str, command: str, task_id: str, desc: str
+) -> list[str]:
     """The stream pair a backgrounded runner produces: the assistant Bash
     tool_use block, then the matching task_started."""
     return [
@@ -250,10 +255,10 @@ def _bash_launch_lines(tool_use_id: str, command: str, task_id: str, desc: str) 
                             "id": tool_use_id,
                             "name": "Bash",
                             "input": {"command": command, "run_in_background": True},
-                        }
+                        },
                     ],
                 },
-            }
+            },
         ),
         json.dumps(
             {
@@ -263,7 +268,7 @@ def _bash_launch_lines(tool_use_id: str, command: str, task_id: str, desc: str) 
                 "tool_use_id": tool_use_id,
                 "description": desc,
                 "task_type": "local_bash",
-            }
+            },
         ),
     ]
 
@@ -282,15 +287,26 @@ def test_collector_bash_output_notes_stat_the_runner_out_file(tmp_path: Path) ->
     log_lines = (
         [_init_event()]
         + _bash_launch_lines(
-            "toolu_carl", f'gemini-run.sh -o "{out_file}"', "c1", "Carl (gemini) review"
+            "toolu_carl",
+            f'gemini-run.sh -o "{out_file}"',
+            "c1",
+            "Carl (gemini) review",
         )
         + _bash_launch_lines(
-            "toolu_bob", f'codex-run.sh -o "{tmp_path}/bob-output.txt"', "b1", "Bob (codex) review"
+            "toolu_bob",
+            f'codex-run.sh -o "{tmp_path}/bob-output.txt"',
+            "b1",
+            "Bob (codex) review",
         )
         + _bash_launch_lines(
-            "toolu_dana", f'gemini-run.sh -o "{empty_file}"', "d1", "Dana teed but empty"
+            "toolu_dana",
+            f'gemini-run.sh -o "{empty_file}"',
+            "d1",
+            "Dana teed but empty",
         )
-        + _bash_launch_lines("toolu_q", "qwen-run.sh --preflight", "q1", "Qwen preflight")
+        + _bash_launch_lines(
+            "toolu_q", "qwen-run.sh --preflight", "q1", "Qwen preflight"
+        )
     )
     root = _make_loop(tmp_path / "loop-a", log_lines=log_lines)
     collector = screens.Collector(root)
@@ -313,7 +329,9 @@ def _render(panel: Any) -> str:
     return console.export_text()
 
 
-def test_detail_head_suppresses_orphan_warning_when_wrapper_alive(tmp_path: Path) -> None:
+def test_detail_head_suppresses_orphan_warning_when_wrapper_alive(
+    tmp_path: Path,
+) -> None:
     """Queued work + idle loop is fine while a live autoclaude supervises it:
     the orphan warning must stay quiet."""
     from tracon import discovery, screens
@@ -323,7 +341,11 @@ def test_detail_head_suppresses_orphan_warning_when_wrapper_alive(tmp_path: Path
     now = time.time()
     _write_lines(
         autopilot_dir / "loop-metrics.jsonl",
-        [_metrics_line(batch="B1", ts_start=now - 60, ts_end=now + 5, signal="continue")],
+        [
+            _metrics_line(
+                batch="B1", ts_start=now - 60, ts_end=now + 5, signal="continue"
+            )
+        ],
     )
     registry_entry = {"pid": os.getpid(), "root": str(root.resolve())}
     (discovery.LOOPS_DIR / "wrapper.json").write_text(json.dumps(registry_entry))
@@ -371,7 +393,11 @@ def test_detail_head_shows_orphan_warning_when_work_queued_and_no_wrapper(
     now = time.time()
     _write_lines(
         autopilot_dir / "loop-metrics.jsonl",
-        [_metrics_line(batch="B1", ts_start=now - 60, ts_end=now + 5, signal="continue")],
+        [
+            _metrics_line(
+                batch="B1", ts_start=now - 60, ts_end=now + 5, signal="continue"
+            )
+        ],
     )
 
     collector = screens.Collector(root)
@@ -500,7 +526,8 @@ def test_run_once_falls_back_to_home_claude_when_no_root_contains_cwd(
 
 @pytest.mark.parametrize("code", [0, 130])
 def test_run_app_propagates_the_apps_return_code(
-    monkeypatch: pytest.MonkeyPatch, code: int
+    monkeypatch: pytest.MonkeyPatch,
+    code: int,
 ) -> None:
     """run_app() must return app.return_code, NOT a hard-coded 0. The
     wrapper branches on 0 (detach, keep the loop running) vs. 130 (stop the
@@ -520,12 +547,14 @@ def test_run_app_propagates_the_apps_return_code(
     assert screens.run_app([]) == code
 
 
-def test_main_returns_130_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_returns_130_on_keyboard_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """tracon.py's `except KeyboardInterrupt` must return 130 (the SIGINT
     convention), not swallow it as a clean 0 exit."""
     module = _load_tracon_cli()
     monkeypatch.setattr(sys, "argv", ["tracon.py"])
-    monkeypatch.setattr(module.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(module.discovery, "discover_loops", list)
 
     def _raise(*args: Any, **kwargs: Any) -> int:
         raise KeyboardInterrupt
@@ -535,13 +564,15 @@ def test_main_returns_130_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch)
     assert module.main() == 130
 
 
-def test_wrapper_pid_flag_is_forwarded_to_run_app(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wrapper_pid_flag_is_forwarded_to_run_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """--wrapper-pid is a new CLI flag; main() must plumb its value through
     to run_app so the app can poll discovery.pid_alive for the wrapper that
     launched it."""
     module = _load_tracon_cli()
     monkeypatch.setattr(sys, "argv", ["tracon.py", "--wrapper-pid", "4242"])
-    monkeypatch.setattr(module.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(module.discovery, "discover_loops", list)
 
     captured: dict[str, Any] = {}
 
@@ -568,7 +599,11 @@ def test_wrapper_pid_flag_is_forwarded_to_run_app(monkeypatch: pytest.MonkeyPatc
 def _write_autopilot_state(root: Path, **overrides: Any) -> Path:
     autopilot_dir = root / "dev" / "local" / "autopilot"
     autopilot_dir.mkdir(parents=True, exist_ok=True)
-    state: dict[str, Any] = {"prd": "00061-x.md", "phase": "build", "next_phase": "review"}
+    state: dict[str, Any] = {
+        "prd": "00061-x.md",
+        "phase": "build",
+        "next_phase": "review",
+    }
     state.update(overrides)
     path = autopilot_dir / "state.json"
     path.write_text(json.dumps(state))
@@ -757,14 +792,15 @@ def test_app_css_gives_scrollbars_explicit_contrast_colors() -> None:
 
 @pytest.mark.ui
 def test_theme_choice_persists_across_app_launches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
     theme_file = tmp_path / "tracon-theme"
     monkeypatch.setattr(screens, "THEME_FILE", theme_file)
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([])
@@ -784,7 +820,8 @@ def test_theme_choice_persists_across_app_launches(
 
 @pytest.mark.ui
 def test_unknown_saved_theme_is_ignored_not_fatal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
@@ -792,7 +829,7 @@ def test_unknown_saved_theme_is_ignored_not_fatal(
     theme_file = tmp_path / "tracon-theme"
     theme_file.write_text("no-such-theme\n")
     monkeypatch.setattr(screens, "THEME_FILE", theme_file)
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([])
@@ -845,7 +882,8 @@ def test_lines_written_after_attach_are_not_banner_ed_as_replay(
 
 @pytest.mark.ui
 def test_y_copies_rendered_log_tail_to_clipboard(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Textual's mouse capture blocks native select/copy on the live log, so
     `y` must put the recently rendered lines on the clipboard instead."""
@@ -857,7 +895,9 @@ def test_y_copies_rendered_log_tail_to_clipboard(
     monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
     copied: list[str] = []
     monkeypatch.setattr(
-        screens, "_copy_to_pasteboard", lambda text: copied.append(text) or True
+        screens,
+        "_copy_to_pasteboard",
+        lambda text: copied.append(text) or True,
     )
 
     async def _drive() -> None:
@@ -876,6 +916,224 @@ def test_y_copies_rendered_log_tail_to_clipboard(
     assert "claude-opus-4-8" in copied[0]  # the rendered line, not raw JSONL
 
 
+def test_reconcile_bash_liveness_keeps_pending_lane_alive_while_out_file_fresh(
+    tmp_path: Path,
+) -> None:
+    """A task_id dropping out of the harness's background_tasks_changed
+    snapshot must not finalize done while its -o file is still fresh -- the
+    snapshot gap can lag a still-writing process (see
+    AgentTracker._apply_background_tasks, which now marks pending_retire
+    instead of done outright)."""
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Carl review",
+                },
+            ],
+        },
+    )
+    lane = collector.tracker.live_tasks()[0]
+    out = tmp_path / "carl.out"
+    out.write_text("x" * 10)
+    lane.out_path = str(out)
+    os.utime(out, (1000.0, 1000.0))
+
+    collector.tracker.feed(
+        {"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+    )
+    assert lane.pending_retire is True
+
+    collector.reconcile_bash_liveness(now=1000.0 + screens.Collector.RETIRE_GRACE - 1)
+
+    assert lane.done is False
+    assert collector.tracker.live_tasks() == [lane]
+
+
+def test_reconcile_bash_liveness_finalizes_done_once_out_file_goes_quiet(
+    tmp_path: Path,
+) -> None:
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Carl review",
+                },
+            ],
+        },
+    )
+    lane = collector.tracker.live_tasks()[0]
+    out = tmp_path / "carl.out"
+    out.write_text("done")
+    lane.out_path = str(out)
+    os.utime(out, (1000.0, 1000.0))
+
+    collector.tracker.feed(
+        {"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+    )
+    collector.reconcile_bash_liveness(now=1000.0 + screens.Collector.RETIRE_GRACE)
+
+    assert lane.done is True
+    assert collector.tracker.live_tasks() == []
+
+
+def test_reconcile_bash_liveness_finalizes_immediately_with_no_out_path(
+    tmp_path: Path,
+) -> None:
+    """No -o path means nothing to cross-check -- fall back to trusting the
+    snapshot's absence outright, same as before this fix."""
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Qwen preflight",
+                },
+            ],
+        },
+    )
+    collector.tracker.feed(
+        {"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+    )
+    collector.reconcile_bash_liveness(now=1000.0)
+    assert collector.tracker.live_tasks() == []
+
+
+def test_reconcile_bash_liveness_waits_for_codex_style_completion_only_writer(
+    tmp_path: Path,
+) -> None:
+    """Native codex writes its whole output only at completion (unlike
+    gemini/copilot, which tee it live) -- a still-running codex lane can have
+    a parsed out_path with NO file on disk yet. The old bug: an immediate
+    stat failure was trusted as done outright, same false-done bug the mtime
+    check was meant to fix, just for a lane that hasn't written anything
+    yet. Must wait out RETIRE_GRACE from first sighting the gap, not
+    finalize on the very first missing-file check."""
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Bob (codex) review",
+                },
+            ],
+        },
+    )
+    lane = collector.tracker.live_tasks()[0]
+    lane.out_path = str(
+        tmp_path / "bob.out"
+    )  # -o parsed, but codex hasn't written it yet
+    collector.tracker.feed(
+        {"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+    )
+
+    collector.reconcile_bash_liveness(now=1000.0)  # first sighting of the gap
+    assert lane.done is False
+
+    collector.reconcile_bash_liveness(now=1000.0 + screens.Collector.RETIRE_GRACE - 1)
+    assert lane.done is False  # still under grace, file still hasn't appeared
+
+    collector.reconcile_bash_liveness(now=1000.0 + screens.Collector.RETIRE_GRACE)
+    assert lane.done is True  # grace exhausted with no file ever appearing
+
+
+def test_reconcile_bash_liveness_recovers_once_a_late_out_file_appears(
+    tmp_path: Path,
+) -> None:
+    """The file showing up mid-wait (codex just started writing) must switch
+    the lane back to the ordinary mtime check, not stay on a stale
+    missing-file clock."""
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Bob (codex) review",
+                },
+            ],
+        },
+    )
+    lane = collector.tracker.live_tasks()[0]
+    out = tmp_path / "bob.out"
+    lane.out_path = str(out)
+    collector.tracker.feed(
+        {"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+    )
+
+    collector.reconcile_bash_liveness(now=1000.0)
+    assert lane.done is False
+
+    out.write_text("finished")  # codex just flushed its completion write
+    os.utime(out, (1005.0, 1005.0))
+    collector.reconcile_bash_liveness(now=1000.0 + screens.Collector.RETIRE_GRACE)
+    assert lane.done is False  # fresh mtime -- the missing-file grace no longer applies
+
+    collector.reconcile_bash_liveness(now=1005.0 + screens.Collector.RETIRE_GRACE)
+    assert lane.done is True  # now judged on the file's own mtime going quiet
+
+
+def test_reconcile_bash_liveness_ignores_lanes_not_pending_retire(
+    tmp_path: Path,
+) -> None:
+    from tracon import screens
+
+    root = _make_loop(tmp_path / "loop-a")
+    collector = screens.Collector(root)
+    collector.tracker.feed(
+        {
+            "type": "system",
+            "subtype": "background_tasks_changed",
+            "tasks": [
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Carl review",
+                },
+            ],
+        },
+    )
+    lane = collector.tracker.live_tasks()[0]
+    collector.reconcile_bash_liveness(now=1000.0)
+    assert lane.done is False
+
+
 def test_bash_heartbeats_report_out_file_growth_throttled(tmp_path: Path) -> None:
     """Background CLI lanes emit no task_progress events; the -o file is
     their only progress signal. Growth logs one dim lane-tagged line, first
@@ -889,9 +1147,13 @@ def test_bash_heartbeats_report_out_file_growth_throttled(tmp_path: Path) -> Non
             "type": "system",
             "subtype": "background_tasks_changed",
             "tasks": [
-                {"task_id": "bg1", "task_type": "local_bash", "description": "Bob doubt review"}
+                {
+                    "task_id": "bg1",
+                    "task_type": "local_bash",
+                    "description": "Bob doubt review",
+                },
             ],
-        }
+        },
     )
     lane = collector.tracker.live_tasks()[0]
     out = tmp_path / "bob.out"
@@ -921,7 +1183,8 @@ def test_bash_heartbeats_report_out_file_growth_throttled(tmp_path: Path) -> Non
 
 @pytest.mark.ui
 def test_refresh_discovers_a_loop_registered_after_boot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The fleet list must come from a live discovery call on every refresh,
     not a `roots` list captured once at startup. A loop that appears after
@@ -958,7 +1221,8 @@ def test_refresh_discovers_a_loop_registered_after_boot(
 
 @pytest.mark.ui
 def test_forced_root_dashboard_always_shows_the_full_discovered_fleet(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """CONTRACT REVERSAL (design gate, 2026-07-14): --root/forced now ONLY
     selects which loop gets the auto-attached DetailScreen -- the dashboard
@@ -1011,7 +1275,9 @@ def test_cursor_stays_on_the_selected_loop_when_sort_order_moves_it(
     root_beta = _make_loop(tmp_path / "beta")
     # isolate from the real machine: refresh_table() (called explicitly
     # below, and by the fleet tick) re-discovers on every call.
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_alpha, root_beta])
+    monkeypatch.setattr(
+        screens.discovery, "discover_loops", lambda: [root_alpha, root_beta]
+    )
 
     async def _drive() -> None:
         app = screens.build_app([root_alpha, root_beta])
@@ -1064,7 +1330,9 @@ def test_dashboard_table_sorts_rows_by_status_rank_before_name(
     root_zeta = _make_loop(tmp_path / "zeta")
     # isolate from the real machine: DashboardScreen re-discovers on mount
     # and on every fleet tick.
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root_alpha, root_zeta])
+    monkeypatch.setattr(
+        screens.discovery, "discover_loops", lambda: [root_alpha, root_zeta]
+    )
 
     state_path = root_zeta / "dev" / "local" / "autopilot" / "state.json"
     state = json.loads(state_path.read_text())
@@ -1118,7 +1386,7 @@ def test_dashboard_shows_an_explicit_empty_state_when_no_loops_are_discovered(
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([])
@@ -1145,7 +1413,7 @@ def test_enter_on_empty_dashboard_does_not_crash_or_push_detail_screen(
 
     from tracon import screens
 
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([])
@@ -1167,7 +1435,8 @@ def test_enter_on_empty_dashboard_does_not_crash_or_push_detail_screen(
 
 @pytest.mark.ui
 def test_dashboard_table_uses_fleet_cells_for_row_construction(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """DashboardScreen must build each row's cells via the shared
     panels.fleet_cells builder, not hand-duplicate the (rank, name) sort, the
@@ -1212,7 +1481,7 @@ def test_qq_quits_the_dashboard_ui_with_return_code_zero(
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([])
@@ -1230,7 +1499,8 @@ def test_qq_quits_the_dashboard_ui_with_return_code_zero(
 
 @pytest.mark.ui
 def test_qq_quits_the_detail_screen_ui_and_esc_cancels(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The dialog is bound on BOTH screens; esc closes it without exiting."""
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
@@ -1273,7 +1543,7 @@ def test_ctrl_c_standalone_exits_the_ui_with_130(
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([])
@@ -1298,7 +1568,7 @@ def test_ctrl_c_wrapper_launched_detaches_instead_of_stopping_the_loop(
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     async def _drive() -> None:
         app = screens.build_app([], wrapper_pid=os.getpid())
@@ -1317,7 +1587,8 @@ def test_ctrl_c_wrapper_launched_detaches_instead_of_stopping_the_loop(
 
 @pytest.mark.ui
 def test_p_on_detail_screen_writes_only_the_pause_requested_marker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """p is tracon's ONLY write, anywhere: on the detail screen it must
     touch <root>/dev/local/autopilot/pause-requested in the ATTACHED root,
@@ -1346,7 +1617,8 @@ def test_p_on_detail_screen_writes_only_the_pause_requested_marker(
 
 @pytest.mark.ui
 def test_f_toggle_confirms_follow_state_with_a_toast(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Toggling follow is invisible unless lines are streaming — f must say
     what it just did."""
@@ -1376,7 +1648,8 @@ def test_f_toggle_confirms_follow_state_with_a_toast(
 
 @pytest.mark.ui
 def test_question_mark_opens_help_and_escape_closes_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from textual.widgets import RichLog
@@ -1405,7 +1678,8 @@ def test_question_mark_opens_help_and_escape_closes_it(
 
 @pytest.mark.ui
 def test_quit_dialog_stop_with_no_wrapper_toasts_and_stays_running(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """q → s with no live wrapper: toast "nothing to stop", dialog closes,
     the UI keeps running (no accidental exit on a dead loop)."""
@@ -1434,7 +1708,8 @@ def test_quit_dialog_stop_with_no_wrapper_toasts_and_stays_running(
 
 @pytest.mark.ui
 def test_quit_dialog_s_interrupts_the_wrappers_process_group_and_quits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """q → s must send the sanctioned stop — SIGINT to the wrapper's process
     GROUP (kill -INT -pid, the wrapper's own ctrl+c path) — then exit the UI.
@@ -1467,7 +1742,8 @@ def test_quit_dialog_s_interrupts_the_wrappers_process_group_and_quits(
 
 @pytest.mark.ui
 def test_t_toggles_the_tasks_screen_with_kanban_lanes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """t on the detail screen flips to the on-demand task detail (kanban
     lanes over state.tasks); esc flips back to the log, the main view."""
@@ -1509,7 +1785,8 @@ def test_t_toggles_the_tasks_screen_with_kanban_lanes(
 
 @pytest.mark.ui
 def test_a_toggles_the_agents_screen_with_lane_detail(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """a on the detail screen flips to the on-demand agent detail: full
     descriptions, kind/type, live activity and counters — fed by the
@@ -1532,14 +1809,16 @@ def test_a_toggles_the_agents_screen_with_lane_detail(
                 "description": "Alice reviews work vs PRD",
                 "subagent_type": "general-purpose",
                 "task_type": "local_agent",
-            }
+            },
         ),
         json.dumps(  # the immediate background-dispatch ack for toolu_a1
             {
                 "type": "user",
                 "parent_tool_use_id": None,
-                "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_a1"}]},
-            }
+                "message": {
+                    "content": [{"type": "tool_result", "tool_use_id": "toolu_a1"}]
+                },
+            },
         ),
         json.dumps(
             {
@@ -1549,13 +1828,16 @@ def test_a_toggles_the_agents_screen_with_lane_detail(
                 "description": "Reading review-prd.md",
                 "last_tool_name": "Read",
                 "usage": {"tool_uses": 3, "total_tokens": 36316, "duration_ms": 5792},
-            }
+            },
         ),
     ]
     out_file = tmp_path / "bob-output.txt"
     out_file.write_text("x" * 4200)
     log_lines += _bash_launch_lines(
-        "toolu_b1", f'codex-run.sh -o "{out_file}"', "b1", "Bob (codex) doubt review"
+        "toolu_b1",
+        f'codex-run.sh -o "{out_file}"',
+        "b1",
+        "Bob (codex) doubt review",
     )
     root = _make_loop(tmp_path / "loop-a", log_lines=log_lines)
     monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [root])
@@ -1586,7 +1868,8 @@ def test_a_toggles_the_agents_screen_with_lane_detail(
 
 @pytest.mark.ui
 def test_p_success_confirms_with_a_toast(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Touching the marker is invisible by itself — the wrapper only acts on
     it at session end. p must confirm immediately."""
@@ -1645,7 +1928,8 @@ def test_detail_head_hides_pending_chip_when_no_wrapper_will_honor_it(
 
 @pytest.mark.ui
 def test_p_on_dashboard_targets_the_selected_rows_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """p on the dashboard must target the SELECTED row's root, not the
     first-discovered or the alphabetically-first loop."""
@@ -1679,7 +1963,8 @@ def test_p_on_dashboard_targets_the_selected_rows_root(
 
 @pytest.mark.ui
 def test_p_write_failure_notifies_instead_of_crashing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A pause-requested write failure (e.g. an unwritable autopilot dir)
     must surface as a Textual notification, never an unhandled exception."""
@@ -1717,7 +2002,8 @@ def test_p_write_failure_notifies_instead_of_crashing(
 
 @pytest.mark.ui
 def test_wrapper_pid_dead_transition_shows_banner_and_exits_three(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the wrapper that launched tracon dies, tracon must render a
     loop-exit banner naming the final signal from the last loop-metrics row
@@ -1768,7 +2054,9 @@ def test_wrapper_pid_dead_transition_shows_banner_and_exits_three(
 
 
 @pytest.mark.ui
-def test_poll_wrapper_survives_none_wrapper_root(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_poll_wrapper_survives_none_wrapper_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """wrapper_root = forced if forced is not None else (roots[0] if roots
     else None): with forced=None and an empty roots list, wrapper_root is
     None. _poll_wrapper must still handle the wrapper's alive -> dead
@@ -1777,7 +2065,7 @@ def test_poll_wrapper_survives_none_wrapper_root(monkeypatch: pytest.MonkeyPatch
     pytest.importorskip("textual", reason=_TEXTUAL_SKIP_REASON)
     from tracon import screens
 
-    monkeypatch.setattr(screens.discovery, "discover_loops", lambda: [])
+    monkeypatch.setattr(screens.discovery, "discover_loops", list)
 
     dead_proc = subprocess.Popen([sys.executable, "-c", "pass"])
     dead_proc.wait()  # reaped: the pid is now genuinely dead

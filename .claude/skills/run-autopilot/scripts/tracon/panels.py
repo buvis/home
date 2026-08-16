@@ -4,10 +4,10 @@ import datetime as dt
 import time
 from collections.abc import Sequence
 
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.console import Group
 
 from . import model
 from .discovery import LoopRow, Status
@@ -171,7 +171,9 @@ def _row_progress(
         if b_start is not None
         else ""
     )
-    row3.append(f"{backlog} backlog · {wip} wip · {done_count} done · {batch_stamp}{sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost")
+    row3.append(
+        f"{backlog} backlog · {wip} wip · {done_count} done · {batch_stamp}{sess_count} sessions · {elapsed_str} elapsed · {fmt_dur(active_secs)} active · ${cost:.2f} cost"
+    )
 
     if cost > 0 and active_secs >= 600:
         row3.append(f" · ${cost / active_secs * 3600:.2f}/h")
@@ -183,12 +185,16 @@ def _row_progress(
 
 
 def _row_usage(
-    usage: SessionUsage, status: Status, agent_counts: tuple[int, int] | None = None
+    usage: SessionUsage,
+    status: Status,
+    agent_counts: tuple[int, int] | None = None,
 ) -> Text:
     row4 = Text(no_wrap=True, overflow="ellipsis")
     up, cached, out = usage.totals()
     tilde = "~" if usage.out_estimated else ""
-    row4.append(f"session {usage.model} · in ↑{fmt_tok(up)} · cache ⤓{fmt_tok(cached)} · out ↓{tilde}{fmt_tok(out)} · ")
+    row4.append(
+        f"session {usage.model} · in ↑{fmt_tok(up)} · cache ⤓{fmt_tok(cached)} · out ↓{tilde}{fmt_tok(out)} · "
+    )
     ctx = usage.context_size()
     row4.append(f"ctx {fmt_tok(ctx)}/{fmt_tok(model.USAGE_CAP)}")
     pct = ctx * 100 // model.USAGE_CAP
@@ -197,7 +203,9 @@ def _row_usage(
     row4.append(" · ")
     if agent_counts is not None and agent_counts[1] > 0:
         running, total = agent_counts
-        row4.append(f"agents {running}/{total}", style="bold cyan" if running else "dim")
+        row4.append(
+            f"agents {running}/{total}", style="bold cyan" if running else "dim"
+        )
         row4.append(" · ")
     row4.append(status.label, style=status.style)
     return row4
@@ -225,7 +233,14 @@ def build_head(
     row2.overflow = "ellipsis"
 
     row3 = _row_progress(
-        rows, status, prd_counts, model.batch_completed_count(state), batch_id, session_start, now, usage
+        rows,
+        status,
+        prd_counts,
+        model.batch_completed_count(state),
+        batch_id,
+        session_start,
+        now,
+        usage,
     )
     row4 = _row_usage(usage, status, agent_counts)
 
@@ -264,7 +279,8 @@ def lane_body(lane: str, tasks: Sequence[dict]) -> Text:
 
 def agents_head(state: model.LoopState, root_name: str) -> Panel:
     return Panel(
-        Group(_row_head(state), phase_strip(state)), title=f"{root_name} · agents"
+        Group(_row_head(state), phase_strip(state)),
+        title=f"{root_name} · agents",
     )
 
 
@@ -323,7 +339,7 @@ def tasks_head(state: model.LoopState, root_name: str) -> Panel:
         t = Text(no_wrap=True, overflow="ellipsis")
         t.append(
             f"review cycle {last.get('cycle', '?')}: {last.get('issues_found', '?')} issues"
-            f" · {last.get('follow_up_tasks', '?')} follow-ups · {last.get('deferred', '?')} deferred"
+            f" · {last.get('follow_up_tasks', '?')} follow-ups · {last.get('deferred', '?')} deferred",
         )
         lines.append(t)
     return Panel(Group(*lines), title=f"{root_name} · tasks")
@@ -331,9 +347,6 @@ def tasks_head(state: model.LoopState, root_name: str) -> Panel:
 
 def fleet_cells(row: LoopRow) -> tuple:
     prd = row.prd if len(row.prd) <= 44 else row.prd[:43] + "…"
-    cost_t = Text(f"${row.cost:.2f}")
-    if row.live_cost > 0:
-        cost_t.append(f" +${row.live_cost:.2f}", style="dim")
 
     return (
         row.name,
@@ -342,7 +355,9 @@ def fleet_cells(row: LoopRow) -> tuple:
         prd,
         row.task,
         row.cycle,
-        cost_t,
+        str(row.prd_backlog),
+        str(row.prd_wip),
+        str(row.prd_done),
         str(row.sessions),
     )
 
@@ -355,7 +370,9 @@ def fleet_table(rows: Sequence[LoopRow]) -> Table:
     table.add_column("prd")
     table.add_column("task")
     table.add_column("cycle")
-    table.add_column("cost")
+    table.add_column("backlog", justify="right")
+    table.add_column("wip", justify="right")
+    table.add_column("done", justify="right")
     table.add_column("sessions", justify="right")
 
     sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))

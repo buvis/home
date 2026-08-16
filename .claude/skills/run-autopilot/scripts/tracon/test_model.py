@@ -52,7 +52,7 @@ def _result_event(cost: float) -> str:
             "num_turns": 3,
             "total_cost_usd": cost,
             "usage": {"output_tokens": 50},
-        }
+        },
     )
 
 
@@ -61,7 +61,8 @@ def _result_event(cost: float) -> str:
 
 @pytest.mark.parametrize("phase", ["build", "review", "done", "paused"])
 def test_read_state_phase_passes_through_current_shape_values(
-    tmp_path: Path, phase: str
+    tmp_path: Path,
+    phase: str,
 ) -> None:
     path = _write_json(
         tmp_path / "state.json",
@@ -82,7 +83,8 @@ def test_read_state_legacy_phase_stopped_passes_through_unchanged(
 
 def test_read_state_phases_completed_list_becomes_tuple(tmp_path: Path) -> None:
     path = _write_json(
-        tmp_path / "state.json", {"phases_completed": ["build", "review"]}
+        tmp_path / "state.json",
+        {"phases_completed": ["build", "review"]},
     )
     state = model.read_state(path)
     assert state.phases_completed == ("build", "review")
@@ -149,7 +151,8 @@ def test_read_state_wrong_typed_cycle_coerces_to_none(tmp_path: Path) -> None:
 
 def test_read_state_batch_id_comes_from_nested_batch_id(tmp_path: Path) -> None:
     path = _write_json(
-        tmp_path / "state.json", {"batch": {"id": "202607120753"}}
+        tmp_path / "state.json",
+        {"batch": {"id": "202607120753"}},
     )
     state = model.read_state(path)
     assert state.batch_id == "202607120753"
@@ -248,7 +251,9 @@ def test_read_metrics_skips_unparseable_line_and_keeps_file_order(
 
 def test_read_metrics_survives_non_utf8_line(tmp_path: Path) -> None:
     path = tmp_path / "loop-metrics.jsonl"
-    path.write_bytes(_metrics_line(phase_end="build").encode("utf-8") + b"\n\xff\xfe not utf8\n")
+    path.write_bytes(
+        _metrics_line(phase_end="build").encode("utf-8") + b"\n\xff\xfe not utf8\n"
+    )
     rows = model.read_metrics(path, batch=None)
     assert isinstance(rows, list)
 
@@ -265,7 +270,7 @@ def test_read_metrics_excludes_review_gate_event_rows(tmp_path: Path) -> None:
             "cycles_to_converge": 2,
             "outcome": "converged",
             "ts": 1784701300,
-        }
+        },
     )
     path = _write_lines(
         tmp_path / "loop-metrics.jsonl",
@@ -287,7 +292,7 @@ def test_read_metrics_defaults_absent_optional_fields(tmp_path: Path) -> None:
             "phase_launched": "build",
             "phase_end": "build",
             "model": "claude-opus-4-8",
-        }
+        },
     )
     path = _write_lines(tmp_path / "loop-metrics.jsonl", [line])
     rows = model.read_metrics(path, batch=None)
@@ -318,7 +323,7 @@ def test_last_row_treats_missing_ts_end_as_zero_and_does_not_raise(
                     "phase_launched": "build",
                     "phase_end": "missing-ts-end",
                     "model": "claude-opus-4-8",
-                }
+                },
             ),
         ],
     )
@@ -452,6 +457,22 @@ def test_prd_counts_zero_for_missing_dirs(tmp_path: Path) -> None:
     assert model.prd_counts(tmp_path) == (0, 0)
 
 
+# --- prd_done_count ----------------------------------------------------------
+
+
+def test_prd_done_count_counts_md_files_in_done(tmp_path: Path) -> None:
+    done = tmp_path / "dev" / "local" / "prds" / "done"
+    done.mkdir(parents=True)
+    (done / "00050-a.md").write_text("a")
+    (done / "00051-b.md").write_text("b")
+    (done / "notes.txt").write_text("not markdown")
+    assert model.prd_done_count(tmp_path) == 2
+
+
+def test_prd_done_count_zero_for_missing_dir(tmp_path: Path) -> None:
+    assert model.prd_done_count(tmp_path) == 0
+
+
 # --- batch_completed_count ---------------------------------------------------
 
 
@@ -460,7 +481,15 @@ def test_batch_completed_count_lens_completed_prds(tmp_path: Path) -> None:
     answered by batch.completed_prds; tracon must surface its length."""
     path = _write_json(
         tmp_path / "state.json",
-        {"batch": {"id": "B1", "completed_prds": [{"filename": "00070-a.md"}, {"filename": "00071-b.md"}]}},
+        {
+            "batch": {
+                "id": "B1",
+                "completed_prds": [
+                    {"filename": "00070-a.md"},
+                    {"filename": "00071-b.md"},
+                ],
+            }
+        },
     )
     assert model.batch_completed_count(model.read_state(path)) == 2
 
@@ -562,7 +591,7 @@ def test_usage_cap_mirrors_the_context_cap_hook() -> None:
 
 def _state_with_tasks(tmp_path: Path, tasks: Any) -> model.LoopState:
     return model.read_state(
-        _write_json(tmp_path / "state.json", {"phase": "build", "tasks": tasks})
+        _write_json(tmp_path / "state.json", {"phase": "build", "tasks": tasks}),
     )
 
 
@@ -617,7 +646,8 @@ def test_build_steps_done_infers_each_step_from_its_artifact(
 
 def test_build_steps_done_counts_skip_modes_as_done(tmp_path: Path) -> None:
     path = _write_json(
-        tmp_path / "state.json", {"catchup_mode": "skipped", "design_mode": "skip"}
+        tmp_path / "state.json",
+        {"catchup_mode": "skipped", "design_mode": "skip"},
     )
     steps = model.build_steps_done(model.read_state(path))
     assert steps == {"catchup": True, "design": True, "plan": False, "work": False}
@@ -645,7 +675,13 @@ def test_review_lenses_orders_canonically_and_appends_unknown_keys(
 ) -> None:
     path = _write_json(
         tmp_path / "state.json",
-        {"review_lenses": {"doubt": "running", "mystery": "running", "consensus": "done"}},
+        {
+            "review_lenses": {
+                "doubt": "running",
+                "mystery": "running",
+                "consensus": "done",
+            }
+        },
     )
     assert model.review_lenses(model.read_state(path)) == [
         ("consensus", "done"),
@@ -657,10 +693,15 @@ def test_review_lenses_orders_canonically_and_appends_unknown_keys(
 def test_review_lenses_malformed_or_absent_field_returns_empty(
     tmp_path: Path,
 ) -> None:
-    assert model.review_lenses(model.read_state(_write_json(tmp_path / "a.json", {}))) == []
+    assert (
+        model.review_lenses(model.read_state(_write_json(tmp_path / "a.json", {})))
+        == []
+    )
     assert (
         model.review_lenses(
-            model.read_state(_write_json(tmp_path / "b.json", {"review_lenses": ["doubt"]}))
+            model.read_state(
+                _write_json(tmp_path / "b.json", {"review_lenses": ["doubt"]})
+            ),
         )
         == []
     )
@@ -678,7 +719,7 @@ def test_tasks_by_lane_groups_by_status_and_defaults_junk_to_pending(
                 {"id": "t3", "name": "C", "status": "pending"},
                 {"id": "t4", "name": "D", "status": "cancelled"},
                 "junk",
-            ]
+            ],
         },
     )
     lanes = model.tasks_by_lane(model.read_state(path))
@@ -707,7 +748,7 @@ def test_current_task_name_empty_when_tasks_absent_or_malformed(
     assert model.current_task_name(_state_with_tasks(tmp_path, "not-a-list")) == ""
     assert (
         model.current_task_name(
-            _state_with_tasks(tmp_path, [{"status": "in_progress", "name": 7}, "junk"])
+            _state_with_tasks(tmp_path, [{"status": "in_progress", "name": 7}, "junk"]),
         )
         == ""
     )

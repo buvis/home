@@ -12,7 +12,7 @@ import subprocess
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.panel import Panel
 from rich.text import Text
@@ -39,6 +39,8 @@ def _copy_to_pasteboard(text: str) -> bool:
     except (FileNotFoundError, subprocess.SubprocessError, OSError):
         return False
     return True
+
+
 FLEET_TICK = 2.0
 THEME_FILE = Path.home() / ".claude" / "tracon-theme"
 
@@ -78,7 +80,11 @@ def _final_signal_label(root: Path | None) -> str:
         return "stopped"
     if state.next_phase == "":
         return "drained"
-    if state.phase == "paused" or "pause_reason" in state.raw or "cap_pause_reason" in state.raw:
+    if (
+        state.phase == "paused"
+        or "pause_reason" in state.raw
+        or "cap_pause_reason" in state.raw
+    ):
         return "paused"
     autopilot_dir = root / "dev" / "local" / "autopilot"
     rows = model.read_metrics(autopilot_dir / "loop-metrics.jsonl")
@@ -96,6 +102,7 @@ class Collector:
         self._tracker = AgentTracker()
         self._out_sizes: dict[str, int] = {}
         self._hb_at: dict[str, float] = {}
+        self._no_output_since: dict[str, float] = {}
 
     @property
     def tracker(self) -> AgentTracker:
@@ -129,6 +136,42 @@ class Collector:
         return notes
 
     HEARTBEAT_EVERY = 5.0
+    RETIRE_GRACE = 10.0
+
+    def reconcile_bash_liveness(self, now: float | None = None) -> None:
+        """Finalize a pending local_bash retirement once there's RETIRE_GRACE
+        seconds of evidence it's really gone — the harness's background-task
+        snapshot can drop a task_id slightly before the underlying process
+        truly exits (see AgentTracker._apply_background_tasks).
+
+        Two kinds of evidence, both gated by RETIRE_GRACE: an existing -o
+        file's mtime going quiet, or — some runners (native codex) write
+        their whole output only at completion, so a still-running lane can
+        have no file at all yet — the file staying absent for the full grace
+        window after this method first saw the lane pending. A lane with no
+        out_path at all (no -o flag ever parsed) can never produce either
+        kind of evidence, so its snapshot absence stands immediately, same
+        as before this cross-check existed."""
+        if now is None:
+            now = time.time()
+        for lane in self._tracker.live_tasks():
+            if not lane.pending_retire:
+                self._no_output_since.pop(lane.task_id, None)
+                continue
+            if not lane.out_path:
+                lane.done = True
+                continue
+            try:
+                mtime = Path(lane.out_path).stat().st_mtime
+            except OSError:
+                since = self._no_output_since.setdefault(lane.task_id, now)
+                if now - since >= self.RETIRE_GRACE:
+                    lane.done = True
+                    self._no_output_since.pop(lane.task_id, None)
+                continue
+            self._no_output_since.pop(lane.task_id, None)
+            if now - mtime >= self.RETIRE_GRACE:
+                lane.done = True
 
     def bash_heartbeats(self, now: float | None = None) -> list[Text]:
         """One dim lane-tagged growth line per live bash lane whose -o file
@@ -151,13 +194,19 @@ class Collector:
             if last is None:
                 self._out_sizes[lane.task_id] = size
                 continue
-            if size <= last or now - self._hb_at.get(lane.task_id, 0.0) < self.HEARTBEAT_EVERY:
+            if (
+                size <= last
+                or now - self._hb_at.get(lane.task_id, 0.0) < self.HEARTBEAT_EVERY
+            ):
                 continue
             self._out_sizes[lane.task_id] = size
             self._hb_at[lane.task_id] = now
             t = Text()
             t.append(f"⟨{lane.label}⟩", style=lane.color)
-            t.append(f" out {panels.fmt_tok(size)} (+{panels.fmt_tok(size - last)})", style="dim")
+            t.append(
+                f" out {panels.fmt_tok(size)} (+{panels.fmt_tok(size - last)})",
+                style="dim",
+            )
             lines.append(t)
         return lines
 
@@ -185,12 +234,25 @@ class Collector:
         self._tracker.reset()
         self._out_sizes.clear()
         self._hb_at.clear()
+        self._no_output_since.clear()
 
-    def snapshot(self) -> tuple[model.LoopState, list[model.MetricsRow], discovery.Status, tuple[int, int]]:
+    def snapshot(
+        self,
+    ) -> tuple[
+        model.LoopState,
+        list[model.MetricsRow],
+        discovery.Status,
+        tuple[int, int],
+    ]:
         state = model.read_state(self._autopilot / "state.json")
-        rows = model.read_metrics(self._autopilot / "loop-metrics.jsonl", state.batch_id)
+        rows = model.read_metrics(
+            self._autopilot / "loop-metrics.jsonl",
+            state.batch_id,
+        )
         try:
-            log_mtime: float | None = (self._autopilot / "last-session.log").stat().st_mtime
+            log_mtime: float | None = (
+                (self._autopilot / "last-session.log").stat().st_mtime
+            )
         except OSError:
             log_mtime = None
 
@@ -211,7 +273,12 @@ class Collector:
         status = discovery.limit_wait_status(status, log_path, log_mtime, wrapper, now)
         last = model.last_row(rows)
         status = discovery.orphan_status(
-            status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
+            status,
+            state,
+            wrapper,
+            last.ts_end if last is not None else None,
+            log_mtime,
+            now,
         )
         status = discovery.pause_pending_status(status, self.root, wrapper)
         panel = panels.build_head(
@@ -228,12 +295,16 @@ class Collector:
         return panel, 4
 
 
-def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> App:
+def build_app(
+    roots: list[Path],
+    forced: Path | None = None,
+    wrapper_pid: int | None = None,
+) -> App:
     from textual.app import App, ComposeResult
-    from textual.containers import Horizontal, Vertical, VerticalScroll
-    from textual.widgets import Button, DataTable, RichLog, Static, Footer
-    from textual.screen import ModalScreen, Screen
     from textual.binding import Binding
+    from textual.containers import Horizontal, Vertical, VerticalScroll
+    from textual.screen import ModalScreen, Screen
+    from textual.widgets import Button, DataTable, Footer, RichLog, Static
 
     wrapper_root = forced if forced is not None else (roots[0] if roots else None)
 
@@ -259,7 +330,9 @@ def build_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | 
         except OSError as exc:
             app.notify(f"pause-requested write failed: {exc}", severity="error")
             return
-        app.notify("pause requested — pauses when the current session ends; resume with `autoclaude`")
+        app.notify(
+            "pause requested — pauses when the current session ends; resume with `autoclaude`",
+        )
 
     HELP_TEXT = """\
 tracon — autoclaude loop observer
@@ -297,6 +370,25 @@ Numbers
   batch <stamp>   sessions/elapsed/active/cost all cover this batch
   ctx x/500.0k    last turn's context vs the session-rotation cap
   in/cache/out    input, cache-read and output tokens this session
+
+Agents (dispatched during review-work-completion's review-fanout)
+  Alice    agent, session model        consensus review vs the PRD, implementation-aware
+  Blake    agent, session model        blind lens — spec only, finds the code itself
+  Bob      codex CLI, external model   consensus + doubt lens every cycle (agent fallback: static-only sandboxes)
+  Carl     gemini CLI, external model  consensus, frontend/design specialist (agent fallback)
+  Cora     agent, session model        correctness lens — logic bugs, edge cases
+  Eve      agent, fable model          doubt lens — skeptical final pass + de-slop
+  Grace    agent, session model        quality lens — complexity, redundancy, naming
+  Mallory  agent, session model        security lens — armed only when the diff trips it
+  Pat      agent, session model        per-task patch review, read-only
+  Rita     agent, session model        requirements lens — acceptance criteria, scope
+  Toby     agent, session model        tests lens — coverage, edge/error paths
+  Trent    agent, session model        rubric lens — every rule, pass or fail
+  Victor   agent, session model        adversarial verifier — tries to refute one finding
+  "agent" = native Claude subagent (Task tool, tracon shows it as a local_agent
+  lane); "session model" = whatever model this autopilot run launched under.
+  codex/gemini run as external CLI processes (local_bash lanes in tracon), not
+  Claude subagents — their model is whatever that CLI is configured to use.
 
 esc or ? closes this help.
 """
@@ -336,15 +428,15 @@ esc or ? closes this help.
 
         def refresh_tasks(self) -> None:
             state = model.read_state(
-                self.root / "dev" / "local" / "autopilot" / "state.json"
+                self.root / "dev" / "local" / "autopilot" / "state.json",
             )
             self.query_one("#tasks-head", Static).update(
-                panels.tasks_head(state, self.root.name)
+                panels.tasks_head(state, self.root.name),
             )
             lanes = model.tasks_by_lane(state)
             for lane in model.LANES:
                 self.query_one(f"#lane-{lane}", Static).update(
-                    panels.lane_body(lane, lanes[lane])
+                    panels.lane_body(lane, lanes[lane]),
                 )
 
     class AgentsScreen(Screen):
@@ -374,15 +466,16 @@ esc or ? closes this help.
 
         def refresh_agents(self) -> None:
             state = model.read_state(
-                self.root / "dev" / "local" / "autopilot" / "state.json"
+                self.root / "dev" / "local" / "autopilot" / "state.json",
             )
             self.query_one("#agents-head", Static).update(
-                panels.agents_head(state, self.root.name)
+                panels.agents_head(state, self.root.name),
             )
             self.query_one("#agents-body", Static).update(
                 panels.agents_body(
-                    self.collector.tracker, self.collector.bash_output_notes()
-                )
+                    self.collector.tracker,
+                    self.collector.bash_output_notes(),
+                ),
             )
 
     class QuitScreen(ModalScreen):
@@ -408,8 +501,17 @@ esc or ? closes this help.
             )
             with Vertical(id="quit-dialog"):
                 yield Static("Quit tracon?", id="quit-title")
-                yield Button("Quit UI — loop keeps running  (q)", id="quit-ui", variant="primary")
-                yield Button(stop_label, id="stop-quit", variant="error", disabled=self.root is None)
+                yield Button(
+                    "Quit UI — loop keeps running  (q)",
+                    id="quit-ui",
+                    variant="primary",
+                )
+                yield Button(
+                    stop_label,
+                    id="stop-quit",
+                    variant="error",
+                    disabled=self.root is None,
+                )
                 yield Button("Cancel  (esc)", id="cancel")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -454,7 +556,14 @@ esc or ? closes this help.
             yield Static(id="head")
             # wrap=True + min_width=1: lines fold to the pane width (split
             # terminals) instead of forcing a horizontal scrollbar.
-            yield RichLog(id="log", max_lines=LOG_KEEP, markup=False, auto_scroll=True, wrap=True, min_width=1)
+            yield RichLog(
+                id="log",
+                max_lines=LOG_KEEP,
+                markup=False,
+                auto_scroll=True,
+                wrap=True,
+                min_width=1,
+            )
             yield Footer()
 
         def on_mount(self) -> None:
@@ -483,7 +592,9 @@ esc or ? closes this help.
             self._first_attach = False
 
             if lines and replay:
-                log.write(Text("── replay: log content from before attach ──", style="dim"))
+                log.write(
+                    Text("── replay: log content from before attach ──", style="dim"),
+                )
 
             for line in lines:
                 _, texts = self.collector.feed(line)
@@ -492,6 +603,8 @@ esc or ? closes this help.
                         t.stylize("dim")
                     log.write(t)
                     self._tail_lines.append(t.plain)
+
+            self.collector.reconcile_bash_liveness()
 
             for hb in self.collector.bash_heartbeats():
                 log.write(hb)
@@ -545,7 +658,18 @@ esc or ? closes this help.
 
         def on_mount(self) -> None:
             self.table = self.query_one(DataTable)
-            self.table.add_columns("project", "status", "phase", "prd", "task", "cycle", "cost", "sessions")
+            self.table.add_columns(
+                "project",
+                "status",
+                "phase",
+                "prd",
+                "task",
+                "cycle",
+                "backlog",
+                "wip",
+                "done",
+                "sessions",
+            )
             self._roots: list[Path] = []
             self.refresh_table()
             self.set_interval(FLEET_TICK, self.refresh_table)
@@ -557,7 +681,11 @@ esc or ? closes this help.
             sorted_rows = sorted(rows, key=lambda r: (r.status.rank, r.name))
 
             cursor_row = self.table.cursor_row
-            selected_root = self._roots[cursor_row] if cursor_row is not None and cursor_row < len(self._roots) else None
+            selected_root = (
+                self._roots[cursor_row]
+                if cursor_row is not None and cursor_row < len(self._roots)
+                else None
+            )
 
             self.table.clear()
             self._roots = []
@@ -693,7 +821,11 @@ esc or ? closes this help.
     return TraconApp()
 
 
-def run_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | None = None) -> int:
+def run_app(
+    roots: list[Path],
+    forced: Path | None = None,
+    wrapper_pid: int | None = None,
+) -> int:
     app = build_app(roots, forced, wrapper_pid)
     app.run()
     return app.return_code if app.return_code is not None else 0
@@ -701,6 +833,7 @@ def run_app(roots: list[Path], forced: Path | None = None, wrapper_pid: int | No
 
 def run_once(root: Path | None = None) -> int:
     from rich.console import Console
+
     console = Console()
 
     loops = discovery.discover_loops()
@@ -728,6 +861,8 @@ def run_once(root: Path | None = None) -> int:
     for line in lines:
         _, texts = collector.feed(line)
         rendered_lines.extend(texts)
+
+    collector.reconcile_bash_liveness()
 
     panel, _ = collector.head()
     console.print(panel)
