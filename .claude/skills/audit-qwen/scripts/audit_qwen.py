@@ -94,7 +94,12 @@ def parse_report(path: Path) -> dict:
         if current is None:
             continue
         if RE_MIX_HEADING.match(line):
-            current["mix"] = {"attempts": {}, "preflight": {}, "plan": {}, "dispatch": {}}
+            current["mix"] = {
+                "attempts": {},
+                "preflight": {},
+                "plan": {},
+                "dispatch": {},
+            }
             in_mix, saw_mix_heading = True, True
             continue
         if line.startswith("### "):
@@ -205,7 +210,13 @@ def scan_repo(repo: Path) -> dict:
     """All qwen telemetry in one repo. Missing dirs -> a no-data row."""
     auto = repo / "dev" / "local" / "autopilot"
     reports_dir = auto / "reports"
-    record = {"repo": repo.name, "reports": [], "states": [], "archived": 0, "unparsed": []}
+    record = {
+        "repo": repo.name,
+        "reports": [],
+        "states": [],
+        "archived": 0,
+        "unparsed": [],
+    }
     if not auto.is_dir():
         return record
     if reports_dir.is_dir():
@@ -300,7 +311,14 @@ def compute(records: list[dict]) -> dict:
                         for bucket, n in mix[hist].items():
                             _add(agg[hist], bucket, n)
                 agg["batch_rows"].append(
-                    [report["batch"], record["repo"], "report", section["prd"], qwen, note],
+                    [
+                        report["batch"],
+                        record["repo"],
+                        "report",
+                        section["prd"],
+                        qwen,
+                        note,
+                    ],
                 )
     return agg
 
@@ -317,7 +335,9 @@ def verdict(agg: dict) -> tuple[str, str]:
         )
     if rate is not None and classifiable >= WIDEN_MIN and rate >= WIDEN_RATE:
         fences = sorted(agg["plan"].items(), key=lambda kv: (-kv[1], kv[0]))
-        ranking = ", ".join(f"{b} ({n} tasks)" for b, n in fences) or "no exclusions recorded"
+        ranking = (
+            ", ".join(f"{b} ({n} tasks)" for b, n in fences) or "no exclusions recorded"
+        )
         caveat = (
             " CAVEAT: zero gate failures appear anywhere in these chains, and"
             " chains predating PRD 00065 cannot record one - verify the chains"
@@ -381,7 +401,9 @@ def render(records: list[dict], agg: dict, note: str) -> str:
         "| Batch | Repo | Source | PRD | Qwen attempts | Notes |",
         "|-------|------|--------|-----|---------------|-------|",
     ]
-    lines += ["| " + " | ".join(str(c) for c in row) + " |" for row in agg["batch_rows"]]
+    lines += [
+        "| " + " | ".join(str(c) for c in row) + " |" for row in agg["batch_rows"]
+    ]
     if not agg["batch_rows"]:
         lines.append("| — | — | — | — | 0 | no batches found |")
     gate_rate = (
@@ -442,7 +464,9 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="scan only these repo roots (repeatable; overrides discovery)",
     )
-    ap.add_argument("--output", type=Path, help="write the report card here instead of stdout")
+    ap.add_argument(
+        "--output", type=Path, help="write the report card here instead of stdout"
+    )
     args = ap.parse_args(argv)
     if args.repo:
         repos, note = args.repo, ""
