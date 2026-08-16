@@ -265,7 +265,7 @@ def do_task_add(data: Any, task_json: dict[str, Any]) -> str:
     name = task_json.get("name")
     if not isinstance(name, str) or not name:
         raise UsageError("task-add payload requires a non-empty 'name' string")
-    tasks = data["tasks"]
+    tasks = data.setdefault("tasks", [])
     task_id = str(
         max(
             (
@@ -473,6 +473,8 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
         if not rest:
             raise UsageError("task-set-meta requires a meta-json-file argument")
         meta = _read_json_file(rest[0])
+        if not isinstance(meta, dict):
+            raise UsageError(f"{rest[0]} is not a JSON object")
         return lambda data: do_task_set_meta(data, arg, meta)
 
     if verb == "task-set-status":
