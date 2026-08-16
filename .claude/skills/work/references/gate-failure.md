@@ -72,7 +72,7 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
        not provably this-task-only AND atomic.
   2. Stamp the LOWER rung's entry: `outcome:"escalated"`, `diagnosis:<verdict>` (+
      `qwen_gate_failed:true` if that rung's implementor was qwen, + `repair_used:true` if a repair
-     ran at that rung). **If `task.metadata` carries a review-flag escalation
+     ran at that rung). **If the task's `state.tasks[i]` entry carries a review-flag escalation
      (`escalation_reason:"review_flag"` + `escalated_from`, set by /run-autopilot Phase 6 when this
      rung IS the review-flagged rework rung), copy both onto THIS lower-rung entry now** — Phase 6
      escalated INTO this rung, so the `review_flag` reason belongs here; capturing it before step 3
@@ -84,11 +84,11 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
      write, so there is no separate mirroring step. Run it BEFORE the dispatch below, so the
      **Per-task model dispatch** rule picks up the escalated tier for Ivan and every downstream
      read this task (step 5.6, step 5.7's tier gate). The two `null` values
-     **clear any `escalation_reason`/`escalated_from` from `task.metadata` here** (`task-set-meta`
+     **clear any `escalation_reason`/`escalated_from` from `state.tasks[i]` here** (`task-set-meta`
      deletes a key whose value is JSON `null`) — point 2 already copied a
      review-flag reason onto the lower-rung entry, and the higher in-loop rung records its OWN
-     `escalation_reason:"gate_failure"` at point 5. Leaving the sticky `review_flag` in `task.metadata`
-     (which `task-set-meta` merges, not replaces) would make step 6's metadata→entry copy mis-stamp
+     `escalation_reason:"gate_failure"` at point 5. Leaving the sticky `review_flag` in `state.tasks[i]`
+     (which `task-set-meta` merges, not replaces) would make step 6's task-entry→attempt-entry copy mis-stamp
      `review_flag` onto this `gate_failure` rung.
   4. Dispatch ONE rung up (per `model-ladder.md` § Capability ladders — qwen -> sonnet skipping
      haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY: failing test names, the last
@@ -114,7 +114,7 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
 | `qwen_gate_failed` | the qwen (lower) rung's entry |
 | `repair_used` | the entry of the same-tier attempt that ran after a repair (that rung's entry) |
 | `escalation_reason:"gate_failure"` | the rung escalated **INTO** (higher)'s entry |
-| `escalation_reason:"review_flag"` | the review-flagged rework rung's OWN entry (Phase 6 escalated INTO it): copied from `task.metadata` at step 6 if that rung exits there, or at ESCALATE point 2 (then cleared at point 3) if it escalates in-loop |
+| `escalation_reason:"review_flag"` | the review-flagged rework rung's OWN entry (Phase 6 escalated INTO it): copied from `state.tasks[i]` at step 6 if that rung exits there, or at ESCALATE point 2 (then cleared at point 3) if it escalates in-loop |
 | `escalated_from` | the rung escalated **INTO** (higher)'s entry (both `gate_failure` and `review_flag` paths) |
 
 For codex attribution, `attempts[].model` records the task's own tier (for example, `"sonnet"`) while `implementor: "codex"` carries the backend identity. This is the same split as qwen, whose attempt records `model: "sonnet"` with `implementor: "qwen"`. On a codex capability failure, stamp the codex entry `outcome: "escalated"` and `diagnosis: <verdict>`; the Claude entry it escalates into receives `escalation_reason: "gate_failure"` and `escalated_from: "codex"`.
