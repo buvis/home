@@ -102,12 +102,22 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
     if surface is None:
         return (False, "")
 
+    if "review" not in state.get("phases_completed", []):
+        # phase == "done" without a review convergence for the CURRENT prd:
+        # a batch-drained ("no PRDs anywhere") hand-off, or a PRD that
+        # stalled/parked before ever reaching the review-rework loop. Either
+        # way there is no review surface to gate coverage for. Checking
+        # phases_completed (not state.prd) matters because prd is NOT
+        # cleared when a PRD stalls - it stays stale until the next
+        # selection overwrites it (SKILL.md Phase 0 step 4), so an empty-prd
+        # check alone misses this case.
+        return (False, "")
+
     prd = state.get("prd", "")
     if not prd:
-        # Batch-drained ("no PRDs anywhere") hand-off: no PRD is active, so
-        # there is no review surface to gate coverage for. Also covers a
-        # stale/unset prd left behind by a PRD that stalled before ever
-        # reaching a review cycle.
+        # Defensive: phases_completed says a review converged but prd is
+        # somehow empty. Should not happen (the reset that clears
+        # phases_completed also happens at prd transitions), but fail open.
         return (False, "")
     prd_base = prd.removesuffix(".md")
     repo = autopilot_dir.parents[2]

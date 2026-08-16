@@ -81,11 +81,21 @@ def _make_autopilot_dir(
     prd: str = "X.md",
     work_start_sha: str = "abc",
     repo_root: str | None = None,
+    phases_completed: list[str] | None = None,
 ) -> Path:
-    """Build a minimal dev/local/autopilot dir tree under root."""
+    """Build a minimal dev/local/autopilot dir tree under root.
+
+    Defaults phases_completed to ["review"]: every existing caller of this
+    helper simulates a genuine review convergence for the current prd.
+    """
     autopilot_dir = root / "dev" / "local" / "autopilot"
     autopilot_dir.mkdir(parents=True, exist_ok=True)
-    state = {"phase": phase, "prd": prd, "work_start_sha": work_start_sha}
+    state = {
+        "phase": phase,
+        "prd": prd,
+        "work_start_sha": work_start_sha,
+        "phases_completed": ["review"] if phases_completed is None else phases_completed,
+    }
     if repo_root is not None:
         state["repo_root"] = repo_root
     (autopilot_dir / "state.json").write_text(json.dumps(state))
@@ -450,7 +460,7 @@ class GateBlocksDecisionTests(unittest.TestCase):
         with mock.patch.object(hook, "run_gate", side_effect=_fail):
             blocks, msg = hook.gate_blocks(
                 self.autopilot_dir,
-                {"phase": "done", "prd": "Z.md"},
+                {"phase": "done", "prd": "Z.md", "phases_completed": ["review"]},
             )
         self.assertTrue(blocks)
         self.assertIn("no work-completion review file", msg)
@@ -462,7 +472,7 @@ class GateBlocksDecisionTests(unittest.TestCase):
         ):
             blocks, msg = hook.gate_blocks(
                 self.autopilot_dir,
-                {"phase": "done", "prd": "X.md"},
+                {"phase": "done", "prd": "X.md", "phases_completed": ["review"]},
             )
         self.assertTrue(blocks)
         self.assertIn("review coverage gap [work-completion]", msg)
@@ -472,7 +482,7 @@ class GateBlocksDecisionTests(unittest.TestCase):
         with mock.patch.object(hook, "run_gate", return_value=(0, "")):
             blocks, msg = hook.gate_blocks(
                 self.autopilot_dir,
-                {"phase": "done", "prd": "Y.md"},
+                {"phase": "done", "prd": "Y.md", "phases_completed": ["review"]},
             )
         self.assertFalse(blocks)
         self.assertEqual(msg, "")
@@ -492,6 +502,41 @@ class GateBlocksDecisionTests(unittest.TestCase):
             )
         self.assertFalse(blocks)
         self.assertEqual(msg, "")
+
+    def test_stale_prd_without_review_convergence_does_not_block(self) -> None:
+        # A PRD that stalled/parked before ever reaching the review-rework
+        # loop leaves state.prd stale (not cleared - SKILL.md Phase 0 step 4)
+        # when a later "drained" hand-off sets phase="done". phases_completed
+        # never got "review" appended for this prd, so there is no review
+        # surface to gate - even though prd is non-empty.
+        def _fail(*a, **k):
+            raise AssertionError(
+                "run_gate must not run when the current prd never converged"
+            )
+
+        with mock.patch.object(hook, "run_gate", side_effect=_fail):
+            blocks, msg = hook.gate_blocks(
+                self.autopilot_dir,
+                {
+                    "phase": "done",
+                    "prd": "00120-migrate-task-tracking-to-statectl-v1.md",
+                    "phases_completed": [],
+                },
+            )
+        self.assertFalse(blocks)
+        self.assertEqual(msg, "")
+
+    def test_converged_prd_still_blocks_on_missing_review_file(self) -> None:
+        # Guard against a fix that over-broadens: a genuine convergence
+        # (phases_completed contains "review") for the current prd must
+        # still gate on a missing review file.
+        self._reviews_dir()  # empty: no X-review-*.md
+        blocks, msg = hook.gate_blocks(
+            self.autopilot_dir,
+            {"phase": "done", "prd": "X.md", "phases_completed": ["review"]},
+        )
+        self.assertTrue(blocks)
+        self.assertIn("no work-completion review file", msg)
 
 
 if __name__ == "__main__":
