@@ -266,17 +266,15 @@ def do_task_add(data: Any, task_json: dict[str, Any]) -> str:
     if not isinstance(name, str) or not name:
         raise UsageError("task-add payload requires a non-empty 'name' string")
     tasks = data.setdefault("tasks", [])
-    task_id = str(
-        max(
-            (
-                int(entry["id"])
-                for entry in tasks
-                if isinstance(entry, dict) and str(entry.get("id", "")).isdigit()
-            ),
-            default=0,
-        )
-        + 1,
+    highest_id = max(
+        (
+            int(entry["id"])
+            for entry in tasks
+            if isinstance(entry, dict) and str(entry.get("id", "")).isdigit()
+        ),
+        default=0,
     )
+    task_id = str(highest_id + 1)
     # The payload passes through whole rather than field by field: /work renders
     # its dispatch from these keys, and an allowlist silently drops the ones a
     # later caller adds. An absent optional field stays absent - never a null,
@@ -336,12 +334,11 @@ def do_task_set_status(data: Any, task_id: str, status: str) -> None:
 def do_tasks_clear(data: Any) -> None:
     """Empty the task array and zero both counts in one write.
 
-    Scoped to exactly those three fields: `rework_task_ids`, `task_aborts` and
-    the rest of the batch record outlive a replan.
+    Scoped to exactly those three fields: `tasks`, `tasks_total` and
+    `tasks_completed`. `rework_task_ids`/`task_aborts` and the rest of the
+    batch record outlive a replan.
     """
-    data["tasks"] = []
-    data["tasks_total"] = 0
-    data["tasks_completed"] = 0
+    data.update({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
 
 
 def mutate(state_path: Path, apply: Callable[[Any], Any]) -> Any:
@@ -426,6 +423,14 @@ def _read_json_file(path_str: str) -> Any:
         raise UsageError(f"{path_str} is not valid JSON: {err}") from err
 
 
+def _read_text_file(path_str: str) -> str:
+    """Load raw text from a file, wrapping a read failure as UsageError."""
+    try:
+        return Path(path_str).read_text(encoding="utf-8")
+    except OSError as err:
+        raise UsageError(f"cannot read {path_str}: {err}") from err
+
+
 def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
     """Return the mutation `mutate()` should apply for a non-`get` verb."""
     if verb in _PATH_VERBS:
@@ -442,12 +447,18 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
             return lambda data: do_set(data, tokens, value)
         return lambda data: do_append(data, tokens, value)
 
+    return _build_task_apply(verb, arg, rest)
+
+
+def _build_task_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
+    """Return the mutation `mutate()` should apply for a task verb.
+
+    Delegates verbs that carry a task id in `arg` to `_build_task_id_apply`;
+    the three verbs handled here take their whole payload in `arg` instead.
+    """
     if verb == "set-contract-card":
         # The file is argv[2] here - this verb takes no task id.
-        try:
-            text = Path(arg).read_text(encoding="utf-8")
-        except OSError as err:
-            raise UsageError(f"cannot read {arg}: {err}") from err
+        text = _read_text_file(arg)
         return lambda data: do_set_contract_card(data, text)
 
     if verb == "tasks-clear":
@@ -460,13 +471,15 @@ def _build_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
             raise UsageError(f"{arg} is not a JSON object")
         return lambda data: do_task_add(data, payload)
 
+    return _build_task_id_apply(verb, arg, rest)
+
+
+def _build_task_id_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any], Any]:
+    """Return the mutation for a task verb that takes a task id in `arg`."""
     if verb == "task-set-body":
         if not rest:
             raise UsageError("task-set-body requires a body-file argument")
-        try:
-            body = Path(rest[0]).read_text(encoding="utf-8")
-        except OSError as err:
-            raise UsageError(f"cannot read {rest[0]}: {err}") from err
+        body = _read_text_file(rest[0])
         return lambda data: do_task_set_body(data, arg, body)
 
     if verb == "task-set-meta":
@@ -518,9 +531,10 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(get_value(data, parse_path(arg))))
         else:
             result = mutate(state_path, _build_apply(verb, arg, rest))
-            if verb == "task-add":
-                # The only mutating verb that answers: callers need the id it
-                # assigned. Every other verb stays silent on success.
+            if result is not None:
+                # task-add is the only mutating verb that answers today:
+                # callers need the id it assigned. Every other verb's apply
+                # returns None, so it stays silent on success.
                 print(result)
     except StateError as err:
         print(str(err), file=sys.stderr)

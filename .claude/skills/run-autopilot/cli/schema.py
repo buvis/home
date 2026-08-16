@@ -75,6 +75,20 @@ def require(value: Any, type_: type, field: str) -> None:
         )
 
 
+def _validate_task_entries(tasks: list) -> None:
+    """Validate the `description`/`blocked_by` fields of each `tasks[]` entry."""
+    for index, entry in enumerate(tasks):
+        if not isinstance(entry, dict):
+            continue
+        if "description" in entry:
+            require(entry["description"], str, f"tasks[{index}].description")
+        if "blocked_by" in entry:
+            field = f"tasks[{index}].blocked_by"
+            require(entry["blocked_by"], list, field)
+            for item in entry["blocked_by"]:
+                require(item, int, field)
+
+
 def validate(state: dict) -> None:
     """Raise SchemaError naming the first offending known field, else None."""
     if not isinstance(state, dict):
@@ -104,16 +118,7 @@ def validate(state: dict) -> None:
             require(state[field], list, field)
 
     if "tasks" in state:
-        for index, entry in enumerate(state["tasks"]):
-            if not isinstance(entry, dict):
-                continue
-            if "description" in entry:
-                require(entry["description"], str, f"tasks[{index}].description")
-            if "blocked_by" in entry:
-                field = f"tasks[{index}].blocked_by"
-                require(entry["blocked_by"], list, field)
-                for item in entry["blocked_by"]:
-                    require(item, int, field)
+        _validate_task_entries(state["tasks"])
 
     if "batch" in state:
         batch = state["batch"]
