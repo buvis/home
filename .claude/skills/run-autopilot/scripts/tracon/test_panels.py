@@ -70,6 +70,9 @@ def _loop_row(**overrides: Any) -> LoopRow:
         cycle="1/3",
         cost=10.0,
         live_cost=0.0,
+        prd_backlog=0,
+        prd_wip=0,
+        prd_done=0,
         sessions=1,
     )
     base.update(overrides)
@@ -886,14 +889,12 @@ def test_agents_body_bash_lane_shows_kind_and_status_not_agent_fields() -> None:
 # --- fleet_table --------------------------------------------------------------
 
 
-def test_fleet_table_shows_live_cost_chip_only_when_positive() -> None:
-    rows = [
-        _loop_row(name="alpha", cost=10.0, live_cost=2.5),
-        _loop_row(name="beta", cost=5.0, live_cost=0.0),
-    ]
+def test_fleet_table_shows_backlog_wip_done_counts() -> None:
+    rows = [_loop_row(name="alpha", prd_backlog=12, prd_wip=3, prd_done=45)]
     text = _render(panels.fleet_table(rows))
-    assert "+$2.50" in text
-    assert "+$0.00" not in text
+    assert "12" in text
+    assert "3" in text
+    assert "45" in text
 
 
 def test_fleet_table_sorts_by_status_rank_then_name() -> None:
@@ -917,14 +918,25 @@ def test_fleet_table_truncates_prd_to_44_chars() -> None:
 def test_fleet_table_headers_include_all_named_columns() -> None:
     rows = [_loop_row()]
     text = _render(panels.fleet_table(rows)).lower()
-    for column in ("project", "status", "phase", "prd", "task", "cycle", "cost", "sessions"):
+    for column in (
+        "project",
+        "status",
+        "phase",
+        "prd",
+        "task",
+        "cycle",
+        "backlog",
+        "wip",
+        "done",
+        "sessions",
+    ):
         assert column in text
 
 
 # --- fleet_cells: the shared row-builder behind both fleet views -------------
 
 
-def test_fleet_cells_returns_the_eight_columns_in_order() -> None:
+def test_fleet_cells_returns_the_ten_columns_in_order() -> None:
     row = _loop_row(
         name="myrepo",
         status=Status(label="● live", style="green", rank=2, in_flight=True),
@@ -932,22 +944,25 @@ def test_fleet_cells_returns_the_eight_columns_in_order() -> None:
         prd="00061-x.md",
         task="2/6",
         cycle="1/3",
-        cost=10.0,
-        live_cost=0.0,
+        prd_backlog=12,
+        prd_wip=3,
+        prd_done=45,
         sessions=3,
     )
 
     cells = panels.fleet_cells(row)
 
-    assert len(cells) == 8
-    project, status, phase, prd, task, cycle, cost, sessions = cells
+    assert len(cells) == 10
+    project, status, phase, prd, task, cycle, backlog, wip, done, sessions = cells
     assert project == "myrepo"
     assert isinstance(status, Text) and status.plain == "● live"
     assert phase == "build"
     assert prd == "00061-x.md"
     assert task == "2/6"
     assert cycle == "1/3"
-    assert isinstance(cost, Text) and cost.plain == "$10.00"
+    assert backlog == "12"
+    assert wip == "3"
+    assert done == "45"
     assert sessions == "3"
 
 
@@ -978,22 +993,18 @@ def test_fleet_cells_prd_truncates_to_43_chars_plus_ellipsis_at_45_chars() -> No
     assert len(cells[3]) == 44
 
 
-def test_fleet_cells_cost_chip_present_when_live_cost_positive() -> None:
-    cost_cell = panels.fleet_cells(_loop_row(cost=10.0, live_cost=2.5))[6]
-    assert isinstance(cost_cell, Text)
-    assert cost_cell.plain == "$10.00 +$2.50"
-    assert _styles_containing(cost_cell, "dim")
-
-
-def test_fleet_cells_cost_chip_absent_when_live_cost_zero() -> None:
-    cost_cell = panels.fleet_cells(_loop_row(cost=5.0, live_cost=0.0))[6]
-    assert cost_cell.plain == "$5.00"
+def test_fleet_cells_backlog_wip_done_are_stringified_counts() -> None:
+    cells = panels.fleet_cells(_loop_row(prd_backlog=12, prd_wip=3, prd_done=45))
+    assert cells[6] == "12"
+    assert cells[7] == "3"
+    assert cells[8] == "45"
+    assert all(isinstance(c, str) for c in cells[6:9])
 
 
 def test_fleet_cells_sessions_is_the_stringified_count() -> None:
     cells = panels.fleet_cells(_loop_row(sessions=7))
-    assert cells[7] == "7"
-    assert isinstance(cells[7], str)
+    assert cells[9] == "7"
+    assert isinstance(cells[9], str)
 
 
 # --- fleet_table: must delegate to fleet_cells, never rebuild cells itself ---

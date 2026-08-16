@@ -340,6 +340,28 @@ def test_loop_status_phase_falls_back_to_em_dash_when_both_empty(
     assert row.phase == "—"
 
 
+def test_loop_status_populates_prd_backlog_wip_done_counts(tmp_path: Path) -> None:
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    _write_json(autopilot_dir / "state.json", {"prd": "x.md", "phase": "build"})
+    prds = tmp_path / "dev" / "local" / "prds"
+    (prds / "backlog").mkdir(parents=True)
+    (prds / "wip").mkdir(parents=True)
+    (prds / "done").mkdir(parents=True)
+    (prds / "backlog" / "00060-a.md").write_text("a")
+    (prds / "backlog" / "00061-b.md").write_text("b")
+    (prds / "wip" / "00062-c.md").write_text("c")
+    (prds / "done" / "00050-d.md").write_text("d")
+    (prds / "done" / "00051-e.md").write_text("e")
+    (prds / "done" / "00052-f.md").write_text("f")
+
+    row = discovery.loop_status(tmp_path, now=1000.0)
+
+    assert row.prd_backlog == 2
+    assert row.prd_wip == 1
+    assert row.prd_done == 3
+
+
 def test_loop_status_live_cost_populated_only_when_in_flight(tmp_path: Path) -> None:
     autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
     autopilot_dir.mkdir(parents=True)

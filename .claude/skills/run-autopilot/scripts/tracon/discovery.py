@@ -21,7 +21,10 @@ from . import model
 from .model import LoopState, MetricsRow
 
 GITA_REGISTRY = Path.home() / ".config/gita/repos.csv"
-LOOPS_DIR = Path(os.environ.get("_AUTOPILOT_LOOPS_DIR") or Path.home() / ".claude" / "autopilot-loops")
+LOOPS_DIR = Path(
+    os.environ.get("_AUTOPILOT_LOOPS_DIR")
+    or Path.home() / ".claude" / "autopilot-loops"
+)
 LIVE_WINDOW = 20.0
 IN_FLIGHT_SLACK = 2.0
 
@@ -45,6 +48,9 @@ class LoopRow:
     cycle: str
     cost: float
     live_cost: float
+    prd_backlog: int
+    prd_wip: int
+    prd_done: int
     sessions: int
     wrapper: bool = False
 
@@ -85,11 +91,20 @@ def read_registry(loops_dir: Path | None = None) -> list[Wrapper]:
             continue
         pid = data.get("pid")
         root = data.get("root")
-        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or not isinstance(root, str):
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(root, str)
+        ):
             continue
         started_at = data.get("started_at")
         wrappers.append(
-            Wrapper(pid=pid, root=Path(root), started_at=started_at if isinstance(started_at, str) else "")
+            Wrapper(
+                pid=pid,
+                root=Path(root),
+                started_at=started_at if isinstance(started_at, str) else "",
+            ),
         )
     return wrappers
 
@@ -135,7 +150,11 @@ def limit_reset(log_path: Path, log_mtime: float | None) -> int | None:
 
 
 def limit_wait_status(
-    status: Status, log_path: Path, log_mtime: float | None, wrapper: bool, now: float
+    status: Status,
+    log_path: Path,
+    log_mtime: float | None,
+    wrapper: bool,
+    now: float,
 ) -> Status:
     """Upgrade idle-under-a-live-wrapper to a limit-wait countdown.
 
@@ -198,11 +217,16 @@ def orphan_status(
     age = f" {model.fmt_dur(now - anchor)}" if anchor is not None else ""
     fresh = anchor is not None and now - anchor < ORPHAN_FRESH_SECS
     style = "bold red" if fresh else "red"
-    return Status(label=f"⚠ orphaned{age} => run autoclaude", style=style, rank=1, in_flight=False)
+    return Status(
+        label=f"⚠ orphaned{age} => run autoclaude", style=style, rank=1, in_flight=False
+    )
 
 
 def classify(
-    state: LoopState, rows: Sequence[MetricsRow], log_mtime: float | None, now: float
+    state: LoopState,
+    rows: Sequence[MetricsRow],
+    log_mtime: float | None,
+    now: float,
 ) -> Status:
     last = model.last_row(rows)
     in_flight = log_mtime is not None and (
@@ -212,22 +236,32 @@ def classify(
     quiet = in_flight and not live
 
     if state.needs_attention:
-        return Status(label="⚠ attention", style="bold red", rank=0, in_flight=in_flight)
+        return Status(
+            label="⚠ attention", style="bold red", rank=0, in_flight=in_flight
+        )
     if live:
         return Status(label="● live", style="green", rank=2, in_flight=in_flight)
     if quiet:
         age = model.fmt_dur(now - log_mtime)
-        return Status(label=f"◐ quiet {age}", style="yellow", rank=2, in_flight=in_flight)
+        return Status(
+            label=f"◐ quiet {age}", style="yellow", rank=2, in_flight=in_flight
+        )
     if last is not None:
         if last.signal == "died":
             clock = _fmt_clock(last.ts_end)
-            return Status(label=f"■ died {clock}", style="bold red", rank=1, in_flight=in_flight)
+            return Status(
+                label=f"■ died {clock}", style="bold red", rank=1, in_flight=in_flight
+            )
         if last.signal == "paused":
             clock = _fmt_clock(last.ts_end)
-            return Status(label=f"⏸ paused {clock}", style="yellow", rank=1, in_flight=in_flight)
+            return Status(
+                label=f"⏸ paused {clock}", style="yellow", rank=1, in_flight=in_flight
+            )
         if last.signal == "done":
             clock = _fmt_clock(last.ts_end)
-            return Status(label=f"✔ drained {clock}", style="dim", rank=4, in_flight=in_flight)
+            return Status(
+                label=f"✔ drained {clock}", style="dim", rank=4, in_flight=in_flight
+            )
     if not state.exists:
         return Status(label="○ no state", style="dim", rank=5, in_flight=in_flight)
     if log_mtime is None:
@@ -254,7 +288,12 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
     status = limit_wait_status(status, log_path, log_mtime, wrapper, now)
     last = model.last_row(rows)
     status = orphan_status(
-        status, state, wrapper, last.ts_end if last is not None else None, log_mtime, now
+        status,
+        state,
+        wrapper,
+        last.ts_end if last is not None else None,
+        log_mtime,
+        now,
     )
     status = pause_pending_status(status, root, wrapper)
     live_cost = model.scan_session_cost(log_path) if status.in_flight else 0.0
@@ -269,6 +308,8 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
     else:
         cycle = "—"
 
+    backlog, wip = model.prd_counts(root)
+
     return LoopRow(
         root=root,
         name=root.name,
@@ -279,12 +320,17 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
         cycle=cycle,
         cost=sum(row.cost_usd for row in rows),
         live_cost=live_cost,
+        prd_backlog=backlog,
+        prd_wip=wip,
+        prd_done=model.prd_done_count(root),
         sessions=len(rows),
         wrapper=wrapper,
     )
 
 
-def discover_loops(registry: Path = GITA_REGISTRY, loops_dir: Path | None = None) -> list[Path]:
+def discover_loops(
+    registry: Path = GITA_REGISTRY, loops_dir: Path | None = None
+) -> list[Path]:
     home = Path.home() / ".claude"
     candidates = [home]
 

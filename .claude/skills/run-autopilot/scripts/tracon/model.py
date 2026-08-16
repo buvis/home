@@ -16,7 +16,9 @@ from typing import Any
 
 SIGNALS = ("continue", "paused", "done", "died")
 TAIL_BYTES = 512 * 1024
-USAGE_CAP = 500_000  # ctx gauge denominator; mirrors autopilot_context_cap_hook.USAGE_CAP
+USAGE_CAP = (
+    500_000  # ctx gauge denominator; mirrors autopilot_context_cap_hook.USAGE_CAP
+)
 
 
 @dataclass(frozen=True)
@@ -189,7 +191,11 @@ def read_metrics(path: Path, batch: str | None = None) -> list[MetricsRow]:
 
 
 def last_row(rows: Sequence[MetricsRow]) -> MetricsRow | None:
-    return max(rows, key=lambda row: row.ts_end if row.ts_end is not None else 0.0, default=None)
+    return max(
+        rows,
+        key=lambda row: row.ts_end if row.ts_end is not None else 0.0,
+        default=None,
+    )
 
 
 def batch_start_ts(batch: str, rows: Sequence[MetricsRow]) -> float | None:
@@ -339,6 +345,11 @@ def prd_counts(root: Path) -> tuple[int, int]:
     return (len(list(backlog.glob("*.md"))), len(list(wip.glob("*.md"))))
 
 
+def prd_done_count(root: Path) -> int:
+    done = root / "dev" / "local" / "prds" / "done"
+    return len(list(done.glob("*.md")))
+
+
 def scan_session_cost(path: Path, tail_bytes: int = TAIL_BYTES) -> float:
     try:
         size = path.stat().st_size
@@ -365,8 +376,7 @@ def scan_session_cost(path: Path, tail_bytes: int = TAIL_BYTES) -> float:
 
 
 def fmt_dur(secs: float) -> str:
-    if secs < 0:
-        secs = 0
+    secs = max(secs, 0)
     secs = int(secs)
     if secs < 60:
         return f"{secs}s"

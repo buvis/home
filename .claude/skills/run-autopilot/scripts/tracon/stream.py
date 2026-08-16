@@ -20,10 +20,14 @@ from rich.text import Text
 
 from .model import TAIL_BYTES
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # skills/run-autopilot/scripts
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1])
+)  # skills/run-autopilot/scripts
 import render_stream
 
-render_stream._color_enabled = True  # module-level ANSI switch; output re-parsed via Text.from_ansi
+render_stream._color_enabled = (
+    True  # module-level ANSI switch; output re-parsed via Text.from_ansi
+)
 
 LANE_COLORS = ("magenta", "blue", "green", "yellow", "red", "bright_cyan")
 
@@ -44,21 +48,32 @@ def _out_path(command: str) -> str:
 class Lane:
     task_id: str  # task_started.task_id — the lifecycle key
     tool_use_id: str  # task_started.tool_use_id — equals the agent's parent_tool_use_id
-    label: str  # task_started.description, trimmed to 20 chars
+    label: str  # task_started.description, ellipsis-truncated to 40 chars
     color: str
     kind: str  # "local_agent" | "local_bash" (task_started.task_type)
     status: str = ""  # background task status
     last: str = ""  # last_tool_name, straight off task_progress (agents only)
     n: int = 0  # usage.tool_uses, straight off task_progress (agents only)
-    done: bool = False  # retired by a terminal task event, or (untracked only) its tool_result
-    tracked: bool = False  # registered off task lifecycle events, which own its retirement
+    done: bool = (
+        False  # retired by a terminal task event, or (untracked only) its tool_result
+    )
+    tracked: bool = (
+        False  # registered off task lifecycle events, which own its retirement
+    )
     desc: str = ""  # full untrimmed description (agents detail screen)
     agent_type: str = ""  # task_started.subagent_type (agents only)
     activity: str = ""  # last task_progress.description — what the agent is doing now
     tokens: int = 0  # task_progress usage.total_tokens
     dur_ms: int = 0  # task_progress usage.duration_ms
-    out_path: str = ""  # -o/--output file parsed from the launching Bash command (bash only)
-    started: float = 0.0  # wall clock at registration; attach time for tail-replayed lanes
+    out_path: str = (
+        ""  # -o/--output file parsed from the launching Bash command (bash only)
+    )
+    started: float = (
+        0.0  # wall clock at registration; attach time for tail-replayed lanes
+    )
+    pending_retire: bool = (
+        False  # local_bash absent from harness snapshot, awaiting mtime confirmation
+    )
 
 
 class LogTail:
@@ -110,17 +125,23 @@ class LogTail:
                         chunk = self._fh.read()
                     except OSError:
                         chunk = b""
-                    self._buf = chunk.partition(b"\n")[2]  # discard the partial first line
+                    self._buf = chunk.partition(b"\n")[
+                        2
+                    ]  # discard the partial first line
                 return False, True
             self.session_start = time.time()
             return True, True
-        if st.st_ino != self._ino:  # atomic rename: new inode, old fd now points at nothing
+        if (
+            st.st_ino != self._ino
+        ):  # atomic rename: new inode, old fd now points at nothing
             self._close()
             if not self._open(st.st_ino):
                 return True, False
             self.session_start = time.time()
             return True, True
-        if st.st_size < self._fh.tell():  # truncated in place: tee reopened for a new session
+        if (
+            st.st_size < self._fh.tell()
+        ):  # truncated in place: tee reopened for a new session
             self._fh.seek(0)
             self._buf = b""
             self.session_start = time.time()
@@ -216,7 +237,9 @@ class SessionUsage:
     def totals(self) -> tuple[int, int, int]:
         up = cached = 0
         for u in self._by_msg.values():
-            up += (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+            up += (u.get("input_tokens") or 0) + (
+                u.get("cache_creation_input_tokens") or 0
+            )
             cached += u.get("cache_read_input_tokens") or 0
         # ponytail: ~4 chars/token estimate for the in-flight invoke; exact
         # totals land with each result event and re-anchor _result_out
@@ -241,7 +264,9 @@ class AgentTracker:
     def __init__(self) -> None:
         self._by_task: dict[str, Lane] = {}
         self._by_tool: dict[str, Lane] = {}
-        self._cmd_by_tool: dict[str, str] = {}  # backgrounded Bash tool_use id -> command
+        self._cmd_by_tool: dict[
+            str, str
+        ] = {}  # backgrounded Bash tool_use id -> command
 
     def reset(self) -> None:
         self._by_task.clear()
@@ -286,7 +311,11 @@ class AgentTracker:
 
     def _apply_background_tasks(self, tasks: Any) -> None:
         """tasks[] is the CURRENT SET of running background tasks; liveness
-        is membership — an absent task_id (including an empty list) retires."""
+        is membership — an absent task_id (including an empty list) marks the
+        lane pending retirement rather than finalizing done outright, since a
+        harness snapshot gap can lag a still-writing process. Collector.
+        reconcile_bash_liveness finalizes done once the lane's -o file goes
+        quiet."""
         if not isinstance(tasks, list):
             tasks = []
         alive: set[str] = set()
@@ -303,18 +332,19 @@ class AgentTracker:
                 lane = self._register(
                     task_id=task_id,
                     tool_use_id=task_id,
-                    label=desc[:20],
+                    label=render_stream._trunc(desc, 40),
                     kind=kind,
                     desc=desc,
                     tracked=True,
                 )
             else:
                 lane = self._by_task[task_id]
+                lane.pending_retire = False
             if lane.kind == "local_bash":
                 lane.status = str(item.get("status") or "running")
         for task_id, lane in self._by_task.items():
             if lane.kind == "local_bash" and task_id not in alive:
-                lane.done = True
+                lane.pending_retire = True
 
     def _feed_system(self, event: dict[str, Any]) -> None:
         sub = event.get("subtype")
@@ -328,7 +358,7 @@ class AgentTracker:
             self._register(
                 task_id=task_id,
                 tool_use_id=tool_use_id,
-                label=desc[:20],
+                label=render_stream._trunc(desc, 40),
                 kind=kind,
                 desc=desc,
                 agent_type=str(subagent_type or ""),
@@ -345,7 +375,9 @@ class AgentTracker:
                 lane.tokens = int(usage.get("total_tokens") or 0)
                 lane.dur_ms = int(usage.get("duration_ms") or 0)
         elif sub == "task_updated":
-            self._retire_by_task_id(event.get("task_id"), (event.get("patch") or {}).get("status"))
+            self._retire_by_task_id(
+                event.get("task_id"), (event.get("patch") or {}).get("status")
+            )
         elif sub == "task_notification":
             self._retire_by_task_id(event.get("task_id"), event.get("status"))
         elif sub == "background_tasks_changed":
@@ -363,7 +395,9 @@ class AgentTracker:
                 and isinstance(block.get("input"), dict)
                 and block["input"].get("run_in_background")
             ):
-                self._cmd_by_tool[str(block.get("id"))] = str(block["input"].get("command") or "")
+                self._cmd_by_tool[str(block.get("id"))] = str(
+                    block["input"].get("command") or ""
+                )
 
         parent = event.get("parent_tool_use_id")
         if not parent:
@@ -371,7 +405,9 @@ class AgentTracker:
         parent = str(parent)
         if parent not in self._by_tool:
             label = f"agent{len(self._by_task) + 1}"
-            self._register(task_id=parent, tool_use_id=parent, label=label, kind="local_agent")
+            self._register(
+                task_id=parent, tool_use_id=parent, label=label, kind="local_agent"
+            )
 
     def _feed_user(self, event: dict[str, Any]) -> None:
         content = (event.get("message") or {}).get("content")
@@ -398,22 +434,19 @@ class AgentTracker:
         elif etype == "user":
             self._feed_user(event)
 
-    def tag_for(self, event: dict[str, Any] | None) -> tuple[str, str] | None:
-        if not event:
-            return None
-        parent = event.get("parent_tool_use_id")
-        if not parent:
-            return None
-        lane = self._by_tool.get(str(parent))
-        if lane is None:
-            return None
-        return lane.label, lane.color
-
     def live_lanes(self) -> list[Lane]:
-        return [lane for lane in self._by_task.values() if lane.kind == "local_agent" and not lane.done]
+        return [
+            lane
+            for lane in self._by_task.values()
+            if lane.kind == "local_agent" and not lane.done
+        ]
 
     def live_tasks(self) -> list[Lane]:
-        return [lane for lane in self._by_task.values() if lane.kind == "local_bash" and not lane.done]
+        return [
+            lane
+            for lane in self._by_task.values()
+            if lane.kind == "local_bash" and not lane.done
+        ]
 
     def lanes(self) -> list[Lane]:
         """Every lane this session, live and retired, in registration order."""
