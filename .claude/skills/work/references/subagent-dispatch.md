@@ -44,7 +44,7 @@ PostToolUse hooks do not fire inside subagents (see `SKILL.md` "CRITICAL: One Ta
         invocation will resume via `state.stall_reason`.
      4. Append an attempt-log entry per `references/attempt-logging.md`:
         `outcome: "aborted"`, `cause: "subagent_prompt_overrun"`,
-        `model` from `task.metadata.model`,
+        `model` from `state.tasks[i].model`,
         `review_cycle: null` (Phase 3) or current `state.cycle` (rework).
      5. Report cause `subagent_prompt_overrun` and stop work on this task.
 4. The abort-instruction line is **baked into the persona files**, so there is nothing to prepend:

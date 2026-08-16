@@ -2,7 +2,7 @@
 
 How to invoke local qwen for task implementation via the `~/.claude/skills/use-qwen/scripts/qwen-run.sh` helper, which wraps the `pi` agent against a llama.cpp-served model. Always pass the prompt with `-f <file>`. The helper defaults to `unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL`; `-m` overrides it, but an autopilot dispatch runs under `--approved-only`, so any id it names must be in the approved registry or the run is refused. Inference is local and free — no API cost, no token billing.
 
-Qwen routing is gated by `task.metadata.qwen_eligible` (written upstream by `/plan-tasks`) and by the **Preflight** below. `work`'s step 3 routing table picks qwen only when the flag is `true` AND preflight is healthy; otherwise it falls back to Claude at the task's original tier.
+Qwen routing is gated by `state.tasks[i].qwen_eligible` (written upstream by `/plan-tasks`) and by the **Preflight** below. `work`'s step 3 routing table picks qwen only when the flag is `true` AND preflight is healthy; otherwise it falls back to Claude at the task's original tier.
 
 ## Preflight
 
@@ -131,7 +131,7 @@ The task's acceptance criteria prose is intentionally omitted. Tests ARE the spe
 
 Qwen finishes one file and silently drops the rest of a multi-file task.
 
-**Fix**: `task.metadata.qwen_eligible` already restricts qwen to `≤3`-file backend tasks at planning time (see PRD 00032, widened by PRD 00019). If a wider task slips through, the step-5.5 per-task test gate catches it — the one-shot qwen attempt budget then escalates the next attempt to Claude Sonnet.
+**Fix**: `state.tasks[i].qwen_eligible` already restricts qwen to `≤3`-file backend tasks at planning time (see PRD 00032, widened by PRD 00019). If a wider task slips through, the step-5.5 per-task test gate catches it — the one-shot qwen attempt budget then escalates the next attempt to Claude Sonnet.
 
 ### Over-claims completeness
 

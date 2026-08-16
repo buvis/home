@@ -34,7 +34,7 @@ passing tests, prune your diff" to the same prompt is cheap but ineffective:
 same model + same session + "this is my work" attachment defeats slop
 detection — empirically, models defend their own output. A separate dispatch
 with task-as-external framing breaks that loop while staying at the same tier
-budget (step 5.6 dispatches at `task.metadata.model`).
+budget (step 5.6 dispatches at `state.tasks[i].model`).
 
 ## Why the infrastructure circuit breaker exists (step 4.2)
 
@@ -52,7 +52,7 @@ tasks: cheap mechanical tasks rely on per-task test verification plus the
 PRD-level review lenses (consensus, blind, doubt — every review cycle), which
 review every task's diff regardless of tier. Escalation restores depth
 automatically: when the review gate escalates a task to `opus`, the rework
-attempt regains Devon with no extra mechanism. Tier source: `metadata.model`
+attempt regains Devon with no extra mechanism. Tier source: `state.tasks[i].model`
 set by `/plan-tasks` (PRD 00025), escalated by the review gate's Phase 6.
 
 ## Why qwen gets exactly one shot per task (PRD 00031)
