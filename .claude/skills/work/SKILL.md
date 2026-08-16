@@ -45,7 +45,7 @@ This skill runs inside an **automated autopilot loop**. The user is not watching
 
 ```
 for each pending task:
-    a. TaskUpdate(in_progress) → sync state file
+    a. task-start <id>
     b. Tess writes tests (from requirements only)
     c. test quality gate (main session)
     d. Devon tries to break tests (adversarial validation)
@@ -53,7 +53,7 @@ for each pending task:
     f. Ivan implements against failing tests
     g. verify THIS task's tests pass (retry Ivan if needed)
     h. commit implementation
-    i. TaskUpdate(completed) → sync state file
+    i. task-done <id> <attempt-file>
 
 after all tasks complete:
     j. run full verification suite ONCE (see step 7 below)
@@ -171,11 +171,13 @@ The generic `set|append|del <json-path>` forms remain for everything that is not
 
 ### 1. Get pending tasks
 
-Use `TaskList` tool to see all tasks. Filter for:
+Read `state.tasks` from `dev/local/autopilot/state.json` — it is the canonical,
+complete task store, so nothing needs hydrating first. Filter for:
 
-- Status: `pending`
-- No blockers (empty `blockedBy`)
-- No owner assigned
+- `status == "pending"`
+- **Unblocked**: `blocked_by` is absent, empty, or every id in it resolves to a
+  `tasks[]` entry with `status == "completed"` (ids are stored as strings, so
+  compare `str(id) == entry.id`)
 
 ### 1.5. Rework-mode task filter
 
@@ -183,10 +185,10 @@ Read `state.rework_task_ids` from `dev/local/autopilot/state.json` (walk up from
 
 | `rework_task_ids` | Mode | Iteration source |
 |-------------------|------|------------------|
-| absent or `[]` | **default (full-plan)** | The pending-and-unblocked subset from step 1's `TaskList` filter, in TaskList order. This is the Phase 3 first-pass behavior. |
-| non-empty array | **rework mode** | The listed task IDs read directly from `state.rework_task_ids`, in array order — **bypass step 1's status filter entirely**. Each ID is fetched via `TaskGet` regardless of current status (`pending` after Phase 6's reset, or `completed` if Phase 6's reset hasn't fired yet). Tasks NOT in the list are skipped entirely — no Tess/Ivan/Devon dispatch, no commits. |
+| absent or `[]` | **default (full-plan)** | The pending-and-unblocked subset from step 1's `state.tasks` pending scan, in that scan's order. This is the Phase 3 first-pass behavior. |
+| non-empty array | **rework mode** | The listed task IDs read directly from `state.rework_task_ids`, in array order — **bypass step 1's status filter entirely**. Each id's entry is read directly from `state.tasks[i]` (matched by id) regardless of current status (`pending` after Phase 6's reset, or `completed` if Phase 6's reset hasn't fired yet). Tasks NOT in the list are skipped entirely — no Tess/Ivan/Devon dispatch, no commits. |
 
-**In rework mode, each task's status is set to `in_progress` at start** via `TaskUpdate` (overwriting whatever the prior status was — `pending` after Phase 6's reset, or `completed` on a defensive re-entry) and to `completed` at end — same lifecycle as a default-mode pass, so the dashboard reflects rework progress.
+**In rework mode, each task's status is set to `in_progress` at start** via `task-start` (overwriting whatever the prior status was — `pending` after Phase 6's reset, or `completed` on a defensive re-entry) and to `completed` at end — same lifecycle as a default-mode pass, so the dashboard reflects rework progress. `task-start` does not recompute `tasks_completed`, so reopening a previously-`completed` task leaves the count transiently stale until that task's next `task-done` recomputes it — accepted, not a bug to fix.
 
 **In rework mode, the Attempt logging entry** (see "Attempt logging" above) sets `review_cycle` to the current `state.cycle` value (not null), `model` to the escalated tier read from `task.metadata.model` (set by `/run-autopilot` Phase 6), and `outcome` to `"completed"` or `"aborted"` as normal. It also **copies `task.metadata.escalation_reason` and `task.metadata.escalated_from` onto the entry when present** — Phase 6 sets them (`escalation_reason: "review_flag"`, `escalated_from: <prev_tier>`) on the review-flag escalation path, and this copy is how `review_flag` actually reaches `attempts[]` (the PRD metric "every escalation records reason in attempts[]" depends on it). Absent (a non-escalated rework re-dispatch) → omit both.
 
@@ -198,17 +200,15 @@ Cross-reference: `run-autopilot/references/state-schema.md` `rework_task_ids` ro
 
 For the first available task:
 
-1. Use `TaskUpdate` to set `status: in_progress` and claim ownership
-2. **Sync state file** with the single compound verb (see Dashboard State Sync):
+1. **Claim the task** with the single compound verb (see Dashboard State Sync) — `task-start` sets `status: in_progress` in the state file, so this call IS the claim:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> task-start <task-id>
    ```
-3. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file, but the explicit clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Run the shared walk-up helper in `--clear-cap` mode — it resolves symlinks, walks up to the autopilot dir, and removes `<autopilot_dir>/.cap-fired` internally:
+2. **Reset the per-task context-cap marker** so the autopilot PostToolUse hook fires once for THIS task, not once per Work phase. The hook also self-clears when the in-progress task id in `state.json` differs from the id stored in the marker file, but the explicit clear here is a belt-and-braces backstop in case state.json's task-id snapshot lags the actual task switch. Run the shared walk-up helper in `--clear-cap` mode — it resolves symlinks, walks up to the autopilot dir, and removes `<autopilot_dir>/.cap-fired` internally:
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --clear-cap
    ```
    No-op when no ancestor has the dir or the marker is already absent (first task of the phase); always exits 0. Use exactly this single-command form — no `d=$(...)` shell variable, so the permission matcher can resolve it.
-4. Use `TaskGet` to read full task description
 
 ### 2.5. Load project context
 
@@ -534,7 +534,7 @@ Compute `net_lines = insertions - deletions` (from `--shortstat`) and `file_coun
 
 **Prompt construction.** Build the subagent prompt from `references/self-deslop-prompt.md` by substituting:
 
-- `{{task_subject}}`, `{{task_description}}`, `{{task_acceptance_criteria}}` from `TaskGet` on the current task.
+- `{{task_subject}}` from `tasks[i].name`, `{{task_description}}` from `tasks[i].description` (full text, falling back to the name-only body when `description` is absent), and `{{task_acceptance_criteria}}` from a **text-extraction** of the `Acceptance criteria:` section of that same `tasks[i].description` (falling back to the literal string `(none recorded)` when absent) — all read directly from the current task's `state.tasks` entry, already in hand from step 1's pending scan. The criteria are parsed out of the stored body; there is no `acceptance_criteria` field to read.
 - `{{test_files}}` from the tests Tess wrote in step 2.7 (the same set step 5.5 just ran).
 - `{{diff_files}}` from `git diff-tree --no-commit-id --name-only -r HEAD`.
 - `{{slop_catalog}}` from the `## What to remove` section of `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` — read the file at dispatch time and inline the section verbatim. This keeps the deslop prompt as the single source of truth for slop patterns; when it grows entries, the next step-5.6 dispatch picks them up without a code change here.
@@ -592,9 +592,8 @@ Skip for documentation-only or configuration-only tasks.
 
 ### 6. Mark complete and sync
 
-1. Use `TaskUpdate` to set `status: completed`
-2. **Build the attempt record** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`) plus `fable` → `"full"` (the rescue rung runs the deepest pipeline, like `opus`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
-3. **Land the whole transition in ONE `statectl` call.** Write the record from step 2 to `dev/local/tmp/attempt-task-<id>.json` with the **Write tool** (never a shell redirect — an attempt record carries quotes and newlines), then:
+1. **Build the attempt record** per the "Attempt logging" section: `outcome: "completed"`, `model` from `task.metadata.model`, `pipeline` from `task.metadata.model` (`haiku` → `"minimal"`, `sonnet`/absent/legacy → `"lean"`, `opus` → `"full"`) plus `fable` → `"full"` (the rescue rung runs the deepest pipeline, like `opus`), `cause: null`, `review_cycle: null` on a Phase-3 first pass or the current `state.cycle` on a rework pass. When `task.metadata.escalation_reason` / `task.metadata.escalated_from` are present (set by `/run-autopilot` Phase 6 for a review-flag escalation), **copy both onto the entry** so `escalation_reason: "review_flag"` reaches `attempts[]`; absent → omit both.
+2. **Land the whole transition in ONE `statectl` call.** Write the record from point 1 to `dev/local/tmp/attempt-task-<id>.json` with the **Write tool** (never a shell redirect — an attempt record carries quotes and newlines), then:
 
    ```bash
    python3 ~/.claude/skills/run-autopilot/scripts/statectl.py <state.json> task-done <task-id> dev/local/tmp/attempt-task-<id>.json
@@ -603,8 +602,8 @@ Skip for documentation-only or configuration-only tasks.
    `task-done` sets `tasks[i].status = "completed"`, appends the record to `tasks[i].attempts`, and **recomputes `tasks_completed` from the task array** — all three inside one locked atomic write. Do NOT set `status`, append the attempt, or set `tasks_completed` separately here; the count is derived and is not passed in. The task is resolved by matching `tasks[].id`, so the `tasks[N]` index form is not used here (rework appends `[D{cycle}]` follow-ups, after which array position stops matching id).
 
    The matching call at task start (step 2) is `statectl <state.json> task-start <task-id>`.
-4. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
-5. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
+3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
+4. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
 
 ### 6.5. Task-boundary handoff check
 
@@ -629,7 +628,7 @@ The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.hand
       ```
    d. **Write the contract card** (run-autopilot § Contract card): the current step, the active invariants, and the next gate, so a session compacted after this boundary re-anchors instead of drifting. Write the body to `dev/local/autopilot/contract-card.md` with the **Write tool**, then (autopilot only) load it with `statectl.py <state.json> set-contract-card dev/local/autopilot/contract-card.md`. Never pass the card as an inline shell argument — it carries quotes, newlines and `$`, and the inline form failed three times in a row on quoting in a real build session. Interactive runs stop after the file write. Then ensure `state.next_phase == "build"` (it already is during the build gate, since this is a mid-build task-boundary handoff with pending tasks remaining), then STOP — end the turn. In loop mode the wrapper reads the non-empty `next_phase: "build"` and relaunches a fresh session (the headless hand-off contract in `run-autopilot/SKILL.md` § Session Loop); the model writes no signal.
 
-   **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3, hydrates TaskList from `state.tasks`, and re-invokes `/work` for the pending tasks.
+   **Do NOT return to step 1, and do NOT run step 7.** `phases_completed` stays without `"work"` (this session did not finish the phase), so `/run-autopilot` re-enters Phase 3 and re-invokes `/work`, which reads the pending tasks directly from `state.tasks`.
 
 ### 7. Final verification (once per work phase)
 
@@ -650,7 +649,7 @@ Run each as a separate Bash call. Do not chain with `&&`.
 **Handling failures at this step:**
 
 1. Identify which task(s) introduced the regression. The failing test output usually points at a specific module; cross-reference against the task commits.
-2. Re-open the offending task via `TaskUpdate(status: in_progress)` and sync state file.
+2. Re-open the offending task via `task-start <task-id>`.
 3. Dispatch Ivan with the failure output to fix it: re-render `ivan.md` using the **full** retry command shape from step 5.5 (every placeholder filled, explicit `--out`), with `FAILING_TESTS` filled from the step-7 failure output and `--set RETRY_INSTRUCTION="Fix only the regression identified below. Do not touch unrelated files or refactor adjacent code."`. The code-quality rules block is already permanent in `ivan.md`. Do NOT relax the failing test.
 4. After the fix commits, re-run **only** the previously failing commands from step 7 (not the whole suite again) to confirm the fix.
 5. Mark the task completed and re-sync.

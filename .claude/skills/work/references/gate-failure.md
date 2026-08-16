@@ -30,7 +30,8 @@ gate fail #1 at current rung → feedback retry: dispatch Ivan with the failure 
                                 feedback retry: its single gate failure goes straight to DIAGNOSE
                                 below, per the 1-dispatch budget)
 gate fail #2 at current rung → DIAGNOSE:
-  1. Write task.description (from TaskGet) to dev/local/tmp/diagnose-task-<id>.txt and run:
+  1. Write task.description (from state.tasks[i].description, already in hand from step 1's
+     pending scan) to dev/local/tmp/diagnose-task-<id>.txt and run:
        python3 ~/.claude/skills/work/scripts/diagnose_task.py <task-file> --repo-root <project-root>
      `<project-root>` = the dir containing dev/local/, resolved by walking up from cwd (same anchor
      as _walk_up.py) — NOT state.repo_root, which differs under a bare-repo-backed project.
@@ -43,10 +44,10 @@ gate fail #2 at current rung → DIAGNOSE:
 REPAIR (spec_gap, repair not yet used this task, current rung is
   haiku, sonnet, or opus, never fable): fill the identified gaps (missing Contract, missing
   Acceptance criteria, dangling file references) from the PRD + design doc, rewrite the task
-  description via TaskUpdate(taskId, description=<repaired>) — the canonical store /work
-  re-reads via TaskGet — and re-dispatch Ivan at the SAME tier ONCE. Stamp `repair_used:true`
-  on that rung's attempt entry. A gate failure after the repair takes the solid_spec path below
-  — repair is exhausted for this task.
+  description via `task-set-body <task-id> <body-file>` — the canonical store /work reads
+  directly from `state.tasks[i].description` — and re-dispatch Ivan at the SAME tier ONCE.
+  Stamp `repair_used:true` on that rung's attempt entry. A gate failure after the repair takes
+  the solid_spec path below — repair is exhausted for this task.
 ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any qwen-rung spec_gap):
   1. Reset guard — capture `<candidate_head>` = `git rev-parse HEAD` first, then require BOTH:
      - **uncommitted:** `git status --porcelain` is empty (no foreign/uncommitted working-tree files), AND
@@ -77,14 +78,17 @@ ESCALATE (solid_spec, OR spec_gap with repair unavailable/already used, OR any q
      escalated INTO this rung, so the `review_flag` reason belongs here; capturing it before step 3
      clears it is what keeps the review-flag source recorded when a review-flagged task ALSO escalates
      in-loop (otherwise the reason would be lost on this entry and mis-stamped on the higher rung).
-  3. `TaskUpdate(taskId, metadata={model: <new tier>})` (mirrors the state-schema.md tasks[].model
-     Phase-6 pattern), mirrored into `state.tasks[i].model` per Dashboard State Sync — BEFORE the
-     dispatch below, so the **Per-task model dispatch** rule picks up the escalated tier for Ivan
-     and every downstream read this task (step 5.6, step 5.7's tier gate). **Also clear any
-     `escalation_reason`/`escalated_from` from `task.metadata` here** — point 2 already copied a
+  3. `task-set-meta <task-id> <meta-json-file>` with the payload
+     `{"model": "<new tier>", "escalation_reason": null, "escalated_from": null}` — one call, one
+     payload file, three keys. The `model` key writes `state.tasks[i].model` directly in one locked
+     write, so there is no separate mirroring step. Run it BEFORE the dispatch below, so the
+     **Per-task model dispatch** rule picks up the escalated tier for Ivan and every downstream
+     read this task (step 5.6, step 5.7's tier gate). The two `null` values
+     **clear any `escalation_reason`/`escalated_from` from `task.metadata` here** (`task-set-meta`
+     deletes a key whose value is JSON `null`) — point 2 already copied a
      review-flag reason onto the lower-rung entry, and the higher in-loop rung records its OWN
      `escalation_reason:"gate_failure"` at point 5. Leaving the sticky `review_flag` in `task.metadata`
-     (which `TaskUpdate` merges, not replaces) would make step 6's metadata→entry copy mis-stamp
+     (which `task-set-meta` merges, not replaces) would make step 6's metadata→entry copy mis-stamp
      `review_flag` onto this `gate_failure` rung.
   4. Dispatch ONE rung up (per `model-ladder.md` § Capability ladders — qwen -> sonnet skipping
      haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY: failing test names, the last
