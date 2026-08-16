@@ -4,6 +4,14 @@ How to invoke Gemini for task implementation via the `~/.claude/skills/use-gemin
 
 ## Prompt Template
 
+The task placeholders below are sourced from the task's `state.tasks` entry, read
+directly — no native task-tool field is involved (there never was a real
+`acceptance_criteria` tool field). `{task.subject}` ← `tasks[i].name`;
+`{task.description}` ← `tasks[i].description` (full text);
+`{task.acceptance_criteria}` ← a **text-extraction** of the `Acceptance criteria:`
+section from `tasks[i].description`, falling back to the literal
+`"Complete the task as described"` string shown in the template when absent.
+
 ```
 Task: {task.subject}
 

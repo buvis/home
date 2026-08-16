@@ -10,8 +10,13 @@ When a tool can't complete a task (timeout/complexity), split it:
 
 1. Analyze what was accomplished
 2. Create 2-4 smaller tasks covering remaining work
-3. Use `TaskCreate` for each subtask
-4. Set dependencies with `TaskUpdate.addBlockedBy` if sequential
+3. Create each subtask with `task-add <task-json-file>` — a JSON payload file
+   carrying at minimum `name`, plus `description`/`model`/`estimated_tokens`
+   and any other field the original task's metadata warrants. Capture the id
+   `task-add` prints to stdout.
+4. Set sequential dependencies via each subtask's `blocked_by` array (list of
+   ints) in its own `task-add` payload, naming the captured ids of subtasks
+   created earlier in this same split that must finish first.
 5. Mark original task as blocked or completed (if partially done)
 
 ## Split criteria
