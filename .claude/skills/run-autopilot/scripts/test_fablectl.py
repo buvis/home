@@ -71,7 +71,9 @@ class FablectlTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_cli(
-        self, *args: str, ledger: Path | None = None
+        self,
+        *args: str,
+        ledger: Path | None = None,
     ) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["python3", str(FABLECTL), str(ledger or self.ledger), *args],
@@ -96,7 +98,10 @@ class FablectlTest(unittest.TestCase):
         )
 
     def make_entry(
-        self, status: str, prd: str = PRD, ledger: Path | None = None
+        self,
+        status: str,
+        prd: str = PRD,
+        ledger: Path | None = None,
     ) -> None:
         """Drive the CLI until PRD's entry sits at `status`."""
         steps = {
@@ -218,7 +223,8 @@ class FablectlTest(unittest.TestCase):
         self.assertEqual(ledger[PRD_B]["batch_id"], other_batch_id)
         self.assertEqual(ledger[PRD_B]["justification"], other_justification)
         self.assertNotEqual(
-            ledger[PRD]["justification"], ledger[PRD_B]["justification"]
+            ledger[PRD]["justification"],
+            ledger[PRD_B]["justification"],
         )
 
     # 3. decide: only out of "requested" ---------------------------------------
@@ -428,7 +434,7 @@ class FablectlTest(unittest.TestCase):
         # the offending status value.
         bad_status = "foo"
         corrupt = json.dumps(
-            {PRD: {"status": bad_status, "task_id": TASK_ID}}
+            {PRD: {"status": bad_status, "task_id": TASK_ID}},
         ).encode()
         verbs = {
             "request": None,
@@ -489,10 +495,12 @@ class FablectlTest(unittest.TestCase):
                 result = self.run_cli(*args, ledger=nested)
                 self.assertEqual(result.returncode, 3, result.stderr)
                 self.assertFalse(
-                    nested.parent.exists(), "refusal must not create the parent dir"
+                    nested.parent.exists(),
+                    "refusal must not create the parent dir",
                 )
                 self.assertFalse(
-                    lock.exists(), "refusal must not create the lock file"
+                    lock.exists(),
+                    "refusal must not create the lock file",
                 )
         legit = self.request(ledger=nested)
         self.assertEqual(legit.returncode, 0, legit.stderr)
@@ -739,8 +747,11 @@ TIER_TABLE_FILES = (WORK_SKILL, STATE_SCHEMA, MODEL_LADDER, GATE_FAILURE_REF)
 
 # One line at a time: "names all three tiers", and the same with "and does not
 # name fable" - the offending shape.
-TIER_ENUM = re.compile(r"(?=.*haiku)(?=.*sonnet)(?=.*opus)", re.I)
-MISSING_FABLE = re.compile(r"(?=.*haiku)(?=.*sonnet)(?=.*opus)(?!.*fable)", re.I)
+TIER_ENUM = re.compile(r"(?=.*haiku)(?=.*sonnet)(?=.*opus)", re.IGNORECASE)
+MISSING_FABLE = re.compile(
+    r"(?=.*haiku)(?=.*sonnet)(?=.*opus)(?!.*fable)",
+    re.IGNORECASE,
+)
 
 # An escalation chain (`haiku -> sonnet -> opus`) is a LADDER WALK, not a tier
 # enumeration: `fable` is never auto-escalatable, so its absence there IS the
@@ -749,6 +760,27 @@ MISSING_FABLE = re.compile(r"(?=.*haiku)(?=.*sonnet)(?=.*opus)(?!.*fable)", re.I
 CHAIN = re.compile(r"(?:`?[\w-]+`?\s*(?:->|→)\s*)+`?[\w-]+`?")
 
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+# A fence in either marker, closed or not: an UNCLOSED fence runs to the end of
+# the document, so its body is still a sample and must still be blanked. The
+# marker is back-referenced, so a `~~~` line cannot close a ``` block.
+FENCE = re.compile(
+    r"^[ \t]*(?P<mark>[`~])(?P=mark){2,}[^\n]*\n"  # opener: ``` or ~~~
+    r"(?:.*?^[ \t]*(?P=mark){3,}[^\n]*$|.*\Z)",  # its closer, or end of doc
+    re.DOTALL | re.MULTILINE,
+)
+
+# Markdown's other code block: blank line(s), then 4-space (or tab) indented
+# lines. `Flow` collapses runs of whitespace, which erases the indentation, so
+# without this an indented sample reaches the prose scan as an ordinary
+# sentence. The first indented line must not be a list marker - a nested bullet
+# is prose that happens to be indented, and blanking it would hide a rule an
+# editor legitimately wrote there.
+INDENTED_CODE = re.compile(
+    r"^(?:[ \t]*\n)+(?: {4}|\t)(?![-*+>]|\d+[.)])[^\n]*(?:\n|\Z)"
+    r"(?:(?: {4}|\t)[^\n]*(?:\n|\Z))*",
+    re.MULTILINE,
+)
 
 # Lines that name all three tiers and must STAY fable-free: adding `fable` to
 # one of these would be a real defect, not a fix. Each row is (file, short
@@ -804,13 +836,18 @@ def _cite(path: Path, number: int, text: str) -> str:
     return f"  {path}:{number}: {' '.join(text.split())[:140]}"
 
 
+def _blank(text: str, pattern: re.Pattern) -> str:
+    """Space out every `pattern` hit, keeping newlines so line numbers survive."""
+    return pattern.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
 def _strip_comments(text: str) -> str:
     """Blank out `<!-- ... -->`, keeping every newline so line numbers survive.
 
     An HTML comment is invisible in the rendered doc, so it can never satisfy a
     contract - and stripping it must not shift the `file:line` a failure cites.
     """
-    return COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+    return _blank(text, COMMENT)
 
 
 Hit = namedtuple("Hit", "line text start end")
@@ -866,8 +903,26 @@ class Doc:
             rows.extend(self.section(heading))
         return Flow(self.path, rows)
 
-    def whole(self) -> Flow:
+    def raw(self) -> Flow:
+        """Every line, fences included - for checks that hunt for HARM."""
         return Flow(self.path, list(enumerate(self.lines, 1)))
+
+    def whole(self) -> Flow:
+        """Every line, with code samples blanked: the doc's PROSE.
+
+        A `{"gate": "passed", "counter": 0}` sample states nothing - it is data
+        the doc shows, not an instruction it gives - so a contract cannot be
+        SATISFIED from a code block in ANY of the shapes markdown offers: a
+        ``` or a ~~~ fence, an unclosed fence, or a 4-space indented block. The
+        asymmetry with `raw()` is deliberate and fails closed both ways:
+        stating a rule takes prose, denying one counts wherever it is written.
+        Blanking in place (not deleting) keeps the `file:line` a failure cites;
+        section scans keep their fences, being anchored at command blocks on
+        purpose.
+        """
+        fenced = _blank("\n".join(self.lines), FENCE)
+        prose = _blank(fenced, INDENTED_CODE).splitlines()
+        return Flow(self.path, list(enumerate(prose, 1)))
 
 
 def combined_doc(primary: Path, extra: Path) -> Doc:
@@ -909,54 +964,71 @@ ESCALATION_SECTION = "### 5.5."
 # `opus -> "full"` sits later in the same sentence, so the arrow has to be
 # between the two halves - and no OTHER arrow may sit in the gap.
 GAP = r"(?:(?!->|→)[^|\n]){0,30}"
-FABLE_FULL = re.compile(rf"`?fable`?{GAP}(?:->|→)\s*`?\"full\"`?", re.I)
-FABLE_SHALLOW = re.compile(rf"`?fable`?{GAP}(?:->|→)\s*`?\"(?:minimal|lean)\"`?", re.I)
-ANY_PIPELINE_MAP = re.compile(r"(?:->|→)\s*`?\"(?:minimal|lean|full)\"", re.I)
+FABLE_FULL = re.compile(rf"`?fable`?{GAP}(?:->|→)\s*`?\"full\"`?", re.IGNORECASE)
+FABLE_SHALLOW = re.compile(
+    rf"`?fable`?{GAP}(?:->|→)\s*`?\"(?:minimal|lean)\"`?",
+    re.IGNORECASE,
+)
+ANY_PIPELINE_MAP = re.compile(r"(?:->|→)\s*`?\"(?:minimal|lean|full)\"", re.IGNORECASE)
 
 # A negator between the two halves flips the sentence, so the gap may not hold
 # one: `fable` DOES NOT override the table is not a statement that it does.
 CLEAN_GAP = r"(?:(?!\b(?:not|never|neither|nor)\b)[^.]){0,120}?"
 OVERRIDES = (
-    re.compile(rf"`?fable`?{CLEAN_GAP}\boverrid(?:e|es|ing)\b", re.I),
-    re.compile(rf"\boverrid(?:e|es|ing)\b{CLEAN_GAP}`?fable`?", re.I),
+    re.compile(rf"`?fable`?{CLEAN_GAP}\boverrid(?:e|es|ing)\b", re.IGNORECASE),
+    re.compile(rf"\boverrid(?:e|es|ing)\b{CLEAN_GAP}`?fable`?", re.IGNORECASE),
 )
 SESSION_MODEL = (
-    re.compile(r"`?fable`?[^.]{0,120}?\bnever\b[^.]{0,80}?session model", re.I),
-    re.compile(r"\bnever\b[^.]{0,80}?session model[^.]{0,120}?`?fable`?", re.I),
+    re.compile(
+        r"`?fable`?[^.]{0,120}?\bnever\b[^.]{0,80}?session model",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bnever\b[^.]{0,80}?session model[^.]{0,120}?`?fable`?",
+        re.IGNORECASE,
+    ),
 )
 
 NEGATED_ACTION = re.compile(
-    r"\b(?:skip|skips|skipped|no|not|never|without|omit|omits|bypass|bypasses)\b", re.I
+    r"\b(?:skip|skips|skipped|no|not|never|without|omit|omits|bypass|bypasses)\b",
+    re.IGNORECASE,
 )
 DEVON_ACTION = re.compile(
-    r"(?:dispatch\w*\s+devon|devon\s+(?:is\s+)?dispatch\w*)", re.I
+    r"(?:dispatch\w*\s+devon|devon\s+(?:is\s+)?dispatch\w*)",
+    re.IGNORECASE,
 )
-REVIEW_ACTION = re.compile(r"\breview\b", re.I)
+REVIEW_ACTION = re.compile(r"\breview\b", re.IGNORECASE)
 
-FOLDED_BUDGET = re.compile(r"claude rungs?\b.{0,80}?\b(?:2|two) dispatches", re.I)
+FOLDED_BUDGET = re.compile(
+    r"claude rungs?\b.{0,80}?\b(?:2|two) dispatches",
+    re.IGNORECASE,
+)
 FABLE_TWO_DISPATCHES = re.compile(
-    r"`?fable`?[^.]{0,60}?\bgets?\s+(?:2|two) dispatches", re.I
+    r"`?fable`?[^.]{0,60}?\bgets?\s+(?:2|two) dispatches",
+    re.IGNORECASE,
 )
 FABLE_OWN_BUDGET = re.compile(
-    r"`?fable`?[^.]{0,80}?\b(?:1|one)\s+(?:capability\s+)?dispatch per PRD", re.I
+    r"`?fable`?[^.]{0,80}?\b(?:1|one)\s+(?:capability\s+)?dispatch per PRD",
+    re.IGNORECASE,
 )
 LADDER_FILE = "model-ladder.md"
 
 # The exclusion words that make a `fable` mention on an escalation edge legal.
 # NOT "gate" - § 5.5 says "gate failure" and "gate-output" everywhere.
 EXCLUSION = re.compile(
-    r"\b(?:never|not|human|approval|approved|exclude\w*|no rung above)\b", re.I
+    r"\b(?:never|not|human|approval|approved|exclude\w*|no rung above)\b",
+    re.IGNORECASE,
 )
 NO_RUNG_ABOVE = (
-    re.compile(r"`?fable`?[^.]{0,80}?no rung above", re.I),
-    re.compile(r"no rung above[^.]{0,80}?`?fable`?", re.I),
+    re.compile(r"`?fable`?[^.]{0,80}?no rung above", re.IGNORECASE),
+    re.compile(r"no rung above[^.]{0,80}?`?fable`?", re.IGNORECASE),
 )
 
 # Phrasings that DENY a contract. A `fable` mention that denies must fail, not
 # pass: every one of these was appended to a real line to satisfy a scan that
 # only asked whether the word appeared.
 DENIALS = tuple(
-    re.compile(pattern, re.I)
+    re.compile(pattern, re.IGNORECASE)
     for pattern in (
         r"not an accepted value",
         r"never write it",
@@ -981,17 +1053,17 @@ DENIAL_RADIUS = 200
 FEEDBACK_RETRY_ANCHOR = re.compile(
     r"feedback retry:\s*dispatch ivan with the failure output,\s*same tier\s*"
     r"\((.*?)per the 1-dispatch budget\)",
-    re.I,
+    re.IGNORECASE,
 )
 REPAIR_VERDICT_ANCHOR = re.compile(
     r'verdict\s*"spec_gap"\s*\(exit 0\)\s*(?:->|→)\s*repair path below, if '
     r"repair unused this task and current rung is\s+(.*?)\s*\(qwen never repairs",
-    re.I,
+    re.IGNORECASE,
 )
 REPAIR_CONDITION_ANCHOR = re.compile(
     r"repair\s*\(spec_gap, repair not yet used this task,\s*(.*?)\):\s*"
     r"fill the identified",
-    re.I,
+    re.IGNORECASE,
 )
 RETRY_REPAIR_SITES = (
     ("feedback-retry gate", FEEDBACK_RETRY_ANCHOR),
@@ -1008,8 +1080,79 @@ RETRY_REPAIR_SITES = (
 # be negated close to where it is named in the qualifier, not merely present
 # somewhere in it.
 FABLE_EXCLUDED = (
-    re.compile(r"fable\b.{0,20}?\b(?:never|not|neither|nor|exclud\w*|except)\b", re.I),
-    re.compile(r"\b(?:never|not|neither|nor|exclud\w*|except)\b.{0,20}?fable\b", re.I),
+    re.compile(
+        r"fable\b.{0,20}?\b(?:never|not|neither|nor|exclud\w*|except)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:never|not|neither|nor|exclud\w*|except)\b.{0,20}?fable\b",
+        re.IGNORECASE,
+    ),
+)
+
+# The qwen capability breaker's counter is zeroed on a gate PASS - and a run
+# whose gate passes never opens `gate-failure.md` (the only pointer to it says
+# to read it before the first gate FAILURE of a batch). The rule therefore has
+# to survive in SKILL.md's own body.
+#
+# PROXIMITY IS NOT AN ASSERTION. The counter's name, a "pass" word and a `0` all
+# already live in SKILL.md (routing rows, batch-scope reset), so a near-miss
+# scan goes green on five rewrites that state NO rule or the OPPOSITE one:
+# "a gate PASS no longer resets it" (negated with words no blocklist holds),
+# "every gate FAILURE on a `passing`-tier attempt sets it to 0" (wrong trigger,
+# pass-word as an adjective), a field glossary naming `passes_total`, a
+# rejected-alternative note, and a `{"gate": "passed", ...: 0}` data sample.
+# So the match below is an ORDERED, HEDGE-FREE CLAUSE, one of:
+#
+#     <gate pass> -> <reset verb> -> <counter> -> <0>        (active)
+#     <gate pass> -> <counter> -> <reset verb> -> <0>        (passive)
+#
+# at most 40 characters between adjacent elements, crossing no clause boundary
+# (`.` `;` `|`), no hedge inside any gap, and no disclaimer earlier in the same
+# sentence - over `Doc.whole()`, whose fenced blocks are blanked, so a data
+# sample cannot satisfy a prose rule. Re-wording stays free; asserting the
+# opposite, or merely naming the field, does not.
+
+# The gate OUTCOME, never a bare `pass\w*`: `passes_total`, a `passing`-tier
+# adjective and a `"gate": "passed"` JSON value are not gate outcomes.
+GATE_PASS = r"\bgate\s+(?:outcome\s+|result\s+|verdict\s+)?pass(?:es|ed)?\b"
+RESET_VERB = r"\b(?:re-?sets?|zeroe?s|zero|zeroed|clears?|cleared|sets?)\b"
+# Both ends anchored, or the name matches INSIDE a longer identifier: a gate
+# pass that clears `qwen_gate_failures_consecutive_lifetime` would satisfy the
+# rule while saying nothing about the counter the rule is about.
+QWEN_COUNTER = r"(?<!\w)`?qwen_gate_failures_consecutive`?(?![\w`])"
+ZERO = r"\b(?:0|zero)\b"
+
+# Hedges void the clause they sit in: a modal, a temporal or a negation between
+# the trigger and its verb means the rule is NOT being stated. The list is not
+# (and cannot be) exhaustive - the 40-char gap is what makes it hold, by leaving
+# no room to launder one.
+HEDGE = (
+    r"\b(?:not|never|neither|nor|no|none|without|except|unless|instead|rather|"
+    r"would|could|should|may|might|longer|ceases?|ceased|stops?|stopped|"
+    r"fails?|formerly|previously|obsolete|stale|deprecated|dropped|removed|"
+    r"ignores?|ignored|used\s+to)\b"
+)
+# A cited-then-disowned design is not a rule either. Scan back to the clause
+# start (or a table-cell edge) and refuse a sentence that opens as a disclaimer.
+DISCLAIMER = (
+    r"\b(?:rejected|do\s+not\s+implement|illustrative|illustration|example|"
+    r"sample|draft|glossary|deprecated|dropped|superseded|historical|stale|"
+    r"obsolete|hypothetical|no\s+behaviou?r|reference\s+only)\b"
+)
+CLEAN_LEAD = rf"(?:\A|[.!?|]\s?)(?:(?!{DISCLAIMER})[^.!?|]){{0,300}}?"
+TIGHT_GAP = rf"(?:(?!{HEDGE})[^.;|]){{0,40}}?"
+PASS_RESETS_QWEN_COUNTER = (
+    re.compile(
+        rf"{CLEAN_LEAD}{GATE_PASS}{TIGHT_GAP}{RESET_VERB}"
+        rf"{TIGHT_GAP}{QWEN_COUNTER}{TIGHT_GAP}{ZERO}",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"{CLEAN_LEAD}{GATE_PASS}{TIGHT_GAP}{QWEN_COUNTER}"
+        rf"{TIGHT_GAP}{RESET_VERB}{TIGHT_GAP}{ZERO}",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -1041,20 +1184,20 @@ def check_pinned_enumerations(doc: Doc) -> list[str]:
                     doc.path,
                     flow.head,
                     f"§ {heading} enumerates haiku/sonnet/opus and never names fable",
-                )
+                ),
             )
     return problems
 
 
 def check_denials(doc: Doc) -> list[str]:
     """A `fable` mention that DENIES the contract must never satisfy it."""
-    flow = doc.whole()
+    flow = doc.raw()  # a denial inside a code block still denies
     problems = []
     for pattern in DENIALS:
         for hit in flow.find(pattern):
             if "fable" in flow.window(hit, DENIAL_RADIUS).lower():
                 problems.append(
-                    _cite(doc.path, hit.line, f"denies the rescue rung: {hit.text}")
+                    _cite(doc.path, hit.line, f"denies the rescue rung: {hit.text}"),
                 )
     return problems
 
@@ -1074,7 +1217,7 @@ def check_pipeline_mapping(doc: Doc) -> list[str]:
                     doc.path,
                     hit.line,
                     f"§ {heading} maps the rescue rung SHALLOW: {hit.text}",
-                )
+                ),
             )
         if not flow.find(FABLE_FULL):
             problems.append(
@@ -1083,12 +1226,12 @@ def check_pipeline_mapping(doc: Doc) -> list[str]:
                     flow.head,
                     f"§ {heading} maps tiers to pipeline depths but never pairs "
                     '`fable` -> `"full"`',
-                )
+                ),
             )
     if not mapped:
         problems.append(
             f"  {doc.path}: no tier -> pipeline-depth mapping left in "
-            f"{list(PIPELINE_SECTIONS)} - deleted or renamed?"
+            f"{list(PIPELINE_SECTIONS)} - deleted or renamed?",
         )
     return problems
 
@@ -1099,12 +1242,12 @@ def check_routing_override(doc: Doc) -> list[str]:
     if not any(flow.find(pattern) for pattern in OVERRIDES):
         problems.append(
             f"  {doc.path}:{flow.head}: no sentence in "
-            f"{list(ROUTING_SECTIONS)} says `fable` OVERRIDES the routing table"
+            f"{list(ROUTING_SECTIONS)} says `fable` OVERRIDES the routing table",
         )
     if not any(flow.find(pattern) for pattern in SESSION_MODEL):
         problems.append(
             f"  {doc.path}:{flow.head}: no sentence in "
-            f"{list(ROUTING_SECTIONS)} says `fable` is NEVER a session model"
+            f"{list(ROUTING_SECTIONS)} says `fable` is NEVER a session model",
         )
     return problems
 
@@ -1125,7 +1268,10 @@ def _fable_rows(rows: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
 
 
 def check_gate_row(
-    doc: Doc, heading: str, action: re.Pattern, otherwise: str
+    doc: Doc,
+    heading: str,
+    action: re.Pattern,
+    otherwise: str,
 ) -> list[str]:
     """The row that NAMES fable carries the positive action, in that same row."""
     rows = doc.section(heading)
@@ -1139,7 +1285,7 @@ def check_gate_row(
                 rows[0][0],
                 f"§ {heading} has NO table row naming `fable`, so it falls into "
                 f"the catch-all row, which {otherwise}",
-            )
+            ),
         ]
     return [
         _cite(doc.path, number, f"the `{subject}` row's action is `{cell}`")
@@ -1168,7 +1314,7 @@ def check_review_row(doc: Doc) -> list[str]:
 
 def check_budget(doc: Doc) -> list[str]:
     """`fable` keeps its own budget: 1 dispatch per PRD, ever - never folded."""
-    whole = doc.whole()
+    whole = doc.raw()  # a budget folded inside a code block is still folded
     problems = [
         _cite(
             doc.path,
@@ -1187,7 +1333,7 @@ def check_budget(doc: Doc) -> list[str]:
     if not own:
         problems.append(
             f"  {doc.path}:{flow.head}: § {ESCALATION_SECTION} never gives `fable` "
-            "its own budget (1 dispatch per PRD, ever)"
+            "its own budget (1 dispatch per PRD, ever)",
         )
     elif LADDER_FILE not in flow.window(own[0], 300):
         problems.append(
@@ -1196,7 +1342,7 @@ def check_budget(doc: Doc) -> list[str]:
                 own[0].line,
                 f"fable's budget is restated without citing {LADDER_FILE}: "
                 f"{own[0].text}",
-            )
+            ),
         )
     return problems
 
@@ -1211,8 +1357,7 @@ def check_no_auto_escalation(doc: Doc) -> list[str]:
             f"escalation chain puts `fable` on an automatic edge: {hit.text}",
         )
         for hit in flow.find(CHAIN)
-        if "fable" in hit.text.lower()
-        and not EXCLUSION.search(flow.window(hit, 120))
+        if "fable" in hit.text.lower() and not EXCLUSION.search(flow.window(hit, 120))
     ]
 
 
@@ -1223,7 +1368,7 @@ def check_no_rung_above(doc: Doc) -> list[str]:
         return []
     return [
         f"  {doc.path}:{flow.head}: § {ESCALATION_SECTION} never says, of `fable` "
-        "itself, that it has no rung above it"
+        "itself, that it has no rung above it",
     ]
 
 
@@ -1241,7 +1386,7 @@ def check_retry_repair_excludes_fable(doc: Doc) -> list[str]:
         if not matches:
             problems.append(
                 f"  {doc.path}: the {label} text was not found in § "
-                f"{ESCALATION_SECTION} - re-worded, so this scan is blind there"
+                f"{ESCALATION_SECTION} - re-worded, so this scan is blind there",
             )
             continue
         for match in matches:
@@ -1254,7 +1399,7 @@ def check_retry_repair_excludes_fable(doc: Doc) -> list[str]:
                         line,
                         f"{label} still says an unqualified `Claude rung(s)` "
                         f"instead of naming haiku/sonnet/opus: {qualifier.strip()}",
-                    )
+                    ),
                 )
                 continue
             if "fable" not in qualifier.lower():
@@ -1264,7 +1409,7 @@ def check_retry_repair_excludes_fable(doc: Doc) -> list[str]:
                         line,
                         f"{label} names haiku/sonnet/opus but never names "
                         f"`fable` to exclude it: {qualifier.strip()}",
-                    )
+                    ),
                 )
             elif not any(pattern.search(qualifier) for pattern in FABLE_EXCLUDED):
                 problems.append(
@@ -1273,7 +1418,7 @@ def check_retry_repair_excludes_fable(doc: Doc) -> list[str]:
                         line,
                         f"{label} names `fable` without excluding it, granting "
                         f"it a retry/repair: {qualifier.strip()}",
-                    )
+                    ),
                 )
     return problems
 
@@ -1325,7 +1470,7 @@ class FableTierEnumerationTest(unittest.TestCase):
                 "WRONG (a Claude-rungs-only budget, a pre-rescue history), add a "
                 "row to EXEMPTIONS with the reason instead. A ladder walk "
                 "(`haiku -> sonnet -> opus`) needs no exemption - chains are "
-                "blanked before this scan."
+                "blanked before this scan.",
             )
 
     def test_pinned_sections_name_fable_even_when_rewrapped(self) -> None:
@@ -1333,13 +1478,13 @@ class FableTierEnumerationTest(unittest.TestCase):
         # lines and neither half names all three tiers. Each pinned section is
         # therefore also read as ONE joined string.
         offenders = check_pinned_enumerations(
-            combined_doc(WORK_SKILL, GATE_FAILURE_REF)
+            combined_doc(WORK_SKILL, GATE_FAILURE_REF),
         )
         if offenders:
             self.fail(
                 "these sections enumerate the Claude tiers with no `fable` "
                 "anywhere in them, read with their lines joined:\n"
-                + "\n".join(offenders)
+                + "\n".join(offenders),
             )
 
     def test_no_tier_table_denies_the_fable_contract(self) -> None:
@@ -1347,7 +1492,7 @@ class FableTierEnumerationTest(unittest.TestCase):
         if offenders:
             self.fail(
                 "these lines mention `fable` in order to DENY it - naming the "
-                "rescue rung to forbid it is not naming it:\n" + "\n".join(offenders)
+                "rescue rung to forbid it is not naming it:\n" + "\n".join(offenders),
             )
 
 
@@ -1378,9 +1523,9 @@ class WorkSkillFableContractTest(unittest.TestCase):
     def test_fable_overrides_the_deterministic_routing_table(self) -> None:
         self.reject(
             check_routing_override(self.doc),
-            f"{WORK_SKILL} never says a task carrying `metadata.model: \"fable\"` "
+            f'{WORK_SKILL} never says a task carrying `metadata.model: "fable"` '
             "OVERRIDES the step-3 deterministic routing table outright - never "
-            'qwen, never Gemini, always a Claude Agent dispatch at `model: '
+            "qwen, never Gemini, always a Claude Agent dispatch at `model: "
             '"fable"` - and that `fable` is never a session model, never selected '
             "autonomously. Without both, the table routes a rescued backend task "
             "to qwen and burns the one approved rescue.",
@@ -1389,7 +1534,7 @@ class WorkSkillFableContractTest(unittest.TestCase):
     def test_fable_maps_to_full_pipeline(self) -> None:
         self.reject(
             check_pipeline_mapping(self.doc),
-            f"{WORK_SKILL} never PAIRS `fable` with the `\"full\"` pipeline depth "
+            f'{WORK_SKILL} never PAIRS `fable` with the `"full"` pipeline depth '
             "(the same depth as `opus`) in a tier -> depth mapping. A rescue "
             "attempt would then be stamped with, and run, the wrong pipeline.",
         )
@@ -1445,6 +1590,37 @@ class WorkSkillFableContractTest(unittest.TestCase):
             "dispatch-per-PRD invariant.",
         )
 
+    def test_a_qwen_gate_pass_resets_the_breaker_counter_in_the_always_read_body(
+        self,
+    ) -> None:
+        # Deliberately NOT self.doc: this reads SKILL.md ALONE. `gate-failure.md`
+        # is situational - "Read it before the first gate failure of a batch" -
+        # so a run whose gate PASSES never opens it, and a rule that lives only
+        # there never fires on the pass path. Against the merged doc this test
+        # would pass today and pin nothing.
+        text = Doc(WORK_SKILL).whole().text
+        self.assertTrue(
+            any(pattern.search(text) for pattern in PASS_RESETS_QWEN_COUNTER),
+            f"{WORK_SKILL} - the always-read /work body - never states that a "
+            'gate PASS on an `implementor:"qwen"` attempt resets '
+            "`qwen_gate_failures_consecutive` to 0. The name alone is there (the "
+            "batch-scope reset at step 3), but the pass rule sits only in "
+            f"{GATE_FAILURE_REF}, which a passing run never reads - so the "
+            "counter is never zeroed on the one path that must zero it, and two "
+            "NON-consecutive qwen failures trip a breaker documented as "
+            "consecutive-only (`run-autopilot/references/state-schema.md`: "
+            '"Only a qwen gate PASS resets it to 0 ... Owned entirely by '
+            '`/work`"). Re-word it freely - but one clause has to STATE it: '
+            'first the trigger as a gate OUTCOME ("gate pass" / "gate '
+            'passes"), then a reset verb (reset / zero / clear / set) and the '
+            "counter in either order, then 0 - under 40 characters between "
+            "neighbours, with no hedge "
+            "(would, should, no longer, ...) and no disclaimer (rejected, "
+            "example, earlier draft, ...) earlier in the sentence. Naming the "
+            "field, denying the rule, or showing a JSON sample is not stating "
+            "it.",
+        )
+
 
 # --- exploit regression fixtures -------------------------------------------
 #
@@ -1487,7 +1663,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             else:
                 self.fail(
                     f"fixture drift: neither {WORK_SKILL} nor {GATE_FAILURE_REF} "
-                    f"contains {old[:70]!r} - re-anchor it"
+                    f"contains {old[:70]!r} - re-anchor it",
                 )
         return skill_text, gate_text
 
@@ -1498,7 +1674,9 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
 
     def exploited(self, *patches: tuple) -> Doc:
         skill_text, gate_text = self.patch(
-            self.skill_copy.read_text(), self.gate_copy.read_text(), patches
+            self.skill_copy.read_text(),
+            self.gate_copy.read_text(),
+            patches,
         )
         return self.write(skill_text, gate_text)
 
@@ -1527,7 +1705,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
                 'A fourth value, `"fable"`, is the human-gated rescue rung above '
                 '`opus` (`"fable"` is **not** an accepted value - never write it '
                 "into `metadata.model`; treat any task carrying it as `sonnet`)",
-            )
+            ),
         )
         self.assertEqual(
             check_line_enumerations(doc),
@@ -1536,7 +1714,8 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             "presence scan cannot catch this",
         )
         self.assertTrue(
-            check_denials(doc), "a line that forbids `fable` must not satisfy it"
+            check_denials(doc),
+            "a line that forbids `fable` must not satisfy it",
         )
 
     def test_rejects_fable_mapped_to_the_shallowest_pipeline(self) -> None:
@@ -1560,8 +1739,8 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
         )
         self.assertTrue(
             check_pipeline_mapping(doc),
-            "`fable` and `\"full\"` on one line is not a mapping - the pair has to "
-            "be `fable` -> `\"full\"`",
+            '`fable` and `"full"` on one line is not a mapping - the pair has to '
+            'be `fable` -> `"full"`',
         )
 
     def test_rejects_fable_folded_into_the_claude_rungs_budget(self) -> None:
@@ -1577,7 +1756,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
                 "Claude rungs (haiku/sonnet/opus/fable) get 2 dispatches (initial "
                 "+ one feedback retry) before diagnosis; the codex rung gets 2 "
                 "dispatches (initial + one feedback retry), and never a repair;",
-            )
+            ),
         )
         self.assertTrue(
             check_budget(doc),
@@ -1591,7 +1770,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             (
                 "haiku, haiku -> sonnet -> opus) with a FAILURE SUMMARY",
                 "haiku, haiku -> sonnet -> opus -> fable) with a FAILURE SUMMARY",
-            )
+            ),
         )
         self.assertTrue(
             check_no_auto_escalation(doc),
@@ -1608,7 +1787,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
                 "the deepest pipeline, like `opus`)",
                 '(`haiku` → `"minimal"`,\n`sonnet`/absent/legacy → `"lean"`, '
                 '`opus` → `"full"`)',
-            )
+            ),
         )
         self.assertEqual(
             check_line_enumerations(doc),
@@ -1691,7 +1870,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
                 "| `fable` | review (below) — the rescue rung is reviewed like "
                 "`opus` |",
                 "| `fable` | no reviewer dispatch — proceed straight to step 6 |",
-            )
+            ),
         )
         self.assertTrue(
             check_review_row(doc),
@@ -1730,7 +1909,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             (
                 "haiku/sonnet/opus and codex rungs only, never fable",
                 "haiku/sonnet/opus/fable and codex rungs only",
-            )
+            ),
         )
         self.assertEqual(
             check_line_enumerations(doc),
@@ -1756,7 +1935,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
             (
                 "below, per the 1-dispatch budget)",
                 "below, per the one-dispatch budget)",
-            )
+            ),
         )
         problems = check_retry_repair_excludes_fable(doc)
         self.assertTrue(
