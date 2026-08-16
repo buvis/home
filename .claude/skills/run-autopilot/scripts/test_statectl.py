@@ -426,6 +426,379 @@ class StatectlTest(unittest.TestCase):
         self.assertEqual(state["tasks"][2]["attempts"], [{"attempt": 1}])
         self.assertEqual(state["tasks_completed"], 2)
 
+    # 12. task-add --------------------------------------------------------------
+
+    def write_text_file(self, name: str, text: str) -> str:
+        path = Path(self.tmp.name) / name
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_task_add_assigns_next_sequential_id_and_prints_it(self) -> None:
+        # Highest existing id + 1 - not len(tasks) + 1 and not last-entry + 1:
+        # rework follow-ups leave tasks[] out of id order, so those two shortcuts
+        # would hand out a duplicate id. Two adds in a row on one state file also
+        # rule out a fixed guess: the second id has to move off the first.
+        self.write_state(
+            {
+                "phase": "build",
+                "tasks_total": 5,
+                "tasks_completed": 0,
+                "tasks": [
+                    {"id": "5", "status": "pending"},
+                    {"id": "2", "status": "pending"},
+                ],
+            },
+        )
+        payload = self.write_json("t.json", {"name": "Wire the verb"})
+        result = self.run_cli("task-add", payload)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "6")
+        state = self.load_state()
+        self.assertEqual(len(state["tasks"]), 3)
+        self.assertEqual(state["tasks"][-1]["id"], "6")
+        self.assertEqual(state["tasks"][-1]["name"], "Wire the verb")
+        self.assertEqual(state["tasks"][-1]["status"], "pending")
+        self.assertEqual(state["tasks"][0], {"id": "5", "status": "pending"})
+        # Derived from the array, not incremented off the stale 5 in the file.
+        self.assertEqual(state["tasks_total"], 3)
+        self.assertEqual(state["phase"], "build")
+
+        # Second add on the same file: the id must come off the array as it now
+        # stands, so it keeps climbing.
+        again = self.run_cli("task-add", self.write_json("t2.json", {"name": "Next"}))
+        self.assertEqual(again.returncode, 0)
+        self.assertEqual(again.stdout.strip(), "7")
+        state = self.load_state()
+        self.assertEqual([t["id"] for t in state["tasks"]], ["5", "2", "6", "7"])
+        self.assertEqual(state["tasks"][-1]["name"], "Next")
+        self.assertEqual(state["tasks_total"], 4)
+
+        # Same task count as the fixture this test opened with (two), different
+        # ids: the answer moves from "6" to "10", so the id cannot be a function
+        # of how many tasks are in the array.
+        self.write_state(
+            {
+                "tasks_total": 2,
+                "tasks_completed": 0,
+                "tasks": [
+                    {"id": "9", "status": "pending"},
+                    {"id": "1", "status": "pending"},
+                ],
+            },
+        )
+        wider = self.run_cli("task-add", self.write_json("t3.json", {"name": "Wide"}))
+        self.assertEqual(wider.returncode, 0)
+        self.assertEqual(wider.stdout.strip(), "10")
+        state = self.load_state()
+        self.assertEqual([t["id"] for t in state["tasks"]], ["9", "1", "10"])
+        self.assertEqual(state["tasks_total"], 3)
+
+    def test_task_add_on_empty_task_list_assigns_id_1(self) -> None:
+        self.write_state({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
+        payload = self.write_json("t.json", {"name": "First"})
+        result = self.run_cli("task-add", payload)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "1")
+        state = self.load_state()
+        self.assertEqual([t["id"] for t in state["tasks"]], ["1"])
+        self.assertEqual(state["tasks_total"], 1)
+
+    def test_task_add_roundtrips_every_payload_field(self) -> None:
+        # /work renders its dispatch from these: task_subject from name,
+        # task_description from description, so a dropped or mangled field is
+        # invisible until the implementor gets a placeholder-shaped prompt.
+        self.write_state({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
+        payload = {
+            "name": "Add task-add",
+            "description": "Multi-line\nbody with 'quotes' and \"doubles\"",
+            "blocked_by": [1],
+            "model": "sonnet",
+            "estimated_tokens": 42000,
+            "est_context_peak": 118000,
+            "qwen_eligible": False,
+            "qwen_excluded_reason": "multi-file",
+            # Not one of the documented optional fields: the contract is "every
+            # payload field that was present", so the payload passes through
+            # whole rather than through a list of known field names.
+            "acceptance_criteria": "the CLI prints the assigned id",
+        }
+        result = self.run_cli("task-add", self.write_json("t.json", payload))
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["tasks"][0]
+        for key, value in payload.items():
+            self.assertEqual(entry[key], value, f"{key} did not round-trip")
+        self.assertEqual(entry["status"], "pending")
+        # The printed id is the id that landed in the file, not a second guess.
+        self.assertEqual(entry["id"], result.stdout.strip())
+
+    def test_task_add_omits_absent_optional_fields(self) -> None:
+        # Absent must stay absent: a JSON null placeholder renders as "None" in
+        # the dispatch and reads as a real value to every consumer.
+        self.write_state({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
+        result = self.run_cli("task-add", self.write_json("t.json", {"name": "Bare"}))
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["tasks"][0]
+        self.assertEqual(entry["id"], "1")
+        self.assertEqual(entry["name"], "Bare")
+        self.assertEqual(entry["status"], "pending")
+        for absent in (
+            "description",
+            "blocked_by",
+            "model",
+            "estimated_tokens",
+            "est_context_peak",
+            "qwen_eligible",
+            "qwen_excluded_reason",
+        ):
+            self.assertNotIn(absent, entry)
+
+    # 13. task-set-body ----------------------------------------------------------
+
+    def test_task_set_body_replaces_description_verbatim(self) -> None:
+        # Raw file content, never JSON-decoded, and - unlike set-contract-card -
+        # the trailing newline survives. Ids are out of array order and the
+        # target sits at index 1, so tasks[0], tasks[-1] and int(id) - 1 each
+        # land on a different entry than the id does.
+        self.write_state(
+            {
+                "tasks_total": 3,
+                "tasks_completed": 0,
+                "tasks": [
+                    {"id": "17", "status": "completed"},
+                    {"id": "3", "status": "pending", "description": "old body"},
+                    {"id": "8", "status": "pending"},
+                ],
+            },
+        )
+        body = "step: 'one' \"two\"\n\nrun: $(rm -rf /) | 100% `done`\n"
+        result = self.run_cli("task-set-body", "3", self.write_text_file("b.md", body))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        state = self.load_state()
+        self.assertEqual(state["tasks"][1]["description"], body)
+        self.assertEqual(state["tasks"][1]["status"], "pending")
+        self.assertEqual(state["tasks"][0], {"id": "17", "status": "completed"})
+        self.assertEqual(state["tasks"][2], {"id": "8", "status": "pending"})
+        # Not a status verb: the stale count in the file is left alone.
+        self.assertEqual(state["tasks_completed"], 0)
+
+        # A second body on the same task: the content comes from the file that
+        # was passed, so a different file has to produce a different description.
+        second = "rewritten\n\tindented `tail`\n"
+        again = self.run_cli(
+            "task-set-body",
+            "3",
+            self.write_text_file("b2.md", second),
+        )
+        self.assertEqual(again.returncode, 0)
+        state = self.load_state()
+        self.assertEqual(state["tasks"][1]["description"], second)
+        self.assertEqual(state["tasks"][0], {"id": "17", "status": "completed"})
+        self.assertEqual(state["tasks"][2], {"id": "8", "status": "pending"})
+
+    # 14. task-set-meta ----------------------------------------------------------
+
+    def test_task_set_meta_merges_deletes_nulls_and_leaves_omitted_keys(self) -> None:
+        # One write covers all three effects: overwrite, add, delete-on-null.
+        # Equality on the whole entry also binds the flattening - a "metadata"
+        # sub-object would fail here. Ids are out of array order and the target
+        # sits at index 1, so tasks[0], tasks[-1] and int(id) - 1 each land on a
+        # different entry than the id does.
+        self.write_state(
+            {
+                "tasks_total": 3,
+                "tasks_completed": 2,
+                "tasks": [
+                    {"id": "17", "status": "pending"},
+                    {
+                        "id": "3",
+                        "status": "completed",
+                        "model": "sonnet",
+                        "estimated_tokens": 100,
+                        "qwen_eligible": True,
+                    },
+                    {"id": "8", "status": "pending"},
+                ],
+            },
+        )
+        meta = self.write_json(
+            "m.json",
+            {"model": "opus", "est_context_peak": 120000, "qwen_eligible": None},
+        )
+        result = self.run_cli("task-set-meta", "3", meta)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        state = self.load_state()
+        self.assertEqual(
+            state["tasks"][1],
+            {
+                "id": "3",
+                "status": "completed",
+                "model": "opus",
+                "estimated_tokens": 100,
+                "est_context_peak": 120000,
+            },
+        )
+        self.assertEqual(state["tasks"][0], {"id": "17", "status": "pending"})
+        self.assertEqual(state["tasks"][2], {"id": "8", "status": "pending"})
+        # This verb never changes status, so it never recounts: the stale 2 the
+        # file carried stays 2 even though only one task is completed.
+        self.assertEqual(state["tasks_completed"], 2)
+
+        # A second merge on the same task, with different keys and a different
+        # key deleted: the payload file decides, so the entry has to move again.
+        second = self.write_json(
+            "m2.json",
+            {
+                "qwen_eligible": True,
+                "est_context_peak": 90000,
+                "estimated_tokens": None,
+            },
+        )
+        again = self.run_cli("task-set-meta", "3", second)
+        self.assertEqual(again.returncode, 0)
+        state = self.load_state()
+        self.assertEqual(
+            state["tasks"][1],
+            {
+                "id": "3",
+                "status": "completed",
+                "model": "opus",
+                "est_context_peak": 90000,
+                "qwen_eligible": True,
+            },
+        )
+        self.assertEqual(state["tasks"][0], {"id": "17", "status": "pending"})
+        self.assertEqual(state["tasks"][2], {"id": "8", "status": "pending"})
+
+    # 15. task-set-status --------------------------------------------------------
+
+    def test_task_set_status_walks_the_enum_and_recounts_completed(self) -> None:
+        # Ids are out of array order and the first target sits at index 1, so
+        # tasks[0], tasks[-1] and int(id) - 1 (index 2 here) each land on a
+        # different entry than the id does.
+        self.write_state(
+            {
+                "tasks_total": 3,
+                # Stale on purpose: the count must be derived from the array.
+                "tasks_completed": 0,
+                "tasks": [
+                    {"id": "17", "status": "completed"},
+                    {"id": "3", "status": "pending"},
+                    {"id": "8", "status": "pending"},
+                ],
+            },
+        )
+        into = self.run_cli("task-set-status", "3", "completed")
+        self.assertEqual(into.returncode, 0)
+        self.assertEqual(into.stdout, "")
+        state = self.load_state()
+        # Whole-entry equality: the status moved and no attempt record came with
+        # it, because appending one is task-done's job, not this verb's.
+        self.assertEqual(state["tasks"][1], {"id": "3", "status": "completed"})
+        self.assertEqual(state["tasks"][0], {"id": "17", "status": "completed"})
+        self.assertEqual(state["tasks"][2], {"id": "8", "status": "pending"})
+        self.assertEqual(state["tasks_completed"], 2)
+
+        back = self.run_cli("task-set-status", "3", "in_progress")
+        self.assertEqual(back.returncode, 0)
+        state = self.load_state()
+        self.assertEqual(state["tasks"][1]["status"], "in_progress")
+        self.assertEqual(state["tasks"][0]["status"], "completed")
+        self.assertEqual(state["tasks_completed"], 1)
+
+        out = self.run_cli("task-set-status", "17", "pending")
+        self.assertEqual(out.returncode, 0)
+        state = self.load_state()
+        self.assertEqual(state["tasks"][0]["status"], "pending")
+        self.assertEqual(state["tasks"][1]["status"], "in_progress")
+        self.assertEqual(state["tasks"][2]["status"], "pending")
+        self.assertEqual(state["tasks_completed"], 0)
+
+    def test_task_set_status_rejects_an_invalid_status(self) -> None:
+        self.three_tasks()
+        # Control first: a legal value must succeed, so the rejections below
+        # prove the enum check and not just an unrecognised verb.
+        self.assertEqual(self.run_cli("task-set-status", "2", "pending").returncode, 0)
+        before = self.state.read_bytes()
+        # Near-misses of the enum and values nowhere near it: this is an
+        # allowlist of three strings, not a blocklist of the usual typos.
+        for bad in ("done", "Completed", "in progress", "banana", ""):
+            result = self.run_cli("task-set-status", "2", bad)
+            self.assertEqual(result.returncode, 1, f"{bad!r} should exit 1")
+            self.assertEqual(self.state.read_bytes(), before, f"{bad!r} wrote state")
+
+    # 16. tasks-clear ------------------------------------------------------------
+
+    def test_tasks_clear_empties_tasks_and_zeroes_counts(self) -> None:
+        self.write_state(
+            {
+                "phase": "build",
+                "batch": {"id": "b1"},
+                "contract_card": "step: review",
+                "rework_task_ids": ["3"],
+                "cycle": 2,
+                "prd": "00120-migrate-task-tracking-to-statectl.md",
+                "next_phase": "build",
+                "work_start_sha": "abc123",
+                "tasks_total": 3,
+                "tasks_completed": 1,
+                "tasks": [
+                    {"id": "1", "status": "completed", "attempts": [{"n": 0}]},
+                    {"id": "2", "status": "pending"},
+                    {"id": "3", "status": "pending"},
+                ],
+            },
+        )
+        original = self.state.read_bytes()
+        result = self.run_cli("tasks-clear")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        state = self.load_state()
+        self.assertEqual(state["tasks"], [])
+        self.assertEqual(state["tasks_total"], 0)
+        self.assertEqual(state["tasks_completed"], 0)
+        # Scope is exactly those three keys; every other field survives as-is,
+        # named or not. schema_version joins them because every write through
+        # the sanctioned writer stamps it - it is not this verb's doing.
+        cleared = ("tasks", "tasks_total", "tasks_completed", "schema_version")
+        self.assertEqual(
+            {k: v for k, v in state.items() if k not in cleared},
+            {
+                "phase": "build",
+                "batch": {"id": "b1"},
+                "contract_card": "step: review",
+                "rework_task_ids": ["3"],
+                "cycle": 2,
+                "prd": "00120-migrate-task-tracking-to-statectl.md",
+                "next_phase": "build",
+                "work_start_sha": "abc123",
+            },
+        )
+        # One write, not three: the rotating backup holds the pre-clear bytes.
+        self.assertEqual(Path(str(self.state) + ".bak").read_bytes(), original)
+
+    # 17. unknown ids on the new task verbs --------------------------------------
+
+    def test_new_task_verbs_unknown_id_exit_1_and_leave_state_untouched(self) -> None:
+        self.three_tasks()
+        before = self.state.read_bytes()
+        body = self.write_text_file("b.md", "new body\n")
+        meta = self.write_json("m.json", {"model": "opus"})
+        for args in (
+            ("task-set-body", "99", body),
+            ("task-set-meta", "99", meta),
+            ("task-set-status", "99", "completed"),
+        ):
+            result = self.run_cli(*args)
+            self.assertEqual(result.returncode, 1, f"{args[0]} should exit 1")
+            self.assertIn("99", result.stderr, f"{args[0]} should name the id")
+            self.assertEqual(
+                self.state.read_bytes(),
+                before,
+                f"{args[0]} must leave the state file byte-identical",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
