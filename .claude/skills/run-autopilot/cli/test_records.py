@@ -68,7 +68,7 @@ def _sample_state(**overrides) -> dict:
             "cycle": 3,
             "cap": 3,
             "unresolved_findings": [
-                {"issue": "x", "severity": "high", "consensus": "3/3"}
+                {"issue": "x", "severity": "high", "consensus": "3/3"},
             ],
         },
         "stall_reason": {
@@ -268,9 +268,9 @@ class RecordDeferTest(unittest.TestCase):
                 {
                     "batch_id": "b3",
                     "items": [
-                        {"prd": "00001-old.md", "type": "doubt", "issue": "existing"}
+                        {"prd": "00001-old.md", "type": "doubt", "issue": "existing"},
                     ],
-                }
+                },
             ),
             encoding="utf-8",
         )
@@ -346,10 +346,16 @@ class RecordDeferTest(unittest.TestCase):
 
     def test_distinct_op_ids_both_land(self) -> None:
         records.record_defer(
-            self.autopilot_dir, "prd.md", "b8", {"op_id": "op-1", "type": "doubt"}
+            self.autopilot_dir,
+            "prd.md",
+            "b8",
+            {"op_id": "op-1", "type": "doubt"},
         )
         records.record_defer(
-            self.autopilot_dir, "prd.md", "b8", {"op_id": "op-2", "type": "doubt"}
+            self.autopilot_dir,
+            "prd.md",
+            "b8",
+            {"op_id": "op-2", "type": "doubt"},
         )
 
         content = json.loads(self._deferred_path("b8").read_text(encoding="utf-8"))
@@ -390,7 +396,7 @@ class SchemaResetParityTest(unittest.TestCase):
             "tasks_total",
             "tasks_completed",
             "replan_count",
-        }
+        },
     )
 
     NOT_RESET = frozenset(
@@ -407,7 +413,7 @@ class SchemaResetParityTest(unittest.TestCase):
             "qwen_preflight",
             "phase_guard",
             "thrash_halt",
-        }
+        },
     )
 
     @staticmethod
@@ -424,7 +430,7 @@ class SchemaResetParityTest(unittest.TestCase):
                 break
         if start is None:
             raise AssertionError(
-                "'## Field Descriptions' heading not found in state-schema.md"
+                "'## Field Descriptions' heading not found in state-schema.md",
             )
 
         end = len(lines)
@@ -464,7 +470,7 @@ class SchemaResetParityTest(unittest.TestCase):
                     name in reset_removed,
                     name in self.RESET_BY_ASSIGNMENT,
                     name in self.NOT_RESET,
-                )
+                ),
             )
             self.assertEqual(
                 count,

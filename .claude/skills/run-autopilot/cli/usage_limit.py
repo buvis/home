@@ -32,10 +32,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 LIMIT_TEXT = re.compile(
-    r"hit your (?:session|usage|weekly) limit|usage limit reached", re.I
+    r"hit your (?:session|usage|weekly) limit|usage limit reached",
+    re.IGNORECASE,
 )
 RESET_TIME = re.compile(
-    r"resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([^)]+)\))?", re.I
+    r"resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([^)]+)\))?",
+    re.IGNORECASE,
 )
 GRACE_SECS = 120  # reset already this far past -> stale record, not a live limit
 FALLBACK_WAIT_SECS = 900  # unparseable reset time -> re-check in 15 min
@@ -203,8 +205,7 @@ def wait_decision(
     if now is None:
         now = time.time()
     wait = int(reset_epoch - now) + RELAUNCH_MARGIN_SECS
-    if wait < MIN_WAIT_SECS:
-        wait = MIN_WAIT_SECS
+    wait = max(wait, MIN_WAIT_SECS)
     if wait <= max_wait_secs:
         return wait
     return None
@@ -221,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.log is None and args.cwd is None:
         sys.stderr.write(
-            "usage: detect_usage_limit.py [--log PATH] <cwd> [projects_root]\n"
+            "usage: detect_usage_limit.py [--log PATH] <cwd> [projects_root]\n",
         )
         return 1
     epoch = None

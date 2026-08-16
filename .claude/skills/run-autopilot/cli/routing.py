@@ -40,7 +40,7 @@ OPUS = "claude-opus-5[1m]"
 SONNET = "claude-sonnet-5[1m]"
 
 _DEFAULT_MODEL_OPUS = re.compile(
-    r"^[ \t]*default_model[ \t]*:[ \t]*(\"opus\"|'opus'|opus)[ \t]*$"
+    r"^[ \t]*default_model[ \t]*:[ \t]*(\"opus\"|'opus'|opus)[ \t]*$",
 )
 _TRAILING_COMMENT = re.compile(r"[ \t]+#.*$")
 _PRD_GLOB = "[0-9][0-9][0-9][0-9][0-9]-*"
@@ -148,7 +148,7 @@ def _deferred_stall_fires(deferred_dir: Path, target: str) -> bool:
         )
     except OSError:
         return False
-    for path in files[max(0, len(files) - 2):]:
+    for path in files[max(0, len(files) - 2) :]:
         record = _load_json(path)
         if not isinstance(record, dict):
             continue
@@ -183,7 +183,8 @@ def build_model(
         return OPUS
     target = target_path.name
     if _state_signals_fire(state_path, target) or _ledger_has_key(
-        ledger_path, target
+        ledger_path,
+        target,
     ):
         return OPUS
     if _deferred_stall_fires(deferred_dir, target):

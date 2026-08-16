@@ -22,8 +22,7 @@ def _recording_script(tmp_path: Path) -> Path:
     out = tmp_path / "argv.txt"
     script = tmp_path / "fake_notify.py"
     script.write_text(
-        "import sys\n"
-        f"open({str(out)!r}, 'a').write(repr(sys.argv[1:]) + '\\n')\n"
+        f"import sys\nopen({str(out)!r}, 'a').write(repr(sys.argv[1:]) + '\\n')\n",
     )
     return script
 

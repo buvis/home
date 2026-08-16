@@ -75,13 +75,17 @@ def test_build_argv_injects_an_alternate_runner_without_driver_change():
 def test_spawn_tees_raw_output_and_feeds_the_presenter(tmp_path):
     stub = _stub_runner(
         tmp_path,
-        'print(\'{"type":"result","total_cost_usd":0.01}\')\n'
-        'print("second line")',
+        'print(\'{"type":"result","total_cost_usd":0.01}\')\nprint("second line")',
     )
     collector = _Collector()
     ap = _ap_dir(tmp_path)
     result = spawn(
-        "m", "low", cap_secs=30, autopilot_dir=ap, env={}, runner_bin=stub,
+        "m",
+        "low",
+        cap_secs=30,
+        autopilot_dir=ap,
+        env={},
+        runner_bin=stub,
         presenter=collector,
     )
     assert result.returncode == 0
@@ -103,8 +107,13 @@ def test_spawn_sets_the_command_scoped_unattended_env(tmp_path):
     )
     ap = _ap_dir(tmp_path)
     result = spawn(
-        "m", "low", cap_secs=30, autopilot_dir=ap,
-        env={"PATH": os.environ["PATH"]}, runner_bin=stub, presenter=_Collector(),
+        "m",
+        "low",
+        cap_secs=30,
+        autopilot_dir=ap,
+        env={"PATH": os.environ["PATH"]},
+        runner_bin=stub,
+        presenter=_Collector(),
     )
     seen = json.loads(result.log_path.read_text())
     assert seen == {key: value for key, value in LAUNCH_ENV.items()}
@@ -114,7 +123,12 @@ def test_spawn_gives_the_child_devnull_stdin(tmp_path):
     stub = _stub_runner(tmp_path, "print(repr(sys.stdin.read()))")
     ap = _ap_dir(tmp_path)
     result = spawn(
-        "m", "low", cap_secs=30, autopilot_dir=ap, env={}, runner_bin=stub,
+        "m",
+        "low",
+        cap_secs=30,
+        autopilot_dir=ap,
+        env={},
+        runner_bin=stub,
         presenter=_Collector(),
     )
     assert result.log_path.read_text().strip() == "''"
@@ -127,7 +141,12 @@ def test_spawn_folds_stderr_into_the_log(tmp_path):
     )
     ap = _ap_dir(tmp_path)
     result = spawn(
-        "m", "low", cap_secs=30, autopilot_dir=ap, env={}, runner_bin=stub,
+        "m",
+        "low",
+        cap_secs=30,
+        autopilot_dir=ap,
+        env={},
+        runner_bin=stub,
         presenter=_Collector(),
     )
     text = result.log_path.read_text()
@@ -140,7 +159,12 @@ def test_spawn_truncates_the_previous_sessions_log(tmp_path):
     ap = _ap_dir(tmp_path)
     (ap / "last-session.log").write_text("stale content from last session\n")
     result = spawn(
-        "m", "low", cap_secs=30, autopilot_dir=ap, env={}, runner_bin=stub,
+        "m",
+        "low",
+        cap_secs=30,
+        autopilot_dir=ap,
+        env={},
+        runner_bin=stub,
         presenter=_Collector(),
     )
     assert result.log_path.read_text() == "fresh\n"
@@ -156,8 +180,14 @@ def test_spawn_caps_a_hung_session(tmp_path, capsys):
     # TERM'd before its "started" line ever reaches the pipe (measured
     # flaky at 0.3s under parallel suite load).
     result = spawn(
-        "m", "low", cap_secs=2, autopilot_dir=ap, env={}, runner_bin=stub,
-        grace_secs=5, presenter=_Collector(),
+        "m",
+        "low",
+        cap_secs=2,
+        autopilot_dir=ap,
+        env={},
+        runner_bin=stub,
+        grace_secs=5,
+        presenter=_Collector(),
     )
     assert result.cap_fired is True
     assert result.returncode != 0

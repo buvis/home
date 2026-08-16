@@ -82,7 +82,7 @@ def test_no_signals_routes_sonnet(tmp_path):
     _write_prd(box / "prds/wip" / prd)
     _state(box, prd)
     (box / "ledger.json").write_text(
-        json.dumps({"00097-unrelated-rescue-v1.md": {"status": "approved"}})
+        json.dumps({"00097-unrelated-rescue-v1.md": {"status": "approved"}}),
     )
     assert _model(box) == SONNET
 
@@ -104,7 +104,7 @@ def test_finished_prds_scratch_never_promotes_the_next_prd(tmp_path):
     )
     (box / "ledger.json").write_text(json.dumps({done: {"status": "consumed"}}))
     (box / "deferred" / "20260701-b-deferred.json").write_text(
-        json.dumps({"items": [{"type": "stall", "site": "x", "prd": done}]})
+        json.dumps({"items": [{"type": "stall", "site": "x", "prd": done}]}),
     )
     assert _model(box) == SONNET
 
@@ -181,7 +181,11 @@ def test_signal1_no_frontmatter_at_all_ignores_body(tmp_path):
 @pytest.mark.parametrize(
     ("label", "want", "body"),
     [
-        ("no space after colon", OPUS, "catchup: skip\ndefault_model:opus\ndesign: skip"),
+        (
+            "no space after colon",
+            OPUS,
+            "catchup: skip\ndefault_model:opus\ndesign: skip",
+        ),
         (
             "whitespace around key and value",
             OPUS,
@@ -282,9 +286,9 @@ def test_signal3b_stall_in_two_newest_deferred_by_filename(tmp_path):
                 "items": [
                     {"type": "deferred_decision", "prd": "00041-y-v1.md"},
                     {"type": "stall", "site": "wrapper_died", "prd": prd},
-                ]
-            }
-        )
+                ],
+            },
+        ),
     )
     new.write_text(json.dumps({"items": [{"type": "doubt", "prd": "z"}]}))
     os.utime(mid, (1, 1))
@@ -301,7 +305,7 @@ def test_signal3b_a_lone_deferred_log_is_still_scanned(tmp_path):
     _write_prd(box / "prds/wip" / prd)
     _state(box, prd)
     (box / "deferred" / "202607060000-deferred.json").write_text(
-        json.dumps({"items": [{"type": "stall", "site": "design_gate", "prd": prd}]})
+        json.dumps({"items": [{"type": "stall", "site": "design_gate", "prd": prd}]}),
     )
     assert _model(box) == OPUS
 
@@ -320,13 +324,13 @@ def test_signal3b_stall_outside_the_window_does_not_promote(tmp_path):
     mid = box / "deferred" / "202605020000-deferred.json"
     newest = box / "deferred" / "202606030000-deferred.json"
     oldest.write_text(
-        json.dumps({"items": [{"type": "stall", "site": "design_gate", "prd": prd}]})
+        json.dumps({"items": [{"type": "stall", "site": "design_gate", "prd": prd}]}),
     )
     mid.write_text(
-        json.dumps({"items": [{"type": "stall", "site": "c", "prd": "00050-o-v1.md"}]})
+        json.dumps({"items": [{"type": "stall", "site": "c", "prd": "00050-o-v1.md"}]}),
     )
     newest.write_text(
-        json.dumps({"items": [{"type": "deferred-finding", "prd": prd}]})
+        json.dumps({"items": [{"type": "deferred-finding", "prd": prd}]}),
     )
     os.utime(oldest, (2_100_000_000, 2_100_000_000))
     os.utime(mid, (1, 1))
@@ -342,7 +346,7 @@ def test_signal3b_type_and_prd_must_match_on_the_same_item(tmp_path):
     _write_prd(box / "prds/wip" / prd)
     _state(box, prd)
     (box / "deferred" / "202606100000-deferred.json").write_text(
-        json.dumps({"items": []})
+        json.dumps({"items": []}),
     )
     (box / "deferred" / "202607150000-deferred.json").write_text(
         json.dumps(
@@ -350,9 +354,9 @@ def test_signal3b_type_and_prd_must_match_on_the_same_item(tmp_path):
                 "items": [
                     {"type": "stall", "site": "design_gate", "prd": "00057-g-v1.md"},
                     {"type": "deferred-finding", "prd": prd},
-                ]
-            }
-        )
+                ],
+            },
+        ),
     )
     assert _model(box) == SONNET
 
@@ -375,8 +379,8 @@ def test_signal5_ledger_key_any_status_promotes(tmp_path):
             {
                 "00075-gate-on-memory-pressure-v1.md": {"status": "approved"},
                 prd: {"status": "rejected"},
-            }
-        )
+            },
+        ),
     )
     assert _model(box) == OPUS
 
@@ -388,7 +392,7 @@ def test_signal5_target_as_a_value_never_promotes(tmp_path):
     _write_prd(box / "prds/wip" / prd)
     _state(box, prd)
     (box / "ledger.json").write_text(
-        json.dumps({"00080-diagnose-v1.md": {"status": "approved", "supersedes": prd}})
+        json.dumps({"00080-diagnose-v1.md": {"status": "approved", "supersedes": prd}}),
     )
     assert _model(box) == SONNET
 
@@ -459,13 +463,17 @@ def test_route_build_kill_switch_wins_over_routing(tmp_path):
 
 def test_route_review_is_opus_xhigh_10800(tmp_path):
     assert _route("review", tmp_path) == Route(
-        model=OPUS, effort="xhigh", cap_secs=10800
+        model=OPUS,
+        effort="xhigh",
+        cap_secs=10800,
     )
 
 
 def test_route_done_is_sonnet_medium_7200(tmp_path):
     assert _route("done", tmp_path) == Route(
-        model=SONNET, effort="medium", cap_secs=7200
+        model=SONNET,
+        effort="medium",
+        cap_secs=7200,
     )
 
 
@@ -495,6 +503,6 @@ def test_route_build_reads_the_real_signal_paths(tmp_path):
     prd = "00013-route-from-the-ledger-v1.md"
     _write_prd(prds / prd)
     (ap_dir / "ledger" / "fable-requests.json").write_text(
-        json.dumps({prd: {"status": "approved"}})
+        json.dumps({prd: {"status": "approved"}}),
     )
     assert route("build", ap_dir, env={}).model == OPUS

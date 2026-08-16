@@ -34,7 +34,9 @@ def test_wait_beyond_cap_is_refused():
 
 
 def test_scripts_shim_reexports_the_same_objects():
-    shim_path = Path(__file__).resolve().parents[1] / "scripts" / "detect_usage_limit.py"
+    shim_path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "detect_usage_limit.py"
+    )
     spec = importlib.util.spec_from_file_location("detect_usage_limit_shim", shim_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

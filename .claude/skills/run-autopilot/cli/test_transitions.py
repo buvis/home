@@ -101,7 +101,7 @@ class ConvergedTests(unittest.TestCase):
             list(
                 transitions.apply.__code__.co_varnames[
                     : transitions.apply.__code__.co_argcount
-                ]
+                ],
             ),
             ["state", "outcome"],
             "apply() takes an outcome only - a caller cannot pass, or forget, "

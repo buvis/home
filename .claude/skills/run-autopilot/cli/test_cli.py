@@ -91,7 +91,9 @@ class InitTests(_TempDirTestCase):
         self.assertEqual(content["phase"], "build")
         self.assertEqual(content["next_phase"], "build")
 
-    def test_rerun_on_existing_state_exits_7_and_leaves_state_byte_unchanged(self) -> None:
+    def test_rerun_on_existing_state_exits_7_and_leaves_state_byte_unchanged(
+        self,
+    ) -> None:
         state_path = self.root / "state.json"
         args = ["init", "--state", str(state_path), "--prd", "00004-feature-x.md"]
         first = _run(args, cwd=self.root)
@@ -134,18 +136,27 @@ class StallTests(_TempDirTestCase):
             self.state_path,
             _minimal_state(
                 prd=self.PRD,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 0},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 0,
+                },
             ),
         )
 
         proc = _run(
             [
                 "stall",
-                "--state", str(self.state_path),
-                "--prd", self.PRD,
-                "--site", "design_gate",
-                "--detail", "detail text",
-                "--prds", str(self.prds_dir),
+                "--state",
+                str(self.state_path),
+                "--prd",
+                self.PRD,
+                "--site",
+                "design_gate",
+                "--detail",
+                "detail text",
+                "--prds",
+                str(self.prds_dir),
             ],
             cwd=self.root,
         )
@@ -167,18 +178,27 @@ class StallTests(_TempDirTestCase):
             self.state_path,
             _minimal_state(
                 prd=self.PRD,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 0},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 0,
+                },
             ),
         )
 
         proc = _run(
             [
                 "stall",
-                "--state", str(self.state_path),
-                "--prd", self.PRD,
-                "--site", "design_gate",
-                "--detail", "detail text",
-                "--prds", str(self.prds_dir),
+                "--state",
+                str(self.state_path),
+                "--prd",
+                self.PRD,
+                "--site",
+                "design_gate",
+                "--detail",
+                "detail text",
+                "--prds",
+                str(self.prds_dir),
             ],
             cwd=self.root,
         )
@@ -204,14 +224,21 @@ class StallExitCodeTests(_TempDirTestCase):
     def _stall_args(self) -> list[str]:
         return [
             "stall",
-            "--state", str(self.state_path),
-            "--prd", self.PRD,
-            "--site", "design_gate",
-            "--detail", "detail text",
-            "--prds", str(self.prds_dir),
+            "--state",
+            str(self.state_path),
+            "--prd",
+            self.PRD,
+            "--site",
+            "design_gate",
+            "--detail",
+            "detail text",
+            "--prds",
+            str(self.prds_dir),
         ]
 
-    def test_corrupt_deferred_file_shape_exits_9_after_the_move_already_landed(self) -> None:
+    def test_corrupt_deferred_file_shape_exits_9_after_the_move_already_landed(
+        self,
+    ) -> None:
         # A list root is valid JSON but the wrong shape for the deferred
         # file; the move (step 3) lands before the append (step 4) fails.
         (self.prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
@@ -219,7 +246,11 @@ class StallExitCodeTests(_TempDirTestCase):
             self.state_path,
             _minimal_state(
                 prd=self.PRD,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 0},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 0,
+                },
             ),
         )
         deferred_dir = self.autopilot_dir / "deferred"
@@ -231,10 +262,13 @@ class StallExitCodeTests(_TempDirTestCase):
         self.assertEqual(proc.returncode, 9)
         self.assertFalse((self.prds_dir / "wip" / self.PRD).exists())
         self.assertTrue(
-            (self.prds_dir / "hold" / self.PRD).exists(), "the move lands before the append"
+            (self.prds_dir / "hold" / self.PRD).exists(),
+            "the move lands before the append",
         )
 
-    def test_stall_op_naming_a_different_prd_exits_10_with_no_filesystem_effects(self) -> None:
+    def test_stall_op_naming_a_different_prd_exits_10_with_no_filesystem_effects(
+        self,
+    ) -> None:
         (self.prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
         state = _minimal_state(
             prd=self.PRD,
@@ -271,16 +305,23 @@ class ParkTests(_TempDirTestCase):
             self.state_path,
             _minimal_state(
                 prd=self.PRD,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 0},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 0,
+                },
             ),
         )
 
     def _park_args(self) -> list[str]:
         return [
             "park",
-            "--state", str(self.state_path),
-            "--prds", str(self.prds_dir),
-            "--autopilot-dir", str(self.autopilot_dir),
+            "--state",
+            str(self.state_path),
+            "--prds",
+            str(self.prds_dir),
+            "--autopilot-dir",
+            str(self.autopilot_dir),
         ]
 
     def test_no_marker_exits_3_with_human_line_on_stdout_and_empty_stderr(self) -> None:
@@ -333,24 +374,35 @@ class ParkExitCodeTests(_TempDirTestCase):
         self.prds_dir = self.root / "prds"
         (self.prds_dir / "wip").mkdir(parents=True)
 
-    def test_second_consecutive_park_exits_5_and_writes_systemic_pause_reason(self) -> None:
+    def test_second_consecutive_park_exits_5_and_writes_systemic_pause_reason(
+        self,
+    ) -> None:
         (self.prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
         marker_path = self.autopilot_dir / "park-requested"
-        _write_json(marker_path, {"prd": self.PRD, "reason": "wrapper died mid-session"})
+        _write_json(
+            marker_path, {"prd": self.PRD, "reason": "wrapper died mid-session"}
+        )
         _write_json(
             self.state_path,
             _minimal_state(
                 prd=self.PRD,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 1},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 1,
+                },
             ),
         )
 
         proc = _run(
             [
                 "park",
-                "--state", str(self.state_path),
-                "--prds", str(self.prds_dir),
-                "--autopilot-dir", str(self.autopilot_dir),
+                "--state",
+                str(self.state_path),
+                "--prds",
+                str(self.prds_dir),
+                "--autopilot-dir",
+                str(self.autopilot_dir),
             ],
             cwd=self.root,
         )
@@ -414,10 +466,14 @@ class DeferTests(_TempDirTestCase):
         proc = _run(
             [
                 "defer",
-                "--state", str(self.state_path),
-                "--prd", "00007-other-feature.md",
-                "--batch", "202607300005",
-                "--json", json.dumps(record),
+                "--state",
+                str(self.state_path),
+                "--prd",
+                "00007-other-feature.md",
+                "--batch",
+                "202607300005",
+                "--json",
+                json.dumps(record),
             ],
             cwd=self.root,
         )
@@ -434,10 +490,14 @@ class DeferTests(_TempDirTestCase):
         proc = _run(
             [
                 "defer",
-                "--state", str(self.state_path),
-                "--prd", "00007-other-feature.md",
-                "--batch", "202607300005",
-                "--json", "{not valid json",
+                "--state",
+                str(self.state_path),
+                "--prd",
+                "00007-other-feature.md",
+                "--batch",
+                "202607300005",
+                "--json",
+                "{not valid json",
             ],
             cwd=self.root,
         )
@@ -448,10 +508,14 @@ class DeferTests(_TempDirTestCase):
         proc = _run(
             [
                 "defer",
-                "--state", str(self.state_path),
-                "--prd", "00007-other-feature.md",
-                "--batch", "202607300005",
-                "--json", "42",
+                "--state",
+                str(self.state_path),
+                "--prd",
+                "00007-other-feature.md",
+                "--batch",
+                "202607300005",
+                "--json",
+                "42",
             ],
             cwd=self.root,
         )
@@ -476,7 +540,8 @@ class RestoreTests(_TempDirTestCase):
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(
-            json.loads(state_path.read_text(encoding="utf-8")), backup_content
+            json.loads(state_path.read_text(encoding="utf-8")),
+            backup_content,
         )
 
     def test_corrupt_bak_exits_8_and_leaves_state_unchanged(self) -> None:
@@ -534,7 +599,9 @@ class DefaultStatePathTests(_TempDirTestCase):
         self.assertEqual(content["phase"], "build")
         self.assertNotIn("tasks", content)
 
-    def test_reset_prd_without_state_flag_and_no_autopilot_ancestor_exits_1(self) -> None:
+    def test_reset_prd_without_state_flag_and_no_autopilot_ancestor_exits_1(
+        self,
+    ) -> None:
         # self.root is a bare tmpdir with no dev/local/autopilot anywhere
         # above it (verified: the default tempdir root has no such ancestor).
         proc = _run(["reset-prd"], cwd=self.root)
@@ -555,14 +622,16 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
         decoy_pkg = testcase_root / "cli"
         decoy_pkg.mkdir()
         (decoy_pkg / "__init__.py").write_text(
-            'raise ImportError("decoy cli package imported")\n', encoding="utf-8"
+            'raise ImportError("decoy cli package imported")\n',
+            encoding="utf-8",
         )
         (decoy_pkg / "records.py").write_text(
-            'raise ImportError("decoy cli package imported")\n', encoding="utf-8"
+            'raise ImportError("decoy cli package imported")\n',
+            encoding="utf-8",
         )
         return [Path.home(), RUN_AUTOPILOT_DIR, Path("/"), testcase_root]
 
-    def _case_init(self, case_dir: Path) -> tuple[list[str], "callable"]:
+    def _case_init(self, case_dir: Path) -> tuple[list[str], callable]:
         state_path = case_dir / "state.json"
         args = ["init", "--state", str(state_path), "--prd", "00004-feature-x.md"]
 
@@ -572,7 +641,7 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
 
         return args, _check
 
-    def _case_stall(self, case_dir: Path) -> tuple[list[str], "callable"]:
+    def _case_stall(self, case_dir: Path) -> tuple[list[str], callable]:
         autopilot_dir = case_dir / "autopilot"
         autopilot_dir.mkdir()
         state_path = autopilot_dir / "state.json"
@@ -584,16 +653,25 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
             state_path,
             _minimal_state(
                 prd=prd,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 0},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 0,
+                },
             ),
         )
         args = [
             "stall",
-            "--state", str(state_path),
-            "--prd", prd,
-            "--site", "design_gate",
-            "--detail", "detail text",
-            "--prds", str(prds_dir),
+            "--state",
+            str(state_path),
+            "--prd",
+            prd,
+            "--site",
+            "design_gate",
+            "--detail",
+            "detail text",
+            "--prds",
+            str(prds_dir),
         ]
 
         def _check() -> None:
@@ -601,7 +679,7 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
 
         return args, _check
 
-    def _case_park(self, case_dir: Path) -> tuple[list[str], "callable"]:
+    def _case_park(self, case_dir: Path) -> tuple[list[str], callable]:
         autopilot_dir = case_dir / "autopilot"
         autopilot_dir.mkdir()
         state_path = autopilot_dir / "state.json"
@@ -613,15 +691,22 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
             state_path,
             _minimal_state(
                 prd=prd,
-                batch={"id": "202607300000", "completed_prds": [], "parks_consecutive": 0},
+                batch={
+                    "id": "202607300000",
+                    "completed_prds": [],
+                    "parks_consecutive": 0,
+                },
             ),
         )
         _write_json(autopilot_dir / "park-requested", {"prd": prd, "reason": "died"})
         args = [
             "park",
-            "--state", str(state_path),
-            "--prds", str(prds_dir),
-            "--autopilot-dir", str(autopilot_dir),
+            "--state",
+            str(state_path),
+            "--prds",
+            str(prds_dir),
+            "--autopilot-dir",
+            str(autopilot_dir),
         ]
 
         def _check() -> None:
@@ -629,7 +714,7 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
 
         return args, _check
 
-    def _case_reset_prd(self, case_dir: Path) -> tuple[list[str], "callable"]:
+    def _case_reset_prd(self, case_dir: Path) -> tuple[list[str], callable]:
         state_path = case_dir / "state.json"
         _write_json(state_path, _minimal_state())
         args = ["reset-prd", "--state", str(state_path)]
@@ -640,7 +725,7 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
 
         return args, _check
 
-    def _case_defer(self, case_dir: Path) -> tuple[list[str], "callable"]:
+    def _case_defer(self, case_dir: Path) -> tuple[list[str], callable]:
         state_dir = case_dir / "autopilot"
         state_dir.mkdir()
         state_path = state_dir / "state.json"
@@ -648,10 +733,14 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
         record = {"type": "manual-defer", "reason": "test note"}
         args = [
             "defer",
-            "--state", str(state_path),
-            "--prd", "00007-other-feature.md",
-            "--batch", "202607300005",
-            "--json", json.dumps(record),
+            "--state",
+            str(state_path),
+            "--prd",
+            "00007-other-feature.md",
+            "--batch",
+            "202607300005",
+            "--json",
+            json.dumps(record),
         ]
 
         def _check() -> None:
@@ -660,7 +749,7 @@ class AllSubcommandsCwdMatrixTests(unittest.TestCase):
 
         return args, _check
 
-    def _case_restore(self, case_dir: Path) -> tuple[list[str], "callable"]:
+    def _case_restore(self, case_dir: Path) -> tuple[list[str], callable]:
         state_path = case_dir / "state.json"
         bak_path = case_dir / "state.json.bak"
         _write_json(state_path, _minimal_state(cycle=99))
@@ -702,7 +791,7 @@ class PackageIdentityTests(unittest.TestCase):
         import cli  # the one in-process import the task brief pins as exempt
 
         self.assertTrue(
-            Path(cli.__file__).resolve().is_relative_to(RUN_AUTOPILOT_DIR.resolve())
+            Path(cli.__file__).resolve().is_relative_to(RUN_AUTOPILOT_DIR.resolve()),
         )
 
 

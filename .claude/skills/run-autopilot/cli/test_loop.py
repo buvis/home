@@ -77,10 +77,20 @@ class ScriptedSpawn:
         self.launches: list[dict] = []
         self.clock = clock
 
-    def __call__(self, model, effort, *, cap_secs, autopilot_dir, env,
-                 runner_bin, proc_slot=None, **kwargs) -> SpawnResult:
+    def __call__(
+        self,
+        model,
+        effort,
+        *,
+        cap_secs,
+        autopilot_dir,
+        env,
+        runner_bin,
+        proc_slot=None,
+        **kwargs,
+    ) -> SpawnResult:
         self.launches.append(
-            {"model": model, "effort": effort, "cap_secs": cap_secs}
+            {"model": model, "effort": effort, "cap_secs": cap_secs},
         )
         self.clock.now += 1  # a session takes wall time
         if not self.steps:
@@ -109,12 +119,13 @@ def write_log(ap_dir: Path, *events) -> None:
 def terminal_step(prd: str = "00099-drained-v1.md", batch: str = "b-1", **extra):
     def step(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({"prd": prd, "next_phase": "", "batch": {"id": batch, **extra}})
+            json.dumps({"prd": prd, "next_phase": "", "batch": {"id": batch, **extra}}),
         )
         write_log(
             ap_dir,
             {"type": "result", "total_cost_usd": 0.01, "usage": {"output_tokens": 10}},
         )
+
     return step
 
 
@@ -153,15 +164,22 @@ def make_loop(tmp_path: Path, steps, env: dict | None = None, **kwargs):
         **kwargs,
     )
     lp._test = {
-        "ap_dir": ap_dir, "spawn": spawn, "notify": notify,
-        "sleeps": sleeps, "out": out, "err": err, "clock": clock,
+        "ap_dir": ap_dir,
+        "spawn": spawn,
+        "notify": notify,
+        "sleeps": sleeps,
+        "out": out,
+        "err": err,
+        "clock": clock,
     }
     return lp
 
 
 def _notified(lp, fragment: str) -> bool:
-    return any(fragment in args[0] or fragment in args[1]
-               for args, _ in lp._test["notify"].calls)
+    return any(
+        fragment in args[0] or fragment in args[1]
+        for args, _ in lp._test["notify"].calls
+    )
 
 
 _REAL_CLEANUP_ORPHANS = Loop._cleanup_orphans
@@ -174,7 +192,8 @@ def _no_real_drain_side_effects(monkeypatch):
     hermetic and fast. Direct tests use the saved originals."""
     monkeypatch.setattr(loop_mod, "run_purge", lambda repo: None)
     monkeypatch.setattr(
-        loop_mod, "run_agoge",
+        loop_mod,
+        "run_agoge",
         lambda ap_dir, batch, drained, env, out, claude_bin="claude": None,
     )
     monkeypatch.setattr(Loop, "_cleanup_orphans", lambda self: None)
@@ -224,8 +243,13 @@ def test_pause_detail_empty_when_not_paused():
 
 def test_fingerprint_binds_the_progress_fields():
     state = {
-        "prd": "p.md", "next_phase": "review", "tasks_completed": 3,
-        "review_cycles": 1, "cycle": 2, "cap_rotations": [{}], "replan_count": 0,
+        "prd": "p.md",
+        "next_phase": "review",
+        "tasks_completed": 3,
+        "review_cycles": 1,
+        "cycle": 2,
+        "cap_rotations": [{}],
+        "replan_count": 0,
     }
     assert fingerprint(state) == "p.md|review|3|1|2|1|0"
 
@@ -263,9 +287,11 @@ def test_plugin_drift_matching_pins_pass():
 def test_last_result_field_takes_the_final_event(tmp_path):
     log = tmp_path / "log"
     log.write_text(
-        json.dumps({"type": "result", "total_cost_usd": 1.0}) + "\n"
+        json.dumps({"type": "result", "total_cost_usd": 1.0})
+        + "\n"
         + "not json\n"
-        + json.dumps({"type": "result", "total_cost_usd": 2.5}) + "\n"
+        + json.dumps({"type": "result", "total_cost_usd": 2.5})
+        + "\n",
     )
     assert last_result_field(log, "total_cost_usd") == 2.5
 
@@ -273,9 +299,10 @@ def test_last_result_field_takes_the_final_event(tmp_path):
 def test_last_result_field_error_only_filters(tmp_path):
     log = tmp_path / "log"
     log.write_text(
-        json.dumps({"type": "result", "result": "fine"}) + "\n"
-        + json.dumps({"type": "result", "is_error": True, "result": "ECONNREFUSED"})
+        json.dumps({"type": "result", "result": "fine"})
         + "\n"
+        + json.dumps({"type": "result", "is_error": True, "result": "ECONNREFUSED"})
+        + "\n",
     )
     assert last_result_field(log, "result", error_only=True) == "ECONNREFUSED"
 
@@ -287,8 +314,12 @@ def test_drained_batch_exits_zero_with_banner_and_notification(tmp_path):
     lp = make_loop(tmp_path, [terminal_step(batch="20260708-e2e")])
     ap = lp._test["ap_dir"]
     write_state(
-        ap, prd="00088-thin-v1.md", next_phase="build",
-        replan_count=0, cap_rotations=[], stall_reason=None,
+        ap,
+        prd="00088-thin-v1.md",
+        next_phase="build",
+        replan_count=0,
+        cap_rotations=[],
+        stall_reason=None,
         batch={"id": "20260708-e2e"},
     )
     rc = lp.run()
@@ -308,8 +339,12 @@ def test_signal_free_build_launches_sonnet_xhigh(tmp_path):
     prds.mkdir(parents=True)
     (prds / "00088-thin-v1.md").write_text("# fixture\n")
     write_state(
-        ap, prd="00088-thin-v1.md", next_phase="build",
-        replan_count=0, cap_rotations=[], stall_reason=None,
+        ap,
+        prd="00088-thin-v1.md",
+        next_phase="build",
+        replan_count=0,
+        cap_rotations=[],
+        stall_reason=None,
         batch={"id": "b"},
     )
     assert lp.run() == 0
@@ -320,7 +355,8 @@ def test_signal_free_build_launches_sonnet_xhigh(tmp_path):
 
 def test_build_kill_switch_wins(tmp_path):
     lp = make_loop(
-        tmp_path, [terminal_step()],
+        tmp_path,
+        [terminal_step()],
         env={"_AUTOPILOT_MODEL_BUILD": "claude-opus-5[1m]"},
     )
     write_state(lp._test["ap_dir"], prd="p.md", next_phase="build", batch={"id": "b"})
@@ -357,7 +393,7 @@ def test_done_branch_routes_sonnet_medium(tmp_path):
 def test_continue_relaunches_until_drain(tmp_path):
     def review_step(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({"prd": "p.md", "next_phase": "review", "batch": {"id": "b"}})
+            json.dumps({"prd": "p.md", "next_phase": "review", "batch": {"id": "b"}}),
         )
         write_log(ap_dir, {"type": "result"})
 
@@ -375,7 +411,7 @@ def test_state_write_failed_marker_wins_over_a_healthy_state(tmp_path):
     def step(ap_dir: Path) -> None:
         terminal_step()(ap_dir)
         (ap_dir / "state-write-failed").write_text(
-            json.dumps({"detail": "transaction raised"})
+            json.dumps({"detail": "transaction raised"}),
         )
 
     lp = make_loop(tmp_path, [step])
@@ -387,11 +423,14 @@ def test_state_write_failed_marker_wins_over_a_healthy_state(tmp_path):
 def test_paused_state_prints_detail_runbook_and_notifies(tmp_path):
     def step(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({
-                "prd": "p.md", "next_phase": "review",
-                "pause_reason": {"detail": "design gate needs the operator"},
-                "batch": {"id": "b"},
-            })
+            json.dumps(
+                {
+                    "prd": "p.md",
+                    "next_phase": "review",
+                    "pause_reason": {"detail": "design gate needs the operator"},
+                    "batch": {"id": "b"},
+                }
+            ),
         )
 
     lp = make_loop(tmp_path, [step])
@@ -405,17 +444,22 @@ def test_paused_state_prints_detail_runbook_and_notifies(tmp_path):
 def test_review_cap_pause_summarizes_and_lists_findings(tmp_path):
     def step(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({
-                "prd": "p.md", "next_phase": "review", "phase": "paused",
-                "cap_pause_reason": {
-                    "cycle": 3, "cap": 3,
-                    "unresolved_findings": [
-                        {"severity": "High", "issue": "the gate lies"},
-                        {"severity": "Low", "issue": "typo"},
-                    ],
-                },
-                "batch": {"id": "b"},
-            })
+            json.dumps(
+                {
+                    "prd": "p.md",
+                    "next_phase": "review",
+                    "phase": "paused",
+                    "cap_pause_reason": {
+                        "cycle": 3,
+                        "cap": 3,
+                        "unresolved_findings": [
+                            {"severity": "High", "issue": "the gate lies"},
+                            {"severity": "Low", "issue": "typo"},
+                        ],
+                    },
+                    "batch": {"id": "b"},
+                }
+            ),
         )
 
     lp = make_loop(tmp_path, [step])
@@ -428,11 +472,14 @@ def test_review_cap_pause_summarizes_and_lists_findings(tmp_path):
 def test_subagent_prompt_overrun_replans_in_place(tmp_path):
     def overrun(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({
-                "prd": "p.md", "next_phase": "build",
-                "stall_reason": {"stalled": "subagent_prompt_overrun"},
-                "batch": {"id": "b"},
-            })
+            json.dumps(
+                {
+                    "prd": "p.md",
+                    "next_phase": "build",
+                    "stall_reason": {"stalled": "subagent_prompt_overrun"},
+                    "batch": {"id": "b"},
+                }
+            ),
         )
 
     lp = make_loop(tmp_path, [overrun, terminal_step()])
@@ -486,7 +533,8 @@ def test_usage_limit_waits_then_resumes(tmp_path):
     clock = FakeClock()
     reset = int(clock.now) + 300
     lp = make_loop(
-        tmp_path, [noop_step, terminal_step()],
+        tmp_path,
+        [noop_step, terminal_step()],
         clock=clock,
         detect_limit_fn=lambda path: reset,
     )
@@ -500,7 +548,8 @@ def test_usage_limit_waits_then_resumes(tmp_path):
 def test_usage_limit_beyond_the_wait_cap_dies(tmp_path):
     clock = FakeClock()
     lp = make_loop(
-        tmp_path, [noop_step],
+        tmp_path,
+        [noop_step],
         clock=clock,
         detect_limit_fn=lambda path: int(clock.now) + 50_000,
     )
@@ -513,8 +562,11 @@ def test_network_outage_polls_and_resumes(tmp_path):
     def netfail(ap_dir: Path) -> None:
         write_log(
             ap_dir,
-            {"type": "result", "is_error": True,
-             "result": "fetch failed: unable to connect to api.anthropic.com"},
+            {
+                "type": "result",
+                "is_error": True,
+                "result": "fetch failed: unable to connect to api.anthropic.com",
+            },
         )
 
     lp = make_loop(tmp_path, [netfail, terminal_step()], probe_fn=lambda: True)
@@ -534,7 +586,9 @@ def test_network_outage_that_never_clears_dies(tmp_path):
         )
 
     lp = make_loop(
-        tmp_path, [netfail], probe_fn=lambda: False,
+        tmp_path,
+        [netfail],
+        probe_fn=lambda: False,
         env={"_AUTOPILOT_NET_WAIT_MAX": "60"},
     )
     write_state(lp._test["ap_dir"], prd="p.md", next_phase="build", batch={"id": "b"})
@@ -561,10 +615,14 @@ def test_repeated_network_failures_exhaust_the_retry_cap(tmp_path):
 def test_fingerprint_bound_parks_a_prd_burning_sessions(tmp_path):
     def same_state(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({
-                "prd": "p.md", "next_phase": "review", "review_cycles": 2,
-                "batch": {"id": "b"},
-            })
+            json.dumps(
+                {
+                    "prd": "p.md",
+                    "next_phase": "review",
+                    "review_cycles": 2,
+                    "batch": {"id": "b"},
+                }
+            ),
         )
         write_log(ap_dir, {"type": "result"})
 
@@ -573,14 +631,13 @@ def test_fingerprint_bound_parks_a_prd_burning_sessions(tmp_path):
         (ap_dir / "pause-requested").touch()
 
     lp = make_loop(
-        tmp_path, [same_state, same_state, same_state_then_operator_pause],
+        tmp_path,
+        [same_state, same_state, same_state_then_operator_pause],
         env={"_AUTOPILOT_PHASE_REPEATS_MAX": "2"},
     )
     rc = lp.run()  # session 3 parks; iteration 4 consumes the pause
     assert rc == 0
-    assert "no progress across 2 sessions; parking p.md" in (
-        lp._test["out"].getvalue()
-    )
+    assert "no progress across 2 sessions; parking p.md" in (lp._test["out"].getvalue())
     assert (lp._test["ap_dir"] / "park-requested").exists()
     assert len(lp._test["spawn"].launches) == 3
 
@@ -588,7 +645,9 @@ def test_fingerprint_bound_parks_a_prd_burning_sessions(tmp_path):
 def test_metrics_line_lands_in_primary_and_ledger_mirror(tmp_path):
     lp = make_loop(tmp_path, [terminal_step(batch="mb-1")])
     write_state(
-        lp._test["ap_dir"], prd="00001-m-v1.md", next_phase="build",
+        lp._test["ap_dir"],
+        prd="00001-m-v1.md",
+        next_phase="build",
         batch={"id": "mb-1"},
     )
     assert lp.run() == 0
@@ -610,7 +669,7 @@ def test_metrics_line_lands_in_primary_and_ledger_mirror(tmp_path):
 def test_one_metrics_line_per_session(tmp_path):
     def review_step(ap_dir: Path) -> None:
         (ap_dir / "state.json").write_text(
-            json.dumps({"prd": "p.md", "next_phase": "review", "batch": {"id": "b"}})
+            json.dumps({"prd": "p.md", "next_phase": "review", "batch": {"id": "b"}}),
         )
         write_log(ap_dir, {"type": "result"})
 
@@ -637,13 +696,17 @@ def test_pause_marker_stops_before_any_spawn(tmp_path):
 def test_plugin_drift_halts_before_any_spawn(tmp_path):
     plugins = tmp_path / "installed_plugins.json"
     plugins.write_text(
-        json.dumps({"plugins": {"aegis@buvis-plugins": [{"version": "9.9.9"}]}})
+        json.dumps({"plugins": {"aegis@buvis-plugins": [{"version": "9.9.9"}]}}),
     )
     lp = make_loop(
-        tmp_path, [], env={"_AUTOPILOT_PLUGINS_JSON": str(plugins)}
+        tmp_path,
+        [],
+        env={"_AUTOPILOT_PLUGINS_JSON": str(plugins)},
     )
     write_state(
-        lp._test["ap_dir"], prd="p.md", next_phase="build",
+        lp._test["ap_dir"],
+        prd="p.md",
+        next_phase="build",
         batch={"id": "b", "plugin_versions": {"aegis@buvis-plugins": "0.3.1"}},
     )
     assert lp.run() == 1
@@ -655,14 +718,17 @@ def test_plugin_drift_halts_before_any_spawn(tmp_path):
 def test_matching_plugin_pins_proceed(tmp_path):
     plugins = tmp_path / "installed_plugins.json"
     plugins.write_text(
-        json.dumps({"plugins": {"aegis@buvis-plugins": [{"version": "0.3.1"}]}})
+        json.dumps({"plugins": {"aegis@buvis-plugins": [{"version": "0.3.1"}]}}),
     )
     lp = make_loop(
-        tmp_path, [terminal_step()],
+        tmp_path,
+        [terminal_step()],
         env={"_AUTOPILOT_PLUGINS_JSON": str(plugins)},
     )
     write_state(
-        lp._test["ap_dir"], prd="p.md", next_phase="build",
+        lp._test["ap_dir"],
+        prd="p.md",
+        next_phase="build",
         batch={"id": "b", "plugin_versions": {"aegis@buvis-plugins": "0.3.1"}},
     )
     assert lp.run() == 0
@@ -670,7 +736,9 @@ def test_matching_plugin_pins_proceed(tmp_path):
 
 def test_memory_pressure_that_never_clears_halts(tmp_path):
     lp = make_loop(
-        tmp_path, [], pressure_fn=lambda: 4,
+        tmp_path,
+        [],
+        pressure_fn=lambda: 4,
         env={"_AUTOPILOT_MEM_WAIT_MAX": "120", "_AUTOPILOT_MEM_POLL_SECS": "60"},
     )
     assert lp.run() == 1
@@ -682,7 +750,8 @@ def test_memory_pressure_that_never_clears_halts(tmp_path):
 def test_memory_pressure_that_clears_resumes(tmp_path):
     readings = [4, 1, 1]
     lp = make_loop(
-        tmp_path, [terminal_step()],
+        tmp_path,
+        [terminal_step()],
         pressure_fn=lambda: readings.pop(0) if readings else 1,
         env={"_AUTOPILOT_MEM_WAIT_MAX": "600"},
     )
@@ -693,8 +762,11 @@ def test_memory_pressure_that_clears_resumes(tmp_path):
 def test_future_schema_state_refuses_before_spawn(tmp_path):
     lp = make_loop(tmp_path, [])
     write_state(
-        lp._test["ap_dir"], prd="p.md", next_phase="build",
-        schema_version=99, batch={"id": "b"},
+        lp._test["ap_dir"],
+        prd="p.md",
+        next_phase="build",
+        schema_version=99,
+        batch={"id": "b"},
     )
     assert lp.run() == 1
     assert "newer than this CLI understands" in lp._test["err"].getvalue()
@@ -716,8 +788,9 @@ def _spawn_tagged_incumbent() -> subprocess.Popen:
     tag: exec keeps the shell's pid, so $$ IS the final pid."""
     proc = subprocess.Popen(
         [
-            "bash", "-c",
-            f'exec env _AUTOPILOT_LOOP=$$ {sys.executable} -c '
+            "bash",
+            "-c",
+            f"exec env _AUTOPILOT_LOOP=$$ {sys.executable} -c "
             '"import time; time.sleep(60)"',
         ],
     )
@@ -725,7 +798,8 @@ def _spawn_tagged_incumbent() -> subprocess.Popen:
     while time.monotonic() < deadline:
         out = subprocess.run(
             ["ps", "ewww", "-p", str(proc.pid), "-o", "command="],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         ).stdout
         if f"_AUTOPILOT_LOOP={proc.pid}" in out:
             return proc
@@ -741,7 +815,7 @@ def test_duplicate_loop_guard_refuses_a_second_loop(tmp_path):
     incumbent = _spawn_tagged_incumbent()
     try:
         (loops / f"{incumbent.pid}.json").write_text(
-            json.dumps({"pid": incumbent.pid, "root": str(root)})
+            json.dumps({"pid": incumbent.pid, "root": str(root)}),
         )
         assert lp.run() == 1
         assert "already running" in lp._test["err"].getvalue()
@@ -760,7 +834,8 @@ def test_cleanup_orphans_hups_a_tagged_ppid1_process(tmp_path):
     # capture_output blocks until the ORPHAN exits, not bash.
     result = subprocess.run(
         [
-            "bash", "-c",
+            "bash",
+            "-c",
             f'{sys.executable} -c "import time; time.sleep(60)" '
             ">/dev/null 2>&1 & echo $!",
         ],
@@ -820,7 +895,7 @@ def test_own_stale_registry_entry_is_overwritten_not_refused(tmp_path):
     loops.mkdir()
     lp = make_loop(tmp_path, [terminal_step()])
     (loops / f"{lp.loop_pid}.json").write_text(
-        json.dumps({"pid": lp.loop_pid, "root": str(tmp_path / "repo")})
+        json.dumps({"pid": lp.loop_pid, "root": str(tmp_path / "repo")}),
     )
     assert lp.run() == 0
     assert "already running" not in lp._test["err"].getvalue()
@@ -840,7 +915,7 @@ def test_loop_drives_the_real_runner_spawn_end_to_end(tmp_path):
         "(ap / 'state.json').write_text(json.dumps("
         "{'prd': 'p.md', 'next_phase': '', 'batch': {'id': 'real-1'}}))\n"
         "print(json.dumps({'type': 'result', 'total_cost_usd': 0.02,"
-        " 'usage': {'output_tokens': 7}}))\n"
+        " 'usage': {'output_tokens': 7}}))\n",
     )
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
 
@@ -866,7 +941,7 @@ def test_loop_drives_the_real_runner_spawn_end_to_end(tmp_path):
     assert lp.run() == 0
     assert "Backlog drained." in out.getvalue()
     row = json.loads(
-        (ap_dir / "loop-metrics.jsonl").read_text().strip().splitlines()[0]
+        (ap_dir / "loop-metrics.jsonl").read_text().strip().splitlines()[0],
     )
     assert row["signal"] == "done"
     assert row["cost_usd"] == 0.02
@@ -921,8 +996,17 @@ def test_interrupt_tears_down_and_returns_130(tmp_path):
     # child, and return the bash-parity code.
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
 
-    def interrupting_spawn(model, effort, *, cap_secs, autopilot_dir, env,
-                           runner_bin, proc_slot=None, **kwargs):
+    def interrupting_spawn(
+        model,
+        effort,
+        *,
+        cap_secs,
+        autopilot_dir,
+        env,
+        runner_bin,
+        proc_slot=None,
+        **kwargs,
+    ):
         if proc_slot is not None:
             proc_slot[0] = child
         raise KeyboardInterrupt
@@ -939,8 +1023,17 @@ def test_interrupt_tears_down_and_returns_130(tmp_path):
 
 
 def test_sigterm_translates_to_143(tmp_path):
-    def terminating_spawn(model, effort, *, cap_secs, autopilot_dir, env,
-                          runner_bin, proc_slot=None, **kwargs):
+    def terminating_spawn(
+        model,
+        effort,
+        *,
+        cap_secs,
+        autopilot_dir,
+        env,
+        runner_bin,
+        proc_slot=None,
+        **kwargs,
+    ):
         raise loop_mod._Terminated(143)
 
     lp = make_loop(tmp_path, [], spawn_fn=terminating_spawn)
@@ -952,7 +1045,9 @@ def test_loop_verb_is_registered_in_the_cli():
     import importlib.util
 
     main_path = Path(__file__).resolve().parent / "__main__.py"
-    spec = importlib.util.spec_from_file_location("autopilot_main_under_test", main_path)
+    spec = importlib.util.spec_from_file_location(
+        "autopilot_main_under_test", main_path
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -976,7 +1071,7 @@ def _fake_claude(tmp_path: Path, exit_code: int = 0) -> str:
     path.write_text(
         f"#!{sys.executable}\nimport sys\n"
         f"open({str(argv_file)!r}, 'w').write(repr(sys.argv[1:]))\n"
-        f"print('qa output')\nsys.exit({exit_code})\n"
+        f"print('qa output')\nsys.exit({exit_code})\n",
     )
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return str(path)
@@ -985,8 +1080,14 @@ def _fake_claude(tmp_path: Path, exit_code: int = 0) -> str:
 def test_run_agoge_launches_authorized_and_logs(tmp_path):
     (tmp_path / "reports").mkdir()
     out = io.StringIO()
-    run_agoge(tmp_path, "b-1", 2, {"PATH": os.environ["PATH"]}, out,
-              claude_bin=_fake_claude(tmp_path))
+    run_agoge(
+        tmp_path,
+        "b-1",
+        2,
+        {"PATH": os.environ["PATH"]},
+        out,
+        claude_bin=_fake_claude(tmp_path),
+    )
     argv = (tmp_path / "agoge-argv").read_text()
     assert "'-p', '--permission-mode', 'auto'" in argv
     assert "--authorized autoclaude-drain" in argv
@@ -998,9 +1099,12 @@ def test_run_agoge_brake_removes_only_the_flag(tmp_path):
     (tmp_path / "reports").mkdir()
     out = io.StringIO()
     run_agoge(
-        tmp_path, "b-1", 2,
+        tmp_path,
+        "b-1",
+        2,
         {"PATH": os.environ["PATH"], "_AUTOPILOT_AGOGE_AUTHORIZED": "0"},
-        out, claude_bin=_fake_claude(tmp_path),
+        out,
+        claude_bin=_fake_claude(tmp_path),
     )
     argv = (tmp_path / "agoge-argv").read_text()
     assert "/run-agoge" in argv
@@ -1010,8 +1114,14 @@ def test_run_agoge_brake_removes_only_the_flag(tmp_path):
 def test_run_agoge_failure_is_swallowed_and_reported(tmp_path, capsys):
     (tmp_path / "reports").mkdir()
     out = io.StringIO()
-    run_agoge(tmp_path, "b-1", 2, {"PATH": os.environ["PATH"]}, out,
-              claude_bin=_fake_claude(tmp_path, exit_code=3))
+    run_agoge(
+        tmp_path,
+        "b-1",
+        2,
+        {"PATH": os.environ["PATH"]},
+        out,
+        claude_bin=_fake_claude(tmp_path, exit_code=3),
+    )
     err = capsys.readouterr().err
     assert "run failed (rc 3)" in err
     assert "The drain is unaffected" in err
@@ -1021,9 +1131,10 @@ def test_drained_branch_runs_purge_and_agoge_with_the_count(tmp_path, monkeypatc
     purges, agoges = [], []
     monkeypatch.setattr(loop_mod, "run_purge", lambda repo: purges.append(repo))
     monkeypatch.setattr(
-        loop_mod, "run_agoge",
+        loop_mod,
+        "run_agoge",
         lambda ap_dir, batch, drained, env, out, claude_bin="claude": agoges.append(
-            (batch, drained)
+            (batch, drained),
         ),
     )
     lp = make_loop(
