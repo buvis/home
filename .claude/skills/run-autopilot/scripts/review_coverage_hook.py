@@ -82,6 +82,20 @@ def run_gate(review_file: Path) -> tuple[int, str]:
     return (result.returncode, result.stderr.strip())
 
 
+def _review_converged(state: dict) -> bool:
+    """True once a review cycle has completed for the CURRENT prd.
+
+    phase == "done" without a review convergence means: a batch-drained ("no
+    PRDs anywhere") hand-off, or a PRD that stalled/parked before ever
+    reaching the review-rework loop. Either way there is no review surface to
+    gate coverage for. Checking phases_completed (not state.prd) matters
+    because prd is NOT cleared when a PRD stalls - it stays stale until the
+    next selection overwrites it (SKILL.md Phase 0 step 4), so an empty-prd
+    check alone misses this case.
+    """
+    return "review" in state.get("phases_completed", [])
+
+
 def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
     """Decide whether the review-coverage gate should block the handoff.
 
@@ -102,15 +116,7 @@ def gate_blocks(autopilot_dir: Path, state: dict) -> tuple[bool, str]:
     if surface is None:
         return (False, "")
 
-    if "review" not in state.get("phases_completed", []):
-        # phase == "done" without a review convergence for the CURRENT prd:
-        # a batch-drained ("no PRDs anywhere") hand-off, or a PRD that
-        # stalled/parked before ever reaching the review-rework loop. Either
-        # way there is no review surface to gate coverage for. Checking
-        # phases_completed (not state.prd) matters because prd is NOT
-        # cleared when a PRD stalls - it stays stale until the next
-        # selection overwrites it (SKILL.md Phase 0 step 4), so an empty-prd
-        # check alone misses this case.
+    if not _review_converged(state):
         return (False, "")
 
     prd = state.get("prd", "")
