@@ -14,9 +14,16 @@ never on internals.
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# cli.records.reset_prd_fields is imported directly (never invoked through
+# the CLI) so one test can bind its state.json fixture to the real per-PRD
+# reset producer instead of a hand-built shape.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from cli.records import reset_prd_fields
 
 STATECTL = Path(__file__).parent / "statectl.py"
 
@@ -856,6 +863,67 @@ class StatectlTest(unittest.TestCase):
                 before,
                 f"{args[0]} must leave the state file byte-identical",
             )
+
+    # 18. task-add / task-set-meta robustness on missing-tasks and bad payloads --
+
+    def test_task_add_creates_tasks_array_when_absent(self) -> None:
+        # No "tasks" key at all - the shape `autopilot init` writes, and the
+        # shape every sibling verb already tolerates via _find_task's
+        # data.get("tasks"). task-add is the one verb that must work when no
+        # tasks exist yet, so it cannot be the one intolerant verb.
+        self.write_state({"phase": "build"})
+        payload = self.write_json("t.json", {"name": "First"})
+        result = self.run_cli("task-add", payload)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "1")
+        state = self.load_state()
+        self.assertEqual([t["id"] for t in state["tasks"]], ["1"])
+        self.assertEqual(state["tasks_total"], 1)
+
+    def test_task_add_succeeds_against_a_reset_prd_fields_state(self) -> None:
+        # records.reset_prd_fields runs on every PRD-to-PRD transition in a
+        # multi-PRD batch and removes "tasks" entirely rather than resetting
+        # it to []. Bound to the real producer, not a hand-built fixture, so
+        # a future edit to PER_PRD_RESET_FIELDS that keeps dropping "tasks"
+        # is caught here rather than only in a shape nobody re-derives.
+        populated = {
+            "phase": "review",
+            "tasks_total": 1,
+            "tasks_completed": 1,
+            "tasks": [{"id": "1", "status": "completed"}],
+        }
+        reset_state = reset_prd_fields(populated)
+        self.assertNotIn("tasks", reset_state)
+        self.write_state(reset_state)
+        payload = self.write_json("t.json", {"name": "Next PRD's first task"})
+        result = self.run_cli("task-add", payload)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "1")
+        state = self.load_state()
+        self.assertEqual([t["id"] for t in state["tasks"]], ["1"])
+        self.assertEqual(state["tasks_total"], 1)
+
+    def test_task_set_meta_rejects_a_json_array_payload(self) -> None:
+        # A JSON array parses fine but has no .items() to merge: like
+        # task-add's non-object-payload guard three lines above it in
+        # _build_apply, the failure must be a clean exit, not an uncaught
+        # AttributeError from do_task_set_meta calling meta.items().
+        self.three_tasks()
+        before = self.state.read_bytes()
+        payload = self.write_json("m.json", ["not", "an", "object"])
+        result = self.run_cli("task-set-meta", "2", payload)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
+    def test_task_set_meta_rejects_a_json_scalar_payload(self) -> None:
+        self.three_tasks()
+        before = self.state.read_bytes()
+        payload = self.write_json("m.json", 42)
+        result = self.run_cli("task-set-meta", "2", payload)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
 
 
 if __name__ == "__main__":
