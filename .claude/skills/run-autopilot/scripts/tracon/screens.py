@@ -271,6 +271,7 @@ class Collector:
         wrapper = discovery.wrapper_alive(self.root)
         now = time.time()
         status = discovery.limit_wait_status(status, log_path, log_mtime, wrapper, now)
+        status = discovery.operator_paused_status(status, self.root, wrapper)
         last = model.last_row(rows)
         status = discovery.orphan_status(
             status,
@@ -357,7 +358,8 @@ Status legend
   ● live         session writing within the last 20s
   ◐ quiet        session running but output has stalled
   ⏳ limit-wait  usage limit hit; the wrapper sleeps until the reset
-  ⏸ paused       loop stopped for a decision — claude → /run-autopilot → autoclaude
+  ⏸ paused       after p: autoclaude resumes it. After a blocker: claude →
+                 /run-autopilot → autoclaude
   ⚠ orphaned    work queued but no autoclaude alive — run autoclaude
   ⚠ attention   needs_attention set (usually a cap-pause)
   ■ died         session died; check dev/local/autopilot/last-session.log

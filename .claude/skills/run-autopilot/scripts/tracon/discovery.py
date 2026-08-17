@@ -193,6 +193,26 @@ def pause_pending_status(status: Status, root: Path, wrapper: bool) -> Status:
     )
 
 
+def operator_paused_status(status: Status, root: Path, wrapper: bool) -> Status:
+    """Render the stamp the loop's operator-pause exit leaves behind.
+
+    That exit runs BEFORE a session, so it appends no metrics row and
+    classify() sees nothing but an idle gap — orphan_status would then
+    paint a deliberate stop as a dropped batch. A live wrapper means the
+    loop resumed (it clears the stamp itself); rank < 3 statuses are
+    already louder or terminal."""
+    if wrapper or status.rank < 3:
+        return status
+    stamp = root / "dev" / "local" / "autopilot" / "paused-by-operator"
+    try:
+        mtime = stamp.stat().st_mtime
+    except OSError:
+        return status
+    return Status(
+        label=f"⏸ paused {_fmt_clock(mtime)}", style="yellow", rank=1, in_flight=False
+    )
+
+
 def orphan_status(
     status: Status,
     state: LoopState,
@@ -286,6 +306,7 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
     wrapper = wrapper_alive(root)
     status = classify(state, rows, log_mtime, now)
     status = limit_wait_status(status, log_path, log_mtime, wrapper, now)
+    status = operator_paused_status(status, root, wrapper)
     last = model.last_row(rows)
     status = orphan_status(
         status,

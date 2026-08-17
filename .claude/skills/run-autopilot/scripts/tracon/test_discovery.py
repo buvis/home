@@ -1079,6 +1079,75 @@ def test_pause_pending_status_identity_when_no_wrapper_alive(
     assert discovery.pause_pending_status(idle, tmp_path, False) is idle
 
 
+# --- paused-by-operator: a deliberate stop is not an orphan ------------------
+
+
+def _stamp_paused(root: Path, mtime: float) -> Path:
+    autopilot_dir = root / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True, exist_ok=True)
+    stamp = autopilot_dir / "paused-by-operator"
+    stamp.touch()
+    os.utime(stamp, (mtime, mtime))
+    return stamp
+
+
+def test_operator_paused_status_renders_the_stamp_clock(tmp_path: Path) -> None:
+    _stamp_paused(tmp_path, 1000.0)
+
+    out = discovery.operator_paused_status(_idle_status(), tmp_path, False)
+
+    assert out.label == f"⏸ paused {discovery._fmt_clock(1000.0)}"
+    assert (out.style, out.rank, out.in_flight) == ("yellow", 1, False)
+
+
+def test_operator_paused_status_identity_without_stamp(tmp_path: Path) -> None:
+    idle = _idle_status()
+    assert discovery.operator_paused_status(idle, tmp_path, False) is idle
+
+
+def test_operator_paused_status_identity_when_wrapper_alive(tmp_path: Path) -> None:
+    """A resumed loop clears the stamp itself; until it does, the live loop
+    outranks a stamp left over from the stop before it."""
+    _stamp_paused(tmp_path, 1000.0)
+    live = discovery.Status(label="● live", style="green", rank=2, in_flight=True)
+
+    assert discovery.operator_paused_status(live, tmp_path, True) is live
+
+
+def test_operator_paused_status_keeps_louder_statuses(tmp_path: Path) -> None:
+    _stamp_paused(tmp_path, 1000.0)
+    attention = discovery.Status(
+        label="⚠ attention", style="bold red", rank=0, in_flight=False
+    )
+
+    assert discovery.operator_paused_status(attention, tmp_path, False) is attention
+
+
+def test_loop_status_marks_an_operator_pause_paused_not_orphaned(
+    tmp_path: Path,
+) -> None:
+    """The pause exit runs before a session, so it appends no metrics row:
+    without the stamp, queued work plus a dead wrapper reads as a dropped
+    batch and the row screams "orphaned" at a deliberate stop."""
+    autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
+    autopilot_dir.mkdir(parents=True)
+    _write_json(
+        autopilot_dir / "state.json",
+        {"phase": "build", "next_phase": "build", "batch": {"id": "B1"}},
+    )
+    (autopilot_dir / "last-session.log").write_text("{}\n")
+    now = time.time()
+    _write_lines(
+        autopilot_dir / "loop-metrics.jsonl",
+        [_metrics_line(batch="B1", ts_start=now - 100, ts_end=now + 5, signal="continue")],
+    )
+    _stamp_paused(tmp_path, now)
+
+    row = discovery.loop_status(tmp_path, now=now + 10)
+
+    assert row.status.label == f"⏸ paused {discovery._fmt_clock(now)}"
+
+
 # --- discover_loops: union of ~/.claude, gita CSV rows, live registry roots -
 
 

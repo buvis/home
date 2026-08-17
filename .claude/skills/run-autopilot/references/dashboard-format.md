@@ -21,6 +21,9 @@ the `render_stream.py` pipe below with zero behavior change.
   (`uv run --no-project scripts/tracon.py --root <root>`).
 - `p` — pause: writes `<ap_dir>/pause-requested` (the sanctioned signal); the
   loop pauses at the next session boundary, exactly like `touch pause-requested`.
+  The row carries a `⏸ pause requested` chip until then, and reads `⏸ paused
+  <clock>` once the loop stops (off the `paused-by-operator` stamp). Plain
+  `autoclaude` resumes it.
 - `s` (twice) — stop NOW: interrupts the loop's process group with today's
   cleanup (traps fire, orphans reaped, registry entry removed).
 
