@@ -78,7 +78,10 @@ ROUTES = [
     Route("PreToolUse", "Bash", "cartographer-echo", HOOKS / "cartographer-echo.py", 5),
     Route(
         "PostToolUse",
-        "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*",
+        # No Grep|Glob: both tools are unregistered in this build (upstream
+        # native bug #52004), and a2db6e565 dropped them from settings.json.
+        # Restore both sides together if the tools come back.
+        "Bash|Read|Agent|WebFetch|WebSearch|mcp__.*",
         "autopilot_context_cap_hook",
         SCRIPTS / "autopilot_context_cap_hook.py",
         5,
