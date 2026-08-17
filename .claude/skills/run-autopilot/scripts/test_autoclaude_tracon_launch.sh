@@ -1031,6 +1031,59 @@ grep -qF '1. claude' "$ERR39" ||
 
 echo "PASS: a paused loop's resume-runbook diagnostics reach the PARENT autoclaude call's own stderr via _autoclaude_tracon_surface (scenario 39)"
 
+# ── Scenario 40: a LIVE loop shaped exactly like the tracon fork — a shell
+#    whose _AUTOPILOT_LOOP tag reaches ps only on its exec'd child — must
+#    SURVIVE the prune and block a second loop. ps reports the exec-time
+#    environment, so matching the shell alone swept live loops out of the
+#    registry and left tracon reading them as dead (no pause chip, no
+#    limit-wait, q → s "nothing to stop") ──────────────────────────────────
+AP40="$TMP1/s40/dev/local/autopilot"
+mkdir -p "$AP40"
+LOOPS40="$TMP1/s40-registry"
+mkdir -p "$LOOPS40"
+ROOT40="$TMP1/s40"
+
+# `export` AFTER this shell's own exec, then keep a tagged child alive: the
+# tag is invisible on $LOOPSHELL40 itself, visible on the sleep beneath it.
+bash -c 'export _AUTOPILOT_LOOP=$$; sleep 60 & wait' &
+LOOPSHELL40=$!
+i=0
+while [ -z "$(pgrep -P "$LOOPSHELL40" 2>/dev/null)" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+
+jq -n --argjson pid "$LOOPSHELL40" --arg root "$ROOT40" --arg ap_dir "$AP40" \
+  --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' \
+  >"$LOOPS40/other-loop.json" # a LIVE loop, tagged on its CHILD only
+export _AUTOPILOT_LOOPS_DIR="$LOOPS40"
+
+STUB_CALLS40="$TMP1/s40-stub-calls"
+: >"$STUB_CALLS40"
+_loop_stub_s40() { printf 'x\n' >>"$STUB_CALLS40"; sleep 0.3; return 0; }
+AUTOPILOT_LOOP_STUB="_loop_stub_s40"
+
+UV_CALLS_FILE=""
+UV_PREFLIGHT_RC=0
+UV_TUI_RC=0
+
+export _AUTOPILOT_TRACON=1
+run_loop "$AP40"
+rc40=$?
+unset _AUTOPILOT_TRACON
+AUTOPILOT_LOOP_STUB="_loop_stub_drained"
+
+pkill -P "$LOOPSHELL40" 2>/dev/null   # the tagged child first: this job shares
+kill "$LOOPSHELL40" 2>/dev/null       # THIS shell's pgrp, so never signal the group
+wait "$LOOPSHELL40" 2>/dev/null
+
+[ -s "$LOOPS40/other-loop.json" ] || fail "scenario 40: the prune swept a LIVE loop's registry entry — its _AUTOPILOT_LOOP tag sits on the exec'd child, not on the registered shell, and ps shows the exec-time env"
+[ "$rc40" -eq 1 ] || fail "scenario 40: the duplicate-loop guard did not refuse a second loop for a live incumbent (rc=$rc40)"
+[ ! -s "$STUB_CALLS40" ] || fail "scenario 40: the loop hand-off ran despite a live loop already registered for this root"
+
+echo "PASS: a live loop tagged only on its exec'd child survives the prune and still blocks a second loop (scenario 40)"
+
 # Natural-completion cleanup for the $TMP1 scratch tree — see the G3 note
 # for why this is a plain end-of-script `rm -rf`, not a trap.
 rm -rf "$TMP1"
