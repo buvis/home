@@ -6,6 +6,21 @@ about-plugin 'functions for software development'
 #   SHELL=/bin/sh GIT_PAGER=cat command claude --plugin-dir ~/.config/claude/ "$@"
 # }
 
+# _autopilot_tagged <pid> — true when <pid> or a direct child of it carries
+# _AUTOPILOT_LOOP=<pid> in its ps environment. Children count because ps
+# reports the EXEC-time environment: _autoclaude_tracon forks the loop shell
+# (the pid the registry stores — killpg needs the group leader) and the tag is
+# exported only after that fork, so it shows on the exec'd driver beneath the
+# shell and never on the shell itself. Matching the shell alone swept LIVE
+# loops out of the registry, and tracon then read them as dead: no pause chip,
+# no limit-wait countdown, and q → s answering "nothing to stop".
+_autopilot_tagged() {
+  local _pid="$1" _kids
+  _kids=$(pgrep -P "$_pid" 2>/dev/null | tr '\n' ',')
+  ps ewww -p "$_pid${_kids:+,${_kids%,}}" -o command= 2>/dev/null |
+    grep -qE "_AUTOPILOT_LOOP=${_pid}( |$)"
+}
+
 # _autopilot_prune_registry <loops_dir> — sweep <loops_dir>/*.json for stale
 # entries before a duplicate-loop check or a new registration: an entry
 # whose stored pid is dead, or alive but not tagged with its own
@@ -22,7 +37,7 @@ _autopilot_prune_registry() {
     _pid=$(jq -r '.pid // empty' "$_f" 2>/dev/null)
     [ "$_pid" = "$BASHPID" ] && continue
     if [ -z "$_pid" ] || ! kill -0 "$_pid" 2>/dev/null ||
-      ! ps ewww -p "$_pid" -o command= 2>/dev/null | grep -qE "_AUTOPILOT_LOOP=${_pid}( |$)"; then
+      ! _autopilot_tagged "$_pid"; then
       rm -f "$_f"
     fi
   done

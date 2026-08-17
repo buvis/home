@@ -22,6 +22,7 @@ import io
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -971,6 +972,52 @@ def test_loops_dir_is_propagated_to_session_children(tmp_path):
     assert lp.run() == 0
     assert lp.env["_AUTOPILOT_LOOPS_DIR"] == str(tmp_path / "loops")
     assert lp.env["_AUTOPILOT_LOOP"] == str(lp.loop_pid)
+
+
+def _spawn_forked_loop_shell() -> subprocess.Popen:
+    """The tracon layout: a shell that exports the tag AFTER its own exec
+    and keeps a tagged child alive. ps reports the EXEC-time environment,
+    so the tag is visible on the child only - never on the shell whose pid
+    the registry stores."""
+    proc = subprocess.Popen(
+        [
+            "bash",
+            "-c",
+            f"export _AUTOPILOT_LOOP=$$; {sys.executable} -c "
+            '"import time; time.sleep(60)" & wait',
+        ],
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        kids = subprocess.run(
+            ["pgrep", "-P", str(proc.pid)],
+            capture_output=True,
+            text=True,
+        ).stdout
+        if kids.strip():
+            return proc
+        time.sleep(0.05)
+    os.killpg(proc.pid, signal.SIGKILL)
+    raise AssertionError("forked loop shell never spawned its tagged child")
+
+
+def test_prune_keeps_a_loop_shell_tagged_only_on_its_child(tmp_path):
+    # The registry stores the process-group LEADER (the forked shell), but
+    # the tag reaches ps only on the exec'd driver beneath it. Pruning that
+    # entry blinds tracon to a live loop: no pause chip, no limit-wait, and
+    # q -> s reports "nothing to stop".
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    shell = _spawn_forked_loop_shell()
+    try:
+        entry = loops / f"{shell.pid}.json"
+        entry.write_text(json.dumps({"pid": shell.pid, "root": "/x"}))
+        prune_registry(loops, own_pid=4242)
+        assert entry.exists()
+    finally:
+        os.killpg(shell.pid, signal.SIGKILL)
+        shell.wait()
 
 
 def test_prune_removes_dead_untagged_and_malformed_entries(tmp_path):
