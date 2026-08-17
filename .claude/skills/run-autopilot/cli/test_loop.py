@@ -704,6 +704,16 @@ def test_pause_exit_stamps_the_stop_for_the_observer(tmp_path):
     assert (ap / "paused-by-operator").is_file()
 
 
+def test_pause_exit_names_autoclaude_as_the_resume(tmp_path):
+    # An operator pause consumes its marker and blocks on nothing, so
+    # autoclaude alone resumes. Only the _act_paused exit (a paused STATE
+    # the loop would re-read) makes the interactive step mandatory.
+    lp = make_loop(tmp_path, [])
+    (lp._test["ap_dir"] / "pause-requested").touch()
+    assert lp.run() == 0
+    assert "Resume unattended: autoclaude" in lp._test["out"].getvalue()
+
+
 def test_a_resumed_loop_clears_the_pause_stamp(tmp_path):
     lp = make_loop(tmp_path, [terminal_step()])
     ap = lp._test["ap_dir"]

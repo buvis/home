@@ -792,7 +792,9 @@ WRAPPERLOG_F="$TMP1/f-wrapper.log"
 cat > "$WRAPPERLOG_F" <<'EOF'
 ━━ 12:00:00 · phase build · prd tracon-test.md · claude-opus-5[1m]/xhigh ━━
 
-autoclaude: paused by operator. State intact; take over with an interactive /run-autopilot, then re-run autoclaude.
+autoclaude: paused by operator. State intact.
+Resume unattended: autoclaude
+To take over first: claude → /run-autopilot, then autoclaude
 
 autoclaude: session paused — needs human input.
 To resume (re-running autoclaude now would just pause again):
