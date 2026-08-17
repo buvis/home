@@ -175,7 +175,9 @@ def _run_subprocess(path: str, payload: dict, home: Path, cwd: Path, env_extra=N
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def _run_in_process(path: str, payload: dict, home: Path, cwd: Path, monkeypatch, env_extra=None):
+def _run_in_process(
+    path: str, payload: dict, home: Path, cwd: Path, monkeypatch, env_extra=None
+):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     monkeypatch.setenv("HOME", str(home))
     for k in _STRIP_ENV:
@@ -206,21 +208,21 @@ def _run_in_process(path: str, payload: dict, home: Path, cwd: Path, monkeypatch
     except SystemExit as exc:
         pytest.fail(
             f"{name}: run(payload) exited (SystemExit {exc.code!r}) instead of "
-            f"returning (exit_code, stdout, stderr)"
+            f"returning (exit_code, stdout, stderr)",
         )
     except Exception as exc:
         # e.g. a handler that still reads the real sys.stdin: run() must feed
         # `payload` itself, not lean on a caller to swap the stream.
         pytest.fail(
             f"{name}: run(payload) raised {type(exc).__name__}: {exc}; it must "
-            f"return (exit_code, stdout, stderr)"
+            f"return (exit_code, stdout, stderr)",
         )
     assert fired, (
         f"{name}: run(payload) returned without ever entering the module's own "
         f"work function IN THIS PROCESS. A re-exec (any shape: [sys.executable, "
         f"__file__], a renamed interpreter, a /bin/sh shim, os.posix_spawn) runs "
         f"the work in a CHILD, which cannot touch this module object; a no-op "
-        f"`return (0, \"\", \"\")` never enters it at all. Both reproduce a benign "
+        f'`return (0, "", "")` never enters it at all. Both reproduce a benign '
         f"parity result while doing none of the handler's work in-process."
     )
     assert isinstance(result, tuple) and len(result) == 3, (
@@ -268,12 +270,20 @@ _HANDLERS = [
     ),
     pytest.param(
         str(HOOKS_DIR / "cartographer-echo.py"),
-        {"tool_name": "Read", "tool_input": {"file_path": "/tmp/x.py"}, "session_id": "s"},
+        {
+            "tool_name": "Read",
+            "tool_input": {"file_path": "/tmp/x.py"},
+            "session_id": "s",
+        },
         id="cartographer-echo",
     ),
     pytest.param(
         str(HOOKS_DIR / "strunk-ruling-inject.py"),
-        {"tool_name": "Read", "tool_input": {"file_path": "/tmp/notes.txt"}, "session_id": "s"},
+        {
+            "tool_name": "Read",
+            "tool_input": {"file_path": "/tmp/notes.txt"},
+            "session_id": "s",
+        },
         id="strunk-ruling-inject",
     ),
     pytest.param(
@@ -359,7 +369,9 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     code_sub, out_sub, err_sub = _run_subprocess(path, payload, sub_home, sub_cwd)
 
     in_home, in_cwd = _fresh_env(tmp_path, "inproc")
-    code_in, out_in, err_in = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
+    code_in, out_in, err_in = _run_in_process(
+        path, payload, in_home, in_cwd, monkeypatch
+    )
 
     assert (code_in, out_in, err_in) == (code_sub, out_sub, err_sub), (
         f"{Path(path).name}: in-process {(code_in, out_in, err_in)!r} != "
@@ -392,7 +404,9 @@ def test_enforce_prd_location_bash_block_exit_2(command, tmp_path, monkeypatch):
     code_sub, out_sub, err_sub = _run_subprocess(path, payload, sub_home, sub_cwd)
 
     in_home, in_cwd = _fresh_env(tmp_path, "inproc")
-    code_in, out_in, err_in = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
+    code_in, out_in, err_in = _run_in_process(
+        path, payload, in_home, in_cwd, monkeypatch
+    )
 
     # Parity of the hard contract.
     assert (code_in, out_in) == (code_sub, out_sub)
@@ -492,17 +506,24 @@ def test_validate_state_json_valid_json_allowed(tmp_path, monkeypatch):
 def test_track_cost_writes_costs_row(tmp_path, monkeypatch):
     path = str(HOOKS_DIR / "track_cost.py")
     transcript = tmp_path / "cost-transcript.jsonl"
-    transcript.write_text(json.dumps({
-        "type": "assistant",
-        "message": {
-            "id": "m1",
-            "model": "claude-sonnet-4",
-            "usage": {
-                "input_tokens": 1000, "output_tokens": 200,
-                "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
-            },
-        },
-    }) + "\n")
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "m1",
+                    "model": "claude-sonnet-4",
+                    "usage": {
+                        "input_tokens": 1000,
+                        "output_tokens": 200,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                    },
+                },
+            }
+        )
+        + "\n"
+    )
     payload = {"session_id": "s", "transcript_path": str(transcript)}
 
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
@@ -528,15 +549,24 @@ def test_track_cost_writes_costs_row(tmp_path, monkeypatch):
 def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
     path = str(HOOKS_DIR / "track_skills.py")
     transcript = tmp_path / "skills-transcript.jsonl"
-    transcript.write_text(json.dumps({
-        "type": "assistant",
-        "message": {
-            "content": [
-                {"type": "tool_use", "name": "Skill", "id": "t1",
-                 "input": {"skill": "brush"}},
-            ],
-        },
-    }) + "\n")
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Skill",
+                            "id": "t1",
+                            "input": {"skill": "brush"},
+                        },
+                    ],
+                },
+            }
+        )
+        + "\n"
+    )
     payload = {"session_id": "s", "transcript_path": str(transcript)}
 
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
@@ -623,9 +653,13 @@ def test_review_coverage_hook_blocks_missing_review_exit_2(tmp_path, monkeypatch
         return home, cwd
 
     sub_home, sub_cwd = prep("sub")
-    code_sub, out_sub, _ = _run_subprocess(path, payload, sub_home, sub_cwd, env_extra=loop)
+    code_sub, out_sub, _ = _run_subprocess(
+        path, payload, sub_home, sub_cwd, env_extra=loop
+    )
     in_home, in_cwd = prep("inproc")
-    code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch, env_extra=loop)
+    code_in, out_in, _ = _run_in_process(
+        path, payload, in_home, in_cwd, monkeypatch, env_extra=loop
+    )
 
     assert (code_in, out_in) == (code_sub, out_sub)
     assert code_in == 2, "done-phase handoff with no review file must block (exit 2)"
@@ -639,13 +673,20 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
     nothing, diverging from the subprocess."""
     path = str(SCRIPTS_DIR / "autopilot_context_cap_hook.py")
     transcript = tmp_path / "cap-transcript.jsonl"
-    transcript.write_text(json.dumps({
-        "message": {"usage": {
-            "input_tokens": 600000,
-            "cache_read_input_tokens": 0,
-            "cache_creation_input_tokens": 0,
-        }},
-    }) + "\n")
+    transcript.write_text(
+        json.dumps(
+            {
+                "message": {
+                    "usage": {
+                        "input_tokens": 600000,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                    }
+                },
+            }
+        )
+        + "\n"
+    )
     payload = {"session_id": "s", "transcript_path": str(transcript)}
     loop = {"_AUTOPILOT_LOOP": "1"}
 
@@ -657,9 +698,13 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
         return home, cwd
 
     sub_home, sub_cwd = prep("sub")
-    code_sub, out_sub, _ = _run_subprocess(path, payload, sub_home, sub_cwd, env_extra=loop)
+    code_sub, out_sub, _ = _run_subprocess(
+        path, payload, sub_home, sub_cwd, env_extra=loop
+    )
     in_home, in_cwd = prep("inproc")
-    code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch, env_extra=loop)
+    code_in, out_in, _ = _run_in_process(
+        path, payload, in_home, in_cwd, monkeypatch, env_extra=loop
+    )
 
     # Envelope text is static (limit//1000 == "500K", no task_id/timestamp), so
     # the two legs' stdout are byte-identical.
@@ -670,8 +715,12 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
     # Pin the REAL rotation side effect (kills an emit-envelope-without-rotating
     # stub): state.json must gain a cap_rotations entry and next_phase == build.
     for state_cwd in (sub_cwd, in_cwd):
-        st = json.loads((state_cwd / "dev" / "local" / "autopilot" / "state.json").read_text())
-        assert st.get("cap_rotations"), "rotation must be recorded in state.cap_rotations"
+        st = json.loads(
+            (state_cwd / "dev" / "local" / "autopilot" / "state.json").read_text()
+        )
+        assert st.get("cap_rotations"), (
+            "rotation must be recorded in state.cap_rotations"
+        )
         assert st.get("next_phase") == "build", st
 
 
@@ -691,20 +740,26 @@ def test_review_coverage_hook_allows_valid_review_exit_0(tmp_path, monkeypatch):
         home, cwd = _fresh_env(tmp_path, tag)
         ap = cwd / "dev" / "local" / "autopilot"
         ap.mkdir(parents=True, exist_ok=True)
-        (ap / "state.json").write_text(json.dumps({"phase": "done", "prd": "00099-demo.md"}))
+        (ap / "state.json").write_text(
+            json.dumps({"phase": "done", "prd": "00099-demo.md"})
+        )
         reviews = cwd / "dev" / "local" / "reviews"
         reviews.mkdir(parents=True, exist_ok=True)
         # prd_base '00099-demo' + '-review-<n>.md'; body passes the shape check.
         (reviews / "00099-demo-review-1.md").write_text(
             "Verdict: converged\nTests: none (docs-only)\n"
-            "codex_rung_guard: not fired\n"
+            "codex_rung_guard: not fired\n",
         )
         return home, cwd
 
     sub_home, sub_cwd = prep("sub")
-    code_sub, out_sub, _ = _run_subprocess(path, payload, sub_home, sub_cwd, env_extra=loop)
+    code_sub, out_sub, _ = _run_subprocess(
+        path, payload, sub_home, sub_cwd, env_extra=loop
+    )
     in_home, in_cwd = prep("inproc")
-    code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch, env_extra=loop)
+    code_in, out_in, _ = _run_in_process(
+        path, payload, in_home, in_cwd, monkeypatch, env_extra=loop
+    )
 
     assert (code_in, out_in) == (code_sub, out_sub)
     assert code_in == 0, "a passing review file must allow the hand-off (exit 0)"
@@ -722,7 +777,10 @@ def test_enforce_prd_location_file_mode_blocks_lifecycle_path(tmp_path, monkeypa
     repo = tmp_path / "repo"
     repo.mkdir()
     init = subprocess.run(
-        ["git", "init", str(repo)], capture_output=True, text=True, timeout=30
+        ["git", "init", str(repo)],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert init.returncode == 0, f"git init failed: {init.stderr}"
     blocked = repo / "backlog" / "0001-feature.md"  # dir need not exist
