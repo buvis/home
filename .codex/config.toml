@@ -81,6 +81,12 @@ trust_level = "trusted"
 [projects."/Users/bob/git/src/github.com/buvis/engram"]
 trust_level = "trusted"
 
+[projects."/Users/bob/git/src/github.com/buvis/gems"]
+trust_level = "trusted"
+
+[projects."/private/tmp/agoge_heidi/codex/repo"]
+trust_level = "trusted"
+
 [features]
 multi_agent = true
 
