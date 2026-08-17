@@ -40,7 +40,7 @@ With 1M context, research stays in-flight through implementation.
 - Name tools, plugins, and projects with evocative single words (warden, strunk) over descriptive concatenations; offer 3-4 candidates with rationale.
 - When a standing rule already mandates a change discovered mid-task, produce the reversible artifact instead of asking; flag user-facing impact in the summary.
 - Dormant skills live in `~/.claude/skills-library/` (not scanned, so they cost no boot context); `mv` one back into `~/.claude/skills/` to reactivate it.
-- Native Bash grants in `settings.json` are deliberately broad (`git`, `rm`, `docker`, `kubectl` at `:*`), and so are the `tmp` Edit wildcards. **Warden is the gate**, not the native allowlist: it filters every Bash command and asks or denies on its own rules. Config audits will keep flagging these as broad grants - that verdict is accepted, decided 2026-08-02. Do not re-narrow them audit by audit. Revisit only if warden stops gating Bash.
+- Native Bash grants in `settings.json` are deliberately broad (`git`, `rmdir`, `docker`, `kubectl` at `:*`), and so are the `tmp` Edit wildcards. `rm` is NOT granted natively - warden gates every `rm`. **Warden is the gate**, not the native allowlist: it filters every Bash command and asks or denies on its own rules. Config audits will keep flagging these as broad grants - that verdict is accepted, decided 2026-08-02. Do not re-narrow them audit by audit. Revisit only if warden stops gating Bash.
 
 ## Dotfiles repo
 
