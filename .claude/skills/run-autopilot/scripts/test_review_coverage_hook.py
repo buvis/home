@@ -94,7 +94,9 @@ def _make_autopilot_dir(
         "phase": phase,
         "prd": prd,
         "work_start_sha": work_start_sha,
-        "phases_completed": ["review"] if phases_completed is None else phases_completed,
+        "phases_completed": ["review"]
+        if phases_completed is None
+        else phases_completed,
     }
     if repo_root is not None:
         state["repo_root"] = repo_root
@@ -286,7 +288,9 @@ class RunGateTests(unittest.TestCase):
 
         fake_result = types.SimpleNamespace(returncode=1, stderr="no verdict line\n")
         with mock.patch.object(
-            hook.subprocess, "run", return_value=fake_result
+            hook.subprocess,
+            "run",
+            return_value=fake_result,
         ) as patched:
             code, msg = hook.run_gate(Path("/tmp/rev.md"))
 
@@ -314,7 +318,9 @@ class RunGateTests(unittest.TestCase):
 
         fake_result = types.SimpleNamespace(returncode=0, stderr="")
         with mock.patch.object(
-            hook.subprocess, "run", return_value=fake_result
+            hook.subprocess,
+            "run",
+            return_value=fake_result,
         ) as patched:
             hook.run_gate(Path("/tmp/rev.md"))
 
@@ -404,7 +410,7 @@ class MainBlocksWhenReviewFileMissingTests(unittest.TestCase):
 
         def _gate_must_not_be_called(*args, **kwargs):
             raise AssertionError(
-                "run_gate must NOT be called when review file is missing"
+                "run_gate must NOT be called when review file is missing",
             )
 
         with (
@@ -454,7 +460,7 @@ class GateBlocksDecisionTests(unittest.TestCase):
 
         def _fail(*a, **k):
             raise AssertionError(
-                "run_gate must not run when the review file is missing"
+                "run_gate must not run when the review file is missing",
             )
 
         with mock.patch.object(hook, "run_gate", side_effect=_fail):
@@ -468,7 +474,9 @@ class GateBlocksDecisionTests(unittest.TestCase):
     def test_coverage_gap_blocks(self) -> None:
         (self._reviews_dir() / "X-review-1.md").write_text("r")
         with mock.patch.object(
-            hook, "run_gate", return_value=(2, "MISSING_FILES foo.py")
+            hook,
+            "run_gate",
+            return_value=(2, "MISSING_FILES foo.py"),
         ):
             blocks, msg = hook.gate_blocks(
                 self.autopilot_dir,
@@ -511,7 +519,7 @@ class GateBlocksDecisionTests(unittest.TestCase):
         # surface to gate - even though prd is non-empty.
         def _fail(*a, **k):
             raise AssertionError(
-                "run_gate must not run when the current prd never converged"
+                "run_gate must not run when the current prd never converged",
             )
 
         with mock.patch.object(hook, "run_gate", side_effect=_fail):

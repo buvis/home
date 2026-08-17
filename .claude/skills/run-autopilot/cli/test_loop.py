@@ -430,7 +430,7 @@ def test_paused_state_prints_detail_runbook_and_notifies(tmp_path):
                     "next_phase": "review",
                     "pause_reason": {"detail": "design gate needs the operator"},
                     "batch": {"id": "b"},
-                }
+                },
             ),
         )
 
@@ -459,7 +459,7 @@ def test_review_cap_pause_summarizes_and_lists_findings(tmp_path):
                         ],
                     },
                     "batch": {"id": "b"},
-                }
+                },
             ),
         )
 
@@ -479,7 +479,7 @@ def test_subagent_prompt_overrun_replans_in_place(tmp_path):
                     "next_phase": "build",
                     "stall_reason": {"stalled": "subagent_prompt_overrun"},
                     "batch": {"id": "b"},
-                }
+                },
             ),
         )
 
@@ -622,7 +622,7 @@ def test_fingerprint_bound_parks_a_prd_burning_sessions(tmp_path):
                     "next_phase": "review",
                     "review_cycles": 2,
                     "batch": {"id": "b"},
-                }
+                },
             ),
         )
         write_log(ap_dir, {"type": "result"})
@@ -1111,7 +1111,8 @@ def test_loop_verb_is_registered_in_the_cli():
 
     main_path = Path(__file__).resolve().parent / "__main__.py"
     spec = importlib.util.spec_from_file_location(
-        "autopilot_main_under_test", main_path
+        "autopilot_main_under_test",
+        main_path,
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
