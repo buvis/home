@@ -694,6 +694,24 @@ def test_pause_marker_stops_before_any_spawn(tmp_path):
     assert _notified(lp, "Paused by operator")
 
 
+def test_pause_exit_stamps_the_stop_for_the_observer(tmp_path):
+    # The exit appends no metrics row, so the stamp is the only trace that
+    # tells tracon this was a deliberate stop and not a dropped batch.
+    lp = make_loop(tmp_path, [])
+    ap = lp._test["ap_dir"]
+    (ap / "pause-requested").touch()
+    assert lp.run() == 0
+    assert (ap / "paused-by-operator").is_file()
+
+
+def test_a_resumed_loop_clears_the_pause_stamp(tmp_path):
+    lp = make_loop(tmp_path, [terminal_step()])
+    ap = lp._test["ap_dir"]
+    (ap / "paused-by-operator").touch()
+    assert lp.run() == 0
+    assert not (ap / "paused-by-operator").exists()
+
+
 def test_plugin_drift_halts_before_any_spawn(tmp_path):
     plugins = tmp_path / "installed_plugins.json"
     plugins.write_text(

@@ -31,7 +31,9 @@ session. State survives on disk; the loop just stops progressing.
 `autoclaude` registers itself at `~/.claude/autopilot-loops/<pid>.json` and
 removes the entry on every exit path. Tracon classifies a loop as
 `⚠ orphaned` when state.json still queues work (a `next_phase`, unfinished
-tasks) but no registered wrapper pid is alive. Nothing is lost: run
+tasks) but no registered wrapper pid is alive — except after an operator
+pause, which leaves a `paused-by-operator` stamp and reads `⏸ paused
+<clock>` instead. Nothing is lost: run
 `autoclaude` in that repo and it resumes from state.json. Detaching tracon
 never orphans anything; a dead terminal, crash, or reboot does.
 
@@ -66,8 +68,9 @@ Loop (act on the attached or highlighted loop):
 - `● live` - session wrote within the last 20s
 - `◐ quiet` - session running but output stalled
 - `⏳ limit-wait` - usage limit hit; wrapper sleeps until the reset
-- `⏸ paused` - deliberate stop, waiting on a decision (`claude` ->
-  `/run-autopilot` answers it, then `autoclaude`)
+- `⏸ paused` - deliberate stop. After `p` (or `touch pause-requested`),
+  `autoclaude` resumes it; after a blocker, `claude` -> `/run-autopilot`
+  answers it first
 - `⚠ orphaned` - work queued, no autoclaude alive; run `autoclaude`
 - `⚠ attention` - needs_attention set (usually a cap-pause)
 - `■ died` - session died; check `dev/local/autopilot/last-session.log`

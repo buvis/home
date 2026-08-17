@@ -1039,6 +1039,7 @@ class Loop:
                 return code
 
             if pause.consume_pause(ap_dir):
+                pause.stamp_paused(ap_dir)
                 print(
                     "\n\033[1;33m⏸ autoclaude: paused by operator ON "
                     "PURPOSE.\033[0m State intact; take over with an "
@@ -1051,6 +1052,8 @@ class Loop:
                 )
                 self._teardown()
                 return 0
+
+            pause.clear_paused(ap_dir)  # past the pause branch: this loop runs
 
             code = self._plugin_gate(ap_dir)
             if code is not None:

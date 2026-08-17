@@ -216,9 +216,12 @@ The wrapper↔skill hand-off uses touch-file markers in `dev/local/autopilot/`, 
 
 | Marker | Writer | Consumer | Content |
 |--------|--------|----------|---------|
-| `pause-requested` | operator (`touch`) | wrapper, at the next session boundary — stops the loop, notifies "paused by operator" | empty |
+| `pause-requested` | operator (`touch`, or tracon's `p` key) | wrapper, at the next session boundary — stops the loop, notifies "paused by operator" | empty |
+| `paused-by-operator` | wrapper, on that pause exit (`pause.stamp_paused`) | the loop itself, cleared past the pause branch on the next run (`pause.clear_paused`) — no session ever reads it | empty; its **mtime** is the stop time tracon renders |
 | `park-requested` | wrapper `park)` case (single writer) | Phase 0 "Handle park request" (FIRST abort-handler check); deletes it AFTER the verified `hold/` move | one-line JSON `{"prd": "<state.prd basename>", "reason": "<one-line death/thrash cause>"}` |
 | `state-write-failed` | the session (`SKILL.md` § State Management statectl-failure flow), or `autopilot_context_cap_hook.py`'s broken-boundary branches (`cli/` unimportable, or the state transaction raising) | wrapper's decision-table branch 0 (`SKILL.md` § Session Loop); HALTS the loop and does NOT delete it | one-line JSON `{"site": "statectl_fail", "detail": "<raw error>"}` |
+
+`paused-by-operator` is the display counterpart of `pause-requested`, not a hand-off: the pause exit runs before a session, so it appends no `loop-metrics.jsonl` row, and without a trace tracon reads the stopped loop as queued work with nothing alive to relaunch it — an "orphaned" batch. It is purely observational: no session, hook, or gate reads it, and deleting it costs nothing but the paused label.
 
 `park-requested` (PRD 00066) is the wrapper's entire signal that a died-session retry budget was exhausted (or the fingerprint bound fired) for a *selected* PRD: the wrapper writes it and relaunches; the next session's Phase 0 park handler parks the named PRD via the Loop-mode stall procedure (`references/phase-build.md`, `references/recovery.md`), recording a `wrapper_died` deferred stall. `prd` is the bare filename (`00XXX-` prefix, `.md` suffix), compared against the basenames of `dev/local/prds/wip/*.md`; a marker naming a PRD absent from `wip/` (or a malformed one) is consumed, logged, and dropped — never crashes selection. The wrapper never blind-`rm`s it at loop start (a valid unparked marker must survive a crash); a marker left unconsumed past one session cycle trips the wrapper's park-loop guard (sanctioned-halt row 10).
 
