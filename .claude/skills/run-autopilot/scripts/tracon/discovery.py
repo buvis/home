@@ -23,7 +23,7 @@ from .model import LoopState, MetricsRow
 GITA_REGISTRY = Path.home() / ".config/gita/repos.csv"
 LOOPS_DIR = Path(
     os.environ.get("_AUTOPILOT_LOOPS_DIR")
-    or Path.home() / ".claude" / "autopilot-loops"
+    or Path.home() / ".claude" / "autopilot-loops",
 )
 LIVE_WINDOW = 20.0
 IN_FLIGHT_SLACK = 2.0
@@ -209,7 +209,10 @@ def operator_paused_status(status: Status, root: Path, wrapper: bool) -> Status:
     except OSError:
         return status
     return Status(
-        label=f"⏸ paused {_fmt_clock(mtime)}", style="yellow", rank=1, in_flight=False
+        label=f"⏸ paused {_fmt_clock(mtime)}",
+        style="yellow",
+        rank=1,
+        in_flight=False,
     )
 
 
@@ -238,7 +241,10 @@ def orphan_status(
     fresh = anchor is not None and now - anchor < ORPHAN_FRESH_SECS
     style = "bold red" if fresh else "red"
     return Status(
-        label=f"⚠ orphaned{age} => run autoclaude", style=style, rank=1, in_flight=False
+        label=f"⚠ orphaned{age} => run autoclaude",
+        style=style,
+        rank=1,
+        in_flight=False,
     )
 
 
@@ -257,30 +263,45 @@ def classify(
 
     if state.needs_attention:
         return Status(
-            label="⚠ attention", style="bold red", rank=0, in_flight=in_flight
+            label="⚠ attention",
+            style="bold red",
+            rank=0,
+            in_flight=in_flight,
         )
     if live:
         return Status(label="● live", style="green", rank=2, in_flight=in_flight)
     if quiet:
         age = model.fmt_dur(now - log_mtime)
         return Status(
-            label=f"◐ quiet {age}", style="yellow", rank=2, in_flight=in_flight
+            label=f"◐ quiet {age}",
+            style="yellow",
+            rank=2,
+            in_flight=in_flight,
         )
     if last is not None:
         if last.signal == "died":
             clock = _fmt_clock(last.ts_end)
             return Status(
-                label=f"■ died {clock}", style="bold red", rank=1, in_flight=in_flight
+                label=f"■ died {clock}",
+                style="bold red",
+                rank=1,
+                in_flight=in_flight,
             )
         if last.signal == "paused":
             clock = _fmt_clock(last.ts_end)
             return Status(
-                label=f"⏸ paused {clock}", style="yellow", rank=1, in_flight=in_flight
+                label=f"⏸ paused {clock}",
+                style="yellow",
+                rank=1,
+                in_flight=in_flight,
             )
         if last.signal == "done":
             clock = _fmt_clock(last.ts_end)
             return Status(
-                label=f"✔ drained {clock}", style="dim", rank=4, in_flight=in_flight
+                label=f"✔ drained {clock}",
+                style="dim",
+                rank=4,
+                in_flight=in_flight,
             )
     if not state.exists:
         return Status(label="○ no state", style="dim", rank=5, in_flight=in_flight)
@@ -350,7 +371,8 @@ def loop_status(root: Path, now: float | None = None) -> LoopRow:
 
 
 def discover_loops(
-    registry: Path = GITA_REGISTRY, loops_dir: Path | None = None
+    registry: Path = GITA_REGISTRY,
+    loops_dir: Path | None = None,
 ) -> list[Path]:
     home = Path.home() / ".claude"
     candidates = [home]

@@ -46,7 +46,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from cli import notify_out, pause, routing, runner, state as state_mod, usage_limit
+from cli import notify_out, pause, routing, runner, usage_limit
+from cli import state as state_mod
 from cli.routing import _load_json
 from cli.watchdog import Watchdog
 
@@ -57,7 +58,14 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import _walk_up
 
 DEFAULT_LOOPS_DIR = Path.home() / ".claude" / "autopilot-loops"
-PURGE_SCRIPT = Path.home() / ".claude" / "skills" / "purge-devlocal" / "scripts" / "purge_devlocal.py"
+PURGE_SCRIPT = (
+    Path.home()
+    / ".claude"
+    / "skills"
+    / "purge-devlocal"
+    / "scripts"
+    / "purge_devlocal.py"
+)
 
 _CONNECTION_FAIL = re.compile(
     r"unable to connect|connection ?(refused|reset|error)|econn|etimedout"
@@ -259,7 +267,12 @@ def prune_registry(loops_dir: Path, own_pid: int) -> None:
         pid = data.get("pid") if isinstance(data, dict) else None
         if pid == own_pid:
             continue
-        if not isinstance(pid, int) or isinstance(pid, bool) or not _pid_alive(pid) or not _pid_tagged(pid, pid):
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or not _pid_alive(pid)
+            or not _pid_tagged(pid, pid)
+        ):
             try:
                 path.unlink()
             except OSError:
@@ -280,7 +293,11 @@ def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
         if not isinstance(data, dict):
             continue
         pid, reg_root = data.get("pid"), data.get("root")
-        if not isinstance(pid, int) or isinstance(pid, bool) or not isinstance(reg_root, str):
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or not isinstance(reg_root, str)
+        ):
             continue
         try:
             if Path(reg_root).resolve() == resolved and _pid_alive(pid):
@@ -603,7 +620,8 @@ class Loop:
     def _plugin_gate(self, ap_dir: Path) -> int | None:
         state_path = ap_dir / "state.json"
         plugins_json = Path(
-            self.env.get("_AUTOPILOT_PLUGINS_JSON") or Path.home() / ".claude" / "plugins" / "installed_plugins.json",
+            self.env.get("_AUTOPILOT_PLUGINS_JSON")
+            or Path.home() / ".claude" / "plugins" / "installed_plugins.json",
         )
         if not state_path.is_file() or not plugins_json.is_file():
             return None
@@ -712,7 +730,9 @@ class Loop:
             self._decide_no_progress(decision, ap_dir, state_path)
         return decision
 
-    def _decide_no_progress(self, decision: dict, ap_dir: Path, state_path: Path) -> None:
+    def _decide_no_progress(
+        self, decision: dict, ap_dir: Path, state_path: Path
+    ) -> None:
         """Branch 5: limit-hit is scheduling, network outage is
         infrastructure, anything else died."""
         reset = self._detect_limit(ap_dir / "last-session.log")
@@ -768,7 +788,9 @@ class Loop:
                     decision["detail"] = f"API unreachable for {net_max}s"
             else:
                 decision["signal"] = "died"
-                decision["detail"] = f"repeated API connection failures ({retries_max} relaunches)"
+                decision["detail"] = (
+                    f"repeated API connection failures ({retries_max} relaunches)"
+                )
             return
 
         verdict = died_next(
@@ -784,7 +806,9 @@ class Loop:
             )
         elif verdict == "park":
             decision["signal"] = "park"
-            decision["detail"] = f"died after {self._died_retries} retries; parking {decision['prd']}"
+            decision["detail"] = (
+                f"died after {self._died_retries} retries; parking {decision['prd']}"
+            )
         else:
             decision["signal"] = "died"
             if not state_path.is_file():
@@ -798,7 +822,11 @@ class Loop:
         """N identical progress fingerprints in a row = the loop is
         burning sessions on nothing. Cap deliberately generous
         (default 5); any progress resets it."""
-        if decision["signal"] == "continue" and decision.get("state_touched") and decision["detail"] != "replan":
+        if (
+            decision["signal"] == "continue"
+            and decision.get("state_touched")
+            and decision["detail"] != "replan"
+        ):
             state = _load_json(state_path)
             fp = fingerprint(state) if isinstance(state, dict) else ""
             if fp and fp == self._fp_prev:
@@ -883,7 +911,9 @@ class Loop:
             "\n\n\033[1;36mTo resume (re-running autoclaude now would just pause again):\033[0m\n",
             file=self.err,
         )
-        print("  1. claude            # interactive session in this repo", file=self.err)
+        print(
+            "  1. claude            # interactive session in this repo", file=self.err
+        )
         print(
             "  2. /run-autopilot    # resumes from state.json; blockers become questions",
             file=self.err,
@@ -942,12 +972,17 @@ class Loop:
         if marker.is_file():
             self._park_relaunches += 1
             marker_mtime = _mtime(marker)
-            age = 0 if marker_mtime is None else max(0, int(self._clock()) - marker_mtime)
+            age = (
+                0 if marker_mtime is None else max(0, int(self._clock()) - marker_mtime)
+            )
             stale_max = max(
                 self._int("_AUTOPILOT_SESSION_MAX", 7200),
                 self._int("_AUTOPILOT_SESSION_MAX_REVIEW", 10800),
             )
-            if self._park_relaunches > self._int("_AUTOPILOT_DIED_RETRIES_MAX", 1) or age >= stale_max:
+            if (
+                self._park_relaunches > self._int("_AUTOPILOT_DIED_RETRIES_MAX", 1)
+                or age >= stale_max
+            ):
                 print(
                     f"\nautoclaude: park-requested unconsumed "
                     f"({self._park_relaunches} relaunches, {age}s) — halting "

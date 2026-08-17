@@ -399,7 +399,9 @@ def _append_rotation_to_state(autopilot_dir: Path, task_id: str) -> bool:
         schema.require(new_state.get("cap_rotations"), list, "cap_rotations")
         schema.require(new_state.get("next_phase"), str, "next_phase")
 
-    return _write_via_transaction(autopilot_dir, "rotation", _mutate, _validate, op_desc="rotation envelope")
+    return _write_via_transaction(
+        autopilot_dir, "rotation", _mutate, _validate, op_desc="rotation envelope"
+    )
 
 
 def _set_oversized_stall(autopilot_dir: Path, task_id: str, total: int) -> bool:
@@ -470,7 +472,7 @@ def _emit_envelope(context: str) -> None:
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
             "additionalContext": context,
-        }
+        },
     }
     print(json.dumps(payload))
 
@@ -495,14 +497,20 @@ def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
             loaded = None
             reset_reason = "unreadable"
         if isinstance(loaded, dict) and isinstance(loaded.get("counts"), dict):
-            data = {"counts": dict(loaded["counts"]), "fired": list(loaded.get("fired", []))}
+            data = {
+                "counts": dict(loaded["counts"]),
+                "fired": list(loaded.get("fired", [])),
+            }
         elif loaded is not None:
             reset_reason = "wrong shape"
         # A present-but-broken file is corruption and logs; a missing file is
         # the normal first-call state and must stay silent (else every session
         # logs on its first tool call).
         if reset_reason:
-            print(f"autopilot_context_cap_hook: turn-counts reset ({reset_reason})", file=sys.stderr)
+            print(
+                f"autopilot_context_cap_hook: turn-counts reset ({reset_reason})",
+                file=sys.stderr,
+            )
     # Coerce this session's prior count defensively: a valid-JSON file with a
     # non-int value (null, "x") must reset that entry, never raise (the hook's
     # never-crash contract; PRD error case).
@@ -510,7 +518,10 @@ def _bump_and_check_tripwire(autopilot_dir: Path, session_id: str) -> bool:
         prior = int(data["counts"].get(session_id, 0))
     except (TypeError, ValueError):
         prior = 0
-        print("autopilot_context_cap_hook: turn-counts reset (bad count value)", file=sys.stderr)
+        print(
+            "autopilot_context_cap_hook: turn-counts reset (bad count value)",
+            file=sys.stderr,
+        )
     count = prior + 1
     data["counts"][session_id] = count
     already_fired = session_id in data["fired"]
@@ -550,7 +561,9 @@ def _fire_breach(
         _handle_rotation(autopilot_dir, marker_file, task_id, limit)
 
 
-def _marker_dedup_blocks(marker_file: Path, task_id: str, last_rotation_task: str | None) -> bool:
+def _marker_dedup_blocks(
+    marker_file: Path, task_id: str, last_rotation_task: str | None
+) -> bool:
     """Return True if a `.cap-fired` marker means main() should stop now.
 
     The marker carries the task id the cap fired for. If the in-progress
@@ -683,9 +696,18 @@ def main() -> None:
     # breach. Runs before the usage check so a low-context runaway is still
     # bounded (and so a missing usage line does not skip the count).
     session_id = stdin.get("session_id")
-    if isinstance(session_id, str) and session_id and _bump_and_check_tripwire(autopilot_dir, session_id):
+    if (
+        isinstance(session_id, str)
+        and session_id
+        and _bump_and_check_tripwire(autopilot_dir, session_id)
+    ):
         _fire_breach(
-            autopilot_dir, marker_file, task_id, last_rotation_task, limit, total if total is not None else limit
+            autopilot_dir,
+            marker_file,
+            task_id,
+            last_rotation_task,
+            limit,
+            total if total is not None else limit,
         )
         return
 

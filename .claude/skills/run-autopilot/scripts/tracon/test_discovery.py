@@ -95,7 +95,10 @@ def _result_event(cost: float) -> str:
 
 def test_attention_wins_over_every_other_condition() -> None:
     status = discovery.classify(
-        _state(needs_attention=True), rows=[], log_mtime=None, now=1000.0
+        _state(needs_attention=True),
+        rows=[],
+        log_mtime=None,
+        now=1000.0,
     )
     assert status.label == "⚠ attention"
     assert status.rank == 0
@@ -144,7 +147,10 @@ def test_drained_when_last_signal_done_and_not_in_flight() -> None:
 
 def test_no_state_wins_over_no_log_when_both_absent() -> None:
     status = discovery.classify(
-        _state(exists=False, needs_attention=False), rows=[], log_mtime=None, now=1000.0
+        _state(exists=False, needs_attention=False),
+        rows=[],
+        log_mtime=None,
+        now=1000.0,
     )
     assert status.label == "○ no state"
     assert status.rank == 5
@@ -156,7 +162,10 @@ def test_missing_log_renders_dedicated_no_log_status_not_idle() -> None:
     from `○ idle {age}` (row 9), which requires a log to compute an age
     from."""
     status = discovery.classify(
-        _state(exists=True, needs_attention=False), rows=[], log_mtime=None, now=1000.0
+        _state(exists=True, needs_attention=False),
+        rows=[],
+        log_mtime=None,
+        now=1000.0,
     )
     assert status.label == "○ no log"
     assert status.rank == 3
@@ -201,7 +210,10 @@ def test_empty_metrics_rows_with_stale_but_present_log_is_quiet_not_idle() -> No
 
 def test_in_flight_log_with_missing_state_file_is_live_not_no_state() -> None:
     status = discovery.classify(
-        _state(exists=False, needs_attention=False), rows=[], log_mtime=1000.0, now=1001.0
+        _state(exists=False, needs_attention=False),
+        rows=[],
+        log_mtime=1000.0,
+        now=1001.0,
     )
     assert status.label.startswith("● live")
     assert status.rank == 2
@@ -211,7 +223,10 @@ def test_in_flight_log_with_missing_state_file_is_live_not_no_state() -> None:
 def test_in_flight_is_independent_of_attention_label() -> None:
     last = _row(ts_end=1000.0, signal="continue")
     status = discovery.classify(
-        _state(needs_attention=True), rows=[last], log_mtime=1006.0, now=1030.0
+        _state(needs_attention=True),
+        rows=[last],
+        log_mtime=1006.0,
+        now=1030.0,
     )
     assert status.label == "⚠ attention"
     assert status.rank == 0
@@ -250,7 +265,9 @@ def test_exact_slack_boundary_is_not_in_flight() -> None:
     operators, so it can't catch the operator flipping back to `>=`."""
     last = _row(ts_end=1000.0, signal="died")
     log_mtime = last.ts_end + discovery.IN_FLIGHT_SLACK
-    status = discovery.classify(_state(), rows=[last], log_mtime=log_mtime, now=log_mtime)
+    status = discovery.classify(
+        _state(), rows=[last], log_mtime=log_mtime, now=log_mtime
+    )
     assert status.in_flight is False
     assert status.label.startswith("■ died")
 
@@ -260,7 +277,10 @@ def test_exact_slack_boundary_is_not_in_flight() -> None:
 
 def test_rank_orders_attention_above_died_even_when_name_sorts_earlier() -> None:
     attention_status = discovery.classify(
-        _state(needs_attention=True), rows=[], log_mtime=None, now=1000.0
+        _state(needs_attention=True),
+        rows=[],
+        log_mtime=None,
+        now=1000.0,
     )
     died_status = discovery.classify(
         _state(needs_attention=False),
@@ -298,7 +318,9 @@ def test_loop_status_end_to_end_populates_row_cells_from_current_batch(
         [
             _metrics_line(batch="202607120753", ts_end=1000.0, cost_usd=1.5),
             _metrics_line(batch="202607120753", ts_end=2000.0, cost_usd=2.5),
-            _metrics_line(batch="OLDBATCH", ts_end=500.0, cost_usd=100.0, signal="done"),
+            _metrics_line(
+                batch="OLDBATCH", ts_end=500.0, cost_usd=100.0, signal="done"
+            ),
         ],
     )
     # No last-session.log: log_mtime is None, so in_flight is trivially False
@@ -374,7 +396,8 @@ def test_loop_status_live_cost_populated_only_when_in_flight(tmp_path: Path) -> 
         [_metrics_line(batch="B1", ts_end=1000.0, cost_usd=1.0)],
     )
     log_path = _write_lines(
-        autopilot_dir / "last-session.log", [_result_event(7.77)]
+        autopilot_dir / "last-session.log",
+        [_result_event(7.77)],
     )
     # ts_end + IN_FLIGHT_SLACK = 1002.0; write the log after that -> in flight,
     # and within LIVE_WINDOW of `now` -> live.
@@ -390,7 +413,8 @@ def test_loop_status_live_cost_populated_only_when_in_flight(tmp_path: Path) -> 
 
 
 def test_missing_registry_returns_empty_when_home_claude_lacks_autopilot_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The degrade path is filtered too: a missing registry falls back to
     ~/.claude as the sole candidate, but that candidate still has to clear
@@ -405,7 +429,8 @@ def test_missing_registry_returns_empty_when_home_claude_lacks_autopilot_dir(
 
 
 def test_missing_registry_returns_home_claude_when_autopilot_dir_present(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_home = tmp_path / "home-active"
     autopilot_dir = fake_home / ".claude" / "dev" / "local" / "autopilot"
@@ -424,9 +449,7 @@ def test_discover_loops_skips_blank_and_relative_column_one_rows(
     (root_valid / "dev" / "local" / "autopilot").mkdir(parents=True)
     registry = tmp_path / "repos.csv"
     registry.write_text(
-        "\n"
-        "relative/path,badname,,\n"
-        f"{root_valid},validrepo,,\n"
+        f"\nrelative/path,badname,,\n{root_valid},validrepo,,\n",
     )
 
     result = discovery.discover_loops(registry=registry)
@@ -480,7 +503,7 @@ def test_discovery_has_no_separate_age_formatter() -> None:
 
 
 def test_gita_registry_constant_matches_spec() -> None:
-    assert discovery.GITA_REGISTRY == Path.home() / ".config/gita/repos.csv"
+    assert Path.home() / ".config/gita/repos.csv" == discovery.GITA_REGISTRY
 
 
 # --- loop_status: batch-scoped read isolates foreign-batch data -------------
@@ -693,7 +716,8 @@ def test_wrapper_alive_true_when_registry_entry_matches_root_and_pid_live(
 
 
 def test_wrapper_alive_false_when_registry_pid_is_dead(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "myrepo"
     root.mkdir()
@@ -730,7 +754,11 @@ def test_wrapper_alive_false_when_entry_is_for_a_different_root(tmp_path: Path) 
     loops_dir.mkdir()
     _write_json(
         loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(other_root), "started_at": "2026-07-14T00:00:00Z"},
+        {
+            "pid": os.getpid(),
+            "root": str(other_root),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
     )
 
     assert discovery.wrapper_alive(root, loops_dir=loops_dir) is False
@@ -750,7 +778,11 @@ def test_wrapper_alive_resolves_symlinked_root_to_match_registry_entry(
     loops_dir.mkdir()
     _write_json(
         loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(real_root), "started_at": "2026-07-14T00:00:00Z"},
+        {
+            "pid": os.getpid(),
+            "root": str(real_root),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
     )
 
     assert discovery.wrapper_alive(symlink_root, loops_dir=loops_dir) is True
@@ -776,7 +808,8 @@ def test_wrapper_alive_ignores_nonpositive_pid_entry(tmp_path: Path) -> None:
 
 
 def test_loop_status_wrapper_true_when_registry_entry_alive_for_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
     autopilot_dir.mkdir(parents=True)
@@ -784,7 +817,11 @@ def test_loop_status_wrapper_true_when_registry_entry_alive_for_root(
     loops_dir.mkdir()
     _write_json(
         loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(tmp_path), "started_at": "2026-07-14T00:00:00Z"},
+        {
+            "pid": os.getpid(),
+            "root": str(tmp_path),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
     )
     monkeypatch.setattr(discovery, "LOOPS_DIR", loops_dir)
 
@@ -794,7 +831,8 @@ def test_loop_status_wrapper_true_when_registry_entry_alive_for_root(
 
 
 def test_loop_status_wrapper_false_when_registry_entry_pid_is_dead(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A registry entry exists for this exact root, so this only exercises
     the negative path meaningfully if the pid-liveness check truly runs - a
@@ -829,11 +867,16 @@ def _idle_status() -> discovery.Status:
 
 
 def test_limit_wait_status_upgrades_idle_with_countdown_and_clock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
     out = discovery.limit_wait_status(
-        _idle_status(), tmp_path / "log", 100.0, True, 1000.0
+        _idle_status(),
+        tmp_path / "log",
+        100.0,
+        True,
+        1000.0,
     )
     assert out.label.startswith("⏳ limit-wait 10m00s")
     assert out.style == "yellow"
@@ -842,7 +885,8 @@ def test_limit_wait_status_upgrades_idle_with_countdown_and_clock(
 
 
 def test_limit_wait_status_keeps_original_without_a_live_wrapper(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
     idle = _idle_status()
@@ -851,7 +895,8 @@ def test_limit_wait_status_keeps_original_without_a_live_wrapper(
 
 
 def test_limit_wait_status_keeps_original_when_in_flight(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
     live = discovery.Status(label="● live", style="green", rank=2, in_flight=True)
@@ -860,20 +905,29 @@ def test_limit_wait_status_keeps_original_when_in_flight(
 
 
 def test_limit_wait_status_never_overrides_needs_attention(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 1600)
     attention = discovery.Status(
-        label="⚠ attention", style="bold red", rank=0, in_flight=False
+        label="⚠ attention",
+        style="bold red",
+        rank=0,
+        in_flight=False,
     )
     out = discovery.limit_wait_status(
-        attention, tmp_path / "log", 100.0, True, 1000.0
+        attention,
+        tmp_path / "log",
+        100.0,
+        True,
+        1000.0,
     )
     assert out is attention
 
 
 def test_limit_wait_status_ignores_a_reset_already_in_the_past(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(discovery, "limit_reset", lambda path, mtime: 900)
     idle = _idle_status()
@@ -882,7 +936,8 @@ def test_limit_wait_status_ignores_a_reset_already_in_the_past(
 
 
 def test_limit_reset_caches_per_mtime_and_rescans_on_change(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tick loop calls this every 0.5s against a static log; the tail
     scan must run once per mtime, not once per tick."""
@@ -907,7 +962,8 @@ def test_limit_reset_caches_per_mtime_and_rescans_on_change(
 
 
 def test_loop_status_shows_limit_wait_instead_of_died_while_wrapper_sleeps(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A limit-hit session exits with the banner in its log; the wrapper
     sleeps until the reset, appending no metrics row. classify() alone reads
@@ -916,7 +972,8 @@ def test_loop_status_shows_limit_wait_instead_of_died_while_wrapper_sleeps(
     autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
     autopilot_dir.mkdir(parents=True)
     _write_json(
-        autopilot_dir / "state.json", {"phase": "build", "batch": {"id": "B1"}}
+        autopilot_dir / "state.json",
+        {"phase": "build", "batch": {"id": "B1"}},
     )
     log = autopilot_dir / "last-session.log"
     log.write_text("claude: usage limit reached — try again later\n")
@@ -944,7 +1001,12 @@ def test_loop_status_shows_limit_wait_instead_of_died_while_wrapper_sleeps(
 
 def test_orphan_status_upgrades_idle_to_loud_warning_with_age() -> None:
     out = discovery.orphan_status(
-        _idle_status(), _state(next_phase="build"), False, 900.0, None, 1000.0
+        _idle_status(),
+        _state(next_phase="build"),
+        False,
+        900.0,
+        None,
+        1000.0,
     )
     assert out.label == "⚠ orphaned 1m40s => run autoclaude"
     assert out.style == "bold red"
@@ -953,7 +1015,12 @@ def test_orphan_status_upgrades_idle_to_loud_warning_with_age() -> None:
 
 def test_orphan_status_dims_to_plain_red_after_a_day() -> None:
     out = discovery.orphan_status(
-        _idle_status(), _state(next_phase="review"), False, 1000.0, None, 1000.0 + 200000
+        _idle_status(),
+        _state(next_phase="review"),
+        False,
+        1000.0,
+        None,
+        1000.0 + 200000,
     )
     assert out.style == "red"
     assert "55h33m" in out.label
@@ -961,7 +1028,12 @@ def test_orphan_status_dims_to_plain_red_after_a_day() -> None:
 
 def test_orphan_status_falls_back_to_log_mtime_for_the_age_anchor() -> None:
     out = discovery.orphan_status(
-        _idle_status(), _state(next_phase="build"), False, None, 940.0, 1000.0
+        _idle_status(),
+        _state(next_phase="build"),
+        False,
+        None,
+        940.0,
+        1000.0,
     )
     assert "1m00s" in out.label
 
@@ -969,7 +1041,12 @@ def test_orphan_status_falls_back_to_log_mtime_for_the_age_anchor() -> None:
 def test_orphan_status_keeps_original_when_wrapper_alive() -> None:
     idle = _idle_status()
     out = discovery.orphan_status(
-        idle, _state(next_phase="build"), True, 900.0, None, 1000.0
+        idle,
+        _state(next_phase="build"),
+        True,
+        900.0,
+        None,
+        1000.0,
     )
     assert out is idle
 
@@ -982,21 +1059,34 @@ def test_orphan_status_keeps_original_when_no_work_is_queued(
     orphans — warning on every parked loop would drown the real incident."""
     idle = _idle_status()
     out = discovery.orphan_status(
-        idle, _state(next_phase=next_phase), False, 900.0, None, 1000.0
+        idle,
+        _state(next_phase=next_phase),
+        False,
+        900.0,
+        None,
+        1000.0,
     )
     assert out is idle
 
 
 def test_orphan_status_keeps_terminal_statuses_like_died() -> None:
-    died = discovery.Status(label="■ died 10:00", style="bold red", rank=1, in_flight=False)
+    died = discovery.Status(
+        label="■ died 10:00", style="bold red", rank=1, in_flight=False
+    )
     out = discovery.orphan_status(
-        died, _state(next_phase="build"), False, 900.0, None, 1000.0
+        died,
+        _state(next_phase="build"),
+        False,
+        900.0,
+        None,
+        1000.0,
     )
     assert out is died
 
 
 def test_loop_status_marks_orphaned_when_wrapper_died_mid_batch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A wrapper killed mid-batch (closed terminal, crash) leaves next_phase
     set and the last metrics signal non-terminal; without the warning that
@@ -1011,7 +1101,11 @@ def test_loop_status_marks_orphaned_when_wrapper_died_mid_batch(
     now = time.time()
     _write_lines(
         autopilot_dir / "loop-metrics.jsonl",
-        [_metrics_line(batch="B1", ts_start=now - 100, ts_end=now + 5, signal="continue")],
+        [
+            _metrics_line(
+                batch="B1", ts_start=now - 100, ts_end=now + 5, signal="continue"
+            )
+        ],
     )
 
     row = discovery.loop_status(tmp_path, now=now + 10)
@@ -1029,7 +1123,8 @@ def test_live_wrapper_pid_returns_registered_live_pid(tmp_path: Path) -> None:
 
 
 def test_live_wrapper_pid_none_when_pid_dead_or_unregistered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loops_dir = tmp_path / "loops"
     loops_dir.mkdir()
@@ -1058,7 +1153,11 @@ def test_pause_pending_status_suffixes_the_label_while_marker_exists(
     out = discovery.pause_pending_status(idle, tmp_path, True)
 
     assert out.label == "○ idle 5m00s · ⏸ pause requested"
-    assert (out.style, out.rank, out.in_flight) == (idle.style, idle.rank, idle.in_flight)
+    assert (out.style, out.rank, out.in_flight) == (
+        idle.style,
+        idle.rank,
+        idle.in_flight,
+    )
 
 
 def test_pause_pending_status_identity_without_marker(tmp_path: Path) -> None:
@@ -1117,7 +1216,10 @@ def test_operator_paused_status_identity_when_wrapper_alive(tmp_path: Path) -> N
 def test_operator_paused_status_keeps_louder_statuses(tmp_path: Path) -> None:
     _stamp_paused(tmp_path, 1000.0)
     attention = discovery.Status(
-        label="⚠ attention", style="bold red", rank=0, in_flight=False
+        label="⚠ attention",
+        style="bold red",
+        rank=0,
+        in_flight=False,
     )
 
     assert discovery.operator_paused_status(attention, tmp_path, False) is attention
@@ -1139,7 +1241,11 @@ def test_loop_status_marks_an_operator_pause_paused_not_orphaned(
     now = time.time()
     _write_lines(
         autopilot_dir / "loop-metrics.jsonl",
-        [_metrics_line(batch="B1", ts_start=now - 100, ts_end=now + 5, signal="continue")],
+        [
+            _metrics_line(
+                batch="B1", ts_start=now - 100, ts_end=now + 5, signal="continue"
+            )
+        ],
     )
     _stamp_paused(tmp_path, now)
 
@@ -1152,7 +1258,8 @@ def test_loop_status_marks_an_operator_pause_paused_not_orphaned(
 
 
 def test_discover_loops_includes_live_registry_root_absent_from_gita_csv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_home = tmp_path / "home"
     (fake_home / ".claude").mkdir(parents=True)  # no autopilot dir -> filtered
@@ -1181,7 +1288,8 @@ def test_discover_loops_includes_live_registry_root_absent_from_gita_csv(
 
 
 def test_discover_loops_dedups_root_present_in_both_gita_csv_and_registry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_home = tmp_path / "home"
     (fake_home / ".claude").mkdir(parents=True)
@@ -1210,7 +1318,8 @@ def test_discover_loops_dedups_root_present_in_both_gita_csv_and_registry(
 
 
 def test_discover_loops_excludes_dead_pid_registry_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_home = tmp_path / "home"
     (fake_home / ".claude").mkdir(parents=True)
@@ -1240,7 +1349,8 @@ def test_discover_loops_excludes_dead_pid_registry_root(
 
 
 def test_discover_loops_registry_root_survives_unreadable_gita_csv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The pre-existing degrade path for a missing gita registry falls back
     to ~/.claude alone; a live wrapper-registry entry must still surface its
@@ -1264,14 +1374,16 @@ def test_discover_loops_registry_root_survives_unreadable_gita_csv(
     )
 
     result = discovery.discover_loops(
-        registry=tmp_path / "does-not-exist.csv", loops_dir=loops_dir
+        registry=tmp_path / "does-not-exist.csv",
+        loops_dir=loops_dir,
     )
 
     assert registry_root in result
 
 
 def test_discover_loops_registry_root_without_autopilot_dir_is_filtered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_home = tmp_path / "home"
     (fake_home / ".claude").mkdir(parents=True)
@@ -1287,7 +1399,11 @@ def test_discover_loops_registry_root_without_autopilot_dir_is_filtered(
     loops_dir.mkdir()
     _write_json(
         loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(bare_root), "started_at": "2026-07-14T00:00:00Z"},
+        {
+            "pid": os.getpid(),
+            "root": str(bare_root),
+            "started_at": "2026-07-14T00:00:00Z",
+        },
     )
 
     result = discovery.discover_loops(registry=gita_csv, loops_dir=loops_dir)
@@ -1304,7 +1420,9 @@ def test_discover_loops_registry_root_without_autopilot_dir_is_filtered(
 # set in `env`, rather than monkeypatching discovery in-process.
 
 
-def _run_wrapper_alive_guard(root: Path, loops_dir: Path) -> subprocess.CompletedProcess[bytes]:
+def _run_wrapper_alive_guard(
+    root: Path, loops_dir: Path
+) -> subprocess.CompletedProcess[bytes]:
     env = dict(os.environ)
     env["_AUTOPILOT_LOOPS_DIR"] = str(loops_dir)
     return subprocess.run(
@@ -1357,7 +1475,9 @@ def test_exits_one_when_no_registry_entry_for_root(tmp_path: Path) -> None:
     result = _run_wrapper_alive_guard(root, loops_dir)
 
     assert result.returncode == 1
-    assert result.stdout.strip() == b""  # empty stdout → bash `[ -n "$pid" ]` reads absent
+    assert (
+        result.stdout.strip() == b""
+    )  # empty stdout → bash `[ -n "$pid" ]` reads absent
 
 
 def test_exits_one_when_registry_entry_pid_is_dead(tmp_path: Path) -> None:

@@ -74,7 +74,10 @@ def _setup_pre_stall_fixture(root: Path, prd_name: str) -> tuple[Path, Path]:
 
 
 def apply_stall_procedure(
-    root: Path, autopilot_dir: Path, wip_dir: Path, prd_name: str
+    root: Path,
+    autopilot_dir: Path,
+    wip_dir: Path,
+    prd_name: str,
 ) -> None:
     """Apply the Phase 2 oversized_task stall procedure from SKILL.md.
 
@@ -113,7 +116,7 @@ def apply_stall_procedure(
             "doubts": [],
             "rework_task_ids": [],
             "next_phase": "catchup",
-        }
+        },
     )
     del state["stall_reason"]
     state["batch"] = batch
@@ -129,10 +132,14 @@ class Phase2StallPathTests(unittest.TestCase):
         self.root = Path(self._tmpdir)
         self.prd_name = "00042-big-feature.md"
         self.autopilot_dir, self.wip_dir = _setup_pre_stall_fixture(
-            self.root, self.prd_name
+            self.root,
+            self.prd_name,
         )
         apply_stall_procedure(
-            self.root, self.autopilot_dir, self.wip_dir, self.prd_name
+            self.root,
+            self.autopilot_dir,
+            self.wip_dir,
+            self.prd_name,
         )
 
     def tearDown(self) -> None:
