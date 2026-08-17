@@ -1075,10 +1075,16 @@ class Loop:
 
             if pause.consume_pause(ap_dir):
                 pause.stamp_paused(ap_dir)
+                # NOT the _act_paused runbook: that exit leaves a paused
+                # state that re-pauses the loop, so its interactive step is
+                # mandatory. Here the marker is consumed and nothing blocks,
+                # so autoclaude alone resumes - name that first, and keep the
+                # take-over path for the operator who paused to intervene.
                 print(
                     "\n\033[1;33m⏸ autoclaude: paused by operator ON "
-                    "PURPOSE.\033[0m State intact; take over with an "
-                    "interactive /run-autopilot, then re-run autoclaude.",
+                    "PURPOSE.\033[0m State intact.\n"
+                    "Resume unattended: autoclaude\n"
+                    "To take over first: claude → /run-autopilot, then autoclaude",
                     file=self.out,
                 )
                 self._notify(
