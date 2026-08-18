@@ -41,7 +41,7 @@ _CODEX_RUNG_HEADING_RE = re.compile(r"^## Codex rung\s*$", re.MULTILINE)
 _NEXT_HEADING_RE = re.compile(r"^## ", re.MULTILINE)
 _FENCE_RE = re.compile(r"```\n(.*?)\n[ \t]*```", re.DOTALL)
 _CLAUSE_RE = re.compile(
-    r"^\s*(?P<combinator>\w+)?\s*task\.metadata\.(?P<field>\w+)\s*==\s*(?P<value>.+?)\s*$"
+    r"^\s*(?P<combinator>\w+)?\s*task\.(?P<field>\w+)\s*==\s*(?P<value>.+?)\s*$"
 )
 
 
@@ -114,7 +114,7 @@ def _parse_fence_clauses(target_block: str) -> list[tuple[str, object]]:
     if not clauses:
         raise ValueError(
             "'codex_eligible(task)' block found but no "
-            "'task.metadata.<field> == <value>' clause could be parsed from it"
+            "'task.<field> == <value>' clause could be parsed from it"
         )
 
     _validate_disjunction(combinators)
@@ -167,8 +167,8 @@ _ALTERED_LADDER_TEXT = """\
 
   ```
   codex_eligible(task) =
-        task.metadata.qwen_eligible == true
-     OR task.metadata.qwen_excluded_reason == "tier"
+        task.qwen_eligible == true
+     OR task.qwen_excluded_reason == "tier"
   ```
 
 ## Memory gate
@@ -181,8 +181,8 @@ _LADDER_TEXT_AND_COMBINATOR = """\
 
   ```
   codex_eligible(task) =
-        task.metadata.qwen_eligible == true
-     AND task.metadata.qwen_excluded_reason == "files"
+        task.qwen_eligible == true
+     AND task.qwen_excluded_reason == "files"
   ```
 
 ## Memory gate
@@ -195,7 +195,7 @@ _LADDER_TEXT_SINGLE_CLAUSE = """\
 
   ```
   codex_eligible(task) =
-        task.metadata.qwen_eligible == true
+        task.qwen_eligible == true
   ```
 
 ## Memory gate
