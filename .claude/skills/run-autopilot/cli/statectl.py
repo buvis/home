@@ -346,13 +346,26 @@ def do_complete_prd(data: Any, prd_filename: str) -> None:
     """Append the closing PRD's summary to `batch.completed_prds` and reset
     `batch.parks_consecutive` to 0 - atomically, in the same write.
 
+    `filename` is read off `data["prd"]`, not trusted from the caller-passed
+    `prd_filename` arg - the whole point of this verb is computing the record
+    from the state being closed rather than trusting a caller to pass values.
+    `prd_filename` still has to match it: a divergence means the wrong state
+    file or the wrong PRD name reached this call, and silently recording
+    `data["prd"]` while ignoring a mismatched arg would hide that mistake
+    instead of failing on it.
+
     `autonomous_decisions` is the length of that array; `escalated_decisions`
     counts `deferred_decisions` entries whose `status` is anything OTHER than
-    `"pending"` or `"deferred"` - the exclusion rule mirrors
-    `render_report._is_pending`'s own definition exactly, so the write side
-    and the render side agree on what "escalated" means. Both source arrays
-    may be absent, counting as 0.
+    `"pending"` or `"deferred"` (tolerating non-dict entries) - the exclusion
+    rule otherwise mirrors `render_report._is_pending`'s own definition, so
+    the write side and the render side agree on what "escalated" means. Both
+    source arrays may be absent, counting as 0.
     """
+    state_prd = data.get("prd")
+    if state_prd != prd_filename:
+        raise UsageError(
+            f"complete-prd {prd_filename!r} does not match state.prd {state_prd!r}",
+        )
     autonomous = data.get("autonomous_decisions") or []
     deferred = data.get("deferred_decisions") or []
     escalated = sum(
@@ -362,7 +375,7 @@ def do_complete_prd(data: Any, prd_filename: str) -> None:
         and entry.get("status", "pending") not in ("pending", "deferred")
     )
     summary = {
-        "filename": prd_filename,
+        "filename": state_prd,
         "cycles": data["cycle"],
         "autonomous_decisions": len(autonomous),
         "escalated_decisions": escalated,
