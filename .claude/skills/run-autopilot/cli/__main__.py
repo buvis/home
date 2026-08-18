@@ -649,7 +649,20 @@ def _run_render(args: argparse.Namespace) -> int:
         block = render_report.prd_section(loaded, prd_rows, now)
     out_path = autopilot_dir / "reports" / f"{batch_id}-report.md"
     if not out_path.exists() and not args.stdout:
-        block = render_report.header(batch_id, now) + "\n" + block.rstrip("\n") + "\n"
+        batch_rows = [r for r in rows if r.get("batch") == batch_id]
+        if batch_rows:
+            from datetime import datetime, timezone
+
+            first_ts = min(int(r.get("ts_start", 0)) for r in batch_rows)
+            started = datetime.fromtimestamp(first_ts, tz=timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ",
+            )
+        else:
+            started = (
+                f"{batch_id[0:4]}-{batch_id[4:6]}-{batch_id[6:8]}T"
+                f"{batch_id[8:10]}:{batch_id[10:12]}:00Z"
+            )
+        block = render_report.header(batch_id, started) + "\n" + block.rstrip("\n") + "\n"
     return _emit(block, out_path, args.stdout, append=True)
 
 
