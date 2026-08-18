@@ -27,6 +27,7 @@ from cli import render_report, schema
 
 LIVE_STATE_JSON = Path("/Users/bob/.claude/dev/local/autopilot/state.json")
 GOLDEN_DIR = Path("/Users/bob/.claude/skills/run-autopilot/scripts/golden")
+CLI_GOLDEN_DIR = Path("/Users/bob/.claude/skills/run-autopilot/cli/golden")
 
 
 def valid_state() -> dict:
@@ -542,13 +543,21 @@ class LiveStateFixtureTest(unittest.TestCase):
 
 
 class GoldenFixturesTest(unittest.TestCase):
-    """Every golden state-*.json fixture must always validate clean."""
+    """Every golden state-*.json fixture must always validate clean.
+
+    Both golden directories are covered. `cli/golden/` was previously missed,
+    so `state-render.json` and `state-batch-202608162223.json` validated only
+    by luck; a fixture that stopped validating would have gone unnoticed.
+    """
 
     def test_all_golden_state_fixtures_validate_clean(self) -> None:
-        if not GOLDEN_DIR.exists():
-            self.fail(f"golden fixtures dir is tracked but missing: {GOLDEN_DIR}")
-        golden_files = sorted(GOLDEN_DIR.glob("state-*.json"))
-        self.assertTrue(golden_files, f"no golden fixtures found under {GOLDEN_DIR}")
+        golden_files = []
+        for directory in (GOLDEN_DIR, CLI_GOLDEN_DIR):
+            if not directory.exists():
+                self.fail(f"golden fixtures dir is tracked but missing: {directory}")
+            found = sorted(directory.glob("state-*.json"))
+            self.assertTrue(found, f"no golden fixtures found under {directory}")
+            golden_files += found
         for path in golden_files:
             with self.subTest(fixture=path.name):
                 state = json.loads(path.read_text(encoding="utf-8"))
