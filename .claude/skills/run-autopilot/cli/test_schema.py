@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from cli import schema
+from cli import render_report, schema
 
 LIVE_STATE_JSON = Path("/Users/bob/.claude/dev/local/autopilot/state.json")
 GOLDEN_DIR = Path("/Users/bob/.claude/skills/run-autopilot/scripts/golden")
@@ -271,6 +271,131 @@ class ValidateBatchFieldTest(unittest.TestCase):
         state = valid_state()
         state["batch"] = {}
         self.assertIsNone(schema.validate(state))
+
+
+COMPLETED_PRD_ELEMENT_FIELD_REJECT_CASES = (
+    ("filename", 123, "str"),
+    ("cycles", "two", "int"),
+    ("autonomous_decisions", "two", "int"),
+    ("escalated_decisions", "two", "int"),
+    ("tasks_completed", "two", "int"),
+    ("tasks_total", "two", "int"),
+)
+
+
+def _well_formed_completed_prd_entry() -> dict:
+    return {
+        "filename": "00001-x.md",
+        "cycles": 1,
+        "autonomous_decisions": 0,
+        "escalated_decisions": 0,
+        "tasks_completed": 1,
+        "tasks_total": 1,
+    }
+
+
+class ValidateBatchCompletedPrdsElementShapeTest(unittest.TestCase):
+    """Per-element shape of `batch.completed_prds`: legacy bare strings are
+    tolerated, dict entries are checked field-by-field (present-if-typed,
+    absent-if-optional), and anything else is rejected outright."""
+
+    def test_bare_string_entry_passes_legacy_tolerance(self) -> None:
+        state = valid_state()
+        state["batch"] = {"completed_prds": ["00001-x.md"]}
+        self.assertIsNone(schema.validate(state))
+
+    def test_well_formed_dict_entry_passes(self) -> None:
+        state = valid_state()
+        state["batch"] = {"completed_prds": [_well_formed_completed_prd_entry()]}
+        self.assertIsNone(schema.validate(state))
+
+    def test_dict_entry_missing_all_optional_fields_passes(self) -> None:
+        state = valid_state()
+        state["batch"] = {"completed_prds": [{}]}
+        self.assertIsNone(schema.validate(state))
+
+    def test_dict_entry_with_only_some_fields_present_passes(self) -> None:
+        state = valid_state()
+        state["batch"] = {"completed_prds": [{"filename": "00003-c.md"}]}
+        self.assertIsNone(schema.validate(state))
+
+    def test_rejects_wrong_typed_field_naming_the_element_path(self) -> None:
+        for field, bad_value, type_name in COMPLETED_PRD_ELEMENT_FIELD_REJECT_CASES:
+            with self.subTest(field=field):
+                state = valid_state()
+                entry = _well_formed_completed_prd_entry()
+                entry[field] = bad_value
+                state["batch"] = {"completed_prds": [entry]}
+                with self.assertRaises(schema.SchemaError) as ctx:
+                    schema.validate(state)
+                msg = str(ctx.exception)
+                self.assertIn(f"batch.completed_prds[0].{field}", msg)
+                self.assertIn(f"expected {type_name}", msg)
+
+    def test_bad_cycles_value_message_names_exact_field_path(self) -> None:
+        state = valid_state()
+        state["batch"] = {"completed_prds": [{"cycles": "two"}]}
+        with self.assertRaises(schema.SchemaError) as ctx:
+            schema.validate(state)
+        self.assertIn(
+            "batch.completed_prds[0].cycles: expected int, got 'two'",
+            str(ctx.exception),
+        )
+
+    def test_bad_field_on_second_element_names_index_one(self) -> None:
+        state = valid_state()
+        state["batch"] = {
+            "completed_prds": [
+                _well_formed_completed_prd_entry(),
+                {"filename": "00002-y.md", "cycles": "two"},
+            ],
+        }
+        with self.assertRaises(schema.SchemaError) as ctx:
+            schema.validate(state)
+        self.assertIn("batch.completed_prds[1].cycles", str(ctx.exception))
+
+    def test_rejects_non_str_non_dict_element(self) -> None:
+        for bad in (42, ["nested"], None):
+            with self.subTest(value=bad):
+                state = valid_state()
+                state["batch"] = {"completed_prds": [bad]}
+                with self.assertRaises(schema.SchemaError) as ctx:
+                    schema.validate(state)
+                self.assertIn("completed_prds", str(ctx.exception))
+
+
+class RenderBatchSummaryCompletedPrdsSumsTest(unittest.TestCase):
+    """PRD Phase 1 acceptance: a batch that completes two PRDs renders
+    non-zero cycle and decision sums through render_report.batch_summary."""
+
+    def test_two_completed_prds_render_matching_nonzero_sums(self) -> None:
+        state = valid_state()
+        state["batch"] = {
+            "id": "202607290001",
+            "completed_prds": [
+                {
+                    "filename": "00001-a.md",
+                    "cycles": 3,
+                    "autonomous_decisions": 2,
+                    "escalated_decisions": 1,
+                    "tasks_completed": 5,
+                    "tasks_total": 5,
+                },
+                {
+                    "filename": "00002-b.md",
+                    "cycles": 4,
+                    "autonomous_decisions": 3,
+                    "escalated_decisions": 2,
+                    "tasks_completed": 6,
+                    "tasks_total": 6,
+                },
+            ],
+        }
+        self.assertIsNone(schema.validate(state))
+        report = render_report.batch_summary(state, [])
+        self.assertIn("Total cycles: 7", report)
+        self.assertIn("Autonomous decisions: 5", report)
+        self.assertIn("Escalated decisions: 3", report)
 
 
 class ValidateUnknownFieldsToleratedTest(unittest.TestCase):
