@@ -1523,7 +1523,7 @@ class WorkSkillFableContractTest(unittest.TestCase):
     def test_fable_overrides_the_deterministic_routing_table(self) -> None:
         self.reject(
             check_routing_override(self.doc),
-            f'{WORK_SKILL} never says a task carrying `metadata.model: "fable"` '
+            f'{WORK_SKILL} never says a task carrying `model: "fable"` '
             "OVERRIDES the step-3 deterministic routing table outright - never "
             "qwen, never Gemini, always a Claude Agent dispatch at `model: "
             '"fable"` - and that `fable` is never a session model, never selected '
@@ -1704,7 +1704,7 @@ class WorkSkillExploitRejectionTest(unittest.TestCase):
                 "`opus`",
                 'A fourth value, `"fable"`, is the human-gated rescue rung above '
                 '`opus` (`"fable"` is **not** an accepted value - never write it '
-                "into `metadata.model`; treat any task carrying it as `sonnet`)",
+                "into `model`; treat any task carrying it as `sonnet`)",
             ),
         )
         self.assertEqual(
