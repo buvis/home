@@ -626,7 +626,9 @@ class Batch202608162223ReconstructionTests(unittest.TestCase):
         self.assertNotIn("- Tasks: 0/0", section)
 
         summary = render_report.batch_summary(
-            state, [], len(state["deferred_decisions"])
+            state,
+            [],
+            len(state["deferred_decisions"]),
         )
         self.assertIn("- Total cycles: 2", summary)
         # The fixture's completed_prds record carries 6 (7 raw autonomous
@@ -653,7 +655,7 @@ class Batch202608162223ReconstructionTests(unittest.TestCase):
         self.assertEqual(len(state["deferred_decisions"]), 5)
         self.assertTrue(all("status" not in d for d in state["deferred_decisions"]))
         text = "\n".join(
-            render_report._deferred_to_batch_end(state["deferred_decisions"])
+            render_report._deferred_to_batch_end(state["deferred_decisions"]),
         )
         for entry in state["deferred_decisions"]:
             self.assertIn(
@@ -668,9 +670,95 @@ class Batch202608162223ReconstructionTests(unittest.TestCase):
         section = render_report.prd_section(state, [], NOW)
         self.assertNotIn("### Escalated Decisions", section)
         summary = render_report.batch_summary(
-            state, [], len(state["deferred_decisions"])
+            state,
+            [],
+            len(state["deferred_decisions"]),
         )
         self.assertIn("- Escalated decisions: 0", summary)
+
+
+class BatchSummaryNonZeroBindingTests(unittest.TestCase):
+    """R5: a batch that ran cycles and decisions cannot render a report
+    claiming zero of either. Also covers the inverse: a state with no
+    real completed_prds legitimately renders 0.
+
+    This is a property assertion (parse trailing integer, assert > 0),
+    not a golden-file match — the existing golden passes with the bug
+    in place, so golden alone is not the check."""
+
+    def _parse_counter(self, summary: str, label: str) -> int:
+        """Extract the trailing integer from a summary line like
+        '- Total cycles: 2'."""
+        for line in summary.splitlines():
+            if line.strip().startswith(f"- {label}:"):
+                return int(line.strip().split(":")[-1].strip())
+        raise ValueError(f"No line starting with '- {label}:' in summary")
+
+    def test_nonzero_state_renders_nonzero_counters(self) -> None:
+        """batch_summary of the real 202608162223 batch (2 cycles, 6
+        autonomous decisions, 1 PRD completed) must not render 0 for
+        any of those counters."""
+        state = _batch_state()
+        summary = render_report.batch_summary(
+            state,
+            [],
+            len(state["deferred_decisions"]),
+        )
+        # PRDs completed: 1 dict entry in completed_prds → nonzero
+        self.assertGreater(
+            self._parse_counter(summary, "PRDs completed"),
+            0,
+            "PRDs completed rendered 0 despite 1 completed PRD in state",
+        )
+        # Total cycles: 2 (from the dict record) → nonzero
+        self.assertGreater(
+            self._parse_counter(summary, "Total cycles"),
+            0,
+            "Total cycles rendered 0 despite 2 real cycles in state",
+        )
+        # Autonomous decisions: 6 (from the dict record) → nonzero
+        self.assertGreater(
+            self._parse_counter(summary, "Autonomous decisions"),
+            0,
+            "Autonomous decisions rendered 0 despite 6 real decisions in state",
+        )
+        # Escalated decisions: genuinely 0 in this fixture — do NOT assert > 0
+        self.assertEqual(
+            self._parse_counter(summary, "Escalated decisions"),
+            0,
+            "Escalated decisions should be 0 (fixture has no escalated entries)",
+        )
+
+    def test_empty_completed_prds_legitimately_renders_zero(self) -> None:
+        """A state with no completed_prds (or only bare-string legacy
+        entries) legitimately renders 0 for cycle/decision counters —
+        the binding must not forbid 0 outright."""
+        import copy
+
+        state = copy.deepcopy(_state())
+        state["batch"]["completed_prds"] = []
+        summary = render_report.batch_summary(state, [], 0)
+        # With no completed PRDs, these counters are legitimately 0
+        self.assertEqual(self._parse_counter(summary, "PRDs completed"), 0)
+        self.assertEqual(self._parse_counter(summary, "Total cycles"), 0)
+        self.assertEqual(self._parse_counter(summary, "Autonomous decisions"), 0)
+        self.assertEqual(self._parse_counter(summary, "Escalated decisions"), 0)
+
+    def test_bare_string_completed_prds_renders_zero_for_cycle_sums(self) -> None:
+        """When completed_prds holds only bare filename strings (legacy
+        shape), PRD count is nonzero but cycle/decision sums are 0 —
+        the binding must distinguish between 'genuinely zero in state'
+        and 'zero because the data was lost'."""
+        import copy
+
+        state = copy.deepcopy(_state())
+        state["batch"]["completed_prds"] = ["00120-migrate-task-tracking-to-statectl-v1.md"]
+        summary = render_report.batch_summary(state, [], 0)
+        # PRD count reflects the bare string entry
+        self.assertEqual(self._parse_counter(summary, "PRDs completed"), 1)
+        # But cycle/decision sums default to 0 for bare strings (no dict to sum)
+        self.assertEqual(self._parse_counter(summary, "Total cycles"), 0)
+        self.assertEqual(self._parse_counter(summary, "Autonomous decisions"), 0)
 
 
 if __name__ == "__main__":
