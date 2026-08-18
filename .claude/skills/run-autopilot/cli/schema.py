@@ -60,6 +60,15 @@ _LIST_FIELDS = (
     "doubts",
 )
 
+_COMPLETED_PRD_ENTRY_FIELDS: dict[str, type] = {
+    "filename": str,
+    "cycles": int,
+    "autonomous_decisions": int,
+    "escalated_decisions": int,
+    "tasks_completed": int,
+    "tasks_total": int,
+}
+
 
 def require(value: Any, type_: type, field: str) -> None:
     """Raise SchemaError naming `field` unless isinstance(value, type_).
@@ -87,6 +96,25 @@ def _validate_task_entries(tasks: list) -> None:
             require(entry["blocked_by"], list, field)
             for item in entry["blocked_by"]:
                 require(item, int, field)
+
+
+def _validate_completed_prds_entries(entries: list) -> None:
+    """Validate each `batch.completed_prds[]` entry.
+
+    A bare string is a legacy entry, tolerated as-is. A dict entry is checked
+    field-by-field, each field optional. Anything else is rejected.
+    """
+    for index, entry in enumerate(entries):
+        if isinstance(entry, str):
+            continue
+        if not isinstance(entry, dict):
+            raise SchemaError(
+                f"batch.completed_prds[{index}]: expected str or dict, "
+                f"got {_bounded_repr(entry)}",
+            )
+        for field, type_ in _COMPLETED_PRD_ENTRY_FIELDS.items():
+            if field in entry:
+                require(entry[field], type_, f"batch.completed_prds[{index}].{field}")
 
 
 def validate(state: dict) -> None:
@@ -132,6 +160,7 @@ def validate(state: dict) -> None:
             require(batch["parks_consecutive"], int, "batch.parks_consecutive")
         if "completed_prds" in batch:
             require(batch["completed_prds"], list, "batch.completed_prds")
+            _validate_completed_prds_entries(batch["completed_prds"])
 
 
 _MISSING = object()
