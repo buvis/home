@@ -87,6 +87,7 @@ def _autonomous(decisions: list[dict]) -> list[str]:
         for d in decisions
         if d.get("type") != "assumed-ambiguity"
     ]
+    rows = [row for row in rows if any(cell is not None for cell in row)]
     if not rows:
         return []
     return (
@@ -123,7 +124,7 @@ def _escalated(deferred: list[dict]) -> list[str]:
 
 def _deferred_to_batch_end(deferred: list[dict]) -> list[str]:
     rows = [
-        [d.get("issue"), d.get("severity"), d.get("reason")]
+        [d.get("issue"), d.get("severity"), d.get("disposition") or d.get("reason")]
         for d in deferred
         if _is_pending(d)
     ]
@@ -276,12 +277,26 @@ def prd_section(state: dict, metrics_rows: list[dict], completed: str) -> str:
     ]
     deferred = [d for d in state.get("deferred_decisions") or [] if isinstance(d, dict)]
     doubts = [d for d in state.get("doubts") or [] if isinstance(d, dict)]
+    completed_prds = (state.get("batch") or {}).get("completed_prds") or []
+    record = next(
+        (p for p in completed_prds if isinstance(p, dict) and p.get("filename") == prd),
+        None,
+    )
+    if record is not None:
+        tasks_line = f"{record.get('tasks_completed', '?')}/{record.get('tasks_total', '?')}"
+    else:
+        tasks = state.get("tasks") or []
+        if tasks:
+            done = sum(1 for t in tasks if t.get("status") == "completed")
+            tasks_line = f"{done}/{len(tasks)}"
+        else:
+            tasks_line = "?/?"
     lines = [
         f"## {prd}",
         "",
         f"- Completed: {completed}",
         f"- Cycles: {state.get('cycle', '?')}",
-        f"- Tasks: {state.get('tasks_completed', '?')}/{state.get('tasks_total', '?')}",
+        f"- Tasks: {tasks_line}",
         "",
     ]
     lines += _assumptions(autonomous)
