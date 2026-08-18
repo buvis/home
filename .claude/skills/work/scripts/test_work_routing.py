@@ -739,13 +739,13 @@ def test_the_rung_toggle_never_moves_a_healthy_qwen_task(rung: str) -> None:
 # --- legacy tasks: absent `model` treated as sonnet --------------------------
 #
 # SKILL.md states in four places that a task with no `model` field — a plan
-# written before `metadata.model` existed — is treated as `sonnet`. These pin
+# written before `model` existed — is treated as `sonnet`. These pin
 # that rule at the routing-table boundary: a missing key must behave exactly
 # like an explicit `"model": "sonnet"` for every row it can reach.
 
 
 def _legacy_task(**overrides: object) -> dict[str, object]:
-    """A task from a plan written before `metadata.model` existed — no `model` key."""
+    """A task from a plan written before `model` existed — no `model` key."""
     return dict(overrides)
 
 

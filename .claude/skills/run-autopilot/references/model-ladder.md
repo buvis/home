@@ -112,8 +112,8 @@ and what each `fablectl` exit means — lives in `references/recovery.md`
 
   ```
   codex_eligible(task) =
-        task.metadata.qwen_eligible == true
-     OR task.metadata.qwen_excluded_reason == "files"
+        task.qwen_eligible == true
+     OR task.qwen_excluded_reason == "files"
   ```
 
   Absent `qwen_eligible` (legacy plans) -> `false`. Any
@@ -303,7 +303,7 @@ PRD-to-PRD reset.
 
 **Task tiers decay separately** and are contained by construction: `/work`
 re-evaluates its routing table for every claimed task from that task's own
-`metadata.model`, with no session-level memory, so a task escalated to opus
+`model`, with no session-level memory, so a task escalated to opus
 never changes the tier any other task dispatches at (`work` SKILL.md
 § Deterministic routing table).
 
