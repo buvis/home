@@ -16,6 +16,7 @@
       {
         "filename": "00120-migrate-task-tracking-to-statectl-v1.md",
         "cycles": 2,
+        "autonomous_decisions": 6,
         "escalated_decisions": 0,
         "tasks_completed": 7,
         "tasks_total": 7

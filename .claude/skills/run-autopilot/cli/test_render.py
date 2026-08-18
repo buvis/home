@@ -573,6 +573,40 @@ class HeaderStartedTests(unittest.TestCase):
         self.assertIn("Started: 2023-01-02T03:04:00Z", text)
         self.assertNotIn(f"Started: {NOW}", text)
 
+    def test_started_derives_from_the_real_202608162223_batch_metrics_row(
+        self,
+    ) -> None:
+        # PRD 00107 item 4 (R4), proven against the one batch this task
+        # exists to reconstruct: earliest ts_start row tagged with
+        # "batch": "202608162223" is epoch 1786911719.
+        state = _batch_state()
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+        (self.ap_dir / "loop-metrics.jsonl").write_text(
+            json.dumps(
+                {
+                    "ts_start": 1786911719,
+                    "ts_end": 1786919356,
+                    "wall_secs": 7637,
+                    "prd": state["prd"],
+                    "batch": "202608162223",
+                    "phase_launched": "",
+                    "phase_end": "review",
+                    "signal": "continue",
+                    "model": "claude-opus-5[1m]",
+                    "cost_usd": 1.0,
+                    "tokens_out": 100,
+                },
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        proc = self._run(["render", "report", "--now", NOW])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        report = self.ap_dir / "reports" / "202608162223-report.md"
+        text = report.read_text(encoding="utf-8")
+        self.assertIn("Started: 2026-08-16T20:21:59Z", text)
+        self.assertNotIn(f"Started: {NOW}", text)
+
 
 class Batch202608162223ReconstructionTests(unittest.TestCase):
     """Rendering the reconstructed archived 202608162223 state (the batch
@@ -591,8 +625,14 @@ class Batch202608162223ReconstructionTests(unittest.TestCase):
         self.assertIn("- Tasks: 7/7", section)
         self.assertNotIn("- Tasks: 0/0", section)
 
-        summary = render_report.batch_summary(state, [], len(state["deferred_decisions"]))
+        summary = render_report.batch_summary(
+            state, [], len(state["deferred_decisions"])
+        )
         self.assertIn("- Total cycles: 2", summary)
+        # The fixture's completed_prds record carries 6 (7 raw autonomous
+        # decisions minus the 1 genuinely-blank one) - not the misleading
+        # 0 a missing field would sum to.
+        self.assertIn("- Autonomous decisions: 6", summary)
 
     def test_the_blank_autonomous_decision_row_is_dropped(self) -> None:
         state = _batch_state()
@@ -612,7 +652,9 @@ class Batch202608162223ReconstructionTests(unittest.TestCase):
         state = _batch_state()
         self.assertEqual(len(state["deferred_decisions"]), 5)
         self.assertTrue(all("status" not in d for d in state["deferred_decisions"]))
-        text = "\n".join(render_report._deferred_to_batch_end(state["deferred_decisions"]))
+        text = "\n".join(
+            render_report._deferred_to_batch_end(state["deferred_decisions"])
+        )
         for entry in state["deferred_decisions"]:
             self.assertIn(
                 f"| {entry['issue']} | {entry['severity']} | {entry['disposition']} |",
@@ -625,7 +667,9 @@ class Batch202608162223ReconstructionTests(unittest.TestCase):
         state = _batch_state()
         section = render_report.prd_section(state, [], NOW)
         self.assertNotIn("### Escalated Decisions", section)
-        summary = render_report.batch_summary(state, [], len(state["deferred_decisions"]))
+        summary = render_report.batch_summary(
+            state, [], len(state["deferred_decisions"])
+        )
         self.assertIn("- Escalated decisions: 0", summary)
 
 
