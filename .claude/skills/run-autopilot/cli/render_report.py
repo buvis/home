@@ -87,7 +87,7 @@ def _autonomous(decisions: list[dict]) -> list[str]:
         for d in decisions
         if d.get("type") != "assumed-ambiguity"
     ]
-    rows = [row for row in rows if any(cell is not None for cell in row)]
+    rows = [row for row in rows if any(cell is not None and cell != "" for cell in row)]
     if not rows:
         return []
     return (
@@ -310,23 +310,31 @@ def prd_section(state: dict, metrics_rows: list[dict], completed: str) -> str:
     return "\n".join(lines)
 
 
+def _batch_rows(batch_id: str, metrics_rows: list[dict]) -> list[dict]:
+    return [r for r in metrics_rows if r.get("batch") == batch_id]
+
+
+def _iso(ts: int) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _started_iso(batch_id: str, batch_rows: list[dict]) -> str:
+    if batch_rows:
+        return _iso(min(int(r.get("ts_start", 0)) for r in batch_rows))
+    return (
+        f"{batch_id[0:4]}-{batch_id[4:6]}-{batch_id[6:8]}T"
+        f"{batch_id[8:10]}:{batch_id[10:12]}:00Z"
+    )
+
+
 def batch_started(state: dict, metrics_rows: list[dict]) -> str:
     """The batch's started timestamp: earliest `ts_start` across the
     batch's metrics rows as UTC ISO-8601, or the `batch_id` (`yyyymmddHHMM`)
     parsed directly when no rows exist yet."""
     batch_id = (state.get("batch") or {}).get("id")
-    batch_rows = [r for r in metrics_rows if r.get("batch") == batch_id]
-    if batch_rows:
-        from datetime import datetime, timezone
-
-        first = min(int(r.get("ts_start", 0)) for r in batch_rows)
-        return datetime.fromtimestamp(first, tz=timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ",
-        )
-    return (
-        f"{batch_id[0:4]}-{batch_id[4:6]}-{batch_id[6:8]}T"
-        f"{batch_id[8:10]}:{batch_id[10:12]}:00Z"
-    )
+    return _started_iso(batch_id, _batch_rows(batch_id, metrics_rows))
 
 
 def batch_summary(
@@ -350,14 +358,10 @@ def batch_summary(
     ]
     if deferred_count is not None:
         lines.append(f"- Deferred items: {deferred_count}")
-    batch_rows = [r for r in metrics_rows if r.get("batch") == batch.get("id")]
+    batch_id = batch.get("id")
+    batch_rows = _batch_rows(batch_id, metrics_rows)
     if batch_rows:
-        from datetime import datetime, timezone
-
-        last = max(int(r.get("ts_end", 0)) for r in batch_rows)
-        last_iso = datetime.fromtimestamp(last, tz=timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ",
-        )
-        lines.append(f"- Duration: {batch_started(state, metrics_rows)} to {last_iso}")
+        last_iso = _iso(max(int(r.get("ts_end", 0)) for r in batch_rows))
+        lines.append(f"- Duration: {_started_iso(batch_id, batch_rows)} to {last_iso}")
     lines.append("")
     return "\n".join(lines)
