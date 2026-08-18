@@ -233,6 +233,8 @@ Reason: the function's name and signature carry the entire contract. The docstri
 
 Original:
 
+`Task.metadata` here is illustrative, not the autopilot schema: `state.tasks[]` entries carry flat fields (`model`, `qwen_eligible`, `qwen_excluded_reason`) with no `metadata` sub-object.
+
 ```python
 def select_tier(task: Task) -> str:
     if task.metadata.get("model") == "haiku":
