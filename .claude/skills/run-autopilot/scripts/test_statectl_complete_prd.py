@@ -51,6 +51,9 @@ class StatectlCompletePrdTest(unittest.TestCase):
         # assume a caller already seeded the list. deferred_decisions mixes
         # "resolved" (counts), "pending" and "deferred" (both excluded) so the
         # count can't pass by only ever excluding one of the two statuses.
+        # The autonomous_decisions entries each carry a renderable cell on
+        # purpose: the count mirrors render_report._autonomous's blank-row
+        # rule, so filler like {"id": N} would render no row and count 0.
         self.write_state(
             {
                 "phase": "review",
@@ -58,7 +61,11 @@ class StatectlCompletePrdTest(unittest.TestCase):
                 "cycle": 2,
                 "tasks_completed": 5,
                 "tasks_total": 7,
-                "autonomous_decisions": [{"id": 1}, {"id": 2}, {"id": 3}],
+                "autonomous_decisions": [
+                    {"id": 1, "issue": "a", "action": "auto-fix"},
+                    {"id": 2, "issue": "b", "action": "auto-fix"},
+                    {"id": 3, "issue": "c", "action": "auto-fix"},
+                ],
                 "deferred_decisions": [
                     {"status": "resolved"},
                     {"status": "pending"},
@@ -390,6 +397,98 @@ class StatectlCompletePrdTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         entry = self.load_state()["batch"]["completed_prds"][-1]
         self.assertEqual(entry["autonomous_decisions"], 6)
+
+    # Defect 2, sharpened: the rule is "has a non-empty cell among the five
+    # the renderer draws" (cycle/issue-or-question/severity/action/reason-or-
+    # resolution), not "has any non-empty value under any key". An entry
+    # whose only populated field is outside those five renders no row and
+    # must not be counted. Paired with a well-formed decision so the expected
+    # count is 1, not 0 - a broken implementation that counts nothing can't
+    # pass by accident.
+    def test_entry_with_only_non_renderable_keys_is_not_counted(self) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {
+                        "cycle": 1,
+                        "issue": "a",
+                        "severity": "low",
+                        "action": "auto-fix",
+                        "reason": "x",
+                    },
+                    {"id": 7},
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 1)
+
+    # Regression: an entry can carry keys outside the renderer's five cells
+    # AND a populated cell among them - it must still count. Guards against
+    # an over-correction that rejects any entry with an unrecognized key
+    # instead of checking the five cells specifically.
+    def test_entry_with_non_renderable_key_and_populated_renderable_cell_is_counted(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {"id": 7, "severity": "high"},
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 1)
+
+    # Sharpest form of the rule: a populated value under a non-renderable key
+    # sits alongside renderable cells that are all explicitly emptied. The
+    # entry still renders no row, so it must not count - this is the case
+    # that most clearly separates "any value on the entry" from "a non-empty
+    # renderer cell". Paired with a well-formed decision so the expected
+    # count is 1, not 0.
+    def test_entry_with_populated_non_renderable_key_but_empty_renderable_cells_is_not_counted(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {
+                        "cycle": 1,
+                        "issue": "a",
+                        "severity": "low",
+                        "action": "auto-fix",
+                        "reason": "x",
+                    },
+                    {"id": 7, "issue": "", "severity": "", "action": ""},
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 1)
 
 
 if __name__ == "__main__":
