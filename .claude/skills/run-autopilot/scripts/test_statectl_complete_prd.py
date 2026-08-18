@@ -16,6 +16,9 @@ import unittest
 from pathlib import Path
 
 STATECTL = Path(__file__).parent / "statectl.py"
+GOLDEN_FIXTURE = (
+    Path(__file__).parent.parent / "cli" / "golden" / "state-batch-202608162223.json"
+)
 
 
 class StatectlCompletePrdTest(unittest.TestCase):
@@ -220,6 +223,173 @@ class StatectlCompletePrdTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         entry = self.load_state()["batch"]["completed_prds"][-1]
         self.assertEqual(entry["autonomous_decisions"], 0)
+
+    # Defect 1: state shapes the codebase itself produces are missing one or
+    # more of cycle/tasks_completed/tasks_total. do_complete_prd must not
+    # crash on them - the first PRD of a fresh batch reaches this verb with
+    # no "cycle" key at all (only the rework and reset paths ever write it).
+
+    def test_missing_cycle_key_records_one_cycle_not_a_crash(self) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "tasks_completed": 5,
+                "tasks_total": 7,
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["cycles"], 1)
+
+    def test_missing_task_count_keys_records_zero_for_both_not_a_crash(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 3,
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["tasks_completed"], 0)
+        self.assertEqual(entry["tasks_total"], 0)
+
+    def test_missing_cycle_and_task_count_keys_records_all_defaults_not_a_crash(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["cycles"], 1)
+        self.assertEqual(entry["tasks_completed"], 0)
+        self.assertEqual(entry["tasks_total"], 0)
+
+    # Defect 2: the writer must count only decisions the renderer would draw
+    # a row for - one non-empty cell among cycle/issue-or-question/severity/
+    # action/reason-or-resolution, where empty means None OR "".
+
+    def test_blank_autonomous_decision_entry_is_not_counted(self) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {
+                        "cycle": 1,
+                        "issue": "a",
+                        "severity": "low",
+                        "action": "auto-fix",
+                        "reason": "x",
+                    },
+                    {
+                        "cycle": 2,
+                        "issue": "b",
+                        "severity": "medium",
+                        "action": "auto-fix",
+                        "reason": "y",
+                    },
+                    {},
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 2)
+
+    def test_autonomous_decision_entry_with_all_empty_string_cells_is_not_counted(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {
+                        "cycle": 1,
+                        "issue": "a",
+                        "severity": "low",
+                        "action": "auto-fix",
+                        "reason": "x",
+                    },
+                    {
+                        "cycle": "",
+                        "issue": "",
+                        "severity": "",
+                        "action": "",
+                        "reason": "",
+                    },
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 1)
+
+    # Regression: a naive "drop anything without an issue" fix would exclude
+    # this entry too, undercounting to 0 instead of 1 - one non-empty cell
+    # (cycle alone) is enough for the renderer to draw the row.
+    def test_autonomous_decision_entry_with_only_cycle_populated_is_counted(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {},
+                    {"cycle": 5},
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 1)
+
+    # Defect 2, the fixture case: a real reconstructed batch state whose
+    # autonomous_decisions holds 7 entries, one entirely blank, and whose
+    # hand-written completed_prds[0] record (and the renderer) both agree on
+    # 6. The fixture's root tasks_completed/tasks_total are already 0 (wiped
+    # by tasks-clear in this archived state, unlike the hand-written record's
+    # 7/7 from before that wipe), so this test asserts the decision count
+    # only and does not compare task fields.
+    def test_golden_batch_fixture_records_six_autonomous_decisions_not_seven(
+        self,
+    ) -> None:
+        fixture_state = json.loads(GOLDEN_FIXTURE.read_text())
+        self.write_state(fixture_state)
+        result = self.run_cli("complete-prd", fixture_state["prd"])
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 6)
 
 
 if __name__ == "__main__":
