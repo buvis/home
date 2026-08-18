@@ -733,9 +733,7 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         """A state with no completed_prds (or only bare-string legacy
         entries) legitimately renders 0 for cycle/decision counters —
         the binding must not forbid 0 outright."""
-        import copy
-
-        state = copy.deepcopy(_state())
+        state = _state()
         state["batch"]["completed_prds"] = []
         summary = render_report.batch_summary(state, [], 0)
         # With no completed PRDs, these counters are legitimately 0
@@ -749,9 +747,7 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         shape), PRD count is nonzero but cycle/decision sums are 0 —
         the binding must distinguish between 'genuinely zero in state'
         and 'zero because the data was lost'."""
-        import copy
-
-        state = copy.deepcopy(_state())
+        state = _state()
         state["batch"]["completed_prds"] = ["00120-migrate-task-tracking-to-statectl-v1.md"]
         summary = render_report.batch_summary(state, [], 0)
         # PRD count reflects the bare string entry
