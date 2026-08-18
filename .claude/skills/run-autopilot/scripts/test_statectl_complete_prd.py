@@ -107,6 +107,26 @@ class StatectlCompletePrdTest(unittest.TestCase):
         entry = self.load_state()["batch"]["completed_prds"][-1]
         self.assertEqual(entry["escalated_decisions"], 1)
 
+    # Regression: filename is read off state["prd"], not trusted from the CLI
+    # arg - a caller-passed name that diverges from state.prd is a usage
+    # mistake, not a value to silently record.
+    def test_complete_prd_rejects_a_filename_arg_that_does_not_match_state_prd(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-real.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-wrong.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("completed_prds", self.load_state().get("batch", {}))
+
     # Test case 2: preserves sibling fields --------------------------------------
 
     def test_complete_prd_preserves_other_sibling_fields(self) -> None:

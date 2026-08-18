@@ -15,6 +15,7 @@ CLI and exit codes are unchanged:
     python3 statectl.py <state-path> task-start <task-id>
     python3 statectl.py <state-path> task-done <task-id> <attempt-json-file>
     python3 statectl.py <state-path> set-contract-card <file>
+    python3 statectl.py <state-path> complete-prd <prd-filename>
     python3 statectl.py <state-path> task-add <task-json-file>
     python3 statectl.py <state-path> task-set-body <task-id> <body-file>
     python3 statectl.py <state-path> task-set-meta <task-id> <meta-json-file>
@@ -47,6 +48,7 @@ from cli.statectl import (
     atomic_write,
     do_append,
     do_append_attempt,
+    do_complete_prd,
     do_del,
     do_set,
     do_set_contract_card,
@@ -72,6 +74,7 @@ __all__ = [
     "atomic_write",
     "do_append",
     "do_append_attempt",
+    "do_complete_prd",
     "do_del",
     "do_set",
     "do_set_contract_card",
