@@ -354,12 +354,23 @@ def do_complete_prd(data: Any, prd_filename: str) -> None:
     `data["prd"]` while ignoring a mismatched arg would hide that mistake
     instead of failing on it.
 
-    `autonomous_decisions` is the length of that array; `escalated_decisions`
-    counts `deferred_decisions` entries whose `status` is anything OTHER than
+    `autonomous_decisions` counts `autonomous_decisions` entries that have at
+    least one non-empty value (empty meaning `None` or `""`) among the exact
+    five cells `render_report._autonomous` builds a row from (`cycle`,
+    `issue`-or-`question`, `severity`, `action`, `reason`-or-`resolution`),
+    tolerating non-dict entries - a key outside those five contributes
+    nothing to the rendered row, so it contributes nothing to the count
+    either, keeping the write side and the render side agreed on what
+    "autonomous" means. `escalated_decisions` counts
+    `deferred_decisions` entries whose `status` is anything OTHER than
     `"pending"` or `"deferred"` (tolerating non-dict entries) - the exclusion
     rule otherwise mirrors `render_report._is_pending`'s own definition, so
     the write side and the render side agree on what "escalated" means. Both
-    source arrays may be absent, counting as 0.
+    source arrays may be absent, counting as 0. `cycle`, `tasks_completed`
+    and `tasks_total` may also be absent - the transition table leaves them
+    unset on a PRD that never rewrites them - so they fall back to the same
+    defaults as their own writers (1 for `cycle`, matching
+    `transitions._rework`; 0 for the task counts).
     """
     state_prd = data.get("prd")
     if state_prd != prd_filename:
@@ -368,6 +379,21 @@ def do_complete_prd(data: Any, prd_filename: str) -> None:
         )
     autonomous = data.get("autonomous_decisions") or []
     deferred = data.get("deferred_decisions") or []
+    autonomous_count = sum(
+        1
+        for entry in autonomous
+        if isinstance(entry, dict)
+        and any(
+            value not in (None, "")
+            for value in (
+                entry.get("cycle"),
+                entry.get("issue") or entry.get("question"),
+                entry.get("severity"),
+                entry.get("action"),
+                entry.get("reason") or entry.get("resolution"),
+            )
+        )
+    )
     escalated = sum(
         1
         for entry in deferred
@@ -376,11 +402,11 @@ def do_complete_prd(data: Any, prd_filename: str) -> None:
     )
     summary = {
         "filename": state_prd,
-        "cycles": data["cycle"],
-        "autonomous_decisions": len(autonomous),
+        "cycles": data.get("cycle", 1),
+        "autonomous_decisions": autonomous_count,
         "escalated_decisions": escalated,
-        "tasks_completed": data["tasks_completed"],
-        "tasks_total": data["tasks_total"],
+        "tasks_completed": data.get("tasks_completed", 0),
+        "tasks_total": data.get("tasks_total", 0),
     }
     batch = data.setdefault("batch", {})
     batch.setdefault("completed_prds", []).append(summary)
