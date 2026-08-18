@@ -475,7 +475,11 @@ _ALL_POST = "Bash|Read|Grep|Glob|Agent|WebFetch|WebSearch|mcp__.*"
         ("mcp__.*", "mcp__foo__bar", True),
         ("mcp__.*", "notmcp__foo", False),
         (_ALL_POST, "Bash", True),
-        (_ALL_POST, "Task", False),
+        (
+            _ALL_POST,
+            "Task",
+            False,
+        ),  # retired task tool, anchoring negative — see OBSERVED_TOOL_NAMES comment
         ("Bash", "Bash", True),
         ("Bash", "bash", False),
     ],
@@ -749,7 +753,7 @@ def test_missing_tool_name_key_routing_is_unchanged(dispatch, monkeypatch, tmp_p
         ("pre", "Read"),  # no Read PreToolUse matcher -> ZERO handlers
         ("pre", "TodoWrite"),  # anchoring negative -> ZERO
         ("pre", "NotebookEdit"),  # anchoring negative -> ZERO
-        ("pre", "Task"),  # ZERO
+        ("pre", "Task"),  # ZERO — retired task tool, anchoring negative; see OBSERVED_TOOL_NAMES comment
         ("post", "Bash"),
         ("post", "Edit"),
         ("post", "Read"),
@@ -774,6 +778,11 @@ def test_routing_matches_settings_json(dispatch, monkeypatch, event_short, tool_
 # ~/.claude/instincts/projects/*/observations.jsonl (2026-07-21), plus the
 # three never-observed names whose routing would change under re.search
 # (TodoWrite, NotebookEdit, BashOutput - substrings Write/Edit/Bash).
+#
+# PRD 00120 retired the task tools named below (TaskUpdate, TaskCreate,
+# TaskList, TaskOutput, TaskStop, TaskGet). They are deliberately retained
+# here as historical matcher-anchoring negatives - proving they route to
+# zero handlers under the current ROUTES, not to document live usage.
 OBSERVED_TOOL_NAMES = [
     "Bash",
     "Read",
