@@ -37,28 +37,19 @@ def _well_formed_entry() -> dict:
 
 
 def _capture_validate_warning(state: dict) -> tuple[str, str]:
-    """Capture every channel `schema.validate` might use for a non-fatal
-    notice, plus stdout.
+    """Return (warning text, stdout text) from one `schema.validate` call.
 
-    The implementation hasn't committed to a mechanism for the legacy
-    bare-string warning: it could be `warnings.warn` or a direct write to
-    `sys.stderr`. Listening on both channels at once lets these tests bind
-    the observable rule -- a warning reaches the operator, off stdout --
-    rather than one specific mechanism.
+    stdout is captured so the tests can assert it stayed empty: `mutate()`
+    validates on every write, and statectl plus several autopilot subcommands
+    emit machine-read output there, so a notice on stdout would corrupt a
+    caller's parse.
     """
     stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        with (
-            contextlib.redirect_stdout(stdout_buf),
-            contextlib.redirect_stderr(
-                stderr_buf,
-            ),
-        ):
+        with contextlib.redirect_stdout(stdout_buf):
             schema.validate(state)
-    warning_text = "\n".join(str(w.message) for w in caught)
-    return warning_text + "\n" + stderr_buf.getvalue(), stdout_buf.getvalue()
+    return "\n".join(str(w.message) for w in caught), stdout_buf.getvalue()
 
 
 class ValidateBatchCompletedPrdsBareStringWarningTest(unittest.TestCase):
