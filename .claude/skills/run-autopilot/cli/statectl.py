@@ -18,6 +18,7 @@ CLI:
     python3 statectl.py <state-path> task-set-meta <task-id> <meta-json-file>
     python3 statectl.py <state-path> task-set-status <task-id> <status>
     python3 statectl.py <state-path> tasks-clear
+    python3 statectl.py <state-path> complete-prd <prd-filename>
 
 `get` prints the JSON value at <json-path> to stdout. Every other verb mutates
 the file under an exclusive advisory lock, preserving every sibling field,
@@ -341,6 +342,38 @@ def do_tasks_clear(data: Any) -> None:
     data.update({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
 
 
+def do_complete_prd(data: Any, prd_filename: str) -> None:
+    """Append the closing PRD's summary to `batch.completed_prds` and reset
+    `batch.parks_consecutive` to 0 - atomically, in the same write.
+
+    `autonomous_decisions` is the length of that array; `escalated_decisions`
+    counts `deferred_decisions` entries whose `status` is anything OTHER than
+    `"pending"` or `"deferred"` - the exclusion rule mirrors
+    `render_report._is_pending`'s own definition exactly, so the write side
+    and the render side agree on what "escalated" means. Both source arrays
+    may be absent, counting as 0.
+    """
+    autonomous = data.get("autonomous_decisions") or []
+    deferred = data.get("deferred_decisions") or []
+    escalated = sum(
+        1
+        for entry in deferred
+        if isinstance(entry, dict)
+        and entry.get("status", "pending") not in ("pending", "deferred")
+    )
+    summary = {
+        "filename": prd_filename,
+        "cycles": data["cycle"],
+        "autonomous_decisions": len(autonomous),
+        "escalated_decisions": escalated,
+        "tasks_completed": data["tasks_completed"],
+        "tasks_total": data["tasks_total"],
+    }
+    batch = data.setdefault("batch", {})
+    batch.setdefault("completed_prds", []).append(summary)
+    batch["parks_consecutive"] = 0
+
+
 def mutate(state_path: Path, apply: Callable[[Any], Any]) -> Any:
     """Read-modify-write `state_path` through the validated boundary.
 
@@ -389,7 +422,8 @@ USAGE = (
     "       statectl.py <state-path> task-set-meta <task-id> <meta-json-file>\n"
     "       statectl.py <state-path> task-set-status <task-id> "
     "pending|in_progress|completed\n"
-    "       statectl.py <state-path> tasks-clear"
+    "       statectl.py <state-path> tasks-clear\n"
+    "       statectl.py <state-path> complete-prd <prd-filename>"
 )
 
 _PATH_VERBS = ("get", "set", "append", "del")
@@ -403,6 +437,7 @@ _TASK_VERBS = (
     "task-set-meta",
     "task-set-status",
     "tasks-clear",
+    "complete-prd",
 )
 
 
@@ -497,6 +532,9 @@ def _build_task_id_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any]
 
     if verb == "task-start":
         return lambda data: do_task_start(data, arg)
+
+    if verb == "complete-prd":
+        return lambda data: do_complete_prd(data, arg)
 
     if verb == "append-attempt":
         if not rest:

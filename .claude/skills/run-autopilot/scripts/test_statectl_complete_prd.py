@@ -81,6 +81,32 @@ class StatectlCompletePrdTest(unittest.TestCase):
         )
         self.assertEqual(state["batch"]["parks_consecutive"], 0)
 
+    # Regression: escalated_decisions is an EXCLUSION rule (anything other than
+    # pending/deferred counts), not an allowlist of the single word "resolved" -
+    # mirrors render_report._is_pending's own definition. A status word Alice or
+    # Bob might realistically stamp (e.g. "escalated") must count too.
+    def test_complete_prd_counts_any_non_pending_non_deferred_status_as_escalated(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "deferred_decisions": [
+                    {"status": "escalated"},
+                    {"status": "pending"},
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["escalated_decisions"], 1)
+
     # Test case 2: preserves sibling fields --------------------------------------
 
     def test_complete_prd_preserves_other_sibling_fields(self) -> None:
