@@ -39,6 +39,14 @@ def _rows() -> list[dict]:
     return render_metrics.load_rows(GOLDEN / "metrics-render.jsonl")
 
 
+def _batch_state() -> dict:
+    """The reconstructed real batch 202608162223: the batch that exposed
+    all five original render_report.py defects."""
+    return json.loads(
+        (GOLDEN / "state-batch-202608162223.json").read_text(encoding="utf-8"),
+    )
+
+
 class GoldenRenderTests(unittest.TestCase):
     """Each render matches its golden built from the real-shaped fixture."""
 
@@ -170,6 +178,166 @@ class ReportEdgeTests(unittest.TestCase):
         self.assertIn("## 00040-x.md — STALLED (oversized_plan)", text)
         self.assertIn("- Detail: 34 tasks", text)
         self.assertIn("move back to dev/local/prds/wip/", text)
+
+
+class PrdSectionTaskCountTests(unittest.TestCase):
+    """Task counts come from the closing batch record or
+    len(state['tasks']), never the stale state-root fields the batch
+    drain wipes to 0 (R1, R2)."""
+
+    def test_reads_counts_from_the_matching_completed_prds_record(self) -> None:
+        state = _state()
+        state["tasks_completed"] = 999  # stale root field: must be ignored
+        state["tasks_total"] = 999
+        state["tasks"] = []
+        state["batch"]["completed_prds"] = [
+            {
+                "filename": state["prd"],
+                "cycles": 2,
+                "tasks_completed": 5,
+                "tasks_total": 6,
+            },
+        ]
+        text = render_report.prd_section(state, [], NOW)
+        self.assertIn("- Tasks: 5/6", text)
+        self.assertNotIn("- Tasks: 999/999", text)
+
+    def test_falls_back_to_state_tasks_when_no_batch_record_matches(self) -> None:
+        state = _state()
+        state["tasks_completed"] = 999
+        state["tasks_total"] = 999
+        state["batch"]["completed_prds"] = []
+        state["tasks"] = [
+            {"status": "completed"},
+            {"status": "completed"},
+            {"status": "in_progress"},
+        ]
+        text = render_report.prd_section(state, [], NOW)
+        self.assertIn("- Tasks: 2/3", text)
+        self.assertNotIn("- Tasks: 999/999", text)
+
+    def test_skips_bare_string_completed_prds_entries(self) -> None:
+        state = _state()
+        state["batch"]["completed_prds"] = [state["prd"]]  # bare string, no counts
+        state["tasks"] = [{"status": "completed"}]
+        text = render_report.prd_section(state, [], NOW)
+        self.assertIn("- Tasks: 1/1", text)
+
+    def test_renders_question_marks_when_no_task_data_is_available(self) -> None:
+        state = _state()
+        state["tasks_completed"] = 0
+        state["tasks_total"] = 0
+        state["batch"]["completed_prds"] = []
+        state["tasks"] = []
+        text = render_report.prd_section(state, [], NOW)
+        self.assertIn("- Tasks: ?/?", text)
+        self.assertNotIn("- Tasks: 0/0", text)
+
+
+class AutonomousBlankRowTests(unittest.TestCase):
+    """_autonomous drops rows where every cell is empty instead of
+    rendering a blank record (R2)."""
+
+    def test_drops_the_fully_blank_row_but_keeps_populated_ones(self) -> None:
+        decisions = [
+            {
+                "cycle": 1,
+                "issue": "Missing null check",
+                "severity": "medium",
+                "action": "auto-fix",
+                "reason": "mechanical fix",
+            },
+            {},
+            {
+                "cycle": 2,
+                "issue": "New dependency needed",
+                "severity": "high",
+                "action": "auto-fix",
+                "reason": "research-passed",
+            },
+        ]
+        lines = render_report._autonomous(decisions)
+        text = "\n".join(lines)
+        self.assertIn(
+            "| 1 | Missing null check | medium | auto-fix | mechanical fix |",
+            text,
+        )
+        self.assertIn(
+            "| 2 | New dependency needed | high | auto-fix | research-passed |",
+            text,
+        )
+        self.assertNotIn("|  |  |  |  |  |", text)
+        # heading, blank, table header, separator, 2 data rows, trailing blank
+        self.assertEqual(len(lines), 7)
+
+    def test_omits_the_section_when_every_row_is_blank(self) -> None:
+        self.assertEqual(render_report._autonomous([{}]), [])
+
+    def test_partially_populated_rows_survive_the_blank_filter(self) -> None:
+        # A clarification-shaped decision (question/resolution, no
+        # severity/action) is not "blank" - only rows where every one of
+        # the 5 cells is empty get dropped.
+        decisions = [
+            {
+                "cycle": 1,
+                "question": "Which tree gets the phases?",
+                "resolution": "Operator chose the plugin tree.",
+            },
+        ]
+        text = "\n".join(render_report._autonomous(decisions))
+        self.assertIn(
+            "| 1 | Which tree gets the phases? |  |  | "
+            "Operator chose the plugin tree. |",
+            text,
+        )
+
+
+class DeferredToBatchEndDispositionTests(unittest.TestCase):
+    """_deferred_to_batch_end reads `disposition`, falling back to
+    `reason` (R2)."""
+
+    def test_renders_disposition_when_reason_is_absent(self) -> None:
+        deferred = [
+            {
+                "issue": "API signature change needed",
+                "severity": "high",
+                "disposition": "revisit after v2 ships",
+            },
+        ]
+        text = "\n".join(render_report._deferred_to_batch_end(deferred))
+        self.assertIn(
+            "| API signature change needed | high | revisit after v2 ships |",
+            text,
+        )
+
+    def test_disposition_wins_over_reason_when_both_present(self) -> None:
+        deferred = [
+            {
+                "issue": "Rename the config key",
+                "severity": "medium",
+                "reason": "user-visible rename",
+                "disposition": "batch-end: needs a follow-up PRD",
+            },
+        ]
+        text = "\n".join(render_report._deferred_to_batch_end(deferred))
+        self.assertIn(
+            "| Rename the config key | medium | batch-end: needs a follow-up PRD |",
+            text,
+        )
+        self.assertNotIn("user-visible rename", text)
+
+    def test_still_renders_plain_reason_when_no_disposition(self) -> None:
+        # Regression: entries using only the pre-existing `reason` field
+        # (no `disposition`) must keep rendering exactly as before.
+        deferred = [
+            {
+                "issue": "Legacy entry",
+                "severity": "low",
+                "reason": "pre-migration shape",
+            },
+        ]
+        text = "\n".join(render_report._deferred_to_batch_end(deferred))
+        self.assertIn("| Legacy entry | low | pre-migration shape |", text)
 
 
 class AuditEdgeTests(unittest.TestCase):
@@ -338,6 +506,127 @@ class CliWiringTests(unittest.TestCase):
         self.assertIn("not a dev/local/autopilot dir", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
         self.assertEqual(planted, [])
+
+
+class HeaderStartedTests(unittest.TestCase):
+    """The report header's Started: line is the batch's real start -
+    the first metrics row's ts_start for this batch, or batch.id's
+    yyyymmddHHMM stamp when no metrics rows exist yet - never the
+    file-write --now (R4)."""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = Path(tmp.name)
+        self.ap_dir = self.repo / "dev" / "local" / "autopilot"
+        self.ap_dir.mkdir(parents=True)
+        self.state_path = self.ap_dir / "state.json"
+
+    def _run(self, args: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(CLI_MAIN), *args, "--state", str(self.state_path)],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_started_derives_from_the_first_metrics_row_for_this_batch(self) -> None:
+        state = _state()
+        state["batch"]["id"] = "202311142213"
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+        (self.ap_dir / "loop-metrics.jsonl").write_text(
+            json.dumps(
+                {
+                    "ts_start": 1700000000,
+                    "ts_end": 1700000900,
+                    "wall_secs": 900,
+                    "prd": state["prd"],
+                    "batch": "202311142213",
+                    "phase_launched": "",
+                    "phase_end": "review",
+                    "signal": "continue",
+                    "model": "claude-opus-5[1m]",
+                    "cost_usd": 1.0,
+                    "tokens_out": 100,
+                },
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        proc = self._run(["render", "report", "--now", NOW])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        report = self.ap_dir / "reports" / "202311142213-report.md"
+        text = report.read_text(encoding="utf-8")
+        self.assertIn("Started: 2023-11-14T22:13:20Z", text)
+        self.assertNotIn(f"Started: {NOW}", text)
+
+    def test_started_falls_back_to_batch_id_when_no_metrics_rows_exist(self) -> None:
+        state = _state()
+        state["batch"]["id"] = "202301020304"
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+        (self.ap_dir / "loop-metrics.jsonl").write_text("", encoding="utf-8")
+        proc = self._run(["render", "report", "--now", NOW])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        report = self.ap_dir / "reports" / "202301020304-report.md"
+        text = report.read_text(encoding="utf-8")
+        self.assertIn("Started: 2023-01-02T03:04:00Z", text)
+        self.assertNotIn(f"Started: {NOW}", text)
+
+
+class Batch202608162223ReconstructionTests(unittest.TestCase):
+    """Rendering the reconstructed archived 202608162223 state (the batch
+    that exposed all five original render_report.py defects) produces
+    the real historical numbers instead of zeros/blanks."""
+
+    def test_cycles_and_tasks_come_from_the_batch_record_not_the_wiped_root(
+        self,
+    ) -> None:
+        state = _batch_state()
+        self.assertEqual(state["tasks"], [])
+        self.assertEqual(state["tasks_completed"], 0)
+        self.assertEqual(state["tasks_total"], 0)
+
+        section = render_report.prd_section(state, [], NOW)
+        self.assertIn("- Tasks: 7/7", section)
+        self.assertNotIn("- Tasks: 0/0", section)
+
+        summary = render_report.batch_summary(state, [], len(state["deferred_decisions"]))
+        self.assertIn("- Total cycles: 2", summary)
+
+    def test_the_blank_autonomous_decision_row_is_dropped(self) -> None:
+        state = _batch_state()
+        self.assertEqual(len(state["autonomous_decisions"]), 7)
+        section = render_report.prd_section(state, [], NOW)
+        self.assertNotIn("|  |  |  |  |  |", section)
+        # 7 raw decisions minus the 1 genuinely-blank entry = 6 rendered rows.
+        rows = render_report._autonomous(state["autonomous_decisions"])
+        table_rows = [
+            ln for ln in rows if ln.startswith("| ") and not ln.startswith("| Cycle")
+        ]
+        self.assertEqual(len(table_rows), 6)
+
+    def test_deferred_to_batch_end_reason_cells_are_populated_from_disposition(
+        self,
+    ) -> None:
+        state = _batch_state()
+        self.assertEqual(len(state["deferred_decisions"]), 5)
+        self.assertTrue(all("status" not in d for d in state["deferred_decisions"]))
+        text = "\n".join(render_report._deferred_to_batch_end(state["deferred_decisions"]))
+        for entry in state["deferred_decisions"]:
+            self.assertIn(
+                f"| {entry['issue']} | {entry['severity']} | {entry['disposition']} |",
+                text,
+            )
+
+    def test_escalated_decisions_section_is_omitted(self) -> None:
+        # All 5 deferred entries lack a `status` key, so `_is_pending`
+        # defaults them to pending - none are escalated.
+        state = _batch_state()
+        section = render_report.prd_section(state, [], NOW)
+        self.assertNotIn("### Escalated Decisions", section)
+        summary = render_report.batch_summary(state, [], len(state["deferred_decisions"]))
+        self.assertIn("- Escalated decisions: 0", summary)
 
 
 if __name__ == "__main__":
