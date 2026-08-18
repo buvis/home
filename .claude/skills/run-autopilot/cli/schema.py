@@ -15,6 +15,7 @@ without failing whole-state validation on it.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 SCHEMA_VERSION = 1
@@ -101,11 +102,24 @@ def _validate_task_entries(tasks: list) -> None:
 def _validate_completed_prds_entries(entries: list) -> None:
     """Validate each `batch.completed_prds[]` entry.
 
-    A bare string is a legacy entry, tolerated as-is. A dict entry is checked
-    field-by-field, each field optional. Anything else is rejected.
+    A bare string is a legacy entry: `render_report.batch_summary`,
+    `cli/status.py` and `scripts/tracon/model.py` all still count this list
+    with a plain `len()`, and every archived batch state holds bare strings,
+    so rejecting them would break three live readers and fail every archived
+    state on its next write. PRD 00122 offered a choice between migrating
+    legacy entries and tolerating them with a warning; the cycle-1 decision
+    gate took the latter - the entry stays valid, but a warning still reaches
+    the operator (never stdout, which carries machine-read output) so the
+    tolerance isn't silent. A dict entry is checked field-by-field, each
+    field optional. Anything else is rejected.
     """
     for index, entry in enumerate(entries):
         if isinstance(entry, str):
+            warnings.warn(
+                f"batch.completed_prds[{index}]: legacy bare-string entry "
+                f"{_bounded_repr(entry)}",
+                stacklevel=2,
+            )
             continue
         if not isinstance(entry, dict):
             raise SchemaError(

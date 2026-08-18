@@ -50,8 +50,11 @@ def _capture_validate_warning(state: dict) -> tuple[str, str]:
     stderr_buf = io.StringIO()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(
-            stderr_buf,
+        with (
+            contextlib.redirect_stdout(stdout_buf),
+            contextlib.redirect_stderr(
+                stderr_buf,
+            ),
         ):
             schema.validate(state)
     warning_text = "\n".join(str(w.message) for w in caught)
