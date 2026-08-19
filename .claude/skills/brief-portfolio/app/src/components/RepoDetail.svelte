@@ -161,7 +161,7 @@
           <li>
             <a href="{url}/issues/{i.number}" target="_blank" rel="noreferrer">#{i.number} {i.title}</a>
             <span class="cdate">{daysAgo(i.created)}d</span>
-            {#each i.labels as lb (lb)}<span class="lbl">{lb}</span>{/each}
+            {#each i.labels as lb, li (li)}<span class="lbl">{lb}</span>{/each}
           </li>
         {/each}
       </ul>
