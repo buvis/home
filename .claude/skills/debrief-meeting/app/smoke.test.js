@@ -194,6 +194,60 @@ test('mounts cleanly when extract_ran is explicitly false', () => {
   assert.ok(doc.querySelector('h1'), 'page did not mount')
 })
 
+// The two tests above only prove the plumbing doesn't crash. These are the
+// discriminating, UI-observable assertions: when extraction never ran, the
+// tiles and empty states must say so instead of showing a false zero.
+test('brief tiles show em dashes and a not-run note when extraction did not run', () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = false
+  payload.extract = {}
+  const { doc } = render(payload)
+  const tiles = [...doc.querySelectorAll('.tile')].map((t) => t.textContent.replace(/\s+/g, ''))
+  assert.ok(tiles.includes('—decisions'), `tiles were: ${tiles.join(' | ')}`)
+  assert.ok(tiles.includes('—actions'), `tiles were: ${tiles.join(' | ')}`)
+  assert.ok(tiles.includes('—openquestions'), `tiles were: ${tiles.join(' | ')}`)
+  assert.equal(
+    doc.querySelector('main .muted').textContent.trim(),
+    "The extraction step hasn't run — decisions, actions, and open questions above are not counted.",
+  )
+})
+
+test('decisions tab shows the not-run message when extraction did not run', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = false
+  payload.extract = {}
+  const { doc, openTab } = render(payload)
+  await openTab('Decisions')
+  assert.equal(
+    doc.querySelector('main .empty').textContent.trim(),
+    "The extraction step hasn't run — no decisions to show yet.",
+  )
+})
+
+test('actions tab shows the not-run message when extraction did not run', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = false
+  payload.extract = {}
+  const { doc, openTab } = render(payload)
+  await openTab('Actions')
+  assert.equal(
+    doc.querySelector('main .empty').textContent.trim(),
+    "The extraction step hasn't run — no actions to show yet.",
+  )
+})
+
+test('decisions tab still reports none extracted when extraction ran but found nothing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = true
+  payload.extract.decisions = []
+  const { doc, openTab } = render(payload)
+  await openTab('Decisions')
+  assert.equal(
+    doc.querySelector('main .empty').textContent.trim(),
+    'No decisions were extracted from this meeting.',
+  )
+})
+
 // Regression: {#each} blocks keyed by a list item's own value (instead of a
 // stable id or index) throw `each_key_duplicate` when two items share that
 // value — on the default tab this blanks the whole page at mount (zero body
