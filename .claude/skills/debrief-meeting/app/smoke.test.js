@@ -52,6 +52,7 @@ const PAYLOAD = {
     dynamics: ['Anna chaired.'],
     email: 'Subject: outcomes',
   },
+  extract_ran: true,
 }
 
 function render(payload = PAYLOAD, { storage } = {}) {
@@ -171,6 +172,20 @@ test('an action with no id stays ticked by its own text, not its position in the
   const checkbox = row.querySelector('input[type=checkbox]')
   assert.ok(checkbox, 'missing the row checkbox')
   assert.equal(checkbox.checked, true, 'a ticked action with no id should stay checked after rebuild')
+})
+
+test('mounts cleanly when extract_ran is absent from the payload', () => {
+  const payload = structuredClone(PAYLOAD)
+  delete payload.extract_ran
+  const { doc } = render(payload)
+  assert.ok(doc.querySelector('h1'), 'page did not mount')
+})
+
+test('mounts cleanly when extract_ran is explicitly false', () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = false
+  const { doc } = render(payload)
+  assert.ok(doc.querySelector('h1'), 'page did not mount')
 })
 
 // Regression: {#each} blocks keyed by a list item's own value (instead of a
