@@ -54,10 +54,10 @@ const PAYLOAD = {
   },
 }
 
-function render() {
+function render(payload = PAYLOAD) {
   const page = readFileSync(TEMPLATE, 'utf8').replace(
     '__MEETING_PAYLOAD__',
-    JSON.stringify(PAYLOAD).replace(/<\//g, '<\\/'),
+    JSON.stringify(payload).replace(/<\//g, '<\\/'),
   )
   // jsdom does not run type="module", and running the bundle inline would fire
   // before #app exists. Lift it out and eval it once the document is built —
@@ -149,4 +149,99 @@ test('builds an ADR from a decision on demand', async () => {
   const adr = doc.querySelector('main pre').textContent
   assert.match(adr, /# ADR: Use Postgres/)
   assert.match(adr, /\*\*SQL Server\*\* — not chosen: cost/)
+})
+
+// Regression: {#each} blocks keyed by a list item's own value (instead of a
+// stable id or index) throw `each_key_duplicate` when two items share that
+// value — on the default tab this blanks the whole page at mount (zero body
+// characters); on other tabs it silently breaks the tab switch. Either way,
+// duplicate-valued items should render twice, not crash.
+
+test('renders duplicate tldr bullets on the brief instead of crashing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract.tldr = ['Duplicate insight bullet.', 'Duplicate insight bullet.']
+  const { doc, openTab } = render(payload)
+  await openTab('Brief')
+  const main = doc.querySelector('main').textContent
+  assert.ok(main.length > 0, 'main was empty')
+  const count = main.split('Duplicate insight bullet.').length - 1
+  assert.equal(count, 2, `expected the duplicate bullet to render twice, main was: ${main}`)
+})
+
+test('renders duplicate agenda titles on the brief instead of crashing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract.agenda = [
+    { title: 'Duplicate Agenda Item', planned: true, t: 2, end: 60, coverage: 'full' },
+    { title: 'Duplicate Agenda Item', planned: false, t: 61, end: 120, coverage: 'partial' },
+  ]
+  const { doc, openTab } = render(payload)
+  await openTab('Brief')
+  const main = doc.querySelector('main').textContent
+  assert.ok(main.length > 0, 'main was empty')
+  const count = main.split('Duplicate Agenda Item').length - 1
+  assert.equal(count, 2, `expected the duplicate agenda title to render twice, main was: ${main}`)
+})
+
+test('renders duplicate risks on the insights tab instead of crashing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract.risks = [
+    { risk: 'Duplicate risk text.', raised_by: 'Tomas Bouska', t: 12, severity: 'high',
+      addressed: false },
+    { risk: 'Duplicate risk text.', raised_by: 'Anna Novak', t: 40, severity: 'medium',
+      addressed: true },
+  ]
+  const { doc, openTab } = render(payload)
+  await openTab('Insights')
+  const main = doc.querySelector('main').textContent
+  assert.ok(main.length > 0, 'main was empty')
+  const count = main.split('Duplicate risk text.').length - 1
+  assert.equal(count, 2, `expected the duplicate risk to render twice, main was: ${main}`)
+})
+
+test('renders duplicate quality notes on the insights tab instead of crashing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract.quality = {
+    on_topic_ratio: 0.95,
+    notes: ['Duplicate quality note.', 'Duplicate quality note.'],
+  }
+  const { doc, openTab } = render(payload)
+  await openTab('Insights')
+  const main = doc.querySelector('main').textContent
+  assert.ok(main.length > 0, 'main was empty')
+  const count = main.split('Duplicate quality note.').length - 1
+  assert.equal(count, 2, `expected the duplicate quality note to render twice, main was: ${main}`)
+})
+
+test('renders a decision sharing a title with no id instead of crashing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract.decisions = [
+    {
+      title: 'Use Postgres',
+      t: 52.5,
+      status: 'made',
+      decision: 'Migrate to Postgres.',
+      decider: 'Anna Novak',
+      context: 'Licensing.',
+      alternatives: [{ option: 'SQL Server', why_not: 'cost' }],
+      consequences: ['ops tuning'],
+      confidence: 'high',
+    },
+    {
+      title: 'Use Postgres',
+      t: 90,
+      status: 'made',
+      decision: 'Second duplicate decision entry.',
+      decider: 'Tomas Bouska',
+      context: 'Duplicate context.',
+      alternatives: [],
+      consequences: [],
+      confidence: 'medium',
+    },
+  ]
+  const { doc, openTab } = render(payload)
+  await openTab('Decisions')
+  const main = doc.querySelector('main').textContent
+  assert.ok(main.length > 0, 'main was empty')
+  const count = main.split('Use Postgres').length - 1
+  assert.equal(count, 2, `expected the duplicate decision title to render twice, main was: ${main}`)
 })
