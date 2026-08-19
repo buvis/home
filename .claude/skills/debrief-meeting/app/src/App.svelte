@@ -12,6 +12,7 @@
   const payload = loadPayload()
   const transcript = payload?.transcript
   const extract = payload?.extract ?? {}
+  const extractRan = payload?.extract_ran ?? true
   const meta = extract.meta ?? {}
   const speakers = speakerIndex(transcript?.speakers ?? [])
 
@@ -21,6 +22,7 @@
   setContext('meeting', {
     transcript,
     extract,
+    extractRan,
     meta,
     speakers,
     view,
