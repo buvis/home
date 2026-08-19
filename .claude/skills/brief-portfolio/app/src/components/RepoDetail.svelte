@@ -85,7 +85,7 @@
 
   <section>
     <h3><Icon name="commit" size={12} /> What happened · {(repo.commits ?? []).length} commits</h3>
-    {#each grouped.epics as e (e.title)}
+    {#each grouped.epics as e, i (i)}
       <details open={grouped.epics.length <= 3}>
         <summary>
           <b>{e.title}</b> · {e.commits.length} commits
@@ -189,7 +189,7 @@
       {#if repo.prds.wip.length}
         <p class="meta">wip:</p>
         <ul>
-          {#each wipItems(repo.prds) as w (w.title)}
+          {#each wipItems(repo.prds) as w, i (i)}
             <li class="sev-serious">
               {w.title}{#if w.idle_days >= 7}<span class="cdate">idle {w.idle_days}d</span>{/if}
             </li>
@@ -198,7 +198,7 @@
       {/if}
       {#if repo.prds.backlog.length}
         <p class="meta">backlog:</p>
-        <ul>{#each repo.prds.backlog as t (t)}<li>{t}</li>{/each}</ul>
+        <ul>{#each repo.prds.backlog as t, i (i)}<li>{t}</li>{/each}</ul>
       {/if}
       <p class="meta">{repo.prds.done_count} done</p>
     </section>
