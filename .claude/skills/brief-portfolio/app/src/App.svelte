@@ -101,7 +101,7 @@
           <button class="chip" class:active={org === 'all'} onclick={() => ((org = 'all'), (filterOpen = false))}>
             all orgs
           </button>
-          {#each orgs as o (o)}
+          {#each orgs as o, i (i)}
             <button class="chip" class:active={org === o} onclick={() => ((org = o), (filterOpen = false))}>
               <span class="dot" style="background: var(--cat{slots.get(o)})"></span>{o}
             </button>
