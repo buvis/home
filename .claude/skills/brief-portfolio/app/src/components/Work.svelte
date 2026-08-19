@@ -122,7 +122,7 @@
                 #{i.number} {i.title}
               </a>
             </td>
-            <td>{#each i.labels as l (l)}<span class="lbl">{l}</span>{/each}</td>
+            <td>{#each i.labels as l, li (li)}<span class="lbl">{l}</span>{/each}</td>
             <td class="num">{i.comments || ''}</td>
           </tr>
         {/each}
