@@ -61,8 +61,11 @@
           </tr>
         </thead>
         <tbody>
+          <!-- Two identities on purpose: the each-key only has to be unique inside the
+               list being rendered, but `id` is the localStorage key, so it has to stay
+               stable across rebuilds of the same meeting. Don't collapse them. -->
           {#each shown as action, i (action.id ?? i)}
-            {@const id = action.id ?? `a${actions.indexOf(action)}`}
+            {@const id = action.id ?? action.action}
             <tr>
               <td>
                 <input
