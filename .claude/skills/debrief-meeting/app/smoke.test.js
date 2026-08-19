@@ -54,7 +54,7 @@ const PAYLOAD = {
   },
 }
 
-function render(payload = PAYLOAD) {
+function render(payload = PAYLOAD, { storage } = {}) {
   const page = readFileSync(TEMPLATE, 'utf8').replace(
     '__MEETING_PAYLOAD__',
     JSON.stringify(payload).replace(/<\//g, '<\\/'),
@@ -67,8 +67,15 @@ function render(payload = PAYLOAD) {
   const dom = new JSDOM(page.replace(tag, ''), {
     runScripts: 'dangerously',
     pretendToBeVisual: true,
+    // jsdom treats the default about:blank as an opaque origin, where
+    // localStorage throws instead of working — give it a real origin so the
+    // app's own localStorage use behaves as it would in a browser.
+    url: 'https://example.org/',
     virtualConsole: new VirtualConsole().on('jsdomError', (e) => errors.push(e)),
   })
+  for (const [key, value] of Object.entries(storage ?? {})) {
+    dom.window.localStorage.setItem(key, value)
+  }
   dom.window.eval(bundle)
   assert.deepEqual(errors.map((e) => e.message), [], 'the page threw while mounting')
   const doc = dom.window.document
@@ -151,97 +158,226 @@ test('builds an ADR from a decision on demand', async () => {
   assert.match(adr, /\*\*SQL Server\*\* — not chosen: cost/)
 })
 
+test('an action with no id stays ticked by its own text, not its position in the list', async () => {
+  const payload = structuredClone(PAYLOAD)
+  const text = 'Draft the migration runbook'
+  payload.extract.actions = [{ action: text, assignee: 'Anna Novak', due: '2026-08-20', t: 30 }]
+  const { doc, openTab } = render(payload, {
+    storage: { 'debrief-done:Store migration sync': JSON.stringify([text]) },
+  })
+  await openTab('Actions')
+  const row = [...doc.querySelectorAll('main tbody tr')].find((tr) => tr.textContent.includes(text))
+  assert.ok(row, 'missing the row for the seeded action')
+  const checkbox = row.querySelector('input[type=checkbox]')
+  assert.ok(checkbox, 'missing the row checkbox')
+  assert.equal(checkbox.checked, true, 'a ticked action with no id should stay checked after rebuild')
+})
+
 // Regression: {#each} blocks keyed by a list item's own value (instead of a
 // stable id or index) throw `each_key_duplicate` when two items share that
 // value — on the default tab this blanks the whole page at mount (zero body
 // characters); on other tabs it silently breaks the tab switch. Either way,
 // duplicate-valued items should render twice, not crash.
 
-test('renders duplicate tldr bullets on the brief instead of crashing', async () => {
-  const payload = structuredClone(PAYLOAD)
-  payload.extract.tldr = ['Duplicate insight bullet.', 'Duplicate insight bullet.']
-  const { doc, openTab } = render(payload)
-  await openTab('Brief')
-  const main = doc.querySelector('main').textContent
-  assert.ok(main.length > 0, 'main was empty')
-  const count = main.split('Duplicate insight bullet.').length - 1
-  assert.equal(count, 2, `expected the duplicate bullet to render twice, main was: ${main}`)
-})
-
-test('renders duplicate agenda titles on the brief instead of crashing', async () => {
-  const payload = structuredClone(PAYLOAD)
-  payload.extract.agenda = [
-    { title: 'Duplicate Agenda Item', planned: true, t: 2, end: 60, coverage: 'full' },
-    { title: 'Duplicate Agenda Item', planned: false, t: 61, end: 120, coverage: 'partial' },
-  ]
-  const { doc, openTab } = render(payload)
-  await openTab('Brief')
-  const main = doc.querySelector('main').textContent
-  assert.ok(main.length > 0, 'main was empty')
-  const count = main.split('Duplicate Agenda Item').length - 1
-  assert.equal(count, 2, `expected the duplicate agenda title to render twice, main was: ${main}`)
-})
-
-test('renders duplicate risks on the insights tab instead of crashing', async () => {
-  const payload = structuredClone(PAYLOAD)
-  payload.extract.risks = [
-    { risk: 'Duplicate risk text.', raised_by: 'Tomas Bouska', t: 12, severity: 'high',
-      addressed: false },
-    { risk: 'Duplicate risk text.', raised_by: 'Anna Novak', t: 40, severity: 'medium',
-      addressed: true },
-  ]
-  const { doc, openTab } = render(payload)
-  await openTab('Insights')
-  const main = doc.querySelector('main').textContent
-  assert.ok(main.length > 0, 'main was empty')
-  const count = main.split('Duplicate risk text.').length - 1
-  assert.equal(count, 2, `expected the duplicate risk to render twice, main was: ${main}`)
-})
-
-test('renders duplicate quality notes on the insights tab instead of crashing', async () => {
-  const payload = structuredClone(PAYLOAD)
-  payload.extract.quality = {
-    on_topic_ratio: 0.95,
-    notes: ['Duplicate quality note.', 'Duplicate quality note.'],
-  }
-  const { doc, openTab } = render(payload)
-  await openTab('Insights')
-  const main = doc.querySelector('main').textContent
-  assert.ok(main.length > 0, 'main was empty')
-  const count = main.split('Duplicate quality note.').length - 1
-  assert.equal(count, 2, `expected the duplicate quality note to render twice, main was: ${main}`)
-})
-
-test('renders a decision sharing a title with no id instead of crashing', async () => {
-  const payload = structuredClone(PAYLOAD)
-  payload.extract.decisions = [
-    {
-      title: 'Use Postgres',
-      t: 52.5,
-      status: 'made',
-      decision: 'Migrate to Postgres.',
-      decider: 'Anna Novak',
-      context: 'Licensing.',
-      alternatives: [{ option: 'SQL Server', why_not: 'cost' }],
-      consequences: ['ops tuning'],
-      confidence: 'high',
+// Each row clones PAYLOAD, mutates one field to hold a duplicate, opens the
+// tab that renders it, and counts how many times the duplicated string
+// appears in `main`. Counts vary: most fields render once per entry (2 dupes
+// -> 2), but a timeline topic's title renders in both the lane strip and the
+// "What was discussed" card, so two duplicate topics -> 4.
+const DUPLICATE_CASES = [
+  {
+    name: 'renders duplicate tldr bullets on the brief instead of crashing',
+    mutate: (payload) => {
+      payload.extract.tldr = ['Duplicate insight bullet.', 'Duplicate insight bullet.']
     },
-    {
-      title: 'Use Postgres',
-      t: 90,
-      status: 'made',
-      decision: 'Second duplicate decision entry.',
-      decider: 'Tomas Bouska',
-      context: 'Duplicate context.',
-      alternatives: [],
-      consequences: [],
-      confidence: 'medium',
+    tab: 'Brief',
+    text: 'Duplicate insight bullet.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate agenda titles on the brief instead of crashing',
+    mutate: (payload) => {
+      payload.extract.agenda = [
+        { title: 'Duplicate Agenda Item', planned: true, t: 2, end: 60, coverage: 'full' },
+        { title: 'Duplicate Agenda Item', planned: false, t: 61, end: 120, coverage: 'partial' },
+      ]
     },
-  ]
-  const { doc, openTab } = render(payload)
-  await openTab('Decisions')
-  const main = doc.querySelector('main').textContent
-  assert.ok(main.length > 0, 'main was empty')
-  const count = main.split('Use Postgres').length - 1
-  assert.equal(count, 2, `expected the duplicate decision title to render twice, main was: ${main}`)
-})
+    tab: 'Brief',
+    text: 'Duplicate Agenda Item',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate followups on the brief instead of crashing',
+    mutate: (payload) => {
+      payload.extract.followups = [
+        { what: 'Duplicate followup text.', when: 'next sync', who: 'Anna Novak' },
+        { what: 'Duplicate followup text.', when: 'next sync', who: 'Anna Novak' },
+      ]
+    },
+    tab: 'Brief',
+    text: 'Duplicate followup text.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate transcript warnings on the brief instead of crashing',
+    mutate: (payload) => {
+      payload.transcript.warnings = ['Duplicate transcript warning.', 'Duplicate transcript warning.']
+    },
+    tab: 'Brief',
+    text: 'Duplicate transcript warning.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate risks on the insights tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.risks = [
+        { risk: 'Duplicate risk text.', raised_by: 'Tomas Bouska', t: 12, severity: 'high',
+          addressed: false },
+        { risk: 'Duplicate risk text.', raised_by: 'Anna Novak', t: 40, severity: 'medium',
+          addressed: true },
+      ]
+    },
+    tab: 'Insights',
+    text: 'Duplicate risk text.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate quality notes on the insights tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.quality = {
+        on_topic_ratio: 0.95,
+        notes: ['Duplicate quality note.', 'Duplicate quality note.'],
+      }
+    },
+    tab: 'Insights',
+    text: 'Duplicate quality note.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate blockers on the insights tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.blockers = [
+        { what: 'Duplicate blocker text.', depends_on: 'Vendor SLA', t: 20 },
+        { what: 'Duplicate blocker text.', depends_on: 'Vendor SLA', t: 40 },
+      ]
+    },
+    tab: 'Insights',
+    text: 'Duplicate blocker text.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate assumptions on the insights tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.assumptions = [
+        { assumption: 'Duplicate assumption text.', validated: false, t: 10 },
+        { assumption: 'Duplicate assumption text.', validated: true, t: 20 },
+      ]
+    },
+    tab: 'Insights',
+    text: 'Duplicate assumption text.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate quotes on the insights tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.quotes = [
+        { text: 'Duplicate quoted text.', who: 'Anna Novak', t: 10 },
+        { text: 'Duplicate quoted text.', who: 'Tomas Bouska', t: 20 },
+      ]
+    },
+    tab: 'Insights',
+    text: 'Duplicate quoted text.',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate glossary terms on the insights tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.glossary = [
+        { term: 'DuplicateTerm', definition: 'First definition.', t: 10 },
+        { term: 'DuplicateTerm', definition: 'Second definition.', t: 20 },
+      ]
+    },
+    tab: 'Insights',
+    text: 'DuplicateTerm',
+    count: 2,
+  },
+  {
+    name: 'renders duplicate dynamics notes on the people tab instead of crashing',
+    mutate: (payload) => {
+      payload.extract.dynamics = ['Duplicate dynamics note.', 'Duplicate dynamics note.']
+    },
+    tab: 'People',
+    text: 'Duplicate dynamics note.',
+    count: 2,
+  },
+  {
+    name: 'renders a decision sharing a title with no id instead of crashing',
+    mutate: (payload) => {
+      payload.extract.decisions = [
+        {
+          title: 'Use Postgres',
+          t: 52.5,
+          status: 'made',
+          decision: 'Migrate to Postgres.',
+          decider: 'Anna Novak',
+          context: 'Licensing.',
+          alternatives: [{ option: 'SQL Server', why_not: 'cost' }],
+          consequences: ['ops tuning'],
+          confidence: 'high',
+        },
+        {
+          title: 'Use Postgres',
+          t: 90,
+          status: 'made',
+          decision: 'Second duplicate decision entry.',
+          decider: 'Tomas Bouska',
+          context: 'Duplicate context.',
+          alternatives: [],
+          consequences: [],
+          confidence: 'medium',
+        },
+      ]
+    },
+    tab: 'Decisions',
+    text: 'Use Postgres',
+    count: 2,
+  },
+  {
+    name: 'renders two topics sharing a title with no id instead of crashing',
+    mutate: (payload) => {
+      payload.extract.topics = [
+        { title: 'Duplicate Topic Title', t: 10, end: 20, summary: 'First summary.',
+          notes: ['note one'] },
+        { title: 'Duplicate Topic Title', t: 30, end: 40, summary: 'Second summary.',
+          notes: ['note two'] },
+      ]
+    },
+    tab: 'Timeline',
+    text: 'Duplicate Topic Title',
+    // the title renders once in the lane strip and once in the "What was
+    // discussed" card, per topic: 2 topics x 2 places = 4.
+    count: 4,
+  },
+  {
+    name: 'renders duplicate notes within a timeline topic instead of crashing',
+    mutate: (payload) => {
+      payload.extract.topics[0].notes = ['Duplicate topic note.', 'Duplicate topic note.']
+    },
+    tab: 'Timeline',
+    text: 'Duplicate topic note.',
+    count: 2,
+  },
+]
+
+for (const { name, mutate, tab, text, count } of DUPLICATE_CASES) {
+  test(name, async () => {
+    const payload = structuredClone(PAYLOAD)
+    mutate(payload)
+    const { doc, openTab } = render(payload)
+    await openTab(tab)
+    const main = doc.querySelector('main').textContent
+    assert.ok(main.length > 0, 'main was empty')
+    const found = main.split(text).length - 1
+    assert.equal(found, count, `expected "${text}" to render ${count} times, main was: ${main}`)
+  })
+}
