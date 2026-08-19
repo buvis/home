@@ -456,3 +456,64 @@ for (const { name, mutate, tab, text, count } of DUPLICATE_CASES) {
     assert.equal(found, count, `expected "${text}" to render ${count} times, main was: ${main}`)
   })
 }
+
+test('a zero-hit correction shows the not-found badge, distinct from an applied one', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.transcript.corrections = [
+    { from: 'Teh', to: 'The', applied: 0 },
+    { from: 'Novak, Anna', to: 'Anna Novak', applied: 2 },
+  ]
+  const { doc, openTab } = render(payload)
+  await openTab('Insights')
+
+  const section = [...doc.querySelectorAll('main section.sec')].find(
+    (s) => s.querySelector('h2')?.textContent.trim() === 'Cleanup applied',
+  )
+  assert.ok(section, 'missing the Cleanup applied section')
+  const items = [...section.querySelectorAll('ul > li')]
+  assert.equal(
+    items.length,
+    2,
+    `expected 2 correction rows, got: ${items.map((li) => li.textContent.trim())}`,
+  )
+
+  const notFound = items.find((li) => li.textContent.includes('not found'))
+  const applied = items.find((li) => li.textContent.includes('(2×)'))
+  assert.ok(notFound, `no correction row read "not found": ${items.map((li) => li.textContent.trim())}`)
+  assert.ok(applied, `no correction row read "(2×)": ${items.map((li) => li.textContent.trim())}`)
+  assert.notEqual(notFound.textContent.trim(), applied.textContent.trim())
+
+  const badge = notFound.querySelector('.lbl.sev-warning')
+  assert.ok(badge, 'the not-found row is missing the .lbl.sev-warning badge')
+  assert.equal(badge.textContent.trim(), 'not found')
+  assert.ok(
+    !/\(\d+×\)/.test(notFound.textContent),
+    `the not-found row should not show an applied count: ${notFound.textContent.trim()}`,
+  )
+})
+
+test('insights tab shows the not-run message when extraction never ran and there is nothing to show', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = false
+  payload.extract = {}
+  payload.transcript.corrections = []
+  const { doc, openTab } = render(payload)
+  await openTab('Insights')
+  assert.equal(
+    doc.querySelector('main .empty').textContent.trim(),
+    "The extraction step hasn't run — nothing to show yet.",
+  )
+})
+
+test('insights tab reports nothing to show when extraction ran but found nothing', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.extract_ran = true
+  payload.extract = {}
+  payload.transcript.corrections = []
+  const { doc, openTab } = render(payload)
+  await openTab('Insights')
+  assert.equal(
+    doc.querySelector('main .empty').textContent.trim(),
+    'Nothing to show for this meeting.',
+  )
+})
