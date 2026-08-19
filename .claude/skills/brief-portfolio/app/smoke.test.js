@@ -117,3 +117,31 @@ test('RepoDetail panel renders both duplicate backlog entries instead of crashin
     assert.equal(li.textContent.trim(), 'Ship pagination this week.')
   }
 })
+
+test('Work tab and RepoDetail panel render both instances of a duplicated issue label, not once', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].issues = [
+    { number: 7, title: 'Some issue', created: '2026-08-01', comments: 0, labels: ['bug', 'bug'] },
+  ]
+
+  const { doc, openTab, flush } = render(payload)
+
+  await openTab('Work')
+  assert.ok(doc.querySelector('main').textContent.trim().length > 0, 'Work tab is blank')
+  const workChips = [...doc.querySelectorAll('main span.lbl')].filter(
+    (n) => n.textContent.trim() === 'bug',
+  )
+  assert.equal(workChips.length, 2, `expected 2 "bug" chips on Work tab, got ${workChips.length}`)
+
+  await openTab('Repos')
+  const repoButton = doc.querySelector('button.card')
+  assert.ok(repoButton, 'missing repo card button')
+  repoButton.click()
+  await flush()
+  const panel = doc.querySelector('div.panel[role="dialog"]')
+  assert.ok(panel, 'missing repo detail panel')
+  const panelChips = [...panel.querySelectorAll('span.lbl')].filter(
+    (n) => n.textContent.trim() === 'bug',
+  )
+  assert.equal(panelChips.length, 2, `expected 2 "bug" chips in RepoDetail panel, got ${panelChips.length}`)
+})
