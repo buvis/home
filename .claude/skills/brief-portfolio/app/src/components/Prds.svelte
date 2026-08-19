@@ -41,7 +41,7 @@
           {#if p.wip.length}
             <h3>in progress</h3>
             <ul>
-              {#each wipItems(p) as w (w.title)}
+              {#each wipItems(p) as w, i (i)}
                 <li class="sev-serious">
                   {w.title}{#if w.idle_days >= 7}<span class="idle">idle {w.idle_days}d</span>{/if}
                 </li>
@@ -50,7 +50,7 @@
           {/if}
           {#if p.backlog.length}
             <h3>backlog</h3>
-            <ul>{#each p.backlog as t (t)}<li>{t}</li>{/each}</ul>
+            <ul>{#each p.backlog as t, i (i)}<li>{t}</li>{/each}</ul>
           {/if}
         </div>
       {/each}
