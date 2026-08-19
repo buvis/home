@@ -41,7 +41,7 @@
       {/each}
     </div>
 
-    {#each topics as topic, i (topic.id ?? topic.title)}
+    {#each topics as topic, i (topic.id ?? i)}
       <div class="lane">
         <div class="lane-name" title={topic.title}>{topic.title}</div>
         <div class="track">
@@ -94,7 +94,7 @@
   {#if topics.length}
     <section class="sec">
       <h2>What was discussed</h2>
-      {#each topics as topic, i (topic.id ?? topic.title)}
+      {#each topics as topic, i (topic.id ?? i)}
         <div class="card" style="border-left-color: {COLORS[i % COLORS.length]}">
           <div class="spread">
             <h3>{topic.title}</h3>
@@ -103,7 +103,7 @@
           {#if topic.summary}<p>{topic.summary}</p>{/if}
           {#if topic.notes?.length}
             <ul>
-              {#each topic.notes as note (note)}<li>{note}</li>{/each}
+              {#each topic.notes as note, ni (ni)}<li>{note}</li>{/each}
             </ul>
           {/if}
         </div>

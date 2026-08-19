@@ -40,7 +40,7 @@
     <h2>Actions <span class="muted">({done.size}/{actions.length} done)</span></h2>
 
     <div class="chips">
-      {#each owners as name (name)}
+      {#each owners as name, i (i)}
         <button class="chip" aria-pressed={owner === name} onclick={() => (owner = name)}>
           {name}
         </button>
@@ -61,7 +61,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each shown as action (action.id ?? action.action)}
+          {#each shown as action, i (action.id ?? i)}
             {@const id = action.id ?? action.action}
             <tr>
               <td>

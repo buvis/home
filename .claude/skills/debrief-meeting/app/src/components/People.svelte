@@ -107,7 +107,7 @@
   <section class="sec">
     <h2>Room dynamics</h2>
     <ul>
-      {#each extract.dynamics as note (note)}<li>{note}</li>{/each}
+      {#each extract.dynamics as note, i (i)}<li>{note}</li>{/each}
     </ul>
   </section>
 {/if}
