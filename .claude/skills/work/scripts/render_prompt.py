@@ -7,7 +7,8 @@ substitutes {PLACEHOLDER} tokens using values supplied via --set/--set-file/
 Exit codes: 0 success, 1 unfilled placeholder, 2 persona file unreadable,
 3 unterminated frontmatter, 4 --set-file unreadable or --set-cmd
 failed/timed out/produced no output, 5 --out parent directory missing,
-6 a --set/--set-file/--set-cmd argument is missing its '=' separator.
+6 a --set/--set-file/--set-cmd argument is missing its '=' separator,
+7 a --require-file/--require-parent path is relative or does not resolve.
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--set", action=_RecordAssignment, const="set")
     parser.add_argument("--set-file", action=_RecordAssignment, const="set_file")
     parser.add_argument("--set-cmd", action=_RecordAssignment, const="set_cmd")
+    parser.add_argument("--require-file", action="append", default=[])
+    parser.add_argument("--require-parent", action="append", default=[])
     return parser.parse_args(argv)
 
 
@@ -128,8 +131,36 @@ def _resolve_assignments(
     return values, 0
 
 
+def _check_required_paths(require_file: list[str], require_parent: list[str]) -> int:
+    """Return 0 when every dispatch-target path is absolute and resolves, 7 otherwise.
+
+    A subagent given an unanchored or dangling target path goes hunting for it
+    and can land outside the repo (Tess edited a synced vault copy, 2026-08-18).
+    """
+    for raw in require_file + require_parent:
+        if not Path(raw).is_absolute():
+            print(f"render_prompt: required path not absolute: {raw}", file=sys.stderr)
+            return 7
+    for raw in require_file:
+        if not Path(raw).is_file():
+            print(f"render_prompt: required file does not exist: {raw}", file=sys.stderr)
+            return 7
+    for raw in require_parent:
+        if not Path(raw).parent.is_dir():
+            print(
+                f"render_prompt: parent directory of required path does not exist: {raw}",
+                file=sys.stderr,
+            )
+            return 7
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    code = _check_required_paths(args.require_file, args.require_parent)
+    if code:
+        return code
 
     try:
         text = Path(args.persona).read_text(encoding="utf-8")

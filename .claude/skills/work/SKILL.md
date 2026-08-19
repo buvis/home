@@ -129,6 +129,8 @@ Every render call in this skill (Tess 2.7, Ivan 3 / 5.5 / 7, Pat 5.7) picks a fl
 
 The `--set-cmd` quoting rule is separate and still applies: any path interpolated into a `--set-cmd` value crosses into a nested shell (`subprocess.run(..., shell=True)`), so quote it with `printf '%q '` or `shlex.quote()` before composing the flag.
 
+**Dispatch-target preflight (mandatory).** Every file path written into dispatch prose (descriptions, contracts, `FILE_PATHS` lists) is spelled **absolute** — never repo-relative. And every target file the task touches is passed to the render as a flag: `--require-file /abs/path` for a file the subagent edits (must exist), `--require-parent /abs/path` for a file it creates (parent directory must exist). The render exits 7 when a path is relative or does not resolve — that is a **blocked dispatch**: never dispatch, never "fix" the path by guessing; treat it exactly like a failed `Premise:` check (step 2, interactive: stop and report; loop mode: the loop-mode stall path). Why: a subagent handed the unanchored path `debrief-meeting/app/smoke.test.js` went hunting for it, and `rg` sweeps can't see into dot-directories — the only visible match was a suffix-matching copy in the user's synced vault, which it edited and an external daemon pushed (2026-08-18, batch 202608180438).
+
 ## Attempt logging
 
 At every task exit — success in step 6, abort in step 4 (timeout / context exceeded / error after debug), or via the Subagent Dispatch Budget overrun path — append one entry to `state.tasks[i].attempts[]`. Each entry carries:
@@ -234,7 +236,7 @@ Dispatch a separate agent to write tests from requirements only. This agent must
 
 **Tess receives:**
 - Task description and acceptance criteria
-- The **exact file paths** the task touches and the **exact symbol names** to test, taken from the plan task — not "find the relevant file"
+- The **exact file paths** the task touches — spelled **absolute** — and the **exact symbol names** to test, taken from the plan task — not "find the relevant file"
 - Public interfaces/types relevant to the task
 - Existing test patterns (one sample test file from the project)
 - Test framework and conventions used
@@ -248,7 +250,9 @@ python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/skills/work/ref
   --set-file TASK_ACCEPTANCE_CRITERIA=dev/local/tmp/tess-<task-id>-acceptance.txt \
   --set-file SAMPLE_TEST_FILE=<one representative existing test file> \
   --set-cmd PUBLIC_INTERFACES="cat $(printf '%q ' <interface files>)" \
-  --set TEST_FRAMEWORK="<pytest/jest/vitest/etc>"
+  --set TEST_FRAMEWORK="<pytest/jest/vitest/etc>" \
+  --require-file <each absolute path to an existing file the task touches, one flag per path> \
+  --require-parent <each absolute path to a file the task creates, one flag per path>
 ```
 The stdout integer from this call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`. `tess-prompt.md` bakes in the read-only-scope instruction, the dispatch prologue, and the Assumptions footer permanently (mirroring `ivan.md`), so nothing further needs adding to the prompt by hand — open-ended discovery is where subagents burn turns and stall, and keeping Tess scoped to the listed files/symbols is the template's job now. Dispatch the Agent tool with the file at `dev/local/tmp/dispatch-tess-<task-id>.txt` as the prompt source.
 
@@ -348,9 +352,11 @@ python3 ~/.claude/skills/work/scripts/render_prompt.py ~/.claude/agents/ivan.md 
   --set-cmd FAILING_TESTS="cat $(printf '%q ' <test_file_1> [test_file_2 ...])" \
   --set-file ARCHITECTURE_CONTEXT=<a single existing file, e.g. AGENTS.md, when one file covers it> \
   --set-file FILE_PATHS=dev/local/tmp/ivan-<task-id>-files.txt \
-  --set RETRY_INSTRUCTION=""
+  --set RETRY_INSTRUCTION="" \
+  --require-file <each absolute FILE_PATHS entry that exists today, one flag per path> \
+  --require-parent <each absolute FILE_PATHS entry the task creates, one flag per path>
 ```
-`FILE_PATHS` is the newline-separated list from the task's Contract section, written to that scratch file — a Contract path can contain a space or a shell metacharacter, so it is never passed as a `--set` word.
+`FILE_PATHS` is the newline-separated list from the task's Contract section, written to that scratch file — a Contract path can contain a space or a shell metacharacter, so it is never passed as a `--set` word. Every entry is absolute and every entry appears in a `--require-file`/`--require-parent` flag (§ Passing values to render_prompt.py, Dispatch-target preflight).
 When architecture context spans more than one file, use the same `--set-cmd ARCHITECTURE_CONTEXT="cat $(printf '%q ' <file_1> <file_2>)"` shape. `RETRY_INSTRUCTION` is the literal empty string on this, the initial dispatch. The stdout integer from this call **is** the Subagent Dispatch Budget measurement — no separate `wc -c`. If the printed size exceeds 50 000, trim per the existing one-pass rule in `references/subagent-dispatch.md`, then re-render (still one call). Dispatch the Agent tool with the file at `dev/local/tmp/dispatch-ivan-<task-id>.txt` as the prompt source, watchdog per the existing Subagent Watchdog section — unchanged. `ivan.md` bakes in the code-quality rules block, the abort-instruction line, the read-only-scope note, the dispatch prologue, and the Assumptions/FILES_TOUCHED footers permanently — nothing further needs adding to the prompt by hand.
 
 **If the task description is ambiguous** (multiple interpretations, unclear scope, unstated format/fields/location), stop before dispatching Ivan and surface the ambiguity to the user. See Example 1 in `references/code-quality-examples.md`. Do not dispatch with guessed-at requirements.
