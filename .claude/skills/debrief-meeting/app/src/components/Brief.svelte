@@ -4,7 +4,7 @@
   import Cue from './Cue.svelte'
   import CopyButton from './CopyButton.svelte'
 
-  const { transcript, extract } = getContext('meeting')
+  const { transcript, extract, extractRan } = getContext('meeting')
 
   const open = (extract.questions ?? []).filter((q) => !q.answered)
   const unresolvedRisks = (extract.risks ?? []).filter((r) => !r.addressed)
@@ -12,9 +12,9 @@
   const tiles = [
     [fmtDur(transcript.meta.duration), 'duration'],
     [transcript.speakers.length, 'speaking'],
-    [extract.decisions?.length ?? 0, 'decisions'],
-    [extract.actions?.length ?? 0, 'actions'],
-    [open.length, 'open questions'],
+    [extractRan ? (extract.decisions?.length ?? 0) : '—', 'decisions'],
+    [extractRan ? (extract.actions?.length ?? 0) : '—', 'actions'],
+    [extractRan ? open.length : '—', 'open questions'],
     [unresolvedRisks.length, 'live risks'],
   ]
 </script>
@@ -26,6 +26,7 @@
       <div class="tile"><div class="n">{value}</div><div class="k">{key}</div></div>
     {/each}
   </div>
+  {#if !extractRan}<div class="muted">The extraction step hasn't run — decisions, actions, and open questions above are not counted.</div>{/if}
 </section>
 
 {#if extract.tldr?.length}

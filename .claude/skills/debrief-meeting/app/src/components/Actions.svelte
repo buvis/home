@@ -4,7 +4,7 @@
   import Cue from './Cue.svelte'
   import CopyButton from './CopyButton.svelte'
 
-  const { extract, meta } = getContext('meeting')
+  const { extract, meta, extractRan } = getContext('meeting')
   const actions = extract.actions ?? []
   const owners = ['all', ...new Set(actions.map((a) => a.assignee ?? 'unassigned'))]
 
@@ -34,7 +34,7 @@
 </script>
 
 {#if !actions.length}
-  <p class="empty">No action items were extracted from this meeting.</p>
+  <p class="empty">{extractRan ? 'No action items were extracted from this meeting.' : "The extraction step hasn't run — no actions to show yet."}</p>
 {:else}
   <section class="sec">
     <h2>Actions <span class="muted">({done.size}/{actions.length} done)</span></h2>
