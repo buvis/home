@@ -28,7 +28,7 @@
     </div>
 
     {#each decisions as decision, i (decision.id ?? i)}
-      {@const id = decision.id ?? decision.title}
+      {@const id = decision.id ?? `d${i}`}
       <div class="card">
         <div class="spread">
           <h3>{decision.title ?? decision.decision}</h3>
