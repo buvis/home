@@ -62,7 +62,7 @@
         </thead>
         <tbody>
           {#each shown as action, i (action.id ?? i)}
-            {@const id = action.id ?? `a${i}`}
+            {@const id = action.id ?? `a${actions.indexOf(action)}`}
             <tr>
               <td>
                 <input
