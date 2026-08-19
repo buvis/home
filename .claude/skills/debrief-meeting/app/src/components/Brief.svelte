@@ -32,7 +32,7 @@
   <section class="sec">
     <h2>The short version</h2>
     <ul>
-      {#each extract.tldr as line (line)}<li>{line}</li>{/each}
+      {#each extract.tldr as line, i (i)}<li>{line}</li>{/each}
     </ul>
   </section>
 {/if}
@@ -40,14 +40,14 @@
 {#if paragraphs.length}
   <section class="sec">
     <h2>Notes</h2>
-    {#each paragraphs as para (para)}<p>{para}</p>{/each}
+    {#each paragraphs as para, i (i)}<p>{para}</p>{/each}
   </section>
 {/if}
 
 {#if extract.agenda?.length}
   <section class="sec">
     <h2>Agenda</h2>
-    {#each extract.agenda as item (item.title)}
+    {#each extract.agenda as item, i (i)}
       <div class="card">
         <div class="spread">
           <h3>{item.title}</h3>
@@ -74,7 +74,7 @@
 {#if open.length}
   <section class="sec">
     <h2>Left open</h2>
-    {#each open as item (item.q)}
+    {#each open as item, i (i)}
       <div class="card" style="border-left-color: var(--warning)">
         <div class="spread"><h3>{item.q}</h3><Cue t={item.t} /></div>
         <div class="muted">
@@ -89,7 +89,7 @@
   <section class="sec">
     <h2>Next time</h2>
     <ul>
-      {#each extract.followups as item (item.what)}
+      {#each extract.followups as item, i (i)}
         <li>{item.what}{item.when ? ` — ${item.when}` : ''}{item.who ? ` (${item.who})` : ''}</li>
       {/each}
     </ul>

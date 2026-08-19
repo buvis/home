@@ -27,7 +27,7 @@
       <CopyButton text={allAdrs} label="Copy all ADRs" />
     </div>
 
-    {#each decisions as decision (decision.id ?? decision.title)}
+    {#each decisions as decision, i (decision.id ?? i)}
       {@const id = decision.id ?? decision.title}
       <div class="card">
         <div class="spread">

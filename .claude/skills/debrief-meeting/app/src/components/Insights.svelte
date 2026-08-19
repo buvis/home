@@ -14,7 +14,7 @@
 {#if extract.risks?.length}
   <section class="sec">
     <h2>Risks raised</h2>
-    {#each extract.risks as risk (risk.risk)}
+    {#each extract.risks as risk, i (i)}
       <div class="card" style="border-left-color: var({risk.addressed ? '--good' : '--critical'})">
         <div class="spread">
           <h3>{risk.risk}</h3>
@@ -35,7 +35,7 @@
   <section class="sec">
     <h2>Blockers</h2>
     <ul>
-      {#each extract.blockers as blocker (blocker.what)}
+      {#each extract.blockers as blocker, i (i)}
         <li>
           {blocker.what}
           {#if blocker.depends_on}<span class="muted"> — waiting on {blocker.depends_on}</span>{/if}
@@ -52,7 +52,7 @@
     <h2>Assumptions</h2>
     <p class="muted">Stated as fact in the room. Unvalidated ones are worth checking.</p>
     <ul>
-      {#each extract.assumptions as item (item.assumption)}
+      {#each extract.assumptions as item, i (i)}
         <li>
           {item.assumption}
           <span class="lbl {item.validated ? 'sev-good' : 'sev-warning'}">
@@ -69,7 +69,7 @@
 {#if extract.disagreements?.length}
   <section class="sec">
     <h2>Where the room split</h2>
-    {#each extract.disagreements as item (item.topic)}
+    {#each extract.disagreements as item, i (i)}
       <div class="card">
         <div class="spread">
           <h3>{item.topic}</h3>
@@ -81,7 +81,7 @@
           </div>
         </div>
         <ul>
-          {#each item.positions ?? [] as position (position.who)}
+          {#each item.positions ?? [] as position, i (i)}
             <li><strong>{position.who}</strong>: {position.stance}</li>
           {/each}
         </ul>
@@ -94,7 +94,7 @@
 {#if extract.quotes?.length}
   <section class="sec">
     <h2>Worth quoting</h2>
-    {#each extract.quotes as quote (quote.text)}
+    {#each extract.quotes as quote, i (i)}
       <div class="card">
         <p>“{quote.text}”</p>
         <div class="row muted">
@@ -114,7 +114,7 @@
       <table>
         <thead><tr><th>What</th><th>Value</th><th>Said at</th></tr></thead>
         <tbody>
-          {#each entities.metrics as metric (metric.label)}
+          {#each entities.metrics as metric, i (i)}
             <tr>
               <td>{metric.label}</td>
               <td class="num">{metric.value}</td>
@@ -148,7 +148,7 @@
       <table>
         <thead><tr><th>Term</th><th>Stands for</th><th>Means</th><th>First used</th></tr></thead>
         <tbody>
-          {#each extract.glossary as entry (entry.term)}
+          {#each extract.glossary as entry, i (i)}
             <tr>
               <td class="mono">{entry.term}</td>
               <td>{entry.expansion ?? '—'}</td>
@@ -177,7 +177,7 @@
     {/if}
     {#if extract.quality.notes?.length}
       <ul>
-        {#each extract.quality.notes as note (note)}<li>{note}</li>{/each}
+        {#each extract.quality.notes as note, i (i)}<li>{note}</li>{/each}
       </ul>
     {/if}
   </section>
