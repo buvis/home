@@ -18,8 +18,10 @@
   const allAdrs = () => decisions.map((d) => adrMarkdown(d, meta)).join('\n\n---\n\n')
 </script>
 
-{#if !decisions.length}
-  <p class="empty">{extractRan ? 'No decisions were extracted from this meeting.' : "The extraction step hasn't run — no decisions to show yet."}</p>
+{#if !extractRan}
+  <p class="empty">The extraction step hasn't run — no decisions to show yet.</p>
+{:else if !decisions.length}
+  <p class="empty">No decisions were extracted from this meeting.</p>
 {:else}
   <section class="sec">
     <h2>Decisions</h2>
