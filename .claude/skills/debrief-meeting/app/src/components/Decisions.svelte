@@ -4,7 +4,7 @@
   import Cue from './Cue.svelte'
   import CopyButton from './CopyButton.svelte'
 
-  const { extract, meta } = getContext('meeting')
+  const { extract, meta, extractRan } = getContext('meeting')
   const decisions = extract.decisions ?? []
 
   let openId = $state(null)
@@ -19,7 +19,7 @@
 </script>
 
 {#if !decisions.length}
-  <p class="empty">No decisions were extracted from this meeting.</p>
+  <p class="empty">{extractRan ? 'No decisions were extracted from this meeting.' : "The extraction step hasn't run — no decisions to show yet."}</p>
 {:else}
   <section class="sec">
     <h2>Decisions</h2>
