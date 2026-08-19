@@ -587,3 +587,161 @@ def test_set_cmd_timeout_exits_4_and_names_the_key_without_the_real_wait(
     assert "\n" not in stderr_line
     assert "GREETING" in stderr_line
     assert not out_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Dispatch-target preflight: --require-file / --require-parent
+# (a relative or dangling target path must block the render — Tess edited a
+# suffix-matching vault copy after such a path failed to resolve, 2026-08-18)
+# ---------------------------------------------------------------------------
+
+
+def test_require_file_accepts_absolute_existing_file(tmp_path: Path) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    target = tmp_path / "target.js"
+    target.write_text("x", encoding="utf-8")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "NAME=World",
+            "--require-file",
+            str(target),
+        ],
+    )
+
+    assert exit_code == 0
+    assert out_path.exists()
+
+
+def test_rejects_relative_require_file_path_with_exit_7(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "NAME=World",
+            "--require-file",
+            "debrief-meeting/app/smoke.test.js",
+        ],
+    )
+
+    assert exit_code == 7
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert "not absolute" in stderr_line
+    assert "debrief-meeting/app/smoke.test.js" in stderr_line
+    assert not out_path.exists()
+
+
+def test_rejects_missing_require_file_path_with_exit_7(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    missing_target = tmp_path / "does-not-exist.js"
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "NAME=World",
+            "--require-file",
+            str(missing_target),
+        ],
+    )
+
+    assert exit_code == 7
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert "does not exist" in stderr_line
+    assert str(missing_target) in stderr_line
+    assert not out_path.exists()
+
+
+def test_require_parent_accepts_new_file_in_existing_directory(tmp_path: Path) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    new_target = tmp_path / "new-file.js"
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "NAME=World",
+            "--require-parent",
+            str(new_target),
+        ],
+    )
+
+    assert exit_code == 0
+    assert out_path.exists()
+
+
+def test_rejects_require_parent_path_whose_directory_is_missing_with_exit_7(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    dangling_target = tmp_path / "no-such-dir" / "new-file.js"
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "NAME=World",
+            "--require-parent",
+            str(dangling_target),
+        ],
+    )
+
+    assert exit_code == 7
+    captured = capsys.readouterr()
+    stderr_line = captured.err.rstrip("\n")
+    assert "parent directory" in stderr_line
+    assert str(dangling_target) in stderr_line
+    assert not out_path.exists()
+
+
+def test_rejects_relative_require_parent_path_with_exit_7(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persona = _persona(tmp_path, "Hi {NAME}!")
+    out_path = tmp_path / "out.txt"
+
+    exit_code = render_prompt.main(
+        [
+            str(persona),
+            "--out",
+            str(out_path),
+            "--set",
+            "NAME=World",
+            "--require-parent",
+            "app/smoke.test.js",
+        ],
+    )
+
+    assert exit_code == 7
+    captured = capsys.readouterr()
+    assert "not absolute" in captured.err
+    assert not out_path.exists()
