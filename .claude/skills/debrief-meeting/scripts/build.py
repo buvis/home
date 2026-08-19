@@ -61,7 +61,7 @@ def apply_corrections(turns: list[dict], corrections: list[dict]) -> list[dict]:
         for turn in turns:
             if only is not None and turn["i"] != only:
                 continue
-            text, count = pattern.subn(new, turn["text"])
+            text, count = pattern.subn(lambda m: new, turn["text"])
             if count:
                 turn.setdefault("raw", turn["text"])
                 turn["text"] = text
@@ -73,7 +73,7 @@ def apply_corrections(turns: list[dict], corrections: list[dict]) -> list[dict]:
                 "to": new,
                 "reason": fix.get("reason"),
                 "applied": hits,
-            }
+            },
         )
     return log
 
@@ -91,29 +91,30 @@ def main() -> None:
     transcript = json.loads(source.read_text(encoding="utf-8"))
 
     extract_file = workdir / "extract.json"
-    if extract_file.is_file():
-        extract = json.loads(extract_file.read_text(encoding="utf-8"))
+    extract_ran = extract_file.is_file()
+    if extract_ran:
+        try:
+            extract = json.loads(extract_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            sys.exit(f"invalid JSON in {extract_file}: {exc}")
     else:
-        print(
-            f"WARN: {extract_file} not found — building the transcript view only",
-            file=sys.stderr,
-        )
+        warning = f"{extract_file} not found — extract wasn't run; building the transcript view only"
+        print(f"WARN: {warning}", file=sys.stderr)
+        transcript.setdefault("warnings", []).append(warning)
         extract = {}
 
     for key in extract:
         if key not in KNOWN_KEYS:
-            print(
-                f"WARN: extract.json has unknown key '{key}' — the page will ignore it",
-                file=sys.stderr,
-            )
+            warning = f"extract.json has unknown key '{key}' — the page will ignore it"
+            print(f"WARN: {warning}", file=sys.stderr)
+            transcript.setdefault("warnings", []).append(warning)
 
     fixes = apply_corrections(transcript["turns"], extract.get("corrections") or [])
     for fix in fixes:
         if not fix["applied"]:
-            print(
-                f"WARN: correction '{fix['from']}' -> '{fix['to']}' matched nothing",
-                file=sys.stderr,
-            )
+            warning = f"correction '{fix['from']}' -> '{fix['to']}' matched nothing"
+            print(f"WARN: {warning}", file=sys.stderr)
+            transcript.setdefault("warnings", []).append(warning)
     transcript["corrections"] = (transcript.get("corrections") or []) + fixes
 
     template = TEMPLATE.read_text(encoding="utf-8")
@@ -121,10 +122,12 @@ def main() -> None:
         sys.exit(f"template {TEMPLATE} has no {PLACEHOLDER} marker")
     # <\/ keeps a literal </script> inside the transcript from ending the tag
     payload = json.dumps(
-        {"transcript": transcript, "extract": extract}, ensure_ascii=False
+        {"transcript": transcript, "extract": extract, "extract_ran": extract_ran},
+        ensure_ascii=False,
     ).replace("</", "<\\/")
 
     out = Path(args.out).expanduser() if args.out else workdir / "debrief.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(template.replace(PLACEHOLDER, payload), encoding="utf-8")
     print(f"wrote {out} ({out.stat().st_size // 1024} kB)")
 
