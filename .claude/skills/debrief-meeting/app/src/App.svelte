@@ -85,7 +85,7 @@
       <div class="card" style="border-left-color: var(--warning)">
         <strong>Transcript quality</strong>
         <ul>
-          {#each transcript.warnings as warning (warning)}<li>{warning}</li>{/each}
+          {#each transcript.warnings as warning, i (i)}<li>{warning}</li>{/each}
         </ul>
       </div>
     {/if}
