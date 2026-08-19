@@ -145,3 +145,30 @@ test('Work tab and RepoDetail panel render both instances of a duplicated issue 
   )
   assert.equal(panelChips.length, 2, `expected 2 "bug" chips in RepoDetail panel, got ${panelChips.length}`)
 })
+
+test('RepoDetail panel renders both grouped epics that share a title, not once', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].commits = [
+    { sha: 'aaaaaaa', date: '2026-08-01', subject: 'first' },
+    { sha: 'bbbbbbb', date: '2026-08-02', subject: 'second' },
+  ]
+  payload.epics.repos['buvis/demo'] = {
+    epics: [
+      { title: 'Same epic', shas: ['aaaaaaa'] },
+      { title: 'Same epic', shas: ['bbbbbbb'] },
+    ],
+  }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Repos')
+  const repoButton = doc.querySelector('button.card')
+  assert.ok(repoButton, 'missing repo card button')
+  repoButton.click()
+  await flush()
+  const panel = doc.querySelector('div.panel[role="dialog"]')
+  assert.ok(panel, 'missing repo detail panel')
+  const epicTitles = [...panel.querySelectorAll('details summary b')].filter(
+    (n) => n.textContent.trim() === 'Same epic',
+  )
+  assert.equal(epicTitles.length, 2, `expected 2 epics titled "Same epic", got ${epicTitles.length}`)
+})
