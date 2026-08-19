@@ -9,12 +9,13 @@
   const open = (extract.questions ?? []).filter((q) => !q.answered)
   const unresolvedRisks = (extract.risks ?? []).filter((r) => !r.addressed)
   const paragraphs = (extract.summary ?? '').split(/\n\s*\n/).filter(Boolean)
+  const na = '—'
   const tiles = [
     [fmtDur(transcript.meta.duration), 'duration'],
     [transcript.speakers.length, 'speaking'],
-    [extractRan ? (extract.decisions?.length ?? 0) : '—', 'decisions'],
-    [extractRan ? (extract.actions?.length ?? 0) : '—', 'actions'],
-    [extractRan ? open.length : '—', 'open questions'],
+    [extractRan ? (extract.decisions?.length ?? 0) : na, 'decisions'],
+    [extractRan ? (extract.actions?.length ?? 0) : na, 'actions'],
+    [extractRan ? open.length : na, 'open questions'],
     [unresolvedRisks.length, 'live risks'],
   ]
 </script>
@@ -26,7 +27,7 @@
       <div class="tile"><div class="n">{value}</div><div class="k">{key}</div></div>
     {/each}
   </div>
-  {#if !extractRan}<div class="muted">The extraction step hasn't run — decisions, actions, and open questions above are not counted.</div>{/if}
+  {#if !extractRan}<p class="muted">The extraction step hasn't run — decisions, actions, and open questions above are not counted.</p>{/if}
 </section>
 
 {#if extract.tldr?.length}

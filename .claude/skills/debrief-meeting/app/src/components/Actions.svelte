@@ -33,8 +33,10 @@
   )
 </script>
 
-{#if !actions.length}
-  <p class="empty">{extractRan ? 'No action items were extracted from this meeting.' : "The extraction step hasn't run — no actions to show yet."}</p>
+{#if !extractRan}
+  <p class="empty">The extraction step hasn't run — no actions to show yet.</p>
+{:else if !actions.length}
+  <p class="empty">No action items were extracted from this meeting.</p>
 {:else}
   <section class="sec">
     <h2>Actions <span class="muted">({done.size}/{actions.length} done)</span></h2>
