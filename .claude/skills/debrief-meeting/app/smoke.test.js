@@ -174,6 +174,12 @@ test('an action with no id stays ticked by its own text, not its position in the
   assert.equal(checkbox.checked, true, 'a ticked action with no id should stay checked after rebuild')
 })
 
+// extract_ran plumbing: at this task's boundary nothing renders off it yet —
+// Brief/Decisions/Actions/Insights don't branch on it until later tasks — so
+// the two tests below can only prove the `?? true` fallback and the new
+// context field don't break mounting. They cannot distinguish a correct
+// implementation from a missing one; that discriminating, UI-observable
+// assertion belongs to the task that actually consumes extractRan.
 test('mounts cleanly when extract_ran is absent from the payload', () => {
   const payload = structuredClone(PAYLOAD)
   delete payload.extract_ran
