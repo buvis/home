@@ -37,9 +37,12 @@
   const age = (c) => `${daysAgo(c) ?? '?'}d`
 </script>
 
-{#if extRows.length}
+{#if extRows.length || external?.error}
   <section class="sec">
-    <h2>Waiting on you elsewhere · {extRows.length}</h2>
+    <h2>Waiting on you elsewhere{#if extRows.length} · {extRows.length}{/if}</h2>
+    {#if external?.error}
+      <p class="empty sev-critical">Could not check external PRs: {external.error}</p>
+    {:else}
     <table>
       <thead><tr><th>age</th><th>role</th><th>repo</th><th>PR</th></tr></thead>
       <tbody>
@@ -56,6 +59,7 @@
         {/each}
       </tbody>
     </table>
+    {/if}
   </section>
 {/if}
 

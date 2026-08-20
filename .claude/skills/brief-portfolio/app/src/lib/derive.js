@@ -300,6 +300,11 @@ export function externalTodos(external) {
     out.push({ id: `ext:mine:${p.repo}#${p.number}`, repo: p.repo, kind: 'external', urgency: 'soon',
       importance: 'high', effort: 'quick', agent: null, url: p.url, external: true,
       action: `Nudge your PR ${p.repo}#${p.number}: ${p.title}`, why: `your PR outside the portfolio, open since ${p.created}` })
+  if (external?.error)
+    out.push({ id: 'ext:error', repo: '(external)', kind: 'external', urgency: 'now',
+      importance: 'high', effort: 'quick', agent: null, url: null, external: true,
+      action: 'External PR lookup failed — check gh auth and rerun collect.py',
+      why: external.error })
   if (external) {
     const last = external.claude_maintenance_last
     const aged = daysAgo(last)
