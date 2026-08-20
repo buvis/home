@@ -203,3 +203,23 @@ test('Brief tab names repos it could not collect this run', () => {
   assert.match(mainText, /not collected/)
   assert.match(mainText, /doogat\/jink/)
 })
+
+test('Todos tab shows a failed-copy state when neither clipboard.writeText nor execCommand works', async () => {
+  // jsdom provides neither navigator.clipboard nor a working execCommand('copy')
+  // by default — the same failure mode as clicking "copy open as markdown"
+  // from a file:// page.
+  // Duplicate backlog/wip entries (as in the shared PAYLOAD) trip the
+  // unrelated each_key_duplicate crash on this tab, so use unique data here.
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].prds = { backlog: [], wip: [], done_count: 0 }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Todo')
+  const button = [...doc.querySelectorAll('main button.chip')].find(
+    (b) => b.textContent.trim() === 'copy open as markdown',
+  )
+  assert.ok(button, 'missing "copy open as markdown" button')
+  button.click()
+  await flush()
+  assert.equal(button.textContent.trim(), '✗ copy failed')
+})
