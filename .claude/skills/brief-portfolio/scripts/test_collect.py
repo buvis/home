@@ -1,5 +1,7 @@
 """Regression tests for collect.py's local parsers. Run: python3 -m pytest test_collect.py -q"""
+
 import json
+import pytest
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -7,9 +9,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import collect
-from collect import (collect_brush, collect_claude_maintenance,
-                     collect_claude_skill_adherence, collect_repo, main,
-                     stub_from_path)
+from collect import (
+    ROTATE_MIN_AGE,
+    collect_brush,
+    collect_claude_maintenance,
+    collect_claude_skill_adherence,
+    collect_repo,
+    main,
+    should_rotate,
+    stub_from_path,
+)
 
 
 def write_report(tmp_path: Path, body: str) -> None:
@@ -19,8 +28,11 @@ def write_report(tmp_path: Path, body: str) -> None:
 
 
 def test_reads_generated_date_from_brush_report(tmp_path):
-    write_report(tmp_path, "# Brush report - x\n\n"
-                 "- generated: 2026-07-13 14:02 | mode: quick | HEAD: abc123 | branch: master | unpushed: 0\n")
+    write_report(
+        tmp_path,
+        "# Brush report - x\n\n"
+        "- generated: 2026-07-13 14:02 | mode: quick | HEAD: abc123 | branch: master | unpushed: 0\n",
+    )
     assert collect_brush(tmp_path) == "2026-07-13"
 
 
@@ -42,6 +54,7 @@ def test_maintenance_none_when_dir_absent_or_empty(tmp_path):
 def test_maintenance_returns_newest_mtime_day(tmp_path):
     import os
     import time
+
     d = tmp_path / "audit-results"
     d.mkdir()
     old = d / "old.md"
@@ -61,17 +74,24 @@ def test_skill_adherence_none_when_no_file(tmp_path):
 
 def test_skill_adherence_counts_last_30d_and_ranks_top(tmp_path):
     from datetime import timedelta
+
     now = datetime.now(timezone.utc)
     recent = now.isoformat()
     old = (now - timedelta(days=45)).isoformat()
     f = tmp_path / "skills.jsonl"
-    f.write_text("\n".join(json.dumps(r) for r in [
-        {"skill": "work", "ts": recent},
-        {"skill": "work", "ts": recent},
-        {"skill": "brush", "ts": recent},
-        {"skill": "survey", "ts": old},  # outside the 30d window
-        "not json",
-    ]) + "\n")
+    f.write_text(
+        "\n".join(
+            json.dumps(r)
+            for r in [
+                {"skill": "work", "ts": recent},
+                {"skill": "work", "ts": recent},
+                {"skill": "brush", "ts": recent},
+                {"skill": "survey", "ts": old},  # outside the 30d window
+                "not json",
+            ]
+        )
+        + "\n"
+    )
     got = collect_claude_skill_adherence(f)
     assert got["count"] == 3
     assert got["distinct"] == 2
@@ -81,6 +101,7 @@ def test_skill_adherence_counts_last_30d_and_ranks_top(tmp_path):
 
 def test_skill_adherence_empty_when_all_stale(tmp_path):
     from datetime import timedelta
+
     old = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
     f = tmp_path / "skills.jsonl"
     f.write_text(json.dumps({"skill": "work", "ts": old}) + "\n")
@@ -155,6 +176,7 @@ def write_registry_csv(tmp_path: Path, paths) -> Path:
 def make_fake_run(skip_cwds):
     """collect.run replacement: resolvable repos get a valid github remote,
     skip_cwds fail repo_slug, and every gh call fails (unauthenticated)."""
+
     def fake_run(cmd, cwd=None, timeout=120):
         if cmd[0] == "git" and cmd[1] == "remote":
             if str(cwd) in skip_cwds:
@@ -163,6 +185,7 @@ def make_fake_run(skip_cwds):
         if cmd[0] == "gh":
             raise RuntimeError("gh: not authenticated")
         raise AssertionError(f"unexpected command: {cmd}")
+
     return fake_run
 
 
@@ -172,7 +195,9 @@ def run_collector(tmp_path, monkeypatch, resolvable_names, skip_names):
     monkeypatch.setattr(collect, "run", make_fake_run(skip_paths))
     monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
     out_dir = tmp_path / "out"
-    monkeypatch.setattr(sys, "argv", ["collect.py", "--no-fetch", "--out", str(out_dir)])
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--no-fetch", "--out", str(out_dir)]
+    )
     main()
     return paths, out_dir
 
@@ -192,15 +217,127 @@ def test_main_history_entry_counts_skipped_repos(tmp_path, monkeypatch):
     assert last["skipped"] == 1
 
 
-def test_main_summary_line_reports_paths_and_skipped_counts(tmp_path, monkeypatch, capsys):
+def test_main_summary_line_reports_paths_and_skipped_counts(
+    tmp_path, monkeypatch, capsys
+):
     paths, _ = run_collector(tmp_path, monkeypatch, ["alpha", "beta"], ["broken"])
     captured = capsys.readouterr()
     assert f"{len(paths)} repos, 1 skipped" in captured.out
 
 
-def test_main_external_section_reports_error_when_gh_unauthenticated(tmp_path, monkeypatch):
+def test_main_external_section_reports_error_when_gh_unauthenticated(
+    tmp_path, monkeypatch
+):
     _, out_dir = run_collector(tmp_path, monkeypatch, ["alpha"], [])
     data = json.loads((out_dir / "data.json").read_text())
     assert data["external"]["review_requested"] == []
     assert data["external"]["authored"] == []
     assert data["external"]["error"]
+
+
+def test_rotate_min_age_is_four_hours():
+    from datetime import timedelta
+
+    assert ROTATE_MIN_AGE == timedelta(hours=4)
+
+
+def test_should_rotate_false_for_snapshot_48_seconds_old():
+    from datetime import timedelta
+
+    now = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    existing_at = (now - timedelta(seconds=48)).isoformat()
+    assert should_rotate(existing_at, now) is False
+
+
+def test_should_rotate_true_for_snapshot_5_hours_old():
+    from datetime import timedelta
+
+    now = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    existing_at = (now - timedelta(hours=5)).isoformat()
+    assert should_rotate(existing_at, now) is True
+
+
+def test_should_rotate_boundary_is_inclusive_at_exactly_four_hours():
+    from datetime import timedelta
+
+    now = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    just_under = now - (ROTATE_MIN_AGE - timedelta(seconds=1))
+    exactly = now - ROTATE_MIN_AGE
+    assert should_rotate(just_under.isoformat(), now) is False
+    assert should_rotate(exactly.isoformat(), now) is True
+
+
+def write_snapshot(path: Path, generated_at: str, marker: str) -> str:
+    """Write a minimal data.json-shaped fixture and return its exact text,
+    so callers can assert byte-for-byte preservation later."""
+    content = json.dumps({"generated_at": generated_at, "marker": marker}, indent=1)
+    path.write_text(content)
+    return content
+
+
+def test_main_leaves_older_baseline_untouched_when_existing_snapshot_is_recent(
+    tmp_path, monkeypatch
+):
+    from datetime import timedelta
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    baseline_content = write_snapshot(
+        out_dir / "data-prev.json", "2026-08-01T00:00:00+00:00", "real-baseline"
+    )
+    recent_at = (datetime.now(timezone.utc) - timedelta(seconds=48)).isoformat(
+        timespec="seconds"
+    )
+    write_snapshot(out_dir / "data.json", recent_at, "48-seconds-old")
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    assert (out_dir / "data-prev.json").read_text() == baseline_content
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert new_data["generated_at"] != recent_at
+    assert len(new_data["repos"]) == 1
+
+
+def test_main_publishes_old_snapshot_as_data_prev_when_stale(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    stale_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(
+        timespec="seconds"
+    )
+    old_content = write_snapshot(out_dir / "data.json", stale_at, "5-hours-old")
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    assert (out_dir / "data-prev.json").read_text() == old_content
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert new_data["generated_at"] != stale_at
+    assert len(new_data["repos"]) == 1
+
+
+def test_main_leaves_data_json_unchanged_when_prev_tmp_write_fails(
+    tmp_path, monkeypatch
+):
+    from datetime import timedelta
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    stale_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(
+        timespec="seconds"
+    )
+    old_content = write_snapshot(out_dir / "data.json", stale_at, "5-hours-old")
+
+    original_write_text = Path.write_text
+
+    def failing_write_text(self, *args, **kwargs):
+        if str(self).endswith("data-prev.json.tmp"):
+            raise OSError("disk full")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+
+    with pytest.raises(OSError):
+        run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    assert (out_dir / "data.json").read_text() == old_content
