@@ -200,6 +200,37 @@ class TestBashMode(unittest.TestCase):
         r = run_hook({"tool_name": "Bash", "tool_input": {"command": ""}})
         self.assertEqual(r.returncode, 0)
 
+    def test_blocks_bare_backlog_token_no_slash_no_child(self) -> None:
+        r = run_hook({
+            "tool_name": "Bash",
+            "tool_input": {"command": "mv backlog /tmp/exfil"},
+        })
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+
+    def test_blocks_bare_wip_token_no_slash_no_child(self) -> None:
+        r = run_hook({
+            "tool_name": "Bash",
+            "tool_input": {"command": "mv wip /tmp/exfil"},
+        })
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+
+    def test_allows_bare_done_shell_keyword_closing_for_loop(self) -> None:
+        r = run_hook({
+            "tool_name": "Bash",
+            "tool_input": {"command": "for f in *.md; do echo $f; done"},
+        })
+        self.assertEqual(r.returncode, 0)
+
+    def test_blocks_bare_backlog_token_with_trailing_slash(self) -> None:
+        r = run_hook({
+            "tool_name": "Bash",
+            "tool_input": {"command": "mv backlog/ /tmp/exfil"},
+        })
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+
 
 class TestUnknownTool(unittest.TestCase):
     def test_allows_other_tool(self) -> None:

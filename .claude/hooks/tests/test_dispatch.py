@@ -1172,7 +1172,9 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     subset as "enforcement", fails here even though it still satisfies the
     weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 15, f"expected 15 ROUTES entries, got {len(actual)}: {actual!r}"
+    assert len(actual) == 15, (
+        f"expected 15 ROUTES entries, got {len(actual)}: {actual!r}"
+    )
 
     seen_names = {name for (name, _event, _kind) in actual}
     assert seen_names == set(_EXPECTED_ROUTE_KIND), (
@@ -1202,6 +1204,18 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     assert enforcement_entries.count(("cartographer-echo", "PreToolUse")) == 2, (
         "both cartographer-echo ROUTES entries must be 'enforcement'"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Route: no default for `kind` (fail-loud, not fail-open)
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_route_construction_without_kind_raises_typeerror(dispatch):
+    """dispatch.Route must have NO default for `kind` - a future ROUTES row
+    added without it must fail loudly (TypeError) at construction time
+    instead of silently defaulting to "observer" (fail-open)."""
+    with pytest.raises(TypeError):
+        dispatch.Route("PreToolUse", None, "NAME", "/tmp/handler.py", 5)
 
 
 # --------------------------------------------------------------------------- #
@@ -2080,6 +2094,37 @@ def test_sys_exit_at_import_is_isolated_siblings_run(
     )
 
 
+@pytest.mark.unit
+def test_sys_exit_at_import_handler_fault_logged_independent_of_stderr(
+    dispatch,
+    tmp_path,
+):
+    """Companion to test_sys_exit_at_import_is_isolated_siblings_run above,
+    which only proves the fault appears somewhere in `err + dispatch_log_text()`
+    merged - that cannot distinguish a real log() write from a stderr-only
+    write. This pins the dispatch LOG alone: an implementation that reports
+    the fault on stderr but never calls log() (or logs it without the route
+    name / marker) fails here even though it still passes the merged-surface
+    test."""
+    raiser = make_route(
+        tmp_path,
+        "sysexitfaultlog",
+        """
+        import sys
+        sys.exit(3)
+        """,
+    )
+    dispatch._invoke(raiser, {"tool_name": "Bash"})
+
+    log_text = dispatch_log_text()
+    assert raiser.name in log_text, (
+        f"dispatch log must name the route independent of stderr: {log_text!r}"
+    )
+    assert "handler fault" in log_text.lower(), (
+        f"dispatch log must contain the 'handler fault' marker: {log_text!r}"
+    )
+
+
 @pytest.mark.integration
 def test_arbitrary_baseexception_at_import_is_isolated_siblings_run(
     dispatch,
@@ -2118,6 +2163,36 @@ def test_arbitrary_baseexception_at_import_is_isolated_siblings_run(
     assert raiser.name in surface, f"the fault report must name the route: {surface!r}"
     assert "custom-crash-boom" in surface.lower(), (
         f"the fault report must name the exception: {surface!r}"
+    )
+
+
+@pytest.mark.unit
+def test_arbitrary_baseexception_at_import_handler_fault_logged_independent_of_stderr(
+    dispatch,
+    tmp_path,
+):
+    """Companion to test_arbitrary_baseexception_at_import_is_isolated_siblings_run
+    above, same rationale as the sys.exit companion: the original test asserts
+    only against `err + dispatch_log_text()` merged, which cannot prove log()
+    itself was called. This pins the dispatch LOG alone, for an arbitrary
+    BaseException subtype (not just SystemExit)."""
+    raiser = make_route(
+        tmp_path,
+        "customboomfaultlog",
+        """
+        class _CustomBoom(BaseException):
+            pass
+        raise _CustomBoom("CUSTOM-CRASH-BOOM-LOG")
+        """,
+    )
+    dispatch._invoke(raiser, {"tool_name": "Bash"})
+
+    log_text = dispatch_log_text()
+    assert raiser.name in log_text, (
+        f"dispatch log must name the route independent of stderr: {log_text!r}"
+    )
+    assert "handler fault" in log_text.lower(), (
+        f"dispatch log must contain the 'handler fault' marker: {log_text!r}"
     )
 
 
@@ -2231,6 +2306,31 @@ def test_norun_handler_is_refused_and_not_subprocess_executed(dispatch, tmp_path
     marker = Path(route.path).with_name("subproc.marker")
     assert not marker.exists(), (
         "a no-run() handler script must not be re-executed via subprocess"
+    )
+
+
+@pytest.mark.unit
+def test_norun_handler_has_no_run_logged_independent_of_stderr(dispatch, tmp_path):
+    """Companion to test_norun_handler_is_refused_and_not_subprocess_executed
+    above, which only asserts against `err` returned directly from `_invoke` -
+    never against dispatch.log. This pins that the refusal is ALSO recorded in
+    the dispatch log, independent of stderr, naming the route and the exact
+    'has no run()' marker."""
+    route = make_route(
+        tmp_path,
+        "norunfaultlog",
+        """
+        import sys
+        """,
+    )
+    dispatch._invoke(route, {"tool_name": "Bash"})
+
+    log_text = dispatch_log_text()
+    assert route.name in log_text, (
+        f"dispatch log must name the route independent of stderr: {log_text!r}"
+    )
+    assert "has no run()" in log_text.lower(), (
+        f"dispatch log must contain the 'has no run()' marker: {log_text!r}"
     )
 
 
