@@ -135,7 +135,9 @@ def _validate_bash_mode(data: dict) -> None:
                 continue
             if parts[:3] == ("dev", "local", "prds"):
                 continue
-            if parts[0] in LIFECYCLE_DIRS and (len(parts) > 1 or segment.endswith("/")):
+            if parts[0] in LIFECYCLE_DIRS and (
+                len(parts) > 1 or segment.endswith("/") or parts[0] != "done"
+            ):
                 key = f"{parts[0]}/"
                 if key not in seen:
                     seen.add(key)
