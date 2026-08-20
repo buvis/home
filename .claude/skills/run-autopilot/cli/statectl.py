@@ -613,6 +613,9 @@ def main(argv: list[str] | None = None) -> int:
                 # callers need the id it assigned. Every other verb's apply
                 # returns None, so it stays silent on success.
                 print(result)
+    except state.FutureSchemaError as err:
+        print(f"autopilot: {err}", file=sys.stderr)
+        return 6
     except StateError as err:
         print(str(err), file=sys.stderr)
         return 2
