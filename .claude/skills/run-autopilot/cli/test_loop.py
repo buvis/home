@@ -1123,6 +1123,29 @@ def test_prune_deletes_an_entry_with_invalid_utf8_bytes_without_raising(tmp_path
     assert not entry.exists()
 
 
+def test_prune_deletes_a_utf16_encoded_entry_even_when_its_pid_is_live_and_tagged(
+    tmp_path,
+):
+    # The registry is a UTF-8 JSON directory by contract. A spawned, live,
+    # correctly TAGGED pid is used here so nothing else could explain a
+    # deletion: json.loads auto-detects UTF-16 from the BOM and parses this
+    # entry fine, so only the encoding - not liveness, not the tag - can be
+    # the reason it gets pruned.
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    shell = _spawn_forked_loop_shell()
+    try:
+        entry = loops / f"{shell.pid}.json"
+        entry.write_bytes(
+            json.dumps({"pid": shell.pid, "root": "/x"}).encode("utf-16"),
+        )
+        prune_registry(loops, own_pid=4242)
+        assert not entry.exists()
+    finally:
+        os.killpg(shell.pid, signal.SIGKILL)
+        shell.wait()
+
+
 def test_pid_tagged_matches_a_tag_ending_a_non_final_ps_line_not_a_longer_pid(
     monkeypatch,
 ):
