@@ -208,5 +208,132 @@ class ShimValidationTests(unittest.TestCase):
             )
 
 
+FABLECTL = SCRIPTS / "fablectl.py"
+
+# fablectl.py has no counterpart import in this file (unlike cli_statectl); the
+# task notes a literal comparison is an acceptable alternative to importing
+# it, and importing it here would need SCRIPTS on sys.path too - fablectl.py
+# does `from statectl import atomic_write`, a bare top-level import that only
+# resolves when the scripts/ dir itself is on the path, not just its parent.
+FABLECTL_USAGE = (
+    "usage: fablectl.py <ledger> "
+    "request <prd> <task_id> <task_name> <batch_id> <json>"
+    " | decide <prd> approved|rejected | consume <prd> | show <prd>"
+)
+
+
+class ShimHelpFlagTests(unittest.TestCase):
+    """`-h`/`--help` handling added to statectl.py and fablectl.py's `main()`.
+
+    Both checks are scoped to argv[0] specifically, not "argv contains
+    -h/--help anywhere" - so a flag that lands anywhere but first must keep
+    falling through to the existing verb/arity handling, untouched.
+    """
+
+    def test_statectl_long_help_flag_exits_zero_with_usage_on_stdout_and_silent_stderr(
+        self,
+    ) -> None:
+        result = subprocess.run(
+            [sys.executable, str(STATECTL), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, cli_statectl.USAGE + "\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_statectl_short_help_flag_exits_zero_with_usage_on_stdout_and_silent_stderr(
+        self,
+    ) -> None:
+        result = subprocess.run(
+            [sys.executable, str(STATECTL), "-h"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, cli_statectl.USAGE + "\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_statectl_zero_args_still_exits_one_with_usage_on_stderr_and_silent_stdout(
+        self,
+    ) -> None:
+        # Regression pin: the too-few-args path must not have moved.
+        result = subprocess.run(
+            [sys.executable, str(STATECTL)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, cli_statectl.USAGE + "\n")
+        self.assertEqual(result.stdout, "")
+
+    def test_statectl_help_flag_in_non_first_position_does_not_trigger_help_path(
+        self,
+    ) -> None:
+        # argv[0] here is a state path, not "--help"; the check is scoped to
+        # the first argument only, so this must fall through to the ordinary
+        # too-few-args handling (exit 1, USAGE on stderr) rather than the
+        # help path (exit 0, USAGE on stdout).
+        result = subprocess.run(
+            [sys.executable, str(STATECTL), "/tmp/does-not-matter.json", "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, cli_statectl.USAGE + "\n")
+
+    def test_fablectl_long_help_flag_exits_zero_with_usage_on_stdout_and_silent_stderr(
+        self,
+    ) -> None:
+        result = subprocess.run(
+            [sys.executable, str(FABLECTL), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, FABLECTL_USAGE + "\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_fablectl_short_help_flag_exits_zero_with_usage_on_stdout_and_silent_stderr(
+        self,
+    ) -> None:
+        result = subprocess.run(
+            [sys.executable, str(FABLECTL), "-h"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, FABLECTL_USAGE + "\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_fablectl_zero_args_still_exits_one_with_usage_on_stderr_and_silent_stdout(
+        self,
+    ) -> None:
+        result = subprocess.run(
+            [sys.executable, str(FABLECTL)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, FABLECTL_USAGE + "\n")
+        self.assertEqual(result.stdout, "")
+
+    def test_fablectl_help_flag_in_non_first_position_does_not_trigger_help_path(
+        self,
+    ) -> None:
+        # argv[0] is a ledger path here, so this must fall through to the
+        # ordinary verb-lookup path ("--help" is not a known verb) rather
+        # than the help path.
+        result = subprocess.run(
+            [sys.executable, str(FABLECTL), "/tmp/does-not-matter.json", "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("unsupported verb", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
