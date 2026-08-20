@@ -1196,6 +1196,36 @@ def test_live_wrapper_pid_none_when_pid_dead_or_unregistered(
     assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) is None
 
 
+def test_pid_tagged_matches_a_tag_ending_a_non_final_ps_line_not_a_longer_pid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `$` without re.MULTILINE matches only end-of-string, so when the
+    # tagged pid's ps row isn't the LAST line, the current pattern misses
+    # it - a false "untagged" that lets prune sweep a live loop.
+    monkeypatch.setattr(discovery, "_child_pids", lambda pid: [])
+    monkeypatch.setattr(
+        discovery.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="bash -c something\n_AUTOPILOT_LOOP=4321\npython3 worker.py\n",
+        ),
+    )
+    assert discovery._pid_tagged(999, 4321) is True
+
+    # A longer pid whose digits merely start with the tag pid's digits must
+    # still not match: looking for 432 must not match _AUTOPILOT_LOOP=4321.
+    monkeypatch.setattr(
+        discovery.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="_AUTOPILOT_LOOP=4321\n",
+        ),
+    )
+    assert discovery._pid_tagged(999, 432) is False
+
+
 # --- pause-requested: pending marker must be visible -------------------------
 
 
@@ -1588,23 +1618,34 @@ def test_exits_one_for_nonexistent_root_without_crashing(tmp_path: Path) -> None
 
 
 def test_guard_is_read_only_leaves_registry_and_root_untouched(tmp_path: Path) -> None:
+    """The pytest runner's own pid carries no _AUTOPILOT_LOOP tag, so a
+    registry entry for os.getpid() no longer resolves an incumbent now that
+    tagging is mandatory - that silently stopped covering the read-only
+    property of the LIVE-INCUMBENT (exit-0) path. Register a real tagged
+    child instead, per test_exits_zero_when_live_wrapper_owns_root above."""
     root = tmp_path / "myrepo"
     root.mkdir()
     loops_dir = tmp_path / "loops"
     loops_dir.mkdir()
-    entry_path = _write_json(
-        loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
-    )
-    before_entry_text = entry_path.read_text()
-    before_loops_names = sorted(p.name for p in loops_dir.iterdir())
-    before_root_names = sorted(p.name for p in root.iterdir())
+    proc = _spawn_forked_loop_shell()
+    try:
+        entry_path = _write_json(
+            loops_dir / "1.json",
+            {"pid": proc.pid, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+        )
+        before_entry_text = entry_path.read_text()
+        before_loops_names = sorted(p.name for p in loops_dir.iterdir())
+        before_root_names = sorted(p.name for p in root.iterdir())
 
-    _run_wrapper_alive_guard(root, loops_dir)
+        result = _run_wrapper_alive_guard(root, loops_dir)
 
-    assert sorted(p.name for p in loops_dir.iterdir()) == before_loops_names
-    assert sorted(p.name for p in root.iterdir()) == before_root_names
-    assert entry_path.read_text() == before_entry_text
+        assert result.returncode == 0
+        assert sorted(p.name for p in loops_dir.iterdir()) == before_loops_names
+        assert sorted(p.name for p in root.iterdir()) == before_root_names
+        assert entry_path.read_text() == before_entry_text
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
 
 
 def test_wrapper_alive_script_requires_root_arg() -> None:
