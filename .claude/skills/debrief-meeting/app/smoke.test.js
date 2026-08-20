@@ -186,24 +186,17 @@ test('an action with no id stays ticked by its own text, not its position in the
   assert.equal(checkbox.checked, true, 'a ticked action with no id should stay checked after rebuild')
 })
 
-// extract_ran plumbing: at this task's boundary nothing renders off it yet —
-// Brief/Decisions/Actions/Insights don't branch on it until later tasks — so
-// the two tests below can only prove the `?? true` fallback and the new
-// context field don't break mounting. They cannot distinguish a correct
-// implementation from a missing one; that discriminating, UI-observable
-// assertion belongs to the task that actually consumes extractRan.
-test('mounts cleanly when extract_ran is absent from the payload', () => {
+test('brief tiles show numeric counts and no not-run note when extract_ran is absent from the payload', async () => {
   const payload = structuredClone(PAYLOAD)
   delete payload.extract_ran
-  const { doc } = render(payload)
-  assert.ok(doc.querySelector('h1'), 'page did not mount')
-})
-
-test('mounts cleanly when extract_ran is explicitly false', () => {
-  const payload = structuredClone(PAYLOAD)
-  payload.extract_ran = false
-  const { doc } = render(payload)
-  assert.ok(doc.querySelector('h1'), 'page did not mount')
+  const { doc, openTab } = render(payload)
+  await openTab('Brief')
+  const tiles = [...doc.querySelectorAll('.tile')].map((t) => t.textContent.replace(/\s+/g, ''))
+  assert.ok(tiles.includes('1decisions'), `tiles were: ${tiles.join(' | ')}`)
+  assert.ok(tiles.includes('1actions'), `tiles were: ${tiles.join(' | ')}`)
+  assert.ok(tiles.includes('1openquestions'), `tiles were: ${tiles.join(' | ')}`)
+  assert.ok(!tiles.some((t) => t.includes('—')), `a tile showed the em-dash placeholder: ${tiles.join(' | ')}`)
+  assert.doesNotMatch(doc.querySelector('main').textContent, /extraction step hasn't run/)
 })
 
 // The two tests above only prove the plumbing doesn't crash. These are the

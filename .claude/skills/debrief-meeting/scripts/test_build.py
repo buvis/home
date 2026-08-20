@@ -74,7 +74,10 @@ def test_reports_extract_ran_false_and_warns_when_extract_json_missing(
     warnings = payload["transcript"]["warnings"]
     assert isinstance(warnings, list)
     assert all(isinstance(w, str) for w in warnings)
-    assert any("extract" in w.lower() and "run" in w.lower() for w in warnings)
+    assert (
+        "the extraction step (extract.json) hasn't run — building the transcript view only"
+        in warnings
+    )
 
 
 def test_truncated_extract_json_exits_with_single_line_message_naming_file(
@@ -87,18 +90,20 @@ def test_truncated_extract_json_exits_with_single_line_message_naming_file(
         json.dumps({"turns": []}), encoding="utf-8"
     )
     extract_file = workdir / "extract.json"
-    extract_file.write_text('{"decisions": [', encoding="utf-8")
+    invalid_json = '{"decisions": ['
+    extract_file.write_text(invalid_json, encoding="utf-8")
     monkeypatch.setattr(build, "TEMPLATE", _make_template(tmp_path))
     monkeypatch.setattr(sys, "argv", ["build.py", str(workdir)])
 
     with pytest.raises(SystemExit) as excinfo:
         build.main()
 
-    assert len(excinfo.value.args) == 1
-    message = excinfo.value.args[0]
-    assert isinstance(message, str)
-    assert str(extract_file) in message
-    assert "\n" not in message
+    with pytest.raises(json.JSONDecodeError) as decode_err:
+        json.loads(invalid_json)
+
+    assert excinfo.value.args == (
+        f"{extract_file} is not valid JSON: {decode_err.value}",
+    )
 
 
 def test_creates_missing_parent_directories_for_out_path(
@@ -133,7 +138,9 @@ def test_warns_about_unknown_extract_json_key(
 
     _run_main(tmp_path, monkeypatch, workdir, out_path)
 
-    warnings = _load_payload(out_path)["transcript"]["warnings"]
+    payload = _load_payload(out_path)
+    assert payload["extract_ran"] is True
+    warnings = payload["transcript"]["warnings"]
     assert any("bogus_key" in w for w in warnings)
 
 
