@@ -226,6 +226,27 @@ def _raise_timeout(signum, frame):
     raise HandlerTimeout()
 
 
+def _malformed_return_msg(route, result) -> str | None:
+    """Return a fault message if the handler's return is not a well-formed
+    (int, str, str) triple, else None."""
+    # This line is observed by test_teardown_race_no_false_timeout via
+    # len(result) on the handler's returned triple; keep the check calling
+    # len() on the result.
+    if (
+        isinstance(result, tuple)
+        and len(result) == 3
+        and isinstance(result[0], int)
+        and not isinstance(result[0], bool)
+        and isinstance(result[1], str)
+        and isinstance(result[2], str)
+    ):
+        return None
+    return (
+        f"[dispatch] {route.name}: malformed return {result!r}; "
+        f"expected a (int, str, str) 3-tuple"
+    )
+
+
 def _invoke(route, payload) -> tuple[int, str, str]:
     """Run one handler under a SIGALRM cap with crash/timeout isolation.
 
@@ -246,21 +267,8 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         result = mod.run(payload)
         if has_alarm:
             signal.alarm(0)  # handler DONE: cancel immediately
-        # This line is observed by test_teardown_race_no_false_timeout via
-        # len(result) on the handler's returned triple; keep the check calling
-        # len() on the result.
-        if not (
-            isinstance(result, tuple)
-            and len(result) == 3
-            and isinstance(result[0], int)
-            and not isinstance(result[0], bool)
-            and isinstance(result[1], str)
-            and isinstance(result[2], str)
-        ):
-            msg = (
-                f"[dispatch] {route.name}: malformed return {result!r}; "
-                f"expected a (int, str, str) 3-tuple"
-            )
+        msg = _malformed_return_msg(route, result)
+        if msg is not None:
             log(msg)
             return 0, "", msg + "\n"
         return result
