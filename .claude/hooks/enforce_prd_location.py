@@ -7,17 +7,16 @@ and ~/.claude/hooks/enforce-prd-location-bash.sh (Bash). Branches on
 """
 
 import os
-import re
+import shlex
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _common import allow, block, read_input  # noqa: E402
 
 LIFECYCLE_DIRS = ("backlog", "wip", "done")
-BASH_LIFECYCLE_RE = re.compile(r"(^|\s|=)(\./)?(backlog|wip|done)/")
 
 
 def _block_path_msg(rel: str) -> str:
@@ -80,37 +79,21 @@ def _check_file_path(file_path: str) -> str | None:
     """Return a block reason if file_path violates the rule, else None."""
     if not file_path:
         return None
-    # Normalize relative paths up-front so `_existing_ancestor` always resolves
-    # against an existing directory (matching the bash original's `dirname`
-    # walk reaching `.` when the path is relative).
-    file_path = os.path.abspath(file_path)
-    if "/dev/local/prds/" in file_path:
-        return None
-    probe = _existing_ancestor(file_path)
+    resolved = Path(file_path).resolve()
+    probe = _existing_ancestor(str(resolved))
     if probe is None:
         return None
     root = _repo_root(probe)
     if root is None:
         return None
-    # `file_path` is already absolute (normalized at the top of this function),
-    # so no further joining is required.
-    abs_path = file_path
-    # macOS aliases (/tmp -> /private/tmp) make string-prefix comparison against
-    # the git-toplevel root unreliable. Canonicalize by replacing the existing
-    # probe prefix with its resolved form, then re-appending the unresolved tail.
-    canon_probe = str(Path(probe).resolve())
-    if abs_path == probe:
-        canon_abs = canon_probe
-    elif abs_path.startswith(probe + "/"):
-        canon_abs = canon_probe + abs_path[len(probe):]
-    else:
+    try:
+        rel_parts = resolved.relative_to(Path(root).resolve()).parts
+    except ValueError:
         return None
-    if not canon_abs.startswith(root + "/"):
+    if rel_parts[:3] == ("dev", "local", "prds"):
         return None
-    rel = canon_abs[len(root) + 1:]
-    head = rel.split("/", 1)[0]
-    if head in LIFECYCLE_DIRS:
-        return _block_path_msg(rel)
+    if rel_parts and rel_parts[0] in LIFECYCLE_DIRS:
+        return _block_path_msg("/".join(rel_parts))
     return None
 
 
@@ -134,16 +117,29 @@ def _validate_bash_mode(data: dict) -> None:
     cmd = (data.get("tool_input") or {}).get("command") or ""
     if not cmd:
         return
+    try:
+        tokens = shlex.split(cmd, comments=True)
+    except ValueError:
+        return
     matches: list[str] = []
     seen: set[str] = set()
-    for m in BASH_LIFECYCLE_RE.finditer(cmd):
-        leading, dot_slash, name = m.group(1), m.group(2) or "", m.group(3)
-        # Reconstruct the matched token without the leading boundary char
-        token = f"{dot_slash}{name}/"
-        if token in seen:
-            continue
-        seen.add(token)
-        matches.append(token)
+    for token in tokens:
+        # A whitespace-split token can still hide a path after an = -
+        # VAR=backlog/x.md or --log-file=backlog/x.md - splitting on
+        # every = reproduces the old regex's (^|\s|=) boundary set
+        # (shlex.split already handles the ^/whitespace cases).
+        for segment in token.split("="):
+            candidate = segment[2:] if segment.startswith("./") else segment
+            parts = PurePosixPath(candidate).parts
+            if not parts:
+                continue
+            if parts[:3] == ("dev", "local", "prds"):
+                continue
+            if parts[0] in LIFECYCLE_DIRS:
+                key = f"{parts[0]}/"
+                if key not in seen:
+                    seen.add(key)
+                    matches.append(key)
     if matches:
         block(_block_bash_msg(sorted(matches)))
 
