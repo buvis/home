@@ -131,12 +131,39 @@ assert(diff.added >= 1) // dirty todo is new
 assert(diff.movers[0].d > 0) // score went up
 assert.equal(sinceLast([repo], null), null)
 
+// --- since-last-brief: a repo dropped from this run (skipped) is not "cleared" ---
+// It was collected last run and had an open todo, but this run it is absent from
+// `repos` entirely — we didn't check it, so we don't know its todos resolved.
+const droppedPrevRepo = {
+  owner: 'd', name: 'gone',
+  security: [{ kind: 'dependabot', severity: 'critical', title: 'pkg: bad', url: '' }],
+}
+const droppedDiff = sinceLast([], { generated_at: '2026-08-01T00:00:00+00:00', repos: [droppedPrevRepo] })
+assert.equal(droppedDiff.cleared, 0) // repo absent from current run -> not counted as cleared
+
+// --- since-last-brief: a repo present in both runs whose todos genuinely resolved IS cleared ---
+const resolvedPrevRepo = {
+  owner: 'e', name: 'ok',
+  security: [{ kind: 'dependabot', severity: 'critical', title: 'pkg: bad', url: '' }],
+}
+const resolvedNowRepo = { owner: 'e', name: 'ok', security: [] }
+const resolvedDiff = sinceLast([resolvedNowRepo], { generated_at: '2026-08-01T00:00:00+00:00', repos: [resolvedPrevRepo] })
+assert.equal(resolvedDiff.cleared, 1) // still present -> genuine resolution still counts
+
 // --- history trend ---
 const series = historySeries([
   { at: 'd1', repos: { 'o/r': { i: 2, p: 1, a: 0, f: 1 } } },
   { at: 'd2', repos: { 'o/r': { i: 1, p: 0, a: 0, f: 0 } } },
 ])
 assert.deepEqual(series.map((h) => h.open), [4, 1])
+
+// --- history trend: `incomplete` reflects the run's `skipped` count ---
+const incompleteSeries = historySeries([
+  { at: 'd1', repos: { 'o/r': { i: 1, p: 0, a: 0, f: 0 } }, skipped: 1 },
+  { at: 'd2', repos: { 'o/r': { i: 1, p: 0, a: 0, f: 0 } }, skipped: 0 },
+  { at: 'd3', repos: { 'o/r': { i: 1, p: 0, a: 0, f: 0 } } }, // pre-existing shape, no `skipped` key
+])
+assert.deepEqual(incompleteSeries.map((h) => h.incomplete), [true, false, false])
 
 // --- external PR lookup failure surfaces as its own todo, not silence ---
 const failedLookup = externalTodos({ error: 'gh auth login', review_requested: [], authored: [] })
