@@ -12,6 +12,7 @@
   let done = $state(loadDone())
   let hideDone = $state(false)
   let copied = $state('')
+  let failed = $state('')
 
   const byslug = $derived(new Map(repos.map((r) => [slug(r), r])))
   const todos = $derived(allTodos(repos, epics, external))
@@ -31,10 +32,32 @@
     done = s
     saveDone(s)
   }
+  function fallbackCopy(value) {
+    const box = document.createElement('textarea')
+    box.value = value
+    box.style.position = 'fixed'
+    box.style.opacity = '0'
+    document.body.append(box)
+    box.select()
+    const ok = document.execCommand('copy')
+    box.remove()
+    if (!ok) throw new Error('execCommand copy returned false')
+  }
+
   async function copy(items, label) {
     const open = items.filter((t) => !done.has(t.id))
     const md = open.map((t) => `- [ ] ${t.repo}: ${t.action}`).join('\n')
-    await navigator.clipboard.writeText(md)
+    try {
+      await navigator.clipboard.writeText(md)
+    } catch {
+      try {
+        fallbackCopy(md)
+      } catch {
+        failed = label
+        setTimeout(() => (failed = ''), 1500)
+        return
+      }
+    }
     copied = label
     setTimeout(() => (copied = ''), 1500)
   }
@@ -44,7 +67,7 @@
   <span class="count"><b>{openCount}</b> open follow-ups · checked state survives regeneration</span>
   <button class="chip" class:active={hideDone} onclick={() => (hideDone = !hideDone)}>hide done</button>
   <button class="chip" onclick={() => copy(todos, 'all')}>
-    {copied === 'all' ? '✓ copied' : 'copy open as markdown'}
+    {copied === 'all' ? '✓ copied' : failed === 'all' ? '✗ copy failed' : 'copy open as markdown'}
   </button>
 </div>
 
@@ -53,7 +76,7 @@
     <section class="sec">
       <h2 class="u-{u}">
         {u} · {all.filter((t) => !done.has(t.id)).length} open
-        <button class="chip mini" onclick={() => copy(all, u)}>{copied === u ? '✓' : 'copy'}</button>
+        <button class="chip mini" onclick={() => copy(all, u)}>{copied === u ? '✓' : failed === u ? '✗' : 'copy'}</button>
       </h2>
       {#each shown as t (t.id)}
         <div class="todo" class:isdone={done.has(t.id)}>
