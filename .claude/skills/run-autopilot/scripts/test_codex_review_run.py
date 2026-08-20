@@ -8,7 +8,9 @@ doubt phase relies on for its Claude fallback.
 Stdlib-only unittest.
 """
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import tempfile
@@ -595,6 +597,72 @@ class ExitContractTests(unittest.TestCase):
             out = ap / "codex-review-output.md"
             self.assertTrue(out.exists())
             self.assertIn("D1: pass, D2: pass", out.read_text())
+
+    def test_clean_run_reports_unwritable_output_path(self) -> None:
+        """A write failure must be reported, not silently swallowed: exit
+        stays 0 (codex itself succeeded) but the progress stream must name
+        the target path and the error instead of going quiet about a lost
+        review."""
+        with tempfile.TemporaryDirectory() as work:
+            ap = Path(work) / "dev" / "local" / "autopilot"
+            ap.mkdir(parents=True)
+            out = ap / "codex-review-output.md"
+            out.mkdir()  # write_text() -> IsADirectoryError (an OSError)
+            body = (
+                "printf '%s\\n' "
+                '\'{"msg":{"type":"agent_message","message":"REVIEW TEXT"}}\''
+                "\nexit 0"
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                rc = self._run_with_fake_codex(body, cwd=Path(work))
+            self.assertEqual(rc, 0)
+            printed = captured.getvalue()
+            self.assertIn(out.name, printed)
+            self.assertTrue(
+                any(
+                    marker in printed.lower()
+                    for marker in ("error", "fail", "cannot", "could not")
+                ),
+                f"expected an error indication in captured stdout, got: {printed!r}",
+            )
+
+    def test_failing_run_reports_unwritable_output_path(self) -> None:
+        """Same write-failure reporting requirement on the exit-4 branch:
+        the return code must stay 4 (codex's own failure), but the write
+        failure must still be surfaced, not swallowed."""
+        with tempfile.TemporaryDirectory() as work:
+            ap = Path(work) / "dev" / "local" / "autopilot"
+            ap.mkdir(parents=True)
+            out = ap / "codex-review-output.md"
+            out.mkdir()  # write_text() -> IsADirectoryError (an OSError)
+            body = (
+                "printf '%s\\n' "
+                '\'{"msg":{"type":"agent_message","message":"REVIEW TEXT"}}\''
+                "\nexit 7"
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                rc = self._run_with_fake_codex(body, cwd=Path(work))
+            self.assertEqual(rc, 4)
+            printed = captured.getvalue()
+            self.assertIn(out.name, printed)
+            # Bind the error marker to the line naming the path, not just
+            # anywhere in stdout: the pre-existing "codex FAILED — exit
+            # code 7" progress line already contains "fail" regardless of
+            # whether the write failure itself is ever reported, so a
+            # blob-wide check would pass even with the write silently
+            # swallowed.
+            lines_with_path = [ln for ln in printed.splitlines() if out.name in ln]
+            self.assertTrue(
+                any(
+                    marker in ln.lower()
+                    for ln in lines_with_path
+                    for marker in ("error", "fail", "cannot", "could not")
+                ),
+                f"expected an error indication alongside {out.name!r}, "
+                f"got: {lines_with_path!r}",
+            )
 
     def test_codex_stdin_is_devnull(self) -> None:
         """codex reads stdin IN ADDITION to its prompt arg — an inherited
