@@ -196,7 +196,7 @@ def run_collector(tmp_path, monkeypatch, resolvable_names, skip_names):
     monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
     out_dir = tmp_path / "out"
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--no-fetch", "--out", str(out_dir)]
+        sys, "argv", ["collect.py", "--no-git-fetch", "--out", str(out_dir)]
     )
     main()
     return paths, out_dir
@@ -341,3 +341,90 @@ def test_main_leaves_data_json_unchanged_when_prev_tmp_write_fails(
         run_collector(tmp_path, monkeypatch, ["alpha"], [])
 
     assert (out_dir / "data.json").read_text() == old_content
+
+
+def test_offline_makes_zero_subprocess_calls(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
+
+    def explode(*args, **kwargs):
+        raise AssertionError(f"subprocess.run should not be called: {args!r} {kwargs!r}")
+
+    monkeypatch.setattr(collect.subprocess, "run", explode)
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+    )
+    main()
+
+
+def test_offline_leaves_cached_data_json_byte_for_byte_unchanged(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    content = write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
+
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+    )
+    main()
+
+    assert (out_dir / "data.json").read_text() == content
+
+
+def test_offline_without_cached_data_json_exits_with_error(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    message = str(exc_info.value.code)
+    assert message
+    assert str(out_dir / "data.json") in message
+    assert "collect.py" in message
+
+
+def test_offline_does_not_write_history_digest_or_prev_snapshot(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
+
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+    )
+    main()
+
+    assert not (out_dir / "history.jsonl").exists()
+    assert not (out_dir / "commits-digest.md").exists()
+    assert not (out_dir / "data-prev.json").exists()
+
+
+def test_no_git_fetch_flag_passes_fetch_false_to_collect_repo(tmp_path, monkeypatch):
+    paths = make_registry(tmp_path, ["alpha"])
+    monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
+    monkeypatch.setattr(collect, "run", make_fake_run(set()))
+    fetch_values = []
+
+    def fake_collect_repo(path, days, fetch):
+        fetch_values.append(fetch)
+        return {"owner": "acme", "name": Path(path).name, "errors": []}
+
+    monkeypatch.setattr(collect, "collect_repo", fake_collect_repo)
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--no-git-fetch", "--out", str(out_dir)]
+    )
+    main()
+
+    assert fetch_values == [False]
+
+
+def test_no_fetch_old_spelling_is_rejected_by_argparse(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--no-fetch", "--out", str(tmp_path / "out")]
+    )
+
+    with pytest.raises(SystemExit):
+        main()
