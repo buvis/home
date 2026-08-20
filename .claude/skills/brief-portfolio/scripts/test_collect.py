@@ -465,3 +465,78 @@ def test_no_fetch_old_spelling_is_rejected_by_argparse(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit):
         main()
+
+
+def test_collect_repo_returns_skip_stub_when_remote_get_url_times_out(monkeypatch):
+    def fake_run(cmd, cwd=None, timeout=120):
+        if cmd[0] == "git" and cmd[1] == "remote":
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(collect, "run", fake_run)
+    result = collect_repo("/repos/acme/widget", 60, False)
+    assert result["skipped"]
+    assert result["owner"] == "acme"
+    assert result["name"] == "widget"
+
+
+def test_collect_repo_records_meta_os_error_without_raising(monkeypatch):
+    os_exc = OSError("too many open files")
+
+    def fake_run(cmd, cwd=None, timeout=120):
+        if cmd[0] == "git" and cmd[1] == "remote":
+            return "git@github.com:acme/widget.git\n"
+        if cmd[0] == "gh":
+            raise os_exc
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(collect, "run", fake_run)
+    result = collect_repo("/repos/acme/widget", 60, False)
+    assert result is not None
+    assert "skipped" not in result
+    assert any(str(os_exc) in e for e in result["errors"])
+
+
+def test_main_includes_skipped_repos_in_known_set_for_external_classification(
+    tmp_path,
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_collect_external(known):
+        captured["known"] = known
+        return {"review_requested": [], "authored": []}
+
+    monkeypatch.setattr(collect, "collect_external", fake_collect_external)
+    _, out_dir = run_collector(tmp_path, monkeypatch, ["alpha"], ["broken"])
+
+    data = json.loads((out_dir / "data.json").read_text())
+    skip_stub = data["skipped"][0]
+    expected_slug = f'{skip_stub["owner"]}/{skip_stub["name"]}'
+    assert expected_slug in captured["known"]
+
+
+def test_main_completes_when_existing_data_json_is_invalid_json(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "data.json").write_text("{not valid json")
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert "generated_at" in new_data
+    assert len(new_data["repos"]) == 1
+    assert not (out_dir / "data-prev.json").exists()
+
+
+def test_main_completes_when_existing_data_json_lacks_generated_at(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "data.json").write_text(json.dumps({"marker": "legacy-snapshot"}))
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert "generated_at" in new_data
+    assert len(new_data["repos"]) == 1
+    assert not (out_dir / "data-prev.json").exists()
