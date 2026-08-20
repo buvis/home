@@ -20,7 +20,7 @@ loaded) carries the shared mechanics and the test-pinned invariants.
 
 5. Delete all tasks from the completed PRD: run `python3 ~/.claude/skills/run-autopilot/scripts/statectl.py dev/local/autopilot/state.json tasks-clear`. This prevents stale tasks from triggering Phase 2's skip logic on the next PRD.
 
-6. Append items to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (create if missing). Collect from the current state file:
+6. Run `autopilot defer --prd <filename> --batch <batch_id> --json '<record>'` for each item to append to `dev/local/autopilot/deferred/{batch_id}-deferred.json` (created if missing). Collect from the current state file:
    - `deferred_decisions` with status `"pending"` or `"deferred"` -> type `"deferred_decision"` (preserve original `type` field if present, e.g. `"doubt-overflow"`)
    - `doubts` with status `"pending"` -> type `"doubt"`
    - `autonomous_decisions` with `research` field -> type `"autonomous_research"` (for user awareness at batch end)
