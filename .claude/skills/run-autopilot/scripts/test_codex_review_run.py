@@ -348,6 +348,75 @@ class MainArgErrorTests(unittest.TestCase):
             self.assertEqual(dr.main(["desloppify_run.py", missing]), 2)
 
 
+class EventSignalsFailureTests(unittest.TestCase):
+    """`_event_signals_failure` must judge codex's OWN system-level
+    reporting, never the reviewer's generated content. A typed `msg`/`item`
+    envelope (agent_message, exec_command_begin, patch_apply, ...) is judged
+    only by its own type field; the marker-word scan runs solely over a
+    bare, untyped top-level dict — the shape codex's own usage-limit/quota
+    notices arrive in. The old behavior scanned every event's JSON blob for
+    these markers regardless of shape, so a review that merely DISCUSSED
+    quota/rate-limit handling was misclassified as a codex-side failure —
+    the bug this fixes.
+    """
+
+    def test_grep_argv_mentioning_quota_is_not_a_failure(self) -> None:
+        obj = {
+            "msg": {
+                "type": "exec_command_begin",
+                "command": ["grep", "quota", "billing.py"],
+            }
+        }
+        self.assertFalse(dr._event_signals_failure(obj))
+
+    def test_finding_prose_mentioning_quota_is_not_a_failure(self) -> None:
+        obj = {
+            "msg": {
+                "type": "agent_message",
+                "message": "the quota check in billing.py is unbounded",
+            }
+        }
+        self.assertFalse(dr._event_signals_failure(obj))
+
+    def test_finding_prose_mentioning_rate_limit_is_not_a_failure(self) -> None:
+        obj = {
+            "msg": {
+                "type": "agent_message",
+                "message": "rate limit handling looks correct",
+            }
+        }
+        self.assertFalse(dr._event_signals_failure(obj))
+
+    def test_file_path_containing_quota_is_not_a_failure(self) -> None:
+        obj = {"msg": {"type": "patch_apply", "path": "src/quota_check.py"}}
+        self.assertFalse(dr._event_signals_failure(obj))
+
+    def test_genuinely_clean_event_is_not_a_failure(self) -> None:
+        obj = {"msg": {"type": "agent_message", "message": "no issues found"}}
+        self.assertFalse(dr._event_signals_failure(obj))
+
+    def test_bare_usage_limit_message_is_a_failure(self) -> None:
+        """codex's own usage-limit notice arrives as an untyped top-level
+        dict with no `type`/`event`/`kind` and no `msg`/`item` envelope —
+        the one shape the marker scan must still catch."""
+        obj = {"message": "You have hit your usage limit"}
+        self.assertTrue(dr._event_signals_failure(obj))
+
+    def test_wrapped_error_type_event_is_a_failure(self) -> None:
+        """A genuine codex-side error, wrapped in the standard `msg`
+        envelope, must still be caught by its `type` field — scoping the
+        marker scan to the bare shape must not blind the classifier to real
+        typed error events."""
+        obj = {"msg": {"type": "error", "message": "sandbox denied write"}}
+        self.assertTrue(dr._event_signals_failure(obj))
+
+    def test_non_dict_input_is_not_a_failure(self) -> None:
+        """A bare JSON string/number/list line (not the object shape codex's
+        --json protocol emits in practice) returns False unconditionally,
+        even when it contains a marker word."""
+        self.assertFalse(dr._event_signals_failure("quota exceeded"))
+
+
 class ExitContractTests(unittest.TestCase):
     """The doubt phase relies on an honest exit contract so it can fall back
     to a Claude review: 0=ok, 3=codex unavailable, 4=codex ran but failed
@@ -429,6 +498,93 @@ class ExitContractTests(unittest.TestCase):
             out = ap / "codex-review-output.md"
             self.assertTrue(out.exists())
             self.assertIn("D1: pass", out.read_text())
+
+    def test_quota_mentioning_finding_completes_clean_and_writes_output(
+        self,
+    ) -> None:
+        """The bug being fixed: a clean review whose OWN finding text
+        mentions "quota" must complete with exit 0 and its output on disk —
+        not be misclassified as a codex-side usage-limit failure."""
+        with tempfile.TemporaryDirectory() as work:
+            ap = Path(work) / "dev" / "local" / "autopilot"
+            ap.mkdir(parents=True)
+            body = (
+                "printf '%s\\n' "
+                '\'{"msg":{"type":"agent_message","message":'
+                '"Finding 1: the quota check in billing.py is unbounded. '
+                'Verdict: REWORK."}}\'\nexit 0'
+            )
+            rc = self._run_with_fake_codex(body, cwd=Path(work))
+            self.assertEqual(rc, 0)
+            out = ap / "codex-review-output.md"
+            self.assertTrue(out.exists())
+            self.assertIn(
+                "the quota check in billing.py is unbounded", out.read_text()
+            )
+
+    def test_rate_limit_mentioning_finding_returns_0(self) -> None:
+        body = (
+            "printf '%s\\n' "
+            '\'{"msg":{"type":"agent_message","message":'
+            '"rate limit handling looks correct"}}\'\nexit 0'
+        )
+        self.assertEqual(self._run_with_fake_codex(body), 0)
+
+    def test_exec_command_argv_mentioning_quota_returns_0(self) -> None:
+        body = (
+            "printf '%s\\n' "
+            '\'{"msg":{"type":"exec_command_begin","command":'
+            '["grep","quota","billing.py"]}}\'\nexit 0'
+        )
+        self.assertEqual(self._run_with_fake_codex(body), 0)
+
+    def test_patch_path_mentioning_quota_returns_0(self) -> None:
+        body = (
+            "printf '%s\\n' "
+            '\'{"msg":{"type":"patch_apply","path":"src/quota_check.py"}}\''
+            "\nexit 0"
+        )
+        self.assertEqual(self._run_with_fake_codex(body), 0)
+
+    def test_review_output_written_even_when_codex_exits_nonzero(self) -> None:
+        """Acceptance: review text captured before a failure must still land
+        on disk — a caller falling back to Claude on exit 4 must not also
+        lose output codex already produced."""
+        with tempfile.TemporaryDirectory() as work:
+            ap = Path(work) / "dev" / "local" / "autopilot"
+            ap.mkdir(parents=True)
+            body = (
+                "printf '%s\\n' "
+                '\'{"msg":{"type":"agent_message","message":'
+                '"D1: pass, D2: pass"}}\'\nexit 7'
+            )
+            rc = self._run_with_fake_codex(body, cwd=Path(work))
+            self.assertEqual(rc, 4)
+            out = ap / "codex-review-output.md"
+            self.assertTrue(out.exists())
+            self.assertIn("D1: pass, D2: pass", out.read_text())
+
+    def test_review_output_written_even_when_usage_limit_event_follows(
+        self,
+    ) -> None:
+        """Same write-before-return guarantee when the failure signal is a
+        genuine usage-limit event rather than a nonzero exit — the review
+        text captured before it must still be kept."""
+        with tempfile.TemporaryDirectory() as work:
+            ap = Path(work) / "dev" / "local" / "autopilot"
+            ap.mkdir(parents=True)
+            body = (
+                "printf '%s\\n' "
+                '\'{"msg":{"type":"agent_message","message":'
+                '"D1: pass, D2: pass"}}\'\n'
+                "printf '%s\\n' "
+                '\'{"message":"You have hit your usage limit"}\'\nexit 0'
+            )
+            rc = self._run_with_fake_codex(body, cwd=Path(work))
+            self.assertEqual(rc, 4)
+            out = ap / "codex-review-output.md"
+            self.assertTrue(out.exists())
+            self.assertIn("D1: pass, D2: pass", out.read_text())
 
     def test_codex_stdin_is_devnull(self) -> None:
         """codex reads stdin IN ADDITION to its prompt arg — an inherited
