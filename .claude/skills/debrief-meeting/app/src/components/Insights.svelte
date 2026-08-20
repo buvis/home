@@ -2,15 +2,28 @@
   import { getContext } from 'svelte'
   import Cue from './Cue.svelte'
 
-  const { transcript, extract } = getContext('meeting')
+  const { transcript, extract, extractRan } = getContext('meeting')
   const entities = extract.entities ?? {}
   const groups = Object.entries(entities).filter(
     ([key, list]) => key !== 'metrics' && Array.isArray(list) && list.length,
   )
   const label = (item) =>
     typeof item === 'string' ? item : [item.name, item.role].filter(Boolean).join(' — ')
+  const hasContent = Boolean(
+    extract.risks?.length ||
+      extract.blockers?.length ||
+      extract.assumptions?.length ||
+      extract.disagreements?.length ||
+      extract.quotes?.length ||
+      entities.metrics?.length ||
+      groups.length ||
+      extract.glossary?.length ||
+      extract.quality ||
+      transcript.corrections?.length,
+  )
 </script>
 
+{#if hasContent}
 {#if extract.risks?.length}
   <section class="sec">
     <h2>Risks raised</h2>
@@ -195,13 +208,22 @@
             <span class="mono">{fix.to}</span>
           {:else if fix.kind === 'caption-dedup'}
             Dropped {fix.count} repeated live-caption lines
+          {:else if fix.applied === 0}
+            <span class="lbl sev-warning">not found</span>
+            <span class="mono">{fix.from}</span> → <span class="mono">{fix.to}</span> matched nothing
+            {#if fix.reason}<span class="muted"> — {fix.reason}</span>{/if}
           {:else}
             Replaced <span class="mono">{fix.from}</span> with <span class="mono">{fix.to}</span>
-            {#if fix.applied}<span class="muted"> ({fix.applied}×)</span>{/if}
+            <span class="muted"> ({fix.applied}×)</span>
             {#if fix.reason}<span class="muted"> — {fix.reason}</span>{/if}
           {/if}
         </li>
       {/each}
     </ul>
   </section>
+{/if}
+{:else if !extractRan}
+  <p class="empty">The extraction step hasn't run — nothing to show yet.</p>
+{:else}
+  <p class="empty">Nothing to show for this meeting.</p>
 {/if}
