@@ -586,3 +586,43 @@ def test_main_completes_when_existing_data_json_has_unparseable_generated_at(
     assert "generated_at" in new_data
     assert len(new_data["repos"]) == 1
     assert not (out_dir / "data-prev.json").exists()
+
+
+def test_main_completes_when_existing_data_json_is_unreadable(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    write_snapshot(out_dir / "data.json", "2026-08-01T00:00:00+00:00", "unreadable")
+
+    original_read_text = Path.read_text
+    data_json_path = str(out_dir / "data.json")
+
+    def failing_read_text(self, *args, **kwargs):
+        if str(self) == data_json_path:
+            raise OSError("permission denied")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", failing_read_text)
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    monkeypatch.setattr(Path, "read_text", original_read_text)
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert "generated_at" in new_data
+    assert len(new_data["repos"]) == 1
+    assert not (out_dir / "data-prev.json").exists()
+
+
+def test_main_warns_on_stderr_naming_baseline_when_existing_data_json_is_unusable(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "data.json").write_text("{not valid json")
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    captured = capsys.readouterr()
+    warn_lines = [line for line in captured.err.splitlines() if "WARN" in line]
+    assert any("data.json" in line for line in warn_lines)
