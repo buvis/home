@@ -18,6 +18,10 @@ from _common import allow, block, read_input  # noqa: E402
 
 LIFECYCLE_DIRS = ("backlog", "wip", "done")
 
+FS_MUTATING_COMMANDS = frozenset(
+    {"mv", "cp", "rm", "rsync", "ln", "mkdir", "rmdir", "scp", "tar"}
+)
+
 
 def _block_path_msg(rel: str) -> str:
     return f"""\
@@ -121,6 +125,11 @@ def _validate_bash_mode(data: dict) -> None:
         tokens = shlex.split(cmd, comments=True)
     except ValueError:
         return
+    # ponytail: token-presence, not argument-position - a compound command
+    # whose fs-mutating verb is bundled oddly can still slip a bare word
+    # past, and an unrelated bare word in a command that happens to contain
+    # `rm` will block; upgrade path is per-command argument-position parsing.
+    has_fs_mutator = any(t in FS_MUTATING_COMMANDS for t in tokens)
     matches: list[str] = []
     seen: set[str] = set()
     for token in tokens:
@@ -136,7 +145,7 @@ def _validate_bash_mode(data: dict) -> None:
             if parts[:3] == ("dev", "local", "prds"):
                 continue
             if parts[0] in LIFECYCLE_DIRS and (
-                len(parts) > 1 or segment.endswith("/") or parts[0] != "done"
+                len(parts) > 1 or segment.endswith("/") or has_fs_mutator
             ):
                 key = f"{parts[0]}/"
                 if key not in seen:
