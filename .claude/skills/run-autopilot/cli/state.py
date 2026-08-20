@@ -58,6 +58,15 @@ class BackupError(Exception):
     """restore() found no usable `.bak`: missing, corrupt, or schema-invalid."""
 
 
+class FutureSchemaError(StateError):
+    """transaction() found schema_version newer than schema.SCHEMA_VERSION.
+
+    Refused before fn runs and before anything durable is touched: an older
+    autopilot writing a state a newer one already advanced past must not
+    mutate it out from under the newer version's assumptions.
+    """
+
+
 def read_and_parse(path: Path) -> tuple[bytes, dict]:
     try:
         raw = path.read_bytes()
@@ -134,6 +143,10 @@ def transaction(
         # commit land in the gap and get silently overwritten.
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         raw, current = read_and_parse(path)
+        if schema.version_status(current) == "future":
+            raise FutureSchemaError(
+                f"state schema_version is newer than this autopilot supports: {path}"
+            )
         new_state = fn(current)
         validator(new_state)
         new_state["schema_version"] = schema.SCHEMA_VERSION
