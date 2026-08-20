@@ -7,7 +7,7 @@
   import Strip from './Strip.svelte'
   import Icon from './Icon.svelte'
 
-  let { repos, agg, epics, sinceDays, prev, history, external, skillAdherence, onselect, gototab } = $props()
+  let { repos, agg, epics, sinceDays, prev, history, external, skillAdherence, skipped = [], onselect, gototab } = $props()
   const scored = getContext('scored')
   const slots = getContext('slots')
 
@@ -22,7 +22,7 @@
   const byslug = $derived(new Map(repos.map((r) => [slug(r), r])))
   const wins = $derived(quickWins(allTodos(repos, epics, external), loadDone()))
   const delta = $derived(sinceLast(repos, prev))
-  const trend = $derived(historySeries(history))
+  const trend = $derived(historySeries(history).filter((h) => !h.incomplete))
 
   const STATS = $derived([
     ['commit', agg.commits, 'commits', 'activity'],
@@ -54,6 +54,12 @@
         </button>
       {/each}
     </div>
+    {#if skipped.length}
+      <p class="skiplist">
+        <b class="sev-warning">{skipped.length}</b> not collected:
+        {skipped.map((r) => `${r.owner}/${r.name}`).join(', ')}
+      </p>
+    {/if}
   </section>
 
   <section class="glass bar wins">
@@ -357,4 +363,5 @@
     pointer-events: none;
   }
   .empty { color: var(--muted); }
+  .skiplist { margin: 4px 0 0; font-size: 12px; color: var(--ink-2); }
 </style>

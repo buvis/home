@@ -346,8 +346,11 @@ export function sinceLast(repos, prev) {
     .map((r) => ({ r, d: attention(r).score - attention(prevBy.get(slug(r))).score }))
     .filter((m) => m.d !== 0)
     .toSorted((a, b) => Math.abs(b.d) - Math.abs(a.d))
+  const nowSlugs = new Set(repos.map(slug))
   const nowIds = new Set(todosFor(repos).map((t) => t.id))
-  const prevIds = new Set(todosFor(prev.repos).map((t) => t.id))
+  // A repo dropped this run (now skipped, not just quiet) must not look like
+  // it "cleared" its old todos — we didn't check, we don't know.
+  const prevIds = new Set(todosFor(prev.repos).filter((t) => nowSlugs.has(t.repo)).map((t) => t.id))
   return {
     at: prev.generated_at,
     movers,
@@ -361,6 +364,7 @@ export const historySeries = (history) =>
   (history ?? []).map((h) => ({
     at: h.at,
     open: Object.values(h.repos ?? {}).reduce((s, c) => s + (c.i ?? 0) + (c.p ?? 0) + (c.a ?? 0) + (c.f ?? 0), 0),
+    incomplete: (h.skipped ?? 0) > 0,
   }))
 
 export function epicsFor(repo, epics) {
