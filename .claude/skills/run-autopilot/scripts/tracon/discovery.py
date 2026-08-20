@@ -11,6 +11,8 @@ import csv
 import datetime as dt
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 from collections.abc import Sequence
@@ -74,6 +76,41 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def _child_pids(pid: int) -> list[str]:
+    try:
+        out = subprocess.run(
+            ["pgrep", "-P", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [token for token in out.split() if token.isdigit()]
+
+
+def _pid_tagged(pid: int, tag_pid: int) -> bool:
+    """The recycled-pid guard: a live pid counts as a loop only when its
+    ps env - or a direct child's - carries its own _AUTOPILOT_LOOP=<pid>
+    tag. Children count because ps reports the EXEC-time environment: the
+    tracon front-end forks the loop shell (whose pid the registry stores,
+    since killpg needs the group leader) and exports the tag only after
+    that fork, so the tag shows up on the exec'd driver beneath it and
+    never on the shell itself. Checking the shell alone swept live loops
+    out of the registry, blinding tracon to them."""
+    pids = [str(pid), *_child_pids(pid)]
+    try:
+        out = subprocess.run(
+            ["ps", "ewww", "-p", ",".join(pids), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return re.search(rf"_AUTOPILOT_LOOP={tag_pid}( |$)", out) is not None
+
+
 def read_registry(loops_dir: Path | None = None) -> list[Wrapper]:
     loops_dir = LOOPS_DIR if loops_dir is None else loops_dir
     try:
@@ -113,7 +150,11 @@ def live_wrapper_pid(root: Path, loops_dir: Path | None = None) -> int | None:
     """PID of the live registered wrapper for this root, else None."""
     resolved_root = root.resolve()
     for wrapper in read_registry(loops_dir=loops_dir):
-        if wrapper.root.resolve() == resolved_root and pid_alive(wrapper.pid):
+        if (
+            wrapper.root.resolve() == resolved_root
+            and pid_alive(wrapper.pid)
+            and _pid_tagged(wrapper.pid, wrapper.pid)
+        ):
             return wrapper.pid
     return None
 
