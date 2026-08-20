@@ -105,7 +105,9 @@ class InitTests(_TempDirTestCase):
         self.assertEqual(second.returncode, 7)
         self.assertEqual(state_path.read_bytes(), before)
 
-    def test_missing_state_parent_dir_exits_2_not_a_traceback_crash(self) -> None:
+    def test_missing_state_parent_dir_exits_11_naming_the_directory_and_fix(
+        self,
+    ) -> None:
         state_path = self.root / "no-such-dir" / "state.json"
 
         proc = _run(
@@ -113,9 +115,11 @@ class InitTests(_TempDirTestCase):
             cwd=self.root,
         )
 
-        # A crash from an uncaught exception exits 1, not 2 - pinning
-        # returncode to exactly 2 rules that out.
-        self.assertEqual(proc.returncode, 2)
+        # A crash from an uncaught exception exits 1, not 11 - pinning
+        # returncode to exactly 11 rules that out.
+        self.assertEqual(proc.returncode, 11)
+        self.assertIn(str(state_path.parent), proc.stderr)
+        self.assertIn("Phase 0 creates the lifecycle dirs", proc.stderr)
 
 
 class StallTests(_TempDirTestCase):
