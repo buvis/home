@@ -108,7 +108,7 @@ def _pid_tagged(pid: int, tag_pid: int) -> bool:
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return False
-    return re.search(rf"_AUTOPILOT_LOOP={tag_pid}( |$)", out) is not None
+    return re.search(rf"_AUTOPILOT_LOOP={tag_pid}( |$)", out, re.MULTILINE) is not None
 
 
 def read_registry(loops_dir: Path | None = None) -> list[Wrapper]:

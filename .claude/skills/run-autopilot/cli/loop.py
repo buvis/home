@@ -251,7 +251,7 @@ def _pid_tagged(pid: int, tag_pid: int) -> bool:
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return False
-    return re.search(rf"_AUTOPILOT_LOOP={tag_pid}( |$)", out) is not None
+    return re.search(rf"_AUTOPILOT_LOOP={tag_pid}( |$)", out, re.MULTILINE) is not None
 
 
 def prune_registry(loops_dir: Path, own_pid: int) -> None:
@@ -266,13 +266,13 @@ def prune_registry(loops_dir: Path, own_pid: int) -> None:
         return
     for path in entries:
         try:
-            text = path.read_text(encoding="utf-8")
+            raw = path.read_bytes()
         except OSError:
             continue  # unreadable (permission/ownership) - leave alone, not corrupt
         try:
-            data = json.loads(text)
+            data = json.loads(raw)
         except ValueError:
-            data = None
+            data = None  # unparseable/undecodable - garbage, not unreadable
         pid = data.get("pid") if isinstance(data, dict) else None
         if pid == own_pid:
             continue
