@@ -135,12 +135,16 @@ _STUB_LOOPS_DIR=$(mktemp -d)
 _DIRS+=("$_STUB_LOOPS_DIR")
 
 # ── global stubs (win over external commands; defined AFTER source) ───────────
-# Never let a scenario touch the real machine: no memory-pressure wait, no real
-# notifications/purges, no tracon TUI. The python3 stub redirects ONLY the
-# autopilot-dir resolution into the sandbox; the fall-through arm matters, since
-# the helper under test calls python3 for fablectl.py as well.
+# Never let a scenario touch the real machine: no tracon TUI here, and no real
+# sysctl/pgrep/notify.py/purge_devlocal.py either — but those four are NOT
+# interceptable from this block. The loop body is a separate python3 process, and
+# a bash function is not on a subprocess's PATH, so the stubs for them live
+# per-sandbox instead: bin/ executables for the bare-name calls, and a sandboxed
+# $HOME for the two absolute Path.home()-derived script paths (see make_sandbox
+# and run_sandboxed). The python3 stub below redirects ONLY the autopilot-dir
+# resolution into the sandbox; the fall-through arm matters, since the helper
+# under test calls python3 for fablectl.py as well.
 export _AUTOPILOT_TRACON=0
-sysctl() { echo 1; }                                   # no memory pressure
 
 # The tracon front-end, replaced by a RECORDER: it never launches a TUI, it just
 # writes proof that the tracon branch was reached and returns 0. Scenario 15 runs
@@ -178,9 +182,6 @@ python3() {
       # The recorder observes — the real fablectl still does all the work.
       printf 'fablectl %s\n' "$*" >>"$_STUB_AP_DIR/fablectl-invocations.log"
       command python3 "$@" ;;
-    *detect_usage_limit.py*) return 1 ;;                # not usage-limited
-    *notify.py*)             : ;;                       # swallow notifications
-    *purge_devlocal.py*)     : ;;                       # swallow the drained-path purge
     *)                       command python3 "$@" ;;    # real python3 (incl. fablectl show)
   esac
 }
@@ -214,6 +215,65 @@ EOF
   chmod +x "$dir/bin/claude"
 }
 
+# write_stub_sysctl <dir> — the loop's memory gate runs `sysctl -n kern.…` from a
+# separate python3 process, which resolves the bare name through $PATH. Only a
+# real executable in the sandbox's bin/ can intercept that; a bash function in
+# this suite never enters the child's PATH, which is why the memory gate used to
+# reach the real host. It logs, then answers pressure level 1 (no pressure).
+write_stub_sysctl() {
+  local dir="$1"
+  cat >"$dir/bin/sysctl" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+printf 'sysctl %s\n' "$*" >>"$DIR/sysctl-invocations.log"
+echo 1
+exit 0
+EOF
+  chmod +x "$dir/bin/sysctl"
+}
+
+# write_stub_pgrep <dir> — same PATH mechanism. The loop's orphan cleanup scans
+# the WHOLE host process table with `pgrep -u <user> -P 1` and SIGHUPs anything
+# carrying its own loop tag. Empty output means "no orphans", so the scan returns
+# before its own `ps` call and before any kill can reach a real process.
+write_stub_pgrep() {
+  local dir="$1"
+  cat >"$dir/bin/pgrep" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+printf 'pgrep %s\n' "$*" >>"$DIR/pgrep-invocations.log"
+exit 0
+EOF
+  chmod +x "$dir/bin/pgrep"
+}
+
+# write_stub_notify <dir>, write_stub_purge <dir> — the loop runs these two as
+# [sys.executable, <absolute Path.home()-derived script>, …]. Both argv entries
+# are already-resolved absolute paths by then, so NO $PATH entry can intercept
+# either one; the sandboxed $HOME set by run_sandboxed is the only lever. Each is
+# read as source by sys.executable, never exec'd, so no shebang and no chmod.
+write_stub_notify() {
+  local dir="$1"
+  cat >"$dir/.home/.claude/hooks/notify.py" <<'EOF'
+import sys
+from pathlib import Path
+Path(__file__).with_name("notify-invocations.log").open("a").write(
+    " ".join(sys.argv[1:]) + "\n"
+)
+EOF
+}
+
+write_stub_purge() {
+  local dir="$1"
+  cat >"$dir/.home/.claude/skills/purge-devlocal/scripts/purge_devlocal.py" <<'EOF'
+import sys
+from pathlib import Path
+Path(__file__).with_name("purge-invocations.log").open("a").write(
+    " ".join(sys.argv[1:]) + "\n"
+)
+EOF
+}
+
 # make_sandbox — sets $SBOX to a fresh repo-shaped sandbox and registers it for
 # cleanup. LEDGER is the ledger path the helper must derive:
 # <ap_dir>/ledger/fable-requests.json.
@@ -223,8 +283,22 @@ make_sandbox() {
   mkdir -p "$SBOX/dev/local/autopilot/ledger" \
            "$SBOX/dev/local/prds/hold" \
            "$SBOX/dev/local/prds/backlog" \
-           "$SBOX/bin"
+           "$SBOX/bin" \
+           "$SBOX/.home/.claude/hooks" \
+           "$SBOX/.home/.claude/skills/purge-devlocal/scripts"
+  # $SBOX/.home is what run_sandboxed points $HOME at, so notify.py and
+  # purge_devlocal.py resolve onto the stubs above. autoclaude()/autopilot()
+  # resolve their OWN entry point through a live $HOME too, so the one subtree
+  # that must stay real is symlinked back to it — without this the loop never
+  # starts at all. It is a sibling of hooks/ and purge-devlocal/, so there is no
+  # collision, and `rm -rf` unlinks a symlink instead of recursing, so the
+  # cleanup trap cannot reach the real skill tree.
+  ln -s ~/.claude/skills/run-autopilot "$SBOX/.home/.claude/skills/run-autopilot"
   write_recording_claude "$SBOX"
+  write_stub_sysctl "$SBOX"
+  write_stub_pgrep "$SBOX"
+  write_stub_notify "$SBOX"
+  write_stub_purge "$SBOX"
   LEDGER="$SBOX/dev/local/autopilot/ledger/fable-requests.json"
 }
 
@@ -287,8 +361,17 @@ run_sandboxed() {
     _STUB_AP_DIR="$_rs_dir/dev/local/autopilot"
     _STUB_WALKUP_MODE="${WALKUP_MODE:-ok}"
     export _AUTOPILOT_TRACON="$TRACON_MODE"
-    _AUTOPILOT_LOOPS_DIR="$_STUB_LOOPS_DIR"
+    # Exported: the loop body is a real python3 child, and a child inherits only
+    # exported variables. Without `export` this redirection never reached it (the
+    # wrapper exports it only on the tracon path, which these scenarios never
+    # take), and the loop read the real registry instead.
+    export _AUTOPILOT_LOOPS_DIR="$_STUB_LOOPS_DIR"
     PATH="$_rs_dir/bin:$PATH"
+    # Redirects the loop's Path.home()-derived script paths (notify.py,
+    # purge_devlocal.py) onto the sandbox stubs. make_sandbox symlinks
+    # .claude/skills/run-autopilot back to the real tree so autoclaude() can
+    # still find its own entry point through this $HOME.
+    HOME="$_rs_dir/.home"
     # This suite may itself run from inside an autoclaude loop, which exports
     # _AUTOPILOT_TRACON_CHILD and _AUTOPILOT_LOOP into every subshell; an
     # inherited _AUTOPILOT_TRACON_CHILD trips the sandboxed wrapper's pgrp
