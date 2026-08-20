@@ -56,6 +56,24 @@ def secret_path(name: str) -> Path:
     return Path.home() / ".claude" / "secrets" / name
 
 
+def append_jsonl_row(path: Path, line: str) -> None:
+    """Append `line` as a new row to a JSONL file, creating it if needed.
+
+    If the file already has content whose last byte isn't a newline (e.g. a
+    partial write before a crash), a leading newline is written first so the
+    new row still lands on its own line. Appends via mode="a" (POSIX
+    O_APPEND), writing once inside the `with` block per this codebase's
+    JSONL/log-append convention.
+    """
+    needs_leading_newline = False
+    if path.exists() and path.stat().st_size > 0:
+        with path.open("rb") as fh:
+            fh.seek(-1, io.SEEK_END)
+            needs_leading_newline = fh.read(1) != b"\n"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(("\n" if needs_leading_newline else "") + line + "\n")
+
+
 class HandlerTimeout(BaseException):
     """Raised by the dispatcher's SIGALRM handler.
 
