@@ -238,6 +238,54 @@ class FrontmatterTests(_ProjectTestCase):
         self.assertEqual(proc.returncode, 6)
         self.assertEqual(self.state_path.read_bytes(), before)
 
+    def test_warns_on_stderr_when_reparse_overwrites_an_existing_value(self) -> None:
+        self.write_state(rework_cap=5)
+        prd = self.put_prd(
+            "wip",
+            "00089-example-v1.md",
+            "---\nrework_cap: 2\n---\n\n# PRD\n",
+        )
+        proc = _run(
+            ["frontmatter", "--state", str(self.state_path), "--prd", str(prd)],
+            cwd=self.root,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            proc.stderr.strip().splitlines(),
+            ["autopilot: PRD frontmatter reset rework_cap 5 -> 2"],
+        )
+        self.assertEqual(self.read_state()["rework_cap"], 2)
+
+    def test_no_warning_when_a_field_has_no_prior_value(self) -> None:
+        self.write_state()
+        prd = self.put_prd(
+            "wip",
+            "00089-example-v1.md",
+            "---\nrework_cap: 2\n---\n\n# PRD\n",
+        )
+        proc = _run(
+            ["frontmatter", "--state", str(self.state_path), "--prd", str(prd)],
+            cwd=self.root,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "", "an initial set is not an overwrite")
+        self.assertEqual(self.read_state()["rework_cap"], 2)
+
+    def test_no_warning_when_the_reparsed_value_is_unchanged(self) -> None:
+        self.write_state(rework_cap=5)
+        prd = self.put_prd(
+            "wip",
+            "00089-example-v1.md",
+            "---\nrework_cap: 5\n---\n\n# PRD\n",
+        )
+        proc = _run(
+            ["frontmatter", "--state", str(self.state_path), "--prd", str(prd)],
+            cwd=self.root,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "", "no actual change is not an overwrite")
+        self.assertEqual(self.read_state()["rework_cap"], 5)
+
 
 class PhaseDoneTests(_ProjectTestCase):
     def test_tasks_done_advances_the_build_gate(self) -> None:
