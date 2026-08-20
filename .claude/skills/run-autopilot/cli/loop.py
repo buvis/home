@@ -270,7 +270,7 @@ def prune_registry(loops_dir: Path, own_pid: int) -> None:
         except OSError:
             continue  # unreadable (permission/ownership) - leave alone, not corrupt
         try:
-            data = json.loads(raw)
+            data = json.loads(raw.decode("utf-8"))
         except ValueError:
             data = None  # unparseable/undecodable - garbage, not unreadable
         pid = data.get("pid") if isinstance(data, dict) else None
