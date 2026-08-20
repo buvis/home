@@ -42,7 +42,7 @@ source "$PLUGIN"
 # run_loop() below calls autoclaude in THIS shell rather than a per-scenario
 # subshell (unlike the sibling fable suite's run_sandboxed()), so a single
 # neutralization here — after sourcing the plugin, before any scenario runs
-# — is enough. Scenario 21 re-supplies _AUTOPILOT_TRACON_CHILD=1 as a
+# — is enough. Scenario 22 re-supplies _AUTOPILOT_TRACON_CHILD=1 as a
 # per-command prefix assignment, and scenario 40 exports _AUTOPILOT_LOOP
 # inside its own `bash -c` child — neither is affected by an unset that ran
 # once, earlier, in this shell.
