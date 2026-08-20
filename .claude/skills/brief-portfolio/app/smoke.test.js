@@ -267,6 +267,73 @@ test('Failed copy is announced in an aria-live region, not just the button label
   )
 })
 
+test('Todos tab reports success and copies the open todos when the execCommand fallback works', async () => {
+  // navigator.clipboard.writeText rejects (as it would on a file:// page with
+  // no secure-context clipboard access), so copy() falls through to
+  // fallbackCopy(). Stubbing execCommand to return true simulates a browser
+  // where the fallback actually works, unlike the failed-copy tests above
+  // where jsdom's own execCommand never succeeds.
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].prds = { backlog: [], wip: [], done_count: 0 }
+  payload.data.repos[0].local = { dirty: 2, dirty_since_days: 1, ahead: 3 }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Todo')
+
+  const button = [...doc.querySelectorAll('main button.chip')].find(
+    (b) => b.textContent.trim() === 'copy open as markdown',
+  )
+  assert.ok(button, 'missing "copy open as markdown" button')
+
+  // Derive the expected clipboard payload from what the page itself rendered
+  // for the open todos, rather than hardcoding a markdown string.
+  const expected = [...doc.querySelectorAll('main .todo')]
+    .map((el) => {
+      const action = el.querySelector('.action').textContent.trim()
+      const repo = el.querySelector('.repobtn').textContent.trim()
+      return `- [ ] ${repo}: ${action}`
+    })
+    .join('\n')
+  assert.ok(expected.length > 0, 'test setup produced no open todos to copy')
+
+  doc.defaultView.navigator.clipboard = { writeText: () => Promise.reject(new Error('denied')) }
+  let recorded = null
+  doc.execCommand = () => {
+    // The fallback textarea is still in the document at this point — the
+    // stub can't read a real selection, so it captures the value directly.
+    const box = doc.querySelector('textarea')
+    recorded = box ? box.value : null
+    return true
+  }
+
+  button.click()
+  await flush()
+
+  assert.equal(button.textContent.trim(), '✓ copied')
+  assert.equal(doc.querySelector('textarea'), null, 'a successful fallback copy left a <textarea> in the document')
+  assert.equal(recorded, expected)
+})
+
+test('Brief tab trend sparkline plots only complete history runs, not incomplete ones', () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.prev = { repos: [], generated_at: new Date(0).toISOString() }
+  payload.history = [
+    { at: new Date(0).toISOString(), repos: {} },
+    { at: new Date(0).toISOString(), repos: {}, skipped: 0 },
+    { at: new Date(0).toISOString(), repos: {} },
+    { at: new Date(0).toISOString(), repos: {}, skipped: 1 },
+  ]
+
+  // Brief is the default tab — no openTab call needed.
+  const { doc } = render(payload)
+  const mainText = doc.querySelector('main').textContent
+  assert.match(
+    mainText,
+    /open items across 3 briefs/,
+    'trend label should report 3 complete runs, not all 4 history entries',
+  )
+})
+
 test('aria-live region clears once the failed-copy button label has reverted', async () => {
   // Same failure path as the tests above. The button's own copied/failed
   // state resets to '' after 1.5s via setTimeout, but the aria-live status
