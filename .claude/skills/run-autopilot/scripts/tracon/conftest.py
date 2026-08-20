@@ -35,6 +35,19 @@ def isolated_loops_dir(tmp_path_factory, monkeypatch):
     )
 
 
+@pytest.fixture
+def stub_tagged(monkeypatch):
+    """Opt-in: make every pid read as tagged, for tests whose fixture
+    registers a pid (often the test runner's own, or an untagged child)
+    purely to exercise liveness/root-matching, not the tagging check
+    itself. Tests that verify tagging behavior must NOT use this - they
+    need the real ps/pgrep path.
+    """
+    monkeypatch.setattr(
+        discovery, "_pid_tagged", lambda pid, tag_pid: True, raising=False
+    )
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
