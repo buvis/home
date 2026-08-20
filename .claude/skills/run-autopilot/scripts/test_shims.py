@@ -174,6 +174,29 @@ class ShimValidationTests(unittest.TestCase):
             json.loads(payload),
         )
 
+    def test_future_schema_version_is_refused_with_exit_code_6_and_leaves_state_untouched(
+        self,
+    ) -> None:
+        # 999 is greater than cli.schema.SCHEMA_VERSION (currently 1), so
+        # this state is "future" by cli.schema.version_status().
+        self.write({"schema_version": 999, "phase": "build", "cycle": 3})
+        before = self.state.read_bytes()
+        bak_path = Path(f"{self.state}.bak")
+
+        result = self.run_cli("set", "phase", json.dumps("review"))
+
+        self.assertEqual(result.returncode, 6, result.stderr)
+        self.assertIn("autopilot:", result.stderr)
+        self.assertEqual(
+            self.state.read_bytes(),
+            before,
+            "a future-schema state must not be mutated",
+        )
+        self.assertFalse(
+            bak_path.exists(),
+            "a future-schema refusal must not write a new .bak file",
+        )
+
     def test_rejection_raises_the_schema_error_class(self) -> None:
         # Pinned in-process too, so the exit-1 mapping above cannot be the
         # only thing holding the contract up.
