@@ -408,10 +408,17 @@ def _run_frontmatter(args: argparse.Namespace) -> int:
     refuse = _schema_version_preflight(state_path)
     if refuse is not None:
         return refuse
+
+    before: dict = {}
+
+    def apply(current: dict) -> dict:
+        before.update(current)
+        return {**current, **fields}
+
     try:
         state.transaction(
             state_path,
-            lambda current: {**current, **fields},
+            apply,
             validator=lambda new_state: schema.validate(
                 {key: value for key, value in new_state.items() if key in fields},
             ),
@@ -419,6 +426,13 @@ def _run_frontmatter(args: argparse.Namespace) -> int:
     except (state.StateError, OSError) as err:
         print(f"autopilot: frontmatter write failed: {err}", file=sys.stderr)
         return 2
+
+    for key, new_value in fields.items():
+        if key in before and before[key] != new_value:
+            print(
+                f"autopilot: PRD frontmatter reset {key} {before[key]} -> {new_value}",
+                file=sys.stderr,
+            )
     print(json.dumps(fields, sort_keys=True))
     return 0
 
