@@ -401,23 +401,17 @@ def write_snapshot(data, outdir):
     tmp_file.write_text(json.dumps(data, indent=1))
     if data_file.exists():
         try:
-            existing_at = json.loads(data_file.read_text())["generated_at"]
+            existing_text = data_file.read_text()
+            existing_at = json.loads(existing_text)["generated_at"]
             rotate = should_rotate(existing_at, datetime.now(timezone.utc))
-        except (OSError, ValueError, KeyError) as e:
+        except (OSError, ValueError, KeyError, TypeError) as e:
             print(f"WARN data.json unusable, skipping rotation: {e}", file=sys.stderr)
             rotate = False
         if rotate:
             prev_tmp = outdir / "data-prev.json.tmp"
-            prev_tmp.write_text(data_file.read_text())
+            prev_tmp.write_text(existing_text)
             prev_tmp.replace(outdir / "data-prev.json")
     tmp_file.replace(data_file)
-
-
-def append_history(data, skipped, repos, outdir):
-    hist = {"at": data["generated_at"], "skipped": len(skipped),
-            "repos": {f'{r["owner"]}/{r["name"]}': history_counts(r) for r in repos}}
-    with (outdir / "history.jsonl").open("a") as hf:
-        hf.write(json.dumps(hist) + "\n")
 
 
 def main():
@@ -457,10 +451,11 @@ def main():
         data["external"] = {"review_requested": [], "authored": [], "error": str(e)}
     data["external"]["claude_maintenance_last"] = collect_claude_maintenance()
     data["skill_adherence"] = collect_claude_skill_adherence()
-
-    # keep the previous snapshot for the "since last brief" diff
     write_snapshot(data, outdir)
-    append_history(data, skipped, repos, outdir)
+    hist = {"at": data["generated_at"], "skipped": len(skipped),
+            "repos": {f'{r["owner"]}/{r["name"]}': history_counts(r) for r in repos}}
+    with (outdir / "history.jsonl").open("a") as hf:
+        hf.write(json.dumps(hist) + "\n")
     write_digest(repos, outdir / "commits-digest.md")
 
     failed = [(r["owner"] + "/" + r["name"], r["errors"]) for r in repos if r["errors"]]

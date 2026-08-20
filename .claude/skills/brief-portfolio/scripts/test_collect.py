@@ -273,7 +273,7 @@ def test_should_rotate_boundary_is_inclusive_at_exactly_four_hours():
     assert should_rotate(exactly.isoformat(), now) is True
 
 
-def write_snapshot(path: Path, generated_at: str, marker: str) -> str:
+def write_data_json_fixture(path: Path, generated_at: str, marker: str) -> str:
     """Write a minimal data.json-shaped fixture and return its exact text,
     so callers can assert byte-for-byte preservation later."""
     content = json.dumps({"generated_at": generated_at, "marker": marker}, indent=1)
@@ -289,7 +289,7 @@ def test_main_leaves_older_baseline_untouched_when_existing_snapshot_is_recent(
 
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    baseline_content = write_snapshot(
+    baseline_content = write_data_json_fixture(
         out_dir / "data-prev.json",
         "2026-08-01T00:00:00+00:00",
         "real-baseline",
@@ -297,7 +297,7 @@ def test_main_leaves_older_baseline_untouched_when_existing_snapshot_is_recent(
     recent_at = (datetime.now(timezone.utc) - timedelta(seconds=48)).isoformat(
         timespec="seconds",
     )
-    write_snapshot(out_dir / "data.json", recent_at, "48-seconds-old")
+    write_data_json_fixture(out_dir / "data.json", recent_at, "48-seconds-old")
 
     run_collector(tmp_path, monkeypatch, ["alpha"], [])
 
@@ -315,7 +315,7 @@ def test_main_publishes_old_snapshot_as_data_prev_when_stale(tmp_path, monkeypat
     stale_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(
         timespec="seconds",
     )
-    old_content = write_snapshot(out_dir / "data.json", stale_at, "5-hours-old")
+    old_content = write_data_json_fixture(out_dir / "data.json", stale_at, "5-hours-old")
 
     run_collector(tmp_path, monkeypatch, ["alpha"], [])
 
@@ -336,7 +336,7 @@ def test_main_leaves_data_json_unchanged_when_prev_tmp_write_fails(
     stale_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(
         timespec="seconds",
     )
-    old_content = write_snapshot(out_dir / "data.json", stale_at, "5-hours-old")
+    old_content = write_data_json_fixture(out_dir / "data.json", stale_at, "5-hours-old")
 
     original_write_text = Path.write_text
 
@@ -356,7 +356,7 @@ def test_main_leaves_data_json_unchanged_when_prev_tmp_write_fails(
 def test_offline_makes_zero_subprocess_calls(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
+    write_data_json_fixture(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
 
     def explode(*args, **kwargs):
         raise AssertionError(
@@ -375,7 +375,7 @@ def test_offline_makes_zero_subprocess_calls(tmp_path, monkeypatch):
 def test_offline_leaves_cached_data_json_byte_for_byte_unchanged(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    content = write_snapshot(
+    content = write_data_json_fixture(
         out_dir / "data.json",
         "2026-08-20T00:00:00+00:00",
         "cached",
@@ -411,7 +411,7 @@ def test_offline_without_cached_data_json_exits_with_error(tmp_path, monkeypatch
 def test_offline_does_not_write_history_digest_or_prev_snapshot(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
+    write_data_json_fixture(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
 
     monkeypatch.setattr(
         sys,
@@ -591,7 +591,7 @@ def test_main_completes_when_existing_data_json_has_unparseable_generated_at(
 def test_main_completes_when_existing_data_json_is_unreadable(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    write_snapshot(out_dir / "data.json", "2026-08-01T00:00:00+00:00", "unreadable")
+    write_data_json_fixture(out_dir / "data.json", "2026-08-01T00:00:00+00:00", "unreadable")
 
     original_read_text = Path.read_text
     data_json_path = str(out_dir / "data.json")
@@ -635,7 +635,7 @@ def test_main_completes_when_existing_generated_at_is_json_null(
 ):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    write_snapshot(out_dir / "data.json", None, "null-generated-at")
+    write_data_json_fixture(out_dir / "data.json", None, "null-generated-at")
 
     run_collector(tmp_path, monkeypatch, ["alpha"], [])
 
@@ -656,7 +656,7 @@ def test_main_completes_when_existing_generated_at_is_timezone_naive(
 ):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    write_snapshot(out_dir / "data.json", "2026-08-01T00:00:00", "naive-generated-at")
+    write_data_json_fixture(out_dir / "data.json", "2026-08-01T00:00:00", "naive-generated-at")
 
     run_collector(tmp_path, monkeypatch, ["alpha"], [])
 
