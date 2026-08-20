@@ -257,12 +257,18 @@ def _pid_tagged(pid: int, tag_pid: int) -> bool:
 def prune_registry(loops_dir: Path, own_pid: int) -> None:
     """Sweep stale entries: dead pid, alive-but-untagged (recycled), or
     malformed - none can denote a live loop. Never touches the CURRENT
-    process's own entry."""
+    process's own entry. An unreadable entry (OSError, e.g. permission
+    denied) means "couldn't check this", not "this is garbage" - it is
+    left alone rather than swept."""
     try:
         entries = list(loops_dir.glob("*.json"))
     except OSError:
         return
     for path in entries:
+        try:
+            path.read_bytes()
+        except OSError:
+            continue  # can't check it - not "garbage", leave it alone
         data = _load_json(path)
         pid = data.get("pid") if isinstance(data, dict) else None
         if pid == own_pid:
@@ -282,13 +288,20 @@ def prune_registry(loops_dir: Path, own_pid: int) -> None:
 def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
     """The incumbent loop's pid for this repo root, else None. Same
     contract as tracon.discovery.live_wrapper_pid, applied to an
-    explicit loops dir."""
+    explicit loops dir. A pid that is alive but never carries its own
+    _AUTOPILOT_LOOP tag (per _pid_tagged) is a recycled/borrowed pid,
+    not an incumbent. An unreadable entry (OSError) means "couldn't
+    check this" - it is skipped, not treated as absent."""
     resolved = root.resolve()
     try:
         entries = list(loops_dir.glob("*.json"))
     except OSError:
         return None
     for path in entries:
+        try:
+            path.read_bytes()
+        except OSError:
+            continue  # can't check it - not "garbage", leave it alone
         data = _load_json(path)
         if not isinstance(data, dict):
             continue
@@ -300,7 +313,11 @@ def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
         ):
             continue
         try:
-            if Path(reg_root).resolve() == resolved and _pid_alive(pid):
+            if (
+                Path(reg_root).resolve() == resolved
+                and _pid_alive(pid)
+                and _pid_tagged(pid, pid)
+            ):
                 return pid
         except OSError:
             continue
