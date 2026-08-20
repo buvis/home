@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -88,6 +89,34 @@ def _metrics_line(**overrides: Any) -> str:
 
 def _result_event(cost: float) -> str:
     return json.dumps({"type": "result", "subtype": "success", "total_cost_usd": cost})
+
+
+def _spawn_forked_loop_shell() -> subprocess.Popen:
+    """The tracon layout: a shell that exports the tag AFTER its own exec
+    and keeps a tagged child alive. ps reports the EXEC-time environment,
+    so the tag is visible on the child only - never on the shell whose pid
+    the registry stores."""
+    proc = subprocess.Popen(
+        [
+            "bash",
+            "-c",
+            f"export _AUTOPILOT_LOOP=$$; {sys.executable} -c "
+            '"import time; time.sleep(60)" & wait',
+        ],
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        kids = subprocess.run(
+            ["pgrep", "-P", str(proc.pid)],
+            capture_output=True,
+            text=True,
+        ).stdout
+        if kids.strip():
+            return proc
+        time.sleep(0.05)
+    os.killpg(proc.pid, signal.SIGKILL)
+    raise AssertionError("forked loop shell never spawned its tagged child")
 
 
 # --- classify: truth table, rows 1-9 (evaluated in contract order) ----------
@@ -702,6 +731,7 @@ def test_read_registry_rejects_nonpositive_pid() -> None:
 
 def test_wrapper_alive_true_when_registry_entry_matches_root_and_pid_live(
     tmp_path: Path,
+    stub_tagged: None,
 ) -> None:
     root = tmp_path / "myrepo"
     root.mkdir()
@@ -766,6 +796,7 @@ def test_wrapper_alive_false_when_entry_is_for_a_different_root(tmp_path: Path) 
 
 def test_wrapper_alive_resolves_symlinked_root_to_match_registry_entry(
     tmp_path: Path,
+    stub_tagged: None,
 ) -> None:
     """Repo roots can be symlinks: a registry entry recorded against the real
     path must still match a caller passing the symlink, so both sides
@@ -810,6 +841,7 @@ def test_wrapper_alive_ignores_nonpositive_pid_entry(tmp_path: Path) -> None:
 def test_loop_status_wrapper_true_when_registry_entry_alive_for_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stub_tagged: None,
 ) -> None:
     autopilot_dir = tmp_path / "dev" / "local" / "autopilot"
     autopilot_dir.mkdir(parents=True)
@@ -964,6 +996,7 @@ def test_limit_reset_caches_per_mtime_and_rescans_on_change(
 def test_loop_status_shows_limit_wait_instead_of_died_while_wrapper_sleeps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stub_tagged: None,
 ) -> None:
     """A limit-hit session exits with the banner in its log; the wrapper
     sleeps until the reset, appending no metrics row. classify() alone reads
@@ -1115,11 +1148,35 @@ def test_loop_status_marks_orphaned_when_wrapper_died_mid_batch(
 
 
 def test_live_wrapper_pid_returns_registered_live_pid(tmp_path: Path) -> None:
+    """Regression-safety: a real _AUTOPILOT_LOOP-tagged child must still
+    resolve to a live wrapper pid once the tag check becomes mandatory -
+    this passes both before (tag ignored) and after (tag verified) the
+    fix, unlike the untagged-bug-reproduction test above."""
+    proc = _spawn_forked_loop_shell()
+    try:
+        loops_dir = tmp_path / "loops"
+        loops_dir.mkdir()
+        _write_json(loops_dir / "1.json", {"pid": proc.pid, "root": str(tmp_path)})
+
+        assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) == proc.pid
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+
+
+def test_live_wrapper_pid_none_when_registered_pid_is_alive_but_untagged(
+    tmp_path: Path,
+) -> None:
+    """A pid can be alive yet belong to something else entirely (recycled
+    by the OS after the real loop exited) - only its ps env tag proves it
+    is actually THIS wrapper. The test process's own pid is alive but
+    carries no _AUTOPILOT_LOOP=<own pid> tag, so it must not read as a
+    live wrapper."""
     loops_dir = tmp_path / "loops"
     loops_dir.mkdir()
     _write_json(loops_dir / "1.json", {"pid": os.getpid(), "root": str(tmp_path)})
 
-    assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) == os.getpid()
+    assert discovery.live_wrapper_pid(tmp_path, loops_dir=loops_dir) is None
 
 
 def test_live_wrapper_pid_none_when_pid_dead_or_unregistered(
@@ -1433,37 +1490,55 @@ def _run_wrapper_alive_guard(
 
 
 def test_exits_zero_when_live_wrapper_owns_root(tmp_path: Path) -> None:
+    """Drives tracon_wrapper_alive.py as a real subprocess: stub_tagged's
+    in-process monkeypatch cannot reach it, and the pytest runner's own pid
+    cannot be tagged after the fact either, so this registers a real
+    _AUTOPILOT_LOOP-tagged child instead of os.getpid()."""
     root = tmp_path / "myrepo"
     root.mkdir()
     loops_dir = tmp_path / "loops"
     loops_dir.mkdir()
-    _write_json(
-        loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
-    )
+    proc = _spawn_forked_loop_shell()
+    try:
+        _write_json(
+            loops_dir / "1.json",
+            {"pid": proc.pid, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+        )
 
-    result = _run_wrapper_alive_guard(root, loops_dir)
+        result = _run_wrapper_alive_guard(root, loops_dir)
 
-    assert result.returncode == 0
+        assert result.returncode == 0
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
 
 
 def test_prints_incumbent_pid_on_stdout_when_alive(tmp_path: Path) -> None:
     """A refusing caller names the incumbent loop's pid, so the guard prints it
     on stdout (exit 0) — the plain/headless autoclaude path reads it to refuse a
-    second loop by pid. PRD 00084 R1."""
+    second loop by pid. PRD 00084 R1.
+
+    Drives tracon_wrapper_alive.py as a real subprocess: stub_tagged's
+    in-process monkeypatch cannot reach it, so this registers a real
+    _AUTOPILOT_LOOP-tagged child and asserts against ITS pid."""
     root = tmp_path / "myrepo"
     root.mkdir()
     loops_dir = tmp_path / "loops"
     loops_dir.mkdir()
-    _write_json(
-        loops_dir / "1.json",
-        {"pid": os.getpid(), "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
-    )
+    proc = _spawn_forked_loop_shell()
+    try:
+        _write_json(
+            loops_dir / "1.json",
+            {"pid": proc.pid, "root": str(root), "started_at": "2026-07-14T00:00:00Z"},
+        )
 
-    result = _run_wrapper_alive_guard(root, loops_dir)
+        result = _run_wrapper_alive_guard(root, loops_dir)
 
-    assert result.returncode == 0
-    assert result.stdout.strip() == str(os.getpid()).encode()
+        assert result.returncode == 0
+        assert result.stdout.strip() == str(proc.pid).encode()
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
 
 
 def test_exits_one_when_no_registry_entry_for_root(tmp_path: Path) -> None:

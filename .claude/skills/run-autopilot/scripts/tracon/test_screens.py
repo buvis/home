@@ -331,6 +331,7 @@ def _render(panel: Any) -> str:
 
 def test_detail_head_suppresses_orphan_warning_when_wrapper_alive(
     tmp_path: Path,
+    stub_tagged: None,
 ) -> None:
     """Queued work + idle loop is fine while a live autoclaude supervises it:
     the orphan warning must stay quiet."""
@@ -358,6 +359,7 @@ def test_detail_head_suppresses_orphan_warning_when_wrapper_alive(
 
 def test_detail_head_shows_limit_wait_when_wrapper_sleeps_on_a_limit(
     tmp_path: Path,
+    stub_tagged: None,
 ) -> None:
     """During the wrapper's usage-limit sleep no session runs and no metrics
     row is appended; the head must render the countdown, not died/idle."""
@@ -1710,6 +1712,7 @@ def test_quit_dialog_stop_with_no_wrapper_toasts_and_stays_running(
 def test_quit_dialog_s_interrupts_the_wrappers_process_group_and_quits(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stub_tagged: None,
 ) -> None:
     """q → s must send the sanctioned stop — SIGINT to the wrapper's process
     GROUP (kill -INT -pid, the wrapper's own ctrl+c path) — then exit the UI.
@@ -1896,6 +1899,7 @@ def test_p_success_confirms_with_a_toast(
 
 def test_detail_head_shows_pending_chip_while_pause_marker_awaits_live_wrapper(
     tmp_path: Path,
+    stub_tagged: None,
 ) -> None:
     from tracon import discovery, screens
 
