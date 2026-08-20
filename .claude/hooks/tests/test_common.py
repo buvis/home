@@ -1,7 +1,9 @@
 """Tests for hooks/_common.py."""
 
 import io
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -72,6 +74,46 @@ class TestSecretPath(unittest.TestCase):
         p = _common.secret_path("token")
         self.assertTrue(str(p).endswith("/.claude/secrets/token"))
         self.assertTrue(str(p).startswith(str(Path.home())))
+
+
+class TestAppendJsonlRow(unittest.TestCase):
+    def test_creates_file_and_writes_one_line_when_path_does_not_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "metrics.jsonl"
+            self.assertFalse(path.exists())
+            _common.append_jsonl_row(path, '{"a": 1}')
+            self.assertEqual(path.read_text(), '{"a": 1}\n')
+
+    def test_treats_empty_existing_file_as_not_needing_leading_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "metrics.jsonl"
+            path.write_text("")
+            self.assertTrue(path.exists())
+            _common.append_jsonl_row(path, '{"a": 1}')
+            self.assertEqual(path.read_text(), '{"a": 1}\n')
+
+    def test_appends_cleanly_without_extra_blank_line_when_file_ends_in_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "metrics.jsonl"
+            path.write_text('{"a": 1}\n')
+            _common.append_jsonl_row(path, '{"b": 2}')
+            self.assertEqual(path.read_text(), '{"a": 1}\n{"b": 2}\n')
+            lines = path.read_text().split("\n")
+            self.assertEqual(lines[-1], "")
+            self.assertEqual(lines[:-1], ['{"a": 1}', '{"b": 2}'])
+
+    def test_writes_leading_newline_and_keeps_both_rows_parseable_when_last_line_lacks_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "metrics.jsonl"
+            path.write_text('{"a": 1}')  # crash before the trailing newline was flushed
+            _common.append_jsonl_row(path, '{"b": 2}')
+            self.assertEqual(path.read_text(), '{"a": 1}\n{"b": 2}\n')
+            lines = path.read_text().split("\n")
+            self.assertEqual(lines[-1], "")
+            lines = lines[:-1]
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(json.loads(lines[0]), {"a": 1})
+            self.assertEqual(json.loads(lines[1]), {"b": 2})
 
 
 if __name__ == "__main__":
