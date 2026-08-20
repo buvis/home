@@ -25,7 +25,12 @@
   <h2>Transcript</h2>
 
   <div class="chips">
-    <input type="search" placeholder="Search the transcript" bind:value={view.query} />
+    <input
+      type="search"
+      placeholder="Search the transcript"
+      aria-label="Search the transcript"
+      bind:value={view.query}
+    />
     <button
       class="chip"
       aria-pressed={view.speaker === 'all'}
@@ -46,7 +51,7 @@
     <button class="chip" aria-pressed={showRaw} onclick={() => (showRaw = !showRaw)}>
       original wording
     </button>
-    <span class="muted">{shown.length} of {turns.length} turns</span>
+    <span class="muted" aria-live="polite">{shown.length} of {turns.length} turns</span>
   </div>
 
   {#each shown as turn (turn.i)}
