@@ -439,7 +439,8 @@ def main():
         try:
             existing_at = json.loads(data_file.read_text())["generated_at"]
             rotate = should_rotate(existing_at, datetime.now(timezone.utc))
-        except (ValueError, KeyError):
+        except (OSError, ValueError, KeyError) as e:
+            print(f"WARN data.json unusable, skipping rotation: {e}", file=sys.stderr)
             rotate = False
         if rotate:
             prev_tmp = outdir / "data-prev.json.tmp"
