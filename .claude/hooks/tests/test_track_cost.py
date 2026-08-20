@@ -303,6 +303,44 @@ class TestEndToEnd(unittest.TestCase):
         total = sum(r["cost_usd"] for r in rows)
         self.assertAlmostEqual(total, 0.01900, places=5)
 
+    def test_cumulative_field_is_always_true(self) -> None:
+        transcript = self.home / "t.jsonl"
+        write_transcript(transcript, [
+            assistant_entry(mid="m", model="claude-sonnet-4-6", in_tok=1000, out=500),
+        ])
+        run_hook({"session_id": "s", "transcript_path": str(transcript)}, self.home)
+        rows = read_costs(self.home)
+        self.assertIs(rows[0]["cumulative"], True)
+
+    def test_appends_to_costs_file_missing_trailing_newline(self) -> None:
+        metrics_dir = self.home / ".claude" / "metrics"
+        metrics_dir.mkdir(parents=True)
+        existing_row = json.dumps({
+            "ts": "2026-01-01T00:00:00Z",
+            "sid": "prior",
+            "model": "claude-sonnet-4-6",
+            "tier": "sonnet",
+            "in": 1,
+            "cache_write": 0,
+            "cache_read": 0,
+            "out": 1,
+            "cost_usd": 0.00003,
+            "cumulative": True,
+        })
+        (metrics_dir / "costs.jsonl").write_text(existing_row, encoding="utf-8")
+
+        transcript = self.home / "t.jsonl"
+        write_transcript(transcript, [
+            assistant_entry(mid="m", model="claude-sonnet-4-6", in_tok=1000, out=500),
+        ])
+        proc = run_hook({"session_id": "new", "transcript_path": str(transcript)}, self.home)
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        rows = read_costs(self.home)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["sid"], "prior")
+        self.assertEqual(rows[1]["sid"], "new")
+
 
 if __name__ == "__main__":
     unittest.main()
