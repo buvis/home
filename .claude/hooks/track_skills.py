@@ -21,6 +21,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _common import append_jsonl_row
+
 METRICS_DIR = Path.home() / ".claude" / "metrics"
 SKILLS_FILE = METRICS_DIR / "skills.jsonl"
 
@@ -123,8 +127,7 @@ def main() -> None:
         return
     try:
         METRICS_DIR.mkdir(parents=True, exist_ok=True)
-        with SKILLS_FILE.open("a", encoding="utf-8") as fh:
-            fh.write("\n".join(rows) + "\n")
+        append_jsonl_row(SKILLS_FILE, "\n".join(rows))
     except OSError as exc:
         print(f"track_skills: write failed ({exc})", file=sys.stderr)
 
