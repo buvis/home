@@ -1111,6 +1111,48 @@ def test_prune_spares_an_unreadable_entry_and_it_resolves_once_readable(tmp_path
         shell.wait()
 
 
+def test_prune_deletes_an_entry_with_invalid_utf8_bytes_without_raising(tmp_path):
+    # UnicodeDecodeError is a ValueError subclass, not an OSError: it must
+    # not escape the except OSError guarding the read, and the entry is
+    # garbage (like invalid JSON), not merely unreadable - it gets deleted.
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    entry = loops / "garbage.json"
+    entry.write_bytes(b"\xff\xfe\x00binary")
+    prune_registry(loops, own_pid=4242)
+    assert not entry.exists()
+
+
+def test_pid_tagged_matches_a_tag_ending_a_non_final_ps_line_not_a_longer_pid(
+    monkeypatch,
+):
+    # `$` without re.MULTILINE matches only end-of-string, so when the
+    # tagged pid's ps row isn't the LAST line, the current pattern misses
+    # it - a false "untagged" that lets prune sweep a live loop.
+    monkeypatch.setattr(loop_mod, "_child_pids", lambda pid: [])
+    monkeypatch.setattr(
+        loop_mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="bash -c something\n_AUTOPILOT_LOOP=4321\npython3 worker.py\n",
+        ),
+    )
+    assert loop_mod._pid_tagged(999, 4321) is True
+
+    # A longer pid whose digits merely start with the tag pid's digits must
+    # still not match: looking for 432 must not match _AUTOPILOT_LOOP=4321.
+    monkeypatch.setattr(
+        loop_mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="_AUTOPILOT_LOOP=4321\n",
+        ),
+    )
+    assert loop_mod._pid_tagged(999, 432) is False
+
+
 def test_interrupt_tears_down_and_returns_130(tmp_path):
     # Ctrl-C reaches the loop as KeyboardInterrupt (the group signal):
     # teardown must remove the registry entry, terminate a mid-flight
