@@ -169,7 +169,7 @@ assert.deepEqual(incompleteSeries.map((h) => h.incomplete), [true, false, false]
 // Selects on the `ext:error` PREFIX, not on the whole id: the id now carries a
 // deterministic encoding of the error text (see the next block for why), so an
 // exact match here would pin the very constant-id defect that encoding removes.
-const isErrTodo = (t) => t.id.startsWith('ext:error')
+const isErrTodo = (t) => t.id.startsWith('ext:error:')
 const failedLookup = externalTodos({ error: 'gh auth login', review_requested: [], authored: [] })
 const errTodos = failedLookup.filter(isErrTodo)
 assert.equal(errTodos.length, 1)
