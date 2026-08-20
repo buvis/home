@@ -1,12 +1,15 @@
 """Regression tests for collect.py's local parsers. Run: python3 -m pytest test_collect.py -q"""
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import collect
 from collect import (collect_brush, collect_claude_maintenance,
-                     collect_claude_skill_adherence)
+                     collect_claude_skill_adherence, collect_repo, main,
+                     stub_from_path)
 
 
 def write_report(tmp_path: Path, body: str) -> None:
@@ -82,3 +85,122 @@ def test_skill_adherence_empty_when_all_stale(tmp_path):
     f = tmp_path / "skills.jsonl"
     f.write_text(json.dumps({"skill": "work", "ts": old}) + "\n")
     assert collect_claude_skill_adherence(f) == {"count": 0, "distinct": 0, "top": []}
+
+
+def test_stub_from_path_builds_owner_name_org_and_reason_from_path():
+    result = stub_from_path("/repos/acme/widget", "not a github remote: bad-url")
+    assert result == {
+        "owner": "acme",
+        "name": "widget",
+        "org": "acme",
+        "path": "/repos/acme/widget",
+        "skipped": "not a github remote: bad-url",
+    }
+
+
+def test_collect_repo_returns_skip_stub_when_remote_unresolvable(monkeypatch):
+    def fake_run(cmd, cwd=None, timeout=120):
+        if cmd[0] == "git" and cmd[1] == "remote":
+            raise RuntimeError("not a github remote: bad-url")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(collect, "run", fake_run)
+    result = collect_repo("/repos/acme/widget", 60, False)
+    assert result == {
+        "owner": "acme",
+        "name": "widget",
+        "org": "acme",
+        "path": "/repos/acme/widget",
+        "skipped": "not a github remote: bad-url",
+    }
+
+
+def test_collect_repo_records_fetch_timeout_without_raising(monkeypatch):
+    fetch_cmd = ["git", "fetch", "--quiet", "origin"]
+    timeout_exc = subprocess.TimeoutExpired(fetch_cmd, 180)
+
+    def fake_run(cmd, cwd=None, timeout=120):
+        if cmd[0] == "git" and cmd[1] == "remote":
+            return "git@github.com:acme/widget.git\n"
+        if cmd[0] == "git" and cmd[1] == "fetch":
+            raise timeout_exc
+        if cmd[0] == "gh":
+            raise RuntimeError("gh: not authenticated")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(collect, "run", fake_run)
+    result = collect_repo("/repos/acme/widget", 60, True)
+    assert result is not None
+    assert "skipped" not in result
+    assert f"fetch: {timeout_exc}" in result["errors"]
+
+
+def make_registry(tmp_path: Path, names) -> list:
+    """Create a fake gita registry: one directory with a .git marker per name."""
+    root = tmp_path / "repos"
+    paths = []
+    for name in names:
+        d = root / name
+        (d / ".git").mkdir(parents=True)
+        paths.append(str(d))
+    return paths
+
+
+def write_registry_csv(tmp_path: Path, paths) -> Path:
+    csv_path = tmp_path / "repos.csv"
+    csv_path.write_text("\n".join(paths) + "\n")
+    return csv_path
+
+
+def make_fake_run(skip_cwds):
+    """collect.run replacement: resolvable repos get a valid github remote,
+    skip_cwds fail repo_slug, and every gh call fails (unauthenticated)."""
+    def fake_run(cmd, cwd=None, timeout=120):
+        if cmd[0] == "git" and cmd[1] == "remote":
+            if str(cwd) in skip_cwds:
+                raise RuntimeError("not a github remote: bad-url")
+            return f"git@github.com:acme/{Path(cwd).name}.git\n"
+        if cmd[0] == "gh":
+            raise RuntimeError("gh: not authenticated")
+        raise AssertionError(f"unexpected command: {cmd}")
+    return fake_run
+
+
+def run_collector(tmp_path, monkeypatch, resolvable_names, skip_names):
+    paths = make_registry(tmp_path, resolvable_names + skip_names)
+    skip_paths = {str(tmp_path / "repos" / name) for name in skip_names}
+    monkeypatch.setattr(collect, "run", make_fake_run(skip_paths))
+    monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", ["collect.py", "--no-fetch", "--out", str(out_dir)])
+    main()
+    return paths, out_dir
+
+
+def test_main_partition_invariant_covers_every_registry_path(tmp_path, monkeypatch):
+    paths, out_dir = run_collector(tmp_path, monkeypatch, ["alpha", "beta"], ["broken"])
+    data = json.loads((out_dir / "data.json").read_text())
+    assert len(paths) == len(data["repos"]) + len(data["skipped"])
+    assert len(data["skipped"]) == 1
+    assert data["skipped"][0]["skipped"]
+
+
+def test_main_history_entry_counts_skipped_repos(tmp_path, monkeypatch):
+    _, out_dir = run_collector(tmp_path, monkeypatch, ["alpha", "beta"], ["broken"])
+    lines = (out_dir / "history.jsonl").read_text().strip().splitlines()
+    last = json.loads(lines[-1])
+    assert last["skipped"] == 1
+
+
+def test_main_summary_line_reports_paths_and_skipped_counts(tmp_path, monkeypatch, capsys):
+    paths, _ = run_collector(tmp_path, monkeypatch, ["alpha", "beta"], ["broken"])
+    captured = capsys.readouterr()
+    assert f"{len(paths)} repos, 1 skipped" in captured.out
+
+
+def test_main_external_section_reports_error_when_gh_unauthenticated(tmp_path, monkeypatch):
+    _, out_dir = run_collector(tmp_path, monkeypatch, ["alpha"], [])
+    data = json.loads((out_dir / "data.json").read_text())
+    assert data["external"]["review_requested"] == []
+    assert data["external"]["authored"] == []
+    assert data["external"]["error"]
