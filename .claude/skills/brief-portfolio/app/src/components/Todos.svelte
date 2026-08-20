@@ -13,7 +13,6 @@
   let hideDone = $state(false)
   let copied = $state('')
   let failed = $state('')
-  let status = $state('')
 
   const byslug = $derived(new Map(repos.map((r) => [slug(r), r])))
   const todos = $derived(allTodos(repos, epics, external))
@@ -25,6 +24,7 @@
     }))
   )
   const openCount = $derived(todos.filter((t) => !done.has(t.id)).length)
+  const status = $derived(copied ? '✓ copied' : failed ? '✗ copy failed' : '')
 
   function toggle(id) {
     const s = new Set(done)
@@ -58,13 +58,11 @@
         fallbackCopy(md)
       } catch {
         failed = label
-        status = '✗ copy failed'
         setTimeout(() => (failed = ''), 1500)
         return
       }
     }
     copied = label
-    status = '✓ copied'
     setTimeout(() => (copied = ''), 1500)
   }
 </script>
