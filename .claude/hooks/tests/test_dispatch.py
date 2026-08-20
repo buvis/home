@@ -68,7 +68,9 @@ SETTINGS = json.loads(SETTINGS_PATH.read_text())
 # about enforcement-vs-observer classification) keeps constructing routes
 # unchanged; tests that need a specific classification pass kind= explicitly.
 Route = collections.namedtuple(
-    "Route", "event matcher name path timeout kind", defaults=("observer",)
+    "Route",
+    "event matcher name path timeout kind",
+    defaults=("observer",),
 )
 
 _HAS_SIGALRM = hasattr(signal, "SIGALRM")
@@ -121,7 +123,14 @@ def _uid() -> str:
 
 
 def make_route(
-    tmp_path, label, src, *, event="PreToolUse", matcher=None, timeout=5, kind="observer"
+    tmp_path,
+    label,
+    src,
+    *,
+    event="PreToolUse",
+    matcher=None,
+    timeout=5,
+    kind="observer",
 ):
     """Write a stub handler file and return a Route pointing at it."""
     path = tmp_path / f"{label}_{_uid()}.py"
@@ -537,7 +546,9 @@ _REAL_MATCHER_OUTSIDE_PAIRS = [(m, t) for m in _REAL_MATCHERS for t in _OUTSIDE_
 @pytest.mark.unit
 @pytest.mark.parametrize("matcher,tool", _REAL_MATCHER_OUTSIDE_PAIRS)
 def test_matches_equals_fullmatch_for_real_matchers_outside_table(
-    dispatch, matcher, tool
+    dispatch,
+    matcher,
+    tool,
 ):
     """`_matches` must equal `bool(re.fullmatch(matcher, tool))` for the real
     settings.json matchers crossed with tool names OUTSIDE the finite 13-case
@@ -573,7 +584,9 @@ def test_parse_stdin_returns_dict_payload(dispatch, monkeypatch):
 def test_main_survives_malformed_stdin(dispatch, monkeypatch, raw):
     calls = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (calls.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (calls.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(sys, "stdin", io.StringIO(raw))
     with pytest.raises(SystemExit) as ei:
@@ -613,7 +626,9 @@ def test_parse_stdin_recursion_error_degrades_to_empty_dict(dispatch, monkeypatc
 
 @pytest.mark.integration
 def test_main_survives_recursion_error_stdin_and_runs_handlers_normally(
-    dispatch, monkeypatch, tmp_path
+    dispatch,
+    monkeypatch,
+    tmp_path,
 ):
     """End to end: a deeply-nested JSON payload must not crash or exit
     nonzero, and handlers routed for the event must still run against the
@@ -949,7 +964,9 @@ OBSERVED_TOOL_NAMES = [
 @pytest.mark.integration
 @pytest.mark.parametrize("tool_name", OBSERVED_TOOL_NAMES)
 def test_routing_matches_settings_json_for_observed_tools(
-    dispatch, monkeypatch, tool_name
+    dispatch,
+    monkeypatch,
+    tool_name,
 ):
     """Pin fullmatch routing parity across the tool set actually in use.
 
@@ -981,7 +998,9 @@ def test_routing_matches_settings_json_for_observed_tools(
             lambda r, p: (recorded.append(r), (0, "", ""))[1],
         )
         monkeypatch.setattr(
-            sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name}))
+            sys,
+            "stdin",
+            io.StringIO(json.dumps({"tool_name": tool_name})),
         )
         with pytest.raises(SystemExit):
             dispatch.main(event_short)
@@ -1115,6 +1134,74 @@ def test_routes_kind_is_enforcement_or_observer_for_every_entry(dispatch):
             f"{route.name}: kind must be 'enforcement' or 'observer', "
             f"got {route.kind!r}"
         )
+
+
+# Exact per-handler classification the PRD pins (name -> kind). Both ROUTES
+# entries for "enforce_prd_location" (Edit|Write|MultiEdit matcher and Bash
+# matcher) and both for "cartographer-echo" carry the SAME kind, so a
+# name-keyed dict covers every entry, duplicated handlers included.
+_EXPECTED_ROUTE_KIND = {
+    "enforce_prd_location": "enforcement",
+    "cartographer-echo": "enforcement",
+    "strunk-ruling-inject": "observer",
+    "autopilot_context_cap_hook": "observer",
+    "validate_state_json_hook": "enforcement",
+    "observe_tool": "observer",
+    "check_skill_triggers": "observer",
+    "notify": "observer",
+    "review_coverage_hook": "enforcement",
+    "track_cost": "observer",
+    "track_skills": "observer",
+    "analyze-instincts": "observer",
+    "cartographer-stop": "observer",
+}
+
+
+@pytest.mark.unit
+def test_routes_kind_matches_exact_per_handler_classification(dispatch):
+    """The completeness test above only proves every route's kind is A valid
+    literal - it would pass even if EVERY entry defaulted to the same
+    wrong-for-some-handlers "observer" value, which is exactly the
+    fail-open bug this PRD exists to close. This test pins the SPECIFIC
+    per-handler classification: exactly enforce_prd_location,
+    cartographer-echo, validate_state_json_hook, and review_coverage_hook
+    must be "enforcement" - including BOTH ROUTES entries for
+    enforce_prd_location and BOTH for cartographer-echo - and every other
+    of the 15 entries must be "observer". An implementation that leaves
+    every entry on the namedtuple default, or classifies a different
+    subset as "enforcement", fails here even though it still satisfies the
+    weaker completeness check."""
+    actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
+    assert len(actual) == 15, f"expected 15 ROUTES entries, got {len(actual)}: {actual!r}"
+
+    seen_names = {name for (name, _event, _kind) in actual}
+    assert seen_names == set(_EXPECTED_ROUTE_KIND), (
+        f"ROUTES handler names {seen_names!r} do not match the expected "
+        f"classification table's names {set(_EXPECTED_ROUTE_KIND)!r}"
+    )
+
+    mismatches = [
+        (name, event, kind)
+        for (name, event, kind) in actual
+        if kind != _EXPECTED_ROUTE_KIND[name]
+    ]
+    assert mismatches == [], (
+        f"routes with the wrong kind: {mismatches!r}; expected per-handler "
+        f"classification: {_EXPECTED_ROUTE_KIND!r}"
+    )
+
+    enforcement_entries = [(n, e) for (n, e, k) in actual if k == "enforcement"]
+    assert len(enforcement_entries) == 6, (
+        f"expected 6 ROUTES entries classified 'enforcement' (4 handlers, "
+        f"2 of them routed twice), got {len(enforcement_entries)}: "
+        f"{enforcement_entries!r}"
+    )
+    assert enforcement_entries.count(("enforce_prd_location", "PreToolUse")) == 2, (
+        "both enforce_prd_location ROUTES entries must be 'enforcement'"
+    )
+    assert enforcement_entries.count(("cartographer-echo", "PreToolUse")) == 2, (
+        "both cartographer-echo ROUTES entries must be 'enforcement'"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1372,7 +1459,11 @@ def test_aggregate_non_str_additional_context_is_isolated(dispatch, capsys):
     ],
 )
 def test_aggregate_permission_most_restrictive(
-    dispatch, capsys, order, winner, winner_reason
+    dispatch,
+    capsys,
+    order,
+    winner,
+    winner_reason,
 ):
     reasons = {"deny": "RD", "ask": "RK", "allow": "RA"}
     results = [
@@ -1486,7 +1577,10 @@ def test_blocking_stderr_order_preserved_across_handlers(dispatch, capsys):
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
 def test_merge_conflict_warns_naming_losing_handler(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     winner = make_route(
         tmp_path,
@@ -1742,7 +1836,8 @@ def test_key_conflict_warning_reaches_real_stderr_when_non_blocking(dispatch, ca
 
 @pytest.mark.unit
 def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(
-    dispatch, capsys
+    dispatch,
+    capsys,
 ):
     """Rule A x Rule B: on a BLOCKING run (one handler exits 2), the key-
     conflict warning is dispatcher-generated chatter unrelated to the
@@ -1778,7 +1873,8 @@ def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(
 
 @pytest.mark.unit
 def test_permission_conflict_warning_reaches_real_stderr_when_non_blocking(
-    dispatch, capsys
+    dispatch,
+    capsys,
 ):
     """Same Rule B stderr half as test_key_conflict_warning_reaches_real_stderr_
     when_non_blocking, but for the permissionDecision conflict path - a
@@ -1807,7 +1903,8 @@ def test_permission_conflict_warning_reaches_real_stderr_when_non_blocking(
 
 @pytest.mark.unit
 def test_permission_conflict_warning_suppressed_from_real_stderr_when_blocking(
-    dispatch, capsys
+    dispatch,
+    capsys,
 ):
     """Rule A x Rule B for the permissionDecision conflict path (the `losers`
     list branch in `_merge_envelopes`, distinct from the generic key-conflict
@@ -1877,7 +1974,10 @@ def test_key_conflict_warning_suppressed_when_blocker_is_not_first(dispatch, cap
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
 def test_raising_handler_is_isolated_siblings_run(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     raiser = make_route(
         tmp_path,
@@ -1907,7 +2007,10 @@ def test_raising_handler_is_isolated_siblings_run(
 
 @pytest.mark.integration
 def test_import_error_handler_is_isolated_siblings_run(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     bad = make_route(
         tmp_path,
@@ -1936,7 +2039,10 @@ def test_import_error_handler_is_isolated_siblings_run(
 
 @pytest.mark.integration
 def test_sys_exit_at_import_is_isolated_siblings_run(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     """`sys.exit(3)` at module scope raises SystemExit - a BaseException, NOT
     an Exception subclass. `_invoke` must isolate it the same way it isolates
@@ -1964,7 +2070,9 @@ def test_sys_exit_at_import_is_isolated_siblings_run(
     code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
 
     assert code == 0
-    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "SYSEXIT-SURVIVED"
+    assert (
+        json.loads(out)["hookSpecificOutput"]["additionalContext"] == "SYSEXIT-SURVIVED"
+    )
     surface = err + dispatch_log_text()
     assert raiser.name in surface, f"the fault report must name the route: {surface!r}"
     assert "systemexit" in surface.lower(), (
@@ -1974,7 +2082,10 @@ def test_sys_exit_at_import_is_isolated_siblings_run(
 
 @pytest.mark.integration
 def test_arbitrary_baseexception_at_import_is_isolated_siblings_run(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     """The isolation is not special-cased to SystemExit: ANY BaseException
     subtype raised at import time (other than HandlerTimeout and
@@ -2050,7 +2161,10 @@ def test_invoke_reraises_keyboardinterrupt_at_import(dispatch, tmp_path):
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
 def test_noisy_stdout_does_not_corrupt_merged_json(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     noisy = make_route(
         tmp_path,
@@ -2290,7 +2404,10 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
     ],
 )
 def test_invoke_timeout_exit_code_depends_on_route_kind(
-    dispatch, tmp_path, kind, expected_code
+    dispatch,
+    tmp_path,
+    kind,
+    expected_code,
 ):
     """A handler that times out (HandlerTimeout fires past route.timeout) must
     block the tool call (exit 2) when route.kind is "enforcement", but must
@@ -2462,7 +2579,9 @@ def assert_triple(result, who: str):
         ),
         pytest.param(_OBSERVE_TOOL, {"tool_name": ""}, id="observe_tool"),
         pytest.param(
-            _REVIEW_COVERAGE_HOOK, {"session_id": "s"}, id="review_coverage_hook"
+            _REVIEW_COVERAGE_HOOK,
+            {"session_id": "s"},
+            id="review_coverage_hook",
         ),
     ],
 )
