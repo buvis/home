@@ -88,6 +88,7 @@ Exit codes:
     8   backup refused: missing or corrupt .bak (restore)
     9   deferred-record I/O failed (defer, or stall/park's inner append)
     10  stall_op conflict (stall/park)
+    11  init's parent directory does not exist (init)
 """
 
 from __future__ import annotations
@@ -199,6 +200,13 @@ def _add_init(subparsers) -> None:
 
 def _run_init(args: argparse.Namespace) -> int:
     state_path = _resolve_state_path(args.state)
+    if not state_path.parent.exists():
+        print(
+            f"autopilot: init failed: {state_path.parent} does not exist "
+            "(Phase 0 creates the lifecycle dirs)",
+            file=sys.stderr,
+        )
+        return 11
     initial = {"prd": args.prd, "phase": "build", "next_phase": "build"}
     try:
         state.init(state_path, initial)
