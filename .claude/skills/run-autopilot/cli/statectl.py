@@ -588,6 +588,9 @@ def _build_task_id_apply(verb: str, arg: str, rest: list[str]) -> Callable[[Any]
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
     # `tasks-clear` is the one verb that takes no third argv entry; every other
     # verb still needs its own, so the relaxation is named rather than general.
     if len(argv) < 2 or (len(argv) < 3 and argv[1] != "tasks-clear"):

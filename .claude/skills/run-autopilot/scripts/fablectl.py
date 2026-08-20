@@ -166,6 +166,9 @@ def write_transition(ledger_path: Path, verb: str, prd: str, payload: Any) -> No
 
 def main() -> int:
     argv = sys.argv[1:]
+    if argv and argv[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
     if len(argv) < 2:
         print(USAGE, file=sys.stderr)
         return 1
