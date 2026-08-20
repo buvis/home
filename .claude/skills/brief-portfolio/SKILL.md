@@ -31,13 +31,19 @@ and a pickable cross-repo todo list for every repo in the gita registry
 python3 ${CLAUDE_SKILL_DIR}/scripts/collect.py
 ```
 
-Options: `--days N` (window, default 60), `--no-fetch` (skip `git fetch`, much
-faster), `--out DIR` (default `~/.claude/portfolio-brief`). Writes `data.json` and
-`commits-digest.md` into the out dir; it also rotates the previous `data.json`
-to `data-prev.json` (powers the "Since last brief" diff) and appends one
-summary line per run to `history.jsonl` (powers the trend sparkline) — never
-delete those two. Report any `WARN` lines from stderr to the user verbatim —
-transient GitHub API failures land there and in each repo's `errors` field.
+Options: `--days N` (window, default 60), `--no-git-fetch` (skip `git fetch`,
+much faster — the `gh` API calls still run, so it is not offline), `--offline`
+(zero network calls and zero subprocess spawns; reuses the last `data.json`
+verbatim; exits with an error if no cached `data.json` exists, so you must have
+run `collect.py` at least once first), `--out DIR` (default
+`~/.claude/portfolio-brief`). Writes `data.json` and `commits-digest.md` into
+the out dir; it also rotates the previous `data.json` to `data-prev.json`
+(powers the "Since last brief" diff) — rotation only happens when the existing
+`data.json` is more than 4 hours old, so back-to-back re-runs in one working
+session don't clobber the baseline — and appends one summary line per run to
+`history.jsonl` (powers the trend sparkline) — never delete those two. Report
+any `WARN` lines from stderr to the user verbatim — transient GitHub API
+failures land there and in each repo's `errors` field.
 
 ### 2. Epics + judgment todos (model step)
 
@@ -117,7 +123,7 @@ Only needed after changing `app/` sources:
 
 ```bash
 npm --prefix ${CLAUDE_SKILL_DIR}/app install
-npm --prefix ${CLAUDE_SKILL_DIR}/app test
 npm --prefix ${CLAUDE_SKILL_DIR}/app run build
 cp ${CLAUDE_SKILL_DIR}/app/dist/index.html ${CLAUDE_SKILL_DIR}/assets/template.html
+npm --prefix ${CLAUDE_SKILL_DIR}/app test
 ```
