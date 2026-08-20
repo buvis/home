@@ -37,6 +37,7 @@ from cli.loop import (
     died_next,
     fingerprint,
     last_result_field,
+    live_wrapper_pid,
     pause_detail,
     plugin_drift,
     prune_registry,
@@ -1063,6 +1064,51 @@ def test_prune_removes_dead_untagged_and_malformed_entries(tmp_path):
     assert not (loops / "junk.json").exists()
     assert not (loops / "recycled.json").exists()
     assert (loops / "own.json").exists()  # never our own entry
+
+
+def test_live_wrapper_pid_ignores_an_alive_but_untagged_pid(tmp_path):
+    # A recycled or borrowed pid can be genuinely alive at the right root
+    # without ever having been the loop - only the _AUTOPILOT_LOOP tag
+    # proves incumbency.
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    root = tmp_path / "repo"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+    )
+    try:
+        (loops / f"{proc.pid}.json").write_text(
+            json.dumps({"pid": proc.pid, "root": str(root)}),
+        )
+        assert live_wrapper_pid(root, loops) is None
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_prune_spares_an_unreadable_entry_and_it_resolves_once_readable(tmp_path):
+    # An OSError reading the file means "I couldn't check this", not "this
+    # is garbage" - prune must leave it alone, and once it can be read
+    # again the tagged loop it names must still resolve.
+    loops = tmp_path / "loops"
+    loops.mkdir()
+    root = tmp_path / "repo"
+    shell = _spawn_forked_loop_shell()
+    entry = loops / f"{shell.pid}.json"
+    try:
+        entry.write_text(json.dumps({"pid": shell.pid, "root": str(root)}))
+        try:
+            entry.chmod(0o000)
+            prune_registry(loops, own_pid=4242)
+            assert entry.exists()
+            assert live_wrapper_pid(root, loops) is None
+        finally:
+            if entry.exists():
+                entry.chmod(0o644)
+        assert live_wrapper_pid(root, loops) == shell.pid
+    finally:
+        os.killpg(shell.pid, signal.SIGKILL)
+        shell.wait()
 
 
 def test_interrupt_tears_down_and_returns_130(tmp_path):
