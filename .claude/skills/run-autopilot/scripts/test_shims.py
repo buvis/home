@@ -91,6 +91,12 @@ class StatectlShimSymbolTests(unittest.TestCase):
         self.assertEqual(written, payload)
         self.assertNotIn("schema_version", written)
 
+    def test_every_usage_line_appears_in_the_shim_docstring(self) -> None:
+        for line in cli_statectl.USAGE.splitlines():
+            rest = line.split("statectl.py ", 1)[1]
+            with self.subTest(rest=rest):
+                self.assertIn(rest, statectl.__doc__)
+
 
 class ResumeTargetShimSymbolTests(unittest.TestCase):
     def test_both_functions_are_the_absorbed_objects(self) -> None:
