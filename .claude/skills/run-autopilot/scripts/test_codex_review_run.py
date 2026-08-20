@@ -416,6 +416,16 @@ class EventSignalsFailureTests(unittest.TestCase):
         even when it contains a marker word."""
         self.assertFalse(dr._event_signals_failure("quota exceeded"))
 
+    def test_untyped_wrapped_envelope_mentioning_quota_is_not_a_failure(
+        self,
+    ) -> None:
+        """An `item`/`msg`-wrapped event whose inner dict has no
+        `type`/`event`/`kind` key must still be excluded from the
+        marker-word blob scan — only a genuinely bare top-level dict (no
+        envelope at all) reaches that scan."""
+        obj = {"item": {"output": "no quota issues found here"}}
+        self.assertFalse(dr._event_signals_failure(obj))
+
 
 class ExitContractTests(unittest.TestCase):
     """The doubt phase relies on an honest exit contract so it can fall back

@@ -88,10 +88,12 @@ def _event_signals_failure(obj: object) -> bool:
     if not isinstance(obj, dict):
         return False
     inner = obj
+    wrapped = False
     for key in ("msg", "item"):
         nested = obj.get(key)
         if isinstance(nested, dict):
             inner = nested
+            wrapped = True
             break
     etype = ""
     for key in ("type", "event", "kind"):
@@ -101,6 +103,8 @@ def _event_signals_failure(obj: object) -> bool:
             break
     if etype:
         return "error" in etype.lower() or "failed" in etype.lower()
+    if wrapped:
+        return False
     blob = json.dumps(obj).lower()
     return any(marker in blob for marker in _FAILURE_TEXT_MARKERS)
 
