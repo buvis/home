@@ -303,14 +303,12 @@ def _header_safe(value: str) -> str:
     crash urlopen, and a bare CR/LF (header-injection shape) crashes
     http.client with a raw ValueError. ntfy accepts RFC 2047 encoded-words
     for non-latin-1 (and CR/LF-bearing) values."""
-    needs_encoding = "\r" in value or "\n" in value
-    if not needs_encoding:
+    if "\r" not in value and "\n" not in value:
         try:
             value.encode("latin-1")
+            return value
         except UnicodeEncodeError:
-            needs_encoding = True
-    if not needs_encoding:
-        return value
+            pass
     token = base64.b64encode(value.encode("utf-8")).decode("ascii")
     return f"=?UTF-8?B?{token}?="
 
