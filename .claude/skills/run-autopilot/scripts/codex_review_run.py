@@ -588,8 +588,10 @@ def main(argv: list[str]) -> int:
     if review_out is not None and review_chunks:
         try:
             review_out.write_text("\n\n".join(review_chunks))
-        except OSError:
-            pass
+        except OSError as exc:
+            progress.write_line(
+                f"⚠ codex_review: could not write {review_out} — {exc}"
+            )
     if rc != 0 or saw_failure:
         reason = f"exit code {rc}" if rc != 0 else "usage-limit/error event"
         progress.write_line(
