@@ -199,9 +199,9 @@ test('brief tiles show numeric counts and no not-run note when extract_ran is ab
   assert.doesNotMatch(doc.querySelector('main').textContent, /extraction step hasn't run/)
 })
 
-// The two tests above only prove the plumbing doesn't crash. These are the
-// discriminating, UI-observable assertions: when extraction never ran, the
-// tiles and empty states must say so instead of showing a false zero.
+// The test above covers the absent-field fallback (absence reads as "ran").
+// These cover the other side: when extraction never ran, the tiles and empty
+// states must say so instead of showing a false zero.
 test('brief tiles show em dashes and a not-run note when extraction did not run', () => {
   const payload = structuredClone(PAYLOAD)
   payload.extract_ran = false
