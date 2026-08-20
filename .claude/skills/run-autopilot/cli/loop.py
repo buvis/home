@@ -294,7 +294,8 @@ def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
     explicit loops dir. A pid that is alive but never carries its own
     _AUTOPILOT_LOOP tag (per _pid_tagged) is a recycled/borrowed pid,
     not an incumbent. An unreadable entry (OSError) means "couldn't
-    check this" - it is skipped, not treated as absent."""
+    check this" - it is skipped (unresolvable until readable again),
+    never deleted."""
     resolved = root.resolve()
     try:
         entries = list(loops_dir.glob("*.json"))
