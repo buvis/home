@@ -300,13 +300,19 @@ def read_credentials() -> str:
 
 def _header_safe(value: str) -> str:
     """urllib encodes headers as latin-1; emoji titles ("autopilot ✅ …")
-    crash urlopen. ntfy accepts RFC 2047 encoded-words for non-latin-1."""
-    try:
-        value.encode("latin-1")
+    crash urlopen, and a bare CR/LF (header-injection shape) crashes
+    http.client with a raw ValueError. ntfy accepts RFC 2047 encoded-words
+    for non-latin-1 (and CR/LF-bearing) values."""
+    needs_encoding = "\r" in value or "\n" in value
+    if not needs_encoding:
+        try:
+            value.encode("latin-1")
+        except UnicodeEncodeError:
+            needs_encoding = True
+    if not needs_encoding:
         return value
-    except UnicodeEncodeError:
-        token = base64.b64encode(value.encode("utf-8")).decode("ascii")
-        return f"=?UTF-8?B?{token}?="
+    token = base64.b64encode(value.encode("utf-8")).decode("ascii")
+    return f"=?UTF-8?B?{token}?="
 
 
 def build_ntfy_request(url: str, topic: str, title: str, msg: str, creds: str) -> urllib.request.Request:
@@ -341,28 +347,31 @@ def _settings_env(name: str) -> str:
     return value if isinstance(value, str) else ""
 
 
-def send_ntfy(title: str, msg: str) -> None:
+def send_ntfy(title: str, msg: str) -> bool:
     url = os.environ.get("NTFY_URL", "") or _settings_env("NTFY_URL")
     topic = os.environ.get("NTFY_TOPIC", "") or _settings_env("NTFY_TOPIC")
     if not url or not topic:
         log_line(f"[{now_local()}] Skipped ntfy: NTFY_URL or NTFY_TOPIC unset")
-        return
+        return False
     creds = read_credentials()
     req = build_ntfy_request(url, topic, title, msg, creds)
     try:
         with urllib.request.urlopen(req, timeout=NTFY_TIMEOUT_SEC) as resp:
             code = resp.status
         log_line(f"[{now_local()}] Notification sent successfully (http={code})")
+        return True
     except urllib.error.HTTPError as exc:
         log_line(f"[{now_local()}] ERROR: Failed to send notification (exit code: HTTP {exc.code})")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return False
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         log_line(f"[{now_local()}] ERROR: Failed to send notification (exit code: {type(exc).__name__})")
+        return False
 
 
-def show_desktop_notification(title: str, msg: str) -> None:
+def show_desktop_notification(title: str, msg: str) -> bool:
     if shutil.which("terminal-notifier") is None:
         log_line(f"[{now_local()}] Skipped: user present, terminal-notifier not available")
-        return
+        return False
     try:
         proc = subprocess.run(
             [
@@ -380,14 +389,15 @@ def show_desktop_notification(title: str, msg: str) -> None:
         )
     except (FileNotFoundError, subprocess.SubprocessError):
         log_line(f"[{now_local()}] ERROR: terminal-notifier failed")
-        return
+        return False
     if proc.returncode != 0:
         log_line(f"[{now_local()}] ERROR: terminal-notifier exited {proc.returncode}")
-        return
+        return False
     log_line(f"[{now_local()}] System notification shown (user present)")
+    return True
 
 
-def dispatch(title: str, msg: str) -> None:
+def dispatch(title: str, msg: str) -> bool:
     """Push to ntfy when the user is away, else show a desktop notification."""
     # The three presence probes are independent subprocess spawns (ioreg,
     # screensaver query, lid angle); run them concurrently so a Stop hook pays
@@ -399,9 +409,8 @@ def dispatch(title: str, msg: str) -> None:
         idle_sec, screensaver, lid = f_idle.result(), f_screen.result(), f_lid.result()
 
     if should_notify(idle_sec, screensaver, lid):
-        send_ntfy(title, msg)
-    else:
-        show_desktop_notification(title, msg)
+        return send_ntfy(title, msg)
+    return show_desktop_notification(title, msg)
 
 
 def main() -> None:
@@ -412,8 +421,10 @@ def main() -> None:
         title = sys.argv[2] if len(sys.argv) >= 3 else "autopilot"
         msg = sys.argv[3] if len(sys.argv) >= 4 else ""
         log_line(f"[{now_local()}] CLI --send: {title} / {msg}")
-        dispatch(title, msg)
+        result = dispatch(title, msg)
         log_line("---")
+        if not result:
+            sys.exit(1)
         return
 
     payload = read_input()
