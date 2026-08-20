@@ -23,6 +23,12 @@ MAX_BRANCHES = 50
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
+def stub_from_path(path: str, reason: str) -> dict:
+    p = Path(path)
+    return {"owner": p.parent.name, "name": p.name, "org": p.parent.name,
+            "path": path, "skipped": reason}
+
+
 def run(cmd, cwd=None, timeout=120):
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
@@ -320,12 +326,12 @@ def collect_repo(path, days, fetch):
         owner, name = repo_slug(path)
     except RuntimeError as e:
         print(f"WARN {path}: skipped ({e})", file=sys.stderr)
-        return None
+        return stub_from_path(path, str(e))
     repo = {"owner": owner, "name": name, "org": owner, "path": path, "errors": errors}
     if fetch:
         try:
             run(["git", "fetch", "--quiet", "origin"], cwd=path, timeout=180)
-        except RuntimeError as e:
+        except (RuntimeError, subprocess.SubprocessError, OSError) as e:
             errors.append(f"fetch: {e}")
     try:
         meta = gh_json(f"repos/{owner}/{name}")
@@ -390,19 +396,21 @@ def main():
     print(f"collecting {len(paths)} repos (days={args.days}, fetch={not args.no_fetch})",
           file=sys.stderr)
     with ThreadPoolExecutor(max_workers=8) as ex:
-        repos = list(ex.map(lambda p: collect_repo(p, args.days, not args.no_fetch), paths))
-    repos = [r for r in repos if r]
+        collected = list(ex.map(lambda p: collect_repo(p, args.days, not args.no_fetch), paths))
+    skipped = [r for r in collected if r.get("skipped")]
+    repos = [r for r in collected if not r.get("skipped")]
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     data = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "since_days": args.days, "repos": repos}
+    data["skipped"] = skipped
     known = {f'{r["owner"]}/{r["name"]}' for r in repos}
     try:
         data["external"] = collect_external(known)
     except Exception as e:
         print(f"WARN external: {e}", file=sys.stderr)
-        data["external"] = {"review_requested": [], "authored": []}
+        data["external"] = {"review_requested": [], "authored": [], "error": str(e)}
     data["external"]["claude_maintenance_last"] = collect_claude_maintenance()
     data["skill_adherence"] = collect_claude_skill_adherence()
 
@@ -411,7 +419,7 @@ def main():
     if data_file.exists():
         data_file.replace(outdir / "data-prev.json")
     data_file.write_text(json.dumps(data, indent=1))
-    hist = {"at": data["generated_at"],
+    hist = {"at": data["generated_at"], "skipped": len(skipped),
             "repos": {f'{r["owner"]}/{r["name"]}': history_counts(r) for r in repos}}
     with (outdir / "history.jsonl").open("a") as hf:
         hf.write(json.dumps(hist) + "\n")
@@ -421,7 +429,7 @@ def main():
     for slug, errs in failed:
         print(f"WARN {slug}: {'; '.join(errs)}", file=sys.stderr)
     print(f"wrote {outdir / 'data.json'} and {outdir / 'commits-digest.md'}; "
-          f"{len(repos)} repos, {len(failed)} with warnings")
+          f"{len(paths)} repos, {len(skipped)} skipped, {len(failed)} with warnings")
 
 
 if __name__ == "__main__":
