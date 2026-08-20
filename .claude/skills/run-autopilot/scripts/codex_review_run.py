@@ -18,7 +18,8 @@ What it adds over a bare `codex exec` call:
   but has used no CPU and produced nothing (most likely blocked on a stuck
   connection). It never kills anything; Ctrl-C is the only stop.
 - **Review capture** — codex's agent-message text is written to
-  `<autopilot_dir>/codex-review-output.md` on a clean run, for the caller to read.
+  `<autopilot_dir>/codex-review-output.md` for the caller to read, even when
+  the run fails after producing output.
 
 The raw `--json` stream is teed to `<autopilot_dir>/codex-review-last.jsonl`.
 
@@ -75,23 +76,33 @@ _FAILURE_TEXT_MARKERS = ("usage limit", "rate limit", "quota",
 def _event_signals_failure(obj: object) -> bool:
     """True when a codex --json event indicates the run failed in a way the
     caller must surface: an explicit error/failed event, or a
-    usage-limit/quota message codex prints without a nonzero exit."""
-    blob = obj.lower() if isinstance(obj, str) else json.dumps(obj).lower()
-    if any(marker in blob for marker in _FAILURE_TEXT_MARKERS):
-        return True
-    if isinstance(obj, dict):
-        inner = obj
-        for key in ("msg", "item"):
-            nested = obj.get(key)
-            if isinstance(nested, dict):
-                inner = nested
-                break
-        for key in ("type", "event", "kind"):
-            val = inner.get(key) or obj.get(key)
-            if isinstance(val, str) and ("error" in val.lower()
-                                         or "failed" in val.lower()):
-                return True
-    return False
+    usage-limit/quota message codex prints without a nonzero exit.
+
+    A typed `msg`/`item` envelope is judged only by its own type field, never
+    by scanning its content for marker words — otherwise a review that merely
+    DISCUSSES quota/rate-limit handling (in a command, a file path, or the
+    reviewer's own prose) is misclassified as a codex-side failure. The
+    marker-word scan runs only over a bare, untyped top-level dict — the
+    shape codex's own usage-limit/quota notices arrive in.
+    """
+    if not isinstance(obj, dict):
+        return False
+    inner = obj
+    for key in ("msg", "item"):
+        nested = obj.get(key)
+        if isinstance(nested, dict):
+            inner = nested
+            break
+    etype = ""
+    for key in ("type", "event", "kind"):
+        val = inner.get(key) or obj.get(key)
+        if isinstance(val, str):
+            etype = val
+            break
+    if etype:
+        return "error" in etype.lower() or "failed" in etype.lower()
+    blob = json.dumps(obj).lower()
+    return any(marker in blob for marker in _FAILURE_TEXT_MARKERS)
 
 
 def _agent_message_text(obj: object) -> str:
@@ -570,6 +581,11 @@ def main(argv: list[str]) -> int:
 
     rc = proc.wait()
     elapsed = time.monotonic() - started
+    if review_out is not None and review_chunks:
+        try:
+            review_out.write_text("\n\n".join(review_chunks))
+        except OSError:
+            pass
     if rc != 0 or saw_failure:
         reason = f"exit code {rc}" if rc != 0 else "usage-limit/error event"
         progress.write_line(
@@ -577,11 +593,6 @@ def main(argv: list[str]) -> int:
             f"total {_fmt_secs(elapsed)} (caller should fall back)"
         )
         return 4
-    if review_out is not None and review_chunks:
-        try:
-            review_out.write_text("\n\n".join(review_chunks))
-        except OSError:
-            pass
     progress.write_line(
         f"✓ codex_review: codex finished clean — total {_fmt_secs(elapsed)}"
     )
