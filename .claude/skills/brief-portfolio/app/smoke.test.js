@@ -314,6 +314,33 @@ test('Todos tab reports success and copies the open todos when the execCommand f
   assert.equal(recorded, expected)
 })
 
+test('Todos tab reports failure when the execCommand fallback returns false', async () => {
+  // navigator.clipboard.writeText rejects (as in the fallback-succeeds test
+  // above), but execCommand runs without throwing and returns false — a
+  // silently no-op copy rather than a working one. fallbackCopy must treat
+  // that as a failure, not report success.
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].prds = { backlog: [], wip: [], done_count: 0 }
+  payload.data.repos[0].local = { dirty: 2, dirty_since_days: 1, ahead: 3 }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Todo')
+
+  const button = [...doc.querySelectorAll('main button.chip')].find(
+    (b) => b.textContent.trim() === 'copy open as markdown',
+  )
+  assert.ok(button, 'missing "copy open as markdown" button')
+
+  doc.defaultView.navigator.clipboard = { writeText: () => Promise.reject(new Error('denied')) }
+  doc.execCommand = () => false
+
+  button.click()
+  await flush()
+
+  assert.equal(button.textContent.trim(), '✗ copy failed')
+  assert.equal(doc.querySelector('textarea'), null, 'a failed fallback copy left a <textarea> in the document')
+})
+
 test('Brief tab trend sparkline plots only complete history runs, not incomplete ones', () => {
   const payload = structuredClone(PAYLOAD)
   payload.prev = { repos: [], generated_at: new Date(0).toISOString() }
