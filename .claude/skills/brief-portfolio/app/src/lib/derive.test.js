@@ -166,16 +166,20 @@ const incompleteSeries = historySeries([
 assert.deepEqual(incompleteSeries.map((h) => h.incomplete), [true, false, false])
 
 // --- external PR lookup failure surfaces as its own todo, not silence ---
+// Selects on the `ext:error` PREFIX, not on the whole id: the id now carries a
+// deterministic encoding of the error text (see the next block for why), so an
+// exact match here would pin the very constant-id defect that encoding removes.
+const isErrTodo = (t) => t.id.startsWith('ext:error')
 const failedLookup = externalTodos({ error: 'gh auth login', review_requested: [], authored: [] })
-const errTodos = failedLookup.filter((t) => t.id === 'ext:error')
+const errTodos = failedLookup.filter(isErrTodo)
 assert.equal(errTodos.length, 1)
 assert.equal(errTodos[0].kind, 'external')
 assert.equal(errTodos[0].urgency, 'now')
 assert.match(errTodos[0].why, /gh auth login/)
 assert.match(errTodos[0].action, /PR/i)
 assert.match(errTodos[0].action, /fail|error/i)
-assert.equal(externalTodos(null).filter((t) => t.id === 'ext:error').length, 0)
-assert.equal(externalTodos({ review_requested: [], authored: [] }).filter((t) => t.id === 'ext:error').length, 0)
+assert.equal(externalTodos(null).filter(isErrTodo).length, 0)
+assert.equal(externalTodos({ review_requested: [], authored: [] }).filter(isErrTodo).length, 0)
 
 // --- external PR lookup failure: the todo id must vary with the error text ---
 // The Todos tab persists the operator's checked/"done" state across
