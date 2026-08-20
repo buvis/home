@@ -123,7 +123,9 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/build.py /path/to/transcript-debrief
 open /path/to/transcript-debrief/debrief.html   # attended only
 ```
 
-`build.py` applies the corrections, injects `{transcript, extract, extract_ran}` into the template and writes `debrief.html` beside the JSON (`--out FILE` to redirect).
+`build.py` applies the corrections, injects `{transcript, extract, extract_ran}`
+into the template and writes `debrief.html` beside the JSON (`--out FILE` to
+redirect).
 It works without `extract.json` - you get the transcript view only, and it says
 so. It also warns about unknown top-level keys in `extract.json`, which is how a
 typo like `action_items` gets caught instead of silently rendering nothing.

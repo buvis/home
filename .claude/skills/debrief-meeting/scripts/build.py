@@ -42,6 +42,11 @@ KNOWN_KEYS = {
 }
 
 
+def warn(transcript: dict, message: str) -> None:
+    print(f"WARN: {message}", file=sys.stderr)
+    transcript.setdefault("warnings", []).append(message)
+
+
 def build_pattern(needle: str) -> re.Pattern[str]:
     """Word-bounded where the edges are word characters, literal otherwise."""
     head = r"\b" if needle[:1].isalnum() else ""
@@ -61,7 +66,7 @@ def apply_corrections(turns: list[dict], corrections: list[dict]) -> list[dict]:
         for turn in turns:
             if only is not None and turn["i"] != only:
                 continue
-            text, count = pattern.subn(lambda m: new, turn["text"])
+            text, count = pattern.subn(lambda _m: new, turn["text"])
             if count:
                 turn.setdefault("raw", turn["text"])
                 turn["text"] = text
@@ -73,9 +78,33 @@ def apply_corrections(turns: list[dict], corrections: list[dict]) -> list[dict]:
                 "to": new,
                 "reason": fix.get("reason"),
                 "applied": hits,
-            },
+            }
         )
     return log
+
+
+def load_extract(extract_file: Path, transcript: dict) -> tuple[dict, bool]:
+    """Read extract.json when present; warn into the payload when it is not."""
+    extract_ran = extract_file.is_file()
+    if extract_ran:
+        try:
+            extract = json.loads(extract_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            sys.exit(f"{extract_file} is not valid JSON: {exc}")
+    else:
+        warn(
+            transcript,
+            "the extraction step (extract.json) hasn't run — building the transcript view only",
+        )
+        extract = {}
+
+    for key in extract:
+        if key not in KNOWN_KEYS:
+            warn(
+                transcript,
+                f"extract.json has unknown key '{key}' — the page will ignore it",
+            )
+    return extract, extract_ran
 
 
 def main() -> None:
@@ -90,31 +119,15 @@ def main() -> None:
         sys.exit(f"missing {source} — run parse.py first")
     transcript = json.loads(source.read_text(encoding="utf-8"))
 
-    extract_file = workdir / "extract.json"
-    extract_ran = extract_file.is_file()
-    if extract_ran:
-        try:
-            extract = json.loads(extract_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            sys.exit(f"invalid JSON in {extract_file}: {exc}")
-    else:
-        warning = f"{extract_file} not found — extract wasn't run; building the transcript view only"
-        print(f"WARN: {warning}", file=sys.stderr)
-        transcript.setdefault("warnings", []).append(warning)
-        extract = {}
-
-    for key in extract:
-        if key not in KNOWN_KEYS:
-            warning = f"extract.json has unknown key '{key}' — the page will ignore it"
-            print(f"WARN: {warning}", file=sys.stderr)
-            transcript.setdefault("warnings", []).append(warning)
+    extract, extract_ran = load_extract(workdir / "extract.json", transcript)
 
     fixes = apply_corrections(transcript["turns"], extract.get("corrections") or [])
     for fix in fixes:
         if not fix["applied"]:
-            warning = f"correction '{fix['from']}' -> '{fix['to']}' matched nothing"
-            print(f"WARN: {warning}", file=sys.stderr)
-            transcript.setdefault("warnings", []).append(warning)
+            warn(
+                transcript,
+                f"correction '{fix['from']}' -> '{fix['to']}' matched nothing",
+            )
     transcript["corrections"] = (transcript.get("corrections") or []) + fixes
 
     template = TEMPLATE.read_text(encoding="utf-8")
