@@ -150,6 +150,18 @@ test('marks a corrected turn and can show the original wording', async () => {
   assert.match(doc.querySelector('main').textContent, /Then we go with postgres\./)
 })
 
+test('the transcript search input has an accessible name and the turn count is announced', async () => {
+  const { doc, openTab } = render()
+  await openTab('Transcript')
+  const searchInput = doc.querySelector('main input[type="search"]')
+  assert.ok(searchInput, 'missing the transcript search input')
+  assert.equal(searchInput.getAttribute('aria-label'), 'Search the transcript')
+  const count = doc.querySelector('main .muted')
+  assert.ok(count, 'missing the turn count element')
+  assert.equal(count.getAttribute('aria-live'), 'polite')
+  assert.equal(count.textContent.trim(), '3 of 3 turns')
+})
+
 test('builds an ADR from a decision on demand', async () => {
   const { doc, openTab, clickText } = render()
   await openTab('Decisions')
