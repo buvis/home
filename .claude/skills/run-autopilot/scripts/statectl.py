@@ -14,13 +14,14 @@ CLI and exit codes are unchanged:
     python3 statectl.py <state-path> get|set|append|del <json-path> [value]
     python3 statectl.py <state-path> task-start <task-id>
     python3 statectl.py <state-path> task-done <task-id> <attempt-json-file>
+    python3 statectl.py <state-path> append-attempt <task-id> <attempt-json-file>
     python3 statectl.py <state-path> set-contract-card <file>
-    python3 statectl.py <state-path> complete-prd <prd-filename>
     python3 statectl.py <state-path> task-add <task-json-file>
     python3 statectl.py <state-path> task-set-body <task-id> <body-file>
     python3 statectl.py <state-path> task-set-meta <task-id> <meta-json-file>
-    python3 statectl.py <state-path> task-set-status <task-id> <status>
+    python3 statectl.py <state-path> task-set-status <task-id> pending|in_progress|completed
     python3 statectl.py <state-path> tasks-clear
+    python3 statectl.py <state-path> complete-prd <prd-filename>
 
     0  ok
     1  bad argument, unsupported json-path, or a value the schema rejects
