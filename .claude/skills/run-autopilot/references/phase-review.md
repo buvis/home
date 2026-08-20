@@ -145,7 +145,7 @@ The ledger is what stops a settled call from being re-argued every cycle. It is 
 The first three rows describe a cycle that did NOT converge — the Cap check above already routed a converged cycle to the last row. A cycle whose only survivors are Medium/Low has converged; it does not "proceed to Phase 6" for another cycle.
 
 - **All auto-fixable, no deferrals, no blockers** → proceed to Phase 6
-- **Has deferrals but no blockers** → log deferred items to `dev/local/autopilot/deferred/{batch_id}-deferred.json`, proceed to Phase 6 with auto-fixable items only
+- **Has deferrals but no blockers** → run `autopilot defer --prd <filename> --batch <batch_id> --json '<record>'` for each deferred item, proceed to Phase 6 with auto-fixable items only
 - **Has blocking escalation** →
   - **Interactive:** PAUSE. Present only the blocking issue(s) to user via `AskUserQuestion`. Wait for decision. After user responds, proceed to Phase 6.
   - **Loop mode (`$_AUTOPILOT_LOOP` set):** there is no human to answer — do NOT pause the batch. Follow the **Loop-mode stall procedure** (`references/recovery.md`) with `site: "blocking_escalation"`, recording the blocking issue(s) in the deferred JSON `detail`, and continue the batch. The parked PRD, on un-park, re-enters the build gate and the decision resurfaces interactively.
@@ -191,7 +191,7 @@ Runs once, on the converged outcome above, after the metric is emitted and befor
 
 `{n}` is `state.cycle` (unchanged by the sweep) and `{k}` the number of findings swept, not the number of tasks.
 
-**Sweep escapes.** A CRITICAL/HIGH raised by the sweep's own step-5.7 review is handled inside step 5.7 as today (verify, fix inline, max 3 review cycles). One that survives that cap is appended to the batch deferred JSON as `{"type": "sweep-escape", "issue": ..., "severity": ...}` and **the PRD still finalizes**. The deferred record is what keeps the escape visible at batch end; the zero-escaped-C/H guard is measured net of these entries.
+**Sweep escapes.** A CRITICAL/HIGH raised by the sweep's own step-5.7 review is handled inside step 5.7 as today (verify, fix inline, max 3 review cycles). One that survives that cap is recorded via `autopilot defer --prd <filename> --batch <batch_id> --json '{"type": "sweep-escape", "issue": ..., "severity": ...}'` and **the PRD still finalizes**. The deferred record is what keeps the escape visible at batch end; the zero-escaped-C/H guard is measured net of these entries.
 
 ### Hand off to the finalize session
 
