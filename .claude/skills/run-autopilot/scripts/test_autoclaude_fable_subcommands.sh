@@ -696,6 +696,22 @@ grep -q "Backlog drained" "$SBOX_7/stdout.log" \
   || FAIL "$L7: prints Backlog drained" "$(cat "$SBOX_7/stdout.log" 2>/dev/null)"
 [ -f "$SBOX_7/claude-invocations.log" ] \
   || FAIL "$L7: the loop launched a session" "bin/claude was never invoked — the guard swallowed a bare call"
+[ -s "$SBOX_7/sysctl-invocations.log" ] \
+  || FAIL "$L7: sysctl stub was hit" "the memory gate never reached the sandbox sysctl stub"
+assert_mentions "$L7: sysctl stub was called with the real pressure-level arg" \
+  "$SBOX_7/sysctl-invocations.log" "kern.memorystatus_vm_pressure_level"
+[ -s "$SBOX_7/pgrep-invocations.log" ] \
+  || FAIL "$L7: pgrep stub was hit" "orphan cleanup never reached the sandbox pgrep stub"
+assert_mentions "$L7: pgrep stub was called with the real orphan-scan args" \
+  "$SBOX_7/pgrep-invocations.log" "-P 1"
+[ -s "$SBOX_7/.home/.claude/hooks/notify-invocations.log" ] \
+  || FAIL "$L7: notify stub was hit" "the drain notification never reached the sandbox notify stub"
+assert_mentions "$L7: notify stub was called with the real send flag" \
+  "$SBOX_7/.home/.claude/hooks/notify-invocations.log" "--send"
+[ -s "$SBOX_7/.home/.claude/skills/purge-devlocal/scripts/purge-invocations.log" ] \
+  || FAIL "$L7: purge stub was hit" "run_purge never reached the sandbox purge_devlocal stub"
+assert_mentions "$L7: purge stub was called with the real apply flag" \
+  "$SBOX_7/.home/.claude/skills/purge-devlocal/scripts/purge-invocations.log" "--apply"
 PASS "$L7: loop launched a session and drained with exit 0"
 
 # =============================================================================
