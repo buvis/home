@@ -360,7 +360,7 @@ def test_offline_makes_zero_subprocess_calls(tmp_path, monkeypatch):
 
     def explode(*args, **kwargs):
         raise AssertionError(
-            f"subprocess.run should not be called: {args!r} {kwargs!r}"
+            f"subprocess.run should not be called: {args!r} {kwargs!r}",
         )
 
     monkeypatch.setattr(collect.subprocess, "run", explode)
@@ -376,7 +376,9 @@ def test_offline_leaves_cached_data_json_byte_for_byte_unchanged(tmp_path, monke
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
     content = write_snapshot(
-        out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached"
+        out_dir / "data.json",
+        "2026-08-20T00:00:00+00:00",
+        "cached",
     )
 
     monkeypatch.setattr(
@@ -450,7 +452,9 @@ def test_no_fetch_old_spelling_is_rejected_by_argparse(tmp_path, monkeypatch):
     monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
 
     def explode(*args, **kwargs):
-        raise AssertionError(f"subprocess.run should not be called: {args!r} {kwargs!r}")
+        raise AssertionError(
+            f"subprocess.run should not be called: {args!r} {kwargs!r}"
+        )
 
     monkeypatch.setattr(collect.subprocess, "run", explode)
     monkeypatch.setattr(
