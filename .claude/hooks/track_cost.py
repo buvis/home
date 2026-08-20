@@ -172,18 +172,13 @@ def build_row(
     """
     return (
         '{"ts":"' + ts + '","sid":"' + sid + '","model":"' + model + '",'
-        '"tier":"'
-        + tier
-        + '",'
-        + ('"nested":true,' if nested else "")
-        + '"in":'
-        + str(in_tok)
-        + ","
-        '"cache_write":' + str(cw) + ","
-        '"cache_read":' + str(cr) + ","
-        '"out":' + str(out) + ","
-        '"cost_usd":' + cost + ","
-        '"cumulative":true}'
+        '"tier":"' + tier + '","cumulative":true,'
+        + ('"nested":true,' if nested else '')
+        + '"in":' + str(in_tok) + ','
+        '"cache_write":' + str(cw) + ','
+        '"cache_read":' + str(cr) + ','
+        '"out":' + str(out) + ','
+        '"cost_usd":' + cost + '}'
     )
 
 
@@ -209,23 +204,14 @@ def main() -> None:
 
     tier = detect_tier(model)
     if tier == "unknown":
-        sys.stderr.write(
-            f"track_cost: no pricing tier for model {model!r}; cost_usd=null\n"
-        )
+        sys.stderr.write(f"track_cost: no pricing tier for model {model!r}; cost_usd=null\n")
     cost = cost_usd(in_tok, cw, cr, out_tok, tier)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     row = build_row(
-        ts=ts,
-        sid=sid,
-        model=model,
-        tier=tier,
-        in_tok=in_tok,
-        cw=cw,
-        cr=cr,
-        out=out_tok,
-        cost=cost,
+        ts=ts, sid=sid, model=model, tier=tier,
+        in_tok=in_tok, cw=cw, cr=cr, out=out_tok, cost=cost,
         nested=bool(os.environ.get("CLAUDE_NESTED")),
     )
     append_jsonl_row(COSTS_FILE, row)
