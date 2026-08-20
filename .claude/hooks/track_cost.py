@@ -5,6 +5,9 @@ hook stdin payload, parses JSONL entries, deduplicates assistant messages by
 message.id, sums token usage, and appends a single JSONL row to
 ~/.claude/metrics/costs.jsonl.
 
+Rows are cumulative per sid (the session's running total as of that Stop
+event); aggregate them with max-by-sid, never sum.
+
 Stdlib only. Cost arithmetic uses Decimal so the formatted output matches the
 bash awk template byte-for-byte on shared fixtures.
 """
@@ -55,7 +58,7 @@ PRICING: dict[str, dict[str, Decimal]] = {
     },
 }
 
-ONE_MILLION = Decimal(1000000)
+ONE_MILLION = Decimal("1000000")
 
 
 def detect_tier(model: str) -> str:
