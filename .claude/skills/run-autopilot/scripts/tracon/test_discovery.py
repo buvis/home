@@ -1151,7 +1151,7 @@ def test_live_wrapper_pid_returns_registered_live_pid(tmp_path: Path) -> None:
     """Regression-safety: a real _AUTOPILOT_LOOP-tagged child must still
     resolve to a live wrapper pid once the tag check becomes mandatory -
     this passes both before (tag ignored) and after (tag verified) the
-    fix, unlike the untagged-bug-reproduction test above."""
+    fix, unlike the untagged-bug-reproduction test below."""
     proc = _spawn_forked_loop_shell()
     try:
         loops_dir = tmp_path / "loops"
