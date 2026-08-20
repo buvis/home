@@ -266,3 +266,37 @@ test('Failed copy is announced in an aria-live region, not just the button label
     'no aria-live="polite" element announces the copy failure (the button label alone changed)',
   )
 })
+
+test('aria-live region clears once the failed-copy button label has reverted', async () => {
+  // Same failure path as the tests above. The button's own copied/failed
+  // state resets to '' after 1.5s via setTimeout, but the aria-live status
+  // never resets. Svelte's $state skips the DOM write when a value repeats,
+  // so once the label looks normal again, the live region must not still be
+  // holding the stale "✗ copy failed" text from the click that just cleared.
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].prds = { backlog: [], wip: [], done_count: 0 }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Todo')
+  const button = [...doc.querySelectorAll('main button.chip')].find(
+    (b) => b.textContent.trim() === 'copy open as markdown',
+  )
+  assert.ok(button, 'missing "copy open as markdown" button')
+  button.click()
+  await flush()
+  assert.equal(button.textContent.trim(), '✗ copy failed')
+
+  // Wait past the component's 1.5s reset (real time, not a stubbed clock),
+  // then flush so the resulting DOM update lands.
+  await new Promise((resolve) => setTimeout(resolve, 1600))
+  await flush()
+  assert.equal(button.textContent.trim(), 'copy open as markdown', 'label did not revert after 1.5s')
+
+  const liveRegion = doc.querySelector('[aria-live="polite"]')
+  assert.ok(liveRegion, 'missing aria-live="polite" element')
+  assert.equal(
+    liveRegion.textContent.trim(),
+    '',
+    'aria-live region still holds stale "✗ copy failed" text after the button label reverted',
+  )
+})
