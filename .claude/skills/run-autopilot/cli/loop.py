@@ -266,10 +266,13 @@ def prune_registry(loops_dir: Path, own_pid: int) -> None:
         return
     for path in entries:
         try:
-            path.read_bytes()
+            text = path.read_text(encoding="utf-8")
         except OSError:
-            continue  # can't check it - not "garbage", leave it alone
-        data = _load_json(path)
+            continue  # unreadable (permission/ownership) - leave alone, not corrupt
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
         pid = data.get("pid") if isinstance(data, dict) else None
         if pid == own_pid:
             continue
@@ -298,10 +301,6 @@ def live_wrapper_pid(root: Path, loops_dir: Path) -> int | None:
     except OSError:
         return None
     for path in entries:
-        try:
-            path.read_bytes()
-        except OSError:
-            continue  # can't check it - not "garbage", leave it alone
         data = _load_json(path)
         if not isinstance(data, dict):
             continue
