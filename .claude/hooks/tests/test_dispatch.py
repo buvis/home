@@ -49,7 +49,9 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 # dispatcher entry per event. This fixture is the frozen pre-swap wiring ROUTES
 # must keep reproducing - comparing ROUTES against the post-swap settings.json
 # would be a tautology (both would just say "one dispatch.py entry").
-SETTINGS_PATH = Path(__file__).resolve().parent / "fixtures" / "settings-preswap-hooks.json"
+SETTINGS_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "settings-preswap-hooks.json"
+)
 
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
@@ -59,10 +61,15 @@ EVENTS_MAP = {"pre": "PreToolUse", "post": "PostToolUse", "stop": "Stop"}
 SETTINGS = json.loads(SETTINGS_PATH.read_text())
 
 # A local Route shape. `main`/`_invoke` read routes purely by attribute
-# (`row.event`, `row.matcher`, `row.name`, `row.path`, `row.timeout`), so a
-# namedtuple with matching fields works for stub ROUTES regardless of the
-# internal Route type used by dispatch.py.
-Route = collections.namedtuple("Route", "event matcher name path timeout")
+# (`row.event`, `row.matcher`, `row.name`, `row.path`, `row.timeout`,
+# `row.kind`), so a namedtuple with matching fields works for stub ROUTES
+# regardless of the internal Route type used by dispatch.py. `kind` defaults
+# to "observer" so every pre-existing 5-arg call site (none of which cares
+# about enforcement-vs-observer classification) keeps constructing routes
+# unchanged; tests that need a specific classification pass kind= explicitly.
+Route = collections.namedtuple(
+    "Route", "event matcher name path timeout kind", defaults=("observer",)
+)
 
 _HAS_SIGALRM = hasattr(signal, "SIGALRM")
 
@@ -113,11 +120,13 @@ def _uid() -> str:
     return uuid4().hex[:8]
 
 
-def make_route(tmp_path, label, src, *, event="PreToolUse", matcher=None, timeout=5):
+def make_route(
+    tmp_path, label, src, *, event="PreToolUse", matcher=None, timeout=5, kind="observer"
+):
     """Write a stub handler file and return a Route pointing at it."""
     path = tmp_path / f"{label}_{_uid()}.py"
     path.write_text(textwrap.dedent(src))
-    return Route(event, matcher, label.upper(), str(path), timeout)
+    return Route(event, matcher, label.upper(), str(path), timeout, kind)
 
 
 def set_bash_and_match_all_routes(dispatch_mod, monkeypatch, tmp_path):
@@ -299,7 +308,9 @@ def test_capture_main_non_int_return_is_zero(common):
     ],
 )
 def test_capture_main_bool_return_is_not_mapped_but_genuine_int_is(
-    common, value, expected_code
+    common,
+    value,
+    expected_code,
 ):
     """`code = ret if isinstance(ret, int) else 0` maps a `main()` returning
     True to exit code 1 and False to 0 today, because `isinstance(True, int)`
@@ -372,13 +383,13 @@ def test_capture_main_systemexit_bool_code_is_not_mapped(common, code_arg):
     so a value-only assertion would pass by coincidence in either branch even
     if the old bug (letting the bare bool object flow through as code) were
     still present; the type check is what actually catches it."""
+
     def fn():
         sys.exit(code_arg)
 
     code, out, err = common.capture_main(fn, {})
     assert code == 1, (
-        f"main() calling sys.exit({code_arg!r}) must map to exit code 1, "
-        f"got {code!r}"
+        f"main() calling sys.exit({code_arg!r}) must map to exit code 1, got {code!r}"
     )
     assert not isinstance(code, bool), (
         f"capture_main's returned exit code must be a real int, never a bool "
@@ -452,7 +463,11 @@ def test_capture_main_restores_streams_after_exception(common):
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
 def test_events_constant(dispatch):
-    assert dispatch.EVENTS == {"pre": "PreToolUse", "post": "PostToolUse", "stop": "Stop"}
+    assert dispatch.EVENTS == {
+        "pre": "PreToolUse",
+        "post": "PostToolUse",
+        "stop": "Stop",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -500,7 +515,7 @@ _REAL_MATCHERS = sorted(
         for event_full in ("PreToolUse", "PostToolUse", "Stop")
         for (matcher, _basename) in settings_routes(event_full)
         if matcher is not None
-    }
+    },
 )
 _OUTSIDE_TOOLS = [
     "Read",
@@ -521,7 +536,9 @@ _REAL_MATCHER_OUTSIDE_PAIRS = [(m, t) for m in _REAL_MATCHERS for t in _OUTSIDE_
 
 @pytest.mark.unit
 @pytest.mark.parametrize("matcher,tool", _REAL_MATCHER_OUTSIDE_PAIRS)
-def test_matches_equals_fullmatch_for_real_matchers_outside_table(dispatch, matcher, tool):
+def test_matches_equals_fullmatch_for_real_matchers_outside_table(
+    dispatch, matcher, tool
+):
     """`_matches` must equal `bool(re.fullmatch(matcher, tool))` for the real
     settings.json matchers crossed with tool names OUTSIDE the finite 13-case
     parametrize - both matching (e.g. "Read" vs the mcp__.* group) and
@@ -555,12 +572,76 @@ def test_parse_stdin_returns_dict_payload(dispatch, monkeypatch):
 @pytest.mark.parametrize("raw", ["", "not json {{{", "[1,2]", "null"])
 def test_main_survives_malformed_stdin(dispatch, monkeypatch, raw):
     calls = []
-    monkeypatch.setattr(dispatch, "_invoke", lambda r, p: (calls.append(r), (0, "", ""))[1])
+    monkeypatch.setattr(
+        dispatch, "_invoke", lambda r, p: (calls.append(r), (0, "", ""))[1]
+    )
     monkeypatch.setattr(sys, "stdin", io.StringIO(raw))
     with pytest.raises(SystemExit) as ei:
         dispatch.main("pre")  # tool_name "" -> no pre matcher fires
     assert ei.value.code == 0
     assert calls == []
+
+
+def _recursion_bomb_json() -> str:
+    """A JSON array nested deep enough that `json.loads` raises RecursionError.
+
+    Empirically, CPython's C-accelerated json scanner does NOT hit
+    RecursionError at a small multiple of `sys.getrecursionlimit()` (a
+    depth-3x-limit array with the default limit of 1000 parses to a big,
+    harmless non-dict list instead - the scanner is far cheaper per level
+    than genuine Python-level recursion). A depth of 100_000 was verified to
+    reliably raise RecursionError in under 2ms, both at the default limit and
+    at a limit raised 10x (10_000) - so the floor is kept fixed rather than
+    scaled, with `sys.getrecursionlimit()` only widening it further on a
+    platform configured with an unusually high limit.
+    """
+    depth = max(100_000, sys.getrecursionlimit() * 20)
+    return "[" * depth + "]" * depth
+
+
+@pytest.mark.unit
+def test_parse_stdin_recursion_error_degrades_to_empty_dict(dispatch, monkeypatch):
+    """A JSON payload nested past Python's recursion limit raises RecursionError
+    from `json.loads`, not ValueError/OSError. `_parse_stdin` must widen its
+    guard to catch it too and degrade to {} instead of letting it propagate."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_recursion_bomb_json()))
+    assert dispatch._parse_stdin() == {}
+    assert "malformed" in dispatch_log_text().lower(), (
+        "a RecursionError from malformed stdin must be logged, not silently absorbed"
+    )
+
+
+@pytest.mark.integration
+def test_main_survives_recursion_error_stdin_and_runs_handlers_normally(
+    dispatch, monkeypatch, tmp_path
+):
+    """End to end: a deeply-nested JSON payload must not crash or exit
+    nonzero, and handlers routed for the event must still run against the
+    degraded {} payload - not be skipped just because parsing failed."""
+    matchall = make_route(
+        tmp_path,
+        "recursionmatchall",
+        """
+        def run(payload):
+            return (0, "", "")
+        """,
+        matcher=None,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [matchall])
+    seen = []
+    monkeypatch.setattr(
+        dispatch,
+        "_invoke",
+        lambda r, p: (seen.append(p), (0, "", ""))[1],
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_recursion_bomb_json()))
+    with pytest.raises(SystemExit) as ei:
+        dispatch.main("pre")
+
+    assert ei.value.code == 0
+    assert seen == [{}], (
+        f"handlers must still run against the degraded {{}} payload, got {seen!r}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -599,7 +680,9 @@ def test_subprocess_missing_argv_is_non_blocking_no_traceback(tmp_path):
     )
     assert proc.returncode == 0, f"stderr={proc.stderr!r}"
     assert "Traceback" not in proc.stderr
-    assert _sandbox_dispatch_log(home).strip(), "the missing-argument problem must be logged"
+    assert _sandbox_dispatch_log(home).strip(), (
+        "the missing-argument problem must be logged"
+    )
 
 
 @pytest.mark.integration
@@ -665,10 +748,14 @@ def test_main_survives_non_string_tool_name(dispatch, monkeypatch, tool_name_val
     TypeError escaping instead - proving the crash is real and uncaught."""
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(
-        sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name_value}))
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"tool_name": tool_name_value})),
     )
     with pytest.raises(SystemExit) as ei:
         dispatch.main("pre")
@@ -682,7 +769,10 @@ def test_main_survives_non_string_tool_name(dispatch, monkeypatch, tool_name_val
     ids=["int", "dict", "list", "null"],
 )
 def test_malformed_tool_name_runs_match_all_but_not_specific_matcher(
-    dispatch, monkeypatch, tmp_path, tool_name_value
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    tool_name_value,
 ):
     """Routing consequence of the guard, with a mix of routes registered for
     the SAME event: a malformed `tool_name` must not be treated as matching a
@@ -701,10 +791,14 @@ def test_malformed_tool_name_runs_match_all_but_not_specific_matcher(
 
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(
-        sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name_value}))
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"tool_name": tool_name_value})),
     )
     with pytest.raises(SystemExit):
         dispatch.main("pre")
@@ -728,10 +822,14 @@ def test_missing_tool_name_key_routing_is_unchanged(dispatch, monkeypatch, tmp_p
 
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(
-        sys, "stdin", io.StringIO(json.dumps({"unrelated_key": "value"}))
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"unrelated_key": "value"})),
     )
     with pytest.raises(SystemExit) as ei:
         dispatch.main("pre")
@@ -753,7 +851,10 @@ def test_missing_tool_name_key_routing_is_unchanged(dispatch, monkeypatch, tmp_p
         ("pre", "Read"),  # no Read PreToolUse matcher -> ZERO handlers
         ("pre", "TodoWrite"),  # anchoring negative -> ZERO
         ("pre", "NotebookEdit"),  # anchoring negative -> ZERO
-        ("pre", "Task"),  # ZERO — retired task tool, anchoring negative; see OBSERVED_TOOL_NAMES comment
+        (
+            "pre",
+            "Task",
+        ),  # ZERO — retired task tool, anchoring negative; see OBSERVED_TOOL_NAMES comment
         ("post", "Bash"),
         ("post", "Edit"),
         ("post", "Read"),
@@ -765,7 +866,9 @@ def test_routing_matches_settings_json(dispatch, monkeypatch, event_short, tool_
 
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name})))
     with pytest.raises(SystemExit):
@@ -845,7 +948,9 @@ OBSERVED_TOOL_NAMES = [
 
 @pytest.mark.integration
 @pytest.mark.parametrize("tool_name", OBSERVED_TOOL_NAMES)
-def test_routing_matches_settings_json_for_observed_tools(dispatch, monkeypatch, tool_name):
+def test_routing_matches_settings_json_for_observed_tools(
+    dispatch, monkeypatch, tool_name
+):
     """Pin fullmatch routing parity across the tool set actually in use.
 
     For every tool_name in OBSERVED_TOOL_NAMES, and for both PreToolUse and
@@ -871,9 +976,13 @@ def test_routing_matches_settings_json_for_observed_tools(dispatch, monkeypatch,
 
         recorded = []
         monkeypatch.setattr(
-            dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+            dispatch,
+            "_invoke",
+            lambda r, p: (recorded.append(r), (0, "", ""))[1],
         )
-        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name})))
+        monkeypatch.setattr(
+            sys, "stdin", io.StringIO(json.dumps({"tool_name": tool_name}))
+        )
         with pytest.raises(SystemExit):
             dispatch.main(event_short)
 
@@ -888,7 +997,9 @@ def test_routing_matches_settings_json_for_observed_tools(dispatch, monkeypatch,
 def test_routing_bash_pre_runs_exactly_two(dispatch, monkeypatch):
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": "Bash"})))
     with pytest.raises(SystemExit):
@@ -901,7 +1012,9 @@ def test_routing_bash_pre_runs_exactly_two(dispatch, monkeypatch):
 def test_routing_stop_runs_all_six_in_order(dispatch, monkeypatch):
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({})))
     with pytest.raises(SystemExit):
@@ -945,7 +1058,9 @@ def test_main_routes_through_module_level_matches(dispatch, monkeypatch):
     monkeypatch.setattr(dispatch, "_matches", lambda *_: False)
     recorded = []
     monkeypatch.setattr(
-        dispatch, "_invoke", lambda r, p: (recorded.append(r), (0, "", ""))[1]
+        dispatch,
+        "_invoke",
+        lambda r, p: (recorded.append(r), (0, "", ""))[1],
     )
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": "Bash"})))
     with pytest.raises(SystemExit):
@@ -988,13 +1103,28 @@ def test_routes_point_at_real_files_with_settings_timeouts(dispatch):
         assert p.exists(), f"ROUTES path missing: {r.path!r}"
 
 
+@pytest.mark.unit
+def test_routes_kind_is_enforcement_or_observer_for_every_entry(dispatch):
+    """Every ROUTES entry must carry a `kind` of exactly "enforcement" or
+    "observer" - no entry missing a classification, none carrying any other
+    value. `_invoke`'s timeout handling reads this field to decide whether a
+    timed-out handler blocks the tool call, so an unclassified or misspelled
+    entry would silently fall through to whatever `_invoke` does by default."""
+    for route in dispatch.ROUTES:
+        assert route.kind in ("enforcement", "observer"), (
+            f"{route.name}: kind must be 'enforcement' or 'observer', "
+            f"got {route.kind!r}"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # _aggregate: exit code, err passthrough, JSON merge (acceptance 4,5,9,10)
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
 def test_aggregate_block_propagates_and_preserves_stderr(dispatch, capsys):
     code, out = dispatch._aggregate(
-        [(0, "", ""), (2, "", "BLOCK-REASON"), (0, "", "")], ["A", "B", "C"]
+        [(0, "", ""), (2, "", "BLOCK-REASON"), (0, "", "")],
+        ["A", "B", "C"],
     )
     assert code == 2
     assert "BLOCK-REASON" in capsys.readouterr().err
@@ -1018,7 +1148,10 @@ def test_aggregate_normalizes_non_0_2_codes(dispatch, capsys, codes, expected):
 
 @pytest.mark.unit
 def test_aggregate_concatenates_additional_context(dispatch, capsys):
-    results = [(0, env(additionalContext="AAA"), ""), (0, env(additionalContext="BBB"), "")]
+    results = [
+        (0, env(additionalContext="AAA"), ""),
+        (0, env(additionalContext="BBB"), ""),
+    ]
     code, out = dispatch._aggregate(results, ["A", "B"])
     assert code == 0
     merged = json.loads(out)["hookSpecificOutput"]["additionalContext"]
@@ -1159,7 +1292,8 @@ def test_aggregate_logs_non_dict_hookspecificoutput_names_list_type(dispatch, ca
 
 @pytest.mark.unit
 def test_aggregate_missing_and_non_dict_shapes_both_drop_well_formed_still_merges(
-    dispatch, capsys
+    dispatch,
+    capsys,
 ):
     """Both failure shapes together in one batch: each must contribute nothing
     to the merged envelope, logged with their own distinct message, while a
@@ -1237,10 +1371,13 @@ def test_aggregate_non_str_additional_context_is_isolated(dispatch, capsys):
         (["ask", "deny"], "deny", "RD"),
     ],
 )
-def test_aggregate_permission_most_restrictive(dispatch, capsys, order, winner, winner_reason):
+def test_aggregate_permission_most_restrictive(
+    dispatch, capsys, order, winner, winner_reason
+):
     reasons = {"deny": "RD", "ask": "RK", "allow": "RA"}
     results = [
-        (0, env(permissionDecision=d, permissionDecisionReason=reasons[d]), "") for d in order
+        (0, env(permissionDecision=d, permissionDecisionReason=reasons[d]), "")
+        for d in order
     ]
     names = [f"H{i}" for i in range(len(results))]
     hso = json.loads(dispatch._aggregate(results, names)[1])["hookSpecificOutput"]
@@ -1251,8 +1388,24 @@ def test_aggregate_permission_most_restrictive(dispatch, capsys, order, winner, 
 @pytest.mark.unit
 def test_aggregate_merges_context_and_permission_into_one_envelope(dispatch, capsys):
     results = [
-        (0, env(additionalContext="A", permissionDecision="allow", permissionDecisionReason="ra"), ""),
-        (0, env(additionalContext="B", permissionDecision="deny", permissionDecisionReason="rd"), ""),
+        (
+            0,
+            env(
+                additionalContext="A",
+                permissionDecision="allow",
+                permissionDecisionReason="ra",
+            ),
+            "",
+        ),
+        (
+            0,
+            env(
+                additionalContext="B",
+                permissionDecision="deny",
+                permissionDecisionReason="rd",
+            ),
+            "",
+        ),
     ]
     hso = json.loads(dispatch._aggregate(results, ["A", "B"])[1])["hookSpecificOutput"]
     assert hso["additionalContext"] == "A\n---\nB"
@@ -1332,7 +1485,9 @@ def test_blocking_stderr_order_preserved_across_handlers(dispatch, capsys):
 # Merge-conflict warning names the losing handler (acceptance 6)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
-def test_merge_conflict_warns_naming_losing_handler(dispatch, monkeypatch, tmp_path, capsys):
+def test_merge_conflict_warns_naming_losing_handler(
+    dispatch, monkeypatch, tmp_path, capsys
+):
     winner = make_route(
         tmp_path,
         "winner",
@@ -1411,7 +1566,10 @@ def test_no_conflict_emits_no_conflict_warning(dispatch, monkeypatch, tmp_path, 
 
 @pytest.mark.integration
 def test_merge_conflict_names_true_losers_when_winner_route_is_last(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     """Three routes ranked [allow, allow, deny] in route order: the highest-
     ranked decision (deny) belongs to the LAST route, not the first. Guards
@@ -1487,7 +1645,9 @@ def test_aggregate_non_special_key_conflict_earlier_wins_and_warns(dispatch, cap
     surface = capsys.readouterr().err + dispatch_log_text()
     loser_lines = conflict_context_lines(surface, "LOSER")
     assert loser_lines, surface  # names the losing handler
-    assert any("customField" in ln for ln in loser_lines), surface  # names the dropped key
+    assert any("customField" in ln for ln in loser_lines), (
+        surface
+    )  # names the dropped key
     assert conflict_context_lines(surface, "WINNER") == [], surface
 
 
@@ -1581,7 +1741,9 @@ def test_key_conflict_warning_reaches_real_stderr_when_non_blocking(dispatch, ca
 
 
 @pytest.mark.unit
-def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(dispatch, capsys):
+def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(
+    dispatch, capsys
+):
     """Rule A x Rule B: on a BLOCKING run (one handler exits 2), the key-
     conflict warning is dispatcher-generated chatter unrelated to the
     blocker's own reason - Rule A requires it stay off real stderr so it
@@ -1601,8 +1763,12 @@ def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(dispatch
     assert code == 2
 
     err = capsys.readouterr().err
-    assert "BLOCKED: dangerous command" in err  # the blocker's own reason still surfaces
-    assert conflict_context_lines(err, "LOSER") == [], err  # conflict warning kept off it
+    assert (
+        "BLOCKED: dangerous command" in err
+    )  # the blocker's own reason still surfaces
+    assert conflict_context_lines(err, "LOSER") == [], (
+        err
+    )  # conflict warning kept off it
 
     log_text = dispatch_log_text()
     loser_log_lines = conflict_context_lines(log_text, "LOSER")
@@ -1611,7 +1777,9 @@ def test_key_conflict_warning_suppressed_from_real_stderr_when_blocking(dispatch
 
 
 @pytest.mark.unit
-def test_permission_conflict_warning_reaches_real_stderr_when_non_blocking(dispatch, capsys):
+def test_permission_conflict_warning_reaches_real_stderr_when_non_blocking(
+    dispatch, capsys
+):
     """Same Rule B stderr half as test_key_conflict_warning_reaches_real_stderr_
     when_non_blocking, but for the permissionDecision conflict path - a
     structurally distinct branch in `_merge_envelopes` (the `losers` list,
@@ -1638,7 +1806,9 @@ def test_permission_conflict_warning_reaches_real_stderr_when_non_blocking(dispa
 
 
 @pytest.mark.unit
-def test_permission_conflict_warning_suppressed_from_real_stderr_when_blocking(dispatch, capsys):
+def test_permission_conflict_warning_suppressed_from_real_stderr_when_blocking(
+    dispatch, capsys
+):
     """Rule A x Rule B for the permissionDecision conflict path (the `losers`
     list branch in `_merge_envelopes`, distinct from the generic key-conflict
     branch exercised by test_key_conflict_warning_suppressed_from_real_stderr_
@@ -1689,8 +1859,12 @@ def test_key_conflict_warning_suppressed_when_blocker_is_not_first(dispatch, cap
     assert code == 2
 
     err = capsys.readouterr().err
-    assert "BLOCKED: dangerous command" in err  # the blocker's own reason still surfaces
-    assert conflict_context_lines(err, "LOSER") == [], err  # conflict warning kept off it
+    assert (
+        "BLOCKED: dangerous command" in err
+    )  # the blocker's own reason still surfaces
+    assert conflict_context_lines(err, "LOSER") == [], (
+        err
+    )  # conflict warning kept off it
 
     log_text = dispatch_log_text()
     loser_log_lines = conflict_context_lines(log_text, "LOSER")
@@ -1702,7 +1876,9 @@ def test_key_conflict_warning_suppressed_when_blocker_is_not_first(dispatch, cap
 # Crash / broken-import isolation (acceptance 7, 8)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
-def test_raising_handler_is_isolated_siblings_run(dispatch, monkeypatch, tmp_path, capsys):
+def test_raising_handler_is_isolated_siblings_run(
+    dispatch, monkeypatch, tmp_path, capsys
+):
     raiser = make_route(
         tmp_path,
         "raiser",
@@ -1730,7 +1906,9 @@ def test_raising_handler_is_isolated_siblings_run(dispatch, monkeypatch, tmp_pat
 
 
 @pytest.mark.integration
-def test_import_error_handler_is_isolated_siblings_run(dispatch, monkeypatch, tmp_path, capsys):
+def test_import_error_handler_is_isolated_siblings_run(
+    dispatch, monkeypatch, tmp_path, capsys
+):
     bad = make_route(
         tmp_path,
         "badimport",
@@ -1756,11 +1934,124 @@ def test_import_error_handler_is_isolated_siblings_run(dispatch, monkeypatch, tm
     assert "IMPORT-BOOM" in surface or "RuntimeError" in surface
 
 
+@pytest.mark.integration
+def test_sys_exit_at_import_is_isolated_siblings_run(
+    dispatch, monkeypatch, tmp_path, capsys
+):
+    """`sys.exit(3)` at module scope raises SystemExit - a BaseException, NOT
+    an Exception subclass. `_invoke` must isolate it the same way it isolates
+    a plain `raise` at import time: logged as a fault naming the route and
+    the exception, exit 0, and the sibling route for the same event still
+    runs and its result still reaches the aggregate output."""
+    raiser = make_route(
+        tmp_path,
+        "sysexitraiser",
+        """
+        import sys
+        sys.exit(3)
+        """,
+    )
+    ok = make_route(
+        tmp_path,
+        "sysexitsurvivor",
+        """
+        import json
+        def run(payload):
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "SYSEXIT-SURVIVED"}}), "")
+        """,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [raiser, ok])
+    code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "SYSEXIT-SURVIVED"
+    surface = err + dispatch_log_text()
+    assert raiser.name in surface, f"the fault report must name the route: {surface!r}"
+    assert "systemexit" in surface.lower(), (
+        f"the fault report must name the exception: {surface!r}"
+    )
+
+
+@pytest.mark.integration
+def test_arbitrary_baseexception_at_import_is_isolated_siblings_run(
+    dispatch, monkeypatch, tmp_path, capsys
+):
+    """The isolation is not special-cased to SystemExit: ANY BaseException
+    subtype raised at import time (other than HandlerTimeout and
+    KeyboardInterrupt, which are excluded by contract) must be caught the
+    same way, with the sibling route still running."""
+    raiser = make_route(
+        tmp_path,
+        "customboomraiser",
+        """
+        class _CustomBoom(BaseException):
+            pass
+        raise _CustomBoom("CUSTOM-CRASH-BOOM")
+        """,
+    )
+    ok = make_route(
+        tmp_path,
+        "customboomsurvivor",
+        """
+        import json
+        def run(payload):
+            return (0, json.dumps({"hookSpecificOutput": {"additionalContext": "BOOM-SURVIVED"}}), "")
+        """,
+    )
+    monkeypatch.setattr(dispatch, "ROUTES", [raiser, ok])
+    code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "BOOM-SURVIVED"
+    surface = err + dispatch_log_text()
+    assert raiser.name in surface, f"the fault report must name the route: {surface!r}"
+    assert "custom-crash-boom" in surface.lower(), (
+        f"the fault report must name the exception: {surface!r}"
+    )
+
+
+@pytest.mark.unit
+def test_invoke_reraises_keyboardinterrupt_from_handler_call(dispatch, tmp_path):
+    """KeyboardInterrupt raised by `run(payload)` itself must propagate out of
+    `_invoke` - not be caught and downgraded to a (0, "", ...) fault tuple like
+    every other exception. Ctrl-C during a handler call must actually stop the
+    dispatcher, not be silently absorbed as a per-handler fault."""
+    route = make_route(
+        tmp_path,
+        "kbintcall",
+        """
+        def run(payload):
+            raise KeyboardInterrupt()
+        """,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        dispatch._invoke(route, {"tool_name": "Bash"})
+
+
+@pytest.mark.unit
+def test_invoke_reraises_keyboardinterrupt_at_import(dispatch, tmp_path):
+    """Same non-swallowing requirement, but for KeyboardInterrupt raised at
+    module import time (inside `_load_handler`'s `exec_module`) rather than
+    from a `run()` call - the contract excludes KeyboardInterrupt from the
+    import-time fault-isolation catch-all just as it does for a handler call."""
+    route = make_route(
+        tmp_path,
+        "kbintimport",
+        """
+        raise KeyboardInterrupt()
+        """,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        dispatch._invoke(route, {"tool_name": "Bash"})
+
+
 # --------------------------------------------------------------------------- #
 # Noisy non-JSON stdout co-running with an envelope (acceptance 9, pipeline)
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
-def test_noisy_stdout_does_not_corrupt_merged_json(dispatch, monkeypatch, tmp_path, capsys):
+def test_noisy_stdout_does_not_corrupt_merged_json(
+    dispatch, monkeypatch, tmp_path, capsys
+):
     noisy = make_route(
         tmp_path,
         "noisy",
@@ -1787,16 +2078,27 @@ def test_noisy_stdout_does_not_corrupt_merged_json(dispatch, monkeypatch, tmp_pa
 
 
 # --------------------------------------------------------------------------- #
-# Subprocess fallback for a run-less script (acceptance 11)
+# No-run() handler refusal - the subprocess fallback is REMOVED (this task).
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
-def test_subprocess_fallback_matches_direct_run(dispatch, tmp_path):
+def test_norun_handler_is_refused_and_not_subprocess_executed(dispatch, tmp_path):
+    """A handler module with no module-level `run` attribute must be REFUSED,
+    not executed a second time via a subprocess fallback. The marker write is
+    guarded inside `if __name__ == "__main__":`, which only becomes true if
+    the script is actually launched as its own process (e.g. `python3
+    script.py`) - `_load_handler`'s `exec_module` runs the module under a
+    different synthetic name, so that guard never fires during the initial
+    load. Its absence after `_invoke` returns is therefore direct proof no
+    subprocess was spawned, not just an absence of a returned "SUBPROC-RAN"
+    string."""
     route = make_route(
         tmp_path,
         "norun",
         """
         import sys
+        from pathlib import Path
         if __name__ == "__main__":
+            Path(__file__).with_name("subproc.marker").write_text("RAN")
             sys.stdin.read()
             sys.stdout.write("SUBPROC-RAN")
             sys.exit(0)
@@ -1805,15 +2107,17 @@ def test_subprocess_fallback_matches_direct_run(dispatch, tmp_path):
     payload = {"tool_name": "Bash", "n": 1}
     code, out, err = dispatch._invoke(route, payload)
 
-    direct = subprocess.run(
-        [sys.executable, route.path],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=10,
+    assert code == 0
+    assert out == ""
+    assert route.name in err, f"stderr must name the route: {err!r}"
+    low = err.lower()
+    assert "run" in low and "refus" in low, (
+        f"stderr must state the handler has no run() and refuse to load it: {err!r}"
     )
-    assert code == direct.returncode == 0
-    assert out == direct.stdout == "SUBPROC-RAN"
+    marker = Path(route.path).with_name("subproc.marker")
+    assert not marker.exists(), (
+        "a no-run() handler script must not be re-executed via subprocess"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1837,7 +2141,12 @@ def test_subprocess_fallback_matches_direct_run(dispatch, tmp_path):
     ],
 )
 def test_sigalrm_caps_slow_handler(
-    dispatch, tmp_path, timeout, sleep_seconds, min_elapsed, max_elapsed
+    dispatch,
+    tmp_path,
+    timeout,
+    sleep_seconds,
+    min_elapsed,
+    max_elapsed,
 ):
     slow = make_route(
         tmp_path,
@@ -1968,6 +2277,47 @@ def test_teardown_race_no_false_timeout(dispatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Enforcement-aware timeout: the exit code on a HandlerTimeout must depend on
+# route.kind, not be unconditionally 0 (this task).
+# --------------------------------------------------------------------------- #
+@pytest.mark.integration
+@pytest.mark.skipif(not _HAS_SIGALRM, reason="SIGALRM unavailable on this platform")
+@pytest.mark.parametrize(
+    "kind,expected_code",
+    [
+        pytest.param("enforcement", 2, id="enforcement-blocks-on-timeout"),
+        pytest.param("observer", 0, id="observer-does-not-block-on-timeout"),
+    ],
+)
+def test_invoke_timeout_exit_code_depends_on_route_kind(
+    dispatch, tmp_path, kind, expected_code
+):
+    """A handler that times out (HandlerTimeout fires past route.timeout) must
+    block the tool call (exit 2) when route.kind is "enforcement", but must
+    NOT block (exit 0) when route.kind is "observer" - an observer handler can
+    never block a tool call, timeout included. In both cases stdout is empty
+    and stderr names the route and says it timed out."""
+    slow = make_route(
+        tmp_path,
+        "kindslow",
+        """
+        import time
+        def run(payload):
+            time.sleep(3)
+            return (0, "", "")
+        """,
+        timeout=1,
+        kind=kind,
+    )
+    code, out, err = dispatch._invoke(slow, {"tool_name": "Bash"})
+
+    assert code == expected_code
+    assert out == ""
+    assert slow.name in err, f"stderr must name the route: {err!r}"
+    assert "timed out" in err.lower(), f"stderr must say it timed out: {err!r}"
+
+
+# --------------------------------------------------------------------------- #
 # _invoke degrades gracefully when SIGALRM is unavailable (e.g. Windows): the
 # handler still runs and its result still surfaces, just with no per-handler
 # wall-clock cap. Deliberately NOT gated by `_HAS_SIGALRM` - these tests
@@ -1997,7 +2347,9 @@ def test_invoke_runs_handler_when_sigalrm_unavailable(dispatch, monkeypatch, tmp
 
 @pytest.mark.unit
 def test_invoke_isolates_raising_handler_when_sigalrm_unavailable(
-    dispatch, monkeypatch, tmp_path
+    dispatch,
+    monkeypatch,
+    tmp_path,
 ):
     """Same degraded platform: a handler that raises must still be isolated -
     exit code 0 with its error on stderr - rather than an AttributeError from
@@ -2062,12 +2414,12 @@ def direct_run(mod, payload):
     except SystemExit as exc:
         pytest.fail(
             f"{mod.__name__}.run(payload) exited (SystemExit {exc.code!r}) instead of "
-            f"returning (exit_code, stdout, stderr)"
+            f"returning (exit_code, stdout, stderr)",
         )
     except Exception as exc:
         pytest.fail(
             f"{mod.__name__}.run(payload) raised {type(exc).__name__}: {exc}; it must "
-            f"return (exit_code, stdout, stderr)"
+            f"return (exit_code, stdout, stderr)",
         )
     assert fired, (
         f"{mod.__name__}.run(payload) returned without ever entering the module's "
@@ -2090,8 +2442,12 @@ def assert_triple(result, who: str):
     assert isinstance(code, int) and not isinstance(code, bool), (
         f"{who}: exit code must be an int, got {type(code).__name__} ({code!r})"
     )
-    assert isinstance(out, str), f"{who}: stdout must be a str, got {type(out).__name__}"
-    assert isinstance(err, str), f"{who}: stderr must be a str, got {type(err).__name__}"
+    assert isinstance(out, str), (
+        f"{who}: stdout must be a str, got {type(out).__name__}"
+    )
+    assert isinstance(err, str), (
+        f"{who}: stderr must be a str, got {type(err).__name__}"
+    )
     return code, out, err
 
 
@@ -2105,11 +2461,16 @@ def assert_triple(result, who: str):
             id="enforce_prd_location",
         ),
         pytest.param(_OBSERVE_TOOL, {"tool_name": ""}, id="observe_tool"),
-        pytest.param(_REVIEW_COVERAGE_HOOK, {"session_id": "s"}, id="review_coverage_hook"),
+        pytest.param(
+            _REVIEW_COVERAGE_HOOK, {"session_id": "s"}, id="review_coverage_hook"
+        ),
     ],
 )
 def test_handler_run_returns_triple_when_called_directly(
-    dispatch, monkeypatch, handler, payload
+    dispatch,
+    monkeypatch,
+    handler,
+    payload,
 ):
     """A real handler's `run(payload)` must RETURN (int, str, str) on its own -
     no outer capture_main, no SystemExit, no reliance on the dispatcher to
@@ -2125,7 +2486,8 @@ def test_handler_run_returns_triple_when_called_directly(
 
 @pytest.mark.integration
 def test_blocking_handler_run_returns_exit_2_and_reason_when_called_directly(
-    dispatch, monkeypatch
+    dispatch,
+    monkeypatch,
 ):
     """A BLOCK must survive a direct `run(payload)` call: exit code 2 in the
     returned triple and the BLOCKED reason in the returned stderr. Today the
@@ -2169,7 +2531,10 @@ def test_invoke_surfaces_handler_triple_unchanged(dispatch, tmp_path):
 
 @pytest.mark.integration
 def test_main_propagates_tuple_handler_block_and_envelope(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     """End to end: a triple-returning handler's block reaches the process exit
     code, its reason reaches real stderr, and its envelope reaches real stdout."""
@@ -2196,7 +2561,10 @@ def test_main_propagates_tuple_handler_block_and_envelope(
 
 @pytest.mark.integration
 def test_main_runs_all_handlers_even_after_a_blocker(
-    dispatch, monkeypatch, tmp_path, capsys
+    dispatch,
+    monkeypatch,
+    tmp_path,
+    capsys,
 ):
     """PRD 00071: 'Run ALL matching handlers in settings order, never
     short-circuit on a block (parity with Claude running sibling hooks
@@ -2237,9 +2605,14 @@ def test_main_runs_all_handlers_even_after_a_blocker(
     monkeypatch.setattr(dispatch, "ROUTES", [blocker, second])
     code, out, err = run_main(dispatch, "pre", {"tool_name": "Bash"}, capsys)
 
-    assert code == 2, "the blocker's exit 2 must still propagate to the process exit code"
+    assert code == 2, (
+        "the blocker's exit 2 must still propagate to the process exit code"
+    )
     assert "SHORT-CIRCUIT-BLOCK: dangerous command" in err
-    assert json.loads(out)["hookSpecificOutput"]["additionalContext"] == "SECOND-HANDLER-RAN", (
+    assert (
+        json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        == "SECOND-HANDLER-RAN"
+    ), (
         "the second handler must run even after the first handler blocked - its "
         "envelope must reach the merged stdout"
     )
@@ -2300,7 +2673,9 @@ def malformed_report_lines(surface: str, name: str) -> list[str]:
     ],
 )
 def test_invoke_logs_malformed_handler_return_instead_of_reporting_success(
-    dispatch, tmp_path, returned
+    dispatch,
+    tmp_path,
+    returned,
 ):
     """A handler that returns anything but a real (int, str, str) is a bug, and
     the dispatcher must say so: no crash, no envelope built from the junk, and a
@@ -2384,7 +2759,11 @@ def test_invoke_reports_no_fault_for_well_formed_handler_return(dispatch, tmp_pa
     ],
 )
 def test_invoke_rejects_bool_exit_code_but_accepts_genuine_int(
-    dispatch, tmp_path, returned, expect_malformed, expected_code
+    dispatch,
+    tmp_path,
+    returned,
+    expect_malformed,
+    expected_code,
 ):
     """`isinstance(x, int)` is True for bool in Python, so `_invoke`'s
     `isinstance(result[0], int)` check alone accepts (True, "", "") and
@@ -2420,9 +2799,7 @@ def test_invoke_rejects_bool_exit_code_but_accepts_genuine_int(
             f"a malformed bool exit code must degrade to a non-blocking exit "
             f"0, got {code!r}"
         )
-        assert out == "", (
-            f"a malformed return must contribute no stdout, got {out!r}"
-        )
+        assert out == "", f"a malformed return must contribute no stdout, got {out!r}"
         assert route.name.lower() in surface.lower(), (
             f"the malformed bool return must name the handler {route.name!r}; "
             f"stderr={err!r} log={log_text!r}"
@@ -2456,7 +2833,10 @@ def test_invoke_rejects_bool_exit_code_but_accepts_genuine_int(
     ids=["blocks", "allows"],
 )
 def test_handler_script_standalone_behavior_unchanged(
-    tmp_path, command, expected_code, expect_blocked
+    tmp_path,
+    command,
+    expected_code,
+    expect_blocked,
 ):
     """The `__main__` path must keep working exactly as before: run the script
     with a payload on stdin and it still exits 2 with a BLOCKED reason (or 0
@@ -2654,7 +3034,9 @@ def test_log_multiline_traceback_message_not_corrupted_by_timestamp_prefix(dispa
         assert expected_line in text
     # Order must be preserved - checking presence alone would not catch a
     # shuffle of the traceback's lines.
-    positions = [text.index(expected_line) for expected_line in traceback_like.splitlines()]
+    positions = [
+        text.index(expected_line) for expected_line in traceback_like.splitlines()
+    ]
     assert positions == sorted(positions)
 
     first_line = text.splitlines()[0]
