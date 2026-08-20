@@ -336,7 +336,7 @@ def collect_repo(path, days, fetch):
     errors = []
     try:
         owner, name = repo_slug(path)
-    except RuntimeError as e:
+    except (RuntimeError, subprocess.SubprocessError, OSError) as e:
         print(f"WARN {path}: skipped ({e})", file=sys.stderr)
         return stub_from_path(path, str(e))
     repo = {"owner": owner, "name": name, "org": owner, "path": path, "errors": errors}
@@ -353,7 +353,7 @@ def collect_repo(path, days, fetch):
                     default_branch=meta["default_branch"],
                     stars=meta.get("stargazers_count", 0),
                     pushed_at=iso_day(meta.get("pushed_at")))
-    except (RuntimeError, KeyError) as e:
+    except (RuntimeError, subprocess.SubprocessError, KeyError, OSError) as e:
         errors.append(f"meta: {e}")
         return repo
     branch = repo["default_branch"]
@@ -422,7 +422,7 @@ def main():
     data = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "since_days": args.days, "repos": repos}
     data["skipped"] = skipped
-    known = {f'{r["owner"]}/{r["name"]}' for r in repos}
+    known = {f'{r["owner"]}/{r["name"]}' for r in collected}
     try:
         data["external"] = collect_external(known)
     except Exception as e:
@@ -436,8 +436,12 @@ def main():
     tmp_file = outdir / "data.json.tmp"
     tmp_file.write_text(json.dumps(data, indent=1))
     if data_file.exists():
-        existing_at = json.loads(data_file.read_text())["generated_at"]
-        if should_rotate(existing_at, datetime.now(timezone.utc)):
+        try:
+            existing_at = json.loads(data_file.read_text())["generated_at"]
+            rotate = should_rotate(existing_at, datetime.now(timezone.utc))
+        except (ValueError, KeyError):
+            rotate = False
+        if rotate:
             prev_tmp = outdir / "data-prev.json.tmp"
             prev_tmp.write_text(data_file.read_text())
             prev_tmp.replace(outdir / "data-prev.json")
