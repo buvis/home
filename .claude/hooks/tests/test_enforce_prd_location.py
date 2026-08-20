@@ -70,6 +70,32 @@ class TestFileMode(unittest.TestCase):
         r = run_hook({"tool_name": "Edit", "tool_input": {"file_path": target}})
         self.assertEqual(r.returncode, 0)
 
+    def test_blocks_symlink_through_devlocal_prds_to_root_backlog(self) -> None:
+        backlog_dir = os.path.join(self.repo, "backlog")
+        os.makedirs(backlog_dir, exist_ok=True)
+        prds_dir = os.path.join(self.repo, "dev", "local", "prds")
+        os.makedirs(prds_dir, exist_ok=True)
+        sneak = os.path.join(prds_dir, "sneak")
+        if not os.path.islink(sneak):
+            os.symlink(backlog_dir, sneak)
+        target = os.path.join(sneak, "00002-y.md")
+        r = run_hook({"tool_name": "Write", "tool_input": {"file_path": target}})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+        self.assertIn("backlog/00002-y.md", r.stderr)
+
+    def test_blocks_substring_dev_local_prds_nested_in_root_backlog(self) -> None:
+        target = os.path.join(self.repo, "backlog", "dev", "local", "prds", "00003-z.md")
+        r = run_hook({"tool_name": "Write", "tool_input": {"file_path": target}})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+        self.assertIn("backlog/dev/local/prds/00003-z.md", r.stderr)
+
+    def test_allows_write_under_devlocal_prds_backlog(self) -> None:
+        target = os.path.join(self.repo, "dev", "local", "prds", "backlog", "x.md")
+        r = run_hook({"tool_name": "Write", "tool_input": {"file_path": target}})
+        self.assertEqual(r.returncode, 0)
+
     def test_allows_empty_file_path(self) -> None:
         r = run_hook({"tool_name": "Edit", "tool_input": {}})
         self.assertEqual(r.returncode, 0)
@@ -139,6 +165,28 @@ class TestBashMode(unittest.TestCase):
     def test_blocks_target_done_after_eq(self) -> None:
         r = run_hook({"tool_name": "Bash", "tool_input": {"command": "rsync --target=./done/x src/"}})
         self.assertEqual(r.returncode, 2)
+
+    def test_blocks_bash_doublequoted_backlog_path(self) -> None:
+        r = run_hook({"tool_name": "Bash", "tool_input": {"command": 'mv "backlog/00005.md" /tmp/'}})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+        self.assertIn("backlog/", r.stderr)
+
+    def test_blocks_var_assignment_then_quoted_var_mv(self) -> None:
+        r = run_hook({
+            "tool_name": "Bash",
+            "tool_input": {"command": 'SRC=backlog/00005.md; mv "$SRC" /tmp/'},
+        })
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
+
+    def test_blocks_rsync_log_file_eq_backlog(self) -> None:
+        r = run_hook({
+            "tool_name": "Bash",
+            "tool_input": {"command": "rsync --log-file=backlog/out.log src dst"},
+        })
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BLOCKED", r.stderr)
 
     def test_allows_mv_within_devlocal_prds(self) -> None:
         r = run_hook({"tool_name": "Bash", "tool_input": {"command": "mv x dev/local/prds/wip/y"}})
