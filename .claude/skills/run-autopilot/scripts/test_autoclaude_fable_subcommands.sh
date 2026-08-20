@@ -361,20 +361,12 @@ run_sandboxed() {
     _STUB_AP_DIR="$_rs_dir/dev/local/autopilot"
     _STUB_WALKUP_MODE="${WALKUP_MODE:-ok}"
     export _AUTOPILOT_TRACON="$TRACON_MODE"
-    # Exported: the loop body is a real python3 child, and a child inherits only
-    # exported variables. Without `export` this redirection never reached it (the
-    # wrapper exports it only on the tracon path, which these scenarios never
-    # take), and the loop read the real registry instead.
-    #
-    # Unset FIRST: this suite may itself run from inside a live autoclaude
-    # loop, which exports _AUTOPILOT_LOOPS_DIR into every subshell, pointing
-    # at the REAL registry. `export VAR=value` below always overwrites both
-    # the value and the exported attribute, so this changes nothing for a
-    # correct implementation — but a plain reassignment over an
-    # already-exported var stays exported, so if a future regression ever
-    # drops that `export` keyword, an inherited ambient export would mask it
-    # by still reaching the python3 child. Unsetting first makes that
-    # regression observable regardless of where this suite is run.
+    # The loop body is a real python3 child, which inherits only exported
+    # variables, so this must be exported. This suite may itself run inside
+    # a live autoclaude loop, which exports _AUTOPILOT_LOOPS_DIR (pointing at
+    # the real registry) into every subshell; a plain reassignment over an
+    # already-exported var stays exported, so unset first, or a future
+    # regression that drops `export` below would be silently masked.
     unset _AUTOPILOT_LOOPS_DIR
     export _AUTOPILOT_LOOPS_DIR="$_STUB_LOOPS_DIR"
     PATH="$_rs_dir/bin:$PATH"
