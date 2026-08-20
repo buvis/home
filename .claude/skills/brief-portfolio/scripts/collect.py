@@ -2,7 +2,7 @@
 """Collect portfolio state from gita-registered repos into ~/.claude/portfolio-brief/data.json.
 
 Deterministic gathering only: GitHub API via gh CLI + local git. No LLM here.
-Usage: collect.py [--days N] [--no-fetch] [--out DIR]
+Usage: collect.py [--days N] [--no-git-fetch] [--offline] [--out DIR]
 """
 import argparse
 import csv
@@ -32,6 +32,13 @@ def stub_from_path(path: str, reason: str) -> dict:
     p = Path(path)
     return {"owner": p.parent.name, "name": p.name, "org": p.parent.name,
             "path": path, "skipped": reason}
+
+
+def offline_reuse(outdir: str) -> None:
+    data_file = Path(outdir) / "data.json"
+    if not data_file.is_file():
+        sys.exit(f"--offline requires a cached {data_file} — run collect.py at least once first")
+    print(f"offline: reusing cached {data_file}", file=sys.stderr)
 
 
 def run(cmd, cwd=None, timeout=120):
@@ -389,19 +396,24 @@ def write_digest(repos, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=60)
-    ap.add_argument("--no-fetch", action="store_true")
+    ap.add_argument("--no-git-fetch", action="store_true")
+    ap.add_argument("--offline", action="store_true")
     ap.add_argument("--out", default=str(Path.home() / ".claude/portfolio-brief"))
     args = ap.parse_args()
+
+    if args.offline:
+        offline_reuse(args.out)
+        return
 
     paths = [row[0] for row in csv.reader(GITA_CSV.open()) if row and row[0].strip()]
     paths = [p for p in paths if (Path(p) / ".git").exists()]
     if not paths:
         sys.exit("no repos found in gita registry")
 
-    print(f"collecting {len(paths)} repos (days={args.days}, fetch={not args.no_fetch})",
+    print(f"collecting {len(paths)} repos (days={args.days}, fetch={not args.no_git_fetch})",
           file=sys.stderr)
     with ThreadPoolExecutor(max_workers=8) as ex:
-        collected = list(ex.map(lambda p: collect_repo(p, args.days, not args.no_fetch), paths))
+        collected = list(ex.map(lambda p: collect_repo(p, args.days, not args.no_git_fetch), paths))
     skipped = [r for r in collected if r.get("skipped")]
     repos = [r for r in collected if not r.get("skipped")]
 
