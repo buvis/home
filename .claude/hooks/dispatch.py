@@ -36,7 +36,6 @@ EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "stop": "Stop"}
 Route = collections.namedtuple(
     "Route",
     "event matcher name path timeout kind",
-    defaults=("observer",),
 )
 
 HOOKS = Path.home() / ".claude" / "hooks"
@@ -72,6 +71,7 @@ ROUTES = [
         "strunk-ruling-inject",
         HOOKS / "strunk-ruling-inject.py",
         5,
+        kind="observer",
     ),
     Route(
         "PreToolUse",
@@ -98,6 +98,7 @@ ROUTES = [
         "autopilot_context_cap_hook",
         SCRIPTS / "autopilot_context_cap_hook.py",
         5,
+        kind="observer",
     ),
     Route(
         "PostToolUse",
@@ -113,6 +114,7 @@ ROUTES = [
         "observe_tool",
         HOOKS / "observe_tool.py",
         5,
+        kind="observer",
     ),
     Route(
         "PostToolUse",
@@ -120,8 +122,9 @@ ROUTES = [
         "check_skill_triggers",
         HOOKS / "check_skill_triggers.py",
         5,
+        kind="observer",
     ),
-    Route("Stop", None, "notify", HOOKS / "notify.py", 15),
+    Route("Stop", None, "notify", HOOKS / "notify.py", 15, kind="observer"),
     Route(
         "Stop",
         None,
@@ -130,10 +133,24 @@ ROUTES = [
         5,
         kind="enforcement",
     ),
-    Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10),
-    Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10),
-    Route("Stop", None, "analyze-instincts", HOOKS / "analyze-instincts.py", 10),
-    Route("Stop", None, "cartographer-stop", HOOKS / "cartographer-stop.py", 5),
+    Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10, kind="observer"),
+    Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10, kind="observer"),
+    Route(
+        "Stop",
+        None,
+        "analyze-instincts",
+        HOOKS / "analyze-instincts.py",
+        10,
+        kind="observer",
+    ),
+    Route(
+        "Stop",
+        None,
+        "cartographer-stop",
+        HOOKS / "cartographer-stop.py",
+        5,
+        kind="observer",
+    ),
 ]
 
 _RANK = {"allow": 0, "ask": 1, "deny": 2}
@@ -222,12 +239,11 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         signal.alarm(max(1, int(route.timeout)))
     try:
         mod = _load_handler(route.path)
-        if hasattr(mod, "run"):
-            result = mod.run(payload)
-        else:
+        if not hasattr(mod, "run"):
             msg = f"[dispatch] {route.name}: handler has no run(); refusing to load it"
             log(msg)
-            result = (0, "", msg + "\n")
+            return 0, "", msg + "\n"
+        result = mod.run(payload)
         if has_alarm:
             signal.alarm(0)  # handler DONE: cancel immediately
         # This line is observed by test_teardown_race_no_false_timeout via
@@ -252,13 +268,10 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         log(f"{route.name} timed out after {route.timeout}s")
         code = 2 if route.kind == "enforcement" else 0
         return code, "", f"[dispatch] {route.name}: timed out\n"
-    except Exception as exc:
-        log(traceback.format_exc())
-        return 0, "", f"[dispatch] {route.name}: {exc}\n"
     except KeyboardInterrupt:
         raise
     except BaseException as exc:
-        log(traceback.format_exc())
+        log(f"[dispatch] {route.name}: handler fault: {traceback.format_exc()}")
         return 0, "", f"[dispatch] {route.name}: {exc}\n"
     finally:
         if has_alarm:
