@@ -190,3 +190,16 @@ test('Work tab has no "Waiting on you elsewhere" section when there is no extern
   const mainText = doc.querySelector('main').textContent
   assert.doesNotMatch(mainText, /Waiting on you elsewhere/)
 })
+
+test('Brief tab names repos it could not collect this run', () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.data.skipped = [
+    { owner: 'doogat', name: 'jink', org: 'doogat', path: '/tmp/doogat/jink', skipped: 'clone failed' },
+  ]
+
+  // Brief is the default tab — no openTab call needed.
+  const { doc } = render(payload)
+  const mainText = doc.querySelector('main').textContent
+  assert.match(mainText, /not collected/)
+  assert.match(mainText, /doogat\/jink/)
+})
