@@ -32,6 +32,22 @@ about-plugin() { :; }
 # shellcheck source=/dev/null
 source "$PLUGIN"
 
+# This suite may itself run from inside a live autoclaude loop, which exports
+# _AUTOPILOT_TRACON_CHILD=1 and _AUTOPILOT_LOOP=<pid> into every subshell
+# beneath it (development.plugin.bash:119). _AUTOPILOT_TRACON_CHILD gates the
+# tracon TUI branch itself (development.plugin.bash:323 —
+# `[ -z "$_AUTOPILOT_TRACON_CHILD" ]`), so an inherited copy silently skips
+# that branch and every scenario below that depends on it running for real
+# (9, 10, 11, 15-25, 31, 34-40) would record zero uv/tracon activity and fail.
+# run_loop() below calls autoclaude in THIS shell rather than a per-scenario
+# subshell (unlike the sibling fable suite's run_sandboxed()), so a single
+# neutralization here — after sourcing the plugin, before any scenario runs
+# — is enough. Scenario 21 re-supplies _AUTOPILOT_TRACON_CHILD=1 as a
+# per-command prefix assignment, and scenario 40 exports _AUTOPILOT_LOOP
+# inside its own `bash -c` child — neither is affected by an unset that ran
+# once, earlier, in this shell.
+unset _AUTOPILOT_TRACON_CHILD _AUTOPILOT_LOOP
+
 # AP_DIR is reassigned per scenario; the stubs below read it at call time.
 AP_DIR=""
 
@@ -372,19 +388,33 @@ wpid_calls10=${wpid_calls10:-0}
 [ "$wpid_calls10" -eq 0 ] || fail "scenario 10: uv was invoked to launch the TUI ($wpid_calls10 times) despite a failed preflight"
 
 # ── Scenario 11: duplicate-loop guard — a registry entry already exists for
-#    this root with a LIVE pid; autoclaude must refuse before spending any
-#    uv cost and before ever handing off to the loop. The seeded entry's
-#    pid is $$ — the front-end prune skips the CURRENT process's own entry
-#    by pid, so the guard genuinely reads it ─────────────────────────────
+#    this root with a LIVE, genuinely TAGGED pid (same seeding shape as
+#    scenario 40 below): PRD 00127's discovery._pid_tagged reads ps's
+#    exec-time environment, so a shell cannot tag itself after the fact —
+#    the tag must sit on the registered pid itself or on a direct child of
+#    it. autoclaude must refuse before spending any uv cost and before ever
+#    handing off to the loop ─────────────────────────────────────────────
 AP11="$TMP1/s11/dev/local/autopilot"
 mkdir -p "$AP11"
 LOOPS11="$TMP1/s11-registry"
 mkdir -p "$LOOPS11"
 ROOT11="$TMP1/s11"
-jq -n --argjson pid "$$" --arg root "$ROOT11" --arg ap_dir "$AP11" \
+
+# `export` AFTER this shell's own exec, then keep a tagged child alive: the
+# tag is invisible on $LOOPSHELL11 itself, visible on the sleep beneath it
+# (identical shape to scenario 40's seed below).
+bash -c 'export _AUTOPILOT_LOOP=$$; sleep 60 & wait' &
+LOOPSHELL11=$!
+i=0
+while [ -z "$(pgrep -P "$LOOPSHELL11" 2>/dev/null)" ] && [ "$i" -lt 100 ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+
+jq -n --argjson pid "$LOOPSHELL11" --arg root "$ROOT11" --arg ap_dir "$AP11" \
   --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{pid:$pid, root:$root, ap_dir:$ap_dir, started_at:$started_at}' \
-  >"$LOOPS11/other-loop.json" # a DIFFERENT, already-registered loop for the same root; pid=$$ is genuinely alive for this whole test run
+  >"$LOOPS11/other-loop.json" # a DIFFERENT, already-registered loop for the same root; a LIVE loop, tagged on its CHILD only
 export _AUTOPILOT_LOOPS_DIR="$LOOPS11"
 
 UV_CALLS11="$TMP1/s11-uv-calls"
@@ -402,6 +432,10 @@ rc11=$?
 unset _AUTOPILOT_TRACON
 UV_CALLS_FILE=""
 AUTOPILOT_LOOP_STUB="_loop_stub_drained"
+
+pkill -P "$LOOPSHELL11" 2>/dev/null   # the tagged child first: this job shares
+kill "$LOOPSHELL11" 2>/dev/null       # THIS shell's pgrp, so never signal the group
+wait "$LOOPSHELL11" 2>/dev/null
 
 [ "$rc11" -eq 1 ] || fail "scenario 11: duplicate-loop guard did not return 1 (rc=$rc11)"
 [ ! -s "$STUB_CALLS11" ] || fail "scenario 11: the loop hand-off ran despite a live duplicate loop registered for this root"

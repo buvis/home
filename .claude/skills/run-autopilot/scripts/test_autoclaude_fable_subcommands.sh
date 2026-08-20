@@ -365,6 +365,17 @@ run_sandboxed() {
     # exported variables. Without `export` this redirection never reached it (the
     # wrapper exports it only on the tracon path, which these scenarios never
     # take), and the loop read the real registry instead.
+    #
+    # Unset FIRST: this suite may itself run from inside a live autoclaude
+    # loop, which exports _AUTOPILOT_LOOPS_DIR into every subshell, pointing
+    # at the REAL registry. `export VAR=value` below always overwrites both
+    # the value and the exported attribute, so this changes nothing for a
+    # correct implementation — but a plain reassignment over an
+    # already-exported var stays exported, so if a future regression ever
+    # drops that `export` keyword, an inherited ambient export would mask it
+    # by still reaching the python3 child. Unsetting first makes that
+    # regression observable regardless of where this suite is run.
+    unset _AUTOPILOT_LOOPS_DIR
     export _AUTOPILOT_LOOPS_DIR="$_STUB_LOOPS_DIR"
     PATH="$_rs_dir/bin:$PATH"
     # Redirects the loop's Path.home()-derived script paths (notify.py,
@@ -795,6 +806,17 @@ assert_mentions "$L7: notify stub was called with the real send flag" \
   || FAIL "$L7: purge stub was hit" "run_purge never reached the sandbox purge_devlocal stub"
 assert_mentions "$L7: purge stub was called with the real apply flag" \
   "$SBOX_7/.home/.claude/skills/purge-devlocal/scripts/purge-invocations.log" "--apply"
+# _AUTOPILOT_LOOPS_DIR must be EXPORTED (run_sandboxed, above) so the loop
+# body — a real python3 child — inherits it; unexported, it falls back to
+# Path.home()/.claude/autopilot-loops under this scenario's sandboxed $HOME
+# (cli/loop.py's DEFAULT_LOOPS_DIR), a directory distinguishable from the
+# shared $_STUB_LOOPS_DIR. The registry entry itself is unlinked by teardown
+# on a clean drain, but _register()'s `loops_dir.mkdir(parents=True,
+# exist_ok=True)` leaves that FALLBACK directory behind if it was ever used
+# — so its absence here is proof the real loop wrote into $_STUB_LOOPS_DIR
+# instead of guessing/defaulting.
+[ ! -d "$SBOX_7/.home/.claude/autopilot-loops" ] \
+  || FAIL "$L7: the real loop used the exported _AUTOPILOT_LOOPS_DIR" "a registry dir was created under the sandboxed HOME ($SBOX_7/.home/.claude/autopilot-loops) — the python3 loop child never saw _AUTOPILOT_LOOPS_DIR and fell back to Path.home()/.claude/autopilot-loops instead of the stub loops dir"
 PASS "$L7: loop launched a session and drained with exit 0"
 
 # =============================================================================
