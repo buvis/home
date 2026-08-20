@@ -11,8 +11,8 @@ applicability denominator (how often a skill *should* have fired) — that is
 out of scope. Sibling of track_cost.py's transcript parse; same dedup-by-id
 discipline so a re-run over the same transcript never double-counts.
 
-Stdlib only, self-contained. Never blocks or raises out of main — a metrics
-hook must not disturb the session it observes.
+Stdlib only, plus the shared `_common` helper. Never blocks or raises out of
+main — a metrics hook must not disturb the session it observes.
 """
 
 import json
@@ -136,8 +136,9 @@ def run(payload):
     """Dispatcher entry point (hooks/dispatch.py). The handler owns its own
     capture: `capture_main` feeds `payload` as stdin, captures stdout/stderr and
     maps main()'s exit, so run() RETURNS the (exit_code, stdout, stderr) triple
-    the dispatcher surfaces unchanged. `_common` is imported here, not at module
-    scope, so the standalone `__main__` path is unaffected."""
+    the dispatcher surfaces unchanged. `capture_main` is imported here, not at
+    module scope; `_common` itself is already imported at module scope for
+    `append_jsonl_row`."""
     from _common import capture_main
 
     return capture_main(main, payload)

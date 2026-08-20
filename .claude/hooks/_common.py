@@ -56,8 +56,8 @@ def secret_path(name: str) -> Path:
     return Path.home() / ".claude" / "secrets" / name
 
 
-def append_jsonl_row(path: Path, line: str) -> None:
-    """Append `line` as a new row to a JSONL file, creating it if needed.
+def append_jsonl_row(path: Path, row: str) -> None:
+    """Append `row` as a new row to a JSONL file, creating it if needed.
 
     If the file already has content whose last byte isn't a newline (e.g. a
     partial write before a crash), a leading newline is written first so the
@@ -71,7 +71,7 @@ def append_jsonl_row(path: Path, line: str) -> None:
             fh.seek(-1, io.SEEK_END)
             needs_leading_newline = fh.read(1) != b"\n"
     with path.open("a", encoding="utf-8") as fh:
-        fh.write(("\n" if needs_leading_newline else "") + line + "\n")
+        fh.write(("\n" if needs_leading_newline else "") + row + "\n")
 
 
 class HandlerTimeout(BaseException):
