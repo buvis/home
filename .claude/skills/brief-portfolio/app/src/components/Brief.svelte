@@ -56,7 +56,7 @@
     </div>
     {#if skipped.length}
       <p class="skiplist">
-        <b class="sev-warning">{skipped.length}</b> not collected:
+        <strong class="sev-warning">{skipped.length}</strong> not collected:
         {skipped.map((r) => `${r.owner}/${r.name}`).join(', ')}
       </p>
     {/if}

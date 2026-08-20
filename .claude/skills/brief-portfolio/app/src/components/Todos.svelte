@@ -13,6 +13,7 @@
   let hideDone = $state(false)
   let copied = $state('')
   let failed = $state('')
+  let status = $state('')
 
   const byslug = $derived(new Map(repos.map((r) => [slug(r), r])))
   const todos = $derived(allTodos(repos, epics, external))
@@ -38,10 +39,13 @@
     box.style.position = 'fixed'
     box.style.opacity = '0'
     document.body.append(box)
-    box.select()
-    const ok = document.execCommand('copy')
-    box.remove()
-    if (!ok) throw new Error('execCommand copy returned false')
+    try {
+      box.select()
+      const ok = document.execCommand('copy')
+      if (!ok) throw new Error('execCommand copy returned false')
+    } finally {
+      box.remove()
+    }
   }
 
   async function copy(items, label) {
@@ -54,11 +58,13 @@
         fallbackCopy(md)
       } catch {
         failed = label
+        status = '✗ copy failed'
         setTimeout(() => (failed = ''), 1500)
         return
       }
     }
     copied = label
+    status = '✓ copied'
     setTimeout(() => (copied = ''), 1500)
   }
 </script>
@@ -105,6 +111,7 @@
 {#if todos.length === 0}
   <p class="empty">Nothing to do. Enjoy it.</p>
 {/if}
+<span class="visually-hidden" aria-live="polite">{status}</span>
 
 <style>
   .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -133,4 +140,15 @@
   .agent { color: var(--accent); border-color: var(--accent); }
   .todo .repobtn { white-space: nowrap; font-size: 12.5px; }
   .empty { color: var(--muted); margin-top: 20px; }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 </style>

@@ -287,6 +287,14 @@ export function quadrant(t) {
   return t.agent ? 'delegate' : 'drop'
 }
 
+// Deterministic short hash, used to key error todos by their message so a
+// different failure gets a different id and the same failure keeps its id.
+function hashStr(s) {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i)
+  return (h >>> 0).toString(36)
+}
+
 // PRs outside the gita portfolio that involve the user (collect.py `external`),
 // plus the ~/.claude maintenance-cadence nag (PRD 00081) — it rides this
 // channel because ~/.claude is not a gita repo row.
@@ -301,7 +309,7 @@ export function externalTodos(external) {
       importance: 'high', effort: 'quick', agent: null, url: p.url, external: true,
       action: `Nudge your PR ${p.repo}#${p.number}: ${p.title}`, why: `your PR outside the portfolio, open since ${p.created}` })
   if (external?.error)
-    out.push({ id: 'ext:error', repo: '(external)', kind: 'external', urgency: 'now',
+    out.push({ id: `ext:error:${hashStr(external.error)}`, repo: '(external)', kind: 'external', urgency: 'now',
       importance: 'high', effort: 'quick', agent: null, url: null, external: true,
       action: 'External PR lookup failed — check gh auth and rerun collect.py',
       why: external.error })
