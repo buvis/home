@@ -210,9 +210,10 @@ class TestSendNtfy(unittest.TestCase):
                     with patch("notify.log_line"):
                         result = notify.send_ntfy("T", "M")
                     urlopen.assert_called_once()
-        # assertEqual, not assertTrue: an implementation that still returns
-        # None (the pre-fix behavior) must not pass this pinned to bool.
-        self.assertEqual(result, True)
+        # assertIs, not assertEqual/assertTrue: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a truthy 1
+        # passes.
+        self.assertIs(result, True)
 
     def test_returns_false_on_url_error(self) -> None:
         env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
@@ -224,9 +225,10 @@ class TestSendNtfy(unittest.TestCase):
                 ):
                     with patch("notify.log_line"):
                         result = notify.send_ntfy("T", "M")
-        # assertEqual, not assertFalse: an implementation that still returns
-        # None (the pre-fix behavior) must not pass this pinned to bool.
-        self.assertEqual(result, False)
+        # assertIs, not assertEqual/assertFalse: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a falsy 0
+        # passes.
+        self.assertIs(result, False)
 
     def test_returns_false_on_http_error(self) -> None:
         env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
@@ -240,9 +242,10 @@ class TestSendNtfy(unittest.TestCase):
                 ):
                     with patch("notify.log_line"):
                         result = notify.send_ntfy("T", "M")
-        # assertEqual, not assertFalse: an implementation that still returns
-        # None (the pre-fix behavior) must not pass this pinned to bool.
-        self.assertEqual(result, False)
+        # assertIs, not assertEqual/assertFalse: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a falsy 0
+        # passes.
+        self.assertIs(result, False)
 
     def test_returns_false_on_urlopen_value_error(self) -> None:
         # Defense in depth: even with a header-safe title, urlopen raising a
@@ -257,7 +260,10 @@ class TestSendNtfy(unittest.TestCase):
                 ):
                     with patch("notify.log_line"):
                         result = notify.send_ntfy("T", "M")
-        self.assertEqual(result, False)
+        # assertIs, not assertEqual/assertFalse: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a falsy 0
+        # passes.
+        self.assertIs(result, False)
 
 
 class TestSettingsEnvFallback(unittest.TestCase):
@@ -370,9 +376,10 @@ class TestShowDesktopNotification(unittest.TestCase):
             with patch("notify.subprocess.run", return_value=proc):
                 with patch("notify.log_line"):
                     result = notify.show_desktop_notification("T", "M")
-        # assertEqual, not assertFalse: an implementation that still returns
-        # None (the pre-fix behavior) must not pass this pinned to bool.
-        self.assertEqual(result, False)
+        # assertIs, not assertEqual/assertFalse: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a falsy 0
+        # passes.
+        self.assertIs(result, False)
 
     def test_success_returns_true(self) -> None:
         proc = MagicMock()
@@ -381,9 +388,10 @@ class TestShowDesktopNotification(unittest.TestCase):
             with patch("notify.subprocess.run", return_value=proc):
                 with patch("notify.log_line"):
                     result = notify.show_desktop_notification("T", "M")
-        # assertEqual, not assertTrue: an implementation that still returns
-        # None (the pre-fix behavior) must not pass this pinned to bool.
-        self.assertEqual(result, True)
+        # assertIs, not assertEqual/assertTrue: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a truthy 1
+        # passes.
+        self.assertIs(result, True)
 
 
 class TestDispatch(unittest.TestCase):
@@ -394,9 +402,10 @@ class TestDispatch(unittest.TestCase):
                     with patch("notify.send_ntfy", return_value=False) as send:
                         with patch("notify.show_desktop_notification") as show:
                             result = notify.dispatch("T", "M")
-        # assertEqual, not assertFalse: an implementation that still returns
-        # None (the pre-fix behavior) must not pass this pinned to bool.
-        self.assertEqual(result, False)
+        # assertIs, not assertEqual/assertFalse: this pins the exact bool
+        # singleton, so neither None (the pre-fix behavior) nor a falsy 0
+        # passes.
+        self.assertIs(result, False)
         send.assert_called_once_with("T", "M")
         show.assert_not_called()
 
