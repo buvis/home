@@ -1,5 +1,6 @@
 """Tests for hooks/notify.py."""
 
+import base64
 import json
 import os
 import tempfile
@@ -158,6 +159,25 @@ class TestBuildNtfyRequest(unittest.TestCase):
         )
         self.assertEqual(req.headers["Title"], "plain title")
 
+    def test_crlf_title_is_rfc2047_encoded(self) -> None:
+        # Header-injection shape: a bare CR/LF in a header value makes
+        # urllib's http.client raise a raw ValueError ("Invalid header
+        # value"), even though the request would be correctly rejected
+        # rather than exploited. RFC-2047 encoding it here means the
+        # notification still goes out, cleaned, instead of vanishing behind
+        # an uncaught exception.
+        value = "Claude [evil\r\nX-Agoge-Injected: yes]: waiting"
+        req = notify.build_ntfy_request(
+            "https://ntfy.example.com", "topic", value, "M", ""
+        )
+        title = req.headers["Title"]
+        title.encode("latin-1")  # must not raise
+        self.assertTrue(title.startswith("=?UTF-8?B?"))
+        self.assertNotIn("\r", title)
+        self.assertNotIn("\n", title)
+        token = title[len("=?UTF-8?B?") : -len("?=")]
+        self.assertEqual(base64.b64decode(token).decode("utf-8"), value)
+
 
 class TestSendNtfy(unittest.TestCase):
     # SETTINGS_PATH is patched away so these stay hermetic: the machine's
@@ -190,6 +210,35 @@ class TestSendNtfy(unittest.TestCase):
                     with patch("notify.log_line"):
                         notify.send_ntfy("T", "M")
                     urlopen.assert_called_once()
+
+    def test_returns_false_on_url_error(self) -> None:
+        env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
+        with patch.dict("os.environ", env, clear=False):
+            with patch("notify.read_credentials", return_value=""):
+                with patch(
+                    "notify.urllib.request.urlopen",
+                    side_effect=notify.urllib.error.URLError("unreachable"),
+                ):
+                    with patch("notify.log_line"):
+                        result = notify.send_ntfy("T", "M")
+        # assertEqual, not assertFalse: an implementation that still returns
+        # None (the pre-fix behavior) must not pass this pinned to bool.
+        self.assertEqual(result, False)
+
+    def test_returns_false_on_urlopen_value_error(self) -> None:
+        # Defense in depth: even with a header-safe title, urlopen raising a
+        # bare ValueError (not just URLError/OSError) must not propagate past
+        # send_ntfy - the widened except clause is the fix under test.
+        env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
+        with patch.dict("os.environ", env, clear=False):
+            with patch("notify.read_credentials", return_value=""):
+                with patch(
+                    "notify.urllib.request.urlopen",
+                    side_effect=ValueError("Invalid header value"),
+                ):
+                    with patch("notify.log_line"):
+                        result = notify.send_ntfy("T", "M")
+        self.assertEqual(result, False)
 
 
 class TestSettingsEnvFallback(unittest.TestCase):
@@ -294,6 +343,61 @@ class TestShowDesktopNotification(unittest.TestCase):
             with patch("notify.log_line", side_effect=logs.append):
                 notify.show_desktop_notification("T", "M")
         self.assertTrue(any("Skipped" in line for line in logs))
+
+    def test_nonzero_exit_returns_false(self) -> None:
+        proc = MagicMock()
+        proc.returncode = 1
+        with patch("notify.shutil.which", return_value="/usr/bin/terminal-notifier"):
+            with patch("notify.subprocess.run", return_value=proc):
+                with patch("notify.log_line"):
+                    result = notify.show_desktop_notification("T", "M")
+        # assertEqual, not assertFalse: an implementation that still returns
+        # None (the pre-fix behavior) must not pass this pinned to bool.
+        self.assertEqual(result, False)
+
+
+class TestDispatch(unittest.TestCase):
+    def test_returns_send_ntfy_result_when_user_away(self) -> None:
+        with patch("notify.read_idle_seconds", return_value=301):
+            with patch("notify.screensaver_active", return_value=False):
+                with patch("notify.lid_closed", return_value=False):
+                    with patch("notify.send_ntfy", return_value=False) as send:
+                        with patch("notify.show_desktop_notification") as show:
+                            result = notify.dispatch("T", "M")
+        # assertEqual, not assertFalse: an implementation that still returns
+        # None (the pre-fix behavior) must not pass this pinned to bool.
+        self.assertEqual(result, False)
+        send.assert_called_once_with("T", "M")
+        show.assert_not_called()
+
+    def test_returns_desktop_notification_result_when_user_present(self) -> None:
+        with patch("notify.read_idle_seconds", return_value=0):
+            with patch("notify.screensaver_active", return_value=False):
+                with patch("notify.lid_closed", return_value=False):
+                    with patch("notify.send_ntfy") as send:
+                        with patch(
+                            "notify.show_desktop_notification", return_value=True
+                        ) as show:
+                            result = notify.dispatch("T", "M")
+        self.assertTrue(result)
+        show.assert_called_once_with("T", "M")
+        send.assert_not_called()
+
+
+class TestSendCli(unittest.TestCase):
+    def test_exits_nonzero_when_delivery_fails(self) -> None:
+        with patch("sys.argv", ["notify.py", "--send", "T", "M"]):
+            with patch("notify.dispatch", return_value=False):
+                with patch("notify.log_line"):
+                    with self.assertRaises(SystemExit) as ctx:
+                        notify.main()
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_no_exit_when_delivery_succeeds(self) -> None:
+        with patch("sys.argv", ["notify.py", "--send", "T", "M"]):
+            with patch("notify.dispatch", return_value=True):
+                with patch("notify.log_line"):
+                    notify.main()  # must not raise SystemExit
 
 
 class TestAutopilotLoopActive(unittest.TestCase):
