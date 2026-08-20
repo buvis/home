@@ -223,3 +223,46 @@ test('Todos tab shows a failed-copy state when neither clipboard.writeText nor e
   await flush()
   assert.equal(button.textContent.trim(), '✗ copy failed')
 })
+
+test('Failed copy leaves no leftover <textarea> in the document', async () => {
+  // Same failure path as the "✗ copy failed" test above: jsdom provides
+  // neither navigator.clipboard nor a working execCommand('copy'), so the
+  // fallback textarea's select()/execCommand() throw before box.remove()
+  // runs, leaking a hidden textarea into the document on every failed copy.
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].prds = { backlog: [], wip: [], done_count: 0 }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Todo')
+  const button = [...doc.querySelectorAll('main button.chip')].find(
+    (b) => b.textContent.trim() === 'copy open as markdown',
+  )
+  assert.ok(button, 'missing "copy open as markdown" button')
+  button.click()
+  await flush()
+  assert.equal(doc.querySelector('textarea'), null, 'a failed copy left a <textarea> in the document')
+})
+
+test('Failed copy is announced in an aria-live region, not just the button label', async () => {
+  // Same failure path as the two tests above: jsdom provides neither
+  // navigator.clipboard nor a working execCommand('copy'). A label that only
+  // mutates in place tells a screen-reader user nothing — the outcome must
+  // also reach an aria-live="polite" region.
+  const payload = structuredClone(PAYLOAD)
+  payload.data.repos[0].prds = { backlog: [], wip: [], done_count: 0 }
+
+  const { doc, openTab, flush } = render(payload)
+  await openTab('Todo')
+  const button = [...doc.querySelectorAll('main button.chip')].find(
+    (b) => b.textContent.trim() === 'copy open as markdown',
+  )
+  assert.ok(button, 'missing "copy open as markdown" button')
+  button.click()
+  await flush()
+  const liveRegions = [...doc.querySelectorAll('[aria-live="polite"]')]
+  const announced = liveRegions.find((el) => /copy failed/i.test(el.textContent.trim()))
+  assert.ok(
+    announced,
+    'no aria-live="polite" element announces the copy failure (the button label alone changed)',
+  )
+})

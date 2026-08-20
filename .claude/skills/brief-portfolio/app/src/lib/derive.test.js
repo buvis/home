@@ -177,4 +177,28 @@ assert.match(errTodos[0].action, /fail|error/i)
 assert.equal(externalTodos(null).filter((t) => t.id === 'ext:error').length, 0)
 assert.equal(externalTodos({ review_requested: [], authored: [] }).filter((t) => t.id === 'ext:error').length, 0)
 
+// --- external PR lookup failure: the todo id must vary with the error text ---
+// The Todos tab persists the operator's checked/"done" state across
+// regenerations, keyed by todo id. A constant id for every lookup failure
+// means a later, different failure inherits an earlier, dismissed failure's
+// checked state and hides behind "hide done" — a real failure rendered as a
+// clean negative. The id must be a deterministic function of the error text:
+// different error text -> different id (a new failure re-alerts), same error
+// text -> same id (a dismissed-but-unfixed failure stays dismissed).
+const errorTodoWithWhy = (msg) =>
+  externalTodos({ error: msg, review_requested: [], authored: [] }).find((t) => t.why === msg)
+
+const errFirst = errorTodoWithWhy('gh auth login')
+const errSecond = errorTodoWithWhy('network timeout: could not reach api.github.com')
+assert.ok(errFirst, 'no todo produced for first error text')
+assert.ok(errSecond, 'no todo produced for second error text')
+assert.notEqual(errFirst.id, errSecond.id, 'different error strings must produce different ids')
+
+const errFirstAgain = errorTodoWithWhy('gh auth login')
+assert.equal(errFirst.id, errFirstAgain.id, 'the same error string must produce the same id every run')
+
+// No error present -> no error-shaped todo at all, regardless of id scheme
+assert.equal(externalTodos(null).length, 0)
+assert.equal(externalTodos({ review_requested: [], authored: [] }).filter((t) => t.kind === 'external').length, 0)
+
 console.log('derive.test.js: all assertions passed')
