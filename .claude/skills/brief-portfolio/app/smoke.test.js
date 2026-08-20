@@ -172,3 +172,21 @@ test('RepoDetail panel renders both grouped epics that share a title, not once',
   )
   assert.equal(epicTitles.length, 2, `expected 2 epics titled "Same epic", got ${epicTitles.length}`)
 })
+
+test('Work tab shows the external PR lookup error instead of an empty section', async () => {
+  const payload = structuredClone(PAYLOAD)
+  payload.data.external = { error: 'gh auth login', review_requested: [], authored: [] }
+
+  const { doc, openTab } = render(payload)
+  await openTab('Work')
+  const mainText = doc.querySelector('main').textContent
+  assert.match(mainText, /Waiting on you elsewhere/, 'external-PR section heading missing')
+  assert.match(mainText, /gh auth login/, 'external lookup error message not shown')
+})
+
+test('Work tab has no "Waiting on you elsewhere" section when there is no external data', async () => {
+  const { doc, openTab } = render()
+  await openTab('Work')
+  const mainText = doc.querySelector('main').textContent
+  assert.doesNotMatch(mainText, /Waiting on you elsewhere/)
+})

@@ -138,4 +138,16 @@ const series = historySeries([
 ])
 assert.deepEqual(series.map((h) => h.open), [4, 1])
 
+// --- external PR lookup failure surfaces as its own todo, not silence ---
+const failedLookup = externalTodos({ error: 'gh auth login', review_requested: [], authored: [] })
+const errTodos = failedLookup.filter((t) => t.id === 'ext:error')
+assert.equal(errTodos.length, 1)
+assert.equal(errTodos[0].kind, 'external')
+assert.equal(errTodos[0].urgency, 'now')
+assert.match(errTodos[0].why, /gh auth login/)
+assert.match(errTodos[0].action, /PR/i)
+assert.match(errTodos[0].action, /fail|error/i)
+assert.equal(externalTodos(null).filter((t) => t.id === 'ext:error').length, 0)
+assert.equal(externalTodos({ review_requested: [], authored: [] }).filter((t) => t.id === 'ext:error').length, 0)
+
 console.log('derive.test.js: all assertions passed')
