@@ -12,7 +12,7 @@ stderr)` and owns its own capture. `_invoke` calls it DIRECTLY and surfaces that
 triple unchanged; re-capturing around it would map the triple to a bogus 0 and
 silently discard every block and every stdout envelope. A return that is not an
 (int, str, str) triple is logged as a fault and contributes nothing. A script
-with no `run` falls back to a subprocess.
+with no `run` is refused, never re-executed as a subprocess.
 
 Stdlib only. Python 3.10+.
 """
@@ -24,7 +24,6 @@ import importlib.util
 import json
 import re
 import signal
-import subprocess
 import sys
 import traceback
 from datetime import datetime
@@ -34,7 +33,11 @@ from _common import HandlerTimeout
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "stop": "Stop"}
 
-Route = collections.namedtuple("Route", "event matcher name path timeout")
+Route = collections.namedtuple(
+    "Route",
+    "event matcher name path timeout kind",
+    defaults=("observer",),
+)
 
 HOOKS = Path.home() / ".claude" / "hooks"
 SCRIPTS = Path.home() / ".claude" / "skills" / "run-autopilot" / "scripts"
@@ -53,6 +56,7 @@ ROUTES = [
         "enforce_prd_location",
         HOOKS / "enforce_prd_location.py",
         5,
+        kind="enforcement",
     ),
     Route(
         "PreToolUse",
@@ -60,6 +64,7 @@ ROUTES = [
         "cartographer-echo",
         HOOKS / "cartographer-echo.py",
         5,
+        kind="enforcement",
     ),
     Route(
         "PreToolUse",
@@ -74,8 +79,16 @@ ROUTES = [
         "enforce_prd_location",
         HOOKS / "enforce_prd_location.py",
         5,
+        kind="enforcement",
     ),
-    Route("PreToolUse", "Bash", "cartographer-echo", HOOKS / "cartographer-echo.py", 5),
+    Route(
+        "PreToolUse",
+        "Bash",
+        "cartographer-echo",
+        HOOKS / "cartographer-echo.py",
+        5,
+        kind="enforcement",
+    ),
     Route(
         "PostToolUse",
         # No Grep|Glob: both tools are unregistered in this build (upstream
@@ -92,6 +105,7 @@ ROUTES = [
         "validate_state_json_hook",
         SCRIPTS / "validate_state_json_hook.py",
         5,
+        kind="enforcement",
     ),
     Route(
         "PostToolUse",
@@ -108,7 +122,14 @@ ROUTES = [
         5,
     ),
     Route("Stop", None, "notify", HOOKS / "notify.py", 15),
-    Route("Stop", None, "review_coverage_hook", SCRIPTS / "review_coverage_hook.py", 5),
+    Route(
+        "Stop",
+        None,
+        "review_coverage_hook",
+        SCRIPTS / "review_coverage_hook.py",
+        5,
+        kind="enforcement",
+    ),
     Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10),
     Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10),
     Route("Stop", None, "analyze-instincts", HOOKS / "analyze-instincts.py", 10),
@@ -150,7 +171,7 @@ def _parse_stdin() -> dict:
     """Read stdin as a JSON object. Return {} on any error or non-dict."""
     try:
         data = json.loads(sys.stdin.read())
-    except (ValueError, OSError):
+    except (ValueError, OSError, RecursionError):
         log("[dispatch] malformed stdin payload; treating as empty")
         return {}
     if isinstance(data, dict):
@@ -184,21 +205,6 @@ def _load_handler(path):
     return mod
 
 
-def _subprocess_fallback(path, payload, timeout):
-    """Run a run-less handler script as a subprocess -> (rc, stdout, stderr)."""
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(path)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return proc.returncode, proc.stdout, proc.stderr
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        return 0, "", f"[dispatch] {Path(path).name}: {exc}\n"
-
-
 def _raise_timeout(signum, frame):
     raise HandlerTimeout()
 
@@ -219,7 +225,9 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         if hasattr(mod, "run"):
             result = mod.run(payload)
         else:
-            result = _subprocess_fallback(route.path, payload, route.timeout)
+            msg = f"[dispatch] {route.name}: handler has no run(); refusing to load it"
+            log(msg)
+            result = (0, "", msg + "\n")
         if has_alarm:
             signal.alarm(0)  # handler DONE: cancel immediately
         # This line is observed by test_teardown_race_no_false_timeout via
@@ -242,8 +250,14 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         return result
     except HandlerTimeout:
         log(f"{route.name} timed out after {route.timeout}s")
-        return 0, "", f"[dispatch] {route.name}: timed out\n"
+        code = 2 if route.kind == "enforcement" else 0
+        return code, "", f"[dispatch] {route.name}: timed out\n"
     except Exception as exc:
+        log(traceback.format_exc())
+        return 0, "", f"[dispatch] {route.name}: {exc}\n"
+    except KeyboardInterrupt:
+        raise
+    except BaseException as exc:
         log(traceback.format_exc())
         return 0, "", f"[dispatch] {route.name}: {exc}\n"
     finally:
@@ -280,7 +294,7 @@ def _envelope_of(name, out) -> dict | None:
     hso = obj["hookSpecificOutput"]
     if not isinstance(hso, dict):
         log(
-            f"[dispatch] non-dict hookSpecificOutput ({type(hso).__name__}) from {name}"
+            f"[dispatch] non-dict hookSpecificOutput ({type(hso).__name__}) from {name}",
         )
         return None
     return hso
@@ -307,7 +321,7 @@ def _pick_decision(envelopes, blocking) -> tuple:
         if rank < 0:
             log(
                 f"[dispatch] unrecognized permissionDecision "
-                f"{hso['permissionDecision']!r} from {name}"
+                f"{hso['permissionDecision']!r} from {name}",
             )
         # win_idx < 0 registers the FIRST decision even when unranked, so an
         # unrecognized value passes through (as the separate hooks would) and
