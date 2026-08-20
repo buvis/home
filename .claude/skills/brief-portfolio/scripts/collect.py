@@ -21,6 +21,11 @@ MAX_COMMITS = 200
 DIGEST_COMMITS = 50
 MAX_BRANCHES = 50
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+ROTATE_MIN_AGE = timedelta(hours=4)
+
+
+def should_rotate(existing_generated_at: str, now: datetime) -> bool:
+    return now - datetime.fromisoformat(existing_generated_at) >= ROTATE_MIN_AGE
 
 
 def stub_from_path(path: str, reason: str) -> dict:
@@ -416,9 +421,15 @@ def main():
 
     # keep the previous snapshot for the "since last brief" diff
     data_file = outdir / "data.json"
+    tmp_file = outdir / "data.json.tmp"
+    tmp_file.write_text(json.dumps(data, indent=1))
     if data_file.exists():
-        data_file.replace(outdir / "data-prev.json")
-    data_file.write_text(json.dumps(data, indent=1))
+        existing_at = json.loads(data_file.read_text())["generated_at"]
+        if should_rotate(existing_at, datetime.now(timezone.utc)):
+            prev_tmp = outdir / "data-prev.json.tmp"
+            prev_tmp.write_text(data_file.read_text())
+            prev_tmp.replace(outdir / "data-prev.json")
+    tmp_file.replace(data_file)
     hist = {"at": data["generated_at"], "skipped": len(skipped),
             "repos": {f'{r["owner"]}/{r["name"]}': history_counts(r) for r in repos}}
     with (outdir / "history.jsonl").open("a") as hf:
