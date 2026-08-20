@@ -550,7 +550,13 @@ def _load_state_or_exit(state_path: Path) -> dict | int:
     return loaded
 
 
-def _emit(text: str, out_path: Path, to_stdout: bool, append: bool) -> int:
+def _emit(
+    text: str,
+    out_path: Path,
+    to_stdout: bool,
+    append: bool,
+    dedupe_heading: str | None = None,
+) -> int:
     """Write a rendered block: print under --stdout, else create/append the
     target file with one blank line between blocks."""
     if to_stdout:
@@ -559,6 +565,8 @@ def _emit(text: str, out_path: Path, to_stdout: bool, append: bool) -> int:
     try:
         if append and out_path.exists():
             existing = out_path.read_text(encoding="utf-8")
+            if dedupe_heading is not None:
+                existing = render_report._replace_section(existing, dedupe_heading)
             merged = existing.rstrip("\n") + "\n\n" + text.rstrip("\n") + "\n"
         else:
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -640,6 +648,7 @@ def _run_render(args: argparse.Namespace) -> int:
             args.detail,
             now,
         )
+        dedupe_heading = None
     elif args.summary:
         deferred_count = None
         deferred_path = autopilot_dir / "deferred" / f"{batch_id}-deferred.json"
@@ -654,6 +663,7 @@ def _run_render(args: argparse.Namespace) -> int:
             except (OSError, json.JSONDecodeError, AttributeError):
                 deferred_count = None
         block = render_report.batch_summary(loaded, rows, deferred_count)
+        dedupe_heading = None
     else:
         prd_rows = render_metrics.matching_rows(
             rows,
@@ -661,11 +671,12 @@ def _run_render(args: argparse.Namespace) -> int:
             batch_id,
         )
         block = render_report.prd_section(loaded, prd_rows, now)
+        dedupe_heading = f"## {loaded.get('prd', '')}"
     out_path = autopilot_dir / "reports" / f"{batch_id}-report.md"
     if not out_path.exists() and not args.stdout:
         started = render_report.batch_started(loaded, rows)
         block = render_report.header(batch_id, started) + "\n" + block.rstrip("\n") + "\n"
-    return _emit(block, out_path, args.stdout, append=True)
+    return _emit(block, out_path, args.stdout, append=True, dedupe_heading=dedupe_heading)
 
 
 def _add_loop(subparsers) -> None:
