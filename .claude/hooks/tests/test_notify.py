@@ -208,8 +208,11 @@ class TestSendNtfy(unittest.TestCase):
             with patch("notify.read_credentials", return_value=""):
                 with patch("notify.urllib.request.urlopen", return_value=resp) as urlopen:
                     with patch("notify.log_line"):
-                        notify.send_ntfy("T", "M")
+                        result = notify.send_ntfy("T", "M")
                     urlopen.assert_called_once()
+        # assertEqual, not assertTrue: an implementation that still returns
+        # None (the pre-fix behavior) must not pass this pinned to bool.
+        self.assertEqual(result, True)
 
     def test_returns_false_on_url_error(self) -> None:
         env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
@@ -218,6 +221,22 @@ class TestSendNtfy(unittest.TestCase):
                 with patch(
                     "notify.urllib.request.urlopen",
                     side_effect=notify.urllib.error.URLError("unreachable"),
+                ):
+                    with patch("notify.log_line"):
+                        result = notify.send_ntfy("T", "M")
+        # assertEqual, not assertFalse: an implementation that still returns
+        # None (the pre-fix behavior) must not pass this pinned to bool.
+        self.assertEqual(result, False)
+
+    def test_returns_false_on_http_error(self) -> None:
+        env = {"NTFY_URL": "https://ntfy.x", "NTFY_TOPIC": "topic"}
+        with patch.dict("os.environ", env, clear=False):
+            with patch("notify.read_credentials", return_value=""):
+                with patch(
+                    "notify.urllib.request.urlopen",
+                    side_effect=notify.urllib.error.HTTPError(
+                        "https://ntfy.x/topic", 500, "Internal Server Error", None, None
+                    ),
                 ):
                     with patch("notify.log_line"):
                         result = notify.send_ntfy("T", "M")
@@ -354,6 +373,17 @@ class TestShowDesktopNotification(unittest.TestCase):
         # assertEqual, not assertFalse: an implementation that still returns
         # None (the pre-fix behavior) must not pass this pinned to bool.
         self.assertEqual(result, False)
+
+    def test_success_returns_true(self) -> None:
+        proc = MagicMock()
+        proc.returncode = 0
+        with patch("notify.shutil.which", return_value="/usr/bin/terminal-notifier"):
+            with patch("notify.subprocess.run", return_value=proc):
+                with patch("notify.log_line"):
+                    result = notify.show_desktop_notification("T", "M")
+        # assertEqual, not assertTrue: an implementation that still returns
+        # None (the pre-fix behavior) must not pass this pinned to bool.
+        self.assertEqual(result, True)
 
 
 class TestDispatch(unittest.TestCase):
