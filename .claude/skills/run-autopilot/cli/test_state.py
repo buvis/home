@@ -247,6 +247,135 @@ class TransactionAtomicityOnFailureTest(_TempDirTestCase):
         self.assertEqual(str(ctx.exception), "specific validator message")
 
 
+class TransactionFutureSchemaTest(_TempDirTestCase):
+    """A schema_version newer than schema.SCHEMA_VERSION must be refused by
+    transaction() before the caller's mutation function ever runs, and must
+    leave the state file (and any pre-existing `.bak`) byte-unchanged.
+    """
+
+    def test_raises_future_schema_error_when_schema_version_exceeds_current(self) -> None:
+        _write_json(
+            self.path,
+            {"schema_version": schema.SCHEMA_VERSION + 1, "phase": "build"},
+        )
+
+        def fn(current: dict) -> dict:
+            return dict(current)
+
+        with self.assertRaises(state.FutureSchemaError):
+            state.transaction(self.path, fn)
+
+    def test_future_schema_error_is_a_state_error_subclass(self) -> None:
+        self.assertTrue(issubclass(state.FutureSchemaError, state.StateError))
+
+    def test_does_not_call_fn_when_schema_version_is_future(self) -> None:
+        _write_json(self.path, {"schema_version": 999, "phase": "build", "cycle": 3})
+        calls = []
+
+        def fn(current: dict) -> dict:
+            calls.append(current)
+            return dict(current)
+
+        with self.assertRaises(state.FutureSchemaError):
+            state.transaction(self.path, fn)
+
+        self.assertEqual(calls, [], "fn must not run when the schema is future")
+
+    def test_leaves_state_file_byte_unchanged_when_schema_version_is_future(self) -> None:
+        _write_json(self.path, {"schema_version": 999, "phase": "build", "cycle": 3})
+        before = self.path.read_bytes()
+
+        def fn(current: dict) -> dict:
+            new = dict(current)
+            new["phase"] = "review"
+            return new
+
+        with self.assertRaises(state.FutureSchemaError):
+            state.transaction(self.path, fn)
+
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_does_not_write_a_bak_file_when_none_existed_and_schema_version_is_future(
+        self,
+    ) -> None:
+        _write_json(self.path, {"schema_version": 999, "phase": "build"})
+
+        with self.assertRaises(state.FutureSchemaError):
+            state.transaction(self.path, lambda current: dict(current))
+
+        self.assertFalse(_bak_path(self.path).exists())
+
+    def test_does_not_touch_an_existing_bak_file_when_schema_version_is_future(self) -> None:
+        _write_json(_bak_path(self.path), {"phase": "old-backup"})
+        bak_before = _bak_path(self.path).read_bytes()
+        _write_json(self.path, {"schema_version": 999, "phase": "build"})
+
+        with self.assertRaises(state.FutureSchemaError):
+            state.transaction(self.path, lambda current: dict(current))
+
+        self.assertEqual(_bak_path(self.path).read_bytes(), bak_before)
+
+    def test_worked_example_schema_version_999_is_refused_and_leaves_state_untouched(
+        self,
+    ) -> None:
+        _write_json(self.path, {"schema_version": 999, "phase": "build", "cycle": 3})
+        before = self.path.read_bytes()
+
+        with self.assertRaises(state.FutureSchemaError):
+            state.transaction(self.path, lambda current: {**current, "phase": "review"})
+
+        self.assertEqual(self.path.read_bytes(), before)
+
+
+class TransactionNonFutureSchemaUnaffectedTest(_TempDirTestCase):
+    """Absent, current, or older schema_version must be completely unaffected
+    by the future-schema guard: no FutureSchemaError, and a normal mutation
+    lands on disk exactly as it did before this change.
+    """
+
+    def test_absent_schema_version_does_not_raise_future_schema_error(self) -> None:
+        _write_json(self.path, {"phase": "build"})
+
+        def fn(current: dict) -> dict:
+            new = dict(current)
+            new["phase"] = "review"
+            return new
+
+        state.transaction(self.path, fn)
+
+        committed, _ = state.load(self.path)
+        self.assertEqual(committed["phase"], "review")
+
+    def test_current_schema_version_does_not_raise_future_schema_error(self) -> None:
+        _write_json(self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"})
+
+        def fn(current: dict) -> dict:
+            new = dict(current)
+            new["phase"] = "review"
+            return new
+
+        state.transaction(self.path, fn)
+
+        committed, _ = state.load(self.path)
+        self.assertEqual(committed["phase"], "review")
+
+    def test_older_schema_version_does_not_raise_future_schema_error(self) -> None:
+        # SCHEMA_VERSION is currently 1, so 0 is the only strictly-older,
+        # still-valid (non-negative) value available to exercise "old".
+        _write_json(self.path, {"schema_version": 0, "phase": "build"})
+
+        def fn(current: dict) -> dict:
+            new = dict(current)
+            new["phase"] = "review"
+            return new
+
+        state.transaction(self.path, fn)
+
+        committed, _ = state.load(self.path)
+        self.assertEqual(committed["phase"], "review")
+        self.assertEqual(committed["schema_version"], schema.SCHEMA_VERSION)
+
+
 class CorruptBytesTest(_TempDirTestCase):
     """Invalid UTF-8 must surface as the module's own exceptions.
 
