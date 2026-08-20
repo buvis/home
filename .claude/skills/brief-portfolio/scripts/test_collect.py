@@ -1,11 +1,12 @@
 """Regression tests for collect.py's local parsers. Run: python3 -m pytest test_collect.py -q"""
 
 import json
-import pytest
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import collect
@@ -90,7 +91,7 @@ def test_skill_adherence_counts_last_30d_and_ranks_top(tmp_path):
                 "not json",
             ]
         )
-        + "\n"
+        + "\n",
     )
     got = collect_claude_skill_adherence(f)
     assert got["count"] == 3
@@ -196,7 +197,9 @@ def run_collector(tmp_path, monkeypatch, resolvable_names, skip_names):
     monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
     out_dir = tmp_path / "out"
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--no-git-fetch", "--out", str(out_dir)]
+        sys,
+        "argv",
+        ["collect.py", "--no-git-fetch", "--out", str(out_dir)],
     )
     main()
     return paths, out_dir
@@ -218,7 +221,9 @@ def test_main_history_entry_counts_skipped_repos(tmp_path, monkeypatch):
 
 
 def test_main_summary_line_reports_paths_and_skipped_counts(
-    tmp_path, monkeypatch, capsys
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     paths, _ = run_collector(tmp_path, monkeypatch, ["alpha", "beta"], ["broken"])
     captured = capsys.readouterr()
@@ -226,7 +231,8 @@ def test_main_summary_line_reports_paths_and_skipped_counts(
 
 
 def test_main_external_section_reports_error_when_gh_unauthenticated(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     _, out_dir = run_collector(tmp_path, monkeypatch, ["alpha"], [])
     data = json.loads((out_dir / "data.json").read_text())
@@ -238,7 +244,7 @@ def test_main_external_section_reports_error_when_gh_unauthenticated(
 def test_rotate_min_age_is_four_hours():
     from datetime import timedelta
 
-    assert ROTATE_MIN_AGE == timedelta(hours=4)
+    assert timedelta(hours=4) == ROTATE_MIN_AGE
 
 
 def test_should_rotate_false_for_snapshot_48_seconds_old():
@@ -276,17 +282,20 @@ def write_snapshot(path: Path, generated_at: str, marker: str) -> str:
 
 
 def test_main_leaves_older_baseline_untouched_when_existing_snapshot_is_recent(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     from datetime import timedelta
 
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
     baseline_content = write_snapshot(
-        out_dir / "data-prev.json", "2026-08-01T00:00:00+00:00", "real-baseline"
+        out_dir / "data-prev.json",
+        "2026-08-01T00:00:00+00:00",
+        "real-baseline",
     )
     recent_at = (datetime.now(timezone.utc) - timedelta(seconds=48)).isoformat(
-        timespec="seconds"
+        timespec="seconds",
     )
     write_snapshot(out_dir / "data.json", recent_at, "48-seconds-old")
 
@@ -304,7 +313,7 @@ def test_main_publishes_old_snapshot_as_data_prev_when_stale(tmp_path, monkeypat
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
     stale_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(
-        timespec="seconds"
+        timespec="seconds",
     )
     old_content = write_snapshot(out_dir / "data.json", stale_at, "5-hours-old")
 
@@ -317,14 +326,15 @@ def test_main_publishes_old_snapshot_as_data_prev_when_stale(tmp_path, monkeypat
 
 
 def test_main_leaves_data_json_unchanged_when_prev_tmp_write_fails(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     from datetime import timedelta
 
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
     stale_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(
-        timespec="seconds"
+        timespec="seconds",
     )
     old_content = write_snapshot(out_dir / "data.json", stale_at, "5-hours-old")
 
@@ -349,11 +359,15 @@ def test_offline_makes_zero_subprocess_calls(tmp_path, monkeypatch):
     write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
 
     def explode(*args, **kwargs):
-        raise AssertionError(f"subprocess.run should not be called: {args!r} {kwargs!r}")
+        raise AssertionError(
+            f"subprocess.run should not be called: {args!r} {kwargs!r}"
+        )
 
     monkeypatch.setattr(collect.subprocess, "run", explode)
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+        sys,
+        "argv",
+        ["collect.py", "--offline", "--out", str(out_dir)],
     )
     main()
 
@@ -361,10 +375,14 @@ def test_offline_makes_zero_subprocess_calls(tmp_path, monkeypatch):
 def test_offline_leaves_cached_data_json_byte_for_byte_unchanged(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
-    content = write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
+    content = write_snapshot(
+        out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached"
+    )
 
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+        sys,
+        "argv",
+        ["collect.py", "--offline", "--out", str(out_dir)],
     )
     main()
 
@@ -374,7 +392,9 @@ def test_offline_leaves_cached_data_json_byte_for_byte_unchanged(tmp_path, monke
 def test_offline_without_cached_data_json_exits_with_error(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+        sys,
+        "argv",
+        ["collect.py", "--offline", "--out", str(out_dir)],
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -392,7 +412,9 @@ def test_offline_does_not_write_history_digest_or_prev_snapshot(tmp_path, monkey
     write_snapshot(out_dir / "data.json", "2026-08-20T00:00:00+00:00", "cached")
 
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--offline", "--out", str(out_dir)]
+        sys,
+        "argv",
+        ["collect.py", "--offline", "--out", str(out_dir)],
     )
     main()
 
@@ -414,7 +436,9 @@ def test_no_git_fetch_flag_passes_fetch_false_to_collect_repo(tmp_path, monkeypa
     monkeypatch.setattr(collect, "collect_repo", fake_collect_repo)
     out_dir = tmp_path / "out"
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--no-git-fetch", "--out", str(out_dir)]
+        sys,
+        "argv",
+        ["collect.py", "--no-git-fetch", "--out", str(out_dir)],
     )
     main()
 
@@ -422,8 +446,17 @@ def test_no_git_fetch_flag_passes_fetch_false_to_collect_repo(tmp_path, monkeypa
 
 
 def test_no_fetch_old_spelling_is_rejected_by_argparse(tmp_path, monkeypatch):
+    paths = make_registry(tmp_path, ["alpha"])
+    monkeypatch.setattr(collect, "GITA_CSV", write_registry_csv(tmp_path, paths))
+
+    def explode(*args, **kwargs):
+        raise AssertionError(f"subprocess.run should not be called: {args!r} {kwargs!r}")
+
+    monkeypatch.setattr(collect.subprocess, "run", explode)
     monkeypatch.setattr(
-        sys, "argv", ["collect.py", "--no-fetch", "--out", str(tmp_path / "out")]
+        sys,
+        "argv",
+        ["collect.py", "--no-fetch", "--out", str(tmp_path / "out")],
     )
 
     with pytest.raises(SystemExit):
