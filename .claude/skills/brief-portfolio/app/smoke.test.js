@@ -202,6 +202,12 @@ test('Brief tab names repos it could not collect this run', () => {
   const mainText = doc.querySelector('main').textContent
   assert.match(mainText, /not collected/)
   assert.match(mainText, /doogat\/jink/)
+
+  const strongEls = [...doc.querySelectorAll('main strong.sev-warning')]
+  assert.ok(
+    strongEls.some((el) => el.textContent.trim() === '1'),
+    'skipped-repo count is not rendered inside <strong class="sev-warning">',
+  )
 })
 
 test('Todos tab shows a failed-copy state when neither clipboard.writeText nor execCommand works', async () => {
@@ -312,6 +318,13 @@ test('Todos tab reports success and copies the open todos when the execCommand f
   assert.equal(button.textContent.trim(), '✓ copied')
   assert.equal(doc.querySelector('textarea'), null, 'a successful fallback copy left a <textarea> in the document')
   assert.equal(recorded, expected)
+
+  const liveRegions = [...doc.querySelectorAll('[aria-live="polite"]')]
+  const announced = liveRegions.find((el) => /copied/i.test(el.textContent.trim()))
+  assert.ok(
+    announced,
+    'no aria-live="polite" element announces the successful copy (the button label alone changed)',
+  )
 })
 
 test('Todos tab reports failure when the execCommand fallback returns false', async () => {

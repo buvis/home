@@ -626,3 +626,45 @@ def test_main_warns_on_stderr_naming_baseline_when_existing_data_json_is_unusabl
     captured = capsys.readouterr()
     warn_lines = [line for line in captured.err.splitlines() if "WARN" in line]
     assert any("data.json" in line for line in warn_lines)
+
+
+def test_main_completes_when_existing_generated_at_is_json_null(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    write_snapshot(out_dir / "data.json", None, "null-generated-at")
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    captured = capsys.readouterr()
+    warn_lines = [line for line in captured.err.splitlines() if "WARN" in line]
+    assert any("data.json" in line for line in warn_lines)
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert "generated_at" in new_data
+    assert new_data["generated_at"] is not None
+    assert len(new_data["repos"]) == 1
+    assert not (out_dir / "data-prev.json").exists()
+
+
+def test_main_completes_when_existing_generated_at_is_timezone_naive(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    write_snapshot(out_dir / "data.json", "2026-08-01T00:00:00", "naive-generated-at")
+
+    run_collector(tmp_path, monkeypatch, ["alpha"], [])
+
+    captured = capsys.readouterr()
+    warn_lines = [line for line in captured.err.splitlines() if "WARN" in line]
+    assert any("data.json" in line for line in warn_lines)
+    new_data = json.loads((out_dir / "data.json").read_text())
+    assert "generated_at" in new_data
+    assert new_data["generated_at"] != "2026-08-01T00:00:00"
+    assert len(new_data["repos"]) == 1
+    assert not (out_dir / "data-prev.json").exists()
