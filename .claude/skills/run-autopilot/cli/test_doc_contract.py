@@ -12,7 +12,7 @@ human or an autopilot session reads operator-facing docs. "autopilot defer"
 was the known instance of this gap when this test was written: the
 subcommand existed and worked, but the string "autopilot defer" appeared
 nowhere under references/ or in SKILL.md. The same PRD that surfaced the gap
-went on to add "autopilot defer" to four reference files, so this test now
+went on to add "autopilot defer" to three reference files, so this test now
 guards against that regression recurring rather than describing a live gap.
 """
 

@@ -339,11 +339,16 @@ class TransactionFutureSchemaTest(_TempDirTestCase):
         with self.assertRaises(state.FutureSchemaError) as ctx:
             state.transaction(self.path, lambda current: dict(current))
 
-        message = str(ctx.exception)
-        self.assertIn(str(self.path), message)
-        self.assertIn("v999", message)
-        self.assertIn(f"v{schema.SCHEMA_VERSION}", message)
-        self.assertIn("refusing", message)
+        # Exact, not substring: the finding asked for the message to be
+        # asserted exactly, and substring checks would still pass on a
+        # message with the right pieces in the wrong order or padded with
+        # noise -- which is the failure mode that let the two writers
+        # diverge in the first place.
+        self.assertEqual(
+            str(ctx.exception),
+            f"future-schema state.json ({self.path}): "
+            f"v999 > v{schema.SCHEMA_VERSION}, refusing",
+        )
 
 
 class TransactionNonFutureSchemaUnaffectedTest(_TempDirTestCase):
