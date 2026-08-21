@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import append_jsonl_row
+from _common import append_jsonl_row, parse_transcript_entries
 
 METRICS_DIR = Path.home() / ".claude" / "metrics"
 SKILLS_FILE = METRICS_DIR / "skills.jsonl"
@@ -45,18 +45,8 @@ def skill_invocations(transcript_path: Path) -> list[tuple[str, str]]:
     transcript, deduped by tool_use id (a re-run must not re-count)."""
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
-    try:
-        text = transcript_path.read_text(encoding="utf-8")
-    except OSError:
-        return out
-    for raw in text.splitlines():
-        if not raw.strip():
-            continue
-        try:
-            entry = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(entry, dict) or entry.get("type") != "assistant":
+    for entry in parse_transcript_entries(transcript_path):
+        if entry.get("type") != "assistant":
             continue
         msg = entry.get("message")
         if not isinstance(msg, dict):

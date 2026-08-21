@@ -12,7 +12,6 @@ Stdlib only. Cost arithmetic uses Decimal so the formatted output matches the
 bash awk template byte-for-byte on shared fixtures.
 """
 
-import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -22,7 +21,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import append_jsonl_row, read_input
+from _common import append_jsonl_row, parse_transcript_entries, read_input
 
 METRICS_DIR = Path.home() / ".claude" / "metrics"
 COSTS_FILE = METRICS_DIR / "costs.jsonl"
@@ -111,19 +110,7 @@ def aggregate(deduped: list[dict[str, Any]]) -> tuple[str, int, int, int, int]:
 def parse_transcript(path: Path) -> list[dict[str, Any]]:
     """Read JSONL, return assistant entries that have message.usage."""
     out: list[dict[str, Any]] = []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return out
-    for raw in text.splitlines():
-        if not raw.strip():
-            continue
-        try:
-            entry = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(entry, dict):
-            continue
+    for entry in parse_transcript_entries(path):
         if entry.get("type") != "assistant":
             continue
         msg = entry.get("message") or {}
