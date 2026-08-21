@@ -8,6 +8,7 @@
 !.claude/hooks/
 .claude/hooks/.ntfy-secret
 .claude/hooks/notify.log
+.claude/hooks/.trigger-index-cache.json
 # Auto-deployed by the context-mode plugin (not our hook); plugin redeploys it on update
 .claude/hooks/context-mode-cache-heal.mjs
 !.claude/rules/

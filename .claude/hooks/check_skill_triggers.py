@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 # `_common` is a sibling, and hooks are run by absolute path rather than
 # imported as a package. Both imports of it happen inside the functions below,
@@ -179,24 +180,45 @@ def _index_over(paths: list[Path]) -> dict[str, list[str]]:
     return index
 
 
+def _write_cache(cache: dict) -> None:
+    """Atomic write of the trigger-index cache (see `observe_tool.py`'s
+    `_write_cwd_cache` for the convention this copies). An advisory cache
+    that cannot be written is not a reason to fail the advisory, so any
+    OSError (missing directory, permissions, ...) is swallowed.
+    """
+    try:
+        tmp = NamedTemporaryFile(
+            "w", encoding="utf-8", dir=str(_INDEX_CACHE_FILE.parent), delete=False
+        )
+        try:
+            json.dump(cache, tmp)
+            tmp_path = Path(tmp.name)
+        finally:
+            tmp.close()
+        tmp_path.replace(_INDEX_CACHE_FILE)
+    except OSError:
+        pass
+
+
 def _cached_index(paths: list[Path], exclude: Path) -> dict[str, list[str]]:
     """The phrase index over `paths` minus `exclude`, reused from disk when the
-    candidates' max mtime hasn't moved. `exclude`'s own mtime never enters the
-    key, so repeated saves of the file being edited can't invalidate it.
+    candidate set hasn't changed. `exclude`'s own mtime never enters the key,
+    so repeated saves of the file being edited can't invalidate it. The key
+    covers both the candidates' identities and their max mtime: two distinct
+    candidate sets can share a max mtime, and mtime alone would wrongly reuse
+    one set's index for the other.
     """
     excl = exclude.resolve()
     candidates = [p for p in paths if p.resolve() != excl]
-    key = _max_mtime(candidates)
+    key = {"paths": sorted(str(p) for p in candidates), "mtime": _max_mtime(candidates)}
     try:
         cached = json.loads(_INDEX_CACHE_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         cached = None
-    if isinstance(cached, dict) and cached.get("mtime") == key:
+    if isinstance(cached, dict) and cached.get("key") == key:
         return cached.get("index", {})
     index = _index_over(candidates)
-    _INDEX_CACHE_FILE.write_text(
-        json.dumps({"mtime": key, "index": index}), encoding="utf-8"
-    )
+    _write_cache({"key": key, "index": index})
     return index
 
 
