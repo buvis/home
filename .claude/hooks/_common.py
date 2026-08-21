@@ -74,6 +74,38 @@ def append_jsonl_row(path: Path, row: str) -> None:
         fh.write(("\n" if needs_leading_newline else "") + row + "\n")
 
 
+_TRANSCRIPT_CACHE: dict[Path, list[dict[str, Any]]] = {}
+
+
+def parse_transcript_entries(path: Path) -> list[dict[str, Any]]:
+    """Parse a transcript JSONL file into a list of dict entries.
+
+    Cached per path so track_cost.py and track_skills.py, which both parse
+    the same Stop-hook transcript in-process, read the file at most once.
+    Skips malformed JSON lines and non-dict JSON values. A missing file
+    returns an empty list without raising.
+    """
+    if path in _TRANSCRIPT_CACHE:
+        return _TRANSCRIPT_CACHE[path]
+    entries: list[dict[str, Any]] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        _TRANSCRIPT_CACHE[path] = entries
+        return entries
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    _TRANSCRIPT_CACHE[path] = entries
+    return entries
+
+
 class HandlerTimeout(BaseException):
     """Raised by the dispatcher's SIGALRM handler.
 
