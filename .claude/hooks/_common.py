@@ -13,6 +13,8 @@ Conventions
 
 import io
 import json
+import os
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -54,6 +56,44 @@ def log_path(name: str) -> Path:
 def secret_path(name: str) -> Path:
     """Resolve a secret file under ~/.claude/secrets/."""
     return Path.home() / ".claude" / "secrets" / name
+
+
+_TOPLEVEL_CACHE: dict[str, str | None] = {}
+
+
+def resolve_toplevel(path: str) -> str | None:
+    """Resolve the git toplevel containing `path` via `git rev-parse
+    --show-toplevel`.
+
+    Memoized per process by the nearest existing ancestor directory of
+    `path` (PRD 00133 finding 42), so hooks that independently need the
+    toplevel for the same tool call - e.g. enforce_prd_location.py and
+    cartographer-echo.py, both invoked with the same payload in the same
+    dispatcher process - spawn `git` at most once between them. `path`
+    itself need not exist; the walk finds the nearest existing ancestor
+    directory first.
+    """
+    resolved = str(Path(path).resolve())
+    probe = os.path.dirname(resolved) or "/"
+    while probe and probe != "/" and not os.path.isdir(probe):
+        probe = os.path.dirname(probe)
+    if not probe or not os.path.isdir(probe):
+        return None
+    if probe in _TOPLEVEL_CACHE:
+        return _TOPLEVEL_CACHE[probe]
+    try:
+        result = subprocess.run(
+            ["git", "-C", probe, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        root = result.stdout.strip() if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        root = None
+    root = root or None
+    _TOPLEVEL_CACHE[probe] = root
+    return root
 
 
 def append_jsonl_row(path: Path, row: str) -> None:

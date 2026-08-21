@@ -502,18 +502,19 @@ def _resolve_project_root(file_path: str) -> Path:
 
     Echo searches across the project, so the root MUST be a real directory.
     `_lib_cartographer.project_hash` returns identity tuples (hash, name,
-    remote), not a path, so we don't reuse it here.
+    remote), not a path, so we don't reuse it here. Routes through
+    `_common.resolve_toplevel` (PRD 00133 finding 42) so this and
+    enforce_prd_location.py's `_check_file_path`, both invoked with the same
+    payload in the same dispatcher process, share the memoized `git
+    rev-parse --show-toplevel` spawn instead of each shelling out on their
+    own.
     """
+    from _common import resolve_toplevel
+
     parent = Path(file_path).parent if file_path else Path.cwd()
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(parent), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=2,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            return Path(proc.stdout.strip())
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    root = resolve_toplevel(file_path) if file_path else None
+    if root:
+        return Path(root)
     return parent if parent.exists() else Path.cwd()
 
 
