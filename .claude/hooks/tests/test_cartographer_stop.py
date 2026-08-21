@@ -110,8 +110,8 @@ def test_flag_set_when_commit_threshold_exceeded(tmp_path, monkeypatch):
     audit reason stale-flag-set.
 
     Exercises the per-repo override, not the real 50-commit default; see
-    test_per_repo_override_lowers_commit_threshold for the case that still pins
-    production's literal 50.
+    test_production_default_flags_above_fifty_commits_and_not_at_fifty for the case
+    that pins production's literal 50.
     """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
@@ -134,8 +134,8 @@ def test_no_flag_when_below_commit_threshold(tmp_path, monkeypatch):
     audit reason fresh.
 
     Exercises the per-repo override, not the real 50-commit default; see
-    test_per_repo_override_lowers_commit_threshold for the case that still pins
-    production's literal 50.
+    test_production_default_flags_above_fifty_commits_and_not_at_fifty for the case
+    that pins production's literal 50.
     """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
@@ -272,8 +272,8 @@ def test_flag_not_created_at_boundary_below_commit_threshold(tmp_path, monkeypat
     """Exactly 2 commits (one below a max_commits=3 override) -> no flag. Guards off-by-one.
 
     Exercises the per-repo override, not the real 50-commit default; see
-    test_per_repo_override_lowers_commit_threshold for the case that still pins
-    production's literal 50.
+    test_production_default_flags_above_fifty_commits_and_not_at_fifty for the case
+    that pins production's literal 50.
     """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
@@ -298,8 +298,8 @@ def test_no_flag_at_exactly_commit_threshold(tmp_path, monkeypatch):
     PRD line 23 Success Metrics and Phase 2e ('51 commits -> flag') require a
     strict greater-than: the flag fires only above the threshold, not at it.
     Exercises the per-repo override, not the real 50-commit default; see
-    test_per_repo_override_lowers_commit_threshold for the case that still pins
-    production's literal 50.
+    test_production_default_flags_above_fifty_commits_and_not_at_fifty for the case
+    that pins production's literal 50.
     """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
@@ -316,6 +316,41 @@ def test_no_flag_at_exactly_commit_threshold(tmp_path, monkeypatch):
     assert not (atlas_dir / "staleness.flag").exists(), \
         "Exactly 3 commits must NOT trigger the flag; PRD requires strict > threshold"
     assert audit_events[-1]["reason"] == "fresh"
+
+
+def test_production_default_flags_above_fifty_commits_and_not_at_fifty(tmp_path, monkeypatch):
+    """No staleness override in atlas.json -> the production default max_commits=50
+    applies: 50 commits is fresh (not > 50), 51 commits sets the flag. The commit
+    count is faked via subprocess.run so this pins the literal 50 without making
+    50 real commits.
+    """
+    repo = _make_git_repo(tmp_path)
+    atlas_dir = tmp_path / "atlas"
+
+    base_sha = _add_commits(repo, 1)
+
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    _write_atlas(atlas_dir, base_sha, recent)
+
+    mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
+    real_run = subprocess.run
+
+    def _fake_commit_count(count):
+        def _run(cmd, *args, **kwargs):
+            if cmd[:3] == ["git", "rev-list", "--count"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=f"{count}\n", stderr="")
+            return real_run(cmd, *args, **kwargs)
+        return _run
+
+    monkeypatch.setattr(mod.subprocess, "run", _fake_commit_count(50))
+    _run_hook(mod, monkeypatch)
+    assert not (atlas_dir / "staleness.flag").exists(), "50 commits must NOT trigger the flag (not > 50)"
+    assert audit_events[-1]["reason"] == "fresh"
+
+    monkeypatch.setattr(mod.subprocess, "run", _fake_commit_count(51))
+    _run_hook(mod, monkeypatch)
+    assert (atlas_dir / "staleness.flag").exists(), "51 commits must trigger the flag (> 50)"
+    assert audit_events[-1]["reason"] == "stale-flag-set"
 
 
 def test_non_git_atlas_missing_head_sha_logs_no_git_reason(tmp_path, monkeypatch):
