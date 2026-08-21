@@ -87,9 +87,13 @@ class _TempDirTestCase(unittest.TestCase):
 
 class LoadTest(_TempDirTestCase):
     def test_returns_parsed_state_and_version_status_for_well_formed_file(self) -> None:
-        _write_json(self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"})
+        _write_json(
+            self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"}
+        )
         loaded, version_status = state.load(self.path)
-        self.assertEqual(loaded, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"})
+        self.assertEqual(
+            loaded, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"}
+        )
         self.assertEqual(version_status, "current")
 
     def test_raises_state_error_for_missing_file(self) -> None:
@@ -253,7 +257,9 @@ class TransactionFutureSchemaTest(_TempDirTestCase):
     leave the state file (and any pre-existing `.bak`) byte-unchanged.
     """
 
-    def test_raises_future_schema_error_when_schema_version_exceeds_current(self) -> None:
+    def test_raises_future_schema_error_when_schema_version_exceeds_current(
+        self,
+    ) -> None:
         _write_json(
             self.path,
             {"schema_version": schema.SCHEMA_VERSION + 1, "phase": "build"},
@@ -281,7 +287,9 @@ class TransactionFutureSchemaTest(_TempDirTestCase):
 
         self.assertEqual(calls, [], "fn must not run when the schema is future")
 
-    def test_leaves_state_file_byte_unchanged_when_schema_version_is_future(self) -> None:
+    def test_leaves_state_file_byte_unchanged_when_schema_version_is_future(
+        self,
+    ) -> None:
         _write_json(self.path, {"schema_version": 999, "phase": "build", "cycle": 3})
         before = self.path.read_bytes()
 
@@ -305,7 +313,9 @@ class TransactionFutureSchemaTest(_TempDirTestCase):
 
         self.assertFalse(_bak_path(self.path).exists())
 
-    def test_does_not_touch_an_existing_bak_file_when_schema_version_is_future(self) -> None:
+    def test_does_not_touch_an_existing_bak_file_when_schema_version_is_future(
+        self,
+    ) -> None:
         _write_json(_bak_path(self.path), {"phase": "old-backup"})
         bak_before = _bak_path(self.path).read_bytes()
         _write_json(self.path, {"schema_version": 999, "phase": "build"})
@@ -325,6 +335,24 @@ class TransactionFutureSchemaTest(_TempDirTestCase):
             state.transaction(self.path, lambda current: {**current, "phase": "review"})
 
         self.assertEqual(self.path.read_bytes(), before)
+
+    def test_future_schema_error_message_names_both_versions_and_refuses(
+        self,
+    ) -> None:
+        # There are two writers of state.json refusing a future schema with
+        # exit code 6; they must print the SAME message. This pins the
+        # correct wording (the one cli/__main__.py's _schema_version_preflight
+        # already uses) onto transaction()'s own FutureSchemaError.
+        _write_json(self.path, {"schema_version": 999, "phase": "build"})
+
+        with self.assertRaises(state.FutureSchemaError) as ctx:
+            state.transaction(self.path, lambda current: dict(current))
+
+        message = str(ctx.exception)
+        self.assertIn(str(self.path), message)
+        self.assertIn("v999", message)
+        self.assertIn(f"v{schema.SCHEMA_VERSION}", message)
+        self.assertIn("refusing", message)
 
 
 class TransactionNonFutureSchemaUnaffectedTest(_TempDirTestCase):
@@ -347,7 +375,9 @@ class TransactionNonFutureSchemaUnaffectedTest(_TempDirTestCase):
         self.assertEqual(committed["phase"], "review")
 
     def test_current_schema_version_does_not_raise_future_schema_error(self) -> None:
-        _write_json(self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"})
+        _write_json(
+            self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"}
+        )
 
         def fn(current: dict) -> dict:
             new = dict(current)
@@ -423,7 +453,9 @@ class InitFailureTest(_TempDirTestCase):
             "would then block every retry and the loop could never bootstrap",
         )
         state.init(self.path, {"phase": "build"})
-        self.assertEqual(json.loads(self.path.read_text(encoding="utf-8"))["phase"], "build")
+        self.assertEqual(
+            json.loads(self.path.read_text(encoding="utf-8"))["phase"], "build"
+        )
 
 
 class TransactionBackupAliasingTest(_TempDirTestCase):
@@ -504,7 +536,9 @@ class TransactionBackupOrderingTest(_TempDirTestCase):
 
 
 class TransactionValidatorTest(_TempDirTestCase):
-    def test_custom_validator_is_honored_and_commits_what_default_would_reject(self) -> None:
+    def test_custom_validator_is_honored_and_commits_what_default_would_reject(
+        self,
+    ) -> None:
         _write_json(self.path, {"phase": "build"})
 
         def fn(current: dict) -> dict:
@@ -524,7 +558,9 @@ class TransactionValidatorTest(_TempDirTestCase):
         committed, _ = state.load(self.path)
         self.assertEqual(committed["phase"], "nonsense")
 
-    def test_default_validator_rejects_schema_invalid_state_and_writes_nothing(self) -> None:
+    def test_default_validator_rejects_schema_invalid_state_and_writes_nothing(
+        self,
+    ) -> None:
         _write_json(self.path, {"phase": "build"})
         state_before = self.path.read_bytes()
 
@@ -576,8 +612,12 @@ class TransactionConcurrencyTest(_TempDirTestCase):
         _write_json(self.path, {"items": []})
 
         barrier = multiprocessing.Barrier(2)
-        p1 = multiprocessing.Process(target=_concurrent_append_worker, args=(str(self.path), barrier, "a"))
-        p2 = multiprocessing.Process(target=_concurrent_append_worker, args=(str(self.path), barrier, "b"))
+        p1 = multiprocessing.Process(
+            target=_concurrent_append_worker, args=(str(self.path), barrier, "a")
+        )
+        p2 = multiprocessing.Process(
+            target=_concurrent_append_worker, args=(str(self.path), barrier, "b")
+        )
         p1.start()
         p2.start()
         p1.join(timeout=15)
@@ -596,7 +636,9 @@ class TransactionConcurrencyTest(_TempDirTestCase):
 
 
 class InitTest(_TempDirTestCase):
-    def test_creates_file_with_given_content_when_absent_and_it_round_trips(self) -> None:
+    def test_creates_file_with_given_content_when_absent_and_it_round_trips(
+        self,
+    ) -> None:
         initial = {"phase": "build", "cycle": 0}
         state.init(self.path, initial)
 
@@ -626,7 +668,9 @@ class InitSchemaVersionStampTest(_TempDirTestCase):
         state.init(self.path, {"phase": "build"})
 
         on_disk, _ = state.load(self.path)
-        self.assertEqual(on_disk, {"phase": "build", "schema_version": schema.SCHEMA_VERSION})
+        self.assertEqual(
+            on_disk, {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
+        )
 
     def test_initial_already_at_current_version_is_unchanged(self) -> None:
         initial = {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
@@ -647,7 +691,9 @@ class RestoreTest(_TempDirTestCase):
         restored, _ = state.load(self.path)
         self.assertEqual(restored, good)
 
-    def test_raises_backup_error_when_no_bak_exists_and_leaves_state_untouched(self) -> None:
+    def test_raises_backup_error_when_no_bak_exists_and_leaves_state_untouched(
+        self,
+    ) -> None:
         _write_json(self.path, {"phase": "build"})
         before = self.path.read_bytes()
 
@@ -682,7 +728,9 @@ class RestoreTest(_TempDirTestCase):
 
 
 class RestoreSchemaVersionStampTest(_TempDirTestCase):
-    def test_restore_stamps_current_schema_version_even_when_bak_is_unstamped(self) -> None:
+    def test_restore_stamps_current_schema_version_even_when_bak_is_unstamped(
+        self,
+    ) -> None:
         _write_json(_bak_path(self.path), {"phase": "build", "cycle": 1})
         _write_json(
             self.path,
@@ -728,16 +776,22 @@ class DurabilityBeforePublishTest(_TempDirTestCase):
         return calls
 
     def test_atomic_write_fsyncs_payload_before_replacing_the_target(self) -> None:
-        calls = self._publish_order(lambda: state.atomic_write(self.path, {"phase": "build"}), "replace")
+        calls = self._publish_order(
+            lambda: state.atomic_write(self.path, {"phase": "build"}), "replace"
+        )
         self.assertEqual(calls, ["fsync", "replace"])
 
     def test_transaction_fsyncs_both_the_backup_and_the_state_before_each_replace(
         self,
     ) -> None:
-        _write_json(self.path, {"phase": "build", "schema_version": schema.SCHEMA_VERSION})
+        _write_json(
+            self.path, {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
+        )
 
         calls = self._publish_order(
-            lambda: state.transaction(self.path, lambda current: {**current, "cycle": 2}),
+            lambda: state.transaction(
+                self.path, lambda current: {**current, "cycle": 2}
+            ),
             "replace",
         )
 
@@ -745,7 +799,9 @@ class DurabilityBeforePublishTest(_TempDirTestCase):
         self.assertEqual(calls, ["fsync", "replace", "fsync", "replace"])
 
     def test_init_fsyncs_payload_before_linking_the_new_state_file(self) -> None:
-        calls = self._publish_order(lambda: state.init(self.path, {"phase": "build"}), "link")
+        calls = self._publish_order(
+            lambda: state.init(self.path, {"phase": "build"}), "link"
+        )
         self.assertEqual(calls, ["fsync", "link"])
 
 

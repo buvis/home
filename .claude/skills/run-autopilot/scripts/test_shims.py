@@ -193,6 +193,14 @@ class ShimValidationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 6, result.stderr)
         self.assertIn("autopilot:", result.stderr)
+        # Both writers of state.json now refuse a future schema with exit
+        # code 6; they must print the SAME wording. Pin the version numbers
+        # and the word "refusing" here too, not just the "autopilot:" prefix
+        # -- that weaker assertion is exactly why the two writers were free
+        # to diverge in the first place.
+        self.assertIn("v999", result.stderr)
+        self.assertIn(f"v{cli_schema.SCHEMA_VERSION}", result.stderr)
+        self.assertIn("refusing", result.stderr)
         self.assertEqual(
             self.state.read_bytes(),
             before,

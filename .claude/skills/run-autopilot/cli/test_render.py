@@ -206,17 +206,7 @@ class ReplaceSectionTests(unittest.TestCase):
         result = render_report._replace_section(existing, "## PRD-B")
         self.assertEqual(
             result,
-            (
-                "# Header\n"
-                "\n"
-                "## PRD-A\n"
-                "\n"
-                "Content A\n"
-                "\n"
-                "## PRD-C\n"
-                "\n"
-                "Content C\n"
-            ),
+            ("# Header\n\n## PRD-A\n\nContent A\n\n## PRD-C\n\nContent C\n"),
         )
 
     def test_noop_when_heading_is_not_present(self) -> None:
@@ -253,19 +243,35 @@ class ReplaceSectionTests(unittest.TestCase):
         # prd_section() bodies contain "### " subheadings (Assumptions Made,
         # Autonomous Decisions, ...); those must not be mistaken for the
         # next top-level "## " boundary and truncate the drop early.
+        existing = "## PRD-A\n\n### Sub Heading\n\nSub content\n\n## PRD-B\n\ncontent\n"
+        result = render_report._replace_section(existing, "## PRD-A")
+        self.assertEqual(result, "## PRD-B\n\ncontent\n")
+
+    def test_drops_every_occurrence_when_the_heading_is_duplicated(self) -> None:
+        # A report file in the wild can already carry the SAME heading
+        # twice (the bug this PRD fixed used to append a duplicate PRD
+        # section on every render-report rerun). One call must remove every
+        # occurrence, not just the first one found, or the file never
+        # converges to a single section.
         existing = (
+            "# Header\n"
+            "\n"
             "## PRD-A\n"
             "\n"
-            "### Sub Heading\n"
-            "\n"
-            "Sub content\n"
+            "Content A first\n"
             "\n"
             "## PRD-B\n"
             "\n"
-            "content\n"
+            "Content B\n"
+            "\n"
+            "## PRD-A\n"
+            "\n"
+            "Content A second\n"
         )
         result = render_report._replace_section(existing, "## PRD-A")
-        self.assertEqual(result, "## PRD-B\n\ncontent\n")
+        self.assertEqual(result.count("## PRD-A"), 0)
+        self.assertIn("## PRD-B", result)
+        self.assertIn("Content B", result)
 
 
 class PrdSectionTaskCountTests(unittest.TestCase):
@@ -550,6 +556,31 @@ class CliWiringTests(unittest.TestCase):
         text = report.read_text(encoding="utf-8")
         self.assertEqual(text.count("## 00040-feature-x-v1.md"), 1)
         self.assertEqual(text.count("# Autopilot Batch Report 202607202320"), 1)
+
+    def test_render_report_seeded_with_a_duplicate_section_collapses_to_one(
+        self,
+    ) -> None:
+        # A report file can already be on disk with the SAME PRD section
+        # twice (the pre-fix bug: append a duplicate on every rerun). A
+        # SINGLE render-report run against such a file must collapse it to
+        # exactly one occurrence, not merely stop it growing further.
+        first = self._run(["render", "report", "--now", NOW])
+        self.assertEqual(first.returncode, 0, first.stderr)
+        report = self.ap_dir / "reports" / "202607202320-report.md"
+        text = report.read_text(encoding="utf-8")
+        section_start = text.index("## 00040-feature-x-v1.md")
+        section = text[section_start:]
+        report.write_text(text + section, encoding="utf-8")
+        self.assertEqual(
+            report.read_text(encoding="utf-8").count("## 00040-feature-x-v1.md"),
+            2,
+        )
+
+        second = self._run(["render", "report", "--now", NOW])
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        rerendered = report.read_text(encoding="utf-8")
+        self.assertEqual(rerendered.count("## 00040-feature-x-v1.md"), 1)
 
     def test_render_report_stays_idempotent_across_three_runs(self) -> None:
         for _ in range(3):
@@ -879,7 +910,9 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         the binding must distinguish between 'genuinely zero in state'
         and 'zero because the data was lost'."""
         state = _state()
-        state["batch"]["completed_prds"] = ["00120-migrate-task-tracking-to-statectl-v1.md"]
+        state["batch"]["completed_prds"] = [
+            "00120-migrate-task-tracking-to-statectl-v1.md"
+        ]
         summary = render_report.batch_summary(state, [], 0)
         # PRD count reflects the bare string entry
         self.assertEqual(self._parse_counter(summary, "PRDs completed"), 1)
