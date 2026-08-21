@@ -352,6 +352,21 @@ class TestResolveToplevel(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(os.path.realpath(result), os.path.realpath(repo))
 
+    def test_resolves_toplevel_for_existing_file(self) -> None:
+        """An existing FILE (not a directory) inside a repo must resolve
+        too - the removed `os.path.isdir(resolved)` special case only ever
+        took the walk-up loop's first step for us; starting the loop at
+        `resolved` directly must land on the same toplevel."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            target = os.path.join(repo, "src", "a.py")
+            os.makedirs(os.path.dirname(target))
+            with open(target, "w", encoding="utf-8") as fh:
+                fh.write("# x\n")
+            result = _common.resolve_toplevel(target)
+            self.assertIsNotNone(result)
+            self.assertEqual(os.path.realpath(result), os.path.realpath(repo))
+
     def test_resolves_the_repo_root_when_handed_the_repo_root_itself(self) -> None:
         """A directory input must resolve from itself, not its parent. The
         parent of a temp repo root sits outside any git repository, so if
