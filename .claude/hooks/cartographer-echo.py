@@ -511,10 +511,11 @@ def _resolve_project_root(file_path: str) -> Path:
     """
     from _common import resolve_toplevel
 
-    parent = Path(file_path).parent if file_path else Path.cwd()
-    root = resolve_toplevel(file_path) if file_path else None
+    start = file_path if file_path else str(Path.cwd())
+    root = resolve_toplevel(start)
     if root:
         return Path(root)
+    parent = Path(file_path).parent if file_path else Path.cwd()
     return parent if parent.exists() else Path.cwd()
 
 
