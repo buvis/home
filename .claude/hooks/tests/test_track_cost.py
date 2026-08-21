@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 import track_cost
+import track_skills
 
 HOOK = Path(__file__).resolve().parents[1] / "track_cost.py"
 
@@ -175,6 +176,46 @@ class TestParseTranscript(unittest.TestCase):
 
     def test_missing_file_returns_empty(self) -> None:
         self.assertEqual(track_cost.parse_transcript(self.tmp / "nope.jsonl"), [])
+
+
+class TestSharedTranscriptCacheWithTrackSkills(unittest.TestCase):
+    """Regression for PRD 00133 finding 29: track_skills.skill_invocations
+    reading a transcript first (shared per-process parse cache) must not
+    change track_cost.parse_transcript's filtered output for the same file.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp)
+
+    def test_output_unchanged_when_skill_invocations_reads_the_same_file_first(self) -> None:
+        path = self.tmp / "shared.jsonl"
+        write_transcript(path, [
+            {"type": "user", "message": {"id": "u1"}},
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "a1",
+                    "content": [
+                        {"type": "tool_use", "id": "toolu_1", "name": "Skill", "input": {"skill": "brush"}},
+                    ],
+                },
+            },
+            assistant_entry(mid="a2", model="claude-opus-4-7", in_tok=10, cw=1, cr=2, out=3),
+        ])
+
+        skill_rows = track_skills.skill_invocations(path)
+        self.assertEqual(skill_rows, [("toolu_1", "brush")])
+
+        result = track_cost.parse_transcript(path)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["message"]["id"], "a2")
+        self.assertEqual(result[0]["message"]["usage"]["input_tokens"], 10)
+        self.assertEqual(result[0]["message"]["usage"]["cache_creation_input_tokens"], 1)
+        self.assertEqual(result[0]["message"]["usage"]["cache_read_input_tokens"], 2)
+        self.assertEqual(result[0]["message"]["usage"]["output_tokens"], 3)
 
 
 class TestEndToEnd(unittest.TestCase):

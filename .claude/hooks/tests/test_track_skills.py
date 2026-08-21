@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import track_cost
 import track_skills
 
 HOOK = Path(__file__).resolve().parents[1] / "track_skills.py"
@@ -114,6 +115,39 @@ class ParseTests(unittest.TestCase):
 
     def test_unreadable_transcript_returns_empty(self) -> None:
         self.assertEqual(track_skills.skill_invocations(Path("/nope/x.jsonl")), [])
+
+
+class SharedTranscriptCacheTests(unittest.TestCase):
+    """Regression for PRD 00133 finding 29: track_cost.parse_transcript
+    reading a transcript first (shared per-process parse cache) must not
+    change track_skills.skill_invocations's output for the same file.
+    """
+
+    def test_output_unchanged_when_parse_transcript_reads_the_same_file_first(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            t = Path(td) / "shared.jsonl"
+            write_transcript(
+                t,
+                [
+                    {"type": "user", "message": {"id": "u1"}},
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "id": "a1",
+                            "model": "claude-opus-4-7",
+                            "usage": {"input_tokens": 10, "output_tokens": 3},
+                        },
+                    },
+                    skill_use("toolu_1", "brush"),
+                ],
+            )
+
+            cost_rows = track_cost.parse_transcript(t)
+            self.assertEqual(len(cost_rows), 1)
+            self.assertEqual(cost_rows[0]["message"]["id"], "a1")
+
+            result = track_skills.skill_invocations(t)
+            self.assertEqual(result, [("toolu_1", "brush")])
 
 
 class EndToEndTests(unittest.TestCase):
