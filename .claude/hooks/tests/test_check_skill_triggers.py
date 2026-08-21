@@ -157,8 +157,12 @@ def block_real_trigger_index_cache_access(
 
     assert real_cache.exists() == existed_before, "wrote the real trigger-index cache"
     if existed_before:
-        assert real_cache.read_bytes() == content_before, "wrote the real trigger-index cache"
-        assert real_cache.stat().st_mtime == mtime_before, "wrote the real trigger-index cache"
+        assert real_cache.read_bytes() == content_before, (
+            "wrote the real trigger-index cache"
+        )
+        assert real_cache.stat().st_mtime == mtime_before, (
+            "wrote the real trigger-index cache"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -688,9 +692,135 @@ def test_collisions_does_not_reread_skill_files_on_a_warm_cache(
     assert reads == []
 
 
+@pytest.mark.integration
+def test_cached_index_key_detects_a_content_change_below_the_current_max_mtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The cache key is only the candidates' max mtime plus their sorted
+    paths - neither identifies a content change to a candidate whose OWN
+    mtime stays below the current maximum. C holds the max mtime both before
+    and after B's content and mtime change (which stays below C's), so a key
+    built from (paths, max-mtime) is byte-identical across both calls and the
+    stale index - missing B's newly-added collision with A's phrase - is
+    reused."""
+    sandbox_cache_file(monkeypatch, tmp_path)
+    a = tmp_path / "a" / "SKILL.md"
+    b = tmp_path / "b" / "SKILL.md"
+    c = tmp_path / "c" / "SKILL.md"
+    for p in (a, b, c):
+        p.parent.mkdir(parents=True)
+    a.write_text(skill_md("a", 'Triggers on "shared".'), encoding="utf-8")
+    b.write_text(skill_md("b", 'Triggers on "onlyb".'), encoding="utf-8")
+    c.write_text(skill_md("c", 'Triggers on "onlyc".'), encoding="utf-8")
+    os.utime(a, (1_000_000, 1_000_000))
+    os.utime(b, (1_000_050, 1_000_050))
+    os.utime(c, (1_000_200, 1_000_200))  # C holds the max, unaffected by B's change
+
+    cst._cached_index([a, b, c], exclude=a)  # warms the cache over {b, c}
+
+    # B now also claims A's phrase, at a new mtime that still sits below C's.
+    b.write_text(skill_md("b", 'Triggers on "onlyb", "shared".'), encoding="utf-8")
+    os.utime(b, (1_000_150, 1_000_150))
+
+    index = cst._cached_index([a, b, c], exclude=a)
+
+    assert index.get("shared") == [str(b)]
+
+
+@pytest.mark.integration
+def test_cached_index_ignores_a_cache_file_in_the_pre_fingerprint_key_format(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A cache file whose key is the older `{"paths": [...], "mtime": <max>}`
+    shape - rather than a per-candidate fingerprint - must be treated as a
+    plain miss and rebuilt, never raise. The stored "paths" list is made to
+    include an entry no real candidate set could ever produce, so the miss is
+    guaranteed under any key shape, old or new."""
+    cache_file = sandbox_cache_file(monkeypatch, tmp_path)
+    mine = tmp_path / "mine" / "SKILL.md"
+    other = tmp_path / "other" / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    other.parent.mkdir(parents=True)
+    mine.write_text(skill_md("mine", 'Triggers on "alpha".'), encoding="utf-8")
+    other.write_text(skill_md("other", 'Triggers on "beta".'), encoding="utf-8")
+    cache_file.write_text(
+        json.dumps(
+            {
+                "key": {
+                    "paths": [str(other), "/nonexistent/bogus/SKILL.md"],
+                    "mtime": 1_000_000.0,
+                },
+                "index": {"stale": [str(other)]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    index = cst._cached_index([mine, other], exclude=mine)
+
+    assert index == {"beta": [str(other)]}
+
+
+@pytest.mark.integration
+def test_write_cache_failure_does_not_leak_a_temp_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`_write_cache` creates a `NamedTemporaryFile(delete=False)` before the
+    operation that can fail. A failed write (here, `json.dump` raising) must
+    not leave that temp file behind in the cache directory, and the existing
+    swallow-and-continue contract - no raise, fresh index still returned -
+    must hold."""
+    cache_dir = tmp_path / "cachedir"
+    cache_dir.mkdir()
+    monkeypatch.setattr(cst, "_INDEX_CACHE_FILE", cache_dir / "cache.json")
+    mine = tmp_path / "mine" / "SKILL.md"
+    other = tmp_path / "other" / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    other.parent.mkdir(parents=True)
+    mine.write_text(skill_md("mine", 'Triggers on "alpha".'), encoding="utf-8")
+    other.write_text(skill_md("other", 'Triggers on "alpha".'), encoding="utf-8")
+
+    def raising_dump(*_args, **_kwargs):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(json, "dump", raising_dump)
+
+    index = cst._cached_index([mine, other], exclude=mine)
+
+    assert index == {"alpha": [str(other)]}
+    assert list(cache_dir.iterdir()) == []
+
+
 # --------------------------------------------------------------------------- #
 # Hook delivery
 # --------------------------------------------------------------------------- #
+@pytest.mark.integration
+def test_index_cache_file_is_redirected_by_a_home_override(tmp_path: Path) -> None:
+    """`_INDEX_CACHE_FILE` is bound at import time from the script's own
+    directory, so a subprocess launched with an overridden $HOME - exactly
+    how `run_hook` drives the hook - still writes the operator's real cache
+    file. It must instead resolve under `Path.home()`, matching `_glob_paths`,
+    so a $HOME override redirects it."""
+    home = tmp_path / "sandboxhome"
+    skill = home / ".claude" / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(skill_md("demo", 'Triggers on "alpha".'), encoding="utf-8")
+
+    result = run_hook(
+        {"tool_name": "Edit", "tool_input": {"file_path": str(skill)}},
+        home=home,
+    )
+
+    assert result.returncode == 0
+    cache_files = list(home.rglob(cst._INDEX_CACHE_FILE.name))
+    assert cache_files, "expected the trigger-index cache under the sandbox HOME"
+    real_cache = cst._INDEX_CACHE_FILE.resolve()
+    assert real_cache not in {p.resolve() for p in cache_files}
+
+
 @pytest.mark.integration
 def test_non_skill_edit_prints_nothing(tmp_path: Path) -> None:
     other = tmp_path / "notes.md"
