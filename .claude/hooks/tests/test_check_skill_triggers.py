@@ -461,33 +461,6 @@ def test_glob_paths_is_empty_when_no_skills_exist(
 
 
 @pytest.mark.unit
-def test_max_mtime_of_empty_list_is_zero() -> None:
-    assert cst._max_mtime([]) == 0.0
-
-
-@pytest.mark.integration
-def test_max_mtime_returns_the_highest_mtime(tmp_path: Path) -> None:
-    older = tmp_path / "older.md"
-    newer = tmp_path / "newer.md"
-    older.write_text("x", encoding="utf-8")
-    newer.write_text("y", encoding="utf-8")
-    os.utime(older, (1_000_000, 1_000_000))
-    os.utime(newer, (1_000_100, 1_000_100))
-
-    assert cst._max_mtime([older, newer]) == 1_000_100.0
-
-
-@pytest.mark.integration
-def test_max_mtime_skips_a_raced_delete(tmp_path: Path) -> None:
-    present = tmp_path / "present.md"
-    present.write_text("x", encoding="utf-8")
-    os.utime(present, (1_000_000, 1_000_000))
-    gone = tmp_path / "gone.md"  # never created: simulates a raced delete
-
-    assert cst._max_mtime([present, gone]) == 1_000_000.0
-
-
-@pytest.mark.unit
 def test_index_over_of_empty_list_is_empty() -> None:
     assert cst._index_over([]) == {}
 
@@ -753,7 +726,7 @@ def test_cached_index_ignores_a_cache_file_in_the_pre_fingerprint_key_format(
                     "mtime": 1_000_000.0,
                 },
                 "index": {"stale": [str(other)]},
-            }
+            },
         ),
         encoding="utf-8",
     )

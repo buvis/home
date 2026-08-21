@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # design (never scanned, cannot fire), so a collision there is not yet real.
 SKILL_GLOBS = ("skills/*/SKILL.md", "plugins/cache/*/*/*/skills/*/SKILL.md")
 
-# On-disk cache of the phrase->owners index, keyed by the candidates' max
+# On-disk cache of the phrase->owners index, keyed by each candidate's own
 # mtime, so a warm cache spares rereading every installed SKILL.md on each
 # edit. Resolved under Path.home(), matching _glob_paths(), so a $HOME
 # override (as in tests, run as a subprocess) redirects it too.
@@ -155,17 +155,6 @@ def _glob_paths() -> list[Path]:
     return [p.resolve() for pattern in SKILL_GLOBS for p in home.glob(pattern)]
 
 
-def _max_mtime(paths: list[Path]) -> float:
-    """Highest mtime among `paths`; 0.0 if empty. Skips a raced delete."""
-    mtimes: list[float] = []
-    for p in paths:
-        try:
-            mtimes.append(p.stat().st_mtime)
-        except OSError:
-            continue
-    return max(mtimes, default=0.0)
-
-
 def _index_over(paths: list[Path]) -> dict[str, list[str]]:
     """{casefolded phrase: sorted [owner paths]} scanned fresh over `paths`."""
     index: dict[str, list[str]] = {}
@@ -192,7 +181,10 @@ def _write_cache(cache: dict) -> None:
     try:
         _INDEX_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = NamedTemporaryFile(
-            "w", encoding="utf-8", dir=str(_INDEX_CACHE_FILE.parent), delete=False
+            "w",
+            encoding="utf-8",
+            dir=str(_INDEX_CACHE_FILE.parent),
+            delete=False,
         )
         tmp_path = Path(tmp.name)
         try:
@@ -209,7 +201,7 @@ def _mtime_ns_map(paths: list[Path]) -> dict[str, int]:
     """Every path's own mtime in nanoseconds (JSON-exact, unlike a float),
     keyed by path. A single max mtime cannot detect a content change to a
     candidate whose own mtime stays at or below that maximum; pairing every
-    candidate with its own mtime can. Skips a raced delete, like `_max_mtime`.
+    candidate with its own mtime can. Skips a raced delete.
     """
     fingerprint: dict[str, int] = {}
     for p in paths:
@@ -224,17 +216,16 @@ def _cached_index(paths: list[Path], exclude: Path) -> dict[str, list[str]]:
     """The phrase index over `paths` minus `exclude`, reused from disk when the
     candidate set hasn't changed. `exclude`'s own mtime never enters the key,
     so repeated saves of the file being edited can't invalidate it. The key
-    covers the candidates' identities, their max mtime, and each candidate's
-    own mtime: two distinct candidate sets can share a max mtime (mtime alone
-    would wrongly reuse one set's index for the other), and a candidate whose
-    own mtime stays below the set's max can still change content (the max
-    alone would miss it).
+    pairs the candidates' identities with each candidate's own mtime: two
+    distinct candidate sets can share their identical members' mtimes (an
+    identity-only key would wrongly reuse one set's index for the other), and
+    a candidate can change content without its own mtime moving relative to
+    the others (an aggregate-only key would miss it).
     """
     excl = exclude.resolve()
     candidates = [p for p in paths if p.resolve() != excl]
     key = {
         "paths": sorted(str(p) for p in candidates),
-        "mtime": _max_mtime(candidates),
         "mtime_ns": _mtime_ns_map(candidates),
     }
     try:
@@ -307,8 +298,8 @@ def main() -> int:
                             "check_skill_triggers.py):\n" + "\n".join(lines)
                         ),
                     },
-                }
-            )
+                },
+            ),
         )
     except Exception:
         return 0  # advisory: never let a router check disturb an edit
