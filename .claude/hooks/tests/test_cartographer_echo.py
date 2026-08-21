@@ -1326,9 +1326,19 @@ def test_single_edit_dispatch_spawns_git_rev_parse_once(
     """One Edit dispatch through BOTH enforce_prd_location.run() and
     cartographer-echo's run() -- exactly as dispatch.py's ROUTES table calls
     both handlers with the SAME payload in the SAME process for one
-    PreToolUse event -- must spawn `git rev-parse --show-toplevel` exactly
-    once total (PRD 00133 finding 42). Before the fix each handler resolved
-    the toplevel independently (two spawns for one dispatch)."""
+    PreToolUse event -- must spawn `_common.resolve_toplevel`'s
+    `git -C <dir> rev-parse --show-toplevel` at most once total (PRD 00133
+    finding 42). Before the fix each handler resolved the toplevel
+    independently (two such spawns for one dispatch).
+
+    Scoped to `-C <dir>`-shaped calls (resolve_toplevel's own invocation
+    shape) rather than every `rev-parse --show-toplevel` process-wide:
+    cartographer-echo's `handle()` also calls `_cartographer_identity.
+    project_hash()`, which independently spawns `git rev-parse
+    --show-toplevel` (no `-C`, cwd-relative) for project-identity purposes
+    unrelated to this task's `start`-path toplevel resolution. That call site
+    lives outside the 5 files this task's design contract names and is not
+    in scope here."""
     import importlib
 
     hooks_dir = HOOK.parent
@@ -1363,14 +1373,14 @@ def test_single_edit_dispatch_spawns_git_rev_parse_once(
         },
     }
 
-    rev_parse_calls = 0
+    resolve_toplevel_calls = 0
     original_run = subprocess.run
 
     def counting_run(*args, **kwargs):
-        nonlocal rev_parse_calls
+        nonlocal resolve_toplevel_calls
         cmd = args[0] if args else kwargs.get("args")
-        if cmd and "rev-parse" in cmd and "--show-toplevel" in cmd:
-            rev_parse_calls += 1
+        if cmd and "-C" in cmd and "rev-parse" in cmd and "--show-toplevel" in cmd:
+            resolve_toplevel_calls += 1
         return original_run(*args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", counting_run)
@@ -1378,9 +1388,9 @@ def test_single_edit_dispatch_spawns_git_rev_parse_once(
     enforce_result = enforce_prd_location.run(payload)
     echo_result = cartographer_echo.run(payload)
 
-    assert rev_parse_calls == 1, (
-        f"expected exactly one git rev-parse --show-toplevel spawn across "
-        f"both handlers, got {rev_parse_calls}"
+    assert resolve_toplevel_calls == 1, (
+        f"expected exactly one _common.resolve_toplevel git spawn across "
+        f"both handlers, got {resolve_toplevel_calls}"
     )
     assert isinstance(enforce_result, tuple) and len(enforce_result) == 3
     assert isinstance(echo_result, tuple) and len(echo_result) == 3

@@ -6,15 +6,13 @@ and ~/.claude/hooks/enforce-prd-location-bash.sh (Bash). Branches on
 `tool_name` and applies the matching validator.
 """
 
-import os
 import shlex
-import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import allow, block, read_input  # noqa: E402
+from _common import allow, block, read_input, resolve_toplevel  # noqa: E402
 
 LIFECYCLE_DIRS = ("backlog", "wip", "done")
 
@@ -53,41 +51,12 @@ If this is a PRD move, retry with `dev/local/prds/<lifecycle>/` paths on both si
 If this is genuinely an unrelated directory, rename it to avoid clashing with PRD lifecycle folders."""
 
 
-def _existing_ancestor(path: str) -> str | None:
-    """Walk up `path` until an existing directory is found."""
-    probe = os.path.dirname(path) or "/"
-    while probe and probe != "/" and not os.path.isdir(probe):
-        probe = os.path.dirname(probe)
-    if probe and os.path.isdir(probe):
-        return probe
-    return None
-
-
-def _repo_root(probe: str) -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "-C", probe, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    root = result.stdout.strip()
-    return root or None
-
-
 def _check_file_path(file_path: str) -> str | None:
     """Return a block reason if file_path violates the rule, else None."""
     if not file_path:
         return None
     resolved = Path(file_path).resolve()
-    probe = _existing_ancestor(str(resolved))
-    if probe is None:
-        return None
-    root = _repo_root(probe)
+    root = resolve_toplevel(str(resolved))
     if root is None:
         return None
     try:
