@@ -201,15 +201,16 @@ class ShimValidationTests(unittest.TestCase):
         result = self.run_cli("set", "phase", json.dumps("review"))
 
         self.assertEqual(result.returncode, 6, result.stderr)
-        self.assertIn("autopilot:", result.stderr)
         # Both writers of state.json now refuse a future schema with exit
-        # code 6; they must print the SAME wording. Pin the version numbers
-        # and the word "refusing" here too, not just the "autopilot:" prefix
-        # -- that weaker assertion is exactly why the two writers were free
-        # to diverge in the first place.
-        self.assertIn("v999", result.stderr)
-        self.assertIn(f"v{cli_schema.SCHEMA_VERSION}", result.stderr)
-        self.assertIn("refusing", result.stderr)
+        # code 6; they must print the SAME wording. Assert it EXACTLY, not
+        # by substring -- a substring check still passes on a message with
+        # the right pieces in the wrong order or padded with noise, which
+        # is what let the two writers diverge in the first place.
+        self.assertEqual(
+            result.stderr,
+            f"autopilot: future-schema state.json ({self.state}): "
+            f"v999 > v{cli_schema.SCHEMA_VERSION}, refusing\n",
+        )
         self.assertEqual(
             self.state.read_bytes(),
             before,
