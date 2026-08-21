@@ -113,10 +113,8 @@ def parse_transcript(path: Path) -> list[dict[str, Any]]:
     for entry in parse_transcript_entries(path):
         if entry.get("type") != "assistant":
             continue
-        msg = entry.get("message") or {}
-        if not isinstance(msg, dict):
-            continue
-        if "usage" not in msg or not msg.get("usage"):
+        msg = entry.get("message")
+        if not isinstance(msg, dict) or not msg.get("usage"):
             continue
         out.append(entry)
     return out
