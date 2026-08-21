@@ -44,18 +44,19 @@ _commit_seq = 0
 
 
 def _add_commits(repo: Path, count: int) -> str:
-    """Add `count` commits on top of current HEAD; return the new HEAD sha.
-
-    Uses a process-global monotonic counter for file names so repeated calls
-    on the same repo never re-commit an unchanged file (which git rejects).
-    """
+    """Add `count` EMPTY commits (git commit --allow-empty) on top of current
+    HEAD; return the new HEAD sha. No file write, no `git add`: cartographer-
+    stop counts commits via `git rev-list --count`, which does not care
+    whether a commit touches a file, so this halves the subprocess count per
+    commit for every one of this file's ~17 call sites (PRD 00133 finding 43)."""
     global _commit_seq
     for _ in range(count):
         _commit_seq += 1
-        f = repo / f"file_{_commit_seq}.txt"
-        f.write_text(f"content {_commit_seq}")
-        subprocess.run(["git", "-C", str(repo), "add", str(f)], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-m", f"commit {_commit_seq}"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "--allow-empty",
+             "-m", f"commit {_commit_seq}"],
+            check=True, capture_output=True,
+        )
     result = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "HEAD"],
         check=True, capture_output=True, text=True,
@@ -105,15 +106,21 @@ def _run_hook(mod, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 def test_flag_set_when_commit_threshold_exceeded(tmp_path, monkeypatch):
-    """51 commits since head_sha -> staleness.flag created; audit reason stale-flag-set."""
+    """4 commits since head_sha with a max_commits=3 override -> staleness.flag created;
+    audit reason stale-flag-set.
+
+    Exercises the per-repo override, not the real 50-commit default; see
+    test_per_repo_override_lowers_commit_threshold for the case that still pins
+    production's literal 50.
+    """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
 
     base_sha = _add_commits(repo, 1)
-    _add_commits(repo, 51)
+    _add_commits(repo, 4)
 
     recent = datetime.now(timezone.utc) - timedelta(days=1)
-    _write_atlas(atlas_dir, base_sha, recent)
+    _write_atlas(atlas_dir, base_sha, recent, staleness={"max_commits": 3})
 
     mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
     _run_hook(mod, monkeypatch)
@@ -123,20 +130,26 @@ def test_flag_set_when_commit_threshold_exceeded(tmp_path, monkeypatch):
 
 
 def test_no_flag_when_below_commit_threshold(tmp_path, monkeypatch):
-    """49 commits since head_sha -> NO staleness.flag; audit reason fresh."""
+    """2 commits since head_sha with a max_commits=3 override -> NO staleness.flag;
+    audit reason fresh.
+
+    Exercises the per-repo override, not the real 50-commit default; see
+    test_per_repo_override_lowers_commit_threshold for the case that still pins
+    production's literal 50.
+    """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
 
     base_sha = _add_commits(repo, 1)
-    _add_commits(repo, 49)
+    _add_commits(repo, 2)
 
     recent = datetime.now(timezone.utc) - timedelta(days=1)
-    _write_atlas(atlas_dir, base_sha, recent)
+    _write_atlas(atlas_dir, base_sha, recent, staleness={"max_commits": 3})
 
     mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
     _run_hook(mod, monkeypatch)
 
-    assert not (atlas_dir / "staleness.flag").exists(), "Flag must NOT be created at 49 commits (below 50 threshold)"
+    assert not (atlas_dir / "staleness.flag").exists(), "Flag must NOT be created below threshold"
     assert audit_events[-1]["reason"] == "fresh"
 
 
@@ -256,15 +269,20 @@ def test_unexpected_error_does_not_propagate(tmp_path, monkeypatch):
 
 
 def test_flag_not_created_at_boundary_below_commit_threshold(tmp_path, monkeypatch):
-    """Exactly 49 commits (one below 50 threshold) -> no flag. Guards off-by-one."""
+    """Exactly 2 commits (one below a max_commits=3 override) -> no flag. Guards off-by-one.
+
+    Exercises the per-repo override, not the real 50-commit default; see
+    test_per_repo_override_lowers_commit_threshold for the case that still pins
+    production's literal 50.
+    """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
 
     base_sha = _add_commits(repo, 1)
-    _add_commits(repo, 49)
+    _add_commits(repo, 2)
 
     recent = datetime.now(timezone.utc) - timedelta(days=1)
-    _write_atlas(atlas_dir, base_sha, recent)
+    _write_atlas(atlas_dir, base_sha, recent, staleness={"max_commits": 3})
 
     mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
     _run_hook(mod, monkeypatch)
@@ -274,25 +292,29 @@ def test_flag_not_created_at_boundary_below_commit_threshold(tmp_path, monkeypat
 
 
 def test_no_flag_at_exactly_commit_threshold(tmp_path, monkeypatch):
-    """Exactly 50 commits -> NO flag. PRD 00011: staleness is '>50 commits', strict.
+    """Exactly 3 commits (a max_commits=3 override) -> NO flag. PRD 00011: staleness is
+    '>threshold commits', strict.
 
     PRD line 23 Success Metrics and Phase 2e ('51 commits -> flag') require a
-    strict greater-than: the flag fires at 51, not at exactly 50.
+    strict greater-than: the flag fires only above the threshold, not at it.
+    Exercises the per-repo override, not the real 50-commit default; see
+    test_per_repo_override_lowers_commit_threshold for the case that still pins
+    production's literal 50.
     """
     repo = _make_git_repo(tmp_path)
     atlas_dir = tmp_path / "atlas"
 
     base_sha = _add_commits(repo, 1)
-    _add_commits(repo, 50)
+    _add_commits(repo, 3)
 
     recent = datetime.now(timezone.utc) - timedelta(days=1)
-    _write_atlas(atlas_dir, base_sha, recent)
+    _write_atlas(atlas_dir, base_sha, recent, staleness={"max_commits": 3})
 
     mod, audit_events = _setup_hook(tmp_path, monkeypatch, repo, atlas_dir)
     _run_hook(mod, monkeypatch)
 
     assert not (atlas_dir / "staleness.flag").exists(), \
-        "Exactly 50 commits must NOT trigger the flag; PRD requires strict >50"
+        "Exactly 3 commits must NOT trigger the flag; PRD requires strict > threshold"
     assert audit_events[-1]["reason"] == "fresh"
 
 
