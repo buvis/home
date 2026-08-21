@@ -97,6 +97,35 @@ def sandbox_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return home
 
 
+def sandbox_cache_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point the on-disk trigger-index cache at a sandbox file so tests never
+    read or write the operator's real
+    ~/.claude/hooks/.trigger-index-cache.json. `_INDEX_CACHE_FILE` is a
+    module-level constant bound at import time, so `sandbox_home` (which only
+    patches `Path.home()` for later calls) does not redirect it - this needs
+    its own patch. The file lives directly under `tmp_path` so its parent
+    directory always exists, matching the real `hooks/` directory."""
+    cache_file = tmp_path / ".trigger-index-cache.json"
+    monkeypatch.setattr(cst, "_INDEX_CACHE_FILE", cache_file)
+    return cache_file
+
+
+def count_skill_md_reads(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Wrap `Path.read_text` with a counter scoped to files named SKILL.md, so
+    a warm-cache assertion can't be fooled by a legitimate read of the cache
+    file itself (whose name and read method are not part of the contract)."""
+    reads: list[Path] = []
+    real_read_text = Path.read_text
+
+    def counting_read_text(self, *args, **kwargs):
+        if self.name == "SKILL.md":
+            reads.append(self)
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    return reads
+
+
 # --------------------------------------------------------------------------- #
 # Extraction
 # --------------------------------------------------------------------------- #
@@ -346,6 +375,210 @@ def test_no_phrases_skips_the_directory_walk(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(Path, "glob", fail)
 
     assert cst.collisions("/nowhere/SKILL.md", []) == {}
+
+
+# --------------------------------------------------------------------------- #
+# Trigger index cache
+# --------------------------------------------------------------------------- #
+@pytest.mark.integration
+def test_glob_paths_finds_skill_and_plugin_skill_matches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = sandbox_home(monkeypatch, tmp_path)
+    skill = home / ".claude" / "skills" / "a" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(skill_md("a", 'Triggers on "alpha".'), encoding="utf-8")
+    plugin = (
+        home
+        / ".claude"
+        / "plugins"
+        / "cache"
+        / "mkt"
+        / "plug"
+        / "1.0.0"
+        / "skills"
+        / "p"
+        / "SKILL.md"
+    )
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(skill_md("p", 'Triggers on "beta".'), encoding="utf-8")
+
+    assert set(cst._glob_paths()) == {skill.resolve(), plugin.resolve()}
+
+
+@pytest.mark.integration
+def test_glob_paths_is_empty_when_no_skills_exist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sandbox_home(monkeypatch, tmp_path)
+
+    assert cst._glob_paths() == []
+
+
+@pytest.mark.unit
+def test_max_mtime_of_empty_list_is_zero() -> None:
+    assert cst._max_mtime([]) == 0.0
+
+
+@pytest.mark.integration
+def test_max_mtime_returns_the_highest_mtime(tmp_path: Path) -> None:
+    older = tmp_path / "older.md"
+    newer = tmp_path / "newer.md"
+    older.write_text("x", encoding="utf-8")
+    newer.write_text("y", encoding="utf-8")
+    os.utime(older, (1_000_000, 1_000_000))
+    os.utime(newer, (1_000_100, 1_000_100))
+
+    assert cst._max_mtime([older, newer]) == 1_000_100.0
+
+
+@pytest.mark.integration
+def test_max_mtime_skips_a_raced_delete(tmp_path: Path) -> None:
+    present = tmp_path / "present.md"
+    present.write_text("x", encoding="utf-8")
+    os.utime(present, (1_000_000, 1_000_000))
+    gone = tmp_path / "gone.md"  # never created: simulates a raced delete
+
+    assert cst._max_mtime([present, gone]) == 1_000_000.0
+
+
+@pytest.mark.unit
+def test_index_over_of_empty_list_is_empty() -> None:
+    assert cst._index_over([]) == {}
+
+
+@pytest.mark.integration
+def test_index_over_maps_casefolded_phrase_to_sorted_owners(tmp_path: Path) -> None:
+    # Named so alphabetic path order is the reverse of scan order, to catch a
+    # missing sort of the owners list.
+    late = tmp_path / "zzz" / "SKILL.md"
+    early = tmp_path / "aaa" / "SKILL.md"
+    late.parent.mkdir(parents=True)
+    early.parent.mkdir(parents=True)
+    late.write_text(skill_md("zzz", 'Triggers on "Alpha".'), encoding="utf-8")
+    early.write_text(skill_md("aaa", 'Triggers on "alpha", "Beta".'), encoding="utf-8")
+
+    index = cst._index_over([late, early])
+
+    assert index == {
+        "alpha": sorted([str(late), str(early)]),
+        "beta": [str(early)],
+    }
+
+
+@pytest.mark.integration
+def test_cached_index_excludes_the_given_path_from_its_contents(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sandbox_cache_file(monkeypatch, tmp_path)
+    mine = tmp_path / "mine" / "SKILL.md"
+    other = tmp_path / "other" / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    other.parent.mkdir(parents=True)
+    mine.write_text(skill_md("mine", 'Triggers on "alpha".'), encoding="utf-8")
+    other.write_text(skill_md("other", 'Triggers on "alpha".'), encoding="utf-8")
+
+    index = cst._cached_index([mine, other], exclude=mine)
+
+    assert index == {"alpha": [str(other)]}
+
+
+@pytest.mark.integration
+def test_cached_index_reuses_the_cache_when_nothing_changed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sandbox_cache_file(monkeypatch, tmp_path)
+    mine = tmp_path / "mine" / "SKILL.md"
+    other = tmp_path / "other" / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    other.parent.mkdir(parents=True)
+    mine.write_text(skill_md("mine", 'Triggers on "alpha".'), encoding="utf-8")
+    other.write_text(skill_md("other", 'Triggers on "alpha".'), encoding="utf-8")
+
+    cst._cached_index([mine, other], exclude=mine)
+    reads = count_skill_md_reads(monkeypatch)
+
+    cst._cached_index([mine, other], exclude=mine)
+
+    assert reads == []
+
+
+@pytest.mark.integration
+def test_cached_index_key_ignores_mtime_of_the_excluded_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Repeated saves of the file being edited must not invalidate the cache -
+    its own mtime never contributes to the cache key."""
+    sandbox_cache_file(monkeypatch, tmp_path)
+    mine = tmp_path / "mine" / "SKILL.md"
+    other = tmp_path / "other" / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    other.parent.mkdir(parents=True)
+    mine.write_text(skill_md("mine", 'Triggers on "alpha".'), encoding="utf-8")
+    other.write_text(skill_md("other", 'Triggers on "beta".'), encoding="utf-8")
+    os.utime(other, (1_000_000, 1_000_000))
+
+    cst._cached_index([mine, other], exclude=mine)
+
+    # Simulate a re-save of the excluded (edited) file: content unchanged,
+    # mtime moves forward.
+    mine.write_text(skill_md("mine", 'Triggers on "alpha".'), encoding="utf-8")
+    os.utime(mine, (2_000_000, 2_000_000))
+    reads = count_skill_md_reads(monkeypatch)
+
+    cst._cached_index([mine, other], exclude=mine)
+
+    assert reads == []
+
+
+@pytest.mark.integration
+def test_collisions_detects_a_phrase_added_after_a_warm_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
+    skills = home / ".claude" / "skills"
+    a = skills / "a" / "SKILL.md"
+    b = skills / "b" / "SKILL.md"
+    a.parent.mkdir(parents=True)
+    b.parent.mkdir(parents=True)
+    a.write_text(skill_md("a", 'Triggers on "alpha".'), encoding="utf-8")
+    b.write_text(skill_md("b", 'Triggers on "beta".'), encoding="utf-8")
+    os.utime(a, (1_000_000, 1_000_000))
+    os.utime(b, (1_000_000, 1_000_000))
+
+    # Warm the cache: no collision yet.
+    assert cst.collisions(str(a), ["alpha"]) == {}
+
+    # B now also claims "alpha" - a genuinely new collision, at a distinct mtime.
+    b.write_text(skill_md("b", 'Triggers on "beta", "alpha".'), encoding="utf-8")
+    os.utime(b, (1_000_002, 1_000_002))
+
+    hits = cst.collisions(str(a), ["alpha"])
+
+    assert hits == {"alpha": [str(b)]}
+
+
+@pytest.mark.integration
+def test_collisions_does_not_reread_skill_files_on_a_warm_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
+    skills = home / ".claude" / "skills"
+    a = skills / "a" / "SKILL.md"
+    b = skills / "b" / "SKILL.md"
+    a.parent.mkdir(parents=True)
+    b.parent.mkdir(parents=True)
+    a.write_text(skill_md("a", 'Triggers on "alpha".'), encoding="utf-8")
+    b.write_text(skill_md("b", 'Triggers on "beta".'), encoding="utf-8")
+
+    cst.collisions(str(a), ["alpha"])  # warms the cache
+    reads = count_skill_md_reads(monkeypatch)
+
+    cst.collisions(str(a), ["alpha"])
+
+    assert reads == []
 
 
 # --------------------------------------------------------------------------- #
