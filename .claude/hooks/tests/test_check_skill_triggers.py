@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -70,7 +71,8 @@ def commit_skill(repo: Path, rel: str, description: str) -> Path:
 
 
 def run_hook(
-    payload: dict, home: Path | None = None
+    payload: dict,
+    home: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Drive the hook as the harness does. `home` overrides $HOME so the
     collision scan sees a sandbox instead of the operator's real skills -
@@ -124,6 +126,39 @@ def count_skill_md_reads(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
 
     monkeypatch.setattr(Path, "read_text", counting_read_text)
     return reads
+
+
+@pytest.fixture(autouse=True)
+def block_real_trigger_index_cache_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """No test in this module may read or modify the operator's real
+    ~/.claude/hooks/.trigger-index-cache.json. The write-side check binds to
+    the rule, not to `Path.write_text`: it snapshots the real file's
+    existence, content and mtime before the test and asserts none of them
+    changed after, so a write through ANY mechanism - including an atomic
+    write-to-tempfile-then-rename - still fails the guard. Autouse, so a test
+    that forgets to call `sandbox_cache_file` fails loudly instead of
+    silently touching the real file - a guarantee that can't be forgotten the
+    way a list of which tests currently remember to sandbox it could be."""
+    real_cache = cst._INDEX_CACHE_FILE.resolve()
+    existed_before = real_cache.exists()
+    content_before = real_cache.read_bytes() if existed_before else None
+    mtime_before = real_cache.stat().st_mtime if existed_before else None
+    real_read_text = Path.read_text
+
+    def guarded_read_text(self, *args, **kwargs):
+        assert self.resolve() != real_cache, "read the real trigger-index cache"
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    yield
+
+    assert real_cache.exists() == existed_before, "wrote the real trigger-index cache"
+    if existed_before:
+        assert real_cache.read_bytes() == content_before, "wrote the real trigger-index cache"
+        assert real_cache.stat().st_mtime == mtime_before, "wrote the real trigger-index cache"
 
 
 # --------------------------------------------------------------------------- #
@@ -289,6 +324,7 @@ def test_reports_a_phrase_two_skills_claim(
     tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
     skills = home / ".claude" / "skills"
     for name in ("a", "b"):
         (skills / name).mkdir(parents=True)
@@ -309,6 +345,7 @@ def test_collision_scan_reaches_installed_plugin_skills(
     tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
     mine = home / ".claude" / "skills" / "a" / "SKILL.md"
     mine.parent.mkdir(parents=True)
     mine.write_text(skill_md("a", 'Triggers on "audit config".'), encoding="utf-8")
@@ -340,6 +377,7 @@ def test_a_skill_does_not_collide_with_itself(
     tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
     mine = home / ".claude" / "skills" / "a" / "SKILL.md"
     mine.parent.mkdir(parents=True)
     mine.write_text(skill_md("a", 'Triggers on "alpha".'), encoding="utf-8")
@@ -353,6 +391,7 @@ def test_collisions_between_two_other_skills_stay_silent(
     tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
     skills = home / ".claude" / "skills"
     for name in ("b", "c"):
         (skills / name).mkdir(parents=True)
@@ -382,7 +421,8 @@ def test_no_phrases_skips_the_directory_walk(monkeypatch: pytest.MonkeyPatch) ->
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
 def test_glob_paths_finds_skill_and_plugin_skill_matches(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
     skill = home / ".claude" / "skills" / "a" / "SKILL.md"
@@ -408,7 +448,8 @@ def test_glob_paths_finds_skill_and_plugin_skill_matches(
 
 @pytest.mark.integration
 def test_glob_paths_is_empty_when_no_skills_exist(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     sandbox_home(monkeypatch, tmp_path)
 
@@ -468,7 +509,8 @@ def test_index_over_maps_casefolded_phrase_to_sorted_owners(tmp_path: Path) -> N
 
 @pytest.mark.integration
 def test_cached_index_excludes_the_given_path_from_its_contents(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     sandbox_cache_file(monkeypatch, tmp_path)
     mine = tmp_path / "mine" / "SKILL.md"
@@ -485,7 +527,8 @@ def test_cached_index_excludes_the_given_path_from_its_contents(
 
 @pytest.mark.integration
 def test_cached_index_reuses_the_cache_when_nothing_changed(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     sandbox_cache_file(monkeypatch, tmp_path)
     mine = tmp_path / "mine" / "SKILL.md"
@@ -505,7 +548,8 @@ def test_cached_index_reuses_the_cache_when_nothing_changed(
 
 @pytest.mark.integration
 def test_cached_index_key_ignores_mtime_of_the_excluded_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """Repeated saves of the file being edited must not invalidate the cache -
     its own mtime never contributes to the cache key."""
@@ -532,8 +576,70 @@ def test_cached_index_key_ignores_mtime_of_the_excluded_path(
 
 
 @pytest.mark.integration
+def test_cache_reuse_is_keyed_by_which_files_not_just_their_max_mtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The cache key is only the candidates' max mtime, which does not
+    identify WHICH files are in the candidate set. Editing A excludes A
+    (candidates {B, C}); editing B excludes B (candidates {A, C}). Both
+    candidate sets share C's mtime as their maximum, so a cache keyed on
+    mtime alone reuses the {B, C} index for the {A, C} lookup: it omits A (a
+    real collision goes unreported) and still contains B (B appears to
+    collide with itself)."""
+    home = sandbox_home(monkeypatch, tmp_path)
+    sandbox_cache_file(monkeypatch, tmp_path)
+    skills = home / ".claude" / "skills"
+    a = skills / "a" / "SKILL.md"
+    b = skills / "b" / "SKILL.md"
+    c = skills / "c" / "SKILL.md"
+    for p in (a, b, c):
+        p.parent.mkdir(parents=True)
+    a.write_text(skill_md("a", 'Triggers on "shared".'), encoding="utf-8")
+    b.write_text(skill_md("b", 'Triggers on "shared".'), encoding="utf-8")
+    c.write_text(skill_md("c", 'Triggers on "onlyc".'), encoding="utf-8")
+    os.utime(a, (1_000_000, 1_000_000))
+    os.utime(b, (1_000_050, 1_000_050))
+    os.utime(c, (1_000_100, 1_000_100))  # C holds the max in both candidate sets
+
+    cst.collisions(str(a), ["shared"])  # warms the cache over {b, c}
+
+    hits = cst.collisions(str(b), ["shared"])
+
+    # Exact equality catches both failure modes at once: A missing would fail
+    # it (the real collision with A must be reported), and B present would
+    # too (B must never be listed as an owner of its own phrase).
+    assert hits.get("shared") == [str(a)]
+
+
+@pytest.mark.integration
+def test_cache_persist_failure_does_not_break_the_collision_advisory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = sandbox_home(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        cst,
+        "_INDEX_CACHE_FILE",
+        tmp_path / "missing-parent" / "cache.json",
+    )
+    skills = home / ".claude" / "skills"
+    a = skills / "a" / "SKILL.md"
+    b = skills / "b" / "SKILL.md"
+    a.parent.mkdir(parents=True)
+    b.parent.mkdir(parents=True)
+    a.write_text(skill_md("a", 'Triggers on "shared".'), encoding="utf-8")
+    b.write_text(skill_md("b", 'Triggers on "shared".'), encoding="utf-8")
+
+    hits = cst.collisions(str(a), ["shared"])
+
+    assert hits == {"shared": [str(b)]}
+
+
+@pytest.mark.integration
 def test_collisions_detects_a_phrase_added_after_a_warm_cache(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
     sandbox_cache_file(monkeypatch, tmp_path)
@@ -561,7 +667,8 @@ def test_collisions_detects_a_phrase_added_after_a_warm_cache(
 
 @pytest.mark.integration
 def test_collisions_does_not_reread_skill_files_on_a_warm_cache(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     home = sandbox_home(monkeypatch, tmp_path)
     sandbox_cache_file(monkeypatch, tmp_path)
@@ -655,7 +762,7 @@ def test_main_survives_an_internal_failure(
         "stdin",
         io.StringIO(
             json.dumps(
-                {"tool_name": "Edit", "tool_input": {"file_path": "/x/SKILL.md"}}
+                {"tool_name": "Edit", "tool_input": {"file_path": "/x/SKILL.md"}},
             ),
         ),
     )
