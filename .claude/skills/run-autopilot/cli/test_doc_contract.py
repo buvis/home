@@ -9,9 +9,11 @@ documented in cli/__main__.py's own module docstring, which lists names
 without the "autopilot " prefix (e.g. just "defer     --state --prd --batch
 --json") - without ever being given its actual invocation form anywhere a
 human or an autopilot session reads operator-facing docs. "autopilot defer"
-is the known instance of this gap as of this writing: the subcommand exists
-and works, but the string "autopilot defer" appears nowhere under
-references/ or in SKILL.md.
+was the known instance of this gap when this test was written: the
+subcommand existed and worked, but the string "autopilot defer" appeared
+nowhere under references/ or in SKILL.md. The same PRD that surfaced the gap
+went on to add "autopilot defer" to four reference files, so this test now
+guards against that regression recurring rather than describing a live gap.
 """
 
 from __future__ import annotations

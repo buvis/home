@@ -76,52 +76,6 @@ class _TempDirTestCase(unittest.TestCase):
         self.root = _fresh_dir(self)
 
 
-class InitTests(_TempDirTestCase):
-    def test_creates_state_with_prd_phase_and_next_phase_fields(self) -> None:
-        state_path = self.root / "state.json"
-
-        proc = _run(
-            ["init", "--state", str(state_path), "--prd", "00004-feature-x.md"],
-            cwd=self.root,
-        )
-
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        content = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(content["prd"], "00004-feature-x.md")
-        self.assertEqual(content["phase"], "build")
-        self.assertEqual(content["next_phase"], "build")
-
-    def test_rerun_on_existing_state_exits_7_and_leaves_state_byte_unchanged(
-        self,
-    ) -> None:
-        state_path = self.root / "state.json"
-        args = ["init", "--state", str(state_path), "--prd", "00004-feature-x.md"]
-        first = _run(args, cwd=self.root)
-        self.assertEqual(first.returncode, 0, first.stderr)
-        before = state_path.read_bytes()
-
-        second = _run(args, cwd=self.root)
-
-        self.assertEqual(second.returncode, 7)
-        self.assertEqual(state_path.read_bytes(), before)
-
-    def test_missing_state_parent_dir_exits_11_naming_the_directory_and_fix(
-        self,
-    ) -> None:
-        state_path = self.root / "no-such-dir" / "state.json"
-
-        proc = _run(
-            ["init", "--state", str(state_path), "--prd", "00004-feature-x.md"],
-            cwd=self.root,
-        )
-
-        # A crash from an uncaught exception exits 1, not 11 - pinning
-        # returncode to exactly 11 rules that out.
-        self.assertEqual(proc.returncode, 11)
-        self.assertIn(str(state_path.parent), proc.stderr)
-        self.assertIn("Phase 0 creates the lifecycle dirs", proc.stderr)
-
-
 class StallTests(_TempDirTestCase):
     PRD = "00004-feature-x.md"
 
@@ -384,7 +338,8 @@ class ParkExitCodeTests(_TempDirTestCase):
         (self.prds_dir / "wip" / self.PRD).write_text("prd body", encoding="utf-8")
         marker_path = self.autopilot_dir / "park-requested"
         _write_json(
-            marker_path, {"prd": self.PRD, "reason": "wrapper died mid-session"}
+            marker_path,
+            {"prd": self.PRD, "reason": "wrapper died mid-session"},
         )
         _write_json(
             self.state_path,

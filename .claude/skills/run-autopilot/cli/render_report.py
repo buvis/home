@@ -63,22 +63,23 @@ def stalled_section(prd: str, site: str, detail: str, stamp: str) -> str:
 
 
 def _replace_section(existing: str, heading: str) -> str:
-    """Drop the section starting at the exact line `heading` (up to the next
-    "## "-prefixed line or EOF) from `existing`; a no-op when `heading` is
-    not present as an exact line."""
+    """Drop every section starting at the exact line `heading` (up to the
+    next "## "-prefixed line or EOF) from `existing`; a no-op when `heading`
+    is not present as an exact line."""
     lines = existing.splitlines(keepends=True)
-    start = None
-    for i, line in enumerate(lines):
-        text = line[:-1] if line.endswith("\n") else line
-        if text == heading:
-            start = i
+    while True:
+        start = None
+        for i, line in enumerate(lines):
+            text = line.removesuffix("\n")
+            if text == heading:
+                start = i
+                break
+        if start is None:
             break
-    if start is None:
-        return existing
-    end = start + 1
-    while end < len(lines) and not lines[end].startswith("## "):
-        end += 1
-    del lines[start:end]
+        end = start + 1
+        while end < len(lines) and not lines[end].startswith("## "):
+            end += 1
+        del lines[start:end]
     return "".join(lines)
 
 
@@ -303,7 +304,9 @@ def prd_section(state: dict, metrics_rows: list[dict], completed: str) -> str:
         None,
     )
     if record is not None:
-        tasks_line = f"{record.get('tasks_completed', '?')}/{record.get('tasks_total', '?')}"
+        tasks_line = (
+            f"{record.get('tasks_completed', '?')}/{record.get('tasks_total', '?')}"
+        )
     else:
         tasks = state.get("tasks") or []
         if tasks:

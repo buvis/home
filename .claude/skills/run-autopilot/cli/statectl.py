@@ -24,7 +24,8 @@ CLI:
 the file under an exclusive advisory lock, preserving every sibling field,
 writing one rotating `<state-path>.bak` and replacing the file atomically. A
 missing or corrupt file exits 2 without touching it; a bad argument, an
-unsupported json-path, or a value the schema rejects exits 1.
+unsupported json-path, or a value the schema rejects exits 1; a future-schema
+state file exits 6, unchanged.
 
 The three task/card verbs are compound: each lands every field effect of one
 transition inside a single locked read-modify-write, so a crash cannot leave
