@@ -7,6 +7,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import _common
 
 HOOK = Path(__file__).resolve().parents[1] / "enforce_prd_location.py"
 
@@ -319,6 +324,65 @@ class TestUnknownTool(unittest.TestCase):
     def test_allows_no_tool_name(self) -> None:
         r = run_hook({})
         self.assertEqual(r.returncode, 0)
+
+
+class TestResolveToplevel(unittest.TestCase):
+    """Tests for _common.resolve_toplevel (PRD 00133 finding 42): the shared,
+    per-process memoized `git rev-parse --show-toplevel` resolver that
+    enforce_prd_location.py and cartographer-echo.py both route through
+    instead of shelling out to `git` independently."""
+
+    def setUp(self) -> None:
+        _common._TOPLEVEL_CACHE.clear()
+
+    def tearDown(self) -> None:
+        _common._TOPLEVEL_CACHE.clear()
+
+    def test_resolves_toplevel_for_existing_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            sub = os.path.join(repo, "src")
+            os.makedirs(sub)
+            result = _common.resolve_toplevel(sub)
+            self.assertIsNotNone(result)
+            self.assertEqual(os.path.realpath(result), os.path.realpath(repo))
+
+    def test_resolves_same_toplevel_for_nonexistent_nested_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            target = os.path.join(repo, "newdir", "deeper", "newfile.py")
+            self.assertFalse(os.path.exists(os.path.dirname(target)))
+            result = _common.resolve_toplevel(target)
+            self.assertIsNotNone(result)
+            self.assertEqual(os.path.realpath(result), os.path.realpath(repo))
+
+    def test_returns_none_outside_any_git_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = tempfile.mkdtemp(prefix="prdloc-nogit-", dir=tmp)
+            self.assertIsNone(_common.resolve_toplevel(outside))
+
+    def test_spawns_subprocess_at_most_once_for_same_existing_ancestor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            target_a = os.path.join(repo, "src", "a.py")
+            target_b = os.path.join(repo, "src", "nested", "b.py")
+
+            calls: list[list[str]] = []
+            original_run = subprocess.run
+
+            def counting_run(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args")
+                calls.append(cmd)
+                return original_run(*args, **kwargs)
+
+            with patch("subprocess.run", counting_run):
+                first = _common.resolve_toplevel(target_a)
+                second = _common.resolve_toplevel(target_b)
+
+            self.assertEqual(len(calls), 1, f"expected exactly 1 git spawn, got {calls}")
+            self.assertIsNotNone(first)
+            self.assertEqual(first, second)
+            self.assertEqual(os.path.realpath(first), os.path.realpath(repo))
 
 
 if __name__ == "__main__":

@@ -1320,6 +1320,74 @@ def test_build_deny_envelope_excerpt_line_format_pinned() -> None:
     assert re.match(pattern, excerpt_line), f"excerpt line format changed: {excerpt_line!r}"
 
 
+def test_single_edit_dispatch_spawns_git_rev_parse_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One Edit dispatch through BOTH enforce_prd_location.run() and
+    cartographer-echo's run() -- exactly as dispatch.py's ROUTES table calls
+    both handlers with the SAME payload in the SAME process for one
+    PreToolUse event -- must spawn `git rev-parse --show-toplevel` exactly
+    once total (PRD 00133 finding 42). Before the fix each handler resolved
+    the toplevel independently (two spawns for one dispatch)."""
+    import importlib
+
+    hooks_dir = HOOK.parent
+    monkeypatch.setenv("HOME", str(tmp_path))
+    if str(hooks_dir) not in sys.path:
+        sys.path.insert(0, str(hooks_dir))
+
+    import _common
+
+    _common._TOPLEVEL_CACHE.clear()
+
+    import enforce_prd_location
+
+    cartographer_echo = importlib.import_module("cartographer-echo")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(repo)],
+        check=True,
+        capture_output=True,
+    )
+
+    target = repo / "src" / "widget.py"  # parent dir does not exist yet
+    payload = {
+        "session_id": "sess-shared-toplevel",
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": str(target),
+            "old_string": "pass",
+            "new_string": "def widgetFactory():\n    pass\n",
+        },
+    }
+
+    rev_parse_calls = 0
+    original_run = subprocess.run
+
+    def counting_run(*args, **kwargs):
+        nonlocal rev_parse_calls
+        cmd = args[0] if args else kwargs.get("args")
+        if cmd and "rev-parse" in cmd and "--show-toplevel" in cmd:
+            rev_parse_calls += 1
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", counting_run)
+
+    enforce_result = enforce_prd_location.run(payload)
+    echo_result = cartographer_echo.run(payload)
+
+    assert rev_parse_calls == 1, (
+        f"expected exactly one git rev-parse --show-toplevel spawn across "
+        f"both handlers, got {rev_parse_calls}"
+    )
+    assert isinstance(enforce_result, tuple) and len(enforce_result) == 3
+    assert isinstance(echo_result, tuple) and len(echo_result) == 3
+    assert "Traceback" not in enforce_result[2]
+    assert "Traceback" not in echo_result[2]
+
+
 def test_build_deny_envelope_surrounding_lines_unchanged_by_catalog_move() -> None:
     """The catalog move only rewords the attribution's path; the leading Echo
     line, the 'Existing implementation' line, and the trailing retry line must
