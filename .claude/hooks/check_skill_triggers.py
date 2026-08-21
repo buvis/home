@@ -31,6 +31,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # design (never scanned, cannot fire), so a collision there is not yet real.
 SKILL_GLOBS = ("skills/*/SKILL.md", "plugins/cache/*/*/*/skills/*/SKILL.md")
 
+# On-disk cache of the phrase->owners index, keyed by the candidates' max
+# mtime, so a warm cache spares rereading every installed SKILL.md on each
+# edit. Bound at import time next to this script.
+_INDEX_CACHE_FILE = Path(__file__).resolve().parent / ".trigger-index-cache.json"
+
 _KEY_RE = re.compile(r"[A-Za-z_][\w-]*\s*:")
 _DESC_RE = re.compile(r"description\s*:")
 
@@ -142,6 +147,59 @@ def dropped_since_head(path: str) -> list[str]:
     return [p for p in extract_triggers(old) if p.casefold() not in current]
 
 
+def _glob_paths() -> list[Path]:
+    """Every installed skill's SKILL.md (own + plugin cache), resolved."""
+    home = Path.home() / ".claude"
+    return [p.resolve() for pattern in SKILL_GLOBS for p in home.glob(pattern)]
+
+
+def _max_mtime(paths: list[Path]) -> float:
+    """Highest mtime among `paths`; 0.0 if empty. Skips a raced delete."""
+    mtimes: list[float] = []
+    for p in paths:
+        try:
+            mtimes.append(p.stat().st_mtime)
+        except OSError:
+            continue
+    return max(mtimes, default=0.0)
+
+
+def _index_over(paths: list[Path]) -> dict[str, list[str]]:
+    """{casefolded phrase: sorted [owner paths]} scanned fresh over `paths`."""
+    index: dict[str, list[str]] = {}
+    for p in paths:
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for phrase in extract_triggers(text):
+            index.setdefault(phrase.casefold(), []).append(str(p))
+    for owners in index.values():
+        owners.sort()
+    return index
+
+
+def _cached_index(paths: list[Path], exclude: Path) -> dict[str, list[str]]:
+    """The phrase index over `paths` minus `exclude`, reused from disk when the
+    candidates' max mtime hasn't moved. `exclude`'s own mtime never enters the
+    key, so repeated saves of the file being edited can't invalidate it.
+    """
+    excl = exclude.resolve()
+    candidates = [p for p in paths if p.resolve() != excl]
+    key = _max_mtime(candidates)
+    try:
+        cached = json.loads(_INDEX_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        cached = None
+    if isinstance(cached, dict) and cached.get("mtime") == key:
+        return cached.get("index", {})
+    index = _index_over(candidates)
+    _INDEX_CACHE_FILE.write_text(
+        json.dumps({"mtime": key, "index": index}), encoding="utf-8"
+    )
+    return index
+
+
 def collisions(path: str, phrases: list[str]) -> dict[str, list[str]]:
     """{phrase: [other SKILL.md paths]} for phrases another skill also claims.
 
@@ -153,19 +211,12 @@ def collisions(path: str, phrases: list[str]) -> dict[str, list[str]]:
         return {}
     wanted = {phrase.casefold(): phrase for phrase in phrases}
     mine = Path(path).resolve()
+    index = _cached_index(_glob_paths(), exclude=mine)
     hits: dict[str, list[str]] = {}
-    for pattern in SKILL_GLOBS:
-        for other in (Path.home() / ".claude").glob(pattern):
-            if other.resolve() == mine:
-                continue
-            try:
-                text = other.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            for phrase in extract_triggers(text):
-                owner = wanted.get(phrase.casefold())
-                if owner is not None:
-                    hits.setdefault(owner, []).append(str(other))
+    for key, owner_phrase in wanted.items():
+        owners = index.get(key)
+        if owners:
+            hits[owner_phrase] = owners
     return hits
 
 
