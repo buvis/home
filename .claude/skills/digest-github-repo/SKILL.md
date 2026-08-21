@@ -12,7 +12,6 @@ All files live under `~/bim/inbox/automated/digest-github-repo/`.
 
 ## Dependencies
 
-- Plugin: `claude-in-chrome` (MCP browser tools). Activity collection is browser-driven; without it the skill cannot gather repo activity and must stop.
 - External `~/bim/` tree (hard anchor, no fallback): config `~/bim/inbox/automated/digest-github-repo/repos.yaml`, dedup grep over `~/bim/zettelkasten/` and `~/bim/inbox/`, output into `~/bim/inbox/automated/digest-github-repo/`.
 
 ## Triggers
@@ -100,50 +99,160 @@ The combined set of all found `owner/repo` handles is your **dedup list**.
 
 ---
 
-## Step 3 — Collect new activity via Claude in Chrome
+## Step 3 — Collect new activity via `gh`
 
-Use the browser tools. The data you collect depends on the mode.
+All collection happens via Bash `gh` (CLI/API), not a browser. `{owner}`, `{repo}` come from
+the registered `repos.yaml` entry; `{last_check}` is that repo's stored `last_check` date
+(`YYYY-MM-DD`).
+
+Before collecting, run the preflight:
+
+```bash
+gh auth status
+```
+
+A failure here aborts immediately (see **Auth/permission-failure control flow** below).
+
+### Resolve the default branch (shared, both modes)
+
+```bash
+gh api repos/{owner}/{repo} --jq '.default_branch'
+```
+
+Use the returned branch name (`{default_branch}`) everywhere below that previously said
+`main`/`master`. One call, no probing. This call is also the source-of-truth
+auth/permission check for this specific repo (see **Auth/permission-failure control flow**
+below).
 
 ### For curated-list mode
 
-The config specifies a `commit_pattern` (regex) and a `source_url` for the commits page.
+1. Commits since `last_check` on `{default_branch}`, matched against the config's
+   `commit_pattern` regex on the commit title (first line):
 
-Visit the commits page (e.g. `https://github.com/OWNER/REPO/commits/main`). Parse commits
-dated **after** `last_check`. Match only commits whose message fits the `commit_pattern` — each
-match represents one new item added to the list. Ignore automated/maintenance commits.
+```bash
+gh api "repos/{owner}/{repo}/commits?sha={default_branch}&since={last_check}T00:00:00Z&per_page=100&page={n}" \
+  --jq '.[] | {sha: .sha, title: (.commit.message | split("\n")[0]), date: .commit.author.date}'
+```
 
-For each matching commit, fetch the corresponding PR page to extract:
-- GitHub URL of the added item (owner/repo)
-- Short name
-- One-sentence description (prefer the item's own README tagline)
-- Star count from the item's GitHub page
+   Explicit page loop, not `--paginate` — `--paginate` fetches every page before any
+   client-side limit can apply, which does not bound the actual number of requests made.
+   Loop `page = 1, 2, ...` yourself, stopping when a page returns fewer than 100 items
+   (exhausted) or when `page == 20` is reached (a hard ceiling of 2,000 commits — reached only
+   on a first-time registration against a high-traffic repo, since `since` already excludes
+   everything before `last_check`). If the page-20 ceiling is hit, stop there and note in the
+   digest: "more than 2,000 commits since last check; digest may be incomplete — consider a
+   more recent `last_check`" (same pattern as the Search API page-10 policy below — a known,
+   reported limit, not a crash).
+
+   Match `commit_pattern` against the extracted title only, never the raw multiline
+   `.commit.message` — the config's regexes are `$`-anchored to a one-line commit title (e.g.
+   `^Add resource: .+ \(#(\d+)\)$`), matching what the old browser flow saw, and a `$` anchor
+   against a full multiline message fails once a commit has a body. Apply the config's
+   `ignore_patterns` regex list to the same title before testing `commit_pattern`, same as the
+   old flow's "ignore automated/maintenance commits."
+
+2. PR behind a matching commit:
+
+```bash
+gh api repos/{owner}/{repo}/commits/{sha}/pulls --jq '.[0] | {number, title, body}'
+```
+
+   Extract the added item's `owner/repo`, short name, and description from `title`/`body`
+   exactly as the current skill extracts them from the PR page. `title`/`body` is the same
+   source scope the old browser flow used (it only ever read the PR page's title and
+   description, never its diff, files, or comments). New edge case: if `.[0]` is null (no PR
+   found for a direct-to-branch commit) or `title`/`body` don't yield a confident `owner/repo`,
+   skip that commit with a note rather than guessing (same "note and skip" shape as the
+   existing "PR is a 404" edge case).
+
+3. Item repo metadata:
+
+```bash
+gh api repos/{item-owner}/{item-repo} --jq '{description: .description, stars: .stargazers_count, archived: .archived}'
+```
+
+   The old edge case bundled two distinct signals ("archived or 404") that the API separates:
+   an archived repo stays reachable (`archived: true` in the response, not a 404), while a
+   deleted/renamed-away repo 404s. Branch on both: `archived == true` → Dropped with reason
+   "archived"; a plain 404 on this call (and only a 404 — any other non-2xx here falls under
+   the Auth/permission-failure control flow below) → Dropped with reason "repo not found".
+   Fidelity note: this is GitHub's short repo metadata blurb, not the README tagline the old
+   browser flow preferred. When `.description` is null/empty, omit the description rather than
+   fetching and parsing the README — same "omit rather than guess" pattern as the existing
+   "Stars not visible — omit" edge case.
 
 Skip any item whose `owner/repo` appears in the dedup list.
 
 #### Open-PR pass (only when the repo config has `also_check_prs: true`)
 
-After the commit scan, visit
-`https://github.com/OWNER/REPO/pulls?q=is%3Apr+is%3Aopen+sort%3Aupdated-desc` and collect
-open PRs created or updated after `last_check`. From each PR's title and body, extract the
-proposed item (owner/repo, short name, one-sentence description, star count); skip PRs that
-don't propose a list item. Apply the same dedup list. Keep these items separate from commit
-items: a commit means "accepted into the list", an open PR means "proposed, pending".
+```bash
+gh pr list -R {owner}/{repo} --state open --search "sort:updated-desc" \
+  --json number,title,body,updatedAt --limit 100
+```
+
+Plain `gh pr list` has no sort flag and defaults to creation order, not update order —
+`--search "sort:updated-desc"` passes the same raw GitHub search qualifier the old URL query
+used, required for the stop condition below to be correct. Keep only PRs whose `updatedAt` is
+after `last_check`. 100 is a soft cap — if exactly 100 come back AND the 100th (oldest)
+`updatedAt` is still after `last_check`, note in the digest that more open PRs may exist beyond
+the cap. For each date-kept PR, extract the proposed item's `owner/repo`, short name, and
+description from `title`/`body` — the exact same extraction task as step 2's
+commit-behind-a-PR extraction, same skip-with-note rule when extraction isn't confident. Skip
+PRs that don't propose a list item at all (docs fixes, maintenance PRs, etc.). Every PR that
+survives extraction then goes through the same item repo metadata call (step 3 above,
+including its `archived` check) and the same dedup list filter as commit-sourced items. Keep
+these items separate from commit items: a commit means "accepted into the list", an open PR
+means "proposed, pending".
 
 ### For activity-digest mode
 
-Visit these pages in sequence, paginating until past the `last_check` cutoff:
+```bash
+gh api "search/issues?q=repo:{owner}/{repo}+is:pr&sort=updated&order=desc&per_page=100&page={n}" --jq '{total_count, items}'
+gh api "search/issues?q=repo:{owner}/{repo}+is:issue&sort=updated&order=desc&per_page=100&page={n}" --jq '{total_count, items}'
+```
 
-1. **PRs**: `https://github.com/OWNER/REPO/pulls?q=is%3Apr+sort%3Aupdated-desc`
-   — collect number, title, status (merged/open/closed)
+Loop `page = 1, 2, ...`: for each page, keep items with `.updated_at > last_check`; stop
+paginating as soon as a page's last (oldest) item's `updated_at` is on or before `last_check`,
+or the page is empty.
 
-2. **Issues**: `https://github.com/OWNER/REPO/issues?q=is%3Aissue+sort%3Aupdated-desc`
-   — collect number, title, status (open/closed)
+GitHub's Search API caps total results at 1,000 (page 10 at 100/page) regardless of match
+count — a page-11 request errors instead of returning empty. Cap the loop at page 10. Use the
+response's own `total_count` to avoid a false-positive warning: only warn when
+`total_count > 1000` AND the page-10 boundary item's `updated_at` is still after `last_check`.
+When both hold, stop and report: "more than 1,000 updates since last check on this list;
+digest may be incomplete — consider a more recent `last_check`." Do not treat this as a
+failure.
 
-3. **Commits**: `https://github.com/OWNER/REPO/commits/main` (try `master` if 404)
-   — collect first line of commit message, skip merge commits and version bumps
+For PRs, extract `{number, title, state}` (map search-API `state` `open`/`closed` plus
+`.pull_request.merged_at` presence to the old `merged/open/closed` triple). For issues, extract
+`{number, title, state}` directly (`open`/`closed`).
 
-Use the `.markdown-title` CSS class to extract clean titles from list pages. Stop paginating
-once you reach items older than the cutoff date.
+**Commits**: same paged, `since`-bounded, page-20-capped call and first-line extraction as
+curated-list mode's step 1 (no `commit_pattern` filtering — activity-digest wants all commits,
+just the title). Skip merge commits and version-bump commits by the same client-side rule as
+before (title starts with `Merge ` or matches a `vX.Y.Z` / `chore(release)` bump pattern),
+applied to the extracted title.
+
+### Call-count contract
+
+Increment a counter once per `gh` invocation, at the point it's issued — not derived after the
+fact. Every call site counts: the `gh auth status` preflight, the shared default-branch lookup,
+every commit page, every `commits/{sha}/pulls` and item-metadata call in curated mode, the
+curated open-PR list call, and every Search API page in activity-digest mode. Report the total
+in Step 7's footer as `gh calls made: N`.
+
+### Auth/permission-failure control flow
+
+Before Step 3 collection begins, run `gh auth status`. A failure here aborts immediately. The
+shared default-branch lookup (`gh api repos/{owner}/{repo}`) is the one source-of-truth call:
+`{owner}/{repo}` is a config entry the user explicitly registered, so ANY non-2xx here (401,
+403, 404, 429, 5xx) aborts the run. Every other call (commit pages, `commits/{sha}/pulls`,
+curated mode's item-repo metadata call, the curated open-PR list, Search API pages) — a
+401/403/429/5xx aborts the run the same way; a 404 on these stays scoped to the specific
+commit/PR/item per the edge cases already defined. On any run-level abort: do not write a
+zettelkasten file, do not advance `last_check` in Step 6. Report the failure in chat instead
+(name which call failed and the HTTP status). This single rule also covers the Search API's
+429/403 rate-limit case.
 
 ---
 
@@ -224,6 +333,7 @@ Show the full summary in chat, then add a footer:
 ```
 Saved to: ~/bim/inbox/automated/digest-github-repo/<zettelkasten-id>.md
 Check date updated: <old-date> → <today>
+gh calls made: N
 ```
 
 If no new activity was found, say so clearly. Still update the scan date and still create the
@@ -234,7 +344,7 @@ zettelkasten file (with a note that there was nothing new).
 ## Edge cases
 
 - **Page won't load** — note the failure, skip that source, proceed with what loaded.
-- **Branch is not `main`** — try `master`, then the default branch visible on the repo homepage.
+- **Default branch** — resolved once via `gh api repos/{owner}/{repo} --jq '.default_branch'`; no probing needed.
 - **PR is a 404** — note it in the summary and skip.
 - **Repo is private** — if you get a 404 or login wall, report it and stop.
 - **Item repo is archived or 404** — in curated-list mode, add to Dropped with reason.
