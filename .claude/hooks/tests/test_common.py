@@ -116,5 +116,58 @@ class TestAppendJsonlRow(unittest.TestCase):
             self.assertEqual(json.loads(lines[1]), {"b": 2})
 
 
+class TestParseTranscriptEntries(unittest.TestCase):
+    def setUp(self) -> None:
+        _common._TRANSCRIPT_CACHE.clear()
+
+    def tearDown(self) -> None:
+        _common._TRANSCRIPT_CACHE.clear()
+
+    def test_reads_file_at_most_once_across_two_calls_with_same_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.jsonl"
+            path.write_text(json.dumps({"type": "assistant", "n": 1}) + "\n", encoding="utf-8")
+
+            calls: list[Path] = []
+            original_read_text = Path.read_text
+
+            def counting_read_text(self_path, *args, **kwargs):
+                calls.append(self_path)
+                return original_read_text(self_path, *args, **kwargs)
+
+            with patch.object(Path, "read_text", counting_read_text):
+                first = _common.parse_transcript_entries(path)
+                second = _common.parse_transcript_entries(path)
+
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(first, [{"type": "assistant", "n": 1}])
+            self.assertEqual(first, second)
+
+    def test_missing_file_returns_empty_list_without_raising(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.jsonl"
+            self.assertEqual(_common.parse_transcript_entries(missing), [])
+
+    def test_skips_malformed_json_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.jsonl"
+            path.write_text(
+                "not json\n" + json.dumps({"type": "assistant", "n": 2}) + "\n",
+                encoding="utf-8",
+            )
+            result = _common.parse_transcript_entries(path)
+            self.assertEqual(result, [{"type": "assistant", "n": 2}])
+
+    def test_skips_non_dict_json_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.jsonl"
+            path.write_text(
+                json.dumps([1, 2, 3]) + "\n" + json.dumps({"type": "user"}) + "\n",
+                encoding="utf-8",
+            )
+            result = _common.parse_transcript_entries(path)
+            self.assertEqual(result, [{"type": "user"}])
+
+
 if __name__ == "__main__":
     unittest.main()
