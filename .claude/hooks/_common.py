@@ -74,12 +74,9 @@ def resolve_toplevel(path: str) -> str | None:
     directory first.
     """
     resolved = str(Path(path).resolve())
-    if os.path.isdir(resolved):
-        probe = resolved
-    else:
-        probe = os.path.dirname(resolved) or "/"
-        while probe and probe != "/" and not os.path.isdir(probe):
-            probe = os.path.dirname(probe)
+    probe = resolved
+    while probe and probe != "/" and not os.path.isdir(probe):
+        probe = os.path.dirname(probe)
     if not probe or not os.path.isdir(probe):
         return None
     if probe in _TOPLEVEL_CACHE:

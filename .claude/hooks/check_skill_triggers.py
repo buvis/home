@@ -34,8 +34,9 @@ SKILL_GLOBS = ("skills/*/SKILL.md", "plugins/cache/*/*/*/skills/*/SKILL.md")
 
 # On-disk cache of the phrase->owners index, keyed by the candidates' max
 # mtime, so a warm cache spares rereading every installed SKILL.md on each
-# edit. Bound at import time next to this script.
-_INDEX_CACHE_FILE = Path(__file__).resolve().parent / ".trigger-index-cache.json"
+# edit. Resolved under Path.home(), matching _glob_paths(), so a $HOME
+# override (as in tests, run as a subprocess) redirects it too.
+_INDEX_CACHE_FILE = Path.home() / ".claude" / "hooks" / ".trigger-index-cache.json"
 
 _KEY_RE = re.compile(r"[A-Za-z_][\w-]*\s*:")
 _DESC_RE = re.compile(r"description\s*:")
@@ -184,33 +185,58 @@ def _write_cache(cache: dict) -> None:
     """Atomic write of the trigger-index cache (see `observe_tool.py`'s
     `_write_cwd_cache` for the convention this copies). An advisory cache
     that cannot be written is not a reason to fail the advisory, so any
-    OSError (missing directory, permissions, ...) is swallowed.
+    OSError (missing directory, permissions, ...) is swallowed - and a
+    temp file left behind by a failed write is removed rather than leaked.
     """
+    tmp_path: Path | None = None
     try:
+        _INDEX_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = NamedTemporaryFile(
             "w", encoding="utf-8", dir=str(_INDEX_CACHE_FILE.parent), delete=False
         )
+        tmp_path = Path(tmp.name)
         try:
             json.dump(cache, tmp)
-            tmp_path = Path(tmp.name)
         finally:
             tmp.close()
         tmp_path.replace(_INDEX_CACHE_FILE)
     except OSError:
-        pass
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
+def _mtime_ns_map(paths: list[Path]) -> dict[str, int]:
+    """Every path's own mtime in nanoseconds (JSON-exact, unlike a float),
+    keyed by path. A single max mtime cannot detect a content change to a
+    candidate whose own mtime stays at or below that maximum; pairing every
+    candidate with its own mtime can. Skips a raced delete, like `_max_mtime`.
+    """
+    fingerprint: dict[str, int] = {}
+    for p in paths:
+        try:
+            fingerprint[str(p)] = p.stat().st_mtime_ns
+        except OSError:
+            continue
+    return fingerprint
 
 
 def _cached_index(paths: list[Path], exclude: Path) -> dict[str, list[str]]:
     """The phrase index over `paths` minus `exclude`, reused from disk when the
     candidate set hasn't changed. `exclude`'s own mtime never enters the key,
     so repeated saves of the file being edited can't invalidate it. The key
-    covers both the candidates' identities and their max mtime: two distinct
-    candidate sets can share a max mtime, and mtime alone would wrongly reuse
-    one set's index for the other.
+    covers the candidates' identities, their max mtime, and each candidate's
+    own mtime: two distinct candidate sets can share a max mtime (mtime alone
+    would wrongly reuse one set's index for the other), and a candidate whose
+    own mtime stays below the set's max can still change content (the max
+    alone would miss it).
     """
     excl = exclude.resolve()
     candidates = [p for p in paths if p.resolve() != excl]
-    key = {"paths": sorted(str(p) for p in candidates), "mtime": _max_mtime(candidates)}
+    key = {
+        "paths": sorted(str(p) for p in candidates),
+        "mtime": _max_mtime(candidates),
+        "mtime_ns": _mtime_ns_map(candidates),
+    }
     try:
         cached = json.loads(_INDEX_CACHE_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
