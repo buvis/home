@@ -88,11 +88,13 @@ class _TempDirTestCase(unittest.TestCase):
 class LoadTest(_TempDirTestCase):
     def test_returns_parsed_state_and_version_status_for_well_formed_file(self) -> None:
         _write_json(
-            self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"}
+            self.path,
+            {"schema_version": schema.SCHEMA_VERSION, "phase": "build"},
         )
         loaded, version_status = state.load(self.path)
         self.assertEqual(
-            loaded, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"}
+            loaded,
+            {"schema_version": schema.SCHEMA_VERSION, "phase": "build"},
         )
         self.assertEqual(version_status, "current")
 
@@ -325,17 +327,6 @@ class TransactionFutureSchemaTest(_TempDirTestCase):
 
         self.assertEqual(_bak_path(self.path).read_bytes(), bak_before)
 
-    def test_worked_example_schema_version_999_is_refused_and_leaves_state_untouched(
-        self,
-    ) -> None:
-        _write_json(self.path, {"schema_version": 999, "phase": "build", "cycle": 3})
-        before = self.path.read_bytes()
-
-        with self.assertRaises(state.FutureSchemaError):
-            state.transaction(self.path, lambda current: {**current, "phase": "review"})
-
-        self.assertEqual(self.path.read_bytes(), before)
-
     def test_future_schema_error_message_names_both_versions_and_refuses(
         self,
     ) -> None:
@@ -376,7 +367,8 @@ class TransactionNonFutureSchemaUnaffectedTest(_TempDirTestCase):
 
     def test_current_schema_version_does_not_raise_future_schema_error(self) -> None:
         _write_json(
-            self.path, {"schema_version": schema.SCHEMA_VERSION, "phase": "build"}
+            self.path,
+            {"schema_version": schema.SCHEMA_VERSION, "phase": "build"},
         )
 
         def fn(current: dict) -> dict:
@@ -454,7 +446,8 @@ class InitFailureTest(_TempDirTestCase):
         )
         state.init(self.path, {"phase": "build"})
         self.assertEqual(
-            json.loads(self.path.read_text(encoding="utf-8"))["phase"], "build"
+            json.loads(self.path.read_text(encoding="utf-8"))["phase"],
+            "build",
         )
 
 
@@ -613,10 +606,12 @@ class TransactionConcurrencyTest(_TempDirTestCase):
 
         barrier = multiprocessing.Barrier(2)
         p1 = multiprocessing.Process(
-            target=_concurrent_append_worker, args=(str(self.path), barrier, "a")
+            target=_concurrent_append_worker,
+            args=(str(self.path), barrier, "a"),
         )
         p2 = multiprocessing.Process(
-            target=_concurrent_append_worker, args=(str(self.path), barrier, "b")
+            target=_concurrent_append_worker,
+            args=(str(self.path), barrier, "b"),
         )
         p1.start()
         p2.start()
@@ -669,7 +664,8 @@ class InitSchemaVersionStampTest(_TempDirTestCase):
 
         on_disk, _ = state.load(self.path)
         self.assertEqual(
-            on_disk, {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
+            on_disk,
+            {"phase": "build", "schema_version": schema.SCHEMA_VERSION},
         )
 
     def test_initial_already_at_current_version_is_unchanged(self) -> None:
@@ -777,7 +773,8 @@ class DurabilityBeforePublishTest(_TempDirTestCase):
 
     def test_atomic_write_fsyncs_payload_before_replacing_the_target(self) -> None:
         calls = self._publish_order(
-            lambda: state.atomic_write(self.path, {"phase": "build"}), "replace"
+            lambda: state.atomic_write(self.path, {"phase": "build"}),
+            "replace",
         )
         self.assertEqual(calls, ["fsync", "replace"])
 
@@ -785,12 +782,14 @@ class DurabilityBeforePublishTest(_TempDirTestCase):
         self,
     ) -> None:
         _write_json(
-            self.path, {"phase": "build", "schema_version": schema.SCHEMA_VERSION}
+            self.path,
+            {"phase": "build", "schema_version": schema.SCHEMA_VERSION},
         )
 
         calls = self._publish_order(
             lambda: state.transaction(
-                self.path, lambda current: {**current, "cycle": 2}
+                self.path,
+                lambda current: {**current, "cycle": 2},
             ),
             "replace",
         )
@@ -800,7 +799,8 @@ class DurabilityBeforePublishTest(_TempDirTestCase):
 
     def test_init_fsyncs_payload_before_linking_the_new_state_file(self) -> None:
         calls = self._publish_order(
-            lambda: state.init(self.path, {"phase": "build"}), "link"
+            lambda: state.init(self.path, {"phase": "build"}),
+            "link",
         )
         self.assertEqual(calls, ["fsync", "link"])
 

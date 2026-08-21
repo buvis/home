@@ -92,10 +92,19 @@ class StatectlShimSymbolTests(unittest.TestCase):
         self.assertNotIn("schema_version", written)
 
     def test_every_usage_line_appears_in_the_shim_docstring(self) -> None:
-        for line in cli_statectl.USAGE.splitlines():
-            rest = line.split("statectl.py ", 1)[1]
-            with self.subTest(rest=rest):
-                self.assertIn(rest, statectl.__doc__)
+        # Bidirectional: substring-in-docstring only proves every USAGE form
+        # is documented, it cannot catch an EXTRA form the docstring lists
+        # that USAGE (the CLI's real verb set) does not - so drift in either
+        # direction must fail, not just the "something's missing" direction.
+        usage_forms = {
+            line.split("statectl.py ", 1)[1] for line in cli_statectl.USAGE.splitlines()
+        }
+        docstring_forms = {
+            line.split("statectl.py ", 1)[1]
+            for line in statectl.__doc__.splitlines()
+            if "python3 statectl.py " in line
+        }
+        self.assertEqual(usage_forms, docstring_forms)
 
 
 class ResumeTargetShimSymbolTests(unittest.TestCase):

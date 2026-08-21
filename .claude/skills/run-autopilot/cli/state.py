@@ -78,7 +78,7 @@ def read_and_parse(path: Path) -> tuple[bytes, dict]:
         raise StateError(f"state file is not valid JSON ({path}): {err}") from err
     if not isinstance(parsed, dict):
         raise StateError(
-            f"state root must be a JSON object, got {type(parsed).__name__}: {path}"
+            f"state root must be a JSON object, got {type(parsed).__name__}: {path}",
         )
     return raw, parsed
 
@@ -144,8 +144,10 @@ def transaction(
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         raw, current = read_and_parse(path)
         if schema.version_status(current) == "future":
+            stamp = current.get("schema_version")
             raise FutureSchemaError(
-                f"state schema_version is newer than this autopilot supports: {path}"
+                f"future-schema state.json ({path}): "
+                f"v{stamp} > v{schema.SCHEMA_VERSION}, refusing",
             )
         new_state = fn(current)
         validator(new_state)
@@ -215,7 +217,7 @@ def restore(path: Path) -> None:
             schema.validate(parsed)
         except schema.SchemaError as err:
             raise BackupError(
-                f"backup fails schema validation ({bak_path}): {err}"
+                f"backup fails schema validation ({bak_path}): {err}",
             ) from err
         try:
             _current_raw, current = read_and_parse(path)
