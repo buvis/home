@@ -304,9 +304,7 @@ def prd_section(state: dict, metrics_rows: list[dict], completed: str) -> str:
         None,
     )
     if record is not None:
-        tasks_line = (
-            f"{record.get('tasks_completed', '?')}/{record.get('tasks_total', '?')}"
-        )
+        tasks_line = f"{record.get('tasks_completed', '?')}/{record.get('tasks_total', '?')}"
     else:
         tasks = state.get("tasks") or []
         if tasks:
