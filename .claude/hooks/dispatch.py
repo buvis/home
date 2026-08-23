@@ -75,6 +75,14 @@ ROUTES = [
     ),
     Route(
         "PreToolUse",
+        "Edit|Write|MultiEdit|NotebookEdit",
+        "enforce_write_scope",
+        HOOKS / "enforce_write_scope.py",
+        5,
+        kind="enforcement",
+    ),
+    Route(
+        "PreToolUse",
         "Bash",
         "enforce_prd_location",
         HOOKS / "enforce_prd_location.py",
