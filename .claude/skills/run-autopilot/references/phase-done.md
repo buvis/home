@@ -30,9 +30,9 @@ loaded) carries the shared mechanics and the test-pinned invariants.
 
 7. Append the PRD summary to the batch report: run `autopilot render report` — it builds the filename from the current `state.batch.id` under the **report-id invariant** (core `SKILL.md` § "Phase 9 invariants"), creates the file with its header when missing, and renders every subsection (decisions, doubt rubric verdicts, loop metrics, implementor mix) from state and `loop-metrics.jsonl` deterministically. Section semantics: `references/batch-report-format.md`.
 
-7b. Project autonomous decisions into `dev/local/decisions.md` when that opt-in file exists (skip when absent; `audit.md` is written either way). Follow the **"decisions.md Projection"** procedure in `references/audit-log-format.md` — it covers the qualify criterion (label `autonomous` + non-trivial), the row format, dedupe, and the single-source rule.
+7b. Project autonomous decisions into `dev/local/meta/decisions.md` when that opt-in file exists (skip when absent; `audit.md` is written either way). Follow the **"decisions.md Projection"** procedure in `references/audit-log-format.md` — it covers the qualify criterion (label `autonomous` + non-trivial), the row format, dedupe, and the single-source rule.
 
-8. Update the Active Work section of `dev/local/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
+8. Update the Active Work section of `dev/local/meta/project-capsule.md` with batch progress. Use the Edit tool to replace the Active Work section content:
    ```markdown
    ## Active Work
 

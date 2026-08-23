@@ -161,7 +161,7 @@ Pass the paths from the context file's `### Changed Files` section (in a **bare-
 **Generate the cycle's context pack.** After `gather-context.sh` has produced the diff, and before any prompt is assembled, run this from the project root:
 
 ```bash
-uv run --project ~/git/src/github.com/buvis/engram engram pack --cycle {id} --prd <absolute path of the review-target PRD resolved at the top of this step> --capsule dev/local/project-capsule.md
+uv run --project ~/git/src/github.com/buvis/engram engram pack --cycle {id} --prd <absolute path of the review-target PRD resolved at the top of this step> --capsule dev/local/meta/project-capsule.md
 ```
 
 `engram` is not on PATH in this environment, so the `uv run --project ...` form is required. A bare `engram pack` will fail. The command prints the pack's absolute path, its estimated token total, and the pre-pack reindex stats. `{id}` is the same cycle id used for the other `dev/local/tmp/review-*-{id}.*` staging files, so the pack lands at `dev/local/tmp/engram-pack-{id}.md`.

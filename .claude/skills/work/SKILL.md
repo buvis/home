@@ -106,7 +106,7 @@ Every Tess and Ivan dispatch prompt - initial and retry, regardless of mechanism
 
 Step 5 stages exactly the reported paths - an unreported file stays uncommitted and is surfaced by step 5's foreign-path rule, so an implementor that omits the footer fails loudly, not silently.
 
-Collect the returned lines: step 6 appends non-`none` entries to `dev/local/assumptions.md` under a `## <task-id>: <task subject>` heading (Write/Edit tool, never shell redirects). On the first completed task of a full-plan pass, replace the file instead of appending - the ledger is per-plan. Step 7's phase report includes the ledger so the user and the review phase can examine what the implementors guessed in a 30-second read.
+Collect the returned lines: step 6 appends non-`none` entries to `dev/local/meta/assumptions.md` under a `## <task-id>: <task subject>` heading (Write/Edit tool, never shell redirects). On the first completed task of a full-plan pass, replace the file instead of appending - the ledger is per-plan. Step 7's phase report includes the ledger so the user and the review phase can examine what the implementors guessed in a 30-second read.
 
 ## Dispatch prologue
 
@@ -608,7 +608,7 @@ Skip for documentation-only or configuration-only tasks.
    `task-done` sets `tasks[i].status = "completed"`, appends the record to `tasks[i].attempts`, and **recomputes `tasks_completed` from the task array** — all three inside one locked atomic write. Do NOT set `status`, append the attempt, or set `tasks_completed` separately here; the count is derived and is not passed in. The task is resolved by matching `tasks[].id`, so the `tasks[N]` index form is not used here (rework appends `[D{cycle}]` follow-ups, after which array position stops matching id).
 
    The matching call at task start (step 2) is `statectl <state.json> task-start <task-id>`.
-3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/assumptions.md` per the **Assumptions footer** section
+3. **Append `ASSUMPTIONS:` lines** from this task's Tess and Ivan reports (any entry beyond `none`) to `dev/local/meta/assumptions.md` per the **Assumptions footer** section
 4. Proceed to step 6.5 (task-boundary handoff check) — it routes to the next task, a clean handoff, or final verification.
 
 ### 6.5. Task-boundary handoff check
@@ -665,7 +665,7 @@ Max 3 fix cycles at this step before escalating to the user — regressions clus
 
 Only stop the work phase once step 7 is fully green.
 
-When reporting the phase result, include the contents of `dev/local/assumptions.md` (if present) - the assumption ledger is input to the review phase and the user's 30-second examine pass.
+When reporting the phase result, include the contents of `dev/local/meta/assumptions.md` (if present) - the assumption ledger is input to the review phase and the user's 30-second examine pass.
 
 ## Reference Files
 

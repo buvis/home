@@ -6,7 +6,7 @@ Self-created working documents go in `dev/local/` at repo root, gitignored. Enfo
 
 ## Layout (GC contract)
 
-Canonical: aegis `rules/working-documents.md` (v0.3.0+). `dev/local/` is GC'd by the `purge-devlocal` skill (trash-first, never hand-delete). Root holds named keepers; PRD satellites (`designs/`, `reviews/`, `plans/`) carry their `00XXX` number and die with the PRD; `tmp/` is 7d while a PRD is in `prds/wip/`, 3d when wip is empty (no loop in flight); `autopilot/` 14d; curated dirs (`discovery/`, `specs/`, `notes/`, `walkthroughs/`, `audit-results/`, `spikes/`) are flagged, never trashed. Don't invent new top-level dirs.
+Canonical: aegis `rules/working-documents.md` (update queued: aegis PRD 00014). `dev/local/` is GC'd by the `purge-devlocal` skill (trash-first, never hand-delete). Named keepers (capsule, decisions, assumptions, agoge-profile, cursors) live in `dev/local/meta/` since 2026-08-23; root carries only their compat symlinks until the plugin repoints ship (`~/.claude` PRD 00139 retires them). PRD satellites (`designs/`, `reviews/`, `plans/`) carry their `00XXX` number and die with the PRD; `tmp/` is 7d while a PRD is in `prds/wip/`, 3d when wip is empty (no loop in flight); `autopilot/` 14d; curated dirs (`discovery/`, `specs/`, `notes/`, `walkthroughs/`, `audit-results/`, `spikes/`) are flagged, never trashed. Don't invent new top-level dirs.
 
 Since 2026-08-23 the layout is enforced at write time by `~/.claude/hooks/enforce_prd_location.py` (via `dispatch.py`): non-keeper root files, new top-level dirs, `.trash/` writes, and files directly in `prds/` all block with a message naming the right home. Throwaway output goes to `dev/local/tmp/`, PRD-numbered when one applies.
 

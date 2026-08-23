@@ -88,12 +88,31 @@ def test_stale_unlinkable_tmp_uses_tmp_rule_not_missing_prd(tmp_path):
 def test_never_touches_prds_or_keepers(tmp_path):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00042-foo.md", days_old=300)
+    # a keeper still regular at root = an unmigrated store; stays kept
     touch(store / "project-capsule.md", days_old=300)
     touch(store / "ecc-cursor", days_old=300)
     run(store, "--apply")
     assert (store / "prds" / "done" / "00042-foo.md").exists()
     assert (store / "project-capsule.md").exists()
     assert (store / "ecc-cursor").exists()
+
+
+def test_keepers_keep_in_meta_and_root_but_not_in_tmp(tmp_path):
+    """meta/ is the keepers' canonical home (2026-08-23); a root compat
+    symlink stays; a keeper NAME buried in tmp/ is a copy, not a keeper;
+    a non-keeper smuggled into meta/ ages out via stale-leftover."""
+    store = make_store(tmp_path)
+    touch(store / "meta" / "project-capsule.md", days_old=300)
+    os.symlink("meta/project-capsule.md", store / "project-capsule.md")
+    touch(store / "tmp" / "project-capsule.md", days_old=10)
+    touch(store / "meta" / "smuggled-notes.md", days_old=40)
+    run(store, "--apply")
+    assert (store / "meta" / "project-capsule.md").exists()
+    assert (store / "project-capsule.md").is_symlink()
+    assert not (store / "tmp" / "project-capsule.md").exists()
+    assert "stale-tmp\ttmp/project-capsule.md" in manifest(store)
+    assert not (store / "meta" / "smuggled-notes.md").exists()
+    assert "stale-leftover\tmeta/smuggled-notes.md" in manifest(store)
 
 
 def test_flags_discovery_of_missing_prd_without_moving(tmp_path, capsys):
