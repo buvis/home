@@ -56,11 +56,15 @@ def test_keeps_satellites_of_live_prds(tmp_path):
     store = make_store(tmp_path)
     touch(store / "prds" / "backlog" / "00050-a.md")
     touch(store / "prds" / "wip" / "00051-b.md")
+    touch(store / "prds" / "hold" / "00052-c.md")
     touch(store / "designs" / "00050-a-v1-design.md", days_old=90)
     touch(store / "tmp" / "coverage-00051c1.md", days_old=90)
+    # hold/ = parked, not dead: satellites survive until unparked or done
+    touch(store / "reviews" / "00052-c-evidence.md", days_old=90)
     run(store, "--apply")
     assert (store / "designs" / "00050-a-v1-design.md").exists()
     assert (store / "tmp" / "coverage-00051c1.md").exists()
+    assert (store / "reviews" / "00052-c-evidence.md").exists()
 
 
 def test_min_age_guard_keeps_fresh_files(tmp_path):
@@ -115,13 +119,15 @@ def test_stale_autopilot_and_root_log_ages(tmp_path):
     touch(store / "autopilot" / "state.json", days_old=2)
     touch(store / "alice.log", days_old=10)
     touch(store / "fresh.log", days_old=1)
-    touch(store / "notes-kept.md", days_old=200)
+    touch(store / "reviews" / "panel-notes.md", days_old=20)
     run(store, "--apply")
     assert not (store / "autopilot" / "old-report.md").exists()
     assert (store / "autopilot" / "state.json").exists()
     assert not (store / "alice.log").exists()
+    assert "stale-stray\talice.log" in manifest(store)
     assert (store / "fresh.log").exists()
-    assert (store / "notes-kept.md").exists()  # unclassified stays
+    # un-numbered satellite younger than --leftover-age-days stays
+    assert (store / "reviews" / "panel-notes.md").exists()
 
 
 def test_numbered_drain_workspace_dies_with_prd_and_dirs_pruned(tmp_path):
@@ -191,23 +197,74 @@ def test_review_without_verdict_trashes_without_ledger_row(tmp_path):
 # --- PRD 00082: four blind spots the 2026-07-14 manual audit caught ---
 
 
-def test_root_stray_unnumbered_is_flagged_not_kept_silently(tmp_path, capsys):
-    """Class 1: un-numbered root files (blake-*.md, probe scripts, test-run.log)
-    must FLAG, not classify unclassified->keep. Root holds named keepers only."""
+def test_root_stray_flags_young_and_trashes_old(tmp_path, capsys):
+    """Class 1: un-numbered root files (blake-*.md, probe scripts) are strays -
+    root holds named keepers only. Young ones FLAG (a new keeper often lands
+    before KEEP_NAMES is updated); past --tmp-age-days they trash as
+    stale-stray instead of lingering flagged forever (2026-08-23)."""
     store = make_store(tmp_path)
     touch(store / "blake-notes.md", days_old=10)
     touch(store / "probe.py", days_old=10)
-    touch(store / "test-run.log", days_old=1)  # fresh: not yet stale-log
+    touch(store / "test-run.log", days_old=1)  # young: flag, not yet stale
     touch(store / "project-capsule.md", days_old=200)  # keeper: never flagged
+    touch(store / "agoge-profile.md", days_old=200)  # keeper since 2026-08-23
     run(store, "--apply")
     out = capsys.readouterr().out
-    assert "FLAG (root-stray, kept): blake-notes.md" in out
-    assert "FLAG (root-stray, kept): probe.py" in out
     assert "FLAG (root-stray, kept): test-run.log" in out
     assert "project-capsule.md" not in out  # keeper stays silent
-    # flagged, never trashed
-    assert (store / "blake-notes.md").exists()
+    assert "agoge-profile.md" not in out
+    assert not (store / "blake-notes.md").exists()
+    assert not (store / "probe.py").exists()
+    assert "stale-stray\tblake-notes.md" in manifest(store)
     assert (store / "test-run.log").exists()
+    assert (store / "project-capsule.md").exists()
+    assert (store / "agoge-profile.md").exists()
+
+
+def test_foreign_toplevel_dir_ages_out_curated_does_not(tmp_path):
+    """A top-level dir outside the layout vocabulary (agoge run workspaces,
+    tool caches) is a one-off workspace: its files trash past --tmp-age-days.
+    Curated FLAG_DIRS and live-linked files inside foreign dirs stay."""
+    store = make_store(tmp_path)
+    touch(store / "prds" / "wip" / "00050-a.md")
+    touch(store / "heidi" / "probe-report.md", days_old=10)
+    touch(store / "uv-cache" / "CACHEDIR.TAG", days_old=40)
+    touch(store / "walter" / "fresh-run.txt", days_old=1)
+    touch(store / "wendy" / "notes-00050.md", days_old=40)  # live-linked
+    touch(store / "notes" / "un-numbered.md", days_old=400)  # curated
+    run(store, "--apply")
+    assert not (store / "heidi").exists()
+    assert not (store / "uv-cache").exists()
+    assert "stale-foreign\theidi/probe-report.md" in manifest(store)
+    assert (store / "walter" / "fresh-run.txt").exists()
+    assert (store / "wendy" / "notes-00050.md").exists()
+    assert (store / "notes" / "un-numbered.md").exists()
+
+
+def test_stale_leftover_catches_unnumbered_satellites(tmp_path):
+    """Files no other rule claims (in practice: un-numbered files inside
+    designs/reviews/plans) trash past --leftover-age-days - nothing is
+    kept-forever-unclassified anymore."""
+    store = make_store(tmp_path)
+    touch(store / "reviews" / "panel-notes.md", days_old=40)
+    touch(store / "designs" / "sketch.md", days_old=10)
+    run(store, "--apply")
+    assert not (store / "reviews" / "panel-notes.md").exists()
+    assert "stale-leftover\treviews/panel-notes.md" in manifest(store)
+    assert (store / "designs" / "sketch.md").exists()
+
+
+def test_flag_overflow_is_reported_not_silent(tmp_path, capsys):
+    """More than 20 flags must say how many were elided; -v lists all."""
+    store = make_store(tmp_path)
+    for i in range(25):
+        touch(store / f"stray-{i:02d}.txt", days_old=1)
+    run(store)
+    assert "... 5 more flags (-v lists all)" in capsys.readouterr().out
+    run(store, "-v")
+    out = capsys.readouterr().out
+    assert "more flags" not in out
+    assert "FLAG (root-stray, kept): stray-24.txt" in out
 
 
 def test_done_linked_root_debris_trashes_when_past_min_age(tmp_path):
@@ -549,6 +606,56 @@ def test_non_review_artifacts_never_trigger_harvest_regardless_of_rule(
     assert not (store / "designs" / "00042-foo-v1-design.md").exists()
     assert not (store / "tmp" / "review-context-1781034671-89877.md").exists()
     assert not (store / "alice.log").exists()
+
+
+def test_reviews_dotfile_scratch_trashes_without_harvest(tmp_path, monkeypatch):
+    """Dotfiles in reviews/ are per-run scratch (reviewer prompts, aggregates)
+    with no findings contract: harvesting them can only parse_fail and block
+    their GC forever, so they trash without a harvest attempt."""
+    store = make_store(tmp_path)
+    touch(store / "reviews" / ".blind-reviewer-prompt.md", days_old=40)
+    run_calls = []
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return FakeCompletedProcess(1, stderr="no_repo")
+
+    monkeypatch.setattr(gc.shutil, "which", lambda name: "/usr/local/bin/engram")
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    assert run_calls == []
+    assert not (store / "reviews" / ".blind-reviewer-prompt.md").exists()
+    assert "stale-leftover\treviews/.blind-reviewer-prompt.md" in manifest(store)
+    assert not (store / "autopilot" / "ledger" / "review-verdicts.jsonl").exists()
+
+
+def test_contractless_audit_file_trashes_with_ledger_row_but_no_engram(
+    tmp_path, monkeypatch
+):
+    """A reviews/*-audit.md without frontmatter can only ever parse_fail in
+    engram, so it trashes without an engram attempt - while its Verdict:
+    lines still land in the ledger."""
+    store = make_store(tmp_path)
+    touch(store / "prds" / "done" / "00042-foo.md")
+    audit = store / "reviews" / "00042-foo-audit.md"
+    touch(audit, days_old=10)
+    audit.write_text("# Audit trail\nVerdict: CONVERGED\n")
+    ts = NOW - 10 * gc.DAY
+    os.utime(audit, (ts, ts))
+    run_calls = []
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return FakeCompletedProcess(1, stderr="parse_failed")
+
+    monkeypatch.setattr(gc.shutil, "which", lambda name: "/usr/local/bin/engram")
+    monkeypatch.setattr(gc.subprocess, "run", fake_run)
+    assert run(store, "--apply") == 0
+    assert run_calls == []
+    assert not audit.exists()
+    assert "done-linked\treviews/00042-foo-audit.md" in manifest(store)
+    ledger = (store / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
+    assert "CONVERGED" in ledger
 
 
 def test_dry_run_never_invokes_harvest(tmp_path, monkeypatch):
