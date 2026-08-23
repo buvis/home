@@ -16,9 +16,11 @@ Relevance rules (first match wins, `live` always wins):
 | stale-tmp       | tmp/** older than --tmp-age-days                      | trash  |
 | ledger          | autopilot/ledger/** (durable outcome ledger)          | keep   |
 | stale-autopilot | autopilot/** (incl. deferred/, reports/) > age-days   | trash  |
-| stale-log       | root *.log/*.bak/*.tmp older than --tmp-age-days      | trash  |
-| root-stray      | un-numbered root file outside KEEP_NAMES              | flag   |
-| unclassified    | everything else                                       | keep   |
+| stale-stray     | root file (outside KEEP_NAMES) older than tmp-age     | trash  |
+| stale-foreign   | unknown top-level dir older than --tmp-age-days       | trash  |
+| stale-leftover  | anything else older than --leftover-age-days          | trash  |
+| root-stray      | young un-numbered root file outside KEEP_NAMES        | flag   |
+| unclassified    | everything else (young; ages into a rule above)       | keep   |
 
 autopilot/deferred/** and autopilot/reports/** are NOT special-cased: they age
 out under the same stale-autopilot rule as the rest of autopilot/** (only
@@ -26,6 +28,13 @@ ledger/** is exempt). Same for numbered root debris of a DONE prd - it reaches
 done-linked->trash. When such files nonetheless survive a run, the cause is the
 --min-age-days guard (a same-day sweep leaves them fresher than the floor) or a
 live PRD token, never a classifier gap (verified 2026-07-20, PRD 00082).
+
+Every file eventually classifies (2026-08-23, closing the kept-forever blind
+spots): root strays and foreign top-level dirs (one-off workspaces like agoge
+run dirs, tool caches) get tmp treatment at --tmp-age-days, and stale-leftover
+catches the rest (in practice: un-numbered files inside designs/reviews/plans).
+prds/**, keepers, ledger, live-linked files, and curated FLAG_DIRS stay exempt
+- they match earlier keep/flag rules.
 
 Trashed reviews/*.md leave their Verdict: lines in
 autopilot/ledger/review-verdicts.jsonl before the move, so review outcomes
@@ -61,6 +70,7 @@ KEEP_NAMES = {
     "decisions.md",
     "troubleshooting.md",
     "assumptions.md",
+    "agoge-profile.md",
     "ecc-cursor",
     "upstream-cursor",
 }
@@ -69,7 +79,9 @@ FLAG_DIRS = {"discovery", "specs", "notes", "walkthroughs", "audit-results", "sp
 # by convention; tmp/ is excluded because review-context-<epoch>-<pid> names
 # false-positive on the PID. Widen only with a smarter token parser.
 MISSING_SCOPE = {"designs", "reviews", "plans", "(root)"}
-LOG_SUFFIXES = (".log", ".bak", ".tmp")
+# The layout contract's full top-level vocabulary; anything else is a foreign
+# workspace and ages out like tmp/.
+KNOWN_DIRS = {"prds", "designs", "reviews", "plans", "tmp", "autopilot"} | FLAG_DIRS
 
 
 def find_stores(home: Path) -> dict[str, Path]:
@@ -113,10 +125,14 @@ def resolve_store(path: Path) -> Path:
 
 
 def prd_numbers(store: Path) -> tuple[set[str], set[str]]:
-    """Return (live, done) PRD numbers from prds/{backlog,wip,done}."""
+    """Return (live, done) PRD numbers from prds/{backlog,wip,hold,done}.
+
+    hold/ counts as live: a parked PRD is paused, not dead, so its satellites
+    must survive until a human moves it to done/ or deletes it."""
     live: set[str] = set()
     done: set[str] = set()
-    for bucket, target in (("backlog", live), ("wip", live), ("done", done)):
+    buckets = (("backlog", live), ("wip", live), ("hold", live), ("done", done))
+    for bucket, target in buckets:
         d = store / "prds" / bucket
         if not d.is_dir():
             continue
@@ -175,16 +191,21 @@ def classify_artifact(
         action, rule = "trash", "stale-tmp"
     elif top == "autopilot" and age > args.autopilot_age_days:
         action, rule = "trash", "stale-autopilot"
-    elif top == "(root)" and rel.suffix in LOG_SUFFIXES and age > args.tmp_age_days:
-        action, rule = "trash", "stale-log"
+    elif top == "(root)" and age > args.tmp_age_days:
+        action, rule = "trash", "stale-stray"
+    elif top != "(root)" and top not in KNOWN_DIRS and age > args.tmp_age_days:
+        action, rule = "trash", "stale-foreign"
+    elif age > args.leftover_age_days:
+        action, rule = "trash", "stale-leftover"
 
     if action == "trash":
         if age < args.min_age_days:
             return "keep", f"fresh:{rule}"
         return action, rule
-    # Root holds named keepers only (working-documents contract): an un-numbered
-    # root file outside KEEP_NAMES is a stray. Flag, never auto-trash - a new
-    # keeper often lands before anyone updates KEEP_NAMES.
+    # Root holds named keepers only (working-documents contract): a young
+    # un-numbered root file outside KEEP_NAMES is a stray. Flag it while it is
+    # fresh - a new keeper often lands before anyone updates KEEP_NAMES - and
+    # let stale-stray trash it once it outlives tmp-age.
     if top == "(root)" and not toks:
         return "flag", "root-stray"
     return "keep", "unclassified"
@@ -227,13 +248,27 @@ def harvest_before_trash(
     """Run `engram harvest` on a review satellite before it's trashed and, on
     success, record its verdict in the ledger. Non-review files are left
     alone and always return True. Prints a WARN line on harvest failure."""
+    # Dotfiles in reviews/ (.blind-reviewer-prompt.md, .doubt-aggregate.md) are
+    # scratch the review skills rewrite each run - no findings contract, so a
+    # harvest attempt can only parse_fail and block their GC forever.
     is_review_md = (
-        len(rel.parts) > 1 and rel.parts[0] == "reviews" and rel.suffix == ".md"
+        len(rel.parts) > 1
+        and rel.parts[0] == "reviews"
+        and rel.suffix == ".md"
+        and not rel.name.startswith(".")
     )
     if not is_review_md:
         return True
+    # engram's findings parser hard-requires frontmatter; a file without it
+    # (-audit.md trail files) can only ever parse_fail, so gating its trash on
+    # a harvest that cannot succeed would block it forever. Its Verdict: lines
+    # still reach the ledger below.
+    try:
+        has_contract = (store / rel).read_text(errors="ignore").startswith("---")
+    except OSError:
+        has_contract = False
     harvested_ok = True
-    if engram_path is not None:
+    if engram_path is not None and has_contract:
         try:
             result = subprocess.run(
                 [engram_path, "harvest", str(store / rel)],
@@ -364,9 +399,12 @@ def process_store(
         uncl = f" unclassified={sum(unclassified.values())}" if unclassified else ""
         emp = f" trash-batches-emptied={emptied}" if emptied else ""
         print(f"{label}: trash={total} ({detail}){fresh}{uncl}{emp}")
-        for rule, f in flags[:20]:
+        shown = flags if args.verbose else flags[:20]
+        for rule, f in shown:
             label_txt = "prd gone" if rule == "prd-gone" else rule
             print(f"  FLAG ({label_txt}, kept): {f}")
+        if len(flags) > len(shown):
+            print(f"  ... {len(flags) - len(shown)} more flags (-v lists all)")
         if args.verbose:
             for rule, rel in trashed:
                 print(f"  {rule}: {rel}")
@@ -402,6 +440,12 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--tmp-age-days", type=float, default=7)
     ap.add_argument("--autopilot-age-days", type=float, default=14)
+    ap.add_argument(
+        "--leftover-age-days",
+        type=float,
+        default=30,
+        help="catch-all horizon for files no other rule claims",
+    )
     ap.add_argument("--empty-trash-days", type=float, default=30)
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
