@@ -20,7 +20,7 @@ Conventions
   it by handler basename and order.
 - Aggregation / isolation / timeout tests monkeypatch `dispatch.ROUTES` (or call
   `dispatch._invoke` / `dispatch._aggregate` directly) against tiny stub handler
-  files written into `tmp_path`, so the 12 real handlers are never executed.
+  files written into `tmp_path`, so the 13 real handlers are never executed.
 """
 
 from __future__ import annotations
