@@ -319,6 +319,139 @@ class TestBashMode(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
 
 
+class TestDevlocalLayout(unittest.TestCase):
+    """Layout layer merged 2026-08-23: root keepers only, no foreign top-level
+    dirs, .trash GC-owned, prds lifecycle subdirs (incl. hold/), both
+    spellings of the symlinked ~/.claude store."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.mkdtemp(prefix="prdloc-layout-")
+        cls.repo = make_repo(cls._tmp)
+        cls.store = os.path.join(cls.repo, "dev", "local")
+
+    def _write(self, path: str) -> subprocess.CompletedProcess[str]:
+        return run_hook({"tool_name": "Write", "tool_input": {"file_path": path}})
+
+    def test_blocks_root_stray_with_tmp_guidance(self) -> None:
+        r = self._write(os.path.join(self.store, "race.sh"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ROOT", r.stderr)
+        self.assertIn("dev/local/tmp/race.sh", r.stderr)
+
+    def test_allows_root_keepers(self) -> None:
+        for name in (
+            "project-capsule.md",
+            "agoge-profile.md",
+            "assumptions.md",
+            "ecc-cursor",
+        ):
+            r = self._write(os.path.join(self.store, name))
+            self.assertEqual(r.returncode, 0, f"{name}: {r.stderr}")
+
+    def test_allows_known_subdirs(self) -> None:
+        for rel in (
+            "tmp/scratch-probe.py",
+            "reviews/00042-foo-review-1.md",
+            "designs/00042-foo-v1-design.md",
+            "autopilot/state.json",
+            "discovery/00099-idea.md",
+        ):
+            r = self._write(os.path.join(self.store, rel))
+            self.assertEqual(r.returncode, 0, f"{rel}: {r.stderr}")
+
+    def test_blocks_foreign_toplevel_dir(self) -> None:
+        r = self._write(os.path.join(self.store, "heidi", "report.md"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not a dev/local top-level dir", r.stderr)
+        self.assertIn("dev/local/tmp/heidi/", r.stderr)
+
+    def test_blocks_trash_writes(self) -> None:
+        r = self._write(os.path.join(self.store, ".trash", "2026-01-01", "x.md"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("purge-devlocal", r.stderr)
+
+    def test_blocks_prds_root_file_allows_lifecycle_subdirs(self) -> None:
+        r = self._write(os.path.join(self.store, "prds", "FASTTRACK-PLAN.md"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("lifecycle", r.stderr)
+        for bucket in ("backlog", "wip", "hold", "done"):
+            r = self._write(os.path.join(self.store, "prds", bucket, "00042-x.md"))
+            self.assertEqual(r.returncode, 0, f"{bucket}: {r.stderr}")
+
+    def test_blocks_repo_root_hold_like_other_lifecycle_dirs(self) -> None:
+        r = self._write(os.path.join(self.repo, "hold", "00042-parked.md"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("hold/00042-parked.md", r.stderr)
+        r = run_hook(
+            {"tool_name": "Bash", "tool_input": {"command": "mv prd.md hold/"}},
+        )
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("hold/", r.stderr)
+
+    def test_blocks_symlinked_home_store_through_both_spellings(self) -> None:
+        home = tempfile.mkdtemp(prefix="prdloc-home-")
+        os.makedirs(os.path.join(home, ".claude", "dev"))
+        target = tempfile.mkdtemp(prefix="prdloc-target-")
+        os.symlink(target, os.path.join(home, ".claude", "dev", "local"))
+        env = {**os.environ, "HOME": home}
+
+        def write_with_home(path: str) -> subprocess.CompletedProcess[str]:
+            payload = {"tool_name": "Write", "tool_input": {"file_path": path}}
+            return subprocess.run(
+                [sys.executable, str(HOOK)],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
+            )
+
+        symlink_form = os.path.join(home, ".claude", "dev", "local", "probe.py")
+        r = write_with_home(symlink_form)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        r = write_with_home(os.path.join(target, "probe.py"))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        r = write_with_home(os.path.join(target, "tmp", "probe.py"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_blocks_multiedit_layout_violation(self) -> None:
+        ok = os.path.join(self.repo, "src", "x.py")
+        bad = os.path.join(self.store, "stray.txt")
+        r = run_hook(
+            {
+                "tool_name": "MultiEdit",
+                "tool_input": {"edits": [{"file_path": ok}, {"file_path": bad}]},
+            },
+        )
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ROOT", r.stderr)
+
+    def test_constants_stay_in_sync_with_purge_devlocal(self) -> None:
+        """The hook duplicates the GC's KEEP_NAMES/KNOWN_DIRS instead of
+        importing across trees; this is the sync guard."""
+        import importlib.util
+
+        def load(name: str, path: Path):
+            spec = importlib.util.spec_from_file_location(name, str(path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+
+        hook_mod = load("_layout_sync_hook", HOOK)
+        gc_mod = load(
+            "_layout_sync_gc",
+            Path.home()
+            / ".claude"
+            / "skills"
+            / "purge-devlocal"
+            / "scripts"
+            / "purge_devlocal.py",
+        )
+        self.assertEqual(hook_mod.KEEP_NAMES, gc_mod.KEEP_NAMES)
+        self.assertEqual(hook_mod.KNOWN_DIRS, gc_mod.KNOWN_DIRS)
+
+
 class TestUnknownTool(unittest.TestCase):
     def test_allows_other_tool(self) -> None:
         r = run_hook(
@@ -411,7 +544,9 @@ class TestResolveToplevel(unittest.TestCase):
                 second = _common.resolve_toplevel(target_b)
 
             self.assertEqual(
-                len(calls), 1, f"expected exactly 1 git spawn, got {calls}"
+                len(calls),
+                1,
+                f"expected exactly 1 git spawn, got {calls}",
             )
             self.assertIsNotNone(first)
             self.assertEqual(first, second)
