@@ -13,7 +13,9 @@ Relevance rules (first match wins, `live` always wins):
 | done-linked     | PRD token found in prds/done                          | trash  |
 | missing-prd     | numbered file in designs/reviews/plans/(root)/00XXX-* | trash  |
 |                 | dir whose PRD exists nowhere                          |        |
-| stale-tmp       | tmp/** older than --tmp-age-days                      | trash  |
+| stale-tmp       | tmp/** older than --tmp-age-days while a PRD is in    | trash  |
+|                 | prds/wip (loop in flight); --tmp-idle-age-days when   |        |
+|                 | wip is empty (no incomplete loop references scratch)  |        |
 | ledger          | autopilot/ledger/** (durable outcome ledger)          | keep   |
 | stale-autopilot | autopilot/** (incl. deferred/, reports/) > age-days   | trash  |
 | stale-stray     | root file (outside KEEP_NAMES) older than tmp-age     | trash  |
@@ -158,9 +160,21 @@ def walk_store(store: Path):
 
 
 def classify_artifact(
-    rel: Path, mtime: float, live: set[str], done: set[str], now: float, args
+    rel: Path,
+    mtime: float,
+    live: set[str],
+    done: set[str],
+    now: float,
+    args,
+    wip_live: bool = False,
 ) -> tuple[str, str]:
-    """Return (action, rule); action is keep | trash | flag."""
+    """Return (action, rule); action is keep | trash | flag.
+
+    wip_live is the loop-liveness proxy: a PRD sitting in prds/wip means an
+    incomplete autopilot loop may still reference tmp scratch, so tmp/ keeps
+    the full --tmp-age-days grace. An empty wip means no loop is in flight
+    and un-linked tmp scratch is dead at --tmp-idle-age-days. Files of the
+    running loop are protected regardless (live-linked token, min-age)."""
     top = rel.parts[0] if len(rel.parts) > 1 else "(root)"
     age = (now - mtime) / DAY
     toks = set(PRD_NUM.findall(rel.as_posix()))
@@ -187,7 +201,9 @@ def classify_artifact(
         and (top in MISSING_SCOPE or PRD_NUM.search(top))
     ):
         action, rule = "trash", "missing-prd"
-    elif top == "tmp" and age > args.tmp_age_days:
+    elif top == "tmp" and age > (
+        args.tmp_age_days if wip_live else args.tmp_idle_age_days
+    ):
         action, rule = "trash", "stale-tmp"
     elif top == "autopilot" and age > args.autopilot_age_days:
         action, rule = "trash", "stale-autopilot"
@@ -243,7 +259,10 @@ def harvest_review_verdicts(store: Path, rel: Path, now: float) -> None:
 
 
 def harvest_before_trash(
-    engram_path: str | None, store: Path, rel: Path, now: float
+    engram_path: str | None,
+    store: Path,
+    rel: Path,
+    now: float,
 ) -> bool:
     """Run `engram harvest` on a review satellite before it's trashed and, on
     success, record its verdict in the ledger. Non-review files are left
@@ -284,7 +303,7 @@ def harvest_before_trash(
         if not harvested_ok:
             print(
                 f"  WARN harvest failed for {rel.as_posix()}, "
-                f"not trashing this run: {harvest_output}"
+                f"not trashing this run: {harvest_output}",
             )
     if harvested_ok:
         harvest_review_verdicts(store, rel, now)
@@ -324,7 +343,7 @@ def trash_file(store: Path, rel: Path, rule: str, batch: str) -> None:
     manifest = store / TRASH_DIR / "manifest.tsv"
     with manifest.open("a") as fh:
         fh.write(
-            f"{batch}\t{rule}\t{rel.as_posix()}\t{final.relative_to(store).as_posix()}\n"
+            f"{batch}\t{rule}\t{rel.as_posix()}\t{final.relative_to(store).as_posix()}\n",
         )
 
 
@@ -358,9 +377,15 @@ def empty_old_trash(store: Path, now: float, days: float) -> int:
 
 
 def process_store(
-    label: str, store: Path, args, now: float, engram_path: str | None
+    label: str,
+    store: Path,
+    args,
+    now: float,
+    engram_path: str | None,
 ) -> dict:
     live, done = prd_numbers(store)
+    wip = store / "prds" / "wip"
+    wip_live = wip.is_dir() and any(wip.iterdir())
     batch = time.strftime("%Y-%m-%d", time.localtime(now))
     trash_counts: Counter = Counter()
     kept_fresh: Counter = Counter()
@@ -369,7 +394,7 @@ def process_store(
     trashed: list[tuple[str, str]] = []
 
     for rel, mtime in sorted(walk_store(store)):
-        action, rule = classify_artifact(rel, mtime, live, done, now, args)
+        action, rule = classify_artifact(rel, mtime, live, done, now, args, wip_live)
         if action == "trash":
             if not args.apply:
                 trash_counts[rule] += 1
@@ -421,7 +446,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Trash-first GC for dev/local stores")
     scope = ap.add_mutually_exclusive_group(required=True)
     scope.add_argument(
-        "--all", action="store_true", help="all repos under ~/git/src plus ~/.claude"
+        "--all",
+        action="store_true",
+        help="all repos under ~/git/src plus ~/.claude",
     )
     scope.add_argument(
         "--repo",
@@ -430,7 +457,9 @@ def main(argv=None) -> int:
         help="repo root or dev/local path (repeatable)",
     )
     ap.add_argument(
-        "--apply", action="store_true", help="move files to .trash (default: dry-run)"
+        "--apply",
+        action="store_true",
+        help="move files to .trash (default: dry-run)",
     )
     ap.add_argument(
         "--min-age-days",
@@ -438,7 +467,18 @@ def main(argv=None) -> int:
         default=3,
         help="never trash files newer than this",
     )
-    ap.add_argument("--tmp-age-days", type=float, default=7)
+    ap.add_argument(
+        "--tmp-age-days",
+        type=float,
+        default=7,
+        help="tmp horizon while a PRD sits in prds/wip (loop in flight)",
+    )
+    ap.add_argument(
+        "--tmp-idle-age-days",
+        type=float,
+        default=3,
+        help="tmp horizon when prds/wip is empty (no incomplete loop)",
+    )
     ap.add_argument("--autopilot-age-days", type=float, default=14)
     ap.add_argument(
         "--leftover-age-days",
@@ -472,7 +512,7 @@ def main(argv=None) -> int:
     mode = "APPLIED" if args.apply else "DRY-RUN (use --apply)"
     print(
         f"{mode}: trash={totals['trash']} flags={totals['flags']} "
-        f"unclassified-kept={totals['unclassified']} across {len(stores)} store(s)"
+        f"unclassified-kept={totals['unclassified']} across {len(stores)} store(s)",
     )
     return 0
 

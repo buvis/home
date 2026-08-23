@@ -88,7 +88,7 @@ manifest, and trash batches older than 30 days are emptied on later runs.
 | prd-gone | discovery/specs/notes/walkthroughs/audit-results/spikes with a done or missing PRD | flag, keep |
 | done-linked | any non-prds file carrying a done PRD number | trash |
 | missing-prd | numbered designs/reviews/plans/root files with no PRD anywhere | trash |
-| stale-tmp | tmp/** older than 7d | trash |
+| stale-tmp | tmp/** older than 7d while a PRD is in `prds/wip/`; 3d (`--tmp-idle-age-days`) when wip is empty | trash |
 | ledger | autopilot/ledger/** (durable outcome ledger) | keep |
 | stale-autopilot | autopilot/** older than 14d | trash |
 | stale-stray | root files outside KEEP_NAMES older than 7d | trash |
@@ -101,6 +101,14 @@ Nothing stays kept-forever-unclassified: session workspaces dropped at root
 or as new top-level dirs get tmp treatment, and the leftover catch-all
 sweeps whatever no other rule claims (2026-08-23, closing the blind spots
 that let ~1100 files accumulate in the `~/.claude` store).
+
+Loop-liveness, not just age, decides tmp's horizon: `prds/wip/` is the
+proxy for "an incomplete loop may still reference this scratch". While a
+PRD sits in wip, its loop is in flight and tmp keeps the full 7d grace;
+an empty wip means the batch drained and un-linked tmp scratch is dead at
+3d. Files the running loop actually owns are protected either way - they
+carry the wip PRD's token (live-linked) or are fresher than
+`--min-age-days`.
 
 Safety rails: `--min-age-days 3` vetoes trashing anything freshly touched
 (live batches stay intact); dry-run is the default; PRD number collisions are

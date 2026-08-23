@@ -4,9 +4,8 @@ import os
 import time
 from pathlib import Path
 
-import pytest
-
 import purge_devlocal as gc
+import pytest
 
 NOW = time.time()
 
@@ -254,6 +253,29 @@ def test_stale_leftover_catches_unnumbered_satellites(tmp_path):
     assert (store / "designs" / "sketch.md").exists()
 
 
+def test_tmp_horizon_tightens_when_no_loop_is_in_flight(tmp_path):
+    """prds/wip is the loop-liveness proxy: while a PRD is in flight its loop
+    may still reference tmp scratch, so tmp keeps --tmp-age-days; an empty
+    wip means no incomplete loop and un-linked scratch dies at the stricter
+    --tmp-idle-age-days. Live-linked files ignore both horizons."""
+    store = make_store(tmp_path)
+    touch(store / "tmp" / "idle-scrap.txt", days_old=5)
+    touch(store / "tmp" / "young-scrap.txt", days_old=1)
+    run(store, "--apply")  # wip empty: idle horizon (3d) applies
+    assert not (store / "tmp" / "idle-scrap.txt").exists()
+    assert "stale-tmp\ttmp/idle-scrap.txt" in manifest(store)
+    assert (store / "tmp" / "young-scrap.txt").exists()
+
+    touch(store / "prds" / "wip" / "00060-live.md")
+    touch(store / "tmp" / "inflight-scrap.txt", days_old=5)
+    touch(store / "tmp" / "old-scrap.txt", days_old=9)
+    touch(store / "tmp" / "notes-00060.md", days_old=90)
+    run(store, "--apply")  # loop in flight: full 7d grace for tmp
+    assert (store / "tmp" / "inflight-scrap.txt").exists()
+    assert not (store / "tmp" / "old-scrap.txt").exists()
+    assert (store / "tmp" / "notes-00060.md").exists()  # live-linked
+
+
 def test_flag_overflow_is_reported_not_silent(tmp_path, capsys):
     """More than 20 flags must say how many were elided; -v lists all."""
     store = make_store(tmp_path)
@@ -365,7 +387,11 @@ class FakeCompletedProcess:
 
 
 def review_with_verdict(
-    store: Path, prd: str, slug: str, verdict: str = "APPROVED", days_old: float = 10
+    store: Path,
+    prd: str,
+    slug: str,
+    verdict: str = "APPROVED",
+    days_old: float = 10,
 ) -> Path:
     path = store / "reviews" / f"{prd}-{slug}-alice.md"
     touch(path, days_old=days_old)
@@ -376,7 +402,8 @@ def review_with_verdict(
 
 
 def test_harvest_success_for_each_satellite_trashes_all_with_ledger_rows(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00042-foo.md")
@@ -407,7 +434,10 @@ def test_harvest_success_for_each_satellite_trashes_all_with_ledger_rows(
         assert cmd[0] == "/usr/local/bin/engram"
         assert cmd[1] == "harvest"
         assert kwargs == {"capture_output": True, "text": True, "timeout": 300}
-    assert file_still_present == [True, True]  # harvested while still on disk, before trashing
+    assert file_still_present == [
+        True,
+        True,
+    ]  # harvested while still on disk, before trashing
     assert not review_a.exists()
     assert not review_b.exists()
     ledger = (store / "autopilot" / "ledger" / "review-verdicts.jsonl").read_text()
@@ -416,7 +446,9 @@ def test_harvest_success_for_each_satellite_trashes_all_with_ledger_rows(
 
 
 def test_harvest_failure_keeps_file_without_ledger_row_while_sibling_trashes(
-    tmp_path, monkeypatch, capsys
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00042-foo.md")
@@ -485,7 +517,9 @@ def test_dry_run_still_counts_review_satellites_it_would_trash(tmp_path, capsys)
 
 
 def test_harvest_oserror_keeps_file_and_warns_without_aborting_sweep(
-    tmp_path, monkeypatch, capsys
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00042-foo.md")
@@ -514,7 +548,9 @@ def test_harvest_oserror_keeps_file_and_warns_without_aborting_sweep(
 
 
 def test_harvest_timeout_expired_keeps_file_and_warns_without_aborting_sweep(
-    tmp_path, monkeypatch, capsys
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00042-foo.md")
@@ -543,7 +579,9 @@ def test_harvest_timeout_expired_keeps_file_and_warns_without_aborting_sweep(
 
 
 def test_missing_engram_skips_sweep_with_single_warning_and_trashes_normally(
-    tmp_path, monkeypatch, capsys
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     """The binary must resolve ONCE PER RUN, not once per store - so this test
     sweeps two stores in a single gc.main call."""
@@ -558,7 +596,6 @@ def test_missing_engram_skips_sweep_with_single_warning_and_trashes_normally(
 
     def fake_which(name):
         which_calls.append(name)
-        return None
 
     def fake_run(cmd, **kwargs):
         run_calls.append((cmd, kwargs))
@@ -566,9 +603,7 @@ def test_missing_engram_skips_sweep_with_single_warning_and_trashes_normally(
 
     monkeypatch.setattr(gc.shutil, "which", fake_which)
     monkeypatch.setattr(gc.subprocess, "run", fake_run)
-    assert (
-        gc.main(["--repo", str(store_a), "--repo", str(store_b), "--apply"]) == 0
-    )
+    assert gc.main(["--repo", str(store_a), "--repo", str(store_b), "--apply"]) == 0
     out = capsys.readouterr().out
     assert which_calls == ["engram"]
     assert run_calls == []
@@ -583,7 +618,8 @@ def test_missing_engram_skips_sweep_with_single_warning_and_trashes_normally(
 
 
 def test_non_review_artifacts_never_trigger_harvest_regardless_of_rule(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     store = make_store(tmp_path)
     touch(store / "prds" / "done" / "00042-foo.md")
@@ -630,7 +666,8 @@ def test_reviews_dotfile_scratch_trashes_without_harvest(tmp_path, monkeypatch):
 
 
 def test_contractless_audit_file_trashes_with_ledger_row_but_no_engram(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     """A reviews/*-audit.md without frontmatter can only ever parse_fail in
     engram, so it trashes without an engram attempt - while its Verdict:
