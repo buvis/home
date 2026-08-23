@@ -111,7 +111,11 @@ Before collecting, run the preflight:
 gh auth status
 ```
 
-A failure here aborts immediately (see **Auth/permission-failure control flow** below).
+A failure here aborts immediately (see **Auth/permission-failure control flow** below). This
+includes `gh` not being installed or not on `PATH`: a `command not found` is a run-level abort,
+never a reason to fall back to `curl`, unauthenticated REST, or a browser. `gh` is the only
+supported collection path; if it is unavailable, say so and stop rather than shipping a quieter
+digest by another route.
 
 ### Resolve the default branch (shared, both modes)
 
@@ -123,6 +127,13 @@ Use the returned branch name (`{default_branch}`) everywhere below that previous
 `main`/`master`. One call, no probing. This call is also the source-of-truth
 auth/permission check for this specific repo (see **Auth/permission-failure control flow**
 below).
+
+`{default_branch}` is external input (a tracked third-party repo controls it) and gets spliced
+into a URL, so validate it before any use: it must match `^[A-Za-z0-9._/-]+$`. If it does not,
+abort the run (a branch name outside that charset is not something to quote around — it is a
+signal something is wrong with the source). This is the same allowlist-then-abort rule the
+per-item identifier validation below applies; single-quoting alone is not a substitute, since
+a git ref name may legally contain a single quote.
 
 ### For curated-list mode
 
@@ -166,12 +177,13 @@ gh api repos/{owner}/{repo}/commits/{sha}/pulls --jq '.[0] | {number, title, bod
    existing "PR is a 404" edge case).
 
    **Identifier validation (applies to every extraction site, including the open-PR pass):**
-   PR titles and bodies are public, adversary-writable text. Before an extracted
-   `{item-owner}/{item-repo}` enters any command, it must match
-   `^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$` (GitHub's own identifier charset); anything else is not
-   a confident extraction — skip with a note. Pass every API-derived value
-   (`{default_branch}`, extracted identifiers) into commands as a single-quoted argument,
-   never unquoted, so external text can never alter the command.
+   PR titles and bodies are public, adversary-writable text. A GitHub-hosted item's extracted
+   `{item-owner}/{item-repo}`, before it enters the metadata `gh` call below, must match
+   `^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$` (GitHub's own identifier charset); if it does not, treat
+   the extraction as not confident — skip with a note. (An item that is clearly hosted off
+   GitHub goes to the "Item hosted off GitHub" edge case instead; it never enters a `gh`
+   command, so this gate does not apply to it.) Splice a validated identifier into the command
+   as a single-quoted argument, never unquoted.
 
 3. Item repo metadata:
 
@@ -250,14 +262,15 @@ Step 7's footer as `gh calls made: N`.
 
 ### Auth/permission-failure control flow
 
-Run `gh auth status` before collecting; a failure aborts. After that, one rule: any
-401/403/429/5xx on any call aborts the run, and so does a 404 on a repo-level call (the
-default-branch lookup — the repo is a registered config entry — plus commit pages, the open-PR
-search, and Search API pages). Only a 404 on a per-item call (`commits/{sha}/pulls`, item-repo
-metadata) stays scoped to that commit/PR/item per its edge case. On any run-level abort: do
-not write a zettelkasten file, do not advance `last_check` in Step 6; report in chat which
-call failed, the HTTP status, and `gh calls made: N` so far. This single rule also covers
-Search API rate limits.
+Run `gh auth status` before collecting; a failure (including `gh` missing / not on `PATH`)
+aborts. After that, one rule: any non-2xx on any call aborts the run — except a 404 on a
+per-item call (`commits/{sha}/pulls`, item-repo metadata), which stays scoped to that
+commit/PR/item per its edge case. So a 404 on a repo-level call (the default-branch lookup,
+commit pages, the open-PR search, Search API pages) aborts, as does any 401/403/410/422/429/451/5xx
+anywhere, and so does a nonzero `gh` exit with no HTTP status (network failure, `gh` crash). On
+any run-level abort: do not write a zettelkasten file, do not advance `last_check` in Step 6;
+report in chat which call failed, the status or exit code, and `gh calls made: N` so far. This
+single rule also covers Search API rate limits.
 
 ---
 
@@ -349,7 +362,8 @@ zettelkasten file (with a note that there was nothing new).
 ## Edge cases
 
 - **Call fails** — per the Auth/permission-failure control flow: run-level failures abort the
-  whole run (no file, no `last_check` advance); only per-item 404s are noted and skipped.
+  whole run (no file, no `last_check` advance); only a per-item 404 stays scoped to that
+  commit/PR/item, handled by its own edge case below.
 - **Default branch** — resolved once via `gh api repos/{owner}/{repo} --jq '.default_branch'`; no probing needed.
 - **PR is a 404** — note it in the summary and skip.
 - **Repo is private or gone** — the default-branch lookup returns non-2xx; that aborts the run
