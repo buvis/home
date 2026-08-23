@@ -10,14 +10,14 @@ Review new commits in `affaan-m/everything-claude-code` since last check and sur
 ## Dependencies
 
 - CLI: `gh`, authenticated - reads the `affaan-m/everything-claude-code` repo.
-- Path: `~/.claude/dev/local/ecc-cursor` - cursor state (last SHA **and** its
+- Path: `~/.claude/dev/local/meta/ecc-cursor` - cursor state (last SHA **and** its
   ISO 8601 commit date), created on first run. The aegis hook blocks shell
   redirects into `dev/local/`, so write the cursor with the Write tool, never
   `>` or `tee`.
 
 ## Step 1 - Read cursor
 
-Read `~/.claude/dev/local/ecc-cursor`. Format — SHA and its ISO 8601 commit date, space-separated:
+Read `~/.claude/dev/local/meta/ecc-cursor`. Format — SHA and its ISO 8601 commit date, space-separated:
 
 ```
 <last_commit_sha> <last_commit_iso8601_date>
@@ -75,7 +75,7 @@ Wait for user input before making any changes.
 
 ## Step 5 - Update cursor
 
-After review is complete (regardless of what the user adopts), write the new HEAD SHA **and its ISO 8601 committer date** (space-separated, the step-1 format) to `~/.claude/dev/local/ecc-cursor` with the Write tool. Recording the date is what lets the next run use the `?since=` server-side cursor.
+After review is complete (regardless of what the user adopts), write the new HEAD SHA **and its ISO 8601 committer date** (space-separated, the step-1 format) to `~/.claude/dev/local/meta/ecc-cursor` with the Write tool. Recording the date is what lets the next run use the `?since=` server-side cursor.
 
 ## Edge cases
 

@@ -415,6 +415,20 @@ class TestDevlocalLayout(unittest.TestCase):
         r = write_with_home(os.path.join(target, "tmp", "probe.py"))
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_meta_holds_keepers_only(self) -> None:
+        """meta/ is the keepers' canonical home (2026-08-23): keeper writes
+        pass, anything else in meta/ blocks, root keeper names stay writable
+        during the compat-symlink era."""
+        r = self._write(os.path.join(self.store, "meta", "project-capsule.md"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self._write(os.path.join(self.store, "meta", "scratch.md"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("named keepers", r.stderr)
+        r = self._write(os.path.join(self.store, "meta", "nested", "x.md"))
+        self.assertEqual(r.returncode, 2)
+        r = self._write(os.path.join(self.store, "project-capsule.md"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_blocks_multiedit_layout_violation(self) -> None:
         ok = os.path.join(self.repo, "src", "x.py")
         bad = os.path.join(self.store, "stray.txt")

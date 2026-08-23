@@ -126,7 +126,7 @@ Every PRD pays fixed ceremony: catchup (batch-cached), design, planning, work, r
 
 ### H. Goal alignment and end state - is the sum worth running?
 
-Read the goal sources first: README/docs, `dev/local/project-capsule.md`, CLAUDE.md, recent git log themes, the `done/` trajectory.
+Read the goal sources first: README/docs, `dev/local/meta/project-capsule.md`, CLAUDE.md, recent git log themes, the `done/` trajectory.
 
 - Per PRD: does it move the goal? Flag underminers: re-adds complexity the roadmap or another PRD removes (goal reversal); instructs violating a standing rule (hook language policy, branch naming, changelog mandates) - the work phase will fight the hooks and thrash; speculative scope beyond the source discovery doc.
 - Traceability: when a source discovery doc exists in `dev/local/discovery/`, its must-haves carried over (a dropped must-have is Blocking) and no scope invented beyond it.

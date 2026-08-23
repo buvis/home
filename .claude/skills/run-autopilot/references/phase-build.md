@@ -69,7 +69,7 @@ Before acting on whichever branch matched, run `autopilot resume-target` (one Ba
 3. Initialize `batch` in state file if not already present: `id: "<yyyymmddHHMM>"` (current timestamp), `mode: "autopilot"`, `completed_prds: []`, and **`plugin_versions`** — a pin of the enforcement plugins' resolved versions so the wrapper can refuse to run the batch on rotated enforcement code (PRD 00086 R3). Read `aegis` and `warden` versions from `~/.claude/plugins/installed_plugins.json` (`.plugins["aegis@buvis-plugins"][0].version`, `.plugins["warden@buvis-plugins"][0].version`) and write `plugin_versions: {"aegis@buvis-plugins": "<v>", "warden@buvis-plugins": "<v>"}` via statectl. (Extend the pinned set if other enforcement plugins are added.) The `autoclaude` wrapper's plugin-pin preflight compares these at each relaunch and halts loud on any drift. If `state.batch` IS already present, apply the **batch-identity rollover invariant** (core `SKILL.md` § "Phase 0 invariants") — mint a fresh `batch.id` only for a genuinely closed surviving batch; every normal in-progress resume preserves `batch.id` unchanged (and its `plugin_versions` pin); a fresh rollover re-pins from the current install.
 4. Write the selected PRD's basename to `state.prd` **before** the frontmatter call. On a multi-PRD batch `state.prd` still names the PREVIOUS PRD at this point — `more_prds` deliberately preserves it, and Phase 9 already moved that PRD to `done/` — so anything reading `state.prd` here reads a stale name pointing at a file no longer in `wip/`.
 5. Apply the PRD frontmatter with one `autopilot frontmatter` call (below).
-6. Read the Active Work section of `dev/local/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
+6. Read the Active Work section of `dev/local/meta/project-capsule.md` if it exists. This contains PRD progress and operational context from previous sessions. Use it to inform work in this session.
 7. Update the remaining state fields for the selected PRD, preserve `batch` field
 8. Print progress:
    ```
@@ -125,7 +125,7 @@ Otherwise, decide between **full catchup** and **delta refresh** using the batch
 
 ### Batch cache check
 
-The capsule (`dev/local/project-capsule.md`) is the persisted output of catchup: invariants, architecture decisions, GitHub state, project memories. Subsequent phases and their subagents read the capsule when they need that context — not `state.json`. Between PRDs in the same batch on the same branch, re-running the heavy gather phase costs ~60-95s and ~50K tokens with no information gain (`references/design-rationale.md` § Batch catchup cache).
+The capsule (`dev/local/meta/project-capsule.md`) is the persisted output of catchup: invariants, architecture decisions, GitHub state, project memories. Subsequent phases and their subagents read the capsule when they need that context — not `state.json`. Between PRDs in the same batch on the same branch, re-running the heavy gather phase costs ~60-95s and ~50K tokens with no information gain (`references/design-rationale.md` § Batch catchup cache).
 
 `state.batch.catchup_completed_at` (ISO 8601) and `state.batch.catchup_head_sha` (current branch HEAD when last full catchup completed) record the cache. **Skip the full catchup and run a delta refresh** when ALL of the following hold:
 
@@ -138,7 +138,7 @@ If any condition fails → **full catchup**: invoke `/catchup`. After completion
 If all conditions hold → **delta refresh** (no `/catchup` invocation):
 
 - Re-read all PRDs in `dev/local/prds/wip/` (the active set has changed since last catchup; new PRDs may have entered, old ones moved to `done/`).
-- Update the Active Work section of `dev/local/project-capsule.md` with the current PRD list (use the same format Phase 9 step 8 uses). Leave Key Invariants, Architecture Decisions, Component Boundaries, GitHub State, Project Health, and Project Memories untouched — those reflect batch-stable knowledge.
+- Update the Active Work section of `dev/local/meta/project-capsule.md` with the current PRD list (use the same format Phase 9 step 8 uses). Leave Key Invariants, Architecture Decisions, Component Boundaries, GitHub State, Project Health, and Project Memories untouched — those reflect batch-stable knowledge.
 - Print a one-line note: `── AUTOPILOT ── catchup: delta refresh (cache <Xm> old, HEAD <sha7>) ──`
 
 After either path completes, proceed to Phase 1.5 (Design). Stay on `phase: "build"` and `next_phase: "build"`; do NOT add anything to `phases_completed`.

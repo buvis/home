@@ -34,7 +34,7 @@ PAUSE site, or it never reaches the audit log.
 ## decisions.md Projection (judgment — stays with the model)
 
 Invoked by `references/phase-done.md` Phase 9 step 7b, and only when
-`dev/local/decisions.md` exists (an opt-in global table; when absent, skip —
+`dev/local/meta/decisions.md` exists (an opt-in global table; when absent, skip —
 `audit.md` is still written). `audit.md` is the **single source of truth**
 for decision narrative; `decisions.md` is a grep-friendly projection of it.
 

@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import allow, block, read_input, resolve_toplevel  # noqa: E402
+from _common import allow, block, read_input, resolve_toplevel
 
 LIFECYCLE_DIRS = ("backlog", "wip", "hold", "done")
 
@@ -46,6 +46,7 @@ KNOWN_DIRS = {
     "plans",
     "tmp",
     "autopilot",
+    "meta",
     "discovery",
     "specs",
     "notes",
@@ -55,7 +56,7 @@ KNOWN_DIRS = {
 }
 
 FS_MUTATING_COMMANDS = frozenset(
-    {"mv", "cp", "rm", "rsync", "ln", "mkdir", "rmdir", "scp", "tar"}
+    {"mv", "cp", "rm", "rsync", "ln", "mkdir", "rmdir", "scp", "tar"},
 )
 
 
@@ -94,16 +95,27 @@ If this is genuinely an unrelated directory, rename it to avoid clashing with PR
 def _root_msg(name: str) -> str:
     keepers = ", ".join(sorted(KEEP_NAMES))
     return f"""\
-BLOCKED: `{name}` would land in dev/local ROOT, which holds named keepers only
-({keepers}).
+BLOCKED: `{name}` would land in dev/local ROOT. Root holds only the compat
+symlinks of the named keepers ({keepers}); their canonical home is
+`dev/local/meta/`.
 
 - Throwaway output -> `dev/local/tmp/{name}` (prefix the 5-digit PRD number
   when one applies, so it dies with the PRD).
 - Durable artifact -> a curated dir (discovery/, notes/, audit-results/, ...).
 - Genuinely a new keeper -> add it to KEEP_NAMES in BOTH
   ~/.claude/hooks/enforce_prd_location.py and
-  ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py first.
+  ~/.claude/skills/purge-devlocal/scripts/purge_devlocal.py, then write it
+  under `dev/local/meta/`.
 - Editing an existing stray? `mv` it under dev/local/tmp/ first, then edit."""
+
+
+def _meta_msg(name: str) -> str:
+    return f"""\
+BLOCKED: `meta/{name}` - dev/local/meta/ holds ONLY the named keepers
+({", ".join(sorted(KEEP_NAMES))}).
+
+Throwaway output goes to `dev/local/tmp/`, durable artifacts to a curated
+dir. A genuinely new keeper gets added to KEEP_NAMES (hook + GC) first."""
 
 
 def _foreign_msg(top: str) -> str:
@@ -157,7 +169,14 @@ def _check_devlocal_layout(rel: tuple[str, ...]) -> str | None:
     """Return a block reason if a store-relative path violates the layout."""
     top = rel[0]
     if len(rel) == 1:
+        # Root keeper names stay writable during the compat-symlink era: the
+        # symlink lands the bytes in meta/ anyway. Flip to a full block once
+        # the released plugins (agoge, git-ferry, aegis) read meta/ paths.
         return None if top in KEEP_NAMES else _root_msg(top)
+    if top == "meta":
+        if len(rel) == 2 and rel[1] in KEEP_NAMES:
+            return None
+        return _meta_msg("/".join(rel[1:]))
     if top == ".trash":
         return _trash_msg()
     if top == "prds":
@@ -235,7 +254,7 @@ def _validate_bash_mode(data: dict) -> None:
         # every = reproduces the old regex's (^|\s|=) boundary set
         # (shlex.split already handles the ^/whitespace cases).
         for segment in token.split("="):
-            candidate = segment[2:] if segment.startswith("./") else segment
+            candidate = segment.removeprefix("./")
             parts = PurePosixPath(candidate).parts
             if not parts:
                 continue

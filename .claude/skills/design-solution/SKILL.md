@@ -39,7 +39,7 @@ PRD-owned.
 - **Architecture context**, loaded when present (skip silently if absent):
   - the cartographer atlas for this repo
     (`~/.claude/cartographer/projects/<hash>/atlas.md`)
-  - `dev/local/project-capsule.md`
+  - `dev/local/meta/project-capsule.md`
   - `AGENTS.md` / `agent_docs/`
 
 ## Output
