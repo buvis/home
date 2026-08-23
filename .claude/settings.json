@@ -158,12 +158,12 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|Bash",
+        "matcher": "Edit|Write|MultiEdit|Bash|NotebookEdit",
         "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/dispatch.py pre",
-            "timeout": 20
+            "timeout": 25
           }
         ]
       }
