@@ -1,4 +1,4 @@
-"""Parity tests for the in-process `run(payload)` entry point on 12 hook handlers.
+"""Parity tests for the in-process `run(payload)` entry point on 13 hook handlers.
 
 CONTRACT under test (PRD 00071, feature "run() interface"): each handler exposes
 `run(payload: dict) -> tuple[int, str, str]`. For a given JSON payload, calling
@@ -13,12 +13,12 @@ that handler as a standalone subprocess:
     subprocess.run([sys.executable, handler], input=json.dumps(payload), ...)
 
 All three members of the contract tuple are compared for every handler. Note
-what that is worth in practice: measured across the twelve, only
+what that is worth in practice: measured across the thirteen, only
 `enforce_prd_location` emits non-empty stderr (deterministic static block text),
-so the stderr member is a live discriminator for 1 of 12 and agrees vacuously at
-"" on both legs for the other 11. It is still worth comparing - stderr is the
+so the stderr member is a live discriminator for 1 of 13 and agrees vacuously at
+"" on both legs for the other 12. It is still worth comparing - stderr is the
 model-visible block reason, so a handler that stopped emitting one would now be
-caught - but do not read a green run as proof that eleven handlers' stderr was
+caught - but do not read a green run as proof that twelve handlers' stderr was
 meaningfully exercised.
 
 Isolation (the central hazard). Several handlers write state as a side effect
@@ -70,8 +70,17 @@ for _d in (HOOKS_DIR, SCRIPTS_DIR):
 
 # Env markers that flip autopilot/nested handlers OFF their benign early-return
 # path. Stripped in BOTH legs so the two runs observe identical, quiescent state
-# regardless of what the pytest process inherited.
-_STRIP_ENV = ("_AUTOPILOT_LOOP", "CLAUDE_NESTED", "CLAUDE_SESSION_NAME")
+# regardless of what the pytest process inherited. CLAUDE_UNATTENDED is the
+# write-scope fence's arming marker: run this suite inside an autopilot session
+# without stripping it and the enforce_write_scope param's "fence disarmed"
+# premise is quietly false - it would pass only because the payload's path
+# happens to sit in a temp root, i.e. a fixture masking the behavior under test.
+_STRIP_ENV = (
+    "_AUTOPILOT_LOOP",
+    "CLAUDE_NESTED",
+    "CLAUDE_SESSION_NAME",
+    "CLAUDE_UNATTENDED",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -241,7 +250,7 @@ def _run_in_process(
 
 
 # --------------------------------------------------------------------------- #
-# The 12 handlers, each with a payload that runs deterministically in a clean
+# The 13 handlers, each with a payload that runs deterministically in a clean
 # temp env. enforce_prd_location carries the Bash-lifecycle BLOCK payload, so
 # its parity case is itself a discriminator (subprocess exits 2 -> a `(0, "")`
 # stub run() fails parity). The rest ride benign, empty-stdout, exit-0 paths.
@@ -252,12 +261,15 @@ def _run_in_process(
 #   enforce_prd_location (block AND allow), validate_state_json_hook (reject AND
 #   accept), track_cost / track_skills / observe_tool (pinned side-effect file),
 #   review_coverage_hook (exit 2), autopilot_context_cap_hook (rotation stdout).
-# The remaining FIVE are EXISTENCE-ONLY here (benign parity + run-exists): they
+# The remaining SIX are EXISTENCE-ONLY here (benign parity + run-exists). Five
 # need external state this parity test must not fabricate hermetically -
 #   cartographer-echo / cartographer-stop  (tree-sitter/atlas + real repo corpus)
 #   strunk-ruling-inject                   (installed strunk plugin cache)
 #   notify                                 (real desktop/network presence probes)
 #   analyze-instincts                      (a prior observation corpus)
+# and the sixth, enforce_write_scope, rides its disarmed path by construction:
+# _STRIP_ENV removes its arming marker from BOTH legs, so it returns (0, "", "")
+# and writes nothing whatever the payload names.
 # Their functional behavior is covered by each handler's OWN test suite; here
 # they only prove run() exists and does not diverge from the subprocess. See
 # ASSUMPTIONS.
@@ -328,6 +340,15 @@ _HANDLERS = [
         id="cartographer-stop",
     ),
     pytest.param(
+        str(HOOKS_DIR / "enforce_write_scope.py"),
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/tmp/x.py"},
+            "cwd": "/tmp",
+        },
+        id="enforce_write_scope",
+    ),
+    pytest.param(
         str(SCRIPTS_DIR / "autopilot_context_cap_hook.py"),
         {"session_id": "s", "transcript_path": "/tmp/does-not-exist.jsonl"},
         id="autopilot_context_cap_hook",
@@ -354,7 +375,7 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     writes can perturb the other. For benign handlers both legs agree at
     (0, "", "") - a valid but weak parity check; for enforce_prd_location both
     legs agree at (2, "", <block text>) - a case a trivial `(0, "", "")` stub
-    cannot fake, and the only one of the twelve where the stderr member does
+    cannot fake, and the only one of the thirteen where the stderr member does
     real discriminating work.
 
     The FILE-TREE assertion carries the rest of the weight, with no per-handler
@@ -363,7 +384,7 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     (notify.log), cartographer-stop and analyze-instincts (their stores) and
     observe_tool (its observation row) all fail on it. Verified deterministic:
     running each handler twice under different HOMEs and cwds yields identical
-    trees for all twelve, so nothing here needs normalizing.
+    trees for all thirteen, so nothing here needs normalizing.
     """
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
     code_sub, out_sub, err_sub = _run_subprocess(path, payload, sub_home, sub_cwd)

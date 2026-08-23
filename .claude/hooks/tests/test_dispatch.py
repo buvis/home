@@ -865,7 +865,7 @@ def test_missing_tool_name_key_routing_is_unchanged(dispatch, monkeypatch, tmp_p
         ("pre", "Edit"),
         ("pre", "Read"),  # no Read PreToolUse matcher -> ZERO handlers
         ("pre", "TodoWrite"),  # anchoring negative -> ZERO
-        ("pre", "NotebookEdit"),  # anchoring negative -> ZERO
+        ("pre", "NotebookEdit"),  # named by the fence matcher -> the fence ONLY
         (
             "pre",
             "Task",
@@ -950,7 +950,9 @@ OBSERVED_TOOL_NAMES = [
     "EnterPlanMode",
     # Never observed in the 31,031 PostToolUse sample, but routing-relevant:
     # each is a substring of a real ROUTES matcher (Write/Edit/Bash) and would
-    # gain handlers under re.search instead of re.fullmatch.
+    # gain EXTRA handlers under re.search instead of re.fullmatch. NotebookEdit
+    # is ALSO named outright by the write-scope fence's matcher, so its correct
+    # PreToolUse result is exactly that one handler - never zero, never four.
     "TodoWrite",
     "NotebookEdit",
     "BashOutput",
@@ -1144,6 +1146,7 @@ _EXPECTED_ROUTE_KIND = {
     "enforce_prd_location": "enforcement",
     "cartographer-echo": "enforcement",
     "strunk-ruling-inject": "observer",
+    "enforce_write_scope": "enforcement",
     "autopilot_context_cap_hook": "observer",
     "validate_state_json_hook": "enforcement",
     "observe_tool": "observer",
@@ -1164,16 +1167,16 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     wrong-for-some-handlers "observer" value, which is exactly the
     fail-open bug this PRD exists to close. This test pins the SPECIFIC
     per-handler classification: exactly enforce_prd_location,
-    cartographer-echo, validate_state_json_hook, and review_coverage_hook
-    must be "enforcement" - including BOTH ROUTES entries for
-    enforce_prd_location and BOTH for cartographer-echo - and every other
-    of the 15 entries must be "observer". An implementation that leaves
-    every entry on the namedtuple default, or classifies a different
+    cartographer-echo, enforce_write_scope, validate_state_json_hook, and
+    review_coverage_hook must be "enforcement" - including BOTH ROUTES
+    entries for enforce_prd_location and BOTH for cartographer-echo - and
+    every other of the 16 entries must be "observer". An implementation that
+    leaves every entry on the namedtuple default, or classifies a different
     subset as "enforcement", fails here even though it still satisfies the
     weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 15, (
-        f"expected 15 ROUTES entries, got {len(actual)}: {actual!r}"
+    assert len(actual) == 16, (
+        f"expected 16 ROUTES entries, got {len(actual)}: {actual!r}"
     )
 
     seen_names = {name for (name, _event, _kind) in actual}
@@ -1193,8 +1196,8 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     )
 
     enforcement_entries = [(n, e) for (n, e, k) in actual if k == "enforcement"]
-    assert len(enforcement_entries) == 6, (
-        f"expected 6 ROUTES entries classified 'enforcement' (4 handlers, "
+    assert len(enforcement_entries) == 7, (
+        f"expected 7 ROUTES entries classified 'enforcement' (5 handlers, "
         f"2 of them routed twice), got {len(enforcement_entries)}: "
         f"{enforcement_entries!r}"
     )
@@ -2606,7 +2609,7 @@ SCRIPTS_DIR = HOOKS_DIR.parent / "skills" / "run-autopilot" / "scripts"
 
 # Handlers whose benign path is hermetic (no fs writes, no git, no network) and
 # so is safe to exercise in-process here. Broad per-handler behavior parity for
-# all twelve lives in test_handler_run_parity.py.
+# all thirteen lives in test_handler_run_parity.py.
 _ENFORCE_PRD_LOCATION = HOOKS_DIR / "enforce_prd_location.py"
 _OBSERVE_TOOL = HOOKS_DIR / "observe_tool.py"
 _REVIEW_COVERAGE_HOOK = SCRIPTS_DIR / "review_coverage_hook.py"

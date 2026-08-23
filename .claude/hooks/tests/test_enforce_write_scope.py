@@ -14,7 +14,9 @@ one subprocess case cannot patch a module global and does not need to: it only
 asserts a denial, and the seam guards allow-tautologies.
 """
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -35,6 +37,21 @@ _SPEC = importlib.util.spec_from_file_location(
 )
 mod = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(mod)
+
+
+def _load_dispatch():
+    """Import hooks/dispatch.py by absolute path, reusing the module the sibling
+    suites already loaded so the ROUTES read here is the one live table."""
+    if "dispatch" in sys.modules:
+        return sys.modules["dispatch"]
+    spec = importlib.util.spec_from_file_location(
+        "dispatch", HOOKS_DIR / "dispatch.py"
+    )
+    dispatch = importlib.util.module_from_spec(spec)
+    sys.modules["dispatch"] = dispatch
+    spec.loader.exec_module(dispatch)
+    return dispatch
+
 
 MARKER_ENV = "CLAUDE_UNATTENDED"
 KILL_SWITCH_ENV = "_AUTOPILOT_WRITE_SCOPE"
@@ -617,6 +634,90 @@ class TestContractSeams(WriteScopeCase):
             self.assertIsNotNone(
                 mod._breach(str(self.base / "zzz" / "f.txt"), roots, str(self.repo))
             )
+
+
+class TestDispatcherRegistration(WriteScopeCase):
+    """The fence as hooks/dispatch.py actually runs it, not as run() alone."""
+
+    def test_degraded_hook_line_reaches_real_stderr_through_the_dispatcher(
+        self,
+    ) -> None:
+        # The crash case above proves run() RETURNS the degraded line in its
+        # triple. Only the dispatcher decides whether that text ever reaches the
+        # process's own stderr, where the model can read it - it diverts a
+        # non-blocking handler's stderr to dispatch.log whenever some OTHER
+        # handler blocked. So drive main("pre") end to end and read the real
+        # stream. dispatch imports the handler fresh per invocation, so the
+        # crash has to ride in on the module IT loads: _load_handler is the
+        # seam, and the path it was asked for is recorded so this cannot pass
+        # while the dispatcher looks somewhere else.
+        dispatch = _load_dispatch()
+        # Selection stays the dispatcher's own job, on the LIVE table: the fence's
+        # REGISTERED entries are what gets installed, narrowed only so this case
+        # does not execute the three unrelated PreToolUse handlers. A missing
+        # route - or one whose matcher omits Write - leaves main() selecting
+        # nothing, and the degraded line never appears.
+        fence_routes = [r for r in dispatch.ROUTES if r.name == "enforce_write_scope"]
+        loaded: list[str] = []
+
+        def serve_the_fence(path: object) -> object:
+            loaded.append(str(path))
+            return mod
+
+        def _boom(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("kaboom")
+
+        payload = self.write_payload(VAULT_PATH, self.repo)
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, self.env(), clear=True),
+            patch.object(dispatch, "ROUTES", fence_routes),
+            patch.object(dispatch, "_load_handler", serve_the_fence),
+            patch.object(mod, "_allowed_roots", _boom),
+            patch.object(sys, "stdin", io.StringIO(json.dumps(payload))),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as exited,
+        ):
+            dispatch.main("pre")
+
+        self.assertEqual(
+            [Path(p).parts[-2:] for p in loaded],
+            [("hooks", "enforce_write_scope.py")],
+            f"dispatch.main('pre') must select exactly the registered fence "
+            f"route for a Write payload; it loaded {loaded!r}",
+        )
+        self.assertEqual(
+            exited.exception.code,
+            0,
+            "a crashing fence must not block the tool call through the dispatcher",
+        )
+        err = stderr.getvalue()
+        self.assertIn("policy hook degraded: enforce_write_scope", err)
+        self.assertIn("kaboom", err)
+        self.assertNotIn("BLOCKED", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_routes_carry_the_fence_as_one_pretooluse_enforcement_entry(self) -> None:
+        # The registration itself: without this route the fence is dead code, and
+        # every other case in this file would still pass. "enforcement" is not
+        # cosmetic - dispatch._invoke reads it to decide that a TIMED-OUT fence
+        # blocks the write instead of failing open.
+        dispatch = _load_dispatch()
+        entries = [r for r in dispatch.ROUTES if r.name == "enforce_write_scope"]
+        self.assertEqual(
+            len(entries),
+            1,
+            f"dispatch.ROUTES must carry exactly one enforce_write_scope route, "
+            f"got {entries!r}",
+        )
+        route = entries[0]
+        self.assertEqual(route.event, "PreToolUse")
+        self.assertEqual(route.matcher, "Edit|Write|MultiEdit|NotebookEdit")
+        self.assertEqual(
+            Path(route.path).parts[-2:], ("hooks", "enforce_write_scope.py")
+        )
+        self.assertEqual(route.timeout, 5)
+        self.assertEqual(route.kind, "enforcement")
 
 
 if __name__ == "__main__":
