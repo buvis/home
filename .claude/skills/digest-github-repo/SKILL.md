@@ -165,6 +165,14 @@ gh api repos/{owner}/{repo}/commits/{sha}/pulls --jq '.[0] | {number, title, bod
    skip that commit with a note rather than guessing (same "note and skip" shape as the
    existing "PR is a 404" edge case).
 
+   **Identifier validation (applies to every extraction site, including the open-PR pass):**
+   PR titles and bodies are public, adversary-writable text. Before an extracted
+   `{item-owner}/{item-repo}` enters any command, it must match
+   `^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$` (GitHub's own identifier charset); anything else is not
+   a confident extraction — skip with a note. Pass every API-derived value
+   (`{default_branch}`, extracted identifiers) into commands as a single-quoted argument,
+   never unquoted, so external text can never alter the command.
+
 3. Item repo metadata:
 
 ```bash
@@ -179,25 +187,26 @@ gh api repos/{item-owner}/{item-repo} --jq '{description: .description, stars: .
    Fidelity note: this is GitHub's short repo metadata blurb, not the README tagline the old
    browser flow preferred. When `.description` is null/empty, omit the description rather than
    fetching and parsing the README — same "omit rather than guess" pattern as the existing
-   "Stars not visible — omit" edge case.
+   "Stars not visible — omit" edge case. Only call this for github.com-hosted items: for an
+   item hosted elsewhere (Codeberg, GitLab, …), skip the metadata call, keep the item with the
+   description from the PR/commit text, note the host, omit stars.
 
 Skip any item whose `owner/repo` appears in the dedup list.
 
 #### Open-PR pass (only when the repo config has `also_check_prs: true`)
 
 ```bash
-gh pr list -R {owner}/{repo} --state open --search "sort:updated-desc" \
-  --json number,title,body,updatedAt --limit 100
+gh api "search/issues?q=repo:{owner}/{repo}+is:pr+is:open&sort=updated&order=desc&per_page=100&page={n}" --jq '{total_count, items}'
 ```
 
-Plain `gh pr list` has no sort flag and defaults to creation order, not update order —
-`--search "sort:updated-desc"` passes the same raw GitHub search qualifier the old URL query
-used, required for the stop condition below to be correct. Keep only PRs whose `updatedAt` is
-after `last_check`. 100 is a soft cap — if exactly 100 come back AND the 100th (oldest)
-`updatedAt` is still after `last_check`, note in the digest that more open PRs may exist beyond
-the cap. For each date-kept PR, extract the proposed item's `owner/repo`, short name, and
-description from `title`/`body` — the exact same extraction task as step 2's
-commit-behind-a-PR extraction, same skip-with-note rule when extraction isn't confident. Skip
+Same paged loop, stop condition, page-10 cap, and `total_count` warning as activity-digest
+mode below — one shared policy. (`gh pr list` was tried first and its
+`--search "sort:updated-desc"` ordering proved unreliable in live runs, which silently breaks
+any cap or early-stop logic; the Search API orders correctly.) Keep only PRs whose
+`updated_at` is after `last_check`, with `title`/`body` from each search item. For each
+date-kept PR, extract the proposed item's `owner/repo`, short name, and description from
+`title`/`body` — the exact same extraction task as step 2's commit-behind-a-PR extraction,
+same skip-with-note rule when extraction isn't confident, same identifier validation. Skip
 PRs that don't propose a list item at all (docs fixes, maintenance PRs, etc.). Every PR that
 survives extraction then goes through the same item repo metadata call (step 3 above,
 including its `archived` check) and the same dedup list filter as commit-sourced items. Keep
@@ -236,23 +245,19 @@ applied to the extracted title.
 ### Call-count contract
 
 Increment a counter once per `gh` invocation, at the point it's issued — not derived after the
-fact. Every call site counts: the `gh auth status` preflight, the shared default-branch lookup,
-every commit page, every `commits/{sha}/pulls` and item-metadata call in curated mode, the
-curated open-PR list call, and every Search API page in activity-digest mode. Report the total
-in Step 7's footer as `gh calls made: N`.
+fact. Every invocation counts, the `gh auth status` preflight included. Report the total in
+Step 7's footer as `gh calls made: N`.
 
 ### Auth/permission-failure control flow
 
-Before Step 3 collection begins, run `gh auth status`. A failure here aborts immediately. The
-shared default-branch lookup (`gh api repos/{owner}/{repo}`) is the one source-of-truth call:
-`{owner}/{repo}` is a config entry the user explicitly registered, so ANY non-2xx here (401,
-403, 404, 429, 5xx) aborts the run. Every other call (commit pages, `commits/{sha}/pulls`,
-curated mode's item-repo metadata call, the curated open-PR list, Search API pages) — a
-401/403/429/5xx aborts the run the same way; a 404 on these stays scoped to the specific
-commit/PR/item per the edge cases already defined. On any run-level abort: do not write a
-zettelkasten file, do not advance `last_check` in Step 6. Report the failure in chat instead
-(name which call failed and the HTTP status). This single rule also covers the Search API's
-429/403 rate-limit case.
+Run `gh auth status` before collecting; a failure aborts. After that, one rule: any
+401/403/429/5xx on any call aborts the run, and so does a 404 on a repo-level call (the
+default-branch lookup — the repo is a registered config entry — plus commit pages, the open-PR
+search, and Search API pages). Only a 404 on a per-item call (`commits/{sha}/pulls`, item-repo
+metadata) stays scoped to that commit/PR/item per its edge case. On any run-level abort: do
+not write a zettelkasten file, do not advance `last_check` in Step 6; report in chat which
+call failed, the HTTP status, and `gh calls made: N` so far. This single rule also covers
+Search API rate limits.
 
 ---
 
@@ -343,13 +348,19 @@ zettelkasten file (with a note that there was nothing new).
 
 ## Edge cases
 
-- **Page won't load** — note the failure, skip that source, proceed with what loaded.
+- **Call fails** — per the Auth/permission-failure control flow: run-level failures abort the
+  whole run (no file, no `last_check` advance); only per-item 404s are noted and skipped.
 - **Default branch** — resolved once via `gh api repos/{owner}/{repo} --jq '.default_branch'`; no probing needed.
 - **PR is a 404** — note it in the summary and skip.
-- **Repo is private** — if you get a 404 or login wall, report it and stop.
-- **Item repo is archived or 404** — in curated-list mode, add to Dropped with reason.
+- **Repo is private or gone** — the default-branch lookup returns non-2xx; that aborts the run
+  (see Auth/permission-failure control flow).
+- **Item repo is archived** — in curated-list mode, add to Dropped with reason "archived"; a
+  404 on the item's metadata call → Dropped with reason "repo not found".
+- **Item hosted off GitHub** (Codeberg, GitLab, …) — skip the `gh` metadata call; keep the
+  item with the description from the PR/commit text, note the host, omit stars.
 - **Stars not visible** — omit the star count rather than guessing.
 - **No new activity** — say so clearly, still update the scan date and create the zettelkasten.
-- **Very many pages** — paginate fully; don't cut off early.
+- **Very many pages** — the pagination ceilings apply (page 20 for commits, page 10 for
+  Search API); stop there and add the documented "digest may be incomplete" note.
 - **Ambiguous section** — pick the best fit and mention it in the summary.
 - **A PR and issue cover the same thing** — group them in one sentence.
