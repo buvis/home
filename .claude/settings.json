@@ -39,8 +39,8 @@
       "WebSearch",
       "WebFetch(*)",
       "Read(~/.claude/skills/**)",
-      "Read(~/.claude/skills-library/**)",
-      "Read(~/.claude/skills-library/*)",
+      "Read(~/.claude/.archive/**)",
+      "Read(~/.claude/.archive/*)",
       "Read(~/.claude/rules-library/**)",
       "Read(~/.claude/rules-library/*)",
       "Read(~/.claude/dev/local/**)",
@@ -245,7 +245,6 @@
     }
   },
   "effortLevel": "xhigh",
-  "fastMode": true,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
