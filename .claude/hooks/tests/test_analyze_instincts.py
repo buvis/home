@@ -16,7 +16,8 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 
 def _load_module():
     spec = importlib.util.spec_from_file_location(
-        "analyze_instincts", HOOKS_DIR / "analyze-instincts.py"
+        "analyze_instincts",
+        HOOKS_DIR / "analyze-instincts.py",
     )
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
@@ -24,7 +25,7 @@ def _load_module():
     return mod
 
 
-@pytest.fixture()
+@pytest.fixture
 def mod(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     m = _load_module()
     monkeypatch.setattr(m, "PROJECTS_DIR", tmp_path)
@@ -58,7 +59,8 @@ def _rows(obs: Path) -> list[dict]:
 
 def test_prunes_analyzed_rows_older_than_retention(mod, tmp_path: Path) -> None:
     obs = _write_obs(
-        tmp_path, [{"ts": _ts(30), "tool": "old"}, {"ts": _ts(1), "tool": "fresh"}]
+        tmp_path,
+        [{"ts": _ts(30), "tool": "old"}, {"ts": _ts(1), "tool": "fresh"}],
     )
     mod.prune_observations("proj", last_analysis=_ts(0))
     kept = _rows(obs)
@@ -80,7 +82,9 @@ def test_no_last_analysis_means_no_prune(mod, tmp_path: Path) -> None:
 
 
 def test_retention_zero_disables_pruning(
-    mod, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mod,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("INSTINCTS_RETENTION_DAYS", "0")
     obs = _write_obs(tmp_path, [{"ts": _ts(400), "tool": "keep"}])
@@ -110,11 +114,16 @@ def test_stale_rotated_archive_is_deleted_fresh_kept(mod, tmp_path: Path) -> Non
 def test_classify_error_maps_markers_to_stable_classes(mod) -> None:
     assert mod._classify_error("bash: foo: command not found") == "command_not_found"
     assert mod._classify_error("open x: Permission denied") == "permission_denied"
-    assert mod._classify_error("ModuleNotFoundError: No module named 'x'") == "module_not_found"
+    assert (
+        mod._classify_error("ModuleNotFoundError: No module named 'x'")
+        == "module_not_found"
+    )
     assert mod._classify_error("cat: y: No such file or directory") == "file_not_found"
     assert mod._classify_error("process exited with exit code 2") == "non_zero_exit"
     # a matched-but-unrecognized error is a class, never a raw blob
-    assert mod._classify_error("something went wrong: error happened") == "generic_error"
+    assert (
+        mod._classify_error("something went wrong: error happened") == "generic_error"
+    )
 
 
 def test_error_fix_trigger_is_a_class_not_a_raw_blob(mod) -> None:
@@ -123,12 +132,22 @@ def test_error_fix_trigger_is_a_class_not_a_raw_blob(mod) -> None:
     obs: list[dict] = []
     for i in range(3):
         obs.append(
-            {"ts": _ts(1), "tool": "Bash", "out": f"bash: tool{i}: command not found",
-             "in": "{}", "sid": "s"}
+            {
+                "ts": _ts(1),
+                "tool": "Bash",
+                "out": f"bash: tool{i}: command not found",
+                "in": "{}",
+                "sid": "s",
+            },
         )
         obs.append(
-            {"ts": _ts(1), "tool": "Bash", "in": json.dumps({"command": "mise install"}),
-             "out": "ok", "sid": "s"}
+            {
+                "ts": _ts(1),
+                "tool": "Bash",
+                "in": json.dumps({"command": "mise install"}),
+                "out": "ok",
+                "sid": "s",
+            },
         )
 
     cands = mod.detect_error_fixes(obs)
@@ -139,3 +158,61 @@ def test_error_fix_trigger_is_a_class_not_a_raw_blob(mod) -> None:
     assert "command_not_found" in c["description"]
     assert "tool0" not in c["description"]  # no raw error text leaks into the trigger
     assert "command_not_found" in mod._build_trigger(c)
+
+
+# --- shared store: one host per read (~/.codex/hooks/ writes host="codex") ---
+
+
+def test_load_observations_skips_foreign_host_rows(mod, tmp_path: Path) -> None:
+    _write_obs(
+        tmp_path,
+        [
+            {"ts": _ts(1), "tool": "Edit", "host": "claude"},
+            {"ts": _ts(1), "tool": "apply_patch", "host": "codex"},
+        ],
+    )
+    assert [r["tool"] for r in mod.load_observations("proj", None)] == ["Edit"]
+
+
+def test_untagged_rows_belong_to_the_claude_host(
+    mod,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rows predating the host tag were all written by the claude host, so only
+    that host may re-read them."""
+    _write_obs(tmp_path, [{"ts": _ts(1), "tool": "Bash"}])
+    assert len(mod.load_observations("proj", None)) == 1
+    monkeypatch.setattr(mod, "HOST", "codex")
+    assert mod.load_observations("proj", None) == []
+
+
+def test_marker_file_is_per_host(
+    mod,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert mod._marker_file("proj").name == "last_analysis"
+    monkeypatch.setattr(mod, "HOST", "codex")
+    assert mod._marker_file("proj").name == "last_analysis.codex"
+
+
+def test_analysis_floor_is_the_least_advanced_host(mod, tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "last_analysis").write_text(_ts(0), encoding="utf-8")
+    (proj / "last_analysis.codex").write_text(_ts(40), encoding="utf-8")
+    assert mod._analysis_floor("proj") == _ts(40)
+
+
+def test_prune_keeps_rows_another_host_has_not_analyzed(mod, tmp_path: Path) -> None:
+    """A row outside the retention window still survives while a second host's
+    marker predates it - pruning to this host's own marker would delete rows the
+    other host has never read."""
+    obs = _write_obs(
+        tmp_path, [{"ts": _ts(30), "tool": "apply_patch", "host": "codex"}]
+    )
+    proj = tmp_path / "proj"
+    (proj / "last_analysis").write_text(_ts(0), encoding="utf-8")
+    (proj / "last_analysis.codex").write_text(_ts(60), encoding="utf-8")
+    mod.prune_observations("proj", last_analysis=mod._analysis_floor("proj"))
+    assert [r["tool"] for r in _rows(obs)] == ["apply_patch"]

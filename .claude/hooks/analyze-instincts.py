@@ -30,6 +30,10 @@ INSTINCTS_ROOT = Path.home() / ".local" / "share" / "agents" / "instincts"
 PROJECTS_DIR = INSTINCTS_ROOT / "projects"
 REGISTRY_FILE = INSTINCTS_ROOT / "projects.json"
 RETENTION_DAYS_DEFAULT = 14
+# The observation store is shared with other agent hosts (~/.codex/hooks/ writes
+# host="codex"). Each host names the same capability differently, so analysis
+# reads only its own rows and keeps its own progress marker.
+HOST = "claude"
 
 
 def detect_project() -> tuple[str, str, str]:
@@ -40,7 +44,9 @@ def detect_project() -> tuple[str, str, str]:
     try:
         remote = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if remote.returncode == 0 and remote.stdout.strip():
             url = remote.stdout.strip()
@@ -54,7 +60,9 @@ def detect_project() -> tuple[str, str, str]:
     try:
         toplevel = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if toplevel.returncode == 0 and toplevel.stdout.strip():
             path = toplevel.stdout.strip()
@@ -83,13 +91,45 @@ def load_observations(project_hash: str, since: str | None) -> list[dict]:
             continue
         if since and entry.get("ts", "") <= since:
             continue
+        # Rows predating the host tag were all written by the claude host.
+        if (entry.get("host") or "claude") != HOST:
+            continue
         observations.append(entry)
     return observations
 
 
+def _marker_file(project_hash: str) -> Path:
+    """This host's analysis marker inside the shared project store.
+
+    The unsuffixed name stays the claude host's file so markers written before
+    the store was shared keep working; every other host gets its own suffix,
+    because one host's progress must never mark another host's rows as read.
+    """
+    name = "last_analysis" if HOST == "claude" else f"last_analysis.{HOST}"
+    return PROJECTS_DIR / project_hash / name
+
+
+def _analysis_floor(project_hash: str) -> str | None:
+    """Oldest analysis marker among the hosts sharing this project store.
+
+    Pruning past another host's marker would delete rows that host has never
+    read, so the prune cutoff is this floor rather than this host's own marker.
+    """
+    stamps = []
+    for marker in (PROJECTS_DIR / project_hash).glob("last_analysis*"):
+        try:
+            stamp = marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not stamp:
+            return None
+        stamps.append(stamp)
+    return min(stamps) if stamps else None
+
+
 def get_last_analysis(project_hash: str) -> str | None:
     """Read last analysis timestamp."""
-    ts_file = PROJECTS_DIR / project_hash / "last_analysis"
+    ts_file = _marker_file(project_hash)
     if ts_file.exists():
         return ts_file.read_text(encoding="utf-8").strip() or None
     return None
@@ -97,11 +137,11 @@ def get_last_analysis(project_hash: str) -> str | None:
 
 def set_last_analysis(project_hash: str) -> None:
     """Write current timestamp as last analysis marker."""
-    ts_file = PROJECTS_DIR / project_hash / "last_analysis"
+    ts_file = _marker_file(project_hash)
     ts_file.parent.mkdir(parents=True, exist_ok=True)
     ts_file.write_text(
         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
 
@@ -217,14 +257,16 @@ def detect_corrections(observations: list[dict]) -> list[dict]:
                 pattern_key = f"correction-{ext}-{obs.get('tool')}"
                 if pattern_key not in corrections:
                     corrections[pattern_key] = []
-                corrections[pattern_key].append({
-                    "ts": obs.get("ts", ""),
-                    "sid": obs.get("sid", ""),
-                    "file": fp,
-                    "tool": obs.get("tool", ""),
-                    "original": content_a[:200],
-                    "corrected": content_b[:200],
-                })
+                corrections[pattern_key].append(
+                    {
+                        "ts": obs.get("ts", ""),
+                        "sid": obs.get("sid", ""),
+                        "file": fp,
+                        "tool": obs.get("tool", ""),
+                        "original": content_a[:200],
+                        "corrected": content_b[:200],
+                    }
+                )
                 break  # Only count once per initial edit
 
     # Filter: require 3+ occurrences (PRD conservative threshold)
@@ -232,13 +274,15 @@ def detect_corrections(observations: list[dict]) -> list[dict]:
     for key, evidence in corrections.items():
         if len(evidence) < 3:
             continue
-        candidates.append({
-            "type": "correction",
-            "id": key,
-            "description": f"Correction pattern detected on {evidence[0].get('tool', 'Edit')} calls",
-            "observation_count": len(evidence),
-            "evidence": evidence,
-        })
+        candidates.append(
+            {
+                "type": "correction",
+                "id": key,
+                "description": f"Correction pattern detected on {evidence[0].get('tool', 'Edit')} calls",
+                "observation_count": len(evidence),
+                "evidence": evidence,
+            }
+        )
     return candidates
 
 
@@ -321,13 +365,15 @@ def detect_error_fixes(observations: list[dict]) -> list[dict]:
             pair_key = f"{error_class}||{fix_sig}"
             if pair_key not in error_fix_pairs:
                 error_fix_pairs[pair_key] = []
-            error_fix_pairs[pair_key].append({
-                "ts": obs.get("ts", ""),
-                "sid": obs.get("sid", ""),
-                "error": output[:200],
-                "fix_tool": fix_tool,
-                "fix_sig": fix_sig,
-            })
+            error_fix_pairs[pair_key].append(
+                {
+                    "ts": obs.get("ts", ""),
+                    "sid": obs.get("sid", ""),
+                    "error": output[:200],
+                    "fix_tool": fix_tool,
+                    "fix_sig": fix_sig,
+                }
+            )
             break  # Only match first fix per error
 
     candidates = []
@@ -336,13 +382,15 @@ def detect_error_fixes(observations: list[dict]) -> list[dict]:
             continue
         error_class = key.split("||")[0]
         fix_part = key.split("||")[1] if "||" in key else "unknown"
-        candidates.append({
-            "type": "error_fix",
-            "id": f"error-fix-{error_class}-{fix_part.replace(':', '-').lower()}",
-            "description": f"{error_class} errors consistently fixed with {fix_part}",
-            "observation_count": len(evidence),
-            "evidence": evidence,
-        })
+        candidates.append(
+            {
+                "type": "error_fix",
+                "id": f"error-fix-{error_class}-{fix_part.replace(':', '-').lower()}",
+                "description": f"{error_class} errors consistently fixed with {fix_part}",
+                "observation_count": len(evidence),
+                "evidence": evidence,
+            }
+        )
     return candidates
 
 
@@ -453,16 +501,25 @@ def create_or_update_instinct(candidate: dict, project_hash: str) -> None:
 
         # Update frontmatter values in place
         existing = re.sub(
-            r"^confidence:.*$", f"confidence: {new_confidence:.2f}",
-            existing, count=1, flags=re.MULTILINE
+            r"^confidence:.*$",
+            f"confidence: {new_confidence:.2f}",
+            existing,
+            count=1,
+            flags=re.MULTILINE,
         )
         existing = re.sub(
-            r"^last_updated:.*$", f"last_updated: {today}",
-            existing, count=1, flags=re.MULTILINE
+            r"^last_updated:.*$",
+            f"last_updated: {today}",
+            existing,
+            count=1,
+            flags=re.MULTILINE,
         )
         existing = re.sub(
-            r"^observations:.*$", f"observations: {new_obs}",
-            existing, count=1, flags=re.MULTILINE
+            r"^observations:.*$",
+            f"observations: {new_obs}",
+            existing,
+            count=1,
+            flags=re.MULTILINE,
         )
         # Append new evidence
         new_evidence = _build_evidence_section(candidate.get("evidence", []))
@@ -478,7 +535,7 @@ def create_or_update_instinct(candidate: dict, project_hash: str) -> None:
 id: {instinct_id}
 trigger: "{trigger}"
 confidence: {confidence:.2f}
-domain: {candidate.get('type', 'workflow')}
+domain: {candidate.get("type", "workflow")}
 scope: project
 project_id: {project_hash}
 created: {today}
@@ -499,7 +556,9 @@ def _get_project_claude_md_path() -> Path | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             project_root = result.stdout.strip()
@@ -541,12 +600,14 @@ def rebuild_claude_md(project_hash: str) -> None:
             if in_action and line.strip():
                 action = line.strip()
                 break
-        active_instincts.append({
-            "id": meta.get("id", instinct_file.stem),
-            "trigger": trigger,
-            "action": action,
-            "confidence": confidence,
-        })
+        active_instincts.append(
+            {
+                "id": meta.get("id", instinct_file.stem),
+                "trigger": trigger,
+                "action": action,
+                "confidence": confidence,
+            }
+        )
 
     claude_md_path = _get_project_claude_md_path()
     if not claude_md_path:
@@ -563,7 +624,7 @@ def rebuild_claude_md(project_hash: str) -> None:
     if not active_instincts:
         # Remove markers section if no active instincts
         if start_marker in existing:
-            before = existing[:existing.index(start_marker)]
+            before = existing[: existing.index(start_marker)]
             after_idx = existing.index(end_marker) + len(end_marker)
             after = existing[after_idx:]
             cleaned = (before.rstrip() + "\n" + after.lstrip()).strip()
@@ -576,15 +637,15 @@ def rebuild_claude_md(project_hash: str) -> None:
     for inst in active_instincts:
         lines.append(
             f"- **{inst['trigger']}**: {inst['action']} "
-            f"(confidence: {inst['confidence']:.2f})"
+            f"(confidence: {inst['confidence']:.2f})",
         )
     lines.extend(["", end_marker])
     instincts_block = "\n".join(lines)
 
     if start_marker in existing and end_marker in existing:
         # Replace existing section
-        before = existing[:existing.index(start_marker)]
-        after = existing[existing.index(end_marker) + len(end_marker):]
+        before = existing[: existing.index(start_marker)]
+        after = existing[existing.index(end_marker) + len(end_marker) :]
         new_content = before + instincts_block + after
     elif existing:
         # Append to existing file
@@ -620,7 +681,7 @@ def main() -> None:
     since = get_last_analysis(project_hash)
     recent_observations = load_observations(project_hash, since)
     if not recent_observations:
-        prune_observations(project_hash, since)
+        prune_observations(project_hash, _analysis_floor(project_hash))
         return
 
     # Run detectors
@@ -637,7 +698,7 @@ def main() -> None:
 
     # Mark analysis complete, then age out what analysis has consumed
     set_last_analysis(project_hash)
-    prune_observations(project_hash, get_last_analysis(project_hash))
+    prune_observations(project_hash, _analysis_floor(project_hash))
 
 
 def run(payload):
