@@ -1,0 +1,37 @@
+# Claude gets these from plugins. Linking standalone copies would create
+# duplicate, unnamespaced commands.
+catchup
+catchup-upstream
+resolve-git-conflicts
+review-deps-prs
+sync-plan-issue
+watch-ci
+check-python-compat
+e2e-testing
+frontend-patterns
+python-patterns
+python-testing
+rust-patterns
+rust-testing
+gateguard
+audit-context
+audit-mcp-health
+audit-sessions
+
+# claude-checkup consolidates these narrower Codex audit forks.
+audit-codex-config
+audit-hooks
+audit-memory
+audit-permissions
+audit-plugins
+audit-project-orphans
+audit-rules
+audit-security
+audit-settings
+audit-skills
+
+# Codex storage/config workflows; no valid Claude projection.
+agent-sort
+restore-tasks
+resume-session
+save-session
