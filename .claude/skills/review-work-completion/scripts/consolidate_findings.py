@@ -23,8 +23,10 @@ severe severity, the first-seen description, and every finder.
 
 Two findings merge when their files match (line-number suffix stripped,
 segment-aligned path-tail comparison) AND the token-set Jaccard of their
-descriptions is at least MERGE_THRESHOLD. Merging is transitive inside a
-file group. `match()` is importable; the ledger filter reuses it.
+descriptions is at least MERGE_THRESHOLD. They also merge when their files
+match and the two descriptions share at least two distinct all-digit
+tokens. Merging is transitive inside a file group. `match()` is
+importable; the ledger filter reuses it.
 """
 
 from __future__ import annotations
@@ -160,6 +162,11 @@ def tokens(desc: str) -> frozenset[str]:
     return frozenset(_WORD_RE.findall(desc.lower())) - STOPWORDS
 
 
+def numeric_tokens(desc: str) -> frozenset[str]:
+    """All-digit tokens from desc, computed on raw _WORD_RE output."""
+    return frozenset(t for t in _WORD_RE.findall(desc.lower()) if t.isdigit())
+
+
 def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     if not a or not b:
         return 0.0
@@ -170,7 +177,10 @@ def match(finding_a: Finding, finding_b: Finding) -> bool:
     """Do these two findings describe the same defect?"""
     if not files_match(finding_a.file, finding_b.file):
         return False
-    return jaccard(tokens(finding_a.desc), tokens(finding_b.desc)) >= MERGE_THRESHOLD
+    if jaccard(tokens(finding_a.desc), tokens(finding_b.desc)) >= MERGE_THRESHOLD:
+        return True
+    shared_nums = numeric_tokens(finding_a.desc) & numeric_tokens(finding_b.desc)
+    return len(shared_nums) >= 2
 
 
 def parse_line(line: str, agent: str) -> Finding | None:
