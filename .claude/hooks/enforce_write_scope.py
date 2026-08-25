@@ -30,7 +30,10 @@ def _repo_root(cwd: Path) -> Path:
 
     The predicate is the launcher's own (`cli/loop.py` walks up for
     `dev/local/autopilot`), and the walk stops at $HOME exclusive so a stray
-    `$HOME/dev/local/autopilot` cannot pull every repo's scope up to $HOME.
+    `$HOME/dev/local/autopilot` cannot pull every repo's scope up to $HOME;
+    with `cwd` at $HOME itself the floor in `_allowed_roots` drops root 1 but
+    `$HOME/dev/local` (root 2) survives as a descendant, so the fail-closed
+    block needs roots 1 and 2 both at $HOME or above.
     Walks UNRESOLVED: the `~/.claude` repo's `dev/local` is a symlink, and
     resolving would hand back the target's ancestors instead of the repo's.
     """
@@ -48,7 +51,10 @@ def _allowed_roots(cwd: str, env: Mapping[str, str]) -> list[Path]:
 
     `env` is injected so tests can supply a synthetic TMPDIR. `TMP_ROOTS` is
     read as a module global here, never as a default argument, so the suite's
-    seam keeps working.
+    seam keeps working. The root floor drops $HOME and its ancestors only;
+    root 2 (repo/dev/local) survives as a descendant, so the "no usable write
+    scope" block fires only when roots 1 and 2 both resolve to $HOME or above
+    (e.g. a repo whose dev/local symlinks to $HOME).
     """
     repo = _repo_root(Path(cwd))
     candidates = [repo, repo / "dev" / "local"]
@@ -56,7 +62,9 @@ def _allowed_roots(cwd: str, env: Mapping[str, str]) -> list[Path]:
         candidates.append(Path(env["TMPDIR"]))
     candidates.extend(Path(root) for root in TMP_ROOTS)
     candidates.extend(
-        Path(extra) for extra in env.get(EXTRA_ROOTS_VAR, "").split(":") if extra
+        Path(os.path.expanduser(extra))
+        for extra in env.get(EXTRA_ROOTS_VAR, "").split(":")
+        if extra
     )
     home = Path(os.path.realpath(Path.home()))
     roots: list[Path] = []
@@ -104,9 +112,9 @@ def _breach(target: str, roots: list[Path], cwd: str) -> str | None:
 
 def main() -> None:
     try:
-        payload = read_input()
         if os.environ.get(MARKER) != "1":
             allow()
+        payload = read_input()
         if os.environ.get(KILL_SWITCH) == "off":
             print(
                 "enforce_write_scope: disarmed by _AUTOPILOT_WRITE_SCOPE=off",
