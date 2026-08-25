@@ -18,12 +18,12 @@
 !.claude/settings.json
 !.claude/skills/
 !.claude/skills/**
-!.claude/skills-library/
-!.claude/skills-library/**
+!.claude/.archive/
+!.claude/.archive/**
 .claude/skills/**/dev/
 .claude/skills/**/node_modules/
-.claude/skills-library/**/dev/
-.claude/skills-library/**/node_modules/
+.claude/.archive/**/dev/
+.claude/.archive/**/node_modules/
 .claude/skills/brief-portfolio/app/dist/
 !.claude/workflows/
 !.claude/workflows/**
