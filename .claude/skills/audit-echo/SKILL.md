@@ -5,11 +5,11 @@ description: Use when reviewing cartographer-echo fire patterns to tune stopword
 
 # Audit Echo
 
-Read `~/.claude/cartographer/audit.jsonl`, filter to `phase: "echo"`, and produce a findings report with severity tiers (CRITICAL/HIGH/MEDIUM/LOW) plus aggregate counts and tuning recommendations.
+Read `~/.local/share/agents/cartographer/audit.jsonl`, filter to `phase: "echo"`, and produce a findings report with severity tiers (CRITICAL/HIGH/MEDIUM/LOW) plus aggregate counts and tuning recommendations.
 
 ## Dependencies
 
-- Path: `~/.claude/cartographer/audit.jsonl` - the only event source.
+- Path: `~/.local/share/agents/cartographer/audit.jsonl` - the only event source.
 - Hook: `~/.claude/hooks/cartographer-echo.py` writes those events. No hook, no
   events, so an empty report means "Echo is not running", not "Echo is quiet".
 - CLI: `python3`.
@@ -103,6 +103,6 @@ _STOPWORDS: frozenset[str] = frozenset({
 
 ## Notes
 
-- Audit log path: `~/.claude/cartographer/audit.jsonl`.
+- Audit log path: `~/.local/share/agents/cartographer/audit.jsonl`.
 - Event schema (PRD 00010 §Audit-log emission): `ts`, `session`, `tool`, `file`, `decision`, `reason`, `symbols`, `matches`, `phase: "echo"`.
 - This skill is read-only; never mutate the audit log. Stopword/threshold tuning is a separate user action surfaced as remediation snippets.

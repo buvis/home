@@ -172,7 +172,12 @@ def _run_subprocess(path: str, payload: dict, home: Path, cwd: Path, env_extra=N
 
 
 def _run_in_process(
-    path: str, payload: dict, home: Path, cwd: Path, monkeypatch, env_extra=None
+    path: str,
+    payload: dict,
+    home: Path,
+    cwd: Path,
+    monkeypatch,
+    env_extra=None,
 ):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     monkeypatch.setenv("HOME", str(home))
@@ -372,7 +377,11 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
 
     in_home, in_cwd = _fresh_env(tmp_path, "inproc")
     code_in, out_in, err_in = _run_in_process(
-        path, payload, in_home, in_cwd, monkeypatch
+        path,
+        payload,
+        in_home,
+        in_cwd,
+        monkeypatch,
     )
 
     assert (code_in, out_in, err_in) == (code_sub, out_sub, err_sub), (
@@ -407,7 +416,11 @@ def test_enforce_prd_location_bash_block_exit_2(command, tmp_path, monkeypatch):
 
     in_home, in_cwd = _fresh_env(tmp_path, "inproc")
     code_in, out_in, err_in = _run_in_process(
-        path, payload, in_home, in_cwd, monkeypatch
+        path,
+        payload,
+        in_home,
+        in_cwd,
+        monkeypatch,
     )
 
     # Parity of the hard contract.
@@ -522,9 +535,9 @@ def test_track_cost_writes_costs_row(tmp_path, monkeypatch):
                         "cache_read_input_tokens": 0,
                     },
                 },
-            }
+            },
         )
-        + "\n"
+        + "\n",
     )
     payload = {"session_id": "s", "transcript_path": str(transcript)}
 
@@ -534,15 +547,19 @@ def test_track_cost_writes_costs_row(tmp_path, monkeypatch):
     code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
 
     assert (code_in, out_in) == (code_sub, out_sub) == (0, "")
-    assert _nonempty(sub_home / ".claude" / "metrics" / "costs.jsonl")
-    assert _nonempty(in_home / ".claude" / "metrics" / "costs.jsonl"), (
-        "run() must append a cost row under HOME; a no-op leaves it empty"
+    assert _nonempty(
+        sub_home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
     )
+    assert _nonempty(
+        in_home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
+    ), "run() must append a cost row under HOME; a no-op leaves it empty"
     # Pin the MEANING: the row must reflect the crafted transcript, not arbitrary
     # bytes (kills a garbage-writing stub). Keys per track_cost.py build_row: the
     # in/out token sums and the model string.
     for home in (sub_home, in_home):
-        row = _last_json_row(home / ".claude" / "metrics" / "costs.jsonl")
+        row = _last_json_row(
+            home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
+        )
         assert row["in"] == 1000 and row["out"] == 200, row
         assert row["model"] == "claude-sonnet-4", row
 
@@ -565,9 +582,9 @@ def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
                         },
                     ],
                 },
-            }
+            },
         )
-        + "\n"
+        + "\n",
     )
     payload = {"session_id": "s", "transcript_path": str(transcript)}
 
@@ -577,14 +594,18 @@ def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
     code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
 
     assert (code_in, out_in) == (code_sub, out_sub) == (0, "")
-    assert _nonempty(sub_home / ".claude" / "metrics" / "skills.jsonl")
-    assert _nonempty(in_home / ".claude" / "metrics" / "skills.jsonl"), (
-        "run() must append a skill row under HOME; a no-op leaves it empty"
+    assert _nonempty(
+        sub_home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
     )
+    assert _nonempty(
+        in_home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
+    ), "run() must append a skill row under HOME; a no-op leaves it empty"
     # Pin the MEANING: the row must name the skill from the crafted transcript
     # (kills a garbage-writing stub). Key per track_skills.py.
     for home in (sub_home, in_home):
-        row = _last_json_row(home / ".claude" / "metrics" / "skills.jsonl")
+        row = _last_json_row(
+            home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
+        )
         assert row["skill"] == "brush", row
 
 
@@ -592,7 +613,7 @@ def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
 def test_observe_tool_writes_observation_row(tmp_path, monkeypatch):
     path = str(HOOKS_DIR / "observe_tool.py")
     # A non-empty tool_name on a non-automated session appends one observation
-    # under HOME/.claude/instincts/projects/<hash>/observations.jsonl. cwd is a
+    # under HOME/.local/share/agents/instincts/projects/<hash>/observations.jsonl. cwd is a
     # non-git temp dir so project detection is deterministic; the exact <hash>
     # (git-detected or the "global" fallback) is irrelevant - glob catches it.
     payload = {
@@ -609,15 +630,16 @@ def test_observe_tool_writes_observation_row(tmp_path, monkeypatch):
     code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
 
     assert (code_in, out_in) == (code_sub, out_sub) == (0, "")
-    obs = "instincts/projects/*/observations.jsonl"
-    assert _glob_nonempty(sub_home / ".claude", obs)
-    assert _glob_nonempty(in_home / ".claude", obs), (
+    obs = "agents/instincts/projects/*/observations.jsonl"
+    data = Path(".local") / "share"
+    assert _glob_nonempty(sub_home / data, obs)
+    assert _glob_nonempty(in_home / data, obs), (
         "run() must append an observation under HOME; a no-op leaves none"
     )
     # Pin the MEANING: the row must record the tool and session from the payload
     # (kills a garbage-writing stub). Keys per observe_tool.py.
     for home in (sub_home, in_home):
-        row = _last_json_row(_one_nonempty_glob(home / ".claude", obs))
+        row = _last_json_row(_one_nonempty_glob(home / data, obs))
         assert row["tool"] == "Read" and row["sid"] == "s", row
 
 
@@ -656,11 +678,20 @@ def test_review_coverage_hook_blocks_missing_review_exit_2(tmp_path, monkeypatch
 
     sub_home, sub_cwd = prep("sub")
     code_sub, out_sub, _ = _run_subprocess(
-        path, payload, sub_home, sub_cwd, env_extra=loop
+        path,
+        payload,
+        sub_home,
+        sub_cwd,
+        env_extra=loop,
     )
     in_home, in_cwd = prep("inproc")
     code_in, out_in, _ = _run_in_process(
-        path, payload, in_home, in_cwd, monkeypatch, env_extra=loop
+        path,
+        payload,
+        in_home,
+        in_cwd,
+        monkeypatch,
+        env_extra=loop,
     )
 
     assert (code_in, out_in) == (code_sub, out_sub)
@@ -683,11 +714,11 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
                         "input_tokens": 600000,
                         "cache_read_input_tokens": 0,
                         "cache_creation_input_tokens": 0,
-                    }
+                    },
                 },
-            }
+            },
         )
-        + "\n"
+        + "\n",
     )
     payload = {"session_id": "s", "transcript_path": str(transcript)}
     loop = {"_AUTOPILOT_LOOP": "1"}
@@ -701,11 +732,20 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
 
     sub_home, sub_cwd = prep("sub")
     code_sub, out_sub, _ = _run_subprocess(
-        path, payload, sub_home, sub_cwd, env_extra=loop
+        path,
+        payload,
+        sub_home,
+        sub_cwd,
+        env_extra=loop,
     )
     in_home, in_cwd = prep("inproc")
     code_in, out_in, _ = _run_in_process(
-        path, payload, in_home, in_cwd, monkeypatch, env_extra=loop
+        path,
+        payload,
+        in_home,
+        in_cwd,
+        monkeypatch,
+        env_extra=loop,
     )
 
     # Envelope text is static (limit//1000 == "500K", no task_id/timestamp), so
@@ -718,7 +758,7 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
     # stub): state.json must gain a cap_rotations entry and next_phase == build.
     for state_cwd in (sub_cwd, in_cwd):
         st = json.loads(
-            (state_cwd / "dev" / "local" / "autopilot" / "state.json").read_text()
+            (state_cwd / "dev" / "local" / "autopilot" / "state.json").read_text(),
         )
         assert st.get("cap_rotations"), (
             "rotation must be recorded in state.cap_rotations"
@@ -743,7 +783,7 @@ def test_review_coverage_hook_allows_valid_review_exit_0(tmp_path, monkeypatch):
         ap = cwd / "dev" / "local" / "autopilot"
         ap.mkdir(parents=True, exist_ok=True)
         (ap / "state.json").write_text(
-            json.dumps({"phase": "done", "prd": "00099-demo.md"})
+            json.dumps({"phase": "done", "prd": "00099-demo.md"}),
         )
         reviews = cwd / "dev" / "local" / "reviews"
         reviews.mkdir(parents=True, exist_ok=True)
@@ -756,11 +796,20 @@ def test_review_coverage_hook_allows_valid_review_exit_0(tmp_path, monkeypatch):
 
     sub_home, sub_cwd = prep("sub")
     code_sub, out_sub, _ = _run_subprocess(
-        path, payload, sub_home, sub_cwd, env_extra=loop
+        path,
+        payload,
+        sub_home,
+        sub_cwd,
+        env_extra=loop,
     )
     in_home, in_cwd = prep("inproc")
     code_in, out_in, _ = _run_in_process(
-        path, payload, in_home, in_cwd, monkeypatch, env_extra=loop
+        path,
+        payload,
+        in_home,
+        in_cwd,
+        monkeypatch,
+        env_extra=loop,
     )
 
     assert (code_in, out_in) == (code_sub, out_sub)

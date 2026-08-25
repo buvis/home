@@ -9,7 +9,7 @@ Build or refresh the Cartographer **atlas** for the current repository — a
 proactive map of "where things live" that downstream phases (Recon Brief,
 Architect, Conformance) consult before deciding where to make a change.
 
-The atlas lives at `~/.claude/cartographer/projects/<hash>/`:
+The atlas lives at `~/.local/share/agents/cartographer/projects/<hash>/`:
 
 - `atlas.json` — machine-readable summary (layers, naming, error style,
   dependency edges, forbidden imports, staleness config).
@@ -20,7 +20,7 @@ The atlas lives at `~/.claude/cartographer/projects/<hash>/`:
 
 - Path: `~/.claude/hooks/_lib_cartographer.py` - hard import in `scripts/run.py`
   (project hash, tree-sitter access, audit append). Missing = the skill cannot run.
-- Path: `~/.claude/cartographer/projects/<hash>/` - the atlas store it writes.
+- Path: `~/.local/share/agents/cartographer/projects/<hash>/` - the atlas store it writes.
 - CLI: `python3`.
 - Optional: `git` (staleness config and `head_sha`; absent = neither recorded),
   tree-sitter (absent = regex fallback and the atlas is marked `degraded`).
@@ -66,7 +66,7 @@ run (tree-sitter unavailable) or a truncated atlas, surface that to the user.
 
 ## Notes
 
-- Atlas path: `~/.claude/cartographer/projects/<hash>/`.
+- Atlas path: `~/.local/share/agents/cartographer/projects/<hash>/`.
 - Layer detection is heuristic; a `[manual]` block in `atlas.json` lets the
   user override it and survives re-survey.
 - Survey caps files-sampled at 50 per layer; large repos produce a partial

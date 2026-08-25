@@ -1,7 +1,7 @@
 """PostToolUse hook: log structural tool observations for instinct detection.
 
 Replaces ~/.claude/hooks/observe-tool.sh. Appends JSONL rows to project-scoped
-observation files under ~/.claude/instincts/projects/{hash}/.
+observation files under ~/.local/share/agents/instincts/projects/{hash}/.
 
 Stdlib only. Latency budget <100ms — at most two short subprocess calls
 (`git remote get-url origin`, fallback `git rev-parse --show-toplevel`).
@@ -20,9 +20,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import read_input  # noqa: E402
+from _common import read_input
 
-INSTINCTS_DIR = Path.home() / ".claude" / "instincts"
+# Cross-agent state; see track_cost.py for why there is no XDG_DATA_HOME lookup.
+INSTINCTS_DIR = Path.home() / ".local" / "share" / "agents" / "instincts"
 PROJECTS_DIR = INSTINCTS_DIR / "projects"
 REGISTRY_FILE = INSTINCTS_DIR / "projects.json"
 CWD_CACHE_FILE = INSTINCTS_DIR / ".cwd-cache.json"
@@ -33,7 +34,7 @@ RETENTION_DAYS_DEFAULT = 14
 
 ERROR_PATTERN = re.compile(
     r"error|Error|ERROR|failed|FAILED|exception|Exception|"
-    r"command not found|No such file|Permission denied"
+    r"command not found|No such file|Permission denied",
 )
 
 
@@ -95,8 +96,7 @@ def detect_project() -> tuple[str, str, str]:
         clean = strip_git_credentials(remote)
         proj_hash = hashlib.sha256(clean.encode("utf-8")).hexdigest()[:12]
         name = clean.rsplit("/", 1)[-1]
-        if name.endswith(".git"):
-            name = name[:-4]
+        name = name.removesuffix(".git")
         return proj_hash, name, clean
     toplevel = _git(["rev-parse", "--show-toplevel"])
     if toplevel:
@@ -128,7 +128,9 @@ def _read_cwd_cache() -> dict[str, list[str]]:
 
 def _write_cwd_cache(cache: dict[str, list[str]]) -> None:
     INSTINCTS_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = NamedTemporaryFile("w", encoding="utf-8", dir=str(INSTINCTS_DIR), delete=False)
+    tmp = NamedTemporaryFile(
+        "w", encoding="utf-8", dir=str(INSTINCTS_DIR), delete=False
+    )
     try:
         json.dump(cache, tmp)
         tmp_path = Path(tmp.name)
@@ -192,7 +194,8 @@ def _prune_registry(registry: dict[str, Any], keep_hash: str) -> dict[str, Any]:
     return {
         h: e
         for h, e in registry.items()
-        if h == keep_hash or (isinstance(e, dict) and str(e.get("last_seen", "")) >= cutoff)
+        if h == keep_hash
+        or (isinstance(e, dict) and str(e.get("last_seen", "")) >= cutoff)
     }
 
 
@@ -215,7 +218,10 @@ def update_registry(proj_hash: str, proj_name: str, proj_remote: str) -> None:
     }
     registry = _prune_registry(registry, proj_hash)
     tmp = NamedTemporaryFile(
-        "w", encoding="utf-8", dir=str(INSTINCTS_DIR), delete=False
+        "w",
+        encoding="utf-8",
+        dir=str(INSTINCTS_DIR),
+        delete=False,
     )
     try:
         json.dump(registry, tmp)
@@ -246,6 +252,10 @@ def main() -> None:
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     row = {
+        # `tool` holds this host's vocabulary (Read/Edit/Bash). Another host
+        # names the same capability differently, so never blend rows across
+        # hosts without mapping `tool` first.
+        "host": "claude",
         "ts": ts,
         "tool": tool_name,
         "in": build_tool_in(tool_input),

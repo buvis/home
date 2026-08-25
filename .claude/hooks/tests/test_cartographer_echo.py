@@ -55,7 +55,7 @@ def run_hook(
 
 
 def read_audit(home: Path) -> list[dict]:
-    log = home / ".claude" / "cartographer" / "audit.jsonl"
+    log = home / ".local" / "share" / "agents" / "cartographer" / "audit.jsonl"
     if not log.exists():
         return []
     return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
@@ -338,7 +338,9 @@ def test_audit_event_required_keys(tmp_path: Path) -> None:
     ],
 )
 def test_extract_symbols_per_language(
-    ext: str, content: str, expected_subset: set[str]
+    ext: str,
+    content: str,
+    expected_subset: set[str],
 ) -> None:
     mod = _import_hook_module()
     syms = set(mod.extract_symbols(content, ext))
@@ -503,7 +505,8 @@ def test_search_candidates_skips_build_dirs(tmp_path: Path) -> None:
 
 
 def test_search_candidates_returns_empty_when_rg_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """If `rg` is unavailable, returns [] without crashing."""
     mod = _import_hook_module()
@@ -515,14 +518,17 @@ def test_search_candidates_returns_empty_when_rg_missing(
     import subprocess as _sp
 
     monkeypatch.setattr(
-        _sp, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError())
+        _sp,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()),
     )
     out = mod.search_candidates("formatPrice", root, target)
     assert out == []
 
 
 def test_search_candidates_timeout_returns_empty(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     mod = _import_hook_module()
     root = tmp_path / "proj"
@@ -598,7 +604,8 @@ def test_search_candidates_batch_p95_under_hook_budget(tmp_path: Path) -> None:
 
 
 def _isolate_hook_for_direct_call(
-    monkeypatch: pytest.MonkeyPatch, home: Path
+    monkeypatch: pytest.MonkeyPatch,
+    home: Path,
 ) -> object:
     """Import the hook with HOME pointed at a tmp dir and lib cache cleared."""
     monkeypatch.setenv("HOME", str(home))
@@ -610,18 +617,20 @@ def _isolate_hook_for_direct_call(
 
 
 def test_handle_direct_call_unknown_tool_no_audit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     mod.handle(
-        {"tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}, "session_id": "s"}
+        {"tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}, "session_id": "s"},
     )
     events = read_audit(tmp_path)
     assert all(e.get("tool") != "Read" for e in events)
 
 
 def test_handle_direct_call_edit_skip_settings(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     mod.handle(
@@ -633,25 +642,27 @@ def test_handle_direct_call_edit_skip_settings(
                 "new_string": "y",
             },
             "session_id": "s",
-        }
+        },
     )
     events = read_audit(tmp_path)
     assert any(e.get("reason") == "settings" for e in events)
 
 
 def test_handle_direct_call_bash_clean(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     mod.handle(
-        {"tool_name": "Bash", "tool_input": {"command": "ls -la"}, "session_id": "s"}
+        {"tool_name": "Bash", "tool_input": {"command": "ls -la"}, "session_id": "s"},
     )
     events = read_audit(tmp_path)
     assert any(e.get("reason") == "bash-clean" for e in events)
 
 
 def test_handle_direct_call_write_no_symbols(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     iso = tmp_path / "iso"
@@ -664,14 +675,15 @@ def test_handle_direct_call_write_no_symbols(
                 "content": "# comment only\n",
             },
             "session_id": "s",
-        }
+        },
     )
     events = read_audit(tmp_path)
     assert any(e.get("reason") == "no-symbols" for e in events)
 
 
 def test_extract_content_multiedit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     out = mod.extract_content(
@@ -680,7 +692,7 @@ def test_extract_content_multiedit(
             "edits": [
                 {"new_string": "def foo(): pass"},
                 {"new_string": "def bar(): pass"},
-            ]
+            ],
         },
     )
     assert "foo" in out and "bar" in out
@@ -700,7 +712,9 @@ def test_deny_key_deterministic() -> None:
 
 
 def test_handle_direct_call_bash_bypass_deny_and_retry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     (tmp_path / "src").mkdir()
@@ -724,7 +738,9 @@ def test_handle_direct_call_bash_bypass_deny_and_retry(
 
 
 def test_handle_direct_call_edit_deny_and_retry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys,
 ) -> None:
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
     root = tmp_path / "proj"
@@ -752,7 +768,8 @@ def test_handle_direct_call_edit_deny_and_retry(
 
 
 def test_main_function_parses_stdin(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """Cover main()'s json parse + handle() dispatch + exception path."""
     mod = _isolate_hook_for_direct_call(monkeypatch, tmp_path)
@@ -792,7 +809,8 @@ def test_main_non_dict_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
 
 def test_rationalizations_parsed_from_rules_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The rationalizations parser must successfully load real rule file content."""
     mod = _import_hook_module()
@@ -955,7 +973,9 @@ def test_clean_bash_passes_through(tmp_path: Path) -> None:
     ],
 )
 def test_detect_bash_bypass_positive(
-    tmp_path: Path, command: str, expected_pattern: str
+    tmp_path: Path,
+    command: str,
+    expected_pattern: str,
 ) -> None:
     mod = _import_hook_module()
     # Create the dirs referenced so resolve() works inside cwd.
@@ -1010,7 +1030,7 @@ def test_detect_bash_bypass_settings_json_skipped(tmp_path: Path) -> None:
 def test_build_deny_envelope_shape() -> None:
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     assert env["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
@@ -1024,7 +1044,7 @@ def test_build_deny_envelope_shape() -> None:
 def test_build_deny_envelope_contains_rationalization_quote() -> None:
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]
@@ -1035,7 +1055,7 @@ def test_build_deny_envelope_contains_rationalization_quote() -> None:
 def test_build_deny_envelope_reason_length_capped() -> None:
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]
@@ -1057,7 +1077,7 @@ def test_build_deny_envelope_verbs_cite_couldnt_find_helper() -> None:
     """Symbols that contain `format`/`parse`/`validate`/etc cite the 'couldn't find existing helper' rationalization."""
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]
@@ -1237,7 +1257,7 @@ def test_decide_allows_on_weak_only() -> None:
     mod = _import_hook_module()
     groups = {
         "formatPrice": [
-            {"file": "u.py", "line": 1, "snippet": "def priceformatter(p):"}
+            {"file": "u.py", "line": 1, "snippet": "def priceformatter(p):"},
         ],
     }
     decision, matches = mod.decide(["formatPrice"], groups)
@@ -1331,7 +1351,8 @@ def test_decide_match_snippet_capped() -> None:
 def test_stopword_filters_generic_names() -> None:
     mod = _import_hook_module()
     kept = mod.filter_stopwords(
-        ["create", "setUp", "Result", "extractRecurrenceId"], "a.py"
+        ["create", "setUp", "Result", "extractRecurrenceId"],
+        "a.py",
     )
     assert kept == ["extractRecurrenceId"]
 
@@ -1453,7 +1474,7 @@ def test_rationalizations_path_yields_parsed_entries_not_pointer_stub() -> None:
 def test_build_deny_envelope_attribution_cites_new_catalog_path() -> None:
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]
@@ -1470,7 +1491,7 @@ def test_build_deny_envelope_excerpt_line_format_pinned() -> None:
 
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]
@@ -1651,7 +1672,7 @@ def test_build_deny_envelope_surrounding_lines_unchanged_by_catalog_move() -> No
     stay exactly as before."""
     mod = _import_hook_module()
     matches = [
-        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"}
+        {"symbol": "formatPrice", "file": "src/util.py", "line": 42, "score": "strong"},
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]

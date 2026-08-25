@@ -1,7 +1,7 @@
 """Tests for ~/.claude/skills/survey/scripts/run.py — skeleton survey behavior.
 
 Subprocess-driven: run.py is invoked as a child process with HOME redirected to
-a tmp dir so atlas.json never touches the real ~/.claude/cartographer/. The
+a tmp dir so atlas.json never touches the real ~/.local/share/agents/cartographer/. The
 synthetic git repos are created inside tmp_path so project_hash() resolves them
 correctly.
 
@@ -22,7 +22,7 @@ import pytest
 RUN_PY = Path.home() / ".claude" / "skills" / "survey" / "scripts" / "run.py"
 # run.py imports `_lib_cartographer` from ~/.claude/hooks via
 # `sys.path.insert(0, Path.home()/.claude/hooks)`. _run_survey redirects HOME to
-# a tmp dir (so atlas.json never touches the real ~/.claude/cartographer/), which
+# a tmp dir (so atlas.json never touches the real ~/.local/share/agents/cartographer/), which
 # makes that insert resolve to an empty tmp hooks dir. PYTHONPATH carries the
 # real hooks dir into the subprocess so the library import still resolves.
 HOOKS_DIR = Path.home() / ".claude" / "hooks"
@@ -95,7 +95,7 @@ def _read_atlas(home: Path, repo: Path) -> dict:
     else:
         h = "global"
 
-    atlas_path = home / ".claude" / "cartographer" / "projects" / h / "atlas.json"
+    atlas_path = home / ".local" / "share" / "agents" / "cartographer" / "projects" / h / "atlas.json"
     assert atlas_path.is_file(), f"atlas.json not found at {atlas_path}"
     return json.loads(atlas_path.read_text(encoding="utf-8"))
 
@@ -232,7 +232,7 @@ def test_non_git_dir_omits_head_sha(tmp_path: Path) -> None:
     assert proc.returncode == 0, f"run.py exited {proc.returncode}:\n{proc.stderr}"
 
     # For a non-git dir, project_hash() returns ("global", "global", "").
-    atlas_path = tmp_path / ".claude" / "cartographer" / "projects" / "global" / "atlas.json"
+    atlas_path = tmp_path / ".local" / "share" / "agents" / "cartographer" / "projects" / "global" / "atlas.json"
     assert atlas_path.is_file(), f"atlas.json not found at {atlas_path}"
     atlas = json.loads(atlas_path.read_text(encoding="utf-8"))
     assert "head_sha" not in atlas, (

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """audit-echo report generator.
 
-Reads ~/.claude/cartographer/audit.jsonl, keeps `phase == "echo"` events, and
+Reads ~/.local/share/agents/cartographer/audit.jsonl, keeps `phase == "echo"` events, and
 prints the aggregates the audit-echo skill turns into a findings report:
 windows (7d/28d), top-noise symbols, false-positive samples, per-language deny
 rates, and the skip distribution.
@@ -16,7 +16,7 @@ import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
-AUDIT_PATH = Path.home() / ".claude" / "cartographer" / "audit.jsonl"
+AUDIT_PATH = Path.home() / ".local" / "share" / "agents" / "cartographer" / "audit.jsonl"
 WINDOW_TOOLS = ("Edit", "Write", "MultiEdit", "Bash", "mcp__serena__*")
 LANG_BY_EXT = {
     ".py": "py", ".ts": "ts", ".tsx": "ts", ".js": "js", ".jsx": "js",

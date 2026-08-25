@@ -1,7 +1,7 @@
 """Stop hook: record which skills a session invoked (PRD 00086 R2).
 
 Scans the session transcript for `Skill` tool_use blocks and appends one row
-per invocation to ~/.claude/metrics/skills.jsonl:
+per invocation to ~/.local/share/agents/metrics/skills.jsonl:
 
     {"skill": "<name>", "session_id": "<id>", "ts": "<iso-utc>", "source": "loop|interactive"}
 
@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _common import append_jsonl_row, parse_transcript_entries
 
-METRICS_DIR = Path.home() / ".claude" / "metrics"
+# Cross-agent state; see track_cost.py for why there is no XDG_DATA_HOME lookup.
+METRICS_DIR = Path.home() / ".local" / "share" / "agents" / "metrics"
 SKILLS_FILE = METRICS_DIR / "skills.jsonl"
 
 
@@ -87,7 +88,7 @@ def _already_recorded(session_id: str) -> set[str]:
             except json.JSONDecodeError:
                 continue
             if isinstance(row, dict) and row.get("session_id") == session_id:
-                done.add(f'{row.get("skill")}\x00{row.get("tool_use_id", "")}')
+                done.add(f"{row.get('skill')}\x00{row.get('tool_use_id', '')}")
     except OSError:
         pass
     return done
@@ -109,10 +110,18 @@ def main() -> None:
     for tool_id, skill in invocations:
         if f"{skill}\x00{tool_id}" in already:
             continue
-        rows.append(json.dumps({
-            "skill": skill, "session_id": session_id, "ts": ts,
-            "source": source, "tool_use_id": tool_id,
-        }))
+        rows.append(
+            json.dumps(
+                {
+                    "host": "claude",
+                    "skill": skill,
+                    "session_id": session_id,
+                    "ts": ts,
+                    "source": source,
+                    "tool_use_id": tool_id,
+                }
+            )
+        )
     if not rows:
         return
     try:

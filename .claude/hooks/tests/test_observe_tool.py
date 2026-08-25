@@ -39,7 +39,7 @@ def run_hook(payload: dict, home: Path, cwd: Path, env_extra: dict | None = None
 
 
 def read_observations(home: Path, proj_hash: str) -> list[dict]:
-    f = home / ".claude" / "instincts" / "projects" / proj_hash / "observations.jsonl"
+    f = home / ".local" / "share" / "agents" / "instincts" / "projects" / proj_hash / "observations.jsonl"
     if not f.is_file():
         return []
     return [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -179,7 +179,7 @@ class TestEndToEnd(unittest.TestCase):
     def test_updates_registry(self) -> None:
         payload = {"tool_name": "Read", "tool_input": {"file_path": "/x"}, "session_id": "s"}
         run_hook(payload, self.home, self.cwd)
-        registry_file = self.home / ".claude" / "instincts" / "projects.json"
+        registry_file = self.home / ".local" / "share" / "agents" / "instincts" / "projects.json"
         self.assertTrue(registry_file.is_file())
         registry = json.loads(registry_file.read_text(encoding="utf-8"))
         self.assertIn("global", registry)

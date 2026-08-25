@@ -51,7 +51,7 @@ def run_hook(payload: dict, home: Path, extra_env: dict | None = None):
 
 
 def read_rows(home: Path) -> list[dict]:
-    f = home / ".claude" / "metrics" / "skills.jsonl"
+    f = home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
     if not f.is_file():
         return []
     rows = []
@@ -198,7 +198,7 @@ class EndToEndTests(unittest.TestCase):
     def test_appends_cleanly_after_truncated_tail_from_prior_crash(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
-            metrics_dir = home / ".claude" / "metrics"
+            metrics_dir = home / ".local" / "share" / "agents" / "metrics"
             metrics_dir.mkdir(parents=True)
             skills_file = metrics_dir / "skills.jsonl"
             prior_row = json.dumps(
@@ -226,7 +226,7 @@ class EndToEndTests(unittest.TestCase):
     def test_dedup_survives_corrupted_neighbour_from_prior_crash(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
-            metrics_dir = home / ".claude" / "metrics"
+            metrics_dir = home / ".local" / "share" / "agents" / "metrics"
             metrics_dir.mkdir(parents=True)
             skills_file = metrics_dir / "skills.jsonl"
             truncated_a = (

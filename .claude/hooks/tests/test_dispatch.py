@@ -893,7 +893,7 @@ def test_routing_matches_settings_json(dispatch, monkeypatch, event_short, tool_
 
 
 # Distinct tool names observed across 31,031 PostToolUse observations in
-# ~/.claude/instincts/projects/*/observations.jsonl (2026-07-21), plus the
+# ~/.local/share/agents/instincts/projects/*/observations.jsonl (2026-07-21), plus the
 # three never-observed names whose routing would change under re.search
 # (TodoWrite, NotebookEdit, BashOutput - substrings Write/Edit/Bash).
 #

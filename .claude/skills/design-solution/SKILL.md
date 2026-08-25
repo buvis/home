@@ -28,7 +28,7 @@ PRD-owned.
 - Rules: `~/.claude/rules-library/rationalizations.md` (drives the mandatory reuse sweep)
 - CLI: `codex` (review dispatch). Unavailable: fall back to the Claude subagent
   reviewer documented in the review step
-- Optional: cartographer atlas `~/.claude/cartographer/projects/<hash>/atlas.md`
+- Optional: cartographer atlas `~/.local/share/agents/cartographer/projects/<hash>/atlas.md`
   (skipped silently when absent)
 
 ## Inputs
@@ -38,7 +38,7 @@ PRD-owned.
   ("ambiguous - pass the PRD path explicitly").
 - **Architecture context**, loaded when present (skip silently if absent):
   - the cartographer atlas for this repo
-    (`~/.claude/cartographer/projects/<hash>/atlas.md`)
+    (`~/.local/share/agents/cartographer/projects/<hash>/atlas.md`)
   - `dev/local/meta/project-capsule.md`
   - `AGENTS.md` / `agent_docs/`
 

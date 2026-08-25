@@ -16,7 +16,7 @@ When the user says "remember this globally" or "put it in global memory," defaul
 Two machine-written planes teach future sessions; they have different owners:
 
 - **Auto-memory** (`projects/<hash>/memory/`) holds curated facts written deliberately.
-- **Instincts** (`~/.claude/instincts/`) holds statistical habits distilled from tool
+- **Instincts** (`~/.local/share/agents/instincts/`) holds statistical habits distilled from tool
   observations, confidence-gated; raw observations are pruned after
   `INSTINCTS_RETENTION_DAYS` (default 14).
 - On conflict, auto-memory wins: an instinct that contradicts a memory is wrong or
