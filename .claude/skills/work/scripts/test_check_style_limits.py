@@ -204,6 +204,40 @@ def test_file_already_over_eight_hundred_lines_before_the_diff_is_not_reported(
     assert csl.violations(diff_text, [py_file]) == []
 
 
+# --- multi-file diffs / unparseable files --------------------------------------
+
+
+def test_deleted_file_hunks_do_not_count_against_the_previous_file(
+    tmp_path: Path,
+) -> None:
+    py_file = _write(tmp_path, "mod.py", "x = 1\n" * 805)
+    added = "".join("+x = 2\n" for _ in range(10))
+    removed = "".join("-old line\n" for _ in range(20))
+    diff_text = (
+        "diff --git a/mod.py b/mod.py\n"
+        "--- a/mod.py\n"
+        "+++ b/mod.py\n"
+        "@@ -1,0 +1,10 @@\n" + added + "diff --git a/gone.py b/gone.py\n"
+        "--- a/gone.py\n"
+        "+++ /dev/null\n"
+        "@@ -1,20 +0,0 @@\n" + removed
+    )
+    assert csl.violations(diff_text, [py_file]) == [f"FILE | {py_file} | 805 lines"]
+
+
+def test_unparseable_file_still_reports_a_file_crossing(tmp_path: Path) -> None:
+    text = "def broken(:\n" + "x = 1\n" * 804
+    py_file = _write(tmp_path, "broken.py", text)
+    added = "".join("+x = 1\n" for _ in range(10))
+    diff_text = (
+        "diff --git a/broken.py b/broken.py\n"
+        "--- a/broken.py\n"
+        "+++ b/broken.py\n"
+        "@@ -0,0 +1,10 @@\n" + added
+    )
+    assert csl.violations(diff_text, [py_file]) == [f"FILE | {py_file} | 805 lines"]
+
+
 # --- non-Python skip -----------------------------------------------------------
 
 
