@@ -32,6 +32,36 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR.parent))
 from cli import render_report, statectl
 
+# Shared by the two autonomous-parity tests below: two ordinary
+# autonomous-decision entries ("a", "b") plus one assumed-ambiguity entry
+# that deliberately carries cycle, question and reason - all renderable
+# cells under the blank-row rule - so only its type value can be what drops
+# it from the Autonomous Decisions table. Pins the expected count at 2, not
+# 0 or 3.
+_AUTONOMOUS_DECISIONS_MIX = [
+    {
+        "cycle": 1,
+        "issue": "a",
+        "severity": "low",
+        "action": "auto-fix",
+        "reason": "r",
+    },
+    {
+        "type": "assumed-ambiguity",
+        "cycle": 1,
+        "question": "q?",
+        "assumption": "assumed x",
+        "reason": "loop mode",
+    },
+    {
+        "cycle": 1,
+        "issue": "b",
+        "severity": "low",
+        "action": "auto-fix",
+        "reason": "r",
+    },
+]
+
 
 class StatectlCompletePrdTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -505,10 +535,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
     # PRD 00122 item 4: the count must match the rows the "Autonomous
     # Decisions" table draws, and that table skips every entry whose type is
     # exactly "assumed-ambiguity" (those land in "Assumptions Made" instead).
-    # The excluded entry deliberately carries cycle, question and reason -
-    # all renderable cells under the blank-row rule - so only its type value
-    # can be what drops it. Two ordinary entries alongside pin the expected
-    # count at 2, not 0 or 3.
+    # See _AUTONOMOUS_DECISIONS_MIX for why the count is 2, not 0 or 3.
     def test_assumed_ambiguity_entries_are_excluded_from_the_autonomous_count(
         self,
     ) -> None:
@@ -519,29 +546,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
                 "cycle": 1,
                 "tasks_completed": 1,
                 "tasks_total": 1,
-                "autonomous_decisions": [
-                    {
-                        "cycle": 1,
-                        "issue": "a",
-                        "severity": "low",
-                        "action": "auto-fix",
-                        "reason": "r",
-                    },
-                    {
-                        "type": "assumed-ambiguity",
-                        "cycle": 1,
-                        "question": "q?",
-                        "assumption": "assumed x",
-                        "reason": "loop mode",
-                    },
-                    {
-                        "cycle": 1,
-                        "issue": "b",
-                        "severity": "low",
-                        "action": "auto-fix",
-                        "reason": "r",
-                    },
-                ],
+                "autonomous_decisions": _AUTONOMOUS_DECISIONS_MIX,
                 "batch": {"parks_consecutive": 0},
             },
         )
@@ -557,33 +562,15 @@ class StatectlCompletePrdTest(unittest.TestCase):
     # render_report.is_autonomous_row already excludes "assumed-ambiguity"
     # entries - and it exists to pin that invariant so a future change to
     # either the writer's count or the renderer's row selection alone breaks
-    # this test instead of letting the two sides silently diverge.
+    # this test instead of letting the two sides silently diverge. Asserts
+    # on rendered content, not line position: both ordinary decisions' issue
+    # cells appear verbatim, the assumed-ambiguity entry's question text
+    # never does, and the data-row count - found by locating the "---"
+    # separator by its own shape (only "|" and "-" characters) rather than a
+    # fixed index, then counting the "| "-prefixed lines after it - is 2.
     def test_persisted_autonomous_count_matches_rendered_autonomous_data_rows(
         self,
     ) -> None:
-        decisions = [
-            {
-                "cycle": 1,
-                "issue": "a",
-                "severity": "low",
-                "action": "auto-fix",
-                "reason": "r",
-            },
-            {
-                "type": "assumed-ambiguity",
-                "cycle": 1,
-                "question": "q?",
-                "assumption": "assumed x",
-                "reason": "loop mode",
-            },
-            {
-                "cycle": 1,
-                "issue": "b",
-                "severity": "low",
-                "action": "auto-fix",
-                "reason": "r",
-            },
-        ]
         self.write_state(
             {
                 "phase": "review",
@@ -591,7 +578,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
                 "cycle": 1,
                 "tasks_completed": 1,
                 "tasks_total": 1,
-                "autonomous_decisions": decisions,
+                "autonomous_decisions": _AUTONOMOUS_DECISIONS_MIX,
                 "batch": {"parks_consecutive": 0},
             },
         )
@@ -600,16 +587,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
         entry = self.load_state()["batch"]["completed_prds"][-1]
         self.assertEqual(entry["autonomous_decisions"], 2)
 
-        # Assert on rendered content, not line position: both ordinary
-        # decisions' issue cells appear verbatim in the table, the
-        # assumed-ambiguity entry's question text never does, and the
-        # number of data rows - found by locating the "---" separator by
-        # its own shape (only "|" and "-" characters) rather than a fixed
-        # index, then counting the "| "-prefixed lines after it - is
-        # exactly 2. This still holds after a purely cosmetic change to
-        # _autonomous's surrounding lines, and fails if is_autonomous_row
-        # stopped excluding assumed-ambiguity entries.
-        rendered = render_report._autonomous(decisions)
+        rendered = render_report._autonomous(_AUTONOMOUS_DECISIONS_MIX)
         rendered_text = "\n".join(rendered)
         self.assertIn("| a |", rendered_text)
         self.assertIn("| b |", rendered_text)
@@ -622,6 +600,54 @@ class StatectlCompletePrdTest(unittest.TestCase):
             line for line in rendered[separator_index + 1 :] if line.startswith("| ")
         ]
         self.assertEqual(len(data_rows), 2)
+
+    # PRD 00122 item 4, escalated half (Alice/Bob's finding): unlike the
+    # autonomous count, the escalated count had no render-side binding -
+    # EscalatedRowPredicateTest pins is_escalated_row's own rule and its
+    # routing via a mock stub, but nothing renders render_report._escalated()
+    # against a real deferred_decisions list and compares row counts.
+    # pending and deferred (b, c) are both excluded; resolved (a) is not -
+    # pinning the persisted count at 1, not 0 or 3, catches the exclusion
+    # vanishing even though that would move both sides together; comparing
+    # against the rendered row count catches the two sides diverging from
+    # each other.
+    def test_persisted_escalated_count_matches_rendered_escalated_data_rows(
+        self,
+    ) -> None:
+        decisions = [
+            {"status": "resolved", "issue": "a"},
+            {"status": "pending", "issue": "b"},
+            {"status": "deferred", "issue": "c"},
+        ]
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "deferred_decisions": decisions,
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["escalated_decisions"], 1)
+
+        rendered = render_report._escalated(decisions)
+        rendered_text = "\n".join(rendered)
+        self.assertIn("| a |", rendered_text)
+        self.assertNotIn("| b |", rendered_text)
+        self.assertNotIn("| c |", rendered_text)
+
+        separator_index = next(
+            i for i, line in enumerate(rendered) if line and set(line) <= {"|", "-"}
+        )
+        data_rows = [
+            line for line in rendered[separator_index + 1 :] if line.startswith("| ")
+        ]
+        self.assertEqual(len(data_rows), entry["escalated_decisions"])
 
 
 class EscalatedRowPredicateTest(unittest.TestCase):
