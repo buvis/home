@@ -1,7 +1,0 @@
-{"ts_start":1784700000,"ts_end":1784700412,"wall_secs":412,"prd":"00040-feature-x-v1.md","batch":"202607202320","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5","cost_usd":13.9,"tokens_out":500}
-{"ts_start":1784700500,"ts_end":1784700737,"wall_secs":237,"prd":"00040-feature-x-v1.md","batch":"202607202320","phase_launched":"review","phase_end":"review","signal":"continue","model":"claude-opus-4-8","cost_usd":9.66,"tokens_out":501}
-{"ts_start":1784700800,"ts_end":1784700900,"wall_secs":100,"prd":"00040-feature-x-v1.md","batch":"202607202320","phase_launched":"review","phase_end":"review","signal":"continue","model":"claude-opus-4-8","cost_usd":3.6,"tokens_out":120}
-{"ts_start":1784701000,"ts_end":1784701120,"wall_secs":120,"prd":"00040-feature-x-v1.md","batch":"202607202320","phase_launched":"done","phase_end":"done","signal":"continue"}
-{"ts_start":1784600000,"ts_end":1784600300,"wall_secs":300,"prd":"00002-object-entry-v1.md","batch":"202607202320","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5","cost_usd":4.2,"tokens_out":250}
-{"ts_start":1784650000,"ts_end":1784650200,"wall_secs":200,"prd":"00040-feature-x-v1.md","batch":"202601010000","phase_launched":"build","phase_end":"build","signal":"continue","model":"claude-sonnet-5","cost_usd":1.0,"tokens_out":10}
-{"event":"review_converged","prd":"00040-feature-x-v1.md","batch":"202607202320","cycles_to_converge":2,"outcome":"converged","ts":1784701300}
