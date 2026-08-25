@@ -60,6 +60,33 @@ EVENTS_MAP = {"pre": "PreToolUse", "post": "PostToolUse", "stop": "Stop"}
 
 SETTINGS = json.loads(SETTINGS_PATH.read_text())
 
+# Handlers a plugin registers for itself. The fixture above is a FROZEN record
+# of pre-swap settings.json and deliberately still lists them, so the contract
+# ROUTES is held to is "settings.json MINUS what a plugin now owns" - routing
+# one of these here too would fire it twice for the same tool call.
+# test_plugin_owned_matches_dispatch below pins this set against dispatch.py's.
+PLUGIN_OWNED = {"enforce_prd_location"}
+
+
+def _drop_plugin_owned(settings: dict) -> dict:
+    """Return `settings` without any hook whose script stem is PLUGIN_OWNED."""
+    out = {"hooks": {}}
+    for event, blocks in settings["hooks"].items():
+        kept_blocks = []
+        for block in blocks:
+            kept = [
+                h
+                for h in block["hooks"]
+                if Path(h["command"].split()[-1]).stem not in PLUGIN_OWNED
+            ]
+            if kept:
+                kept_blocks.append({**block, "hooks": kept})
+        out["hooks"][event] = kept_blocks
+    return out
+
+
+SETTINGS = _drop_plugin_owned(SETTINGS)
+
 # A local Route shape. `main`/`_invoke` read routes purely by attribute
 # (`row.event`, `row.matcher`, `row.name`, `row.path`, `row.timeout`,
 # `row.kind`), so a namedtuple with matching fields works for stub ROUTES
@@ -1014,8 +1041,23 @@ def test_routing_matches_settings_json_for_observed_tools(
         )
 
 
+def test_plugin_owned_matches_dispatch(dispatch):
+    """This module's PLUGIN_OWNED must equal dispatch.py's.
+
+    They are declared separately (the fixture filter cannot import ROUTES
+    without circularity), so nothing else would catch one being updated when a
+    handler moves to or from a plugin and the other being forgotten.
+    """
+    assert PLUGIN_OWNED == dispatch.PLUGIN_OWNED
+
+
 @pytest.mark.integration
-def test_routing_bash_pre_runs_exactly_two(dispatch, monkeypatch):
+def test_routing_bash_pre_runs_exactly_one(dispatch, monkeypatch):
+    """Bash/PreToolUse routes cartographer-echo only.
+
+    enforce_prd_location used to be the other one; the autopilot plugin
+    registers it now, so routing it here as well would double-fire it.
+    """
     recorded = []
     monkeypatch.setattr(
         dispatch,
@@ -1026,7 +1068,7 @@ def test_routing_bash_pre_runs_exactly_two(dispatch, monkeypatch):
     with pytest.raises(SystemExit):
         dispatch.main("pre")
     names = [route_basename(r) for r in recorded]
-    assert names == ["enforce_prd_location.py", "cartographer-echo.py"]
+    assert names == ["cartographer-echo.py"]
 
 
 @pytest.mark.integration
@@ -1139,11 +1181,13 @@ def test_routes_kind_is_enforcement_or_observer_for_every_entry(dispatch):
 
 
 # Exact per-handler classification the PRD pins (name -> kind). Both ROUTES
-# entries for "enforce_prd_location" (Edit|Write|MultiEdit matcher and Bash
-# matcher) and both for "cartographer-echo" carry the SAME kind, so a
-# name-keyed dict covers every entry, duplicated handlers included.
+# entries for "cartographer-echo" (Edit|Write|MultiEdit matcher and Bash
+# matcher) carry the SAME kind, so a name-keyed dict covers every entry,
+# duplicated handlers included.
+#
+# enforce_prd_location is absent: it kept both matchers when it was routed here,
+# but the autopilot plugin registers it now (see PLUGIN_OWNED).
 _EXPECTED_ROUTE_KIND = {
-    "enforce_prd_location": "enforcement",
     "cartographer-echo": "enforcement",
     "strunk-ruling-inject": "observer",
     "enforce_write_scope": "enforcement",
@@ -1166,17 +1210,16 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     literal - it would pass even if EVERY entry defaulted to the same
     wrong-for-some-handlers "observer" value, which is exactly the
     fail-open bug this PRD exists to close. This test pins the SPECIFIC
-    per-handler classification: exactly enforce_prd_location,
-    cartographer-echo, enforce_write_scope, validate_state_json_hook, and
-    review_coverage_hook must be "enforcement" - including BOTH ROUTES
-    entries for enforce_prd_location and BOTH for cartographer-echo - and
-    every other of the 16 entries must be "observer". An implementation that
-    leaves every entry on the namedtuple default, or classifies a different
-    subset as "enforcement", fails here even though it still satisfies the
-    weaker completeness check."""
+    per-handler classification: exactly cartographer-echo,
+    enforce_write_scope, validate_state_json_hook, and review_coverage_hook
+    must be "enforcement" - including BOTH ROUTES entries for
+    cartographer-echo - and every other of the 14 entries must be "observer".
+    An implementation that leaves every entry on the namedtuple default, or
+    classifies a different subset as "enforcement", fails here even though it
+    still satisfies the weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 16, (
-        f"expected 16 ROUTES entries, got {len(actual)}: {actual!r}"
+    assert len(actual) == 14, (
+        f"expected 14 ROUTES entries, got {len(actual)}: {actual!r}"
     )
 
     seen_names = {name for (name, _event, _kind) in actual}
@@ -1196,13 +1239,10 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     )
 
     enforcement_entries = [(n, e) for (n, e, k) in actual if k == "enforcement"]
-    assert len(enforcement_entries) == 7, (
-        f"expected 7 ROUTES entries classified 'enforcement' (5 handlers, "
-        f"2 of them routed twice), got {len(enforcement_entries)}: "
+    assert len(enforcement_entries) == 5, (
+        f"expected 5 ROUTES entries classified 'enforcement' (4 handlers, "
+        f"1 of them routed twice), got {len(enforcement_entries)}: "
         f"{enforcement_entries!r}"
-    )
-    assert enforcement_entries.count(("enforce_prd_location", "PreToolUse")) == 2, (
-        "both enforce_prd_location ROUTES entries must be 'enforcement'"
     )
     assert enforcement_entries.count(("cartographer-echo", "PreToolUse")) == 2, (
         "both cartographer-echo ROUTES entries must be 'enforcement'"
@@ -2605,7 +2645,11 @@ def test_invoke_isolates_raising_handler_when_sigalrm_unavailable(
 # with empty captured streams - every block (exit 2) and every stdout envelope
 # vanishes silently, with no error and no log line.
 # --------------------------------------------------------------------------- #
-SCRIPTS_DIR = HOOKS_DIR.parent / "skills" / "run-autopilot" / "scripts"
+# Was ~/.claude/skills/run-autopilot/scripts; the autopilot plugin owns that
+# tree now, so take whichever copy dispatch.py resolved rather than re-deriving
+# an install path here. _load_dispatch() imports at the real home, which is what
+# this needs - the fixture's tmp_path home comes later.
+SCRIPTS_DIR = _load_dispatch().SCRIPTS
 
 # Handlers whose benign path is hermetic (no fs writes, no git, no network) and
 # so is safe to exercise in-process here. Broad per-handler behavior parity for
