@@ -40,10 +40,13 @@ def _rows() -> list[dict]:
 
 
 def _batch_state() -> dict:
-    """The reconstructed real batch 202608162223: the batch that exposed
+    """A reconstruction of real batch 202608162223 with hand-written dict
+    counts (not the archived record) standing in for the batch that exposed
     all five original render_report.py defects."""
     return json.loads(
-        (GOLDEN / "state-batch-202608162223.json").read_text(encoding="utf-8"),
+        (GOLDEN / "state-batch-202608162223-reconstructed.json").read_text(
+            encoding="utf-8",
+        ),
     )
 
 

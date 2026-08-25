@@ -17,7 +17,10 @@ from pathlib import Path
 
 STATECTL = Path(__file__).parent / "statectl.py"
 GOLDEN_FIXTURE = (
-    Path(__file__).parent.parent / "cli" / "golden" / "state-batch-202608162223.json"
+    Path(__file__).parent.parent
+    / "cli"
+    / "golden"
+    / "state-batch-202608162223-reconstructed.json"
 )
 
 
