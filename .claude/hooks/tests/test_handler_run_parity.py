@@ -45,7 +45,7 @@ from uuid import uuid4
 
 import pytest
 
-from .dispatch_test_helpers import require_in_process_work
+from .dispatch_test_helpers import autopilot_scripts_dir, require_in_process_work
 
 # Derived from THIS file, never hardcoded: an absolute `/Users/bob/.claude/hooks`
 # would make the suite load and subprocess whatever is INSTALLED there, so in a
@@ -55,13 +55,13 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-import dispatch
 
 # The three scripts/ handlers moved to the autopilot plugin, so there is no copy
 # of them in this checkout to prefer - the derive-from-THIS-file rule above has
-# nothing to derive from any more. Take the path dispatch.py resolved, which is
-# exactly the copy production will run.
-SCRIPTS_DIR = dispatch.SCRIPTS
+# nothing to derive from any more. The plugin registers them itself now, so
+# dispatch.py no longer resolves them either; the shared helper does, picking the
+# same installed copy the harness loads.
+SCRIPTS_DIR = autopilot_scripts_dir()
 
 # Both dirs on sys.path so the test's `import _common` AND the handlers' own
 # sibling imports (`_common`, `_lib_cartographer`, `_walk_up`) resolve during an
@@ -557,17 +557,17 @@ def test_track_cost_writes_costs_row(tmp_path, monkeypatch):
 
     assert (code_in, out_in) == (code_sub, out_sub) == (0, "")
     assert _nonempty(
-        sub_home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
+        sub_home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl",
     )
     assert _nonempty(
-        in_home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
+        in_home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl",
     ), "run() must append a cost row under HOME; a no-op leaves it empty"
     # Pin the MEANING: the row must reflect the crafted transcript, not arbitrary
     # bytes (kills a garbage-writing stub). Keys per track_cost.py build_row: the
     # in/out token sums and the model string.
     for home in (sub_home, in_home):
         row = _last_json_row(
-            home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
+            home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl",
         )
         assert row["in"] == 1000 and row["out"] == 200, row
         assert row["model"] == "claude-sonnet-4", row
@@ -604,16 +604,16 @@ def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
 
     assert (code_in, out_in) == (code_sub, out_sub) == (0, "")
     assert _nonempty(
-        sub_home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
+        sub_home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl",
     )
     assert _nonempty(
-        in_home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
+        in_home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl",
     ), "run() must append a skill row under HOME; a no-op leaves it empty"
     # Pin the MEANING: the row must name the skill from the crafted transcript
     # (kills a garbage-writing stub). Key per track_skills.py.
     for home in (sub_home, in_home):
         row = _last_json_row(
-            home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl"
+            home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl",
         )
         assert row["skill"] == "brush", row
 

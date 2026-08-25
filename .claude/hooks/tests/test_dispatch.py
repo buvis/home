@@ -41,7 +41,7 @@ from uuid import uuid4
 
 import pytest
 
-from .dispatch_test_helpers import require_in_process_work
+from .dispatch_test_helpers import autopilot_scripts_dir, require_in_process_work
 
 HOOKS_DIR = Path(__file__).resolve().parents[1]
 # PRD 00071 consolidated the per-handler PreToolUse/PostToolUse/Stop matchers
@@ -65,7 +65,12 @@ SETTINGS = json.loads(SETTINGS_PATH.read_text())
 # ROUTES is held to is "settings.json MINUS what a plugin now owns" - routing
 # one of these here too would fire it twice for the same tool call.
 # test_plugin_owned_matches_dispatch below pins this set against dispatch.py's.
-PLUGIN_OWNED = {"enforce_prd_location"}
+PLUGIN_OWNED = {
+    "enforce_prd_location",
+    "autopilot_context_cap_hook",
+    "validate_state_json_hook",
+    "review_coverage_hook",
+}
 
 
 def _drop_plugin_owned(settings: dict) -> dict:
@@ -1072,7 +1077,7 @@ def test_routing_bash_pre_runs_exactly_one(dispatch, monkeypatch):
 
 
 @pytest.mark.integration
-def test_routing_stop_runs_all_six_in_order(dispatch, monkeypatch):
+def test_routing_stop_runs_all_five_in_order(dispatch, monkeypatch):
     recorded = []
     monkeypatch.setattr(
         dispatch,
@@ -1084,7 +1089,8 @@ def test_routing_stop_runs_all_six_in_order(dispatch, monkeypatch):
         dispatch.main("stop")
     names = [route_basename(r) for r in recorded]
     assert names == expected_handlers("Stop", "")
-    assert len(names) == 6
+    # Five, not six: review_coverage_hook is PLUGIN_OWNED now.
+    assert len(names) == 5
 
 
 @pytest.mark.integration
@@ -1185,18 +1191,17 @@ def test_routes_kind_is_enforcement_or_observer_for_every_entry(dispatch):
 # matcher) carry the SAME kind, so a name-keyed dict covers every entry,
 # duplicated handlers included.
 #
-# enforce_prd_location is absent: it kept both matchers when it was routed here,
-# but the autopilot plugin registers it now (see PLUGIN_OWNED).
+# The four PLUGIN_OWNED handlers are absent: enforce_prd_location kept both
+# matchers when it was routed here, and autopilot_context_cap_hook,
+# validate_state_json_hook and review_coverage_hook were routed once each. The
+# autopilot plugin registers all four in its own hooks/hooks.json now.
 _EXPECTED_ROUTE_KIND = {
     "cartographer-echo": "enforcement",
     "strunk-ruling-inject": "observer",
     "enforce_write_scope": "enforcement",
-    "autopilot_context_cap_hook": "observer",
-    "validate_state_json_hook": "enforcement",
     "observe_tool": "observer",
     "check_skill_triggers": "observer",
     "notify": "observer",
-    "review_coverage_hook": "enforcement",
     "track_cost": "observer",
     "track_skills": "observer",
     "analyze-instincts": "observer",
@@ -1210,16 +1215,15 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     literal - it would pass even if EVERY entry defaulted to the same
     wrong-for-some-handlers "observer" value, which is exactly the
     fail-open bug this PRD exists to close. This test pins the SPECIFIC
-    per-handler classification: exactly cartographer-echo,
-    enforce_write_scope, validate_state_json_hook, and review_coverage_hook
-    must be "enforcement" - including BOTH ROUTES entries for
-    cartographer-echo - and every other of the 14 entries must be "observer".
-    An implementation that leaves every entry on the namedtuple default, or
-    classifies a different subset as "enforcement", fails here even though it
-    still satisfies the weaker completeness check."""
+    per-handler classification: exactly cartographer-echo and
+    enforce_write_scope must be "enforcement" - including BOTH ROUTES entries
+    for cartographer-echo - and every other of the 11 entries must be
+    "observer". An implementation that leaves every entry on the namedtuple
+    default, or classifies a different subset as "enforcement", fails here even
+    though it still satisfies the weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 14, (
-        f"expected 14 ROUTES entries, got {len(actual)}: {actual!r}"
+    assert len(actual) == 11, (
+        f"expected 11 ROUTES entries, got {len(actual)}: {actual!r}"
     )
 
     seen_names = {name for (name, _event, _kind) in actual}
@@ -1239,8 +1243,8 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     )
 
     enforcement_entries = [(n, e) for (n, e, k) in actual if k == "enforcement"]
-    assert len(enforcement_entries) == 5, (
-        f"expected 5 ROUTES entries classified 'enforcement' (4 handlers, "
+    assert len(enforcement_entries) == 3, (
+        f"expected 3 ROUTES entries classified 'enforcement' (2 handlers, "
         f"1 of them routed twice), got {len(enforcement_entries)}: "
         f"{enforcement_entries!r}"
     )
@@ -2646,10 +2650,9 @@ def test_invoke_isolates_raising_handler_when_sigalrm_unavailable(
 # vanishes silently, with no error and no log line.
 # --------------------------------------------------------------------------- #
 # Was ~/.claude/skills/run-autopilot/scripts; the autopilot plugin owns that
-# tree now, so take whichever copy dispatch.py resolved rather than re-deriving
-# an install path here. _load_dispatch() imports at the real home, which is what
-# this needs - the fixture's tmp_path home comes later.
-SCRIPTS_DIR = _load_dispatch().SCRIPTS
+# tree now AND registers these handlers itself, so dispatch.py no longer resolves
+# them. The shared helper picks the same installed copy the harness loads.
+SCRIPTS_DIR = autopilot_scripts_dir()
 
 # Handlers whose benign path is hermetic (no fs writes, no git, no network) and
 # so is safe to exercise in-process here. Broad per-handler behavior parity for

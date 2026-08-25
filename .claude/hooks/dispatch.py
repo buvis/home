@@ -41,42 +41,9 @@ Route = collections.namedtuple(
 HOOKS = Path.home() / ".claude" / "hooks"
 
 
-def _run_autopilot_scripts() -> Path:
-    """Locate run-autopilot/scripts/, which the autopilot plugin now owns.
-
-    It used to sit at ~/.claude/skills/run-autopilot/scripts/. The plugin
-    extraction removed that path, which silently unrouted three handlers here
-    (dispatch fails open on a missing file), so this resolves the installed
-    plugin instead. Highest installed version wins; the dev checkout is the
-    fallback so a working tree keeps running when nothing is installed.
-
-    ponytail: newest-version-wins, no manifest read. If two marketplaces ever
-    ship autopilot, read plugins/installed_plugins.json instead.
-    """
-    cache = Path.home() / ".claude" / "plugins" / "cache"
-    candidates = [
-        p
-        for p in cache.glob("*/autopilot/*/skills/run-autopilot/scripts")
-        if p.is_dir()
-    ]
-    if candidates:
-
-        def version_key(path: Path) -> tuple[int, ...]:
-            parts = path.parents[2].name.split(".")
-            return tuple(int(p) if p.isdigit() else 0 for p in parts)
-
-        return max(candidates, key=version_key)
-    return (
-        Path.home() / "git/src/github.com/buvis/autopilot/skills/run-autopilot/scripts"
-    )
-
-
-SCRIPTS = _run_autopilot_scripts()
-
-# Handlers import their siblings by bare name; make both handler dirs importable.
-for _p in (str(SCRIPTS), str(HOOKS)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# Handlers import their siblings by bare name; make the handler dir importable.
+if str(HOOKS) not in sys.path:
+    sys.path.insert(0, str(HOOKS))
 
 # Baked equivalence of settings.json (pre/post/stop scope), in declaration order,
 # MINUS the handlers a plugin now registers for itself. NOT read back from
@@ -84,11 +51,21 @@ for _p in (str(SCRIPTS), str(HOOKS)):
 # tests/fixtures/settings-preswap-hooks.json, which still lists the plugin-owned
 # entries and is filtered by PLUGIN_OWNED below.
 #
-# enforce_prd_location moved to the autopilot plugin's hooks/hooks.json (both
-# PreToolUse matchers). Routing it here as well fired it twice for the same tool
-# call, printing the same block message twice. The file stays in ~/.claude/hooks
-# because Codex uses its own copy of it and the parity suite invokes it by path.
-PLUGIN_OWNED = {"enforce_prd_location"}
+# These handlers moved to the autopilot plugin's hooks/hooks.json. Routing them
+# here as well would fire them twice for the same tool call (enforce_prd_location
+# did exactly that, printing the same block message twice).
+#
+# enforce_prd_location's file stays in ~/.claude/hooks because Codex uses its own
+# copy of it and the parity suite invokes it by path. The other three live only
+# in the plugin now, under skills/run-autopilot/scripts/ — hooks.json names them
+# there rather than relocating them, so their sibling imports (`_walk_up`) and
+# their sibling test modules keep resolving unchanged.
+PLUGIN_OWNED = {
+    "enforce_prd_location",
+    "autopilot_context_cap_hook",
+    "validate_state_json_hook",
+    "review_coverage_hook",
+}
 
 ROUTES = [
     Route(
@@ -125,25 +102,6 @@ ROUTES = [
     ),
     Route(
         "PostToolUse",
-        # No Grep|Glob: both tools are unregistered in this build (upstream
-        # native bug #52004), and a2db6e565 dropped them from settings.json.
-        # Restore both sides together if the tools come back.
-        "Bash|Read|Agent|WebFetch|WebSearch|mcp__.*",
-        "autopilot_context_cap_hook",
-        SCRIPTS / "autopilot_context_cap_hook.py",
-        5,
-        kind="observer",
-    ),
-    Route(
-        "PostToolUse",
-        "Edit|Write|MultiEdit",
-        "validate_state_json_hook",
-        SCRIPTS / "validate_state_json_hook.py",
-        5,
-        kind="enforcement",
-    ),
-    Route(
-        "PostToolUse",
         "Bash|Edit|Write|MultiEdit",
         "observe_tool",
         HOOKS / "observe_tool.py",
@@ -159,14 +117,6 @@ ROUTES = [
         kind="observer",
     ),
     Route("Stop", None, "notify", HOOKS / "notify.py", 15, kind="observer"),
-    Route(
-        "Stop",
-        None,
-        "review_coverage_hook",
-        SCRIPTS / "review_coverage_hook.py",
-        5,
-        kind="enforcement",
-    ),
     Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10, kind="observer"),
     Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10, kind="observer"),
     Route(
