@@ -413,3 +413,85 @@ def test_a_malformed_pair_is_rejected_rather_than_silently_skipped() -> None:
     result = _run("ALICE-no-colon")
     assert result.returncode != 0
     assert "NAME:FILE" in result.stderr
+
+
+# --- numeric-signature matching ---------------------------------------------
+
+
+def test_three_real_00122_findings_merge_via_shared_numeric_signature(
+    tmp_path: Path,
+) -> None:
+    """Real PRD 00122 cycle-1 lines (measured 2026-08-25): files_match is True
+    for every pair but the description Jaccard (0.195 / 0.139 / 0.200) stays
+    under MERGE_THRESHOLD for all three. Only the shared {763, 800, 822} line
+    counts pull them into one row."""
+    alice = _write(
+        tmp_path,
+        "alice.txt",
+        [
+            "[ALICE] 🟡 test_render.py grew from 763 to 822 lines in this diff, "
+            "crossing the project's 800-line file cap (rules/coding-style.md "
+            "\"800 max\"); the new BatchSummaryNonZeroBindingTests additions "
+            "could follow the existing split precedent "
+            "(cli/test_render_autonomous_blank_rows.py is already a separate "
+            "file) to bring the main file back under the cap | File: "
+            "/Users/bob/.claude/skills/run-autopilot/cli/test_render.py | Task: 1"
+        ],
+    )
+    bob = _write(
+        tmp_path,
+        "bob.txt",
+        [
+            "[BOB] 🟡 Added tests push test_render.py to 822 lines, exceeding "
+            "the 800-line cap; move BatchSummaryNonZeroBindingTests into a "
+            "focused test module | File: cli/test_render.py:821 | Task: 1"
+        ],
+    )
+    carl = _write(
+        tmp_path,
+        "carl.txt",
+        [
+            "[CARL] 🟡 File size exceeds the 800-line limit (822 lines) | "
+            "File: cli/test_render.py | Task: 1"
+        ],
+    )
+    result = _run(
+        f"ALICE:{alice}",
+        f"BOB:{bob}",
+        f"CARL:{carl}",
+        f"DAVE:{tmp_path / 'never-written.txt'}",
+    )
+    assert result.returncode == 0
+    rows = [ln for ln in result.stdout.splitlines() if ln.startswith("| [")]
+    assert len(rows) == 1, result.stdout
+    assert "[3/4]" in rows[0]
+    assert "ALICE, BOB, CARL" in rows[0]
+
+
+def test_same_file_findings_sharing_only_one_number_stay_separate() -> None:
+    """Pins the floor: one shared number is not enough, and the low Jaccard
+    (0.05, measured) means the word-overlap path doesn't rescue it either."""
+    a = _finding(
+        "memory leak in the connection pool grows after roughly 800 requests "
+        "are served"
+    )
+    b = _finding(
+        "the retry backoff counter resets incorrectly near iteration 800 "
+        "during long batches"
+    )
+    assert not cf.match(a, b)
+
+
+def test_different_file_findings_sharing_two_numbers_stay_separate() -> None:
+    """files_match still gates the numeric path: sharing two numbers never
+    merges findings that live on different files."""
+    a = _finding("grew from 763 to 822 lines", file="src/cli.py")
+    b = _finding("regression: file now spans 763 to 822 lines", file="src/server.py")
+    assert not cf.match(a, b)
+
+
+def test_numeric_tokens_extracts_only_all_digit_tokens() -> None:
+    assert cf.numeric_tokens("grew from 763 to 822 lines, cap 800") == frozenset(
+        {"763", "822", "800"}
+    )
+    assert cf.numeric_tokens("no numbers here at all") == frozenset()
