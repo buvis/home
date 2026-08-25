@@ -102,3 +102,27 @@ def test_step_5_7_gives_in_task_medium_findings_one_retry_stamped_medium_retry()
     assert "medium-retry:" in section, (
         f"{_SKILL_MD}: expected step 5.7 to stamp 'medium-retry:' — not found."
     )
+
+
+def test_step_7_runs_the_style_limit_gate_and_declares_compute_mech_facts() -> None:
+    # Step 7 must run check_style_limits.py before the full suite and stamp
+    # style_gate: clean | fixed:<sha> | failed:<violations>; the function
+    # walk must be declared as a cross-skill dependency on
+    # compute_mech_facts.py, never a second ast walker.
+    start = _TEXT.index("### 7.")
+    end = _TEXT.index("## Reference Files", start)
+    step_7 = _TEXT[start:end]
+
+    for needle in ("check_style_limits.py", "style_gate: clean", "fixed:", "failed:"):
+        assert needle in step_7, (
+            f"{_SKILL_MD}: expected step 7 to contain {needle!r} — not found."
+        )
+
+    dep_start = _TEXT.index("## Dependencies")
+    dep_end = _TEXT.index("\n## ", dep_start)
+    dependencies = _TEXT[dep_start:dep_end]
+
+    assert "compute_mech_facts.py" in dependencies, (
+        f"{_SKILL_MD}: expected '## Dependencies' to name compute_mech_facts.py "
+        "— not found."
+    )
