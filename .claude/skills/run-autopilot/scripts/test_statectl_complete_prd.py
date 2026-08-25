@@ -388,7 +388,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
     # autonomous_decisions holds 7 entries, one entirely blank, and whose
     # hand-written completed_prds[0] record (and the renderer) both agree on
     # 6. The fixture's root tasks_completed/tasks_total are already 0 (wiped
-    # by tasks-clear in this archived state, unlike the hand-written record's
+    # by tasks-clear in this reconstructed state, unlike the hand-written record's
     # 7/7 from before that wipe), so this test asserts the decision count
     # only and does not compare task fields.
     def test_golden_batch_fixture_records_six_autonomous_decisions_not_seven(
