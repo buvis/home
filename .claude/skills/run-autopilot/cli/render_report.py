@@ -17,7 +17,9 @@ functions the CLI appends to `reports/{batch_id}-report.md`:
 Renders never fail the report: absent fields render blank cells, empty
 arrays omit their section, missing metrics render the manual-run line, and
 `batch.completed_prds` entries may be dicts (documented shape) or bare
-filename strings (live legacy state) - both count.
+filename strings (live legacy state) - both count toward the PRD total,
+but any bare string makes the summary's cycle/decision sums unresolvable,
+so those three lines render `?` (R2 of PRD 00122).
 """
 
 from __future__ import annotations
@@ -363,19 +365,24 @@ def batch_summary(
     metrics_rows: list[dict],
     deferred_count: int | None = None,
 ) -> str:
-    """The batch-completion block. Cycle/decision sums cover dict-shaped
-    `completed_prds` entries; bare-string entries (live legacy state) count
-    toward the PRD total only."""
+    """The batch-completion block. Cycle/decision sums need every
+    `completed_prds` entry dict-shaped; a bare-string entry (live legacy
+    state) makes them unresolvable, so those three lines render `?` (R2 of
+    PRD 00122). The PRD total still counts bare-string entries."""
     batch = state.get("batch") or {}
     completed = batch.get("completed_prds") or []
-    dicts = [p for p in completed if isinstance(p, dict)]
+    resolvable = all(isinstance(p, dict) for p in completed)
+
+    def _sum(key: str) -> int | str:
+        return sum(p.get(key, 0) for p in completed) if resolvable else "?"
+
     lines = [
         "## Batch Summary",
         "",
         f"- PRDs completed: {len(completed)}",
-        f"- Total cycles: {sum(p.get('cycles', 0) for p in dicts)}",
-        f"- Autonomous decisions: {sum(p.get('autonomous_decisions', 0) for p in dicts)}",
-        f"- Escalated decisions: {sum(p.get('escalated_decisions', 0) for p in dicts)}",
+        f"- Total cycles: {_sum('cycles')}",
+        f"- Autonomous decisions: {_sum('autonomous_decisions')}",
+        f"- Escalated decisions: {_sum('escalated_decisions')}",
     ]
     if deferred_count is not None:
         lines.append(f"- Deferred items: {deferred_count}")
