@@ -11,9 +11,11 @@ on internals.
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 STATECTL = Path(__file__).parent / "statectl.py"
 GOLDEN_FIXTURE = (
@@ -22,6 +24,13 @@ GOLDEN_FIXTURE = (
     / "golden"
     / "state-batch-202608162223-reconstructed.json"
 )
+
+# In-process access to the cli package, needed only by the tests below that
+# monkeypatch or call cli internals directly (everything else in this module
+# drives complete-prd as a subprocess and asserts on file bytes only).
+SCRIPTS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS_DIR.parent))
+from cli import render_report, statectl
 
 
 class StatectlCompletePrdTest(unittest.TestCase):
@@ -540,6 +549,133 @@ class StatectlCompletePrdTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         entry = self.load_state()["batch"]["completed_prds"][-1]
         self.assertEqual(entry["autonomous_decisions"], 2)
+
+    # PRD 00122 item 4, render-side half (Bob's finding): the prior test
+    # only checks the persisted count; it never renders the same decision
+    # list and confirms the table itself draws the matching number of rows.
+    # This is a characterization test - it passes today because
+    # render_report.is_autonomous_row already excludes "assumed-ambiguity"
+    # entries - and it exists to pin that invariant so a future change to
+    # either the writer's count or the renderer's row selection alone breaks
+    # this test instead of letting the two sides silently diverge.
+    def test_persisted_autonomous_count_matches_rendered_autonomous_data_rows(
+        self,
+    ) -> None:
+        decisions = [
+            {
+                "cycle": 1,
+                "issue": "a",
+                "severity": "low",
+                "action": "auto-fix",
+                "reason": "r",
+            },
+            {
+                "type": "assumed-ambiguity",
+                "cycle": 1,
+                "question": "q?",
+                "assumption": "assumed x",
+                "reason": "loop mode",
+            },
+            {
+                "cycle": 1,
+                "issue": "b",
+                "severity": "low",
+                "action": "auto-fix",
+                "reason": "r",
+            },
+        ]
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": decisions,
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 2)
+
+        # Assert on rendered content, not line position: both ordinary
+        # decisions' issue cells appear verbatim in the table, the
+        # assumed-ambiguity entry's question text never does, and the
+        # number of data rows - found by locating the "---" separator by
+        # its own shape (only "|" and "-" characters) rather than a fixed
+        # index, then counting the "| "-prefixed lines after it - is
+        # exactly 2. This still holds after a purely cosmetic change to
+        # _autonomous's surrounding lines, and fails if is_autonomous_row
+        # stopped excluding assumed-ambiguity entries.
+        rendered = render_report._autonomous(decisions)
+        rendered_text = "\n".join(rendered)
+        self.assertIn("| a |", rendered_text)
+        self.assertIn("| b |", rendered_text)
+        self.assertNotIn("q?", rendered_text)
+
+        separator_index = next(
+            i for i, line in enumerate(rendered) if line and set(line) <= {"|", "-"}
+        )
+        data_rows = [
+            line for line in rendered[separator_index + 1 :] if line.startswith("| ")
+        ]
+        self.assertEqual(len(data_rows), 2)
+
+
+class EscalatedRowPredicateTest(unittest.TestCase):
+    # Carl's finding: statectl._completed_prd_record's escalated count
+    # re-implements render_report's pending/deferred rule inline instead of
+    # calling a shared predicate, so the two sides can drift apart even
+    # though they agree today. Both entries below share the same "pending"
+    # status, so the real (unshared) rule would score them identically - 0
+    # either way, regardless of which one - while the stub tells them apart
+    # by an unrelated "note" field and yields 1. That total, 1, cannot be
+    # produced by coincidence from the real rule on this input, so the test
+    # only passes once the count is actually routed through
+    # render_report.is_escalated_row per entry, not merely equal to it.
+    def test_completed_prd_record_escalated_count_follows_is_escalated_row_stub(
+        self,
+    ) -> None:
+        data = {
+            "prd": "0000X-example.md",
+            "cycle": 1,
+            "tasks_completed": 1,
+            "tasks_total": 1,
+            "deferred_decisions": [
+                {"status": "pending", "note": "keep"},
+                {"status": "pending", "note": "drop"},
+            ],
+        }
+        with mock.patch.object(
+            render_report,
+            "is_escalated_row",
+            side_effect=lambda entry: entry.get("note") == "keep",
+        ):
+            record = statectl._completed_prd_record(data)
+        self.assertEqual(record["escalated_decisions"], 1)
+
+    def test_is_escalated_row_treats_absent_status_as_pending_not_escalated(
+        self,
+    ) -> None:
+        self.assertFalse(render_report.is_escalated_row({"cycle": 1}))
+
+    def test_is_escalated_row_excludes_pending_and_deferred_statuses(
+        self,
+    ) -> None:
+        self.assertFalse(render_report.is_escalated_row({"status": "pending"}))
+        self.assertFalse(render_report.is_escalated_row({"status": "deferred"}))
+
+    def test_is_escalated_row_treats_any_other_status_as_escalated(
+        self,
+    ) -> None:
+        self.assertTrue(render_report.is_escalated_row({"status": "resolved"}))
+
+    def test_is_escalated_row_returns_false_for_non_dict_entry_without_raising(
+        self,
+    ) -> None:
+        self.assertFalse(render_report.is_escalated_row("not-a-dict"))
 
 
 if __name__ == "__main__":
