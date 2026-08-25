@@ -7,6 +7,44 @@ from __future__ import annotations
 import contextlib
 import functools
 import types
+from pathlib import Path
+
+
+def autopilot_scripts_dir() -> Path:
+    """Locate the autopilot plugin's run-autopilot/scripts/.
+
+    Three handlers live only there: autopilot_context_cap_hook,
+    validate_state_json_hook and review_coverage_hook. They used to sit at
+    ~/.claude/skills/run-autopilot/scripts/ and were routed by dispatch.py, so
+    the tests read `dispatch.SCRIPTS` to find them. The plugin now registers all
+    three in its own hooks/hooks.json, dispatch.py no longer knows about them,
+    and this is where the tests get the path instead.
+
+    Deriving it from THIS file is not an option - the handlers are not in this
+    checkout at all. Highest installed version wins, matching what the harness
+    loads; the dev checkout is the fallback so a working tree still resolves when
+    nothing is installed.
+
+    ponytail: newest-version-wins, no manifest read. If two marketplaces ever
+    ship autopilot, read plugins/installed_plugins.json instead.
+    """
+    cache = Path.home() / ".claude" / "plugins" / "cache"
+    candidates = [
+        p
+        for p in cache.glob("*/autopilot/*/skills/run-autopilot/scripts")
+        if p.is_dir()
+    ]
+    if candidates:
+
+        def version_key(path: Path) -> tuple[int, ...]:
+            parts = path.parents[2].name.split(".")
+            return tuple(int(p) if p.isdigit() else 0 for p in parts)
+
+        return max(candidates, key=version_key)
+    return (
+        Path.home()
+        / "git/src/github.com/buvis/claude-autopilot/skills/run-autopilot/scripts"
+    )
 
 
 @contextlib.contextmanager

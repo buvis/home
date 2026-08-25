@@ -227,7 +227,8 @@
     "claude-checkup@buvis-plugins": true,
     "ponytail@ponytail": true,
     "loupe@buvis-plugins": true,
-    "agoge@buvis-plugins": true
+    "agoge@buvis-plugins": true,
+    "autopilot@buvis-plugins": true
   },
   "extraKnownMarketplaces": {
     "buvis-plugins": {

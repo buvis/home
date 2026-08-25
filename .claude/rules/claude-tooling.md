@@ -12,6 +12,7 @@ paths:
 
 - Claude Code hooks: Python only, never bash/sh (cross-platform).
 - Plugin skills reference helper scripts via `${CLAUDE_SKILL_DIR}/scripts/…`, never `~/.claude/skills/` paths. Reach for `${CLAUDE_PLUGIN_ROOT}/skills/<other>/…` only to cross skill boundaries, which `CLAUDE_SKILL_DIR` cannot express without `../`.
+  - **Exception, decided 2026-08-25 (autopilot pack):** a multi-skill pack whose skills cross-reference heavily may use `${CLAUDE_PLUGIN_ROOT}` uniformly, for own-scripts and cross-skill alike. The reason is the third column of the table below: neither placeholder resolves inside `references/`, so such packs carry a banner telling the model to hand-substitute the root when it meets one. That banner can only name one placeholder. Mixing the two would leave half the references uncovered by it, which is how the empty-string `/skills/…` bug returns. One idiom per pack beats the sharper default here. Autopilot is uniformly `${CLAUDE_PLUGIN_ROOT}` (108 references); do not "fix" it file by file. A single-skill plugin keeps `${CLAUDE_SKILL_DIR}` as the default.
 
 ## Where the path placeholders resolve
 
