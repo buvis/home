@@ -28,7 +28,7 @@ from tempfile import NamedTemporaryFile
 # problem.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Installed skills the router can actually fire. skills-library/ is dormant by
+# Installed skills the router can actually fire. .archive/skills/ is dormant by
 # design (never scanned, cannot fire), so a collision there is not yet real.
 SKILL_GLOBS = ("skills/*/SKILL.md", "plugins/cache/*/*/*/skills/*/SKILL.md")
 
