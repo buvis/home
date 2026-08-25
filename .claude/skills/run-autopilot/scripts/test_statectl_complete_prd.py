@@ -33,7 +33,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
         self.state.write_text(json.dumps(obj))
 
     def load_state(self) -> object:
-        return json.loads(self.state.read_text())
+        return json.loads(self.state.read_text(encoding="utf-8"))
 
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -391,7 +391,7 @@ class StatectlCompletePrdTest(unittest.TestCase):
     def test_golden_batch_fixture_records_six_autonomous_decisions_not_seven(
         self,
     ) -> None:
-        fixture_state = json.loads(GOLDEN_FIXTURE.read_text())
+        fixture_state = json.loads(GOLDEN_FIXTURE.read_text(encoding="utf-8"))
         self.write_state(fixture_state)
         result = self.run_cli("complete-prd", fixture_state["prd"])
         self.assertEqual(result.returncode, 0)
@@ -489,6 +489,54 @@ class StatectlCompletePrdTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         entry = self.load_state()["batch"]["completed_prds"][-1]
         self.assertEqual(entry["autonomous_decisions"], 1)
+
+    # PRD 00122 item 4: the count must match the rows the "Autonomous
+    # Decisions" table draws, and that table skips every entry whose type is
+    # exactly "assumed-ambiguity" (those land in "Assumptions Made" instead).
+    # The excluded entry deliberately carries cycle, question and reason -
+    # all renderable cells under the blank-row rule - so only its type value
+    # can be what drops it. Two ordinary entries alongside pin the expected
+    # count at 2, not 0 or 3.
+    def test_assumed_ambiguity_entries_are_excluded_from_the_autonomous_count(
+        self,
+    ) -> None:
+        self.write_state(
+            {
+                "phase": "review",
+                "prd": "0000X-example.md",
+                "cycle": 1,
+                "tasks_completed": 1,
+                "tasks_total": 1,
+                "autonomous_decisions": [
+                    {
+                        "cycle": 1,
+                        "issue": "a",
+                        "severity": "low",
+                        "action": "auto-fix",
+                        "reason": "r",
+                    },
+                    {
+                        "type": "assumed-ambiguity",
+                        "cycle": 1,
+                        "question": "q?",
+                        "assumption": "assumed x",
+                        "reason": "loop mode",
+                    },
+                    {
+                        "cycle": 1,
+                        "issue": "b",
+                        "severity": "low",
+                        "action": "auto-fix",
+                        "reason": "r",
+                    },
+                ],
+                "batch": {"parks_consecutive": 0},
+            },
+        )
+        result = self.run_cli("complete-prd", "0000X-example.md")
+        self.assertEqual(result.returncode, 0)
+        entry = self.load_state()["batch"]["completed_prds"][-1]
+        self.assertEqual(entry["autonomous_decisions"], 2)
 
 
 if __name__ == "__main__":
