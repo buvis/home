@@ -40,6 +40,8 @@ def touched_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
         if line.startswith("+++ b/"):
             current_path = line[6:]
             result.setdefault(current_path, [])
+        elif line.startswith("+++"):
+            current_path = ""
         elif current_path and line.startswith("@@ "):
             m = _HUNK_RE.match(line)
             if m:
@@ -59,6 +61,8 @@ def _line_counts(diff_text: str) -> dict[str, tuple[int, int]]:
         if line.startswith("+++ b/"):
             cur = line[6:]
             counts.setdefault(cur, (0, 0))
+        elif line.startswith("+++"):
+            cur = ""
         elif cur and line.startswith("+") and not line.startswith("+++"):
             counts[cur] = (counts[cur][0] + 1, counts[cur][1])
         elif cur and line.startswith("-") and not line.startswith("---"):
@@ -89,13 +93,14 @@ def violations(
         if not matched:
             continue
         status, funcs = facts_for_file(path)
-        if status != "ok":
+        if status == "skipped (non-python)":
             continue
         ranges = [r for dp in matched for r in ranges_by_path[dp]]
-        for name, start, length in funcs:
-            end = start + length - 1
-            if length > function_limit and any(start <= re_ and rs <= end for rs, re_ in ranges):
-                results.append(f"FUNCTION | {path}:{start} | {name} | {length} lines")
+        if status == "ok":
+            for name, start, length in funcs:
+                end = start + length - 1
+                if length > function_limit and any(start <= re_ and rs <= end for rs, re_ in ranges):
+                    results.append(f"FUNCTION | {path}:{start} | {name} | {length} lines")
         ins = sum(counts.get(dp, (0, 0))[0] for dp in matched)
         dels = sum(counts.get(dp, (0, 0))[1] for dp in matched)
         n = len(path.read_text(encoding="utf-8").splitlines())
