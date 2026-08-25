@@ -423,8 +423,8 @@ def test_three_real_00122_findings_merge_via_shared_numeric_signature(
 ) -> None:
     """Real PRD 00122 cycle-1 lines (measured 2026-08-25): files_match is True
     for every pair but the description Jaccard (0.195 / 0.139 / 0.200) stays
-    under MERGE_THRESHOLD for all three. Only the shared {763, 800, 822} line
-    counts pull them into one row."""
+    under MERGE_THRESHOLD for all three. Only the shared {800, 822} line
+    counts pull them into one row (763 appears in Alice's line alone)."""
     alice = _write(
         tmp_path,
         "alice.txt",

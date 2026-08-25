@@ -158,13 +158,17 @@ def files_match(a: str, b: str) -> bool:
     return long_[-len(short) :] == short
 
 
+def _raw_tokens(desc: str) -> list[str]:
+    return _WORD_RE.findall(desc.lower())
+
+
 def tokens(desc: str) -> frozenset[str]:
-    return frozenset(_WORD_RE.findall(desc.lower())) - STOPWORDS
+    return frozenset(_raw_tokens(desc)) - STOPWORDS
 
 
 def numeric_tokens(desc: str) -> frozenset[str]:
-    """All-digit tokens from desc, computed on raw _WORD_RE output."""
-    return frozenset(t for t in _WORD_RE.findall(desc.lower()) if t.isdigit())
+    """All-digit tokens of desc, taken before the stopword subtraction."""
+    return frozenset(t for t in _raw_tokens(desc) if t.isdigit())
 
 
 def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
