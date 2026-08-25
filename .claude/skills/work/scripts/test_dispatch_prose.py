@@ -86,3 +86,19 @@ def test_task_authored_prose_flags_never_cross_the_shell_via_set() -> None:
             "passed with --set-file, never --set, or task text containing "
             "backticks/$() silently corrupts the rendered prompt."
         )
+
+
+def test_step_5_7_gives_in_task_medium_findings_one_retry_stamped_medium_retry() -> None:
+    # Step 5.7: a MEDIUM inside the task's FILES_TOUCHED gets one Ivan retry
+    # and a Pat re-run before step 6, stamped "medium-retry:<fixed|unfixed>";
+    # other MEDIUMs and all LOWs keep today's note-and-proceed behaviour.
+    start = _TEXT.index("### 5.7.")
+    end = _TEXT.index("### 6.", start)
+    section = _TEXT[start:end]
+
+    assert "FILES_TOUCHED" in section, (
+        f"{_SKILL_MD}: expected step 5.7 to name FILES_TOUCHED — not found."
+    )
+    assert "medium-retry:" in section, (
+        f"{_SKILL_MD}: expected step 5.7 to stamp 'medium-retry:' — not found."
+    )
