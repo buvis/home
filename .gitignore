@@ -25,6 +25,7 @@
 .claude/.archive/**/dev/
 .claude/.archive/**/node_modules/
 .claude/skills/brief-portfolio/app/dist/
+.claude/skills/debrief-meeting/app/dist/
 !.claude/workflows/
 !.claude/workflows/**
 .claude/dev/local/
