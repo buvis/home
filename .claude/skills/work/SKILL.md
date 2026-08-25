@@ -20,6 +20,8 @@ Implement pending tasks one-by-one, committing after each completion.
     start and at the handoff check
   - `~/.claude/skills/run-autopilot/prompts/de-sloppify.md` - its
     `## What to remove` section is inlined into the step-5.6 deslop dispatch
+  - `~/.claude/skills/review-work-completion/scripts/compute_mech_facts.py` - imported
+    by path from `scripts/check_style_limits.py` (step 7.0 style-limit gate) for the per-function line spans
 - CLIs: `git`, `python3`
 - Optional (explicit fallback exists): `use-gemini` skill (UI tasks), `use-qwen`
   skill, `use-codex` skill (an unhealthy or absent codex falls back to Claude at
@@ -641,6 +643,10 @@ The autopilot context-cap hook (`autopilot_context_cap_hook.py`) writes a `.hand
 
 After all tasks in the phase are marked completed, run the project's full verification suite **once**. This is the single point where the full suite runs — per-task verification (step 5.5) only ran the new tests in isolation, so this step is mandatory and must not be skipped.
 
+#### 7.0. Style-limit gate
+
+Before the suite, measure what this phase's diff introduced. Base = the parent of this pass's first test commit (`git rev-parse <first test_commit_sha>^`); write the diff with `git diff <base>..HEAD --output=dev/local/tmp/phase-diff.txt` (with the repo's own `--git-dir`/`--work-tree` flags in a bare-repo home) and list the changed Python files with `git diff --name-only --diff-filter=d <base>..HEAD -- '*.py'` (deleted files excluded: the script reads every path it is given), then run `python3 ~/.claude/skills/work/scripts/check_style_limits.py --diff dev/local/tmp/phase-diff.txt <those files as absolute paths>`. No `.py` in the diff, or exit 0: record `style_gate: clean`. Exit 1: write the violation lines to the `FAILING_TESTS` scratch file and dispatch Ivan once with the full retry command shape from step 5.5 and `--set RETRY_INSTRUCTION="Fix only the listed style-limit violations; do not touch other code"`, commit per step 5, re-run the gate: clean -> `style_gate: fixed:<sha of the fix commit>`; still exit 1 -> `style_gate: failed:<the violation lines, joined by "; ">` and proceed to the suite anyway (fail loud, never silent). Function spans come from `review-work-completion/scripts/compute_mech_facts.py`, reused by import (see `## Dependencies`).
+
 **What to run** (project-dependent — use the commands documented in `AGENTS.md` / `CLAUDE.md` / project README):
 
 - Full workspace tests — Rust: `cargo nextest run --workspace` when nextest is installed (probe once with `cargo nextest --version`; on any nextest infra error fall back to `cargo test --workspace` — doc-tests are NOT run by nextest, so add `cargo test --workspace --doc` when the project has doc-tests); otherwise `cargo test --workspace`. Other stacks: `pytest`, `npm test`
@@ -666,7 +672,7 @@ Max 3 fix cycles at this step before escalating to the user — regressions clus
 
 Only stop the work phase once step 7 is fully green.
 
-When reporting the phase result, include the contents of `dev/local/meta/assumptions.md` (if present) - the assumption ledger is input to the review phase and the user's 30-second examine pass.
+When reporting the phase result, include the `style_gate: <value>` line from step 7.0 and the contents of `dev/local/meta/assumptions.md` (if present) - the assumption ledger is input to the review phase and the user's 30-second examine pass.
 
 ## Reference Files
 
