@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agents_root=${AGENTS_ROOT:-"$HOME/.agents"}
+claude_root=${CLAUDE_ROOT:-"$HOME/.claude"}
+source_root="$agents_root/skills"
+destination_root="$claude_root/skills"
+ignore_file="$agents_root/braid.ignore"
+mode=sync
+
+usage() {
+  printf 'Usage: braid [--dry-run | --check]\n'
+}
+
+case "${1:-}" in
+  "") ;;
+  --dry-run) mode=dry-run ;;
+  --check) mode=check ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+if [[ ! -d "$source_root" ]]; then
+  printf 'braid: missing source directory: %s\n' "$source_root" >&2
+  exit 2
+fi
+
+is_ignored() {
+  local candidate=$1 line
+  [[ -f "$ignore_file" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=${line%%#*}
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    [[ -z "$line" ]] && continue
+    [[ "$candidate" == "$line" ]] && return 0
+  done < "$ignore_file"
+  return 1
+}
+
+timestamp=$(date +%Y%m%d-%H%M%S)
+backup_root="$claude_root/skills-backup/$timestamp-$$"
+linked=0
+current=0
+skipped=0
+mismatched=0
+
+for source in "$source_root"/*; do
+  [[ -d "$source" && -f "$source/SKILL.md" ]] || continue
+  name=${source##*/}
+
+  if is_ignored "$name"; then
+    ((skipped += 1))
+    continue
+  fi
+
+  destination="$destination_root/$name"
+  if [[ -L "$destination" && "$(readlink "$destination")" == "$source" ]]; then
+    ((current += 1))
+    continue
+  fi
+
+  ((mismatched += 1))
+  if [[ "$mode" == check ]]; then
+    printf 'MISMATCH %s -> %s\n' "$destination" "$source"
+    continue
+  fi
+  if [[ "$mode" == dry-run ]]; then
+    printf 'WOULD LINK %s -> %s\n' "$destination" "$source"
+    continue
+  fi
+
+  mkdir -p "$destination_root"
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    mkdir -p "$backup_root"
+    mv "$destination" "$backup_root/$name"
+    printf 'BACKUP %s -> %s\n' "$destination" "$backup_root/$name"
+  fi
+  ln -s "$source" "$destination"
+  printf 'LINK %s -> %s\n' "$destination" "$source"
+  ((linked += 1))
+done
+
+if [[ "$mode" == check ]]; then
+  printf 'braid: %d linked, %d current, %d ignored, %d mismatch(es)\n' \
+    "$linked" "$current" "$skipped" "$mismatched"
+  if [[ "$mismatched" -ne 0 ]]; then
+    exit 1
+  fi
+else
+  printf 'braid: %d linked, %d current, %d ignored, %d change(s) detected\n' \
+    "$linked" "$current" "$skipped" "$mismatched"
+fi
