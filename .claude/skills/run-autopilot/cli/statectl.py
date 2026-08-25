@@ -51,7 +51,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import schema, state
+from . import render_report, schema, state
 
 # statectl's exit-2 contract is state.StateError's: same class, not a parallel
 # one, so `except StateError` in main() cannot miss a boundary failure.
@@ -343,74 +343,57 @@ def do_tasks_clear(data: Any) -> None:
     data.update({"tasks": [], "tasks_total": 0, "tasks_completed": 0})
 
 
-def do_complete_prd(data: Any, prd_filename: str) -> None:
-    """Append the closing PRD's summary to `batch.completed_prds` and reset
-    `batch.parks_consecutive` to 0 - atomically, in the same write.
+def _completed_prd_record(data: dict[str, Any]) -> dict[str, Any]:
+    """Compute the closing PRD's `batch.completed_prds` entry from `data`.
 
-    `filename` is read off `data["prd"]`, not trusted from the caller-passed
-    `prd_filename` arg - the whole point of this verb is computing the record
-    from the state being closed rather than trusting a caller to pass values.
-    `prd_filename` still has to match it: a divergence means the wrong state
-    file or the wrong PRD name reached this call, and silently recording
-    `data["prd"]` while ignoring a mismatched arg would hide that mistake
-    instead of failing on it.
-
-    `autonomous_decisions` counts `autonomous_decisions` entries that have at
-    least one non-empty value (empty meaning `None` or `""`) among the exact
-    five cells `render_report._autonomous` builds a row from (`cycle`,
-    `issue`-or-`question`, `severity`, `action`, `reason`-or-`resolution`),
-    tolerating non-dict entries - a key outside those five contributes
-    nothing to the rendered row, so it contributes nothing to the count
-    either, keeping the write side and the render side agreed on what
-    "autonomous" means. `escalated_decisions` counts
-    `deferred_decisions` entries whose `status` is anything OTHER than
-    `"pending"` or `"deferred"` (tolerating non-dict entries) - the exclusion
-    rule otherwise mirrors `render_report._is_pending`'s own definition, so
-    the write side and the render side agree on what "escalated" means. Both
-    source arrays may be absent, counting as 0. `cycle`, `tasks_completed`
-    and `tasks_total` may also be absent - the transition table leaves them
-    unset on a PRD that never rewrites them - so they fall back to the same
-    defaults as their own writers (1 for `cycle`, matching
+    `autonomous_decisions` counts with `render_report.is_autonomous_row`, the
+    same predicate the Autonomous Decisions table draws rows with.
+    `escalated_decisions` counts `deferred_decisions` entries whose `status`
+    is anything OTHER than `"pending"` or `"deferred"` (tolerating non-dict
+    entries) - the exclusion rule mirrors `render_report._is_pending`'s own
+    definition. Both source arrays may be absent, counting as 0. `cycle`,
+    `tasks_completed` and `tasks_total` may also be absent - the transition
+    table leaves them unset on a PRD that never rewrites them - so they fall
+    back to their own writers' defaults (1 for `cycle`, matching
     `transitions._rework`; 0 for the task counts).
     """
-    state_prd = data.get("prd")
-    if state_prd != prd_filename:
-        raise UsageError(
-            f"complete-prd {prd_filename!r} does not match state.prd {state_prd!r}",
-        )
     autonomous = data.get("autonomous_decisions") or []
     deferred = data.get("deferred_decisions") or []
-    autonomous_count = sum(
-        1
-        for entry in autonomous
-        if isinstance(entry, dict)
-        and any(
-            value not in (None, "")
-            for value in (
-                entry.get("cycle"),
-                entry.get("issue") or entry.get("question"),
-                entry.get("severity"),
-                entry.get("action"),
-                entry.get("reason") or entry.get("resolution"),
-            )
-        )
-    )
     escalated = sum(
         1
         for entry in deferred
         if isinstance(entry, dict)
         and entry.get("status", "pending") not in ("pending", "deferred")
     )
-    summary = {
-        "filename": state_prd,
+    return {
+        "filename": data.get("prd"),
         "cycles": data.get("cycle", 1),
-        "autonomous_decisions": autonomous_count,
+        "autonomous_decisions": sum(
+            1 for entry in autonomous if render_report.is_autonomous_row(entry)
+        ),
         "escalated_decisions": escalated,
         "tasks_completed": data.get("tasks_completed", 0),
         "tasks_total": data.get("tasks_total", 0),
     }
+
+
+def do_complete_prd(data: Any, prd_filename: str) -> None:
+    """Append the closing PRD's record to `batch.completed_prds` and reset
+    `batch.parks_consecutive` to 0 - atomically, in the same write.
+
+    `filename` is read off `data["prd"]`, never the caller-passed
+    `prd_filename`; the two must match or UsageError is raised, since a
+    divergence means the wrong state file or the wrong PRD name reached this
+    call. The record's counts share the renderer's predicates and its absent
+    keys default (cycle 1, task counts 0) - see `_completed_prd_record`.
+    """
+    state_prd = data.get("prd")
+    if state_prd != prd_filename:
+        raise UsageError(
+            f"complete-prd {prd_filename!r} does not match state.prd {state_prd!r}",
+        )
     batch = data.setdefault("batch", {})
-    batch.setdefault("completed_prds", []).append(summary)
+    batch.setdefault("completed_prds", []).append(_completed_prd_record(data))
     batch["parks_consecutive"] = 0
 
 

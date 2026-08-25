@@ -98,19 +98,31 @@ def _assumptions(decisions: list[dict]) -> list[str]:
     )
 
 
-def _autonomous(decisions: list[dict]) -> list[str]:
-    rows = [
-        [
-            d.get("cycle"),
-            d.get("issue") or d.get("question"),
-            d.get("severity"),
-            d.get("action"),
-            d.get("reason") or d.get("resolution"),
-        ]
-        for d in decisions
-        if d.get("type") != "assumed-ambiguity"
+def _autonomous_row(d: dict) -> list:
+    return [
+        d.get("cycle"),
+        d.get("issue") or d.get("question"),
+        d.get("severity"),
+        d.get("action"),
+        d.get("reason") or d.get("resolution"),
     ]
-    rows = [row for row in rows if any(cell is not None and cell != "" for cell in row)]
+
+
+def is_autonomous_row(entry) -> bool:
+    """True when the Autonomous Decisions table draws a row for `entry`: a
+    dict whose `type` is not `"assumed-ambiguity"` (those land in Assumptions
+    Made) with at least one non-empty cell (not None, not "") among the five
+    the table renders. `statectl.complete-prd` counts with this same predicate
+    so the write side and the render side agree."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("type") != "assumed-ambiguity"
+        and any(cell is not None and cell != "" for cell in _autonomous_row(entry))
+    )
+
+
+def _autonomous(decisions: list[dict]) -> list[str]:
+    rows = [_autonomous_row(d) for d in decisions if is_autonomous_row(d)]
     if not rows:
         return []
     return (
