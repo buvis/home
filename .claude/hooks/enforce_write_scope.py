@@ -33,7 +33,10 @@ def _repo_root(cwd: Path) -> Path:
     `$HOME/dev/local/autopilot` cannot pull every repo's scope up to $HOME;
     with `cwd` at $HOME itself the floor in `_allowed_roots` drops root 1 but
     `$HOME/dev/local` (root 2) survives as a descendant, so the fail-closed
-    block needs roots 1 and 2 both at $HOME or above.
+    block needs roots 1 and 2 both at $HOME or above, plus `TMPDIR` unset and
+    `TMP_ROOTS` empty; with the shipped `TMP_ROOTS = ("/tmp",)` that last part
+    never holds in a real session, so the block fires only through the
+    suite's empty-`TMP_ROOTS` seam.
     Walks UNRESOLVED: the `~/.claude` repo's `dev/local` is a symlink, and
     resolving would hand back the target's ancestors instead of the repo's.
     """
@@ -53,8 +56,11 @@ def _allowed_roots(cwd: str, env: Mapping[str, str]) -> list[Path]:
     read as a module global here, never as a default argument, so the suite's
     seam keeps working. The root floor drops $HOME and its ancestors only;
     root 2 (repo/dev/local) survives as a descendant, so the "no usable write
-    scope" block fires only when roots 1 and 2 both resolve to $HOME or above
-    (e.g. a repo whose dev/local symlinks to $HOME).
+    scope" block fires only when roots 1 and 2 both resolve to $HOME or above,
+    `TMPDIR` is unset, and `TMP_ROOTS` is empty. With the shipped
+    `TMP_ROOTS = ("/tmp",)`, `realpath("/tmp")` never resolves to $HOME or
+    above, so that last condition never holds in a real session; the block is
+    reachable only under the test suite's `TMP_ROOTS = ()` seam.
     """
     repo = _repo_root(Path(cwd))
     candidates = [repo, repo / "dev" / "local"]
