@@ -359,12 +359,7 @@ def _completed_prd_record(data: dict[str, Any]) -> dict[str, Any]:
     """
     autonomous = data.get("autonomous_decisions") or []
     deferred = data.get("deferred_decisions") or []
-    escalated = sum(
-        1
-        for entry in deferred
-        if isinstance(entry, dict)
-        and entry.get("status", "pending") not in ("pending", "deferred")
-    )
+    escalated = sum(1 for entry in deferred if render_report.is_escalated_row(entry))
     return {
         "filename": data.get("prd"),
         "cycles": data.get("cycle", 1),

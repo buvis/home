@@ -136,6 +136,14 @@ def _is_pending(decision: dict) -> bool:
     return decision.get("status", "pending") in ("pending", "deferred")
 
 
+def is_escalated_row(entry) -> bool:
+    """True when the Escalated Decisions table draws a row for `entry`: a
+    dict whose `status` is anything other than `"pending"` (including
+    absent) or `"deferred"`. `statectl.complete-prd` counts with this same
+    predicate so the write side and the render side agree."""
+    return isinstance(entry, dict) and not _is_pending(entry)
+
+
 def _escalated(deferred: list[dict]) -> list[str]:
     rows = [
         [
@@ -146,7 +154,7 @@ def _escalated(deferred: list[dict]) -> list[str]:
             d.get("user_decision"),
         ]
         for d in deferred
-        if not _is_pending(d)
+        if is_escalated_row(d)
     ]
     if not rows:
         return []
