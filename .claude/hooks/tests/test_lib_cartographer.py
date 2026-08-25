@@ -202,11 +202,9 @@ def test_ensure_dirs_creates_layout(lib, fake_home: Path) -> None:
     lib._ensure_dirs()
     assert (fake_home / ".local" / "share" / "agents" / "cartographer").is_dir()
     assert (fake_home / ".local" / "share" / "agents" / "cartographer" / "projects").is_dir()
-    # `scripts/` is NOT created by _ensure_dirs: the directory is shipped via
-    # the buvis bare repo alongside check-tree-sitter.py and is therefore
-    # always present in real installs. Phase 1+ hooks never need it created
-    # at runtime, so it stays out of the lazy-init layout to keep the
-    # mkdir/exists syscall count minimal on the audit hot path.
+    # `scripts/` is NOT created by _ensure_dirs: no Phase 1+ hook needs it, so
+    # it stays out of the lazy-init layout to keep the mkdir/exists syscall
+    # count minimal on the audit hot path.
     assert (fake_home / ".claude" / "cache" / "cartographer").is_dir()
     assert _audit_path(fake_home).is_file()
 
