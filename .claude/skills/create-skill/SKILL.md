@@ -171,11 +171,11 @@ Implement `scripts/`, `references/`, and `assets/` files first. This may require
 
 #### Write SKILL.md
 
-**Frontmatter:**
-- `name`: the skill name (lowercase, hyphens, max 64 chars)
-- `description`: the primary trigger mechanism. Keep under 250 characters (the validator warns above 250). All "when to use" info goes here - the body is only loaded after triggering.
+**Frontmatter:** both fields below are required by the [Agent Skills standard](https://agentskills.io/specification); the validator errors without them.
+- `name`: the skill name. Lowercase letters, digits, hyphens; max 64 chars; no leading, trailing, or consecutive hyphens; must equal the directory name.
+- `description`: the primary trigger mechanism. Standard max is 1024 chars; keep under 250 (the validator warns above 250). All "when to use" info goes here - the body is only loaded after triggering.
 
-See [references/frontmatter.md](references/frontmatter.md) for additional frontmatter fields (invocation control, subagent execution, tool permissions, etc.).
+Optional standard fields (`license`, `compatibility`, `metadata`) stay portable across agents. Claude Code extensions (`context`, `model`, `effort`, `hooks`, `paths`, `agent`, `argument-hint`, `disable-model-invocation`, `user-invocable`, `shell`) do nothing on other agents - the validator warns so the choice is deliberate, not accidental. See [references/frontmatter.md](references/frontmatter.md) for the full field reference and the portability checklist.
 
 **Writing effective descriptions:**
 
@@ -211,9 +211,12 @@ description: Use when deploying to staging. Triggers on "deploy staging", "push 
 
 ### Step 5: Validate the Skill
 
-Run the validator to check structure, frontmatter, AND every fenced `bash`
-command against the environment it will actually run in (aegis prefer_tools
-deny set, the permission allowlist, and the no-persistent-shell contract):
+Run the validator. It checks three things: conformance with the Agent Skills
+standard (required `name`/`description`, name-matches-directory, field
+constraints, portability warnings for Claude Code-only fields), structure and
+references, AND every fenced `bash` command against the environment it will
+actually run in (aegis prefer_tools deny set, the permission allowlist, and the
+no-persistent-shell contract):
 
 ```bash
 python3 ~/.claude/skills/create-skill/scripts/validate_skill.py <path/to/skill-folder>

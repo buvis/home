@@ -18,18 +18,26 @@ import yaml
 MAX_SKILL_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
 RECOMMENDED_DESCRIPTION_LENGTH = 250
+MAX_COMPATIBILITY_LENGTH = 500
 MAX_SKILL_MD_LINES = 500
 
-# All fields recognized by Claude Code or the Agent Skills open standard
-ALLOWED_FIELDS = {
-    # Core
+# Fields defined by the Agent Skills open standard (agentskills.io/specification).
+# A skill using only these is portable across every adopting agent.
+STANDARD_FIELDS = {
     "name",
     "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",  # experimental in the standard
+}
+
+# Claude Code extensions - valid here, ignored (or rejected) by other agents.
+CLAUDE_CODE_FIELDS = {
     # Invocation control
     "disable-model-invocation",
     "user-invocable",
     # Execution control
-    "allowed-tools",
     "model",
     "effort",
     "context",
@@ -40,11 +48,9 @@ ALLOWED_FIELDS = {
     # Advanced
     "hooks",
     "shell",
-    # Open standard
-    "license",
-    "compatibility",
-    "metadata",
 }
+
+ALLOWED_FIELDS = STANDARD_FIELDS | CLAUDE_CODE_FIELDS
 
 EFFORT_VALUES = {"low", "medium", "high", "max"}
 SHELL_VALUES = {"bash", "powershell"}
@@ -218,8 +224,19 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
             f"Allowed: {', '.join(sorted(ALLOWED_FIELDS))}"
         )
 
-    # Validate name
+    # Portability: Claude Code extensions are not in the Agent Skills standard
+    nonstandard = sorted(set(frontmatter.keys()) & CLAUDE_CODE_FIELDS)
+    if nonstandard:
+        warnings.append(
+            f"Claude Code-only frontmatter field(s): {', '.join(nonstandard)}. "
+            "Other Agent Skills agents ignore these - the skill still loads, "
+            "but its behavior differs off Claude Code"
+        )
+
+    # Validate name (required by the standard)
     name = frontmatter.get("name", "")
+    if not name:
+        errors.append("Missing required field 'name' (Agent Skills standard)")
     if name:
         if not isinstance(name, str):
             errors.append(f"name must be a string, got {type(name).__name__}")
@@ -240,14 +257,18 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
                     f"name is too long ({len(name)} chars, max {MAX_SKILL_NAME_LENGTH})"
                 )
             if name != skill_path.name:
-                warnings.append(
-                    f"name '{name}' does not match directory name '{skill_path.name}'"
+                errors.append(
+                    f"name '{name}' does not match directory name '{skill_path.name}' "
+                    "(the standard requires them to match)"
                 )
 
-    # Validate description
+    # Validate description (required by the standard)
     description = frontmatter.get("description", "")
     if not description:
-        warnings.append("Missing description - this is the primary trigger mechanism")
+        errors.append(
+            "Missing required field 'description' (Agent Skills standard) - "
+            "this is also the primary trigger mechanism"
+        )
     elif not isinstance(description, str):
         errors.append(f"description must be a string, got {type(description).__name__}")
     else:
@@ -263,6 +284,35 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
             )
         if description.startswith("TODO"):
             errors.append("description still contains TODO placeholder")
+
+    # Validate open-standard optional fields
+    license_ = frontmatter.get("license")
+    if license_ is not None and (not isinstance(license_, str) or not license_.strip()):
+        errors.append("license must be a non-empty string (license name or bundled file)")
+
+    compatibility = frontmatter.get("compatibility")
+    if compatibility is not None:
+        if not isinstance(compatibility, str) or not compatibility.strip():
+            errors.append("compatibility must be a non-empty string")
+        elif len(compatibility) > MAX_COMPATIBILITY_LENGTH:
+            errors.append(
+                f"compatibility is too long ({len(compatibility)} chars, "
+                f"max {MAX_COMPATIBILITY_LENGTH})"
+            )
+
+    metadata = frontmatter.get("metadata")
+    if metadata is not None:
+        if not isinstance(metadata, dict):
+            errors.append(f"metadata must be a mapping, got {type(metadata).__name__}")
+        else:
+            bad = [k for k, v in metadata.items()
+                   if not isinstance(k, str) or not isinstance(v, str)]
+            if bad:
+                errors.append(
+                    f"metadata must map string keys to string values; "
+                    f"non-string entries: {', '.join(str(k) for k in bad)} "
+                    "(quote numbers and booleans)"
+                )
 
     # Validate boolean fields
     for field in ("disable-model-invocation", "user-invocable"):
@@ -330,6 +380,11 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
         full_path = skill_path / ref_path
         if not full_path.exists():
             errors.append(f"Broken reference: [{ref_path}] - file not found")
+        if ref_path.count("/") > 1 or ref_path.startswith(".."):
+            warnings.append(
+                f"Reference '{ref_path}' is not one level below SKILL.md - "
+                "the standard recommends flat, relative references"
+            )
 
     # Check for empty resource directories
     for resource_dir in ("scripts", "references", "assets"):
