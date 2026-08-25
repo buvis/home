@@ -1,0 +1,98 @@
+{
+  "prd": "00120-migrate-task-tracking-to-statectl-v1.md",
+  "phase": "done",
+  "next_phase": "done",
+  "phases_completed": ["review"],
+  "cycle": 2,
+  "rework_cap": 3,
+  "tasks_total": 0,
+  "tasks_completed": 0,
+  "schema_version": 1,
+  "batch": {
+    "id": "202608162223",
+    "mode": "autopilot",
+    "parks_consecutive": 0,
+    "completed_prds": ["00120-migrate-task-tracking-to-statectl-v1.md"]
+  },
+  "tasks": [],
+  "autonomous_decisions": [
+    {
+      "cycle": 1,
+      "issue": "Unretired TaskList/TaskCreate prose found outside declared surface",
+      "severity": "medium",
+      "action": "auto-fix",
+      "reason": "mechanical prose removal, no behavior change"
+    },
+    {
+      "cycle": 1,
+      "issue": "New statectl verb needed: task-set-meta",
+      "severity": "low",
+      "action": "auto-fix",
+      "reason": "additive verb, matches existing task-add shape"
+    },
+    {
+      "cycle": 1,
+      "issue": "Escalation reason field missing on rework",
+      "severity": "medium",
+      "action": "auto-fix",
+      "reason": "added default value, no schema break"
+    },
+    {},
+    {
+      "cycle": 2,
+      "issue": "Review-coverage gate blind to statectl tasks",
+      "severity": "high",
+      "action": "auto-fix",
+      "reason": "research-passed: extends existing gate, no new dependency"
+    },
+    {
+      "cycle": 2,
+      "issue": "CLAUDE_CODE_ENABLE_TODO_TOOLS still referenced in one hook",
+      "severity": "medium",
+      "action": "auto-fix",
+      "reason": "mechanical removal, premise re-verified zero remaining instruction hits"
+    },
+    {
+      "cycle": 2,
+      "issue": "Doubt rubric D3 flagged missing regression test",
+      "severity": "medium",
+      "action": "auto-fix",
+      "reason": "added regression test per rubric D3"
+    }
+  ],
+  "deferred_decisions": [
+    {
+      "cycle": 1,
+      "issue": "Rename cycle field to attempt_cycle",
+      "severity": "low",
+      "disposition": "deferred to batch end: cosmetic rename, not blocking"
+    },
+    {
+      "cycle": 2,
+      "issue": "Consolidate two deferred-schema producers (items[] vs prds{})",
+      "severity": "medium",
+      "disposition": "deferred to batch end: needs a follow-up PRD, not a same-cycle fix"
+    },
+    {
+      "cycle": 2,
+      "issue": "check_build_overhead counter will always read 0 post-migration",
+      "severity": "low",
+      "disposition": "deferred to batch end: tracked as a follow-up, not a regression"
+    },
+    {
+      "cycle": 2,
+      "issue": "record_defer errors on missing items key",
+      "severity": "medium",
+      "disposition": "deferred to batch end: fixed ad hoc this session, formalize later"
+    },
+    {
+      "cycle": 2,
+      "issue": "Third consecutive stale .handoff-requested marker",
+      "severity": "medium",
+      "disposition": "deferred to batch end: root cause named, fix site identified, not yet patched"
+    }
+  ],
+  "doubts": [],
+  "doubts_rubric_verdicts": [],
+  "needs_attention": false
+}
