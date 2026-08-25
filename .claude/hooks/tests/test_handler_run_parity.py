@@ -51,16 +51,25 @@ from .dispatch_test_helpers import require_in_process_work
 # would make the suite load and subprocess whatever is INSTALLED there, so in a
 # git worktree it would pass no matter how broken the checkout under test is.
 HOOKS_DIR = Path(__file__).resolve().parents[1]
-SCRIPTS_DIR = HOOKS_DIR.parent / "skills" / "run-autopilot" / "scripts"
+
+if str(HOOKS_DIR) not in sys.path:
+    sys.path.insert(0, str(HOOKS_DIR))
+
+import dispatch
+
+# The three scripts/ handlers moved to the autopilot plugin, so there is no copy
+# of them in this checkout to prefer - the derive-from-THIS-file rule above has
+# nothing to derive from any more. Take the path dispatch.py resolved, which is
+# exactly the copy production will run.
+SCRIPTS_DIR = dispatch.SCRIPTS
 
 # Both dirs on sys.path so the test's `import _common` AND the handlers' own
 # sibling imports (`_common`, `_lib_cartographer`, `_walk_up`) resolve during an
 # in-process exec — including for handlers that self-insert only the WRONG dir
 # under a patched HOME (cartographer-stop) or insert nothing (the two _walk_up
 # importers in scripts/).
-for _d in (HOOKS_DIR, SCRIPTS_DIR):
-    if str(_d) not in sys.path:
-        sys.path.insert(0, str(_d))
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 # Env markers that flip autopilot/nested handlers OFF their benign early-return
 # path, stripped in BOTH legs for identical quiescent state. CLAUDE_UNATTENDED

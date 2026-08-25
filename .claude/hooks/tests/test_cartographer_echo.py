@@ -1630,11 +1630,19 @@ def test_single_edit_dispatch_spawns_git_rev_parse_once(
     runs every ROUTES handler matching Edit|Write|MultiEdit, each isolated by
     dispatch's own per-handler `_invoke` -- must spawn `_common.
     resolve_toplevel`'s `git -C <dir> rev-parse --show-toplevel` at most once
-    total (PRD 00133 finding 42), since both handlers run in-process and
-    share `_common._TOPLEVEL_CACHE`. Also asserts both target handlers were
-    actually dispatched and neither faulted -- a crash is caught and
-    swallowed by `_invoke` per handler, so a naive spawn-count check alone
-    would stay green even if cartographer-echo crashed before resolving.
+    total (PRD 00133 finding 42). Also asserts cartographer-echo was actually
+    dispatched and did not fault -- a crash is caught and swallowed by
+    `_invoke` per handler, so a naive spawn-count check alone would stay green
+    even if cartographer-echo crashed before resolving.
+
+    NARROWED, and honestly so: this used to prove the spawn was shared ACROSS
+    two in-process handlers, enforce_prd_location and cartographer-echo, via
+    `_common._TOPLEVEL_CACHE`. enforce_prd_location is now a separate hook
+    process registered by the autopilot plugin, so it cannot share that cache
+    at all and spawns its own `git rev-parse` per tool call. cartographer-echo
+    is the only `resolve_toplevel` consumer left on this route, so what remains
+    here is the weaker single-handler claim: it resolves once, not per file.
+    The cross-handler guarantee finding 42 secured is gone, not merely untested.
 
     Scoped to `-C`-shaped calls: cartographer-echo's handler also spawns a
     separate, out-of-scope `git rev-parse --show-toplevel` (no `-C`,
@@ -1656,13 +1664,16 @@ def test_single_edit_dispatch_spawns_git_rev_parse_once(
         f"expected exactly one _common.resolve_toplevel git spawn across "
         f"all dispatched handlers, got {calls[0]}"
     )
-    assert "enforce_prd_location" in invoked and "cartographer-echo" in invoked, (
-        f"expected both target handlers to actually be dispatched, got {invoked}"
+    assert "cartographer-echo" in invoked, (
+        f"expected cartographer-echo to actually be dispatched, got {invoked}"
+    )
+    assert "enforce_prd_location" not in invoked, (
+        f"enforce_prd_location is the autopilot plugin's hook now; routing it "
+        f"here as well would fire it twice per tool call, got {invoked}"
     )
     out, err = capsys.readouterr()
     combined = out + err
     assert "Traceback" not in combined, combined
-    assert "[dispatch] enforce_prd_location:" not in combined, combined
     assert "[dispatch] cartographer-echo:" not in combined, combined
 
 

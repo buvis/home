@@ -39,24 +39,58 @@ Route = collections.namedtuple(
 )
 
 HOOKS = Path.home() / ".claude" / "hooks"
-SCRIPTS = Path.home() / ".claude" / "skills" / "run-autopilot" / "scripts"
+
+
+def _run_autopilot_scripts() -> Path:
+    """Locate run-autopilot/scripts/, which the autopilot plugin now owns.
+
+    It used to sit at ~/.claude/skills/run-autopilot/scripts/. The plugin
+    extraction removed that path, which silently unrouted three handlers here
+    (dispatch fails open on a missing file), so this resolves the installed
+    plugin instead. Highest installed version wins; the dev checkout is the
+    fallback so a working tree keeps running when nothing is installed.
+
+    ponytail: newest-version-wins, no manifest read. If two marketplaces ever
+    ship autopilot, read plugins/installed_plugins.json instead.
+    """
+    cache = Path.home() / ".claude" / "plugins" / "cache"
+    candidates = [
+        p
+        for p in cache.glob("*/autopilot/*/skills/run-autopilot/scripts")
+        if p.is_dir()
+    ]
+    if candidates:
+
+        def version_key(path: Path) -> tuple[int, ...]:
+            parts = path.parents[2].name.split(".")
+            return tuple(int(p) if p.isdigit() else 0 for p in parts)
+
+        return max(candidates, key=version_key)
+    return (
+        Path.home() / "git/src/github.com/buvis/autopilot/skills/run-autopilot/scripts"
+    )
+
+
+SCRIPTS = _run_autopilot_scripts()
 
 # Handlers import their siblings by bare name; make both handler dirs importable.
 for _p in (str(SCRIPTS), str(HOOKS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# Baked equivalence of settings.json (pre/post/stop scope), in declaration order.
-# NOT read back from settings.json at runtime; the test suite cross-checks it.
+# Baked equivalence of settings.json (pre/post/stop scope), in declaration order,
+# MINUS the handlers a plugin now registers for itself. NOT read back from
+# settings.json at runtime; the test suite cross-checks it against
+# tests/fixtures/settings-preswap-hooks.json, which still lists the plugin-owned
+# entries and is filtered by PLUGIN_OWNED below.
+#
+# enforce_prd_location moved to the autopilot plugin's hooks/hooks.json (both
+# PreToolUse matchers). Routing it here as well fired it twice for the same tool
+# call, printing the same block message twice. The file stays in ~/.claude/hooks
+# because Codex uses its own copy of it and the parity suite invokes it by path.
+PLUGIN_OWNED = {"enforce_prd_location"}
+
 ROUTES = [
-    Route(
-        "PreToolUse",
-        "Edit|Write|MultiEdit",
-        "enforce_prd_location",
-        HOOKS / "enforce_prd_location.py",
-        5,
-        kind="enforcement",
-    ),
     Route(
         "PreToolUse",
         "Edit|Write|MultiEdit",
@@ -78,14 +112,6 @@ ROUTES = [
         "Edit|Write|MultiEdit|NotebookEdit",
         "enforce_write_scope",
         HOOKS / "enforce_write_scope.py",
-        5,
-        kind="enforcement",
-    ),
-    Route(
-        "PreToolUse",
-        "Bash",
-        "enforce_prd_location",
-        HOOKS / "enforce_prd_location.py",
         5,
         kind="enforcement",
     ),
