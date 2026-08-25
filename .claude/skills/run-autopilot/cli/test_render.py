@@ -694,6 +694,14 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
                 return int(line.strip().split(":")[-1].strip())
         raise ValueError(f"No line starting with '- {label}:' in summary")
 
+    def _raw_cell(self, summary: str, label: str) -> str:
+        """Extract the raw text after the colon from a summary line like
+        '- Total cycles: ?' - for asserting the non-integer `?` cell."""
+        for line in summary.splitlines():
+            if line.strip().startswith(f"- {label}:"):
+                return line.strip().split(":", 1)[1].strip()
+        raise ValueError(f"No line starting with '- {label}:' in summary")
+
     def test_nonzero_state_renders_nonzero_counters(self) -> None:
         """batch_summary of the real 202608162223 batch (2 cycles, 6
         autonomous decisions, 1 PRD completed) must not render 0 for
@@ -730,9 +738,9 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         )
 
     def test_empty_completed_prds_legitimately_renders_zero(self) -> None:
-        """A state with no completed_prds (or only bare-string legacy
-        entries) legitimately renders 0 for cycle/decision counters —
-        the binding must not forbid 0 outright."""
+        """A state with no completed_prds legitimately renders 0 for
+        cycle/decision counters — the binding must not forbid 0
+        outright."""
         state = _state()
         state["batch"]["completed_prds"] = []
         summary = render_report.batch_summary(state, [], 0)
@@ -742,11 +750,13 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         self.assertEqual(self._parse_counter(summary, "Autonomous decisions"), 0)
         self.assertEqual(self._parse_counter(summary, "Escalated decisions"), 0)
 
-    def test_bare_string_completed_prds_renders_zero_for_cycle_sums(self) -> None:
+    def test_bare_string_completed_prds_renders_question_marks_for_cycle_sums(
+        self,
+    ) -> None:
         """When completed_prds holds only bare filename strings (legacy
-        shape), PRD count is nonzero but cycle/decision sums are 0 —
-        the binding must distinguish between 'genuinely zero in state'
-        and 'zero because the data was lost'."""
+        shape), PRD count is still the list length but the cycle/decision
+        sums render `?` - the data was lost, and a `0` would claim
+        nothing ran (R2, R5)."""
         state = _state()
         state["batch"]["completed_prds"] = [
             "00120-migrate-task-tracking-to-statectl-v1.md",
@@ -754,9 +764,58 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         summary = render_report.batch_summary(state, [], 0)
         # PRD count reflects the bare string entry
         self.assertEqual(self._parse_counter(summary, "PRDs completed"), 1)
-        # But cycle/decision sums default to 0 for bare strings (no dict to sum)
-        self.assertEqual(self._parse_counter(summary, "Total cycles"), 0)
-        self.assertEqual(self._parse_counter(summary, "Autonomous decisions"), 0)
+        # Cycle/decision sums are unknown for bare strings - never 0
+        self.assertEqual(self._raw_cell(summary, "Total cycles"), "?")
+        self.assertEqual(self._raw_cell(summary, "Autonomous decisions"), "?")
+        self.assertEqual(self._raw_cell(summary, "Escalated decisions"), "?")
+
+    def test_mixed_completed_prds_renders_question_marks_for_cycle_sums(
+        self,
+    ) -> None:
+        """One dict record and one bare string in the same list (the live
+        shape of batch 202608180438): the count is 2 but the sums are
+        `?` - a partial sum over the dict half would understate the
+        batch."""
+        state = _state()
+        state["batch"]["completed_prds"] = [
+            {
+                "filename": "00120-migrate-task-tracking-to-statectl-v1.md",
+                "cycles": 2,
+                "autonomous_decisions": 6,
+                "escalated_decisions": 0,
+                "tasks_completed": 7,
+                "tasks_total": 7,
+            },
+            "00029-cartographer-evaluate-phase-4-6-reactivation-v1.md",
+        ]
+        summary = render_report.batch_summary(state, [], 0)
+        self.assertEqual(self._parse_counter(summary, "PRDs completed"), 2)
+        self.assertEqual(self._raw_cell(summary, "Total cycles"), "?")
+        self.assertEqual(self._raw_cell(summary, "Autonomous decisions"), "?")
+        self.assertEqual(self._raw_cell(summary, "Escalated decisions"), "?")
+
+    def test_archived_bare_string_fixture_renders_question_marks(self) -> None:
+        """The archived 202608162223 state as the real batch wrote it -
+        completed_prds holding the bare filename, not the dict record -
+        renders `?` for every sum and 1 for the PRD count."""
+        state = json.loads(
+            (GOLDEN / "state-batch-202608162223-bare.json").read_text(
+                encoding="utf-8",
+            ),
+        )
+        self.assertEqual(
+            state["batch"]["completed_prds"],
+            ["00120-migrate-task-tracking-to-statectl-v1.md"],
+        )
+        summary = render_report.batch_summary(
+            state,
+            [],
+            len(state["deferred_decisions"]),
+        )
+        self.assertEqual(self._parse_counter(summary, "PRDs completed"), 1)
+        self.assertEqual(self._raw_cell(summary, "Total cycles"), "?")
+        self.assertEqual(self._raw_cell(summary, "Autonomous decisions"), "?")
+        self.assertEqual(self._raw_cell(summary, "Escalated decisions"), "?")
 
 
 if __name__ == "__main__":
