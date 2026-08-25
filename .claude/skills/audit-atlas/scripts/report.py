@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """audit-atlas report generator (PRD 00046).
 
-Scans ~/.claude/cartographer/projects/*/ (or argv[1]) and the instincts
-projects list (~/.claude/instincts/projects.json, or argv[2]) and prints the
+Scans ~/.local/share/agents/cartographer/projects/*/ (or argv[1]) and the instincts
+projects list (~/.local/share/agents/instincts/projects.json, or argv[2]) and prints the
 aggregates the audit-atlas skill interprets: fresh-atlas coverage, staleness
 distribution, atlas sizes, and layer population/enrichment.
 
@@ -17,8 +17,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-PROJECTS_ROOT = Path.home() / ".claude" / "cartographer" / "projects"
-INSTINCTS_PATH = Path.home() / ".claude" / "instincts" / "projects.json"
+PROJECTS_ROOT = Path.home() / ".local" / "share" / "agents" / "cartographer" / "projects"
+INSTINCTS_PATH = Path.home() / ".local" / "share" / "agents" / "instincts" / "projects.json"
 FRESH_MAX_AGE_DAYS = 14
 ACTIVE_WINDOW_DAYS = 30
 MD_BUDGET_BYTES = 5120

@@ -31,8 +31,6 @@
 !.claude/cartographer/
 !.claude/cartographer/scripts/
 !.claude/cartographer/scripts/**
-.claude/cartographer/audit.jsonl
-.claude/cartographer/projects/
 !.claude/AGENTS.md
 !.claude/CLAUDE.md
 !.claude/warden.yaml
@@ -78,6 +76,10 @@
 .config/yarn
 .gitsecret/keys/random_seed
 .kube/config
+# Cross-agent state (cartographer atlases, instincts, metrics, portfolio-brief).
+# Machine-local and regenerable; moved out of .claude/ so any assistant running
+# the same skills can reach it.
+.local/share/agents/
 .local/share/fctracker/cash/eur.csv
 .local/share/fctracker/ops/eur.csv
 .local/share/fctracker/revolut/eur.csv

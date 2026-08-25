@@ -48,7 +48,7 @@ def fake_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     if "_lib_cartographer" in sys.modules:
         del sys.modules["_lib_cartographer"]
-    (tmp_path / ".claude" / "cartographer").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".local" / "share" / "agents" / "cartographer").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -137,7 +137,7 @@ def _seed_store(home: Path, repo_hash: str, date_str: str) -> None:
 
 
 def _audit_path(home: Path) -> Path:
-    return home / ".claude" / "cartographer" / "audit.jsonl"
+    return home / ".local" / "share" / "agents" / "cartographer" / "audit.jsonl"
 
 
 def _read_audit_events(home: Path) -> list[dict]:

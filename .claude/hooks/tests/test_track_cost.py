@@ -58,7 +58,7 @@ def run_hook(
 
 
 def read_costs(home: Path) -> list[dict]:
-    f = home / ".claude" / "metrics" / "costs.jsonl"
+    f = home / ".local" / "share" / "agents" / "metrics" / "costs.jsonl"
     if not f.is_file():
         return []
     return [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -354,7 +354,7 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIs(rows[0]["cumulative"], True)
 
     def test_appends_to_costs_file_missing_trailing_newline(self) -> None:
-        metrics_dir = self.home / ".claude" / "metrics"
+        metrics_dir = self.home / ".local" / "share" / "agents" / "metrics"
         metrics_dir.mkdir(parents=True)
         existing_row = json.dumps({
             "ts": "2026-01-01T00:00:00Z",

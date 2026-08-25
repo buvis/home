@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect portfolio state from gita-registered repos into ~/.claude/portfolio-brief/data.json.
+"""Collect portfolio state from gita-registered repos into ~/.local/share/agents/portfolio-brief/data.json.
 
 Deterministic gathering only: GitHub API via gh CLI + local git. No LLM here.
 Usage: collect.py [--days N] [--no-git-fetch] [--offline] [--out DIR]
@@ -240,10 +240,10 @@ def collect_brush(path):
 
 
 def collect_claude_skill_adherence(base=None):
-    """Last-30-day skill-invocation summary from ~/.claude/metrics/skills.jsonl
+    """Last-30-day skill-invocation summary from ~/.local/share/agents/metrics/skills.jsonl
     (PRD 00086 R2, numerator-only). Returns {count, distinct, top} or None when
     there is no metrics file yet. `ts` rows are ISO-8601 UTC (track_skills.py)."""
-    f = Path(base) if base else Path.home() / ".claude/metrics/skills.jsonl"
+    f = Path(base) if base else Path.home() / ".local/share/agents/metrics/skills.jsonl"
     if not f.is_file():
         return None
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
@@ -419,7 +419,7 @@ def main():
     ap.add_argument("--days", type=int, default=60)
     ap.add_argument("--no-git-fetch", action="store_true")
     ap.add_argument("--offline", action="store_true")
-    ap.add_argument("--out", default=str(Path.home() / ".claude/portfolio-brief"))
+    ap.add_argument("--out", default=str(Path.home() / ".local/share/agents/portfolio-brief"))
     args = ap.parse_args()
 
     if args.offline:

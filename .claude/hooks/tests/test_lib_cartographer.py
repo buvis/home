@@ -5,7 +5,7 @@ Run with: `uvx pytest ~/.claude/hooks/tests/test_lib_cartographer.py -v`
 Conventions:
 - pytest function-style; bare `def test_*`.
 - All filesystem state is redirected to `tmp_path` via `monkeypatch.setattr(Path, "home", ...)`.
-- Tests must NEVER touch the real `~/.claude/cartographer/` or `~/.claude/cache/cartographer/`.
+- Tests must NEVER touch the real `~/.local/share/agents/cartographer/` or `~/.claude/cache/cartographer/`.
 """
 
 from __future__ import annotations
@@ -183,7 +183,7 @@ def test_project_hash_matches_analyze_instincts_detect_project(lib, tmp_path: Pa
 
 def test_atlas_dir_returns_expected_path(lib, fake_home: Path) -> None:
     p = lib.atlas_dir("abc123def456")
-    assert p == fake_home / ".claude" / "cartographer" / "projects" / "abc123def456"
+    assert p == fake_home / ".local" / "share" / "agents" / "cartographer" / "projects" / "abc123def456"
 
 
 def test_atlas_dir_does_not_create_directory(lib, fake_home: Path) -> None:
@@ -195,13 +195,13 @@ def test_atlas_dir_does_not_create_directory(lib, fake_home: Path) -> None:
 
 
 def _audit_path(home: Path) -> Path:
-    return home / ".claude" / "cartographer" / "audit.jsonl"
+    return home / ".local" / "share" / "agents" / "cartographer" / "audit.jsonl"
 
 
 def test_ensure_dirs_creates_layout(lib, fake_home: Path) -> None:
     lib._ensure_dirs()
-    assert (fake_home / ".claude" / "cartographer").is_dir()
-    assert (fake_home / ".claude" / "cartographer" / "projects").is_dir()
+    assert (fake_home / ".local" / "share" / "agents" / "cartographer").is_dir()
+    assert (fake_home / ".local" / "share" / "agents" / "cartographer" / "projects").is_dir()
     # `scripts/` is NOT created by _ensure_dirs: the directory is shipped via
     # the buvis bare repo alongside check-tree-sitter.py and is therefore
     # always present in real installs. Phase 1+ hooks never need it created

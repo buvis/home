@@ -65,13 +65,13 @@ def _init_git_repo(path: Path) -> str:
 
 
 def _locate_atlas_json(home: Path) -> Path:
-    paths = list((home / ".claude" / "cartographer" / "projects").glob("*/atlas.json"))
+    paths = list((home / ".local" / "share" / "agents" / "cartographer" / "projects").glob("*/atlas.json"))
     assert len(paths) == 1, f"Expected exactly 1 atlas.json under {home}, found: {paths}"
     return paths[0]
 
 
 def _locate_atlas_md(home: Path) -> Path:
-    paths = list((home / ".claude" / "cartographer" / "projects").glob("*/atlas.md"))
+    paths = list((home / ".local" / "share" / "agents" / "cartographer" / "projects").glob("*/atlas.md"))
     assert len(paths) == 1, f"Expected exactly 1 atlas.md under {home}, found: {paths}"
     return paths[0]
 

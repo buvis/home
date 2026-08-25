@@ -5,7 +5,7 @@ description: Use when the user wants a portfolio-wide status brief of all gita-r
 
 # Brief Portfolio
 
-Produce `~/.claude/portfolio-brief/portfolio-brief.html`: a self-contained Svelte
+Produce `~/.local/share/agents/portfolio-brief/portfolio-brief.html`: a self-contained Svelte
 SPA showing recent releases/commits (grouped into epics), open issues/PRs,
 failing CI, security alerts, PRD pipeline, local WIP, branch/worktree litter,
 and a pickable cross-repo todo list for every repo in the gita registry
@@ -19,7 +19,7 @@ and a pickable cross-repo todo list for every repo in the gita registry
 - Reads per repo: `dev/local/audit-results/brush-report.md` — its `generated:`
   line stamps the last `brush` run and powers the 30-day brush-cadence nag
   (todo + attention reason). Missing report = never brushed = the nag fires.
-- Writes: `~/.claude/portfolio-brief/`.
+- Writes: `~/.local/share/agents/portfolio-brief/`.
 - Optional: `npm` plus node, only for the maintenance-only SPA rebuild below.
   Absent = the pre-built template still renders; you just cannot change `app/`.
 
@@ -36,7 +36,7 @@ much faster — the `gh` API calls still run, so it is not offline), `--offline`
 (zero network calls and zero subprocess spawns; reuses the last `data.json`
 verbatim; exits with an error if no cached `data.json` exists, so you must have
 run `collect.py` at least once first), `--out DIR` (default
-`~/.claude/portfolio-brief`). Writes `data.json` and `commits-digest.md` into
+`~/.local/share/agents/portfolio-brief`). Writes `data.json` and `commits-digest.md` into
 the out dir; it also rotates the previous `data.json` to `data-prev.json`
 (powers the "Since last brief" diff) — rotation only happens when the existing
 `data.json` is more than 4 hours old, so back-to-back re-runs in one working
@@ -47,8 +47,8 @@ failures land there and in each repo's `errors` field.
 
 ### 2. Epics + judgment todos (model step)
 
-Read `~/.claude/portfolio-brief/commits-digest.md` (and skim `data.json` signals
-if needed) and write `~/.claude/portfolio-brief/epics.json`:
+Read `~/.local/share/agents/portfolio-brief/commits-digest.md` (and skim `data.json` signals
+if needed) and write `~/.local/share/agents/portfolio-brief/epics.json`:
 
 ```json
 {
@@ -101,13 +101,13 @@ Todo rules:
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/build.py
-open ~/.claude/portfolio-brief/portfolio-brief.html   # attended only
+open ~/.local/share/agents/portfolio-brief/portfolio-brief.html   # attended only
 ```
 
-`open` needs a desktop session — run it **only in an attended run**. In an unattended/headless run (`CLAUDE_UNATTENDED=1`) skip it and just report the written path (`~/.claude/portfolio-brief/portfolio-brief.html`).
+`open` needs a desktop session — run it **only in an attended run**. In an unattended/headless run (`CLAUDE_UNATTENDED=1`) skip it and just report the written path (`~/.local/share/agents/portfolio-brief/portfolio-brief.html`).
 
 `build.py` injects `{data, epics}` into `assets/template.html` (pre-built
-Svelte 5 single-file app) and writes `~/.claude/portfolio-brief/portfolio-brief.html`.
+Svelte 5 single-file app) and writes `~/.local/share/agents/portfolio-brief/portfolio-brief.html`.
 It works without epics.json but say so if you skipped step 2.
 
 ## Tests

@@ -3,7 +3,7 @@
 Replaces ~/.claude/hooks/track-cost.sh. Reads transcript_path from the Stop
 hook stdin payload, parses JSONL entries, deduplicates assistant messages by
 message.id, sums token usage, and appends a single JSONL row to
-~/.claude/metrics/costs.jsonl.
+~/.local/share/agents/metrics/costs.jsonl.
 
 Rows are cumulative per sid (the session's running total as of that Stop
 event); aggregate them with max-by-sid, never sum.
@@ -23,7 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _common import append_jsonl_row, parse_transcript_entries, read_input
 
-METRICS_DIR = Path.home() / ".claude" / "metrics"
+# Cross-agent state: shared with any host that runs these skills, not just
+# Claude. ponytail: plain ~/.local/share, no XDG_DATA_HOME lookup - honoring it
+# would let a real env var hijack tests that fake HOME. Add the lookup if you
+# ever set XDG_DATA_HOME.
+METRICS_DIR = Path.home() / ".local" / "share" / "agents" / "metrics"
 COSTS_FILE = METRICS_DIR / "costs.jsonl"
 
 # $/Mtok, verified 2026-07-19 against current docs (haiku 4.5 = 1/5,
@@ -156,7 +160,7 @@ def build_row(
     duplicates, so they are tagged rather than dropped.
     """
     return (
-        '{"ts":"' + ts + '","sid":"' + sid + '","model":"' + model + '",'
+        '{"host":"claude","ts":"' + ts + '","sid":"' + sid + '","model":"' + model + '",'
         '"tier":"' + tier + '","cumulative":true,'
         + ('"nested":true,' if nested else '')
         + '"in":' + str(in_tok) + ','

@@ -10,8 +10,8 @@ PostToolUse, Notification, or Stop hook. Public API + conventions:
 
 - Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Decoupled copy
   of `analyze-instincts.py:detect_project`; parity test guards drift.
-- Per-repo state: `~/.claude/cartographer/projects/<hash>/`.
-- Audit log: `~/.claude/cartographer/audit.jsonl` (one JSON event per line).
+- Per-repo state: `~/.local/share/agents/cartographer/projects/<hash>/`.
+- Audit log: `~/.local/share/agents/cartographer/audit.jsonl` (one JSON event per line).
 - Session-state: `~/.claude/cache/cartographer/<namespace>/state-<key>.json`.
 
 Keep under 400 lines (PRD 00009); split into a package if exceeded.
@@ -28,11 +28,11 @@ import re
 import sys
 import tempfile
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
-from typing import Iterator
 
 # project_hash split into a sibling module for the PRD-00009 400-line cap when
 # the ~/.claude work-tree fallback landed (PRD 00088); re-exported so
@@ -46,7 +46,11 @@ def _home() -> Path:
 
 
 def _cartographer_root() -> Path:
-    return _home() / ".claude" / "cartographer"
+    # Cross-agent state: the atlas is a codebase map, not a Claude artifact, and
+    # survey/audit-atlas/audit-echo are portable skills. ponytail: plain
+    # ~/.local/share, no XDG_DATA_HOME lookup - a real env var would hijack tests
+    # that fake HOME via _home().
+    return _home() / ".local" / "share" / "agents" / "cartographer"
 
 
 def _cache_root() -> Path:
@@ -113,9 +117,11 @@ _DIRS_ENSURED: bool = False
 
 
 def append_audit(event: dict) -> None:
-    """Append one event to ~/.claude/cartographer/audit.jsonl.
+    """Append one event to ~/.local/share/agents/cartographer/audit.jsonl.
 
-    Stamps `ts` (ISO-8601 UTC) if absent. Never raises: I/O or
+    Stamps `host` (which assistant produced the row) and `ts` (ISO-8601 UTC)
+    if absent; the store is shared across hosts, so readers that ask a
+    Claude-specific question must filter on `host`. Never raises: I/O or
     serialization failures emit a one-line stderr warning and return.
     `_ensure_dirs` is invoked once per process (sentinel-cached) so the
     audit hot path skips repeated mkdir/exists syscalls after the first
@@ -125,6 +131,8 @@ def append_audit(event: dict) -> None:
     try:
         if "ts" not in event:
             event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+        if "host" not in event:
+            event = {"host": "claude", **event}
         line = json.dumps(event, ensure_ascii=False) + "\n"
         if not _DIRS_ENSURED:
             _ensure_dirs()
@@ -169,7 +177,9 @@ def resolve_session_key(data: dict) -> str:
     candidates = [
         data.get("session_id"),
         data.get("sessionId"),
-        (data.get("session") or {}).get("id") if isinstance(data.get("session"), dict) else None,
+        (data.get("session") or {}).get("id")
+        if isinstance(data.get("session"), dict)
+        else None,
         os.environ.get("CLAUDE_SESSION_ID"),
     ]
     for c in candidates:
@@ -204,7 +214,7 @@ def _validate_path_segment(value: str, kind: str) -> None:
     if not isinstance(value, str) or not _VALID_PATH_SEGMENT.fullmatch(value):
         raise ValueError(
             f"_lib_cartographer: invalid {kind} {value!r}; "
-            "must match [a-zA-Z0-9_-]+ (no slashes, dots, spaces, newlines, or null bytes)"
+            "must match [a-zA-Z0-9_-]+ (no slashes, dots, spaces, newlines, or null bytes)",
         )
 
 
@@ -246,7 +256,9 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
     tmp_path: str | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp.")
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(path.parent), prefix=path.name + ".tmp."
+        )
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=2, ensure_ascii=False)
         os.replace(tmp_path, path)

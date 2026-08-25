@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Inject data.json (+ optional epics.json) into the SPA template.
 
-Usage: build.py [--dir DIR] [--out FILE]  (defaults under ~/.claude/portfolio-brief/)
+Usage: build.py [--dir DIR] [--out FILE]  (defaults under ~/.local/share/agents/portfolio-brief/)
 """
 import argparse
 import json
@@ -14,7 +14,7 @@ PLACEHOLDER = "__PORTFOLIO_PAYLOAD__"
 
 def main():
     ap = argparse.ArgumentParser()
-    default_dir = Path.home() / ".claude/portfolio-brief"
+    default_dir = Path.home() / ".local/share/agents/portfolio-brief"
     ap.add_argument("--dir", default=str(default_dir))
     ap.add_argument("--out", default=str(default_dir / "portfolio-brief.html"))
     args = ap.parse_args()

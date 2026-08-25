@@ -7,7 +7,7 @@ detectors, creates or updates instinct files, and rebuilds project CLAUDE.md.
 Delete-and-regenerate (after junk, PRD 00085 R5): an instinct .md whose trigger
 embeds a truncated raw payload dict (the pre-R5 error-fix bug — three such files
 were deleted 2026-07-19) is regenerated cleanly by (1) deleting the bad
-`instincts/<id>.md` files under `~/.claude/instincts/projects/<hash>/`, AND
+`instincts/<id>.md` files under `~/.local/share/agents/instincts/projects/<hash>/`, AND
 (2) deleting that project's `last_analysis` marker so the next run re-reads the
 observations from scratch and rebuilds triggers with the fixed `_classify_error`
 classifier. Only observations still inside the retention window
@@ -26,7 +26,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-INSTINCTS_ROOT = Path.home() / ".claude" / "instincts"
+INSTINCTS_ROOT = Path.home() / ".local" / "share" / "agents" / "instincts"
 PROJECTS_DIR = INSTINCTS_ROOT / "projects"
 REGISTRY_FILE = INSTINCTS_ROOT / "projects.json"
 RETENTION_DAYS_DEFAULT = 14

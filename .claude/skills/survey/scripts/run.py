@@ -504,7 +504,7 @@ def main(_args: argparse.Namespace | None = None, _home: Path | None = None) -> 
     repo_path = Path.cwd()
 
     h, _, _ = project_hash(str(repo_path))
-    atlas_dir = home / ".claude" / "cartographer" / "projects" / h
+    atlas_dir = home / ".local" / "share" / "agents" / "cartographer" / "projects" / h
     atlas_path = atlas_dir / "atlas.json"
     flag_path = atlas_dir / "staleness.flag"
 
