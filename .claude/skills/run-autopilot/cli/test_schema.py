@@ -546,8 +546,9 @@ class GoldenFixturesTest(unittest.TestCase):
     """Every golden state-*.json fixture must always validate clean.
 
     Both golden directories are covered. `cli/golden/` was previously missed,
-    so `state-render.json` and `state-batch-202608162223.json` validated only
-    by luck; a fixture that stopped validating would have gone unnoticed.
+    so `state-render.json`, `state-batch-202608162223.json`, and
+    `state-batch-202608162223-reconstructed.json` validated only by luck; a
+    fixture that stopped validating would have gone unnoticed.
     """
 
     def test_all_golden_state_fixtures_validate_clean(self) -> None:

@@ -12,7 +12,16 @@
     "id": "202608162223",
     "mode": "autopilot",
     "parks_consecutive": 0,
-    "completed_prds": ["00120-migrate-task-tracking-to-statectl-v1.md"]
+    "completed_prds": [
+      {
+        "filename": "00120-migrate-task-tracking-to-statectl-v1.md",
+        "cycles": 2,
+        "autonomous_decisions": 6,
+        "escalated_decisions": 0,
+        "tasks_completed": 7,
+        "tasks_total": 7
+      }
+    ]
   },
   "tasks": [],
   "autonomous_decisions": [

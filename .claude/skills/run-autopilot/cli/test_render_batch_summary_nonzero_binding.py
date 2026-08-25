@@ -149,7 +149,7 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
         completed_prds holding the bare filename, not the dict record -
         renders `?` for every sum and 1 for the PRD count."""
         state = json.loads(
-            (GOLDEN / "state-batch-202608162223-bare.json").read_text(
+            (GOLDEN / "state-batch-202608162223.json").read_text(
                 encoding="utf-8",
             ),
         )
