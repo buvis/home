@@ -33,6 +33,7 @@ With 1M context, research stays in-flight through implementation.
 - Global `npm ls -g`, `/opt/homebrew/bin`, `/usr/local/bin` will NOT list mise-managed tools - don't conclude a tool is missing from those. Locate one with `mise which <tool>`; run one not on PATH via `mise exec -- <tool>`.
 - Not every install gets a shim - `mise which` can resolve a tool even when `command -v` fails. If a tool is missing from PATH, suggest `mise reshim`.
 - The default model carries `[1m]` (1M window). The autopilot context cap (`autopilot_context_cap_hook.USAGE_CAP`, mirrored in `tracon/model.py`) is 500K, coupled to that 1M default: never drop it toward 150K unless the default window also shrinks below 200K, or the cap misfires at ~163K aborting healthy build sessions (PRD 00073; 150K pin reverted 2026-07-20 when `[1m]` was restored).
+- Before launching a `~/.claude` autopilot batch, `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/bash:$HOME/.codex:$HOME/.local/bin"` - the buvis repo spans those roots and the write-scope fence (`hooks/enforce_write_scope.py`, armed by `CLAUDE_UNATTENDED=1`) denies them otherwise; `_AUTOPILOT_WRITE_SCOPE=off` disarms the fence for one batch.
 
 ## Conventions
 

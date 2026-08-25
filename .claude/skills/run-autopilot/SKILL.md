@@ -44,6 +44,8 @@ If invoked with `status`, read `dev/local/autopilot/state.json`, print phase/cyc
 
 If invoked with `review-batch`, load the newest `dev/local/autopilot/deferred/{batch_id}-deferred.json` and run the "Batch-End Review" presentation (`references/phase-done.md`) against it — chunked by PRD, wait for user decisions, execute "fix now" items. No state changes; the batch is already closed. Stop when all chunks are reviewed (or the user says stop).
 
+Preflight for a batch rooted at `~/.claude`: the launching shell must `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/bash:$HOME/.codex:$HOME/.local/bin"`, or the write-scope fence (`hooks/enforce_write_scope.py`) false-denies edits under those roots and the task parks; `_AUTOPILOT_WRITE_SCOPE=off` disarms the fence for the batch.
+
 ## Gate Dispatch
 
 The full per-phase instructions live in three gate reference files; this core deliberately carries only the shared contract plus the invariants below. After the entry-point checks, read `dev/local/autopilot/state.json` and **Read the matching gate file now; do not execute a gate from memory**:
