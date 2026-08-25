@@ -33,7 +33,8 @@ import _common
 HOOKS_DIR = Path(__file__).resolve().parents[1]
 
 _SPEC = importlib.util.spec_from_file_location(
-    "enforce_write_scope", HOOKS_DIR / "enforce_write_scope.py"
+    "enforce_write_scope",
+    HOOKS_DIR / "enforce_write_scope.py",
 )
 mod = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(mod)
@@ -45,7 +46,8 @@ def _load_dispatch():
     if "dispatch" in sys.modules:
         return sys.modules["dispatch"]
     spec = importlib.util.spec_from_file_location(
-        "dispatch", HOOKS_DIR / "dispatch.py"
+        "dispatch",
+        HOOKS_DIR / "dispatch.py",
     )
     dispatch = importlib.util.module_from_spec(spec)
     sys.modules["dispatch"] = dispatch
@@ -140,7 +142,9 @@ class WriteScopeCase(unittest.TestCase):
         self.assertEqual(code, 0, f"expected exit 0, got {code} {note}")
 
     def assertDenied(
-        self, result: tuple[int, str, str], resolved: str | None = None
+        self,
+        result: tuple[int, str, str],
+        resolved: str | None = None,
     ) -> str:
         code, out, err = result
         self.assertEqual(code, 2, f"expected a block, got exit {code}; stderr {err!r}")
@@ -158,11 +162,13 @@ class TestIncidentRegressions(WriteScopeCase):
     def test_denies_incident_vault_path_under_marker(self) -> None:
         resolved = os.path.realpath(VAULT_PATH)
         code, _out, err = self.call(
-            self.write_payload(VAULT_PATH, self.repo), self.env()
+            self.write_payload(VAULT_PATH, self.repo),
+            self.env(),
         )
         self.assertEqual(code, 2)
         self.assertEqual(
-            err.rstrip("\n"), self.reason_for(resolved, self.default_roots)
+            err.rstrip("\n"),
+            self.reason_for(resolved, self.default_roots),
         )
 
     def test_allows_the_in_repo_file_the_subagent_should_have_edited(self) -> None:
@@ -171,7 +177,7 @@ class TestIncidentRegressions(WriteScopeCase):
             self.call(
                 self.write_payload(IN_REPO_PATH, Path.home() / ".claude"),
                 self.env(TMPDIR=None),
-            )
+            ),
         )
 
     def test_allows_out_of_scope_target_when_marker_absent(self) -> None:
@@ -179,7 +185,7 @@ class TestIncidentRegressions(WriteScopeCase):
             self.call(
                 self.write_payload(VAULT_PATH, self.repo),
                 self.env(**{MARKER_ENV: None}),
-            )
+            ),
         )
 
     def test_denies_vault_path_as_a_real_subprocess_with_inherited_env(self) -> None:
@@ -262,7 +268,8 @@ class TestArmingAndNormalization(WriteScopeCase):
         )
         self.assertEqual(code, 0)
         self.assertIn(
-            "enforce_write_scope: disarmed by _AUTOPILOT_WRITE_SCOPE=off", err
+            "enforce_write_scope: disarmed by _AUTOPILOT_WRITE_SCOPE=off",
+            err,
         )
         self.assertNotIn("BLOCKED", err)
 
@@ -273,7 +280,7 @@ class TestArmingAndNormalization(WriteScopeCase):
                     self.call(
                         self.write_payload(VAULT_PATH, self.repo),
                         self.env(**{KILL_SWITCH_ENV: value}),
-                    )
+                    ),
                 )
 
     def test_denies_out_of_scope_write_from_a_repo_without_dev_local(self) -> None:
@@ -305,7 +312,7 @@ class TestArmingAndNormalization(WriteScopeCase):
             self.call(
                 self.write_payload("dev/local/tmp/attempt-task-1.json", self.repo),
                 self.env(),
-            )
+            ),
         )
 
     def test_allows_repo_write_when_session_cwd_is_a_subdirectory(self) -> None:
@@ -389,7 +396,7 @@ class TestArmingAndNormalization(WriteScopeCase):
             self.call(
                 self.write_payload(str(nested / "src" / "foo.py"), nested),
                 self.env(HOME=str(home)),
-            )
+            ),
         )
 
     def test_cwd_itself_is_not_an_allowed_root(self) -> None:
@@ -421,7 +428,7 @@ class TestArmingAndNormalization(WriteScopeCase):
                     self.call(
                         self.write_payload(target, self.repo),
                         self.env(**{EXTRA_ROOTS_ENV: joined}),
-                    )
+                    ),
                 )
                 self.assertDenied(
                     self.call(self.write_payload(target, self.repo), self.env()),
@@ -493,7 +500,7 @@ class TestLegitimateWrites(WriteScopeCase):
         for target in targets:
             with self.subTest(target=str(target)):
                 self.assertAllowed(
-                    self.call(self.write_payload(str(target), self.repo), self.env())
+                    self.call(self.write_payload(str(target), self.repo), self.env()),
                 )
 
     def test_allows_write_under_tmpdir(self) -> None:
@@ -502,7 +509,7 @@ class TestLegitimateWrites(WriteScopeCase):
             self.call(
                 self.write_payload(str(self.tmpdir / "review-prompt.txt"), self.repo),
                 self.env(),
-            )
+            ),
         )
 
     def test_allows_write_under_the_static_temp_roots(self) -> None:
@@ -518,7 +525,7 @@ class TestLegitimateWrites(WriteScopeCase):
                         self.write_payload(target, self.repo),
                         self.env(TMPDIR=None),
                         tmp_roots=("/tmp",),
-                    )
+                    ),
                 )
 
     def test_allows_an_ordinary_in_repo_source_file(self) -> None:
@@ -526,7 +533,7 @@ class TestLegitimateWrites(WriteScopeCase):
             self.call(
                 self.write_payload(str(self.repo / "src" / "foo.py"), self.repo),
                 self.env(),
-            )
+            ),
         )
 
 
@@ -543,7 +550,8 @@ class TestPayloadShapes(WriteScopeCase):
                     "cwd": str(self.repo),
                 }
                 self.assertDenied(
-                    self.call(payload, self.env()), os.path.realpath(VAULT_PATH)
+                    self.call(payload, self.env()),
+                    os.path.realpath(VAULT_PATH),
                 )
 
     def test_denies_out_of_scope_target_when_payload_has_no_cwd(self) -> None:
@@ -597,7 +605,8 @@ class TestPayloadShapes(WriteScopeCase):
                     "cwd": str(self.repo),
                 }
                 self.assertDenied(
-                    self.call(payload, self.env()), os.path.realpath(OUT_OF_SCOPE)
+                    self.call(payload, self.env()),
+                    os.path.realpath(OUT_OF_SCOPE),
                 )
 
     def test_allows_payloads_that_carry_no_usable_target(self) -> None:
@@ -617,7 +626,8 @@ class TestPayloadShapes(WriteScopeCase):
     def test_reports_a_degraded_hook_and_allows_when_it_crashes(self) -> None:
         with patch.object(mod, "_allowed_roots", _boom):
             code, _out, err = self.call(
-                self.write_payload(VAULT_PATH, self.repo), self.env()
+                self.write_payload(VAULT_PATH, self.repo),
+                self.env(),
             )
         self.assertEqual(code, 0, "a crashing fence must not block the tool call")
         self.assertIn("policy hook degraded: enforce_write_scope", err)
@@ -634,7 +644,8 @@ class TestContractSeams(WriteScopeCase):
         with patch.dict(os.environ, self.env(), clear=True):
             with patch.object(mod, "TMP_ROOTS", ()):
                 code, _out, err = _common.capture_main(
-                    mod.main, self.write_payload(VAULT_PATH, self.repo)
+                    mod.main,
+                    self.write_payload(VAULT_PATH, self.repo),
                 )
         self.assertEqual(code, 2, f"main() must block on its own; stderr {err!r}")
         self.assertEqual(
@@ -676,10 +687,10 @@ class TestContractSeams(WriteScopeCase):
         roots = [self.repo]
         with patch.dict(os.environ, self.env(), clear=True):
             self.assertIsNone(
-                mod._breach(str(self.repo / "zzz" / "f.txt"), roots, str(self.repo))
+                mod._breach(str(self.repo / "zzz" / "f.txt"), roots, str(self.repo)),
             )
             self.assertIsNotNone(
-                mod._breach(str(self.base / "zzz" / "f.txt"), roots, str(self.repo))
+                mod._breach(str(self.base / "zzz" / "f.txt"), roots, str(self.repo)),
             )
 
 
@@ -753,7 +764,8 @@ class TestDispatcherRegistration(WriteScopeCase):
         self.assertEqual(route.event, "PreToolUse")
         self.assertEqual(route.matcher, "Edit|Write|MultiEdit|NotebookEdit")
         self.assertEqual(
-            Path(route.path).parts[-2:], ("hooks", "enforce_write_scope.py")
+            Path(route.path).parts[-2:],
+            ("hooks", "enforce_write_scope.py"),
         )
         self.assertEqual(route.timeout, 5)
         self.assertEqual(route.kind, "enforcement")
