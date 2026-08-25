@@ -18,6 +18,17 @@ audit-context
 audit-mcp-health
 audit-sessions
 
+# The autopilot pack owns these now (buvis/autopilot).
+run-autopilot
+plan-tasks
+work
+review-work-completion
+review-blindly
+review-plan
+use-codex
+use-gemini
+use-sonnet
+
 # claude-checkup consolidates these narrower Codex audit forks.
 audit-codex-config
 audit-hooks
