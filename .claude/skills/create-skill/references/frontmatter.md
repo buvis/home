@@ -1,15 +1,18 @@
 # Frontmatter Reference
 
-All SKILL.md files begin with YAML frontmatter between `---` markers. All fields are optional. Only `description` is strongly recommended.
+All SKILL.md files begin with YAML frontmatter between `---` markers.
+
+`name` and `description` are **required** by the [Agent Skills standard](https://agentskills.io/specification); the validator errors without them. Everything under "Open Standard Fields" below is portable across every adopting agent (Claude Code, Cursor, Copilot, Gemini CLI, Codex, and others). Every other field on this page is a Claude Code extension: valid here, ignored elsewhere, and flagged by the validator as a portability warning. Use them when the skill is Claude Code-only, and prefer the standard fields when it is not.
 
 ## Core Fields
 
 ### name
 
-Display name for the skill. If omitted, the directory name is used.
+Skill identifier. Required.
 
 - Lowercase letters, digits, and hyphens only
 - Max 64 characters
+- No leading, trailing, or consecutive hyphens
 - Must match the parent directory name
 - Becomes the `/slash-command` name
 
@@ -19,9 +22,9 @@ name: deploy-staging
 
 ### description
 
-What the skill does and when to use it. This is the primary trigger mechanism - Claude reads all skill descriptions to decide which skills are relevant.
+What the skill does and when to use it. Required. This is the primary trigger mechanism - Claude reads all skill descriptions to decide which skills are relevant.
 
-- Keep under 250 characters (truncated in context listing)
+- Standard caps it at 1024 characters; keep under 250 (truncated in context listing)
 - Include specific trigger scenarios, file types, or task descriptions
 - All "when to use" information belongs here, not in the body
 
@@ -158,11 +161,12 @@ shell: powershell
 
 ## Open Standard Fields
 
-These fields come from the Agent Skills open standard (agentskills.io) and are recognized but not Claude Code-specific:
+Portable across every Agent Skills agent, not Claude Code-specific:
 
-- `license` - License name or reference to bundled license file
-- `compatibility` - Environment requirements (max 500 chars)
-- `metadata` - Arbitrary key-value mapping
+- `license` - non-empty string: license name or the bundled license file
+- `compatibility` - environment requirements, max 500 chars. Most skills do not need it
+- `metadata` - map of **string keys to string values**. Quote numbers and booleans (`version: "1.2"`, not `version: 1.2`) or the validator errors
+- `allowed-tools` - also standard, though experimental there and honored differently per agent
 
 ```yaml
 license: MIT
@@ -171,3 +175,7 @@ metadata:
   version: "1.2.0"
   author: "team-name"
 ```
+
+## Portability Checklist
+
+A skill meant to run on other agents keeps to `name`, `description`, `license`, `compatibility`, `metadata`, and a body that names its own steps. Claude Code-only fields (`context: fork`, `model`, `effort`, `hooks`, `paths`, `agent`, `argument-hint`, `disable-model-invocation`, `user-invocable`, `shell`) silently do nothing elsewhere - so a skill that relies on `context: fork` for isolation or `hooks` for enforcement is Claude Code-only by construction. Say so in `compatibility`.

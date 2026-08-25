@@ -1,9 +1,10 @@
-"""Tests for validate_skill.py's live-profile bash lints (PRD 00083)."""
+"""Tests for validate_skill.py's live-profile bash lints (PRD 00083) and
+Agent Skills standard conformance (agentskills.io/specification)."""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from validate_skill import lint_bash_commands
+from validate_skill import lint_bash_commands, validate_skill
 
 
 def block(*lines: str) -> str:
@@ -59,6 +60,51 @@ def test_only_fenced_bash_is_scanned():
     # a $VAR mentioned in prose or a non-bash fence must not be flagged
     prose = "Use `$REPO/skills` carefully.\n\n```python\nx = grep\n```\n"
     assert lint_bash_commands(prose) == []
+
+
+def make_skill(tmp_path: Path, dirname: str, frontmatter: str) -> Path:
+    skill = tmp_path / dirname
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(f"---\n{frontmatter}\n---\n\n# {dirname}\n\nDo the thing.\n")
+    return skill
+
+
+def test_missing_name_and_description_are_errors(tmp_path):
+    errors, _ = validate_skill(make_skill(tmp_path, "no-meta", "license: MIT"))
+    assert any("required field 'name'" in e for e in errors)
+    assert any("required field 'description'" in e for e in errors)
+
+
+def test_name_must_match_directory(tmp_path):
+    errors, _ = validate_skill(
+        make_skill(tmp_path, "on-disk", "name: in-frontmatter\ndescription: Use when testing.")
+    )
+    assert any("does not match directory name" in e for e in errors)
+
+
+def test_compatibility_capped_at_500_chars(tmp_path):
+    fm = "name: compat\ndescription: Use when testing.\ncompatibility: " + "x" * 501
+    errors, _ = validate_skill(make_skill(tmp_path, "compat", fm))
+    assert any("compatibility is too long" in e for e in errors)
+
+
+def test_metadata_must_map_strings_to_strings(tmp_path):
+    fm = "name: meta\ndescription: Use when testing.\nmetadata:\n  version: 1.0\n"
+    errors, _ = validate_skill(make_skill(tmp_path, "meta", fm))
+    assert any("metadata must map string keys to string values" in e for e in errors)
+
+
+def test_claude_code_fields_warn_about_portability(tmp_path):
+    fm = 'name: ext\ndescription: Use when testing.\nargument-hint: "[path]"'
+    errors, warnings = validate_skill(make_skill(tmp_path, "ext", fm))
+    assert errors == []
+    assert any("Claude Code-only frontmatter field(s): argument-hint" in w for w in warnings)
+
+
+def test_standard_only_skill_is_clean(tmp_path):
+    fm = ('name: clean\ndescription: Use when testing.\nlicense: MIT\n'
+          'compatibility: Requires jq\nmetadata:\n  version: "1.0"\n')
+    assert validate_skill(make_skill(tmp_path, "clean", fm)) == ([], [])
 
 
 def test_all_personal_skills_pass():
