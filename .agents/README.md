@@ -1,5 +1,12 @@
 # Shared agent skills
 
+> **Machine-local notes.** The general design (install per assistant, `braid`,
+> `braid.ignore` format, multi-source overlay, compatibility classes) now lives
+> in `buvis/agent-skills/README.md` and is canonical. Keep this file for what is
+> true of THIS machine only: the plugin policy table below, and the source list
+> once `sources.d` exists. Anything here that contradicts the repo README is
+> stale.
+
 `~/.agents/skills` is the assembled discovery view for skills that should be
 available to more than one assistant. It is local generated state, not the
 canonical Git source. A skill is a directory containing `SKILL.md`; supporting
