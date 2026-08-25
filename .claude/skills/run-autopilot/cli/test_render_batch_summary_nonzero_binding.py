@@ -10,7 +10,7 @@ render contract (golden fixtures, prd_section, batch_summary, etc.) is
 documented in test_render.py's module docstring.
 
 These are property assertions (parse trailing integer, assert > 0), not
-golden-file matches — the existing golden passes with the bug in place,
+golden-file matches, the existing golden passes with the bug in place,
 so golden alone is not the check.
 """
 
@@ -31,13 +31,8 @@ from cli.test_render import _batch_state, _state
 
 
 class BatchSummaryNonZeroBindingTests(unittest.TestCase):
-    """R5: a batch that ran cycles and decisions cannot render a report
-    claiming zero of either. Also covers the inverse: a state with no
-    real completed_prds legitimately renders 0.
-
-    This is a property assertion (parse trailing integer, assert > 0),
-    not a golden-file match — the existing golden passes with the bug
-    in place, so golden alone is not the check."""
+    """Tests for render_report.batch_summary's R5 binding - see the module
+    docstring for the rationale and the property-assertion approach."""
 
     def _raw_cell(self, summary: str, label: str) -> str:
         """Extract the raw text after the colon from a summary line like
@@ -80,7 +75,7 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
             0,
             "Autonomous decisions rendered 0 despite 6 real decisions in state",
         )
-        # Escalated decisions: genuinely 0 in this fixture — do NOT assert > 0
+        # Escalated decisions: genuinely 0 in this fixture, do NOT assert > 0
         self.assertEqual(
             self._parse_counter(summary, "Escalated decisions"),
             0,
@@ -89,7 +84,7 @@ class BatchSummaryNonZeroBindingTests(unittest.TestCase):
 
     def test_empty_completed_prds_legitimately_renders_zero(self) -> None:
         """A state with no completed_prds legitimately renders 0 for
-        cycle/decision counters — the binding must not forbid 0
+        cycle/decision counters - the binding must not forbid 0
         outright."""
         state = _state()
         state["batch"]["completed_prds"] = []
