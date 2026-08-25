@@ -226,6 +226,35 @@ class TestArmingAndNormalization(WriteScopeCase):
                     f"(marker={value!r})",
                 )
 
+    def test_marker_absent_exits_silently_before_reading_stdin(self) -> None:
+        # capture_main() installs its own stdin, so drive main() directly. A
+        # fence that reads the payload before checking the marker lands in its
+        # degraded path here and reports it on stderr; an unarmed fence must
+        # never touch stdin at all.
+        class UnreadableStdin:
+            def read(self, *_args: object) -> str:
+                raise OSError("stdin unavailable")
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, self.env(**{MARKER_ENV: None}), clear=True),
+            patch.object(mod, "TMP_ROOTS", ()),
+            patch.object(sys, "stdin", UnreadableStdin()),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as exited,
+        ):
+            mod.main()
+
+        self.assertEqual(
+            exited.exception.code,
+            0,
+            f"stderr was {stderr.getvalue()!r}",
+        )
+        self.assertEqual(stdout.getvalue(), "", "nothing may reach stdout")
+        self.assertEqual(stderr.getvalue(), "", "an unarmed fence stays silent")
+
     def test_kill_switch_off_allows_and_reports_the_disarm_on_stderr(self) -> None:
         code, _out, err = self.call(
             self.write_payload(VAULT_PATH, self.repo),
@@ -398,6 +427,22 @@ class TestArmingAndNormalization(WriteScopeCase):
                     self.call(self.write_payload(target, self.repo), self.env()),
                     target,
                 )
+
+    def test_extra_roots_expand_a_leading_tilde(self) -> None:
+        home = self.base / "home"
+        (home / "extra-one").mkdir(parents=True)
+        target = str(home / "extra-one" / "out.txt")
+        self.assertAllowed(
+            self.call(
+                self.write_payload(target, self.repo),
+                self.env(HOME=str(home), **{EXTRA_ROOTS_ENV: "~/extra-one"}),
+            ),
+        )
+        # Without the knob the same target breaches: the allow is the tilde's.
+        self.assertDenied(
+            self.call(self.write_payload(target, self.repo), self.env(HOME=str(home))),
+            target,
+        )
 
     def test_extra_roots_variable_cannot_readmit_home(self) -> None:
         home = self.base / "home"
