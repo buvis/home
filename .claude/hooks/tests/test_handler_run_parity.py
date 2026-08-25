@@ -12,27 +12,21 @@ that handler as a standalone subprocess:
 
     subprocess.run([sys.executable, handler], input=json.dumps(payload), ...)
 
-All three members of the contract tuple are compared for every handler. Note
-what that is worth in practice: measured across the thirteen, only
-`enforce_prd_location` emits non-empty stderr (deterministic static block text),
-so the stderr member is a live discriminator for 1 of 13 and agrees vacuously at
-"" on both legs for the other 12. It is still worth comparing - stderr is the
-model-visible block reason, so a handler that stopped emitting one would now be
-caught - but do not read a green run as proof that twelve handlers' stderr was
-meaningfully exercised.
+All three members are compared for every handler, but measured across the
+thirteen only `enforce_prd_location` emits non-empty stderr (static block text),
+so the stderr member discriminates for 1 of 13 and agrees vacuously at "" for
+the other 12. Still worth comparing (stderr is the model-visible block reason),
+but a green run is no proof that twelve handlers' stderr was exercised.
 
 Isolation (the central hazard). Several handlers write state as a side effect
-(per-session throttle stores, append-only logs, cartographer stores). If both
-legs shared one environment, the first leg's writes could change the second
-leg's output (e.g. a once-per-session injection becomes throttled) and forge a
-false mismatch. So each leg gets its OWN fresh, identically-clean temp HOME and
-cwd: subprocess via `env=`/`cwd=`; in-process via monkeypatching `Path.home` +
-`HOME` and `monkeypatch.chdir`. No handler emits its HOME/cwd (or any timestamp,
-uuid, pid) to STDOUT, so the two legs' different temp paths never break stdout
-parity. The one exception is the read-only `validate_state_json_hook`
-discriminator, which shares a single temp dir because its payload names an
-absolute file path that must resolve identically for both legs (it performs no
-writes, so there is nothing to cross-contaminate).
+(throttle stores, append-only logs). Shared between legs, the first leg's writes
+could change the second leg's output (a once-per-session injection becomes
+throttled) and forge a false mismatch. So each leg gets its OWN clean temp HOME
+and cwd: subprocess via `env=`/`cwd=`; in-process via monkeypatched `Path.home`,
+`HOME` and `chdir`. No handler emits its HOME/cwd (or a timestamp, uuid, pid) to
+STDOUT, so the differing paths never break parity. The one exception is the
+read-only `validate_state_json_hook` discriminator, which shares one temp dir
+because its payload names an absolute path that must resolve identically.
 
 Because strunk/echo bind `Path.home()`-derived paths at import time, each handler
 module is loaded fresh AFTER home is patched, so its module-level constants
@@ -69,12 +63,9 @@ for _d in (HOOKS_DIR, SCRIPTS_DIR):
         sys.path.insert(0, str(_d))
 
 # Env markers that flip autopilot/nested handlers OFF their benign early-return
-# path. Stripped in BOTH legs so the two runs observe identical, quiescent state
-# regardless of what the pytest process inherited. CLAUDE_UNATTENDED is the
-# write-scope fence's arming marker: run this suite inside an autopilot session
-# without stripping it and the enforce_write_scope param's "fence disarmed"
-# premise is quietly false - it would pass only because the payload's path
-# happens to sit in a temp root, i.e. a fixture masking the behavior under test.
+# path, stripped in BOTH legs for identical quiescent state. CLAUDE_UNATTENDED
+# arms the write-scope fence: unstripped inside an autopilot session, the
+# enforce_write_scope param's "disarmed" premise goes quietly false.
 _STRIP_ENV = (
     "_AUTOPILOT_LOOP",
     "CLAUDE_NESTED",
@@ -90,17 +81,13 @@ def _purge_sibling_modules() -> None:
     """Drop cached sibling libraries (`_common`, `_walk_up`, `_lib_cartographer`)
     so the next handler load re-executes their bodies under the CURRENT temp HOME.
 
-    Some of them create their store directory at IMPORT time from `Path.home()`.
-    Left cached from an EARLIER test's temp HOME, that mkdir never re-runs, and a
-    later handler's append then fails with ENOENT under the current HOME
-    (measured: cartographer-stop's audit.jsonl, once cartographer-echo has
-    imported the shared library first). That is a cross-test artifact, not a
-    handler defect, and it would forge a file-tree mismatch below.
-
-    Scoped to underscore-prefixed modules living DIRECTLY in the two handler
-    dirs - the documented sibling set plus this file's own `_hook_*` loads - so
-    `dispatch` (imported at the real HOME by the sibling test module) is left
-    alone.
+    Some create their store directory at IMPORT time from `Path.home()`. Cached
+    from an EARLIER test's HOME, that mkdir never re-runs and a later append
+    fails with ENOENT (measured: cartographer-stop's audit.jsonl once
+    cartographer-echo imported the library first) - a cross-test artifact that
+    would forge a file-tree mismatch below. Scoped to underscore-prefixed
+    modules DIRECTLY in the two handler dirs, so `dispatch` (imported at the
+    real HOME by the sibling test module) is left alone.
     """
     roots = {str(HOOKS_DIR), str(SCRIPTS_DIR)}
     for name, mod in list(sys.modules.items()):
@@ -267,12 +254,10 @@ def _run_in_process(
 #   strunk-ruling-inject                   (installed strunk plugin cache)
 #   notify                                 (real desktop/network presence probes)
 #   analyze-instincts                      (a prior observation corpus)
-# and the sixth, enforce_write_scope, rides its disarmed path by construction:
-# _STRIP_ENV removes its arming marker from BOTH legs, so it returns (0, "", "")
-# and writes nothing whatever the payload names.
-# Their functional behavior is covered by each handler's OWN test suite; here
-# they only prove run() exists and does not diverge from the subprocess. See
-# ASSUMPTIONS.
+# and enforce_write_scope rides its disarmed path: _STRIP_ENV drops its arming
+# marker from BOTH legs, so it returns (0, "", "") whatever the payload names.
+# Each handler's OWN suite covers its behavior; here they only prove run()
+# exists and matches the subprocess. See ASSUMPTIONS.
 # --------------------------------------------------------------------------- #
 _HANDLERS = [
     pytest.param(
@@ -371,20 +356,16 @@ _HANDLERS = [
 def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     """In-process run(payload) must match the subprocess run in (exit_code, stdout, stderr).
 
-    Each leg runs in its OWN clean temp HOME + cwd so neither leg's side-effect
-    writes can perturb the other. For benign handlers both legs agree at
-    (0, "", "") - a valid but weak parity check; for enforce_prd_location both
-    legs agree at (2, "", <block text>) - a case a trivial `(0, "", "")` stub
-    cannot fake, and the only one of the thirteen where the stderr member does
-    real discriminating work.
+    Each leg runs in its OWN clean temp HOME + cwd. Benign handlers agree at
+    (0, "", "") - weak but valid; enforce_prd_location agrees at
+    (2, "", <block text>), which a `(0, "", "")` stub cannot fake and the only
+    case of the thirteen where stderr discriminates.
 
-    The FILE-TREE assertion carries the rest of the weight, with no per-handler
-    fixture: whatever the subprocess wrote under its HOME, the in-process leg
-    must have written too. A no-op `run()` leaves an empty tree, so notify
-    (notify.log), cartographer-stop and analyze-instincts (their stores) and
-    observe_tool (its observation row) all fail on it. Verified deterministic:
-    running each handler twice under different HOMEs and cwds yields identical
-    trees for all thirteen, so nothing here needs normalizing.
+    The FILE-TREE assertion carries the rest: whatever the subprocess wrote under
+    its HOME, the in-process leg must have written too. A no-op `run()` leaves an
+    empty tree, so notify, cartographer-stop, analyze-instincts and observe_tool
+    all fail on it. Verified deterministic: each handler run twice under
+    different HOMEs/cwds yields identical trees, so nothing needs normalizing.
     """
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
     code_sub, out_sub, err_sub = _run_subprocess(path, payload, sub_home, sub_cwd)

@@ -64,6 +64,11 @@ IN_REPO_PATH = "/Users/bob/.claude/skills/debrief-meeting/app/smoke.test.js"
 OUT_OF_SCOPE = "/Users/bob/bim/x.js"
 
 
+def _boom(*_args: object, **_kwargs: object) -> list:
+    """Stand-in for _allowed_roots that crashes the fence."""
+    raise RuntimeError("kaboom")
+
+
 class WriteScopeCase(unittest.TestCase):
     """Fixture repo and helpers shared by every case."""
 
@@ -565,9 +570,6 @@ class TestPayloadShapes(WriteScopeCase):
                 self.assertAllowed(self.call(payload, self.env()))
 
     def test_reports_a_degraded_hook_and_allows_when_it_crashes(self) -> None:
-        def _boom(*_args: object, **_kwargs: object) -> list:
-            raise RuntimeError("kaboom")
-
         with patch.object(mod, "_allowed_roots", _boom):
             code, _out, err = self.call(
                 self.write_payload(VAULT_PATH, self.repo), self.env()
@@ -642,30 +644,22 @@ class TestDispatcherRegistration(WriteScopeCase):
     def test_degraded_hook_line_reaches_real_stderr_through_the_dispatcher(
         self,
     ) -> None:
-        # The crash case above proves run() RETURNS the degraded line in its
-        # triple. Only the dispatcher decides whether that text ever reaches the
-        # process's own stderr, where the model can read it - it diverts a
-        # non-blocking handler's stderr to dispatch.log whenever some OTHER
-        # handler blocked. So drive main("pre") end to end and read the real
-        # stream. dispatch imports the handler fresh per invocation, so the
-        # crash has to ride in on the module IT loads: _load_handler is the
-        # seam, and the path it was asked for is recorded so this cannot pass
-        # while the dispatcher looks somewhere else.
+        # The crash case above proves run() RETURNS the degraded line. Only the
+        # dispatcher decides whether it reaches the process's real stderr (it
+        # diverts a non-blocking handler's stderr to dispatch.log when some
+        # OTHER handler blocked), so drive main("pre") end to end. dispatch
+        # imports the handler fresh, so the crash rides in through the
+        # _load_handler seam; the path it asked for is recorded.
         dispatch = _load_dispatch()
-        # Selection stays the dispatcher's own job, on the LIVE table: the fence's
-        # REGISTERED entries are what gets installed, narrowed only so this case
-        # does not execute the three unrelated PreToolUse handlers. A missing
-        # route - or one whose matcher omits Write - leaves main() selecting
-        # nothing, and the degraded line never appears.
+        # Selection stays the dispatcher's job, on the LIVE table, narrowed only
+        # so the three unrelated PreToolUse handlers do not run. A missing route,
+        # or a matcher that omits Write, selects nothing.
         fence_routes = [r for r in dispatch.ROUTES if r.name == "enforce_write_scope"]
         loaded: list[str] = []
 
         def serve_the_fence(path: object) -> object:
             loaded.append(str(path))
             return mod
-
-        def _boom(*_args: object, **_kwargs: object) -> list:
-            raise RuntimeError("kaboom")
 
         payload = self.write_payload(VAULT_PATH, self.repo)
         stderr = io.StringIO()
