@@ -348,10 +348,11 @@ def _completed_prd_record(data: dict[str, Any]) -> dict[str, Any]:
 
     `autonomous_decisions` counts with `render_report.is_autonomous_row`, the
     same predicate the Autonomous Decisions table draws rows with.
-    `escalated_decisions` counts `deferred_decisions` entries whose `status`
-    is anything OTHER than `"pending"` or `"deferred"` (tolerating non-dict
-    entries) - the exclusion rule mirrors `render_report._is_pending`'s own
-    definition. Both source arrays may be absent, counting as 0. `cycle`,
+    `escalated_decisions` counts with `render_report.is_escalated_row`, the
+    same predicate the Escalated Decisions table draws rows with: a dict
+    entry whose `status` is anything OTHER than `"pending"` or `"deferred"`
+    (non-dict entries are tolerated and excluded). Both source arrays may be
+    absent, counting as 0. `cycle`,
     `tasks_completed` and `tasks_total` may also be absent - the transition
     table leaves them unset on a PRD that never rewrites them - so they fall
     back to their own writers' defaults (1 for `cycle`, matching
