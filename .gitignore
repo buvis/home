@@ -3,8 +3,6 @@
 .claude/*
 !.claude/agents/
 !.claude/agents/**
-!.claude/commands/
-!.claude/commands/**
 !.claude/hooks/
 .claude/hooks/.ntfy-secret
 .claude/hooks/notify.log
