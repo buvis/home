@@ -74,7 +74,9 @@ def test_project_hash_with_remote(lib, tmp_path: Path) -> None:
     finally:
         os.chdir(cwd)
 
-    expected_hash = hashlib.sha256(b"https://github.com/example/widgets.git").hexdigest()[:12]
+    expected_hash = hashlib.sha256(
+        b"https://github.com/example/widgets.git"
+    ).hexdigest()[:12]
     assert h == expected_hash
     assert name == "widgets"
     assert remote == "https://github.com/example/widgets.git"
@@ -133,7 +135,9 @@ def test_project_hash_no_remote_falls_back_to_path(lib, tmp_path: Path) -> None:
     # detect_project uses the toplevel string git reports, not Path.resolve().
     toplevel = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
     assert h == hashlib.sha256(toplevel.encode()).hexdigest()[:12]
     assert name == Path(toplevel).name
@@ -155,27 +159,10 @@ def test_project_hash_no_git_falls_back_to_global(lib, tmp_path: Path) -> None:
     assert remote == ""
 
 
-def test_project_hash_matches_analyze_instincts_detect_project(lib, tmp_path: Path) -> None:
-    """Cross-check parity with analyze-instincts.py:detect_project."""
-    spec = importlib.util.spec_from_file_location(
-        "analyze_instincts", HOOKS_DIR / "analyze-instincts.py"
-    )
-    assert spec is not None and spec.loader is not None
-    ai = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ai)
-
-    repo = tmp_path / "repo"
-    _make_repo(repo, remote="https://github.com/example/parity.git")
-
-    cwd = os.getcwd()
-    os.chdir(repo)
-    try:
-        ours = lib.project_hash()
-        theirs = ai.detect_project()
-    finally:
-        os.chdir(cwd)
-
-    assert ours == theirs
+# The two cross-checks that lived here pinned project_hash against
+# analyze-instincts.py:detect_project. That module was retired 2026-08-26, so the
+# parity target is gone. Both branches keep direct coverage above:
+# test_project_hash_with_remote and test_project_hash_no_remote_falls_back_to_path.
 
 
 # --- _ensure_dirs / append_audit ---
@@ -210,7 +197,9 @@ def test_append_audit_writes_one_line_with_timestamp(lib, fake_home: Path) -> No
     assert len(lines) == 1
     obj = json.loads(lines[0])
     assert obj["event"] == "hello"
-    assert isinstance(obj.get("ts"), str) and ("+00:00" in obj["ts"] or obj["ts"].endswith("Z"))
+    assert isinstance(obj.get("ts"), str) and (
+        "+00:00" in obj["ts"] or obj["ts"].endswith("Z")
+    )
 
 
 def test_append_audit_preserves_caller_supplied_ts(lib, fake_home: Path) -> None:
@@ -237,7 +226,10 @@ def test_append_audit_concurrent_threads(lib, fake_home: Path) -> None:
 
     t1 = threading.Thread(target=worker, args=("a",))
     t2 = threading.Thread(target=worker, args=("b",))
-    t1.start(); t2.start(); t1.join(); t2.join()
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
 
     lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1000
@@ -306,7 +298,9 @@ def test_resolve_session_key_falls_back_to_transcript(lib, tmp_path: Path) -> No
     assert key.startswith("tx-")
 
 
-def test_resolve_session_key_falls_back_to_cwd(lib, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_session_key_falls_back_to_cwd(
+    lib, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
     monkeypatch.delenv("CLAUDE_TRANSCRIPT_PATH", raising=False)
     monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
@@ -328,7 +322,9 @@ def test_resolve_session_key_hashes_oversize_session_id(lib) -> None:
 
 
 def test_resolve_session_key_parity_with_gateguard(
-    lib, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Strip env vars both modules consult so the empty-dict sample exercises the
     # `proj-` cwd-fallback branch (otherwise CI environments with these set
@@ -367,14 +363,18 @@ def test_namespace_isolation(lib, fake_home: Path) -> None:
 
 
 def test_corrupted_json_returns_empty(lib, fake_home: Path) -> None:
-    target = fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    target = (
+        fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("not json {", encoding="utf-8")
     assert lib.load_session_state("sid", "echo") == {}
 
 
 def test_save_atomic_failure_preserves_prior(
-    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lib.save_session_state("sid", "echo", {"old": 1})
 
@@ -415,7 +415,9 @@ def test_checked_session_isolation(lib, fake_home: Path) -> None:
 
 def test_marked_state_persists_iso_timestamp(lib, fake_home: Path) -> None:
     lib.mark_checked("sid", "echo", "foo")
-    raw = (fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json").read_text()
+    raw = (
+        fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    ).read_text()
     state = json.loads(raw)
     assert isinstance(state["checked"], dict)
     ts = state["checked"]["foo"]
@@ -424,7 +426,9 @@ def test_marked_state_persists_iso_timestamp(lib, fake_home: Path) -> None:
 
 
 def test_corrupted_state_recovers_via_mark(lib, fake_home: Path) -> None:
-    target = fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    target = (
+        fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("junk", encoding="utf-8")
     assert lib.is_checked("sid", "echo", "foo") is False
@@ -436,7 +440,9 @@ def test_corrupted_state_recovers_via_mark(lib, fake_home: Path) -> None:
 
 
 def test_try_import_tree_sitter_hit(
-    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Inject a fake tree_sitter_language_pack and confirm cached return."""
     import types as _types
@@ -456,7 +462,9 @@ def test_try_import_tree_sitter_hit(
 
 
 def test_try_import_tree_sitter_miss(
-    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Force ImportError, confirm None + a single audit warn line."""
     monkeypatch.delitem(sys.modules, "tree_sitter_language_pack", raising=False)
@@ -472,12 +480,18 @@ def test_try_import_tree_sitter_miss(
 
     assert lib.try_import_tree_sitter() is None
     audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
-    miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
+    miss_lines = [
+        line
+        for line in audit_lines
+        if json.loads(line).get("event") == "tree_sitter_missing"
+    ]
     assert len(miss_lines) == 1
 
 
 def test_try_import_tree_sitter_miss_then_call_again_no_extra_audit(
-    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delitem(sys.modules, "tree_sitter_language_pack", raising=False)
     real_import_module = importlib.import_module
@@ -495,7 +509,11 @@ def test_try_import_tree_sitter_miss_then_call_again_no_extra_audit(
     lib.try_import_tree_sitter()
 
     audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
-    miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
+    miss_lines = [
+        line
+        for line in audit_lines
+        if json.loads(line).get("event") == "tree_sitter_missing"
+    ]
     assert len(miss_lines) == 1
 
 
@@ -503,18 +521,18 @@ def test_try_import_tree_sitter_miss_then_call_again_no_extra_audit(
 
 
 _INVALID_SEGMENTS = [
-    "",                # empty
-    "../escape",       # parent traversal
-    "..",              # bare dotdot
-    "a/b",             # forward slash
-    "a\\b",            # backslash
-    ".hidden",         # leading dot
-    "/absolute",       # absolute path
-    "with\x00null",    # null byte
-    "name with space", # whitespace
-    "name.dot",        # interior dot (consistent with sanitized session keys)
-    "trailing\n",      # trailing newline (re.match $ accepts; fullmatch rejects)
-    "lead\ning",       # interior newline
+    "",  # empty
+    "../escape",  # parent traversal
+    "..",  # bare dotdot
+    "a/b",  # forward slash
+    "a\\b",  # backslash
+    ".hidden",  # leading dot
+    "/absolute",  # absolute path
+    "with\x00null",  # null byte
+    "name with space",  # whitespace
+    "name.dot",  # interior dot (consistent with sanitized session keys)
+    "trailing\n",  # trailing newline (re.match $ accepts; fullmatch rejects)
+    "lead\ning",  # interior newline
 ]
 
 
@@ -568,7 +586,9 @@ def test_state_path_accepts_valid_segments(lib, fake_home: Path) -> None:
 
 
 def test_try_import_tree_sitter_concurrent_first_callers_emit_single_audit(
-    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cycle 3 fix: many threads racing on the first miss must produce exactly one audit entry.
 
@@ -602,11 +622,19 @@ def test_try_import_tree_sitter_concurrent_first_callers_emit_single_audit(
         t.join()
 
     audit_lines = _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
-    miss_lines = [line for line in audit_lines if json.loads(line).get("event") == "tree_sitter_missing"]
-    assert len(miss_lines) == 1, f"expected exactly 1 tree_sitter_missing audit, got {len(miss_lines)}"
+    miss_lines = [
+        line
+        for line in audit_lines
+        if json.loads(line).get("event") == "tree_sitter_missing"
+    ]
+    assert len(miss_lines) == 1, (
+        f"expected exactly 1 tree_sitter_missing audit, got {len(miss_lines)}"
+    )
 
 
-def test_mark_checked_concurrent_threads_preserve_all_keys(lib, fake_home: Path) -> None:
+def test_mark_checked_concurrent_threads_preserve_all_keys(
+    lib, fake_home: Path
+) -> None:
     """Cycle 3 fix: concurrent mark_checked calls for distinct keys must not lose updates.
 
     Without serialization around the read-modify-write window, each thread reads
@@ -631,7 +659,9 @@ def test_mark_checked_concurrent_threads_preserve_all_keys(lib, fake_home: Path)
     state = lib.load_session_state("sid", "echo")
     checked = state.get("checked", {})
     expected = {f"key-{i}" for i in range(n)}
-    assert set(checked.keys()) == expected, f"lost updates: missing {expected - set(checked.keys())}"
+    assert set(checked.keys()) == expected, (
+        f"lost updates: missing {expected - set(checked.keys())}"
+    )
 
 
 # --- Cycle 3: load_session_state byte-corruption ---
@@ -643,7 +673,9 @@ def test_load_session_state_non_utf8_returns_empty(lib, fake_home: Path) -> None
     Without catching UnicodeDecodeError, path.read_text() propagates the error
     and breaks the documented `missing/corrupted -> {}` contract.
     """
-    target = fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    target = (
+        fake_home / ".claude" / "cache" / "cartographer" / "echo" / "state-sid.json"
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"\xff\xfe\x00\x01 garbage non-utf8 bytes")
     assert lib.load_session_state("sid", "echo") == {}
@@ -652,7 +684,9 @@ def test_load_session_state_non_utf8_returns_empty(lib, fake_home: Path) -> None
 # --- Cycle 3: project_hash on a regular-file path ---
 
 
-def test_project_hash_with_regular_file_path_does_not_raise(lib, tmp_path: Path) -> None:
+def test_project_hash_with_regular_file_path_does_not_raise(
+    lib, tmp_path: Path
+) -> None:
     """project_hash(path=<file>) must fall back gracefully.
 
     `subprocess.run(cwd=<file>)` raises NotADirectoryError (an OSError, not
@@ -670,7 +704,9 @@ def test_project_hash_with_regular_file_path_does_not_raise(lib, tmp_path: Path)
 
 
 def test_append_audit_calls_ensure_dirs_once_per_process(
-    lib, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Performance: _ensure_dirs must run on the first audit only, not every call.
 
@@ -695,38 +731,6 @@ def test_append_audit_calls_ensure_dirs_once_per_process(
 
 # --- Cycle 3: _ensure_dirs no longer creates the scripts/ subdir ---
 # (See test_ensure_dirs_creates_layout above for the updated assertion list.)
-
-
-# --- Blind-review I-1: parity cross-check on the no-remote (toplevel-path) branch ---
-
-
-def test_project_hash_matches_analyze_instincts_no_remote(lib, tmp_path: Path) -> None:
-    """Cross-check parity with analyze-instincts.detect_project on the no-remote fallback.
-
-    The existing parity test only covers the remote-URL branch. detect_project also
-    has a no-remote branch that hashes the toplevel-path string; both implementations
-    must agree there too.
-    """
-    spec = importlib.util.spec_from_file_location(
-        "analyze_instincts", HOOKS_DIR / "analyze-instincts.py"
-    )
-    assert spec is not None and spec.loader is not None
-    ai = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ai)
-
-    repo = tmp_path / "no-remote-repo"
-    _make_repo(repo, remote=None)
-
-    cwd = os.getcwd()
-    os.chdir(repo)
-    try:
-        ours = lib.project_hash()
-        theirs = ai.detect_project()
-    finally:
-        os.chdir(cwd)
-
-    assert ours == theirs
-    assert ours[2] == ""  # no-remote branch returns empty remote
 
 
 # --- Blind-review I-2: 400-line cap lint check (PRD Risks mandate) ---

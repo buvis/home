@@ -67,6 +67,23 @@ PLUGIN_OWNED = {
     "review_coverage_hook",
 }
 
+# Retired handlers. Their files are gone, so they are absent from ROUTES, but the
+# frozen pre-swap fixture still lists them; the test suite filters this set out of
+# it the same way it filters PLUGIN_OWNED, which keeps "route deliberately retired"
+# distinguishable from "route silently dropped".
+#
+# observe_tool + analyze-instincts (2026-08-26): the instinct pipeline wrote its
+# only output to ~/.claude/projects/<encoded>/CLAUDE.md, encoding the repo path
+# with `replace("/", "-")` while the harness also replaces dots. Every repo under
+# github.com/ therefore landed in a phantom sibling directory with no sessions in
+# it, so nothing it produced was ever read. What it produced was tautologies
+# ("Repeated sequence: Bash -> Bash -> Bash", trigger identical to action), so the
+# feature was retired rather than repaired.
+RETIRED = {
+    "observe_tool",
+    "analyze-instincts",
+}
+
 ROUTES = [
     Route(
         "PreToolUse",
@@ -102,14 +119,6 @@ ROUTES = [
     ),
     Route(
         "PostToolUse",
-        "Bash|Edit|Write|MultiEdit",
-        "observe_tool",
-        HOOKS / "observe_tool.py",
-        5,
-        kind="observer",
-    ),
-    Route(
-        "PostToolUse",
         "Edit|Write|MultiEdit",
         "check_skill_triggers",
         HOOKS / "check_skill_triggers.py",
@@ -119,14 +128,6 @@ ROUTES = [
     Route("Stop", None, "notify", HOOKS / "notify.py", 15, kind="observer"),
     Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10, kind="observer"),
     Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10, kind="observer"),
-    Route(
-        "Stop",
-        None,
-        "analyze-instincts",
-        HOOKS / "analyze-instincts.py",
-        10,
-        kind="observer",
-    ),
 ]
 
 _RANK = {"allow": 0, "ask": 1, "deny": 2}

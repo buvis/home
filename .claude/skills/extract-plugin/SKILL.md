@@ -72,7 +72,7 @@ Classify each finding:
 | **Same cluster** | Already covered — no action |
 | **Different cluster, already a plugin** | Use namespaced reference (`<otherplugin>:<skill>`); document as runtime dep in README |
 | **Different cluster, not yet a plugin** | Decide extraction order: ship the dependency plugin first, OR accept and document the dep, OR vendor the script (per Phase 5b) |
-| **Personal-only** (observe_tool/instincts hooks, hardcoded buvis paths) | Exclude — won't ship |
+| **Personal-only** (track_cost/track_skills hooks, hardcoded buvis paths) | Exclude — won't ship |
 | **Built-in** (`/doctor`, superpowers, etc.) | Ignore |
 | **Soft coupling in non-cluster hooks** | Document as a stability contract in the plugin README (e.g. "session names must contain `<keyword>` for X to observe Y") |
 | **Shell-function hit** | Make an explicit distribution decision before proceeding — see Phase 5d |

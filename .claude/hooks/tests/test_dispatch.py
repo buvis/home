@@ -72,9 +72,20 @@ PLUGIN_OWNED = {
     "review_coverage_hook",
 }
 
+# Handlers retired outright - their files no longer exist. The frozen fixture
+# still lists them, so they are filtered the same way PLUGIN_OWNED is; that keeps
+# "retired on purpose" distinguishable from "route silently dropped".
+# test_retired_matches_dispatch below pins this set against dispatch.py's.
+RETIRED = {
+    "observe_tool",
+    "analyze-instincts",
+}
 
-def _drop_plugin_owned(settings: dict) -> dict:
-    """Return `settings` without any hook whose script stem is PLUGIN_OWNED."""
+
+def _drop_unrouted(settings: dict) -> dict:
+    """Return `settings` without any hook whose script stem is PLUGIN_OWNED
+    or RETIRED - the two reasons a fixture entry legitimately has no route."""
+    unrouted = PLUGIN_OWNED | RETIRED
     out = {"hooks": {}}
     for event, blocks in settings["hooks"].items():
         kept_blocks = []
@@ -82,7 +93,7 @@ def _drop_plugin_owned(settings: dict) -> dict:
             kept = [
                 h
                 for h in block["hooks"]
-                if Path(h["command"].split()[-1]).stem not in PLUGIN_OWNED
+                if Path(h["command"].split()[-1]).stem not in unrouted
             ]
             if kept:
                 kept_blocks.append({**block, "hooks": kept})
@@ -90,7 +101,7 @@ def _drop_plugin_owned(settings: dict) -> dict:
     return out
 
 
-SETTINGS = _drop_plugin_owned(SETTINGS)
+SETTINGS = _drop_unrouted(SETTINGS)
 
 # A local Route shape. `main`/`_invoke` read routes purely by attribute
 # (`row.event`, `row.matcher`, `row.name`, `row.path`, `row.timeout`,
@@ -924,8 +935,9 @@ def test_routing_matches_settings_json(dispatch, monkeypatch, event_short, tool_
     assert [route_basename(r) for r in recorded] == expected
 
 
-# Distinct tool names observed across 31,031 PostToolUse observations in
-# ~/.local/share/agents/instincts/projects/*/observations.jsonl (2026-07-21), plus the
+# Distinct tool names observed across 31,031 PostToolUse observations in the
+# instinct store (2026-07-21; that store was retired 2026-08-26, so this is a
+# frozen sample rather than a re-runnable query), plus the
 # three never-observed names whose routing would change under re.search
 # (TodoWrite, NotebookEdit, BashOutput - substrings Write/Edit/Bash).
 #
@@ -1056,6 +1068,16 @@ def test_plugin_owned_matches_dispatch(dispatch):
     assert PLUGIN_OWNED == dispatch.PLUGIN_OWNED
 
 
+def test_retired_matches_dispatch(dispatch):
+    """This module's RETIRED must equal dispatch.py's.
+
+    Same hazard as PLUGIN_OWNED above: the fixture filter cannot import ROUTES,
+    so the two sets are declared separately and nothing else would catch one
+    being updated while the other is forgotten.
+    """
+    assert RETIRED == dispatch.RETIRED
+
+
 @pytest.mark.integration
 def test_routing_bash_pre_runs_exactly_one(dispatch, monkeypatch):
     """Bash/PreToolUse routes cartographer-echo only.
@@ -1077,7 +1099,7 @@ def test_routing_bash_pre_runs_exactly_one(dispatch, monkeypatch):
 
 
 @pytest.mark.integration
-def test_routing_stop_runs_all_four_in_order(dispatch, monkeypatch):
+def test_routing_stop_runs_all_three_in_order(dispatch, monkeypatch):
     recorded = []
     monkeypatch.setattr(
         dispatch,
@@ -1089,9 +1111,10 @@ def test_routing_stop_runs_all_four_in_order(dispatch, monkeypatch):
         dispatch.main("stop")
     names = [route_basename(r) for r in recorded]
     assert names == expected_handlers("Stop", "")
-    # Four, not six: review_coverage_hook is PLUGIN_OWNED now, and
-    # cartographer-stop retired with the atlas (PRD 00138).
-    assert len(names) == 4
+    # Three, not six: review_coverage_hook is PLUGIN_OWNED now, cartographer-stop
+    # retired with the atlas (PRD 00138), and analyze-instincts retired with the
+    # instinct pipeline (2026-08-26).
+    assert len(names) == 3
 
 
 @pytest.mark.integration
@@ -1195,17 +1218,17 @@ def test_routes_kind_is_enforcement_or_observer_for_every_entry(dispatch):
 # The four PLUGIN_OWNED handlers are absent: enforce_prd_location kept both
 # matchers when it was routed here, and autopilot_context_cap_hook,
 # validate_state_json_hook and review_coverage_hook were routed once each. The
-# autopilot plugin registers all four in its own hooks/hooks.json now.
+# autopilot plugin registers all four in its own hooks/hooks.json now. The two
+# RETIRED handlers (observe_tool, analyze-instincts) are absent for the other
+# reason: their files no longer exist.
 _EXPECTED_ROUTE_KIND = {
     "cartographer-echo": "enforcement",
     "strunk-ruling-inject": "observer",
     "enforce_write_scope": "enforcement",
-    "observe_tool": "observer",
     "check_skill_triggers": "observer",
     "notify": "observer",
     "track_cost": "observer",
     "track_skills": "observer",
-    "analyze-instincts": "observer",
 }
 
 
@@ -1217,14 +1240,12 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     fail-open bug this PRD exists to close. This test pins the SPECIFIC
     per-handler classification: exactly cartographer-echo and
     enforce_write_scope must be "enforcement" - including BOTH ROUTES entries
-    for cartographer-echo - and every other of the 10 entries must be
+    for cartographer-echo - and every other of the 8 entries must be
     "observer". An implementation that leaves every entry on the namedtuple
     default, or classifies a different subset as "enforcement", fails here even
     though it still satisfies the weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 10, (
-        f"expected 10 ROUTES entries, got {len(actual)}: {actual!r}"
-    )
+    assert len(actual) == 8, f"expected 8 ROUTES entries, got {len(actual)}: {actual!r}"
 
     seen_names = {name for (name, _event, _kind) in actual}
     assert seen_names == set(_EXPECTED_ROUTE_KIND), (
@@ -2325,15 +2346,17 @@ def test_noisy_stdout_does_not_corrupt_merged_json(
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
 def test_missing_enforcement_handler_file_blocks_instead_of_allowing(
-    dispatch, tmp_path
+    dispatch,
+    tmp_path,
 ):
     """A route whose file does not exist must BLOCK when it is enforcement.
 
     This is the 2026-08-25 failure exactly: the path is gone, so nothing judged
     the tool call. Returning 0 would report "allowed" for a gate that never ran.
     """
-    route = make_route(tmp_path, "gone", "def run(payload): return (0, '', '')",
-                       kind="enforcement")
+    route = make_route(
+        tmp_path, "gone", "def run(payload): return (0, '', '')", kind="enforcement"
+    )
     Path(route.path).unlink()
 
     code, out, err = dispatch._invoke(route, {"tool_name": "Edit"})
@@ -2372,9 +2395,7 @@ def test_norun_enforcement_handler_blocks_instead_of_allowing(dispatch, tmp_path
 
     code, _out, err = dispatch._invoke(route, {"tool_name": "Edit"})
 
-    assert code == 2, (
-        f"an enforcement handler with no run() must block, got {code}"
-    )
+    assert code == 2, f"an enforcement handler with no run() must block, got {code}"
     low = err.lower()
     assert "run" in low and "refus" in low, f"stderr must explain why: {err!r}"
 
@@ -2722,9 +2743,8 @@ SCRIPTS_DIR = autopilot_scripts_dir()
 
 # Handlers whose benign path is hermetic (no fs writes, no git, no network) and
 # so is safe to exercise in-process here. Broad per-handler behavior parity for
-# all thirteen lives in test_handler_run_parity.py.
+# the rest lives in test_handler_run_parity.py.
 _ENFORCE_PRD_LOCATION = HOOKS_DIR / "enforce_prd_location.py"
-_OBSERVE_TOOL = HOOKS_DIR / "observe_tool.py"
 _REVIEW_COVERAGE_HOOK = SCRIPTS_DIR / "review_coverage_hook.py"
 
 # Markers that flip autopilot/nested handlers off their benign early-return
@@ -2793,7 +2813,6 @@ def assert_triple(result, who: str):
             {"tool_name": "Bash", "tool_input": {"command": "ls /tmp"}},
             id="enforce_prd_location",
         ),
-        pytest.param(_OBSERVE_TOOL, {"tool_name": ""}, id="observe_tool"),
         pytest.param(
             _REVIEW_COVERAGE_HOOK,
             {"session_id": "s"},

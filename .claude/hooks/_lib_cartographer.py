@@ -8,8 +8,9 @@ PostToolUse, Notification, or Stop hook. Public API + conventions:
     load_session_state, save_session_state, is_checked, mark_checked,
     try_import_tree_sitter.
 
-- Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Decoupled copy
-  of `analyze-instincts.py:detect_project`; parity test guards drift.
+- Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Originally a
+  decoupled copy of `analyze-instincts.py:detect_project`; that module was
+  retired 2026-08-26, so this is now the only implementation.
 - Audit log: `~/.local/share/agents/cartographer/audit.jsonl` (one JSON event per line).
 - Session-state: `~/.claude/cache/cartographer/<namespace>/state-<key>.json`.
 
@@ -243,7 +244,8 @@ def save_session_state(session_key: str, namespace: str, state: dict) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(path.parent), prefix=path.name + ".tmp."
+            dir=str(path.parent),
+            prefix=path.name + ".tmp.",
         )
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=2, ensure_ascii=False)
