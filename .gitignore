@@ -1,5 +1,7 @@
 **/.DS_Store
 .cargo/config.toml
+.agents/.braid-state.json
+.agents/backups/
 .claude/*
 !.claude/agents/
 !.claude/agents/**
