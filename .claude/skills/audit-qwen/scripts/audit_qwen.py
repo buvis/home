@@ -198,7 +198,8 @@ def read_attempt_ledger(path: Path) -> list[dict]:
             rows.append(row)
         else:
             print(
-                f"audit_qwen: {path}:{lineno}: skipped non-object row", file=sys.stderr
+                f"audit_qwen: {path}:{lineno}: skipped non-object row",
+                file=sys.stderr,
             )
     return rows
 
@@ -217,7 +218,8 @@ def group_ledger(rows: list[dict]) -> dict[tuple[str, str], dict]:
         # in one row would otherwise make the group sort raise TypeError.
         key = (str(row.get("batch_id") or "?"), str(row.get("prd") or "?"))
         group = groups.setdefault(
-            key, {"attempts": [], "eligible": set(), "dispatch": {}}
+            key,
+            {"attempts": [], "eligible": set(), "dispatch": {}},
         )
         if row.get("qwen_eligible"):
             group["eligible"].add(row.get("task_id"))
@@ -317,7 +319,12 @@ def _row_note(preflight: dict, plan: dict, dispatch: dict) -> str:
 
 
 def _absorb_chain(
-    agg: dict, row: list, attempts: list, eligible: int, plan: dict, dispatch: dict
+    agg: dict,
+    row: list,
+    attempts: list,
+    eligible: int,
+    plan: dict,
+    dispatch: dict,
 ) -> int:
     """Fold one batch's attempt chain into the aggregate and append its table
     row (`row` is [batch, repo, source, prd], the qwen count and note get
