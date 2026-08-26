@@ -127,14 +127,6 @@ ROUTES = [
         10,
         kind="observer",
     ),
-    Route(
-        "Stop",
-        None,
-        "cartographer-stop",
-        HOOKS / "cartographer-stop.py",
-        5,
-        kind="observer",
-    ),
 ]
 
 _RANK = {"allow": 0, "ask": 1, "deny": 2}

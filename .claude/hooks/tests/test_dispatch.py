@@ -1077,7 +1077,7 @@ def test_routing_bash_pre_runs_exactly_one(dispatch, monkeypatch):
 
 
 @pytest.mark.integration
-def test_routing_stop_runs_all_five_in_order(dispatch, monkeypatch):
+def test_routing_stop_runs_all_four_in_order(dispatch, monkeypatch):
     recorded = []
     monkeypatch.setattr(
         dispatch,
@@ -1089,8 +1089,9 @@ def test_routing_stop_runs_all_five_in_order(dispatch, monkeypatch):
         dispatch.main("stop")
     names = [route_basename(r) for r in recorded]
     assert names == expected_handlers("Stop", "")
-    # Five, not six: review_coverage_hook is PLUGIN_OWNED now.
-    assert len(names) == 5
+    # Four, not six: review_coverage_hook is PLUGIN_OWNED now, and
+    # cartographer-stop retired with the atlas (PRD 00138).
+    assert len(names) == 4
 
 
 @pytest.mark.integration
@@ -1205,7 +1206,6 @@ _EXPECTED_ROUTE_KIND = {
     "track_cost": "observer",
     "track_skills": "observer",
     "analyze-instincts": "observer",
-    "cartographer-stop": "observer",
 }
 
 
@@ -1217,13 +1217,13 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     fail-open bug this PRD exists to close. This test pins the SPECIFIC
     per-handler classification: exactly cartographer-echo and
     enforce_write_scope must be "enforcement" - including BOTH ROUTES entries
-    for cartographer-echo - and every other of the 11 entries must be
+    for cartographer-echo - and every other of the 10 entries must be
     "observer". An implementation that leaves every entry on the namedtuple
     default, or classifies a different subset as "enforcement", fails here even
     though it still satisfies the weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 11, (
-        f"expected 11 ROUTES entries, got {len(actual)}: {actual!r}"
+    assert len(actual) == 10, (
+        f"expected 10 ROUTES entries, got {len(actual)}: {actual!r}"
     )
 
     seen_names = {name for (name, _event, _kind) in actual}

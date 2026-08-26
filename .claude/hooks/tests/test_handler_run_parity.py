@@ -65,8 +65,7 @@ SCRIPTS_DIR = autopilot_scripts_dir()
 
 # Both dirs on sys.path so the test's `import _common` AND the handlers' own
 # sibling imports (`_common`, `_lib_cartographer`, `_walk_up`) resolve during an
-# in-process exec — including for handlers that self-insert only the WRONG dir
-# under a patched HOME (cartographer-stop) or insert nothing (the two _walk_up
+# in-process exec — including for handlers that insert nothing (the two _walk_up
 # importers in scripts/).
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
@@ -92,8 +91,8 @@ def _purge_sibling_modules() -> None:
 
     Some create their store directory at IMPORT time from `Path.home()`. Cached
     from an EARLIER test's HOME, that mkdir never re-runs and a later append
-    fails with ENOENT (measured: cartographer-stop's audit.jsonl once
-    cartographer-echo imported the library first) - a cross-test artifact that
+    fails with ENOENT (measured: cartographer's audit.jsonl once another handler
+    imported the library first) - a cross-test artifact that
     would forge a file-tree mismatch below. Scoped to underscore-prefixed
     modules DIRECTLY in the two handler dirs, so `dispatch` (imported at the
     real HOME by the sibling test module) is left alone.
@@ -251,7 +250,7 @@ def _run_in_process(
 
 
 # --------------------------------------------------------------------------- #
-# The 13 handlers, each with a payload that runs deterministically in a clean
+# The 12 handlers, each with a payload that runs deterministically in a clean
 # temp env. enforce_prd_location carries the Bash-lifecycle BLOCK payload, so
 # its parity case is itself a discriminator (subprocess exits 2 -> a `(0, "")`
 # stub run() fails parity). The rest ride benign, empty-stdout, exit-0 paths.
@@ -262,9 +261,9 @@ def _run_in_process(
 #   enforce_prd_location (block AND allow), validate_state_json_hook (reject AND
 #   accept), track_cost / track_skills / observe_tool (pinned side-effect file),
 #   review_coverage_hook (exit 2), autopilot_context_cap_hook (rotation stdout).
-# The remaining SIX are EXISTENCE-ONLY here (benign parity + run-exists). Five
+# The remaining FIVE are EXISTENCE-ONLY here (benign parity + run-exists). Four
 # need external state this parity test must not fabricate hermetically -
-#   cartographer-echo / cartographer-stop  (tree-sitter/atlas + real repo corpus)
+#   cartographer-echo                      (tree-sitter + real repo corpus)
 #   strunk-ruling-inject                   (installed strunk plugin cache)
 #   notify                                 (real desktop/network presence probes)
 #   analyze-instincts                      (a prior observation corpus)
@@ -334,11 +333,6 @@ _HANDLERS = [
         id="analyze-instincts",
     ),
     pytest.param(
-        str(HOOKS_DIR / "cartographer-stop.py"),
-        {"session_id": "s"},
-        id="cartographer-stop",
-    ),
-    pytest.param(
         str(HOOKS_DIR / "enforce_write_scope.py"),
         {
             "tool_name": "Write",
@@ -373,11 +367,11 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
     Each leg runs in its OWN clean temp HOME + cwd. Benign handlers agree at
     (0, "", "") - weak but valid; enforce_prd_location agrees at
     (2, "", <block text>), which a `(0, "", "")` stub cannot fake and the only
-    case of the thirteen where stderr discriminates.
+    case of the twelve where stderr discriminates.
 
     The FILE-TREE assertion carries the rest: whatever the subprocess wrote under
     its HOME, the in-process leg must have written too. A no-op `run()` leaves an
-    empty tree, so notify, cartographer-stop, analyze-instincts and observe_tool
+    empty tree, so notify, analyze-instincts and observe_tool
     all fail on it. Verified deterministic: each handler run twice under
     different HOMEs/cwds yields identical trees, so nothing needs normalizing.
     """

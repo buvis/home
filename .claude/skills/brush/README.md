@@ -8,8 +8,8 @@ report. You stay in control through one file and one command.
 
 ```
 /brush dry      # first run on any repo: report only, changes nothing
-/brush quick    # routine pass: git hygiene only (phases 1, 2, 7)
-/brush          # full pass: adds evolution, backlog, AGENTS.md, atlas
+/brush quick    # routine pass: git hygiene only (phases 1, 2, 6)
+/brush          # full pass: adds evolution, backlog, AGENTS.md
 /brush apply    # execute the BR items you marked [x] in the report
 ```
 
@@ -21,10 +21,10 @@ report. You stay in control through one file and one command.
    preflight guards (bare repo, buvis home,
    autopilot live, mid-rebase/merge, dirty WIP)
                   |
-   1 catchup ── 2 git hygiene ── 3 assess ── 4 backlog ── 5 AGENTS.md ── 6 atlas
-                  |                    (3-6 full mode only)
+   1 catchup ── 2 git hygiene ── 3 assess ── 4 backlog ── 5 AGENTS.md
+                  |                    (3-5 full mode only)
                   v
-   7 report: dev/local/audit-results/brush-report.md
+   6 report: dev/local/audit-results/brush-report.md
                   |
         +---------+----------+
         |                    |
@@ -76,6 +76,6 @@ itself is owned by purge-devlocal; brush never hand-cleans it.
 ## Depends on
 
 Skills: git-ferry:catchup, purge-devlocal, assess-evolution,
-review-prd-backlog, manage-agents-md, survey. Optional: gh, notify.py,
+review-prd-backlog, manage-agents-md. Optional: gh, notify.py,
 git-ferry:resolve-git-conflicts, git-ferry:review-deps-prs. A missing
 dependency skips its phase and lands in the report's Failures section.

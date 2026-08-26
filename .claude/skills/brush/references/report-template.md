@@ -10,7 +10,7 @@ last-brushed stamp for its 30-day cadence nag, so keep that line's shape.
 # Brush report - <repo-name>
 
 - generated: <YYYY-MM-DD HH:MM> | mode: <full|quick|dry> | HEAD: <sha12> | branch: <name> | unpushed: <n>
-- phases: catchup OK | git-hygiene OK | assess SKIPPED (quick) | backlog OK | agents-md FAILED | atlas OK
+- phases: catchup OK | git-hygiene OK | assess SKIPPED (quick) | backlog OK | agents-md FAILED
 
 ## 1. Done automatically (all reversible)
 
@@ -40,7 +40,6 @@ Unchecked = skipped. Apply re-verifies sha/path first; stale items are skipped a
 - assess-evolution: <verdict, roadmap/PRD paths>
 - backlog: <counts, findings, artifact path>
 - agents-md: <what changed, commit sha>
-- atlas: <survey result>
 
 ## 5. Failures and skips
 

@@ -1,20 +1,16 @@
-import argparse
-import json
-import os
 import re
-import subprocess
 import sys
-import tempfile
 from collections.abc import Iterable
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
-from _lib_cartographer import project_hash, try_import_tree_sitter, append_audit
+from _lib_cartographer import try_import_tree_sitter
 
 _FILE_CAP = 50
-_ATLAS_MD_BUDGET = 5120
+# The brief goes straight into the session, so its size is a context cost.
+_BRIEF_BUDGET = 5120
+_TRUNCATION_FOOTER = "*brief truncated*"
 
 # Top-level dirs that are not source and must never become survey layers
 # (PRD 00088 R2). Without this, `/survey ~/.claude` makes noisy layers out of
@@ -33,14 +29,6 @@ _SKIP_DIRS = frozenset({
     "backups", "chrome", "daemon", "file-history", "jobs", "logs", "metrics",
     "paste-cache", "session-data", "session-env", "sessions", "tasks",
 })
-
-
-def _get_head_sha(repo_path: Path) -> Optional[str]:
-    r = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_path, capture_output=True, text=True,
-    )
-    return r.stdout.strip() if r.returncode == 0 else None
 
 
 def _scan_layers(repo_path: Path) -> tuple[dict[str, list[Path]], bool]:
@@ -255,74 +243,7 @@ def _compute_error_style(layers: dict[str, list[Path]]) -> str:
     return "mixed"
 
 
-def _import_pattern(name: str) -> re.Pattern:
-    esc = re.escape(name)
-    return re.compile(
-        rf'(?:^|(?<=\n))\s*(?:'
-        rf'(?:import|from)\s+{esc}(?:\b|/)'
-        rf'|import\s+\S.*from\s+["\'][^"\']*\b{esc}(?:[/"\'`])'
-        rf'|require\s*\(\s*["\'][^"\']*\b{esc}(?:[/"\'`])'
-        rf'|use\s+{esc}(?:::|;)'
-        rf'|import\s+"[^"]*\b{esc}(?:[/"])'
-        rf'|import\s*\([^)]*"[^"]*\b{esc}(?:[/"])'
-        rf')',
-        re.MULTILINE,
-    )
-
-
-def _compute_dep_edges(layers: dict[str, list[Path]]) -> list[dict]:
-    layer_names = set(layers.keys())
-    patterns = {name: _import_pattern(name) for name in layer_names}
-    counts: dict[tuple[str, str], int] = {}
-    for from_layer, files in layers.items():
-        for f in files:
-            try:
-                text = f.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for name in layer_names:
-                if name == from_layer:
-                    continue
-                if patterns[name].search(text):
-                    key = (from_layer, name)
-                    counts[key] = counts.get(key, 0) + 1
-    return [{"from_layer": f, "to_layer": t, "count": c} for (f, t), c in counts.items()]
-
-
-def _default_forbidden(layers: dict[str, list[Path]]) -> list[dict]:
-    if "ui" in layers and "db" in layers:
-        return [{"from": "ui", "to": "db", "reason": "ui must not import db directly"}]
-    return []
-
-
-def _compute_forbidden(layers: dict[str, list[Path]], prior_manual: object) -> list[dict]:
-    """Heuristic forbidden-import rules, adjusted by a [manual] override.
-
-    The [manual] block may carry a `forbidden_imports` override with `whitelist`
-    (import pairs to allow, removing a matching default rule) and `blacklist`
-    (pairs to forbid, adding a rule) keys. Absent or unrelated [manual] content
-    leaves the default heuristic set untouched.
-    """
-    rules = _default_forbidden(layers)
-    if not isinstance(prior_manual, dict):
-        return rules
-    override = prior_manual.get("forbidden_imports")
-    if not isinstance(override, dict):
-        return rules
-
-    whitelist = {(e.get("from"), e.get("to")) for e in override.get("whitelist", [])}
-    rules = [r for r in rules if (r.get("from"), r.get("to")) not in whitelist]
-
-    existing = {(r.get("from"), r.get("to")) for r in rules}
-    for entry in override.get("blacklist", []):
-        pair = (entry.get("from"), entry.get("to"))
-        if pair not in existing:
-            rules.append(entry)
-            existing.add(pair)
-    return rules
-
-
-def _build_atlas_md(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]]) -> str:
+def _build_brief(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]]) -> str:
     layers = atlas.get("layers", {})
     naming = atlas.get("naming", {})
     error_style = atlas.get("error_style", "unknown")
@@ -377,22 +298,11 @@ def _build_atlas_md(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, s
         lines.append("_(no interfaces or abstract bases found)_")
     lines.append("")
 
+    if atlas.get("degraded"):
+        lines.append("_degraded: tree-sitter unavailable, symbols found by regex_")
+        lines.append("")
+
     return "\n".join(lines)
-
-
-def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        os.replace(tmp, path)
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
 
 
 def _trim_lines_to_budget(content: str, max_bytes: int) -> str:
@@ -412,19 +322,20 @@ def _trim_lines_to_budget(content: str, max_bytes: int) -> str:
 
 def _append_footer(content: str) -> str:
     """Append the truncation footer, trimming whole lines if needed to stay within budget."""
-    footer = "\n*atlas truncated*"
-    if len((content + footer).encode()) <= _ATLAS_MD_BUDGET:
+    footer = "\n" + _TRUNCATION_FOOTER
+    if len((content + footer).encode()) <= _BRIEF_BUDGET:
         return content + footer
-    return _trim_lines_to_budget(content, _ATLAS_MD_BUDGET - len(footer.encode())) + footer
+    return _trim_lines_to_budget(content, _BRIEF_BUDGET - len(footer.encode())) + footer
 
 
 def _fit_to_budget(content: str) -> tuple[str, bool]:
-    if len(content.encode()) <= _ATLAS_MD_BUDGET:
+    if len(content.encode()) <= _BRIEF_BUDGET:
         return content, False
     return _append_footer(content), True
 
 
-def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
+def _survey(repo_path: Path) -> str:
+    """Survey `repo_path` and return the brief as markdown. Writes nothing."""
     degraded = try_import_tree_sitter() is None
     layers, truncated = _scan_layers(repo_path)
 
@@ -443,91 +354,30 @@ def _do_survey(repo_path: Path, atlas_dir: Path, prior_manual: object) -> None:
         file_syms_by_layer[layer_name] = file_syms
 
     naming: dict[str, dict[str, int]] = {k: _naming_counts(v) for k, v in symbols_by_layer.items()}
-    error_style = _compute_error_style(layers)
-    forbidden_imports = _compute_forbidden(layers, prior_manual)
-    dependency_edges = _compute_dep_edges(layers)
-
-    layers_out: dict[str, list[str]] = {k: [str(f) for f in v] for k, v in layers.items()}
 
     atlas: dict = {
-        "surveyed_at": datetime.now(timezone.utc).isoformat(),
-        "layers": layers_out,
-        "forbidden_imports": forbidden_imports,
+        "layers": {k: [str(f) for f in v] for k, v in layers.items()},
         "naming": naming,
-        "error_style": error_style,
-        "dependency_edges": dependency_edges,
+        "error_style": _compute_error_style(layers),
         "degraded": degraded,
     }
-
-    head_sha = _get_head_sha(repo_path)
-    if head_sha:
-        atlas["head_sha"] = head_sha
-
     if truncated:
         atlas["truncated"] = True
 
-    if prior_manual is not None:
-        atlas["[manual]"] = prior_manual
-
-    md_content = _build_atlas_md(atlas, file_syms_by_layer)
-    md_content, md_truncated = _fit_to_budget(md_content)
-    if md_truncated:
-        atlas["truncated"] = True
-    # If truncated (file cap), ensure footer visible in md
-    if atlas.get("truncated") and "*atlas truncated*" not in md_content:
-        md_content = _append_footer(md_content)
-
-    atlas_path = atlas_dir / "atlas.json"
-    md_path = atlas_dir / "atlas.md"
-
-    _atomic_write(atlas_path, json.dumps(atlas, indent=2))
-    _atomic_write(md_path, md_content)
-
-    size = atlas_path.stat().st_size
-    print(f"surveyed: {repo_path} ({size} bytes)")
-
-    flag = atlas_dir / "staleness.flag"
-    if flag.exists():
-        flag.unlink()
-
-    append_audit({"event": "survey", "path": str(repo_path)})
+    brief = _build_brief(atlas, file_syms_by_layer)
+    brief, budget_truncated = _fit_to_budget(brief)
+    # File-cap truncation happens before the budget check, so its footer needs
+    # adding separately.
+    if truncated and not budget_truncated:
+        brief = _append_footer(brief)
+    return brief
 
 
-def main(_args: argparse.Namespace | None = None, _home: Path | None = None) -> None:
-    if _args is None:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--refresh", action="store_true")
-        parser.add_argument("--if-missing", action="store_true", dest="if_missing")
-        _args = parser.parse_args()
-
-    home = _home if _home is not None else Path.home()
-    repo_path = Path.cwd()
-
-    h, _, _ = project_hash(str(repo_path))
-    atlas_dir = home / ".local" / "share" / "agents" / "cartographer" / "projects" / h
-    atlas_path = atlas_dir / "atlas.json"
-    flag_path = atlas_dir / "staleness.flag"
-
-    if not _args.refresh:
-        if _args.if_missing:
-            # --if-missing surveys only when the atlas is absent; an existing
-            # atlas (fresh or stale) is left for the bare run / --refresh.
-            if atlas_path.exists():
-                print(f"skipped: atlas already exists at {atlas_path}")
-                return
-        elif atlas_path.exists() and not flag_path.exists():
-            print(f"skipped: atlas already exists at {atlas_path}")
-            return
-
-    prior_manual = None
-    if atlas_path.exists():
-        try:
-            prior_data = json.loads(atlas_path.read_text(encoding="utf-8"))
-            prior_manual = prior_data.get("[manual]")
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    _do_survey(repo_path, atlas_dir, prior_manual)
+def main() -> None:
+    # No audit event: the brief is ephemeral, and audit-echo (the only reader of
+    # audit.jsonl) filters on `phase == "echo"`, so a survey row was never read.
+    # Writing one would also break the "survey touches no store" contract.
+    print(_survey(Path.cwd()))
 
 
 if __name__ == "__main__":
