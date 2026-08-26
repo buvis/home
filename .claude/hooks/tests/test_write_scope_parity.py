@@ -342,7 +342,9 @@ class TestSharedCorpus(ParityCase):
     def test_unarmed_session_sees_neither_point(self) -> None:
         target = self.outside / "x.txt"
         decision, _reason, err = self.warden(
-            f"echo x > {target}", self.repo, CLAUDE_UNATTENDED=""
+            f"echo x > {target}",
+            self.repo,
+            CLAUDE_UNATTENDED="",
         )
         self.assertEqual(decision, "allow")
         self.assertEqual(err, "")

@@ -2355,7 +2355,10 @@ def test_missing_enforcement_handler_file_blocks_instead_of_allowing(
     the tool call. Returning 0 would report "allowed" for a gate that never ran.
     """
     route = make_route(
-        tmp_path, "gone", "def run(payload): return (0, '', '')", kind="enforcement"
+        tmp_path,
+        "gone",
+        "def run(payload): return (0, '', '')",
+        kind="enforcement",
     )
     Path(route.path).unlink()
 

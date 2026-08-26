@@ -214,7 +214,10 @@ def extract_content(tool_name: str, tool_input: dict) -> str:
 
 
 def _walk_structure(
-    items, kinds: frozenset[str], collected: list[str], seen: set[str]
+    items,
+    kinds: frozenset[str],
+    collected: list[str],
+    seen: set[str],
 ) -> None:
     """Depth-first walk over `process(...).structure`, collecting named items.
 
@@ -255,14 +258,17 @@ def extract_symbols(content: str, ext: str) -> list[str]:
         # Parsing fails on syntactically invalid content; record a warn and
         # treat as no symbols (the host write proceeds).
         lib.append_audit(
-            {"event": "tree_sitter_parse_failed", "language": lang, "error": str(exc)}
+            {"event": "tree_sitter_parse_failed", "language": lang, "error": str(exc)},
         )
         return []
 
     collected: list[str] = []
     seen: set[str] = set()
     _walk_structure(
-        getattr(result, "structure", None) or [], _SYMBOL_KINDS, collected, seen
+        getattr(result, "structure", None) or [],
+        _SYMBOL_KINDS,
+        collected,
+        seen,
     )
     # Also merge in top-level `symbols` (some grammars — e.g. go's
     # `type` declarations — surface only here, not in `structure`).
@@ -509,7 +515,7 @@ def search_candidates_batch(
                 "event": "ripgrep_error",
                 "code": proc.returncode,
                 "stderr": proc.stderr[:200],
-            }
+            },
         )
         return groups
 
@@ -623,7 +629,7 @@ _BASH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "python-open-write",
         re.compile(
-            r"python3?\s+-c\s+[\"'][^\"']*\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"']w[\"']"
+            r"python3?\s+-c\s+[\"'][^\"']*\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"']w[\"']",
         ),
     ),
     ("sed-inplace", re.compile(r"\bsed\s+-i\b[^|;\n]*?\s(\S+\.[A-Za-z0-9]+)(?:\s|$)")),
@@ -756,10 +762,12 @@ def _load_rationalizations() -> dict[str, tuple[str, str]]:
 
     header_re = re.compile(r"^###\s+\"([^\"]+)\"\s*$", re.MULTILINE)
     why_re = re.compile(
-        r"-\s*\*\*Why it's wrong\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL
+        r"-\s*\*\*Why it's wrong\*\*:\s*(.+?)(?:\n-|\n\n|\Z)",
+        re.DOTALL,
     )
     counter_re = re.compile(
-        r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL
+        r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)",
+        re.DOTALL,
     )
 
     matches = list(header_re.finditer(text))
@@ -845,7 +853,7 @@ def build_deny_envelope(matches: list[dict]) -> dict:
         )
 
     parts.extend(
-        ["", "If this is genuinely new, retry — the second attempt will pass."]
+        ["", "If this is genuinely new, retry — the second attempt will pass."],
     )
     reason = "\n".join(parts)
     if len(reason) > _DENY_REASON_CAP:
@@ -1037,7 +1045,9 @@ def handle(data: dict) -> None:
         # One rg over an alternation of all symbols (PRD 00088 R3) — not one
         # spawn per symbol, which blew the 5s hook budget on symbol-dense files.
         candidate_groups = search_candidates_batch(
-            symbols, project_root, Path(file_path)
+            symbols,
+            project_root,
+            Path(file_path),
         )
 
         decision, matches = decide(symbols, candidate_groups)
