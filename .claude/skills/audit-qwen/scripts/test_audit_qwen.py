@@ -13,7 +13,10 @@ LEDGER_PRD = "00905-fixture-ledger-v1.md"
 
 
 def make_repo(
-    tmp_path: Path, name: str, reports: tuple = (), state: str | None = None
+    tmp_path: Path,
+    name: str,
+    reports: tuple = (),
+    state: str | None = None,
 ) -> Path:
     repo = tmp_path / name
     auto = repo / "dev" / "local" / "autopilot"
@@ -29,7 +32,11 @@ def make_repo(
 
 
 def agg_for_verdict(
-    passed=0, failed=0, unclassified=0, report_qwen=0, plan=None
+    passed=0,
+    failed=0,
+    unclassified=0,
+    report_qwen=0,
+    plan=None,
 ) -> dict:
     return {
         "state_qwen": passed + failed + unclassified,
@@ -63,7 +70,7 @@ def test_modern_report_parses_mix_preflight_and_split_exclusions():
 
 def test_prose_era_exclusion_line_counts_as_plan_time():
     plan, dispatch = aq.parse_exclusion_line(
-        "tier 1, files 1, docs-judgment 2, backend_down 4"
+        "tier 1, files 1, docs-judgment 2, backend_down 4",
     )
     assert plan == {"tier": 1, "files": 1, "docs-judgment": 2, "backend_down": 4}
     assert dispatch == {}
@@ -75,7 +82,7 @@ def test_code_era_exclusion_line_none_variants():
     )
     assert plan == {} and dispatch == {"memory_pressure": 1}
     plan, dispatch = aq.parse_exclusion_line(
-        "ui 2 (plan-time); dispatch-time reroutes: none"
+        "ui 2 (plan-time); dispatch-time reroutes: none",
     )
     assert plan == {"ui": 2} and dispatch == {}
 
@@ -109,7 +116,10 @@ def test_undecodable_report_lands_in_unparsed_not_a_crash(tmp_path):
 
 def test_batch_rows_carry_per_batch_detail_notes(tmp_path):
     repo = make_repo(
-        tmp_path, "detail", reports=("report-modern.md",), state="state-chains.json"
+        tmp_path,
+        "detail",
+        reports=("report-modern.md",),
+        state="state-chains.json",
     )
     rows = aq.compute([aq.scan_repo(repo)])["batch_rows"]
     notes = {row[3]: row[5] for row in rows}
@@ -227,7 +237,7 @@ def ledger_row(task_id: str, prd: str = LEDGER_PRD, **attempt) -> str:
             "qwen_eligible": True,
             "recorded_at": "2026-08-26T10:00:00Z",
             "attempt": {"implementor": "qwen", "outcome": "completed", **attempt},
-        }
+        },
     )
 
 
@@ -283,12 +293,24 @@ def test_malformed_ledger_row_is_skipped_loud_not_fatal(tmp_path, capsys):
     repo = make_repo(tmp_path, "torn")
     write_ledger(repo, ledger_row("t1"), "{not json", "[]", ledger_row("t2"))
     rows = aq.read_attempt_ledger(
-        repo / "dev" / "local" / "autopilot" / "ledger" / "attempts.jsonl"
+        repo / "dev" / "local" / "autopilot" / "ledger" / "attempts.jsonl",
     )
     assert [r["task_id"] for r in rows] == ["t1", "t2"]
     err = capsys.readouterr().err
     assert ":2: skipped malformed row" in err
     assert ":3: skipped non-object row" in err
+
+
+def test_numeric_batch_id_does_not_crash_the_group_sort(tmp_path):
+    # The ledger is written by another repo; a JSON number where a string was
+    # expected must not take the whole card down.
+    repo = make_repo(tmp_path, "typedrift")
+    numeric = json.loads(ledger_row("t1"))
+    numeric["batch_id"] = 202608260001
+    write_ledger(repo, json.dumps(numeric), ledger_row("t2"))
+    agg = aq.compute([aq.scan_repo(repo)])
+    assert agg["ledger_qwen"] == 2
+    assert {row[0] for row in agg["batch_rows"]} == {"202608260001", "202608260000"}
 
 
 def test_ledger_group_superseded_by_live_state_for_same_prd(tmp_path):
@@ -323,7 +345,10 @@ def test_report_section_superseded_by_state_for_same_prd(tmp_path):
 
 def test_render_names_dropped_quinn_metric_and_legacy_rows(tmp_path):
     repo = make_repo(
-        tmp_path, "mixed", reports=("report-legacy.md",), state="state-chains.json"
+        tmp_path,
+        "mixed",
+        reports=("report-legacy.md",),
+        state="state-chains.json",
     )
     records = [aq.scan_repo(repo)]
     card = aq.render(records, aq.compute(records), "")
