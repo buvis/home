@@ -2314,6 +2314,72 @@ def test_noisy_stdout_does_not_corrupt_merged_json(
 
 
 # --------------------------------------------------------------------------- #
+# A handler that produced NO decision must not be reported as "allowed".
+#
+# Regression, 2026-08-25: the autopilot skills moved into the plugin repo while
+# ROUTES still pointed at ~/.claude/skills/run-autopilot/scripts/. Loading every
+# handler raised FileNotFoundError, `_invoke` swallowed it and returned 0, and
+# three policy hooks - the context cap, the state.json validator and the
+# review-coverage gate - sat dark for a full day across 302 logged faults with
+# no signal anywhere a human or the model would look.
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_missing_enforcement_handler_file_blocks_instead_of_allowing(
+    dispatch, tmp_path
+):
+    """A route whose file does not exist must BLOCK when it is enforcement.
+
+    This is the 2026-08-25 failure exactly: the path is gone, so nothing judged
+    the tool call. Returning 0 would report "allowed" for a gate that never ran.
+    """
+    route = make_route(tmp_path, "gone", "def run(payload): return (0, '', '')",
+                       kind="enforcement")
+    Path(route.path).unlink()
+
+    code, out, err = dispatch._invoke(route, {"tool_name": "Edit"})
+
+    assert code == 2, (
+        "an enforcement handler that cannot be loaded must block; returning "
+        f"{code} reports an allow for a gate that never ran"
+    )
+    assert out == ""
+    assert route.name in err, f"stderr must name the route: {err!r}"
+
+
+@pytest.mark.unit
+def test_missing_observer_handler_file_still_allows(dispatch, tmp_path):
+    """NEGATIVE CONTROL: the same breakage on an OBSERVER must stay silent.
+
+    Observers never gate anything, so a missing one must not start blocking
+    edits. Without this, a fix that blanket-returns 2 passes the test above.
+    """
+    route = make_route(tmp_path, "goneobs", "def run(payload): return (0, '', '')")
+    Path(route.path).unlink()
+
+    code, _out, _err = dispatch._invoke(route, {"tool_name": "Edit"})
+
+    assert code == 0, f"a missing observer must not block, got {code}"
+
+
+@pytest.mark.unit
+def test_norun_enforcement_handler_blocks_instead_of_allowing(dispatch, tmp_path):
+    """A handler present but exposing no run() also produced no decision.
+
+    Same reasoning as a missing file: the gate did not judge the call, so the
+    dispatcher must not answer for it.
+    """
+    route = make_route(tmp_path, "norunenf", "import sys\n", kind="enforcement")
+
+    code, _out, err = dispatch._invoke(route, {"tool_name": "Edit"})
+
+    assert code == 2, (
+        f"an enforcement handler with no run() must block, got {code}"
+    )
+    low = err.lower()
+    assert "run" in low and "refus" in low, f"stderr must explain why: {err!r}"
+
+
+# --------------------------------------------------------------------------- #
 # No-run() handler refusal - the subprocess fallback is REMOVED (this task).
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
