@@ -18,29 +18,58 @@ _TRUNCATION_FOOTER = "*brief truncated*"
 # repo gets one out of node_modules/target. Build/dep names mirror
 # cartographer-echo's rg excludes; the rest are the ~/.claude meta-repo's
 # runtime/data dirs. (Dot-dirs like .venv/.git are already skipped separately.)
-_SKIP_DIRS = frozenset({
-    # build / dependency output (mirrors cartographer-echo's rg excludes)
-    "node_modules", "vendor", "dist", "build", "target", "__pycache__", "venv",
-    # ~/.claude meta-repo runtime/data dirs (observed from the R2 survey) — not
-    # source, would otherwise become noise layers. A repo-local .cartographerignore
-    # would generalize this; hardcoded here for now (harmless names in other repos).
-    "projects", "cache", "plugins", "cartographer", "instincts", "todos",
-    "statsig", "shell-snapshots", "portfolio-brief", "autopilot-loops",
-    "backups", "chrome", "daemon", "file-history", "jobs", "logs", "metrics",
-    "paste-cache", "session-data", "session-env", "sessions", "tasks",
-})
+_SKIP_DIRS = frozenset(
+    {
+        # build / dependency output (mirrors cartographer-echo's rg excludes)
+        "node_modules",
+        "vendor",
+        "dist",
+        "build",
+        "target",
+        "__pycache__",
+        "venv",
+        # ~/.claude meta-repo runtime/data dirs (observed from the R2 survey) — not
+        # source, would otherwise become noise layers. A repo-local .cartographerignore
+        # would generalize this; hardcoded here for now (harmless names in other repos).
+        "projects",
+        "cache",
+        "plugins",
+        "cartographer",
+        "instincts",
+        "todos",
+        "statsig",
+        "shell-snapshots",
+        "portfolio-brief",
+        "autopilot-loops",
+        "backups",
+        "chrome",
+        "daemon",
+        "file-history",
+        "jobs",
+        "logs",
+        "metrics",
+        "paste-cache",
+        "session-data",
+        "session-env",
+        "sessions",
+        "tasks",
+    },
+)
 
 
 def _scan_layers(repo_path: Path) -> tuple[dict[str, list[Path]], bool]:
     top_dirs = [
-        p for p in repo_path.iterdir()
+        p
+        for p in repo_path.iterdir()
         if p.is_dir() and not p.name.startswith(".") and p.name not in _SKIP_DIRS
     ]
     truncated = False
     layers: dict[str, list[Path]] = {}
 
     if not top_dirs:
-        files = [f for f in repo_path.iterdir() if f.is_file() and not f.name.startswith(".")]
+        files = [
+            f for f in repo_path.iterdir() if f.is_file() and not f.name.startswith(".")
+        ]
         if len(files) > _FILE_CAP:
             truncated = True
             files = files[:_FILE_CAP]
@@ -92,7 +121,11 @@ _TS_KIND_MAP = {
 _TS_CLASS_KINDS = {"Class", "Struct", "Trait", "Impl"}
 
 
-def _ts_walk(items: Iterable[Any], in_class: bool, results: list[tuple[str, str, int]]) -> None:
+def _ts_walk(
+    items: Iterable[Any],
+    in_class: bool,
+    results: list[tuple[str, str, int]],
+) -> None:
     for item in items:
         raw_kind = str(item.kind)
         kind = _TS_KIND_MAP.get(raw_kind)
@@ -114,7 +147,8 @@ def _extract_tree_sitter(f: Path, ts_module: Any) -> list[tuple[str, str, int]]:
         return []
     try:
         result = ts_module.process(
-            source, ts_module.ProcessConfig(language=lang, structure=True)
+            source,
+            ts_module.ProcessConfig(language=lang, structure=True),
         )
         results: list[tuple[str, str, int]] = []
         _ts_walk(result.structure, False, results)
@@ -243,7 +277,10 @@ def _compute_error_style(layers: dict[str, list[Path]]) -> str:
     return "mixed"
 
 
-def _build_brief(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]]) -> str:
+def _build_brief(
+    atlas: dict,
+    file_syms_by_layer: dict[str, list[tuple[str, str, str, int]]],
+) -> str:
     layers = atlas.get("layers", {})
     naming = atlas.get("naming", {})
     error_style = atlas.get("error_style", "unknown")
@@ -262,7 +299,7 @@ def _build_brief(atlas: dict, file_syms_by_layer: dict[str, list[tuple[str, str,
         dominant = max(counts, key=lambda k: counts[k])
         lines.append(
             f"- **{layer_name}**: {dominant} "
-            f"(camelCase={counts['camelCase']}, snake_case={counts['snake_case']}, PascalCase={counts['PascalCase']})"
+            f"(camelCase={counts['camelCase']}, snake_case={counts['snake_case']}, PascalCase={counts['PascalCase']})",
         )
     lines.append("")
 
@@ -353,7 +390,9 @@ def _survey(repo_path: Path) -> str:
         symbols_by_layer[layer_name] = syms
         file_syms_by_layer[layer_name] = file_syms
 
-    naming: dict[str, dict[str, int]] = {k: _naming_counts(v) for k, v in symbols_by_layer.items()}
+    naming: dict[str, dict[str, int]] = {
+        k: _naming_counts(v) for k, v in symbols_by_layer.items()
+    }
 
     atlas: dict = {
         "layers": {k: [str(f) for f in v] for k, v in layers.items()},
