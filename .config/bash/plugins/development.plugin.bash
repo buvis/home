@@ -43,22 +43,63 @@ _autopilot_prune_registry() {
   done
 }
 
+# _autopilot_skill_root — the installed autopilot plugin's skills/run-autopilot
+# (the code the spawned sessions load; ~/.claude/skills/run-autopilot went away
+# with the 2026-08-25 plugin extraction). _AUTOPILOT_SKILL_ROOT overrides it
+# for a dev checkout. Never a pinned version: the cache rolled 0.1.1 -> 0.1.2
+# under a running PRD once and stranded the driver that had pinned it.
+_autopilot_skill_root() {
+  if [ -n "$_AUTOPILOT_SKILL_ROOT" ]; then
+    printf '%s\n' "$_AUTOPILOT_SKILL_ROOT"
+    return 0
+  fi
+  local _cache="$HOME/.claude/plugins/cache/buvis-plugins/autopilot" _main _ver _best
+  _best=$(for _main in "$_cache"/*/skills/run-autopilot/cli/__main__.py; do
+      [ -e "$_main" ] || continue
+      _ver="${_main#"$_cache"/}"
+      printf '%s\n' "${_ver%%/*}"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+  if [ -n "$_best" ]; then
+    printf '%s/%s/skills/run-autopilot\n' "$_cache" "$_best"
+    return 0
+  fi
+  # Pre-extraction layout (a checkout linked at the old path): consulted only
+  # when no plugin is installed, so a stale link can never shadow the cache.
+  if [ -e "$HOME/.claude/skills/run-autopilot/cli/__main__.py" ]; then
+    printf '%s/.claude/skills/run-autopilot\n' "$HOME"
+    return 0
+  fi
+  printf 'autopilot: no autopilot plugin installed under %s (install it, or set _AUTOPILOT_SKILL_ROOT).\n' "$_cache" >&2
+  return 1
+}
+
 # tracon [args...] — launch the autopilot TUI standalone (defaults to loop
 # discovery; pass --root <repo> to pin one). Temporary until tracon ships as
 # a buvis-gems tool; drop this function then.
 tracon() {
-  uv run --quiet --no-project "$HOME/.claude/skills/run-autopilot/scripts/tracon.py" "$@"
+  local _skill
+  _skill=$(_autopilot_skill_root) || return 1
+  uv run --quiet --no-project "$_skill/scripts/tracon.py" "$@"
 }
 
 # autopilot [args...] — dispatch to the cli/__main__.py subcommand CLI (PRD 00051).
-autopilot() { python3 "$HOME/.claude/skills/run-autopilot/cli/__main__.py" "$@"; }
+autopilot() {
+  local _skill
+  _skill=$(_autopilot_skill_root) || return 1
+  python3 "$_skill/cli/__main__.py" "$@"
+}
 
 # _autoclaude_tracon <args...> — foreground the tracon TUI while the loop runs
 # backgrounded as a process-group leader. See autoclaude's presentation
 # branch (_AUTOPILOT_TRACON=0/1/auto) for the routing decision.
 _autoclaude_tracon() {
-  local _ap_dir _root _loop="" _rc _mset _tracon_py="$HOME/.claude/skills/run-autopilot/scripts/tracon.py"
-  _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
+  local _ap_dir _root _loop="" _rc _mset _skill _tracon_py
+  # A missing plugin is not fatal HERE: the guard below reads a missing probe
+  # as "not alive" and the preflight falls back to the plain renderer, whose
+  # `autopilot loop` hand-off is where the resolver refuses out loud.
+  _skill=$(_autopilot_skill_root 2>/dev/null)
+  _tracon_py="$_skill/scripts/tracon.py"
+  _ap_dir=$(python3 "$_skill/scripts/_walk_up.py" --bash 2>/dev/null)
   [ -n "$_ap_dir" ] || _ap_dir="$PWD/dev/local/autopilot"
   _root="${_ap_dir%/dev/local/autopilot}"
   mkdir -p "$_ap_dir" 2>/dev/null
@@ -78,7 +119,7 @@ _autoclaude_tracon() {
   # prints the incumbent loop's pid on stdout when one is alive, so the
   # refusal can name it (a second loop on one repo double-drains the batch).
   local _live_pid
-  _live_pid=$(python3 ~/.claude/skills/run-autopilot/scripts/tracon_wrapper_alive.py "$_root" 2>/dev/null)
+  _live_pid=$(python3 "$_skill/scripts/tracon_wrapper_alive.py" "$_root" 2>/dev/null)
   if [ -n "$_live_pid" ]; then
     printf 'autoclaude: a loop is already running for %s (pid %s; registry: %s). Refusing to start a second loop on the same repo.\n' \
       "$_root" "$_live_pid" "${_AUTOPILOT_LOOPS_DIR:-$HOME/.claude/autopilot-loops}" >&2
@@ -259,7 +300,7 @@ _autopilot_fable_unpark() {
 # resolver failure or empty answer from _walk_up.py is refused before any path
 # is derived from it. Exit 0 on success, 2 on every failure.
 _autopilot_fable_decide() {
-  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur
+  local _verb="$1" _prd="$2" _status _ap_dir _ledger _prds _err _rc _cur _skill
   case "$_verb" in
     approve-fable) _status=approved ;;
     *)             _status=rejected ;;
@@ -267,8 +308,11 @@ _autopilot_fable_decide() {
   # <prd> becomes a ledger key (below) and an mv path component (further
   # down); validated once up front so there is a single usage-message site.
   _autopilot_fable_validate_prd "$_verb" "$_prd" || return 2
+  # Tolerant like _autoclaude_tracon: with no plugin the _walk_up.py call below
+  # fails and the existing "could not be resolved" refusal fires (exit 2).
+  _skill=$(_autopilot_skill_root 2>/dev/null)
 
-  _ap_dir=$(python3 ~/.claude/skills/run-autopilot/scripts/_walk_up.py --bash 2>/dev/null)
+  _ap_dir=$(python3 "$_skill/scripts/_walk_up.py" --bash 2>/dev/null)
   # A resolver that fails outright and one that exits 0 but prints nothing
   # both land here as an empty string. Trusting either blindly would derive
   # _ledger/_prds rooted at `/` (a bare "/ledger/fable-requests.json" and
@@ -281,13 +325,13 @@ _autopilot_fable_decide() {
   _ledger="$_ap_dir/ledger/fable-requests.json"
   _prds="${_ap_dir%/autopilot}/prds"
 
-  _err=$(python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py "$_ledger" decide "$_prd" "$_status" 2>&1 >/dev/null)
+  _err=$(python3 "$_skill/scripts/fablectl.py" "$_ledger" decide "$_prd" "$_status" 2>&1 >/dev/null)
   _rc=$?
   if [ "$_rc" -eq 3 ]; then
     # fablectl's refusal does not carry the entry's status, so read THIS PRD's
     # own status back (a neighbour's is not it) and say plainly when nothing was
     # ever filed.
-    _cur=$(python3 ~/.claude/skills/run-autopilot/scripts/fablectl.py "$_ledger" show "$_prd" 2>/dev/null | jq -r '.status // empty')
+    _cur=$(python3 "$_skill/scripts/fablectl.py" "$_ledger" show "$_prd" 2>/dev/null | jq -r '.status // empty')
     if [ -n "$_cur" ]; then
       printf 'autoclaude: %s is already %s; leaving it alone.\n' "$_prd" "$_cur" >&2
     else
