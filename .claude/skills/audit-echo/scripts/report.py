@@ -49,21 +49,22 @@ def _tool_key(tool: str | None) -> str:
 
 
 def load_echo_events(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
+    # The writer rotates to `audit.jsonl.1` at 32MB, so read both. Oldest
+    # first; `.1` sorts after the live log, hence `reverse=True`.
     events: list[dict] = []
-    with path.open() as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if event.get("phase") == "echo":
-                event["_ts"] = _parse_ts(event.get("ts"))
-                events.append(event)
+    for part in sorted(path.parent.glob(path.name + "*"), reverse=True):
+        with part.open() as handle:
+            for raw in handle:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("phase") == "echo":
+                    event["_ts"] = _parse_ts(event.get("ts"))
+                    events.append(event)
     return events
 
 

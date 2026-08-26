@@ -102,6 +102,23 @@ def _atomic_append(path: Path, line: str) -> None:
 
 _DIRS_ENSURED: bool = False
 
+# Unrotated, the log reached 48MB / 176k rows in 3.5 months (~14MB/month).
+_AUDIT_MAX_BYTES: int = 32 * 1024 * 1024
+
+
+def _rotate_if_big(path: Path) -> None:
+    """Rename the audit log to `.1` once it passes the size cap.
+
+    ponytail: one backup generation, no compression - bump
+    `_AUDIT_MAX_BYTES` or add `.2` if a longer window is ever needed.
+    `os.replace` is atomic, and concurrent appenders holding an open fd
+    keep writing into the renamed inode, so no rows are lost. Two
+    processes racing here at worst discard one older backup. Readers must
+    glob `audit.jsonl*` to see the full history.
+    """
+    if path.stat().st_size > _AUDIT_MAX_BYTES:
+        os.replace(path, path.with_suffix(".jsonl.1"))
+
 
 def append_audit(event: dict) -> None:
     """Append one event to ~/.local/share/agents/cartographer/audit.jsonl.
@@ -125,6 +142,7 @@ def append_audit(event: dict) -> None:
             _ensure_dirs()
             _DIRS_ENSURED = True
         _atomic_append(_audit_log(), line)
+        _rotate_if_big(_audit_log())
     except (OSError, TypeError, ValueError) as exc:
         # Hooks cannot crash the host tool. Surface the failure to stderr
         # and return so the calling Edit/Write proceeds.
