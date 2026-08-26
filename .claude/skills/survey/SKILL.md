@@ -1,74 +1,47 @@
 ---
 name: survey
-description: Use to build or refresh the Cartographer per-repo atlas via /survey - a small codebase map of layers, naming conventions, error style, extension points. Triggers on "/survey", "survey repo", "refresh atlas", "rebuild codebase map".
+description: Use to generate an on-demand codebase brief via /survey - where things live, naming conventions, error style, and extension points for the current repo. Triggers on "/survey", "survey repo", "codebase map", "where do things live".
 ---
 
 # Survey
 
-Build or refresh the Cartographer **atlas** for the current repository — a
-proactive map of "where things live" that downstream phases (Recon Brief,
-Architect, Conformance) consult before deciding where to make a change.
+Generate a codebase brief for the current repository — a map of "where things
+live" you can read before deciding where to make a change.
 
-The atlas lives at `~/.local/share/agents/cartographer/projects/<hash>/`:
-
-- `atlas.json` — machine-readable summary (layers, naming, error style,
-  dependency edges, forbidden imports, staleness config).
-- `atlas.md` — human-readable 2-5KB summary.
-- `staleness.flag` — empty marker; present means the atlas has drifted.
+The brief is ephemeral. It is printed to the session and never stored, so it
+always describes the repo as it is right now. Run it again whenever you need
+a fresh one.
 
 ## Dependencies
 
 - Path: `~/.claude/hooks/_lib_cartographer.py` - hard import in `scripts/run.py`
-  (project hash, tree-sitter access, audit append). Missing = the skill cannot run.
-- Path: `~/.local/share/agents/cartographer/projects/<hash>/` - the atlas store it writes.
+  (tree-sitter access). Missing = the skill cannot run.
 - CLI: `python3`.
-- Optional: `git` (staleness config and `head_sha`; absent = neither recorded),
-  tree-sitter (absent = regex fallback and the atlas is marked `degraded`).
-
-## Arguments
-
-- *(no argument)* — No-op if `atlas.json` exists and `staleness.flag` is absent
-  (prints a skip reason). Runs the survey otherwise (atlas missing or stale).
-- `--if-missing` — Survey only when `atlas.json` is absent. No-op when an atlas
-  already exists, even if `staleness.flag` is present (a stale atlas is left
-  for the bare invocation or `--refresh` to rebuild). Used by `/catchup`, which
-  only needs an atlas to exist.
-- `--refresh` — Force a full re-survey, bypassing the staleness check. Clears
-  `staleness.flag` on success. Preserves any `[manual]` override block in
-  `atlas.json` byte-for-byte; rewrites every other field.
+- Optional: tree-sitter (absent = regex fallback, and the brief says so).
 
 ## Workflow
 
-Delegate to the survey script, forwarding any flag verbatim:
+Delegate to the survey script:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/run.py"
 ```
 
-```bash
-python3 "${CLAUDE_SKILL_DIR}/scripts/run.py" --if-missing
-```
-
-```bash
-python3 "${CLAUDE_SKILL_DIR}/scripts/run.py" --refresh
-```
-
-The script resolves the project hash via `_lib_cartographer`, walks the repo
-tree, extracts symbols (tree-sitter, with a regex fallback marked `degraded`),
-classifies layers, naming, and error style, then writes `atlas.json` and
-`atlas.md` atomically.
+The script walks the repo tree, extracts symbols (tree-sitter, with a regex
+fallback), classifies layers, naming, and error style, then prints the brief
+as markdown on stdout.
 
 ## After running
 
-Report the status line the script emits — whether it surveyed, refreshed, or
-skipped, plus the atlas location and size. If the script reports a degraded
-run (tree-sitter unavailable) or a truncated atlas, surface that to the user.
+Read the brief and use it. Report anything notable to the user: a degraded run
+(the brief ends with a `_degraded:_` note when tree-sitter was unavailable) or
+a truncated one (it ends with `*brief truncated*` when the repo exceeds the
+5KB budget).
 
 ## Notes
 
-- Atlas path: `~/.local/share/agents/cartographer/projects/<hash>/`.
-- Layer detection is heuristic; a `[manual]` block in `atlas.json` lets the
-  user override it and survives re-survey.
-- Survey caps files-sampled at 50 per layer; large repos produce a partial
-  atlas with `truncated: true`.
-- On a non-git directory the atlas omits `head_sha` and staleness checks skip.
+- Layer detection is heuristic.
+- The brief caps files-sampled at 50 per layer and its own size at 5KB; a large
+  repo produces a partial brief with the truncation footer.
+- Nothing is written to disk. There is no atlas, no staleness check, and no
+  cached copy to refresh (PRD 00138).

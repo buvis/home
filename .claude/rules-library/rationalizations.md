@@ -4,10 +4,10 @@ Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each
 
 ## Excuses
 
-### "Quick fix, skip atlas"
+### "Quick fix, skip the map"
 
 - **Why it's wrong**: speed without context creates parallel implementations of code that already exists. The "quick" fix becomes a long-term tax on every future reader.
-- **Counter-action**: open `~/.claude/cartographer/projects/<hash>/atlas.md` (or run `/survey`) before any edit. If the atlas is missing, that's the signal to slow down, not skip.
+- **Counter-action**: run `/survey` for a codebase brief before any edit. Wanting to skip it is the signal to slow down, not to skip.
 
 ### "Couldn't find existing helper"
 

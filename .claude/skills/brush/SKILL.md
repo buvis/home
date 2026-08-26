@@ -25,7 +25,6 @@ cleanup for a missing skill (especially purge-devlocal).
 - `purge-devlocal` (phase 2) - sole owner of dev/local GC
 - `assess-evolution` (phase 3), `review-prd-backlog` (phase 4),
   `manage-agents-md` (phase 5)
-- `survey` (phase 6) - Cartographer atlas refresh
 - Optional plugins: `git-ferry:resolve-git-conflicts` (preflight pointer),
   `git-ferry:review-deps-prs` (report pointer when dep PRs pile up)
 - Optional: `gh` (PR-merge proof; absent = gone-branch deletes demote to
@@ -34,7 +33,7 @@ cleanup for a missing skill (especially purge-devlocal).
 ## Modes ($ARGUMENTS)
 
 - (none) full: all phases
-- `quick`: phases 1, 2, 7 only; pass `--fast` to collect_facts
+- `quick`: phases 1, 2, 6 only; pass `--fast` to collect_facts
 - `dry`: like quick but execute nothing; report what would happen
   (recommended for a repo's first brush)
 - `apply`: execute approved items from an existing report (see Apply)
@@ -73,9 +72,7 @@ cleanup for a missing skill (especially purge-devlocal).
    skill's body as a queued BR-item (never auto-edit a skill); a memory that
    only mirrors what the skill already says is left alone. Steady state on a
    well-tended install is zero proposals (PRD 00083 R4).
-6. **Atlas** (full only): run the `survey` skill so the Cartographer atlas
-   is refreshed while repo context is loaded.
-7. **Report + handoff**: write `dev/local/audit-results/brush-report.md`
+6. **Report + handoff**: write `dev/local/audit-results/brush-report.md`
    (audit reports live in the curated audit-results store, never dev/local
    root) per `${CLAUDE_SKILL_DIR}/references/report-template.md`.
 

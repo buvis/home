@@ -1456,7 +1456,7 @@ def test_rationalizations_path_yields_parsed_entries_not_pointer_stub() -> None:
         f"expected non-empty parsed entries from {mod._RATIONALIZATIONS_PATH}, got {rats}"
     )
     for key in (
-        "Quick fix, skip atlas",
+        "Quick fix, skip the map",
         "Couldn't find existing helper",
         "I'll add tests later",
     ):

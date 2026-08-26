@@ -178,19 +178,6 @@ def test_project_hash_matches_analyze_instincts_detect_project(lib, tmp_path: Pa
     assert ours == theirs
 
 
-# --- atlas_dir ---
-
-
-def test_atlas_dir_returns_expected_path(lib, fake_home: Path) -> None:
-    p = lib.atlas_dir("abc123def456")
-    assert p == fake_home / ".local" / "share" / "agents" / "cartographer" / "projects" / "abc123def456"
-
-
-def test_atlas_dir_does_not_create_directory(lib, fake_home: Path) -> None:
-    p = lib.atlas_dir("never-created")
-    assert not p.exists()
-
-
 # --- _ensure_dirs / append_audit ---
 
 
@@ -201,10 +188,12 @@ def _audit_path(home: Path) -> Path:
 def test_ensure_dirs_creates_layout(lib, fake_home: Path) -> None:
     lib._ensure_dirs()
     assert (fake_home / ".local" / "share" / "agents" / "cartographer").is_dir()
-    assert (fake_home / ".local" / "share" / "agents" / "cartographer" / "projects").is_dir()
-    # `scripts/` is NOT created by _ensure_dirs: no Phase 1+ hook needs it, so
-    # it stays out of the lazy-init layout to keep the mkdir/exists syscall
-    # count minimal on the audit hot path.
+    # `projects/` is NOT created: PRD 00138 retired the stored atlas, and a
+    # hot-path mkdir would resurrect the tree on every session. `scripts/` was
+    # never created either - no hook needs it.
+    assert not (
+        fake_home / ".local" / "share" / "agents" / "cartographer" / "projects"
+    ).exists()
     assert (fake_home / ".claude" / "cache" / "cartographer").is_dir()
     assert _audit_path(fake_home).is_file()
 
@@ -573,25 +562,6 @@ def test_state_path_accepts_valid_segments(lib, fake_home: Path) -> None:
     assert lib.load_session_state("explicit-session", "echo") == {"ok": True}
     assert lib.load_session_state("tx-deadbeef1234", "recon-gate") == {"ok": True}
     assert lib.load_session_state("proj-abc123", "architect_nudge") == {"ok": True}
-
-
-# --- atlas_dir input validation (defense-in-depth, mirrors _state_path) ---
-
-
-@pytest.mark.parametrize(
-    "bad",
-    ["", "../escape", "..", "a/b", "a\\b", "/absolute", "with\x00null", "name with space", "name.dot", "trailing\n"],
-)
-def test_atlas_dir_rejects_invalid_project_hash(lib, fake_home: Path, bad: str) -> None:
-    with pytest.raises(ValueError):
-        lib.atlas_dir(bad)
-
-
-def test_atlas_dir_accepts_real_project_hash_output(lib, fake_home: Path) -> None:
-    """Sanity: atlas_dir must accept any value that project_hash() can return."""
-    # Hex digest + the literal "global" sentinel.
-    assert lib.atlas_dir("abc123def456").name == "abc123def456"
-    assert lib.atlas_dir("global").name == "global"
 
 
 # --- Cycle 3: concurrency contracts ---

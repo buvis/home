@@ -1,17 +1,16 @@
 """
-End-to-end behavioral tests for the survey atlas generator (run.py).
+End-to-end behavioral tests for the survey brief generator (run.py).
 
-All tests operate on real tmp-dir (git) repos and assert on the written
-atlas.json / atlas.md.  No internal helpers are imported or patched.
+All tests operate on real tmp-dir (git) repos and assert on the markdown brief
+`run._survey` returns.  PRD 00138 retired the stored atlas: the brief is
+ephemeral, so there is no atlas.json, no atlas.md, and no staleness flag to
+assert on any more.
 """
 
-import argparse
-import json
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -26,15 +25,6 @@ import run
 # PRD-pinned constants — do NOT alter these strings
 # ---------------------------------------------------------------------------
 
-PRD_REQUIRED_KEYS = {
-    "surveyed_at", "layers", "forbidden_imports",
-    "naming", "error_style", "dependency_edges",
-}
-PRD_OPTIONAL_KEYS = {"head_sha", "staleness", "[manual]", "truncated", "degraded"}
-PRD_ALLOWED_KEYS = PRD_REQUIRED_KEYS | PRD_OPTIONAL_KEYS
-
-PRD_LEGACY_KEYS = {"generated_at", "project_hash", "symbols", "naming_conventions", "error_handling"}
-
 PRD_VALID_ERROR_STYLES = {"result", "exceptions", "mixed", "unknown"}
 
 PRD_MD_SECTIONS = [
@@ -44,6 +34,8 @@ PRD_MD_SECTIONS = [
     "Existing implementations index",
     "Extension points",
 ]
+
+TRUNCATION_FOOTER = "*brief truncated*"
 
 
 # ---------------------------------------------------------------------------
@@ -64,484 +56,134 @@ def _init_git_repo(path: Path) -> str:
     return result.stdout.strip()
 
 
-def _locate_atlas_json(home: Path) -> Path:
-    paths = list((home / ".local" / "share" / "agents" / "cartographer" / "projects").glob("*/atlas.json"))
-    assert len(paths) == 1, f"Expected exactly 1 atlas.json under {home}, found: {paths}"
-    return paths[0]
+@pytest.fixture()
+def git_repo(tmp_path):
+    """A fresh git repo with one committed Python file."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    return repo
 
 
-def _locate_atlas_md(home: Path) -> Path:
-    paths = list((home / ".local" / "share" / "agents" / "cartographer" / "projects").glob("*/atlas.md"))
-    assert len(paths) == 1, f"Expected exactly 1 atlas.md under {home}, found: {paths}"
-    return paths[0]
+def _section_body(content: str, header: str) -> str:
+    """Return the text between `header` and the next ## heading (or EOF)."""
+    start = content.find(f"## {header}")
+    assert start != -1, f"Section '## {header}' not found in the brief"
+    after = content.find("\n## ", start + 1)
+    return content[start: after] if after != -1 else content[start:]
 
 
-def _survey(repo: Path, home: Path, *, refresh: bool = False, if_missing: bool = False) -> None:
+# ---------------------------------------------------------------------------
+# R1: the brief is ephemeral — surveying writes nothing
+# ---------------------------------------------------------------------------
+
+def test_survey_writes_nothing_under_the_cartographer_tree(tmp_path, monkeypatch, capsys):
+    """A full `main()` run must leave no cartographer store behind.
+
+    This is the requirement PRD 00138 exists for: the map is generated and
+    handed to the session, never stored. An implementation that writes an
+    atlas.json, an atlas.md, or even an empty `projects/` dir fails here.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+
     prev = os.getcwd()
     try:
         os.chdir(repo)
-        run.main(
-            _args=argparse.Namespace(refresh=refresh, if_missing=if_missing),
-            _home=home,
-        )
+        run.main()
     finally:
         os.chdir(prev)
 
-
-@pytest.fixture()
-def git_repo(tmp_path):
-    """(repo_path, head_sha, home_path) for a fresh git repo."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    sha = _init_git_repo(repo)
-    home = tmp_path / "home"
-    home.mkdir()
-    return repo, sha, home
+    assert capsys.readouterr().out.strip(), "survey must print the brief to stdout"
+    assert not (home / ".local" / "share" / "agents" / "cartographer").exists(), (
+        "survey must not create anything under the cartographer tree"
+    )
 
 
 # ---------------------------------------------------------------------------
-# atlas.json: correct key set
-# ---------------------------------------------------------------------------
-
-def test_atlas_json_has_exact_prd_required_keys(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    actual = set(data.keys())
-    assert PRD_REQUIRED_KEYS <= actual, f"Missing keys: {PRD_REQUIRED_KEYS - actual}"
-    assert actual <= PRD_ALLOWED_KEYS, f"Unexpected keys: {actual - PRD_ALLOWED_KEYS}"
-
-
-def test_atlas_json_contains_no_legacy_keys(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    found = set(data.keys()) & PRD_LEGACY_KEYS
-    assert not found, f"Legacy keys present: {found}"
-
-
-# ---------------------------------------------------------------------------
-# atlas.json: surveyed_at
-# ---------------------------------------------------------------------------
-
-def test_surveyed_at_is_utc_iso8601_string(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    ts = json.loads(_locate_atlas_json(home).read_text())["surveyed_at"]
-    assert isinstance(ts, str)
-    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    assert dt.tzinfo is not None, "surveyed_at must include UTC timezone info"
-
-
-# ---------------------------------------------------------------------------
-# atlas.json: head_sha
-# ---------------------------------------------------------------------------
-
-def test_head_sha_equals_git_rev_parse_head(git_repo):
-    repo, expected_sha, home = git_repo
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert "head_sha" in data, "head_sha must be present for a git repo"
-    assert data["head_sha"] == expected_sha
-
-
-def test_head_sha_absent_for_non_git_directory(tmp_path):
-    repo = tmp_path / "plain"
-    repo.mkdir()
-    (repo / "app.py").write_text("x = 1\n")
-    home = tmp_path / "home"
-    home.mkdir()
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert "head_sha" not in data, "head_sha must be omitted for non-git directories"
-
-
-# ---------------------------------------------------------------------------
-# atlas.json: error_style enum
+# Brief: error_style enum
 # ---------------------------------------------------------------------------
 
 def test_error_style_value_is_in_allowed_enum(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    style = json.loads(_locate_atlas_json(home).read_text())["error_style"]
-    assert style in PRD_VALID_ERROR_STYLES, \
-        f"error_style {style!r} must be one of {PRD_VALID_ERROR_STYLES}"
+    brief = run._survey(git_repo)
+    match = re.search(r"Detected style: \*\*(\w+)\*\*", brief)
+    assert match, f"brief must report a detected error style:\n{brief}"
+    assert match.group(1) in PRD_VALID_ERROR_STYLES, \
+        f"error_style {match.group(1)!r} must be one of {PRD_VALID_ERROR_STYLES}"
 
 
 # ---------------------------------------------------------------------------
-# atlas.json: naming structure
+# Brief: naming structure
 # ---------------------------------------------------------------------------
 
 def test_naming_maps_layer_to_case_counts(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    naming = json.loads(_locate_atlas_json(home).read_text())["naming"]
-    assert isinstance(naming, dict)
-    for layer, counts in naming.items():
-        assert set(counts.keys()) == {"camelCase", "snake_case", "PascalCase"}, \
-            f"naming[{layer!r}] must have exactly camelCase, snake_case, PascalCase"
-        for k, v in counts.items():
-            assert isinstance(v, int), f"naming[{layer!r}][{k!r}] must be int"
-
-
-# ---------------------------------------------------------------------------
-# atlas.md: both files created
-# ---------------------------------------------------------------------------
-
-def test_atlas_md_written_alongside_json(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    assert _locate_atlas_md(home).exists()
+    """Every naming line reports all three case counts for its layer."""
+    section = _section_body(run._survey(git_repo), "Naming conventions")
+    entries = [ln for ln in section.split("\n") if ln.startswith("- **")]
+    assert entries, f"brief must list at least one layer's naming counts:\n{section}"
+    for line in entries:
+        assert re.match(
+            r"^- \*\*[^*]+\*\*: \w+ \(camelCase=\d+, snake_case=\d+, PascalCase=\d+\)$",
+            line,
+        ), f"naming entry must carry all three case counts: {line!r}"
 
 
 # ---------------------------------------------------------------------------
-# atlas.md: size and sections
+# Brief: size and sections
 # ---------------------------------------------------------------------------
 
-def test_atlas_md_within_5120_byte_limit(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    size = _locate_atlas_md(home).stat().st_size
-    assert size <= 5120, f"atlas.md is {size} bytes, limit is 5120"
+def test_brief_within_5120_byte_limit(git_repo):
+    size = len(run._survey(git_repo).encode())
+    assert size <= 5120, f"brief is {size} bytes, limit is 5120"
 
 
-def test_atlas_md_sections_present_in_correct_order(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    content = _locate_atlas_md(home).read_text()
+def test_brief_sections_present_in_correct_order(git_repo):
+    content = run._survey(git_repo)
     positions = []
     for heading in PRD_MD_SECTIONS:
         pos = content.find(heading)
-        assert pos != -1, f"Required section {heading!r} missing from atlas.md"
+        assert pos != -1, f"Required section {heading!r} missing from the brief"
         positions.append(pos)
-    assert positions == sorted(positions), "atlas.md sections are not in the required order"
+    assert positions == sorted(positions), "brief sections are not in the required order"
 
 
-def test_atlas_md_contains_real_surveyed_content(tmp_path):
-    """Guard against atlas.md being rendered from an empty/default dict."""
+def test_brief_contains_real_surveyed_content(tmp_path):
+    """Guard against the brief being rendered from an empty/default dict."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_git_repo(repo)
     (repo / "utils.py").write_text("def format_date(d):\n    return str(d)\n")
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "add utils"], cwd=repo, check=True, capture_output=True)
-    home = tmp_path / "home"
-    home.mkdir()
-    _survey(repo, home)
-    content = _locate_atlas_md(home).read_text()
+
+    content = run._survey(repo)
     assert len(content) > 300, \
-        f"atlas.md is suspiciously short ({len(content)} chars); likely rendered from empty data"
+        f"brief is suspiciously short ({len(content)} chars); likely rendered from empty data"
 
 
-# ---------------------------------------------------------------------------
-# Atomic write: re-survey leaves a valid JSON file
-# ---------------------------------------------------------------------------
-
-def test_resurvey_produces_valid_json(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    _survey(repo, home, refresh=True)
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert isinstance(data, dict)
-
-
-# ---------------------------------------------------------------------------
-# [manual] block preserved across --refresh
-# ---------------------------------------------------------------------------
-
-def test_manual_block_preserved_on_resurvey(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    atlas_path = _locate_atlas_json(home)
-    data = json.loads(atlas_path.read_text())
-    manual_payload = {"note": "keep this", "author": "bob"}
-    data["[manual]"] = manual_payload
-    atlas_path.write_text(json.dumps(data))
-
-    _survey(repo, home, refresh=True)
-
-    data2 = json.loads(_locate_atlas_json(home).read_text())
-    assert "[manual]" in data2, "[manual] key must survive a --refresh re-survey"
-    assert data2["[manual]"] == manual_payload, \
-        f"[manual] content was altered: {data2['[manual]']!r}"
-
-
-def _repo_with_layers(tmp_path, layers):
-    """A committed git repo with one Python file in each named top-level layer."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _init_git_repo(repo)
-    for layer in layers:
-        (repo / layer).mkdir()
-        (repo / layer / "mod.py").write_text("def f():\n    return 1\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "layers"], cwd=repo, check=True, capture_output=True)
-    home = tmp_path / "home"
-    home.mkdir()
-    return repo, home
-
-
-def test_manual_forbidden_imports_blacklist_adds_rule(tmp_path):
-    """A [manual] forbidden_imports blacklist entry must be added to forbidden_imports."""
-    repo, home = _repo_with_layers(tmp_path, ("ui", "db", "services"))
-    _survey(repo, home)
-
-    atlas_path = _locate_atlas_json(home)
-    data = json.loads(atlas_path.read_text())
-    data["[manual]"] = {
-        "forbidden_imports": {
-            "blacklist": [{"from": "ui", "to": "services", "reason": "manual rule"}],
-        }
-    }
-    atlas_path.write_text(json.dumps(data))
-
-    _survey(repo, home, refresh=True)
-
-    data2 = json.loads(_locate_atlas_json(home).read_text())
-    pairs = {(r["from"], r["to"]) for r in data2["forbidden_imports"]}
-    assert ("ui", "services") in pairs, \
-        "[manual] forbidden_imports blacklist entry must be added to the written rules"
-
-
-def test_manual_forbidden_imports_whitelist_removes_default_rule(tmp_path):
-    """A [manual] forbidden_imports whitelist entry must remove a default heuristic rule."""
-    repo, home = _repo_with_layers(tmp_path, ("ui", "db"))
-    _survey(repo, home)
-
-    atlas_path = _locate_atlas_json(home)
-    data = json.loads(atlas_path.read_text())
-    default_pairs = {(r["from"], r["to"]) for r in data["forbidden_imports"]}
-    assert ("ui", "db") in default_pairs, \
-        "precondition: default heuristic must forbid ui->db when both layers exist"
-
-    data["[manual]"] = {
-        "forbidden_imports": {"whitelist": [{"from": "ui", "to": "db"}]}
-    }
-    atlas_path.write_text(json.dumps(data))
-
-    _survey(repo, home, refresh=True)
-
-    data2 = json.loads(_locate_atlas_json(home).read_text())
-    pairs = {(r["from"], r["to"]) for r in data2["forbidden_imports"]}
-    assert ("ui", "db") not in pairs, \
-        "[manual] forbidden_imports whitelist entry must remove the ui->db default rule"
-
-
-def test_default_forbidden_imports_when_no_manual_override(tmp_path):
-    """With a [manual] block carrying no forbidden_imports key, the default set is written."""
-    repo, home = _repo_with_layers(tmp_path, ("ui", "db"))
-    _survey(repo, home)
-
-    atlas_path = _locate_atlas_json(home)
-    data = json.loads(atlas_path.read_text())
-    data["[manual]"] = {"note": "unrelated manual content"}
-    atlas_path.write_text(json.dumps(data))
-
-    _survey(repo, home, refresh=True)
-
-    data2 = json.loads(_locate_atlas_json(home).read_text())
-    pairs = {(r["from"], r["to"]) for r in data2["forbidden_imports"]}
-    assert ("ui", "db") in pairs, \
-        "default ui->db heuristic must still apply when [manual] has no forbidden_imports override"
-
-
-# ---------------------------------------------------------------------------
-# --if-missing: no-op when atlas exists without staleness.flag
-# ---------------------------------------------------------------------------
-
-def test_if_missing_skips_existing_fresh_atlas(git_repo, capsys):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    atlas_path = _locate_atlas_json(home)
-    mtime_before = atlas_path.stat().st_mtime
-
-    _survey(repo, home, if_missing=True)
-
-    assert atlas_path.stat().st_mtime == mtime_before, \
-        "--if-missing must not rewrite atlas.json when it is fresh"
+def test_survey_prints_the_brief_to_stdout(git_repo, capsys):
+    """`main()` hands the brief to the session, not to a file."""
+    prev = os.getcwd()
+    try:
+        os.chdir(git_repo)
+        run.main()
+    finally:
+        os.chdir(prev)
     out = capsys.readouterr().out
-    assert out.strip(), "--if-missing skip must print an explicit skip reason to stdout"
-
-
-def test_if_missing_surveys_when_atlas_absent(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _init_git_repo(repo)
-    home = tmp_path / "home"
-    home.mkdir()
-    # No prior survey — atlas is absent
-    _survey(repo, home, if_missing=True)
-    assert _locate_atlas_json(home).exists(), \
-        "--if-missing must create atlas.json when it does not yet exist"
-
-
-# ---------------------------------------------------------------------------
-# --if-missing: no-op when atlas exists, even if a staleness.flag is present
-# ---------------------------------------------------------------------------
-
-def test_if_missing_skips_stale_atlas(git_repo):
-    """--if-missing surveys only when atlas.json is absent.
-
-    When the atlas already exists it is a no-op even if staleness.flag is
-    present: the stale atlas is left untouched for the bare invocation or
-    --refresh to rebuild. (/catchup uses --if-missing precisely because it
-    only needs an atlas to exist, not a fresh one.)
-    """
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    atlas_path = _locate_atlas_json(home)
-    flag_path = atlas_path.parent / "staleness.flag"
-
-    # Create the empty marker file that signals the atlas is stale
-    flag_path.touch()
-    mtime_before = atlas_path.stat().st_mtime
-
-    _survey(repo, home, if_missing=True)
-
-    assert atlas_path.stat().st_mtime == mtime_before, \
-        "--if-missing must NOT rebuild atlas.json when it already exists (even if stale)"
-    assert flag_path.exists(), \
-        "--if-missing must leave staleness.flag in place when it skips a stale atlas"
-
-
-# ---------------------------------------------------------------------------
-# --refresh: removes staleness.flag file on disk
-# ---------------------------------------------------------------------------
-
-def test_refresh_removes_staleness_flag_file(git_repo):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    atlas_path = _locate_atlas_json(home)
-    flag_path = atlas_path.parent / "staleness.flag"
-
-    flag_path.touch()
-
-    _survey(repo, home, refresh=True)
-
-    assert not flag_path.exists(), \
-        "--refresh must remove staleness.flag after a successful rebuild"
-
-
-# ---------------------------------------------------------------------------
-# Bare invocation: no-op when atlas is fresh (no staleness.flag)
-# ---------------------------------------------------------------------------
-
-def test_bare_survey_is_a_noop_when_atlas_is_fresh(git_repo, capsys):
-    """Bare /survey must not re-survey when atlas.json exists and staleness.flag is absent.
-
-    A wrong implementation that always re-surveys would update surveyed_at,
-    causing this test to fail.
-    """
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    capsys.readouterr()  # drain output from the first survey
-
-    atlas_path = _locate_atlas_json(home)
-    ts_before = json.loads(atlas_path.read_text())["surveyed_at"]
-
-    _survey(repo, home)  # bare — no flags
-
-    ts_after = json.loads(atlas_path.read_text())["surveyed_at"]
-    assert ts_after == ts_before, \
-        "bare /survey must not update surveyed_at when atlas is fresh (no staleness.flag)"
-
-    out = capsys.readouterr().out
-    assert out.strip(), "bare /survey skip must print an explicit skip reason to stdout"
-
-
-def test_bare_survey_runs_when_staleness_flag_is_present(git_repo):
-    """Bare /survey must re-survey when staleness.flag is present.
-
-    A wrong implementation that skips unconditionally regardless of the flag
-    would leave surveyed_at unchanged, causing this test to fail.
-    """
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    atlas_path = _locate_atlas_json(home)
-    flag_path = atlas_path.parent / "staleness.flag"
-    ts_before = json.loads(atlas_path.read_text())["surveyed_at"]
-    flag_path.touch()
-
-    _survey(repo, home)  # bare — staleness.flag present
-
-    ts_after = json.loads(atlas_path.read_text())["surveyed_at"]
-    assert ts_after != ts_before, \
-        "bare /survey must re-survey (update surveyed_at) when staleness.flag is present"
-    assert not flag_path.exists(), \
-        "bare /survey must remove staleness.flag after a successful rebuild"
-
-
-def test_bare_survey_runs_when_atlas_is_missing(tmp_path):
-    """Bare /survey must run the survey when atlas.json does not exist.
-
-    A wrong implementation that always skips would leave no atlas.json,
-    causing _locate_atlas_json to raise.
-    """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _init_git_repo(repo)
-    home = tmp_path / "home"
-    home.mkdir()
-
-    # No prior survey — atlas is absent
-    _survey(repo, home)  # bare — no flags
-
-    assert _locate_atlas_json(home).exists(), \
-        "bare /survey must create atlas.json when it does not yet exist"
-
-
-# ---------------------------------------------------------------------------
-# --refresh: always re-surveys even on a fresh atlas
-# ---------------------------------------------------------------------------
-
-def test_refresh_resurveys_even_when_atlas_is_fresh(git_repo):
-    """--refresh must re-survey regardless of whether atlas.json is fresh.
-
-    A wrong implementation that honours the fresh-atlas skip for --refresh
-    would leave surveyed_at unchanged, causing this test to fail.
-    """
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    atlas_path = _locate_atlas_json(home)
-    flag_path = atlas_path.parent / "staleness.flag"
-    # Ensure fresh: atlas exists, no staleness.flag
-    assert not flag_path.exists(), "precondition: no staleness.flag after first survey"
-    ts_before = json.loads(atlas_path.read_text())["surveyed_at"]
-
-    _survey(repo, home, refresh=True)
-
-    ts_after = json.loads(atlas_path.read_text())["surveyed_at"]
-    assert ts_after != ts_before, \
-        "--refresh must update surveyed_at even when the atlas was already fresh"
-
-
-# ---------------------------------------------------------------------------
-# Status line printed to stdout
-# ---------------------------------------------------------------------------
-
-def test_survey_prints_status_to_stdout(git_repo, capsys):
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-    out = capsys.readouterr().out
-    assert out.strip(), "survey must print a status line to stdout"
+    assert "## Where things live" in out, \
+        f"main() must print the brief itself, not a status line:\n{out}"
 
 
 # ---------------------------------------------------------------------------
 # Truncation: >50 files per layer
 # ---------------------------------------------------------------------------
 
-def test_truncated_flag_set_and_footer_visible_when_cap_hit(tmp_path):
-    """Repo with >50 Python files: truncated:true in JSON, *atlas truncated* visible in MD."""
+def test_footer_visible_when_file_cap_hit(tmp_path):
+    """Repo with >50 Python files: the truncation footer is visible in the brief."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_git_repo(repo)
@@ -552,74 +194,50 @@ def test_truncated_flag_set_and_footer_visible_when_cap_hit(tmp_path):
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "many files"], cwd=repo, check=True, capture_output=True)
 
-    home = tmp_path / "home"
-    home.mkdir()
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert data.get("truncated") is True, \
-        "atlas.json must have truncated:true when 50-file-per-layer cap is reached"
-
-    md = _locate_atlas_md(home).read_text()
-    assert "*atlas truncated*" in md, \
-        "atlas.md must contain the visible literal '*atlas truncated*' when truncated"
+    md = run._survey(repo)
+    assert TRUNCATION_FOOTER in md, \
+        f"brief must contain the visible literal {TRUNCATION_FOOTER!r} when truncated"
 
     # Must not be hidden inside an HTML comment
     for segment in md.split("<!--"):
         if "-->" in segment:
             comment_body = segment.split("-->")[0]
-            assert "*atlas truncated*" not in comment_body, \
-                "*atlas truncated* must not appear only inside an HTML comment"
+            assert TRUNCATION_FOOTER not in comment_body, \
+                f"{TRUNCATION_FOOTER} must not appear only inside an HTML comment"
 
     assert len(md.encode()) <= 5120, \
-        f"atlas.md must still be <=5120 bytes when truncated; got {len(md.encode())}"
+        f"brief must still be <=5120 bytes when truncated; got {len(md.encode())}"
 
 
 # ---------------------------------------------------------------------------
-# Truncation: atlas.md byte budget exceeded (no per-layer file cap)
+# Truncation: byte budget exceeded (no per-layer file cap)
 # ---------------------------------------------------------------------------
 
 def test_small_repo_not_truncated(git_repo):
-    """A small repo (atlas.md well under 5120 bytes) must NOT be marked truncated.
+    """A small repo (brief well under 5120 bytes) must NOT carry the footer.
 
     Kills the always-truncate exploit: a correct _fit_to_budget returns content
     unchanged with was_truncated=False when it is under budget.
     """
-    repo, _sha, home = git_repo
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert data.get("truncated") is not True, (
-        "atlas.json must NOT have truncated:true for a small repo under the 5120-byte budget; "
-        f"got truncated={data.get('truncated')!r}"
-    )
-
-    md = _locate_atlas_md(home).read_text()
+    md = run._survey(git_repo)
     assert len(md.encode()) < 5120, (
-        f"precondition failed: small git_repo atlas.md is {len(md.encode())} bytes, "
+        f"precondition failed: small git_repo brief is {len(md.encode())} bytes, "
         "expected well under 5120"
     )
-    assert "*atlas truncated*" not in md, (
-        "atlas.md must NOT contain '*atlas truncated*' for a small repo under the byte budget"
+    assert TRUNCATION_FOOTER not in md, (
+        f"brief must NOT contain {TRUNCATION_FOOTER!r} for a small repo under the byte budget"
     )
 
 
-def test_truncated_flag_and_footer_when_byte_budget_exceeded(tmp_path):
-    """Repo with many layers (each < 50 files) whose atlas.md exceeds 5120 bytes.
-
-    This exercises the byte-budget truncation path (_fit_to_budget returns
-    md_truncated=True) independently of the per-layer file cap.  Both
-    atlas.json truncated:true and the visible *atlas truncated* footer must
-    be present, and atlas.md must still be <=5120 bytes.
-    """
+def _repo_with_many_layers(tmp_path) -> Path:
+    """A repo with 50 layers of 3 files each — over the byte budget, under the file cap."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_git_repo(repo)
 
-    # Create enough layers (each with a few files) to push atlas.md past 5120
-    # bytes without hitting the 50-file-per-layer cap.  The naming-conventions
-    # section alone emits ~60 bytes per layer; 50 layers ~ 3 000 bytes there
-    # plus "Where things live" and headers easily exceeds the 5120-byte budget.
+    # The naming-conventions section alone emits ~60 bytes per layer; 50 layers
+    # ~3000 bytes there plus "Where things live" and headers easily exceeds the
+    # 5120-byte budget without any layer reaching the 50-file cap.
     for layer_idx in range(50):
         layer_dir = repo / f"layer_{layer_idx:02d}"
         layer_dir.mkdir()
@@ -630,27 +248,22 @@ def test_truncated_flag_and_footer_when_byte_budget_exceeded(tmp_path):
 
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "many layers"], cwd=repo, check=True, capture_output=True)
+    return repo
 
-    home = tmp_path / "home"
-    home.mkdir()
-    _survey(repo, home)
 
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert data.get("truncated") is True, (
-        "atlas.json must have truncated:true when atlas.md byte budget is exceeded"
+def test_footer_present_when_byte_budget_exceeded(tmp_path):
+    """The byte-budget truncation path fires independently of the file cap."""
+    md = run._survey(_repo_with_many_layers(tmp_path))
+
+    assert TRUNCATION_FOOTER in md, (
+        f"brief must contain the visible literal {TRUNCATION_FOOTER!r} when byte budget exceeded"
     )
-
-    md = _locate_atlas_md(home).read_text()
-    assert "*atlas truncated*" in md, (
-        "atlas.md must contain the visible literal '*atlas truncated*' when byte budget exceeded"
-    )
-
     assert len(md.encode()) <= 5120, (
-        f"atlas.md must still be <=5120 bytes after byte-budget truncation; got {len(md.encode())}"
+        f"brief must still be <=5120 bytes after byte-budget truncation; got {len(md.encode())}"
     )
 
 
-# A complete line the atlas.md renderer can emit. Truncation must drop whole
+# A complete line the brief renderer can emit. Truncation must drop whole
 # lines, so every surviving line (footer aside) must match one of these forms.
 _COMPLETE_MD_LINE = re.compile(
     r"^(?:"
@@ -660,6 +273,7 @@ _COMPLETE_MD_LINE = re.compile(
     r"|- \*\*[^*]+\*\*: \w+ \(camelCase=\d+, snake_case=\d+, PascalCase=\d+\)"
     r"|- `[^`]+` \(\w+\) - .+:\d+"
     r"|_\([^)]+\)_"
+    r"|_degraded: .+_"
     r")$"
 )
 
@@ -672,36 +286,16 @@ def test_byte_budget_truncation_keeps_every_line_well_formed(tmp_path):
     truncation drops complete entries instead, so every surviving line stays a
     well-formed markdown line the renderer could have emitted.
     """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _init_git_repo(repo)
+    md = run._survey(_repo_with_many_layers(tmp_path))
 
-    # Many layers (each < 50 files) -> atlas.md exceeds the 5120-byte budget
-    # via the leading sections, forcing the byte-budget truncation path.
-    for layer_idx in range(50):
-        layer_dir = repo / f"layer_{layer_idx:02d}"
-        layer_dir.mkdir()
-        for file_idx in range(3):
-            (layer_dir / f"module_{file_idx}.py").write_text(
-                f"def function_in_layer_{layer_idx}_file_{file_idx}():\n    pass\n"
-            )
-
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "many layers"], cwd=repo, check=True, capture_output=True)
-
-    home = tmp_path / "home"
-    home.mkdir()
-    _survey(repo, home)
-
-    md = _locate_atlas_md(home).read_text()
     # Precondition: this repo actually triggers truncation.
-    assert "*atlas truncated*" in md, "precondition: repo must exceed the 5120-byte budget"
+    assert TRUNCATION_FOOTER in md, "precondition: repo must exceed the 5120-byte budget"
     assert len(md.encode()) <= 5120
 
-    body = md[: md.rindex("*atlas truncated*")].rstrip("\n")
+    body = md[: md.rindex(TRUNCATION_FOOTER)].rstrip("\n")
     for line in body.split("\n"):
         assert _COMPLETE_MD_LINE.match(line), (
-            f"truncated atlas.md has a line cut mid-token: {line!r}; per-section "
+            f"truncated brief has a line cut mid-token: {line!r}; per-section "
             "truncation must drop whole entries, not slice raw UTF-8 bytes"
         )
 
@@ -715,29 +309,22 @@ def test_byte_budget_truncation_keeps_every_line_well_formed(tmp_path):
 # Tree-sitter symbol extraction + degraded gating
 # ---------------------------------------------------------------------------
 
-def test_degraded_false_or_absent_when_tree_sitter_available(git_repo):
-    """degraded must NOT be True when tree-sitter is importable.
+def test_degraded_not_reported_when_tree_sitter_available(git_repo):
+    """The degraded note must be absent when tree-sitter is importable.
 
     Fails against an implementation that hardcodes degraded = True.
     """
-    repo, _sha, home = git_repo
     # try_import_tree_sitter is unpatched: tree_sitter_language_pack is installed.
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert data.get("degraded") in (False, None), \
-        f"degraded must be False/absent when tree-sitter is available, got {data.get('degraded')!r}"
+    assert "_degraded:" not in run._survey(git_repo), \
+        "brief must not claim a degraded run when tree-sitter is available"
 
 
-def test_degraded_true_when_tree_sitter_unavailable(git_repo, monkeypatch):
-    """degraded must be True exactly when tree-sitter cannot be imported."""
-    repo, _sha, home = git_repo
+def test_degraded_reported_when_tree_sitter_unavailable(git_repo, monkeypatch):
+    """The degraded note appears exactly when tree-sitter cannot be imported."""
     monkeypatch.setattr(run, "try_import_tree_sitter", lambda: None)
-    _survey(repo, home)
-
-    data = json.loads(_locate_atlas_json(home).read_text())
-    assert data.get("degraded") is True, \
-        "degraded must be True when try_import_tree_sitter returns None"
+    brief = run._survey(git_repo)
+    assert "_degraded: tree-sitter unavailable" in brief, \
+        f"brief must flag a degraded run when try_import_tree_sitter returns None:\n{brief}"
 
 
 PINNED_KINDS = {"function", "class", "method", "type", "interface"}
@@ -922,22 +509,14 @@ def test_regex_fallback_used_when_tree_sitter_extraction_returns_empty(
 
 
 # ---------------------------------------------------------------------------
-# atlas.md: implementations index uses file:line, not layer:line
+# Brief: implementations index uses file:line, not layer:line
 # ---------------------------------------------------------------------------
-
-def _section_body(content: str, header: str) -> str:
-    """Return the text between `header` and the next ## heading (or EOF)."""
-    start = content.find(f"## {header}")
-    assert start != -1, f"Section '## {header}' not found in atlas.md"
-    after = content.find("\n## ", start + 1)
-    return content[start: after] if after != -1 else content[start:]
-
 
 def _make_repo_with_symbol(tmp_path, subdir: str, filename: str, symbol: str, line: int) -> tuple:
     """
     Create a git repo containing one Python file at `subdir/filename`.
     The file has `line - 1` blank lines then `def symbol():`.
-    Returns (repo_path, home_path, relative_file_path).
+    Returns (repo_path, relative_file_path).
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -952,9 +531,7 @@ def _make_repo_with_symbol(tmp_path, subdir: str, filename: str, symbol: str, li
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "add symbol"], cwd=repo, check=True, capture_output=True)
 
-    home = tmp_path / "home"
-    home.mkdir()
-    return repo, home, f"{subdir}/{filename}"
+    return repo, f"{subdir}/{filename}"
 
 
 @pytest.mark.parametrize(
@@ -969,36 +546,30 @@ def test_implementations_index_uses_file_path_not_layer_name(
 ):
     """Implementations index must show the source file path, not a bare layer name.
 
-    Fails against the current `layer:line` rendering: the bare layer directory
-    (e.g. 'handlers') must not be the only file reference; the actual filename
+    Fails against a `layer:line` rendering: the bare layer directory (e.g.
+    'handlers') must not be the only file reference; the actual filename
     (e.g. 'order_handler.py') must appear in the entry for the symbol.
     """
-    repo, home, rel_path = _make_repo_with_symbol(tmp_path, subdir, filename, symbol, sym_line)
-    _survey(repo, home)
-
-    content = _locate_atlas_md(home).read_text()
-    section = _section_body(content, "Existing implementations index")
+    repo, _rel_path = _make_repo_with_symbol(tmp_path, subdir, filename, symbol, sym_line)
+    section = _section_body(run._survey(repo), "Existing implementations index")
 
     # The entry for this symbol must contain the actual filename
     assert filename in section, (
-        f"atlas.md implementations index must reference the source file "
+        f"the implementations index must reference the source file "
         f"'{filename}', not a bare layer name.\nSection:\n{section}"
     )
 
     # The line number must appear
     assert str(sym_line) in section, (
-        f"atlas.md implementations index must include line number {sym_line} "
+        f"the implementations index must include line number {sym_line} "
         f"for symbol '{symbol}'.\nSection:\n{section}"
     )
 
-    # A bare layer-only reference (subdir + colon, no filename) must not be
-    # the pattern used — the real path component must be the filename, not the dir.
-    # We check that the filename itself (not just the directory) is present,
-    # which the assertion above already covers.  Additionally assert no entry
-    # looks like "`symbol` (function) - subdir:line" (layer-only format).
+    # A bare layer-only reference (subdir + colon, no filename) must not be the
+    # pattern used — the real path component must be the filename, not the dir.
     layer_only_pattern = f"{subdir}:{sym_line}"
     assert layer_only_pattern not in section, (
-        f"atlas.md implementations index must not use the bare layer reference "
+        f"the implementations index must not use the bare layer reference "
         f"'{layer_only_pattern}'; it must show the actual file path.\nSection:\n{section}"
     )
 
@@ -1044,31 +615,26 @@ def test_extension_points_uses_file_path_not_layer_name(
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "add ext point"], cwd=repo, check=True, capture_output=True)
 
-    home = tmp_path / "home"
-    home.mkdir()
-    _survey(repo, home)
-
-    content = _locate_atlas_md(home).read_text()
-    section = _section_body(content, "Extension points")
+    section = _section_body(run._survey(repo), "Extension points")
 
     # The FULL nested path + line must be a single contiguous substring.
     full_path_ref = f"{subdir}/{filename}:{class_line}"
     assert full_path_ref in section, (
-        f"atlas.md extension points must contain the full nested path reference "
+        f"extension points must contain the full nested path reference "
         f"'{full_path_ref}' as a contiguous substring. A layer/filename impl that "
         f"drops intermediate directories would fail this check.\nSection:\n{section}"
     )
 
     # The class-based extension point must appear in the section.
     assert class_name in section, (
-        f"atlas.md extension points must include the class/interface '{class_name}'."
+        f"extension points must include the class/interface '{class_name}'."
         f"\nSection:\n{section}"
     )
 
     # The plain top-level function must NOT appear in the extension points section —
     # this confirms the kind filter (only interfaces/classes, not every function).
     assert plain_func not in section, (
-        f"atlas.md extension points must NOT include plain function '{plain_func}'; "
+        f"extension points must NOT include plain function '{plain_func}'; "
         f"extension points are for interfaces/abstractions, not every function."
         f"\nSection:\n{section}"
     )
@@ -1087,11 +653,8 @@ def test_implementations_index_file_path_includes_relative_directory(tmp_path):
     symbol = "apply_event"
     sym_line = 6
 
-    repo, home, rel_path = _make_repo_with_symbol(tmp_path, subdir, filename, symbol, sym_line)
-    _survey(repo, home)
-
-    content = _locate_atlas_md(home).read_text()
-    section = _section_body(content, "Existing implementations index")
+    repo, _rel_path = _make_repo_with_symbol(tmp_path, subdir, filename, symbol, sym_line)
+    section = _section_body(run._survey(repo), "Existing implementations index")
 
     # The FULL nested path followed by the line number must appear as one contiguous
     # substring. Asserting directory and filename separately would allow an impl that
@@ -1099,7 +662,7 @@ def test_implementations_index_file_path_includes_relative_directory(tmp_path):
     # to pass this test.
     full_path_ref = f"core/domain/aggregate_root.py:{sym_line}"
     assert full_path_ref in section, (
-        f"atlas.md implementations index must contain the full path reference "
+        f"the implementations index must contain the full path reference "
         f"'{full_path_ref}' as a contiguous substring. Asserting directory and filename "
         f"separately would allow a wrong impl (e.g. 'core/aggregate_root.py') to pass.\n"
         f"Section:\n{section}"
@@ -1112,13 +675,12 @@ def test_extracted_kinds_are_within_pinned_enum(git_repo):
     The positive-content assertions ensure an extractor that returns [] (or
     drops the method) cannot pass this test by vacuous truth.
     """
-    repo, _sha, home = git_repo
-    (repo / "extra.py").write_text(
+    (git_repo / "extra.py").write_text(
         "class Box:\n"
         "    def open(self):\n"
         "        return 1\n"
     )
-    syms = run._extract_file_symbols(repo / "extra.py")
+    syms = run._extract_file_symbols(git_repo / "extra.py")
 
     for name, kind, line in syms:
         assert kind in PINNED_KINDS, \
@@ -1130,218 +692,6 @@ def test_extracted_kinds_are_within_pinned_enum(git_repo):
         f"expected class 'Box' at line 1 to be extracted: {syms}"
     assert ("open", "method", 2) in syms, \
         f"expected method 'open' at line 2 to be extracted: {syms}"
-
-
-# ---------------------------------------------------------------------------
-# _compute_dep_edges: import-only matching
-# ---------------------------------------------------------------------------
-
-def test_dep_edges_absent_when_other_layer_named_only_in_comment(tmp_path):
-    """A file that mentions another layer only in a comment must NOT produce a dep edge.
-
-    A wrong impl that does bare-word search on the full file text would find the
-    layer name inside the comment and emit a spurious edge — this test catches that.
-    """
-    ui_dir = tmp_path / "ui"
-    ui_dir.mkdir()
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-
-    # "db" appears only in a comment and a string literal — no import
-    (ui_dir / "view.py").write_text(
-        "# TODO: do not import from db directly\n"
-        "x = 'the db layer is off-limits'\n"
-        "def render():\n"
-        "    return None\n"
-    )
-    (db_dir / "models.py").write_text("def query(): pass\n")
-
-    layers = {"ui": [ui_dir / "view.py"], "db": [db_dir / "models.py"]}
-    edges = run._compute_dep_edges(layers)
-
-    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
-    assert not ui_to_db, (
-        "dep edge ui->db must NOT be produced when 'db' appears only in a comment/string; "
-        f"got edges: {edges}"
-    )
-
-
-def test_dep_edges_present_when_file_imports_other_layer(tmp_path):
-    """A file that imports from another layer MUST produce a dep edge to that layer.
-
-    A wrong impl that strips all edges (or only matches bare-word occurrences
-    outside imports) would return no edges and fail this test.
-    """
-    ui_dir = tmp_path / "ui"
-    ui_dir.mkdir()
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-
-    # Actual Python import of the "db" layer
-    (ui_dir / "view.py").write_text(
-        "from db import models\n"
-        "\n"
-        "def render():\n"
-        "    return models.query()\n"
-    )
-    (db_dir / "models.py").write_text("def query(): pass\n")
-
-    layers = {"ui": [ui_dir / "view.py"], "db": [db_dir / "models.py"]}
-    edges = run._compute_dep_edges(layers)
-
-    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
-    assert ui_to_db, (
-        "dep edge ui->db must be produced when ui/view.py imports from 'db'; "
-        f"got edges: {edges}"
-    )
-    assert ui_to_db[0]["count"] >= 1, (
-        f"dep edge ui->db count must be >= 1, got {ui_to_db[0]['count']}"
-    )
-
-
-def test_dep_edges_absent_when_import_targets_different_layer(tmp_path):
-    """Only imports whose path matches the layer name should produce an edge.
-
-    Guards against an impl that fires on any import line regardless of target.
-    'ui' imports 'services', not 'db' — no ui->db edge must appear.
-    """
-    ui_dir = tmp_path / "ui"
-    ui_dir.mkdir()
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-    svc_dir = tmp_path / "services"
-    svc_dir.mkdir()
-
-    (ui_dir / "view.py").write_text(
-        "import services\n"
-        "# db is mentioned here but not imported\n"
-        "def render():\n"
-        "    return services.get()\n"
-    )
-    (db_dir / "models.py").write_text("def query(): pass\n")
-    (svc_dir / "api.py").write_text("def get(): pass\n")
-
-    layers = {
-        "ui": [ui_dir / "view.py"],
-        "db": [db_dir / "models.py"],
-        "services": [svc_dir / "api.py"],
-    }
-    edges = run._compute_dep_edges(layers)
-
-    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
-    assert not ui_to_db, (
-        "dep edge ui->db must NOT appear when ui only imports 'services', not 'db'; "
-        f"got edges: {edges}"
-    )
-    ui_to_svc = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "services"]
-    assert ui_to_svc, (
-        "dep edge ui->services must be present since ui imports 'services'; "
-        f"got edges: {edges}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# _compute_dep_edges: import-block matching, not bare line-leading strings
-# ---------------------------------------------------------------------------
-
-def test_dep_edges_absent_for_line_leading_string_outside_import(tmp_path):
-    """A line-leading quoted string naming a layer (e.g. a list entry
-    "db/replica",) outside any import block must NOT produce a dep edge.
-
-    The Go import-block alternative of _import_pattern previously matched any
-    line-leading string literal containing a layer name, not only entries
-    inside an `import (...)` block — emitting spurious edges.
-    """
-    ui_dir = tmp_path / "ui"
-    ui_dir.mkdir()
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-
-    # "db/replica" is a line-leading string in a slice literal, not an import.
-    (ui_dir / "routes.go").write_text(
-        "package ui\n"
-        "\n"
-        "var paths = []string{\n"
-        '\t"db/replica",\n'
-        '\t"cache/local",\n'
-        "}\n"
-    )
-    (db_dir / "models.go").write_text("package db\n")
-
-    layers = {"ui": [ui_dir / "routes.go"], "db": [db_dir / "models.go"]}
-    edges = run._compute_dep_edges(layers)
-
-    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
-    assert not ui_to_db, (
-        "dep edge ui->db must NOT be produced from a line-leading string literal "
-        f"outside an import block; got edges: {edges}"
-    )
-
-
-def test_dep_edges_present_for_go_grouped_import_block(tmp_path):
-    """A Go file importing another layer inside an `import (...)` block MUST
-    still produce a dep edge — restricting to import blocks must not break
-    grouped-import matching."""
-    ui_dir = tmp_path / "ui"
-    ui_dir.mkdir()
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-
-    (ui_dir / "view.go").write_text(
-        "package ui\n"
-        "\n"
-        "import (\n"
-        '\t"fmt"\n'
-        '\t"myrepo/db"\n'
-        ")\n"
-    )
-    (db_dir / "models.go").write_text("package db\n")
-
-    layers = {"ui": [ui_dir / "view.go"], "db": [db_dir / "models.go"]}
-    edges = run._compute_dep_edges(layers)
-
-    ui_to_db = [e for e in edges if e["from_layer"] == "ui" and e["to_layer"] == "db"]
-    assert ui_to_db, (
-        "dep edge ui->db must be produced for a Go grouped import of 'db'; "
-        f"got edges: {edges}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# _compute_dep_edges: non-Python import syntax (Gap 1)
-# ---------------------------------------------------------------------------
-
-def test_dep_edges_present_for_rust_use_statement(tmp_path):
-    """A Rust file using `use db::models;` MUST produce a dep edge to the 'db' layer.
-
-    A wrong impl that only scans Python `import`/`from` lines would miss Rust
-    `use` syntax and return no edges — this test forces non-Python import handling.
-    """
-    api_dir = tmp_path / "api"
-    api_dir.mkdir()
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-
-    (api_dir / "handler.rs").write_text(
-        "use db::models;\n"
-        "\n"
-        "pub fn handle() -> db::models::User {\n"
-        "    db::models::User::default()\n"
-        "}\n"
-    )
-    (db_dir / "models.rs").write_text("pub struct User;\n")
-
-    layers = {"api": [api_dir / "handler.rs"], "db": [db_dir / "models.rs"]}
-    edges = run._compute_dep_edges(layers)
-
-    api_to_db = [e for e in edges if e["from_layer"] == "api" and e["to_layer"] == "db"]
-    assert api_to_db, (
-        "dep edge api->db must be produced when api/handler.rs uses `use db::models;`; "
-        f"got edges: {edges}"
-    )
-    assert api_to_db[0]["count"] >= 1, (
-        f"dep edge api->db count must be >= 1, got {api_to_db[0]['count']}"
-    )
 
 
 # ---------------------------------------------------------------------------

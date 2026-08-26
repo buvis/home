@@ -4,13 +4,12 @@ Stdlib-only (except optional `tree_sitter_language_pack`, accessed lazily via
 `try_import_tree_sitter`). Python 3.10+. Safe to import from any PreToolUse,
 PostToolUse, Notification, or Stop hook. Public API + conventions:
 
-    project_hash, atlas_dir, append_audit, resolve_session_key,
+    project_hash, append_audit, resolve_session_key,
     load_session_state, save_session_state, is_checked, mark_checked,
     try_import_tree_sitter.
 
 - Project hash: `sha256(<git-remote-or-toplevel-path>)[:12]`. Decoupled copy
   of `analyze-instincts.py:detect_project`; parity test guards drift.
-- Per-repo state: `~/.local/share/agents/cartographer/projects/<hash>/`.
 - Audit log: `~/.local/share/agents/cartographer/audit.jsonl` (one JSON event per line).
 - Session-state: `~/.claude/cache/cartographer/<namespace>/state-<key>.json`.
 
@@ -64,32 +63,19 @@ def _audit_log() -> Path:
 # --- per-repo addressing ---
 # `project_hash` is re-exported from `_cartographer_identity` (imported above).
 
-
-def atlas_dir(project_hash: str) -> Path:
-    """Resolve the projects-root subdir for a project hash (no mkdir).
-
-    The argument is validated against `[a-zA-Z0-9_-]+` (defense-in-depth,
-    matching `_state_path`) so a caller passing user-derived input cannot
-    escape via `..` or `/`. The parameter name matches the PRD signature
-    and intentionally shadows the module-level `project_hash` function.
-    """
-    _validate_path_segment(project_hash, "project_hash")
-    return _cartographer_root() / "projects" / project_hash
-
-
 # --- filesystem init + audit log ---
 
 
 def _ensure_dirs() -> None:
-    """Idempotently create the cartographer on-disk layout (no `scripts/`).
+    """Idempotently create the cartographer on-disk layout.
 
-    `scripts/` ships via the buvis bare repo, so runtime mkdir would be pure
-    hot-path overhead. OSError is swallowed: hooks must not crash the host tool.
+    Just the audit log and the session-state cache: PRD 00138 retired the
+    stored atlas, so there is no `projects/` tree to make room for any more.
+    OSError is swallowed: hooks must not crash the host tool.
     """
     try:
         root = _cartographer_root()
         root.mkdir(parents=True, exist_ok=True)
-        (root / "projects").mkdir(parents=True, exist_ok=True)
         _cache_root().mkdir(parents=True, exist_ok=True)
         log = _audit_log()
         if not log.exists():
