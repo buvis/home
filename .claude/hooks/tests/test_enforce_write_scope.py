@@ -623,6 +623,87 @@ class TestPayloadShapes(WriteScopeCase):
             with self.subTest(payload=payload):
                 self.assertAllowed(self.call(payload, self.env()))
 
+    def test_malformed_payload_shapes_never_degrade_the_fence(self) -> None:
+        # PRD 00145: before the fix each of these tripped `except Exception:
+        # allow()` and printed "policy hook degraded", waving the write through.
+        # Now the non-string entries are dropped and the surviving out-of-scope
+        # target is judged; a shape that carries no usable target at all is
+        # allowed silently (nothing to judge), never via the degraded path.
+        probes = [
+            (
+                "file_path not a string",
+                {"file_path": 123, "notebook_path": VAULT_PATH},
+                2,
+            ),
+            (
+                "edits list of non-dicts",
+                {"file_path": VAULT_PATH, "edits": [1, "x"]},
+                2,
+            ),
+            (
+                "edits as dict",
+                {"file_path": VAULT_PATH, "edits": {"file_path": "y"}},
+                2,
+            ),
+            ("edits as string", {"file_path": VAULT_PATH, "edits": "nope"}, 2),
+            (
+                "non-dict edit beside a valid sibling",
+                {"edits": [None, {"file_path": VAULT_PATH}]},
+                2,
+            ),
+            ("tool_input as list", [VAULT_PATH], 0),
+            (
+                "file_path as list",
+                {"file_path": [VAULT_PATH], "notebook_path": VAULT_PATH},
+                2,
+            ),
+        ]
+        for label, tool_input, expected in probes:
+            with self.subTest(probe=label):
+                payload = {
+                    "tool_name": "Write",
+                    "tool_input": tool_input,
+                    "cwd": str(self.repo),
+                }
+                code, out, err = self.call(payload, self.env())
+                self.assertNotIn("policy hook degraded", err, label)
+                self.assertEqual(out, "", label)
+                self.assertEqual(code, expected, f"{label}: stderr {err!r}")
+                if expected == 2:
+                    self.assertIn(repr(os.path.realpath(VAULT_PATH)), err, label)
+
+    def test_non_string_cwd_falls_back_instead_of_degrading(self) -> None:
+        payload = {
+            "tool_name": "Write",
+            "tool_input": {"file_path": VAULT_PATH},
+            "cwd": 7,
+        }
+        code, _out, err = self.call(payload, self.env())
+        self.assertEqual(code, 2, f"stderr {err!r}")
+        self.assertNotIn("policy hook degraded", err)
+
+    def test_top_level_non_object_payload_allows_without_degrading(self) -> None:
+        # A top-level JSON array carries no tool_input; `payload.get(...)` would
+        # raise AttributeError and reach the degraded-allow handler. It is
+        # allowed (nothing to gate) but must not report a degraded hook.
+        code, out, err = self.call([VAULT_PATH], self.env())
+        self.assertEqual(code, 0, f"stderr {err!r}")
+        self.assertEqual(out, "")
+        self.assertNotIn("policy hook degraded", err)
+
+    def test_nul_byte_in_target_fails_closed_not_degraded(self) -> None:
+        # os.path.realpath raises ValueError on an embedded NUL; the write must
+        # be refused (fail closed) rather than waved through by the degraded path.
+        payload = {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/Users/bob/bim/x\x00.js"},
+            "cwd": str(self.repo),
+        }
+        code, _out, err = self.call(payload, self.env())
+        self.assertEqual(code, 2, f"stderr {err!r}")
+        self.assertIn("cannot resolve write target", err)
+        self.assertNotIn("policy hook degraded", err)
+
     def test_reports_a_degraded_hook_and_allows_when_it_crashes(self) -> None:
         with patch.object(mod, "_allowed_roots", _boom):
             code, _out, err = self.call(
@@ -651,6 +732,26 @@ class TestContractSeams(WriteScopeCase):
         self.assertEqual(
             err.rstrip("\n"),
             self.reason_for(os.path.realpath(VAULT_PATH), self.default_roots),
+        )
+
+    def test_allowed_roots_is_the_documented_shared_contract(self) -> None:
+        # The list warden's write-scope.ts must reproduce (PRD 00145): repo,
+        # repo/dev/local, TMPDIR, TMP_ROOTS, extras; realpath'd, in that order.
+        extra = self.base / "extra"
+        extra.mkdir()
+        env = self.env(**{EXTRA_ROOTS_ENV: str(extra)})
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(mod, "TMP_ROOTS", ("/tmp",)):
+                roots = mod._allowed_roots(str(self.repo / "sub"), env)
+        self.assertEqual(
+            roots,
+            [
+                self.repo,
+                self.repo / "dev" / "local",
+                self.tmpdir,
+                Path(os.path.realpath("/tmp")),
+                extra,
+            ],
         )
 
     def test_repo_root_walks_up_to_the_autopilot_directory(self) -> None:
