@@ -16,10 +16,13 @@ Stdlib-only. Optional `tree_sitter_language_pack` accessed lazily via
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,12 +33,12 @@ from typing import Any
 # subprocess from settings.json; for completeness, prepend it explicitly so
 # `python3 cartographer-echo.py` from any cwd resolves the lib.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _lib_cartographer as lib  # noqa: E402
+import _lib_cartographer as lib
 
 # --- constants ---
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
-    {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go"}
+    {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go"},
 )
 
 # Map dotted extension -> tree_sitter_language_pack language name. `.jsx`
@@ -54,7 +57,7 @@ _LANG_BY_EXT: dict[str, str] = {
 # checking. `process()` returns kinds as enums whose `str()` is the variant
 # name (e.g. "Function", "Method"). Compare via string.
 _SYMBOL_KINDS: frozenset[str] = frozenset(
-    {"Function", "Method", "Class", "Struct", "Enum", "Type", "Trait", "Interface"}
+    {"Function", "Method", "Class", "Struct", "Enum", "Type", "Trait", "Interface"},
 )
 
 # Low-signal names dropped before match scoring. The duplicate-prone verbs
@@ -62,12 +65,27 @@ _SYMBOL_KINDS: frozenset[str] = frozenset(
 # deliberately ABSENT from this list (PRD success metric).
 _STOPWORDS: frozenset[str] = frozenset(
     {
-        "__init__", "__main__", "main", "init", "setup", "run", "start", "stop",
-        "new", "default", "clone", "eq", "hash", "to_string", "from_string",
+        "__init__",
+        "__main__",
+        "main",
+        "init",
+        "setup",
+        "run",
+        "start",
+        "stop",
+        "new",
+        "default",
+        "clone",
+        "eq",
+        "hash",
+        "to_string",
+        "from_string",
         # Generic names defined across many files; collisions are not duplicates.
         # Added 2026-05-31 from audit-echo (top recurring deny symbols).
-        "create", "setUp", "Result",
-    }
+        "create",
+        "setUp",
+        "Result",
+    },
 )
 _MIN_SYMBOL_LEN: int = 4  # drop length <= 3
 
@@ -93,7 +111,7 @@ _TEST_FILE_SUFFIXES: tuple[str, ...] = (
 
 # Tools Echo gates. Other tool names pass through with no audit event.
 _TARGETED_TOOLS: frozenset[str] = frozenset(
-    {"Edit", "Write", "MultiEdit", "Bash"}
+    {"Edit", "Write", "MultiEdit", "Bash"},
 )
 
 
@@ -195,7 +213,9 @@ def extract_content(tool_name: str, tool_input: dict) -> str:
     return ""
 
 
-def _walk_structure(items, kinds: frozenset[str], collected: list[str], seen: set[str]) -> None:
+def _walk_structure(
+    items, kinds: frozenset[str], collected: list[str], seen: set[str]
+) -> None:
     """Depth-first walk over `process(...).structure`, collecting named items.
 
     Anonymous items (`name is None` or empty) are skipped — they cannot be
@@ -234,12 +254,16 @@ def extract_symbols(content: str, ext: str) -> list[str]:
     except Exception as exc:  # noqa: BLE001
         # Parsing fails on syntactically invalid content; record a warn and
         # treat as no symbols (the host write proceeds).
-        lib.append_audit({"event": "tree_sitter_parse_failed", "language": lang, "error": str(exc)})
+        lib.append_audit(
+            {"event": "tree_sitter_parse_failed", "language": lang, "error": str(exc)}
+        )
         return []
 
     collected: list[str] = []
     seen: set[str] = set()
-    _walk_structure(getattr(result, "structure", None) or [], _SYMBOL_KINDS, collected, seen)
+    _walk_structure(
+        getattr(result, "structure", None) or [], _SYMBOL_KINDS, collected, seen
+    )
     # Also merge in top-level `symbols` (some grammars — e.g. go's
     # `type` declarations — surface only here, not in `structure`).
     for s in getattr(result, "symbols", None) or []:
@@ -270,7 +294,7 @@ _DEF_NAME_RE = re.compile(
     r"(?:def|class|fn|func|struct|enum|trait|interface|type|union|function"
     r"|const|let|var)\b"
     r"(?:\s+\([^)]*\))?"  # optional Go method receiver: func (r *T) Name
-    r"\s+([A-Za-z_]\w*)"
+    r"\s+([A-Za-z_]\w*)",
 )
 
 
@@ -311,8 +335,7 @@ def _longest_common_substring_len(a: str, b: str) -> int:
         for j, cb in enumerate(b, 1):
             if ca == cb:
                 curr[j] = prev[j - 1] + 1
-                if curr[j] > best:
-                    best = curr[j]
+                best = max(best, curr[j])
         prev = curr
     return best
 
@@ -342,7 +365,8 @@ def score_match(symbol: str, candidate: dict) -> str | None:
 
 
 def decide(
-    symbols: list[str], candidate_groups: dict[str, list[dict]]
+    symbols: list[str],
+    candidate_groups: dict[str, list[dict]],
 ) -> tuple[str, list[dict]]:
     """Block on strong or medium hits, allow otherwise.
 
@@ -364,7 +388,7 @@ def decide(
                         "line": cand.get("line", 0),
                         "score": score,
                         "snippet": (cand.get("snippet") or "")[:_SNIPPET_AUDIT_CAP],
-                    }
+                    },
                 )
     return ("deny" if blocking else "allow", blocking)
 
@@ -374,11 +398,47 @@ def decide(
 _RG_TIMEOUT_SEC: float = 1.0
 _RG_MAX_HITS_PER_SYMBOL: int = 5  # hits handed to scoring
 _RG_SCAN_LIMIT: int = 50  # hits collected per symbol before definition-first ranking
-_RG_BATCH_SCAN_LIMIT: int = 500  # total rg output lines parsed per batch (bounds attribution)
-_RG_EXCLUDE_GLOBS: tuple[str, ...] = (
-    "!.git", "!node_modules", "!vendor", "!dist", "!build",
-    "!__pycache__", "!target", "!.venv",
+_RG_BATCH_SCAN_LIMIT: int = (
+    500  # total rg output lines parsed per batch (bounds attribution)
 )
+_RG_EXCLUDE_GLOBS: tuple[str, ...] = (
+    "!.git",
+    "!node_modules",
+    "!vendor",
+    "!dist",
+    "!build",
+    "!__pycache__",
+    "!target",
+    "!.venv",
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _resolve_rg() -> str | None:
+    """Path to an executable that behaves like ripgrep, or None.
+
+    `rg` is not always a binary on PATH. On a Claude Code install it can be a
+    shell function that re-execs the host binary with `argv[0]` set to "rg"
+    (`exec -a rg "$CLAUDE_CODE_EXECPATH"`), which `subprocess.run(["rg", ...])`
+    never sees: PATH has no `rg`, the spawn raises FileNotFoundError, and echo
+    silently reports zero candidates on every edit. Measured 2026-08-26: 621
+    `ripgrep_missing` events in a single day, the duplicate-detection gate dead.
+
+    So resolve it the way the shell function does - a real `rg` first, then the
+    host binary run under an `argv[0]` of "rg" (callers pass this as
+    `executable=`). Cached: this sits on the PreToolUse hot path and the answer
+    cannot change within a process. Tests reset it via `_resolve_rg.cache_clear()`.
+    """
+    found = shutil.which("rg")
+    if found is not None:
+        return found
+    for candidate in (
+        os.environ.get("CLAUDE_CODE_EXECPATH"),
+        str(Path.home() / ".local" / "bin" / "claude"),
+    ):
+        if candidate and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 def _parse_rg_line(line: str) -> tuple[str, int, str] | None:
@@ -397,7 +457,9 @@ def _parse_rg_line(line: str) -> tuple[str, int, str] | None:
 
 
 def search_candidates_batch(
-    symbols: list[str], root: Path, target_file: Path
+    symbols: list[str],
+    root: Path,
+    target_file: Path,
 ) -> dict[str, list[dict]]:
     """One rg over an alternation of ALL symbols -> `{sym: hits}` (PRD 00088 R3).
 
@@ -414,24 +476,41 @@ def search_candidates_batch(
     groups: dict[str, list[dict]] = {s: [] for s in uniq}
     if not uniq or not root.exists():
         return groups
+    rg_bin = _resolve_rg()
+    if rg_bin is None:
+        lib.append_audit({"event": "ripgrep_missing"})
+        return groups
     pattern = "|".join(re.escape(s) for s in uniq)
+    # argv[0] stays "rg": the host binary dispatches on it (see _resolve_rg).
     args = ["rg", "-n", "--max-count", str(_RG_MAX_HITS_PER_SYMBOL * len(uniq))]
     for g in _RG_EXCLUDE_GLOBS:
         args.extend(["--glob", g])
     args.extend(["-e", pattern, "--", str(root)])
     try:
         proc = subprocess.run(
-            args, capture_output=True, text=True, timeout=_RG_TIMEOUT_SEC,
+            args,
+            executable=rg_bin,
+            capture_output=True,
+            text=True,
+            timeout=_RG_TIMEOUT_SEC,
         )
     except subprocess.TimeoutExpired:
         lib.append_audit({"event": "ripgrep_timeout", "symbols": len(uniq)})
         return groups
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
+        # Resolved path vanished or lost +x between resolve and spawn.
+        _resolve_rg.cache_clear()
         lib.append_audit({"event": "ripgrep_missing"})
         return groups
 
     if proc.returncode not in (0, 1):
-        lib.append_audit({"event": "ripgrep_error", "code": proc.returncode, "stderr": proc.stderr[:200]})
+        lib.append_audit(
+            {
+                "event": "ripgrep_error",
+                "code": proc.returncode,
+                "stderr": proc.stderr[:200],
+            }
+        )
         return groups
 
     try:
@@ -511,7 +590,7 @@ def _resolve_project_root(file_path: str) -> Path:
     """
     from _common import resolve_toplevel
 
-    start = file_path if file_path else str(Path.cwd())
+    start = file_path or str(Path.cwd())
     root = resolve_toplevel(start)
     if root:
         return Path(root)
@@ -522,7 +601,20 @@ def _resolve_project_root(file_path: str) -> Path:
 # --- Bash bypass pattern detection ---
 
 _BASH_SOURCE_EXTENSIONS: frozenset[str] = frozenset(
-    {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".md", ".yaml", ".yml", ".json", ".toml"}
+    {
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".rs",
+        ".go",
+        ".md",
+        ".yaml",
+        ".yml",
+        ".json",
+        ".toml",
+    },
 )
 
 _BASH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -530,7 +622,9 @@ _BASH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("tee", re.compile(r"\btee\b[^|;]*?(\S+\.[A-Za-z0-9]+)")),
     (
         "python-open-write",
-        re.compile(r"python3?\s+-c\s+[\"'][^\"']*\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"']w[\"']"),
+        re.compile(
+            r"python3?\s+-c\s+[\"'][^\"']*\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"']w[\"']"
+        ),
     ),
     ("sed-inplace", re.compile(r"\bsed\s+-i\b[^|;\n]*?\s(\S+\.[A-Za-z0-9]+)(?:\s|$)")),
 )
@@ -544,7 +638,7 @@ def _resolve_within_cwd(raw_path: str, cwd: Path) -> Path | None:
     try:
         candidate = Path(raw).expanduser()
         if not candidate.is_absolute():
-            candidate = (cwd / candidate)
+            candidate = cwd / candidate
         resolved = candidate.resolve()
         cwd_resolved = cwd.resolve()
         resolved.relative_to(cwd_resolved)
@@ -625,13 +719,23 @@ def deny_key(file_path: str, symbols: list[str]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
-_RATIONALIZATIONS_PATH: Path = Path.home() / ".claude" / "rules-library" / "rationalizations.md"
+_RATIONALIZATIONS_PATH: Path = (
+    Path.home() / ".claude" / "rules-library" / "rationalizations.md"
+)
 
 # Verbs whose presence in a symbol name triggers the "Couldn't find existing
 # helper" rationalization (Echo's highest-leverage scenario per PRD).
 _HELPER_VERBS: tuple[str, ...] = (
-    "format", "parse", "validate", "normalize", "serialize", "transform",
-    "decode", "encode", "stringify", "render",
+    "format",
+    "parse",
+    "validate",
+    "normalize",
+    "serialize",
+    "transform",
+    "decode",
+    "encode",
+    "stringify",
+    "render",
 )
 
 _RATIONALIZATIONS_CACHE: dict[str, tuple[str, str]] | None = None
@@ -651,8 +755,12 @@ def _load_rationalizations() -> dict[str, tuple[str, str]]:
         return out
 
     header_re = re.compile(r"^###\s+\"([^\"]+)\"\s*$", re.MULTILINE)
-    why_re = re.compile(r"-\s*\*\*Why it's wrong\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL)
-    counter_re = re.compile(r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL)
+    why_re = re.compile(
+        r"-\s*\*\*Why it's wrong\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL
+    )
+    counter_re = re.compile(
+        r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)", re.DOTALL
+    )
 
     matches = list(header_re.finditer(text))
     for i, m in enumerate(matches):
@@ -704,7 +812,7 @@ def build_deny_envelope(matches: list[dict]) -> dict:
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": reason,
-            }
+            },
         }
 
     strongest = next((m for m in matches if m.get("score") == "strong"), None)
@@ -725,7 +833,7 @@ def build_deny_envelope(matches: list[dict]) -> dict:
     ]
     if rationalization is not None:
         excuse, why, counter = rationalization
-        excerpt = f"\"{excuse}\". Why it's wrong: {why} Counter-action: {counter}"
+        excerpt = f'"{excuse}". Why it\'s wrong: {why} Counter-action: {counter}'
         if len(excerpt) > _RATIONALIZATION_EXCERPT_CAP:
             excerpt = excerpt[: _RATIONALIZATION_EXCERPT_CAP - 1].rstrip() + "…"
         parts.extend(
@@ -733,10 +841,12 @@ def build_deny_envelope(matches: list[dict]) -> dict:
                 "",
                 "Rationalization (`rules-library/rationalizations.md`):",
                 "> " + excerpt,
-            ]
+            ],
         )
 
-    parts.extend(["", "If this is genuinely new, retry — the second attempt will pass."])
+    parts.extend(
+        ["", "If this is genuinely new, retry — the second attempt will pass."]
+    )
     reason = "\n".join(parts)
     if len(reason) > _DENY_REASON_CAP:
         reason = reason[: _DENY_REASON_CAP - 1].rstrip() + "…"
@@ -746,7 +856,7 @@ def build_deny_envelope(matches: list[dict]) -> dict:
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": reason,
-        }
+        },
     }
 
 
@@ -845,18 +955,24 @@ def handle(data: dict) -> None:
         hit = detect_bash_bypass(cmd, Path.cwd())
         if hit is None:
             audit_event(
-                session=session, tool=tool_name, file="",
-                decision="allow", reason="bash-clean",
+                session=session,
+                tool=tool_name,
+                file="",
+                decision="allow",
+                reason="bash-clean",
             )
             return
         pattern_name, resolved_path = hit
         key = hashlib.sha256(
-            ("bash:" + pattern_name + ":" + resolved_path).encode("utf-8")
+            ("bash:" + pattern_name + ":" + resolved_path).encode("utf-8"),
         ).hexdigest()[:24]
         if lib.is_checked(session, _ECHO_NAMESPACE, key):
             audit_event(
-                session=session, tool=tool_name, file=resolved_path,
-                decision="allow", reason="second-attempt",
+                session=session,
+                tool=tool_name,
+                file=resolved_path,
+                decision="allow",
+                reason="second-attempt",
                 matches=[{"pattern": pattern_name}],
             )
             return
@@ -872,12 +988,15 @@ def handle(data: dict) -> None:
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": reason_text,
-            }
+            },
         }
         sys.stdout.write(json.dumps(envelope))
         audit_event(
-            session=session, tool=tool_name, file=resolved_path,
-            decision="deny", reason="bash-bypass",
+            session=session,
+            tool=tool_name,
+            file=resolved_path,
+            decision="deny",
+            reason="bash-bypass",
             matches=[{"pattern": pattern_name}],
         )
         return
@@ -887,8 +1006,11 @@ def handle(data: dict) -> None:
         # shapes. Surface them in the audit log so audit-echo can flag the
         # coverage gap; do not gate.
         audit_event(
-            session=session, tool=tool_name, file=file_path,
-            decision="skip", reason="mcp-unsupported",
+            session=session,
+            tool=tool_name,
+            file=file_path,
+            decision="skip",
+            reason="mcp-unsupported",
         )
         return
 
@@ -900,8 +1022,11 @@ def handle(data: dict) -> None:
 
         if not symbols:
             audit_event(
-                session=session, tool=tool_name, file=file_path,
-                decision="allow", reason="no-symbols",
+                session=session,
+                tool=tool_name,
+                file=file_path,
+                decision="allow",
+                reason="no-symbols",
             )
             return
 
@@ -911,15 +1036,21 @@ def handle(data: dict) -> None:
         project_root = _resolve_project_root(file_path)
         # One rg over an alternation of all symbols (PRD 00088 R3) — not one
         # spawn per symbol, which blew the 5s hook budget on symbol-dense files.
-        candidate_groups = search_candidates_batch(symbols, project_root, Path(file_path))
+        candidate_groups = search_candidates_batch(
+            symbols, project_root, Path(file_path)
+        )
 
         decision, matches = decide(symbols, candidate_groups)
 
         if decision == "allow":
             audit_event(
-                session=session, tool=tool_name, file=file_path,
-                decision="allow", reason="weak-only" if any(candidate_groups.values()) else "no-matches",
-                symbols=symbols, matches=matches,
+                session=session,
+                tool=tool_name,
+                file=file_path,
+                decision="allow",
+                reason="weak-only" if any(candidate_groups.values()) else "no-matches",
+                symbols=symbols,
+                matches=matches,
             )
             return
 
@@ -927,9 +1058,13 @@ def handle(data: dict) -> None:
         key = deny_key(file_path, symbols)
         if lib.is_checked(session, _ECHO_NAMESPACE, key):
             audit_event(
-                session=session, tool=tool_name, file=file_path,
-                decision="allow", reason="second-attempt",
-                symbols=symbols, matches=matches,
+                session=session,
+                tool=tool_name,
+                file=file_path,
+                decision="allow",
+                reason="second-attempt",
+                symbols=symbols,
+                matches=matches,
             )
             return
         lib.mark_checked(session, _ECHO_NAMESPACE, key)
@@ -938,9 +1073,13 @@ def handle(data: dict) -> None:
         # Audit reason matches the strongest hit's score.
         strongest_score = matches[0]["score"] if matches else "unknown"
         audit_event(
-            session=session, tool=tool_name, file=file_path,
-            decision="deny", reason=f"{strongest_score}-match",
-            symbols=symbols, matches=matches,
+            session=session,
+            tool=tool_name,
+            file=file_path,
+            decision="deny",
+            reason=f"{strongest_score}-match",
+            symbols=symbols,
+            matches=matches,
         )
         return
 

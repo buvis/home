@@ -442,6 +442,77 @@ def test_stopword_filter_test_path_returns_empty(rel_path: str) -> None:
     assert out == [], f"test-file path must return [], got {out} for {rel_path}"
 
 
+# --- ripgrep resolution ---
+
+
+def test_search_candidates_works_when_rg_is_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Candidate search must survive `rg` being a shell function, not a binary.
+
+    Regression: a Claude Code install can expose `rg` only as a shell function
+    that re-execs the host binary with argv[0]="rg". `subprocess.run(["rg",...])`
+    then raises FileNotFoundError, every search returns zero candidates, and the
+    duplicate-detection gate is dead while still reporting allow. Measured
+    2026-08-26: 621 `ripgrep_missing` events in one day. `shutil.which` returning
+    None is exactly that condition.
+
+    `shutil` is a shared module, so the patch goes through monkeypatch (auto
+    reverted); without that, every later test in the session sees no `rg`.
+    """
+    mod = _import_hook_module()
+    monkeypatch.setattr(mod.shutil, "which", lambda _name: None)
+    mod._resolve_rg.cache_clear()
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "util.py").write_text("def formatPrice(p):\n    return f'${p}'\n")
+    target = root / "price.py"
+    target.write_text("# target file\n")
+
+    candidates = mod.search_candidates("formatPrice", root, target)
+    assert candidates, (
+        "candidate search must fall back to the host binary when no rg is on "
+        f"PATH; got {candidates} (resolved: {mod._resolve_rg()!r})"
+    )
+    assert candidates[0]["file"].endswith("util.py")
+
+
+def test_no_resolvable_ripgrep_degrades_quietly_and_audits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no rg AND no host binary, search returns [] and records why.
+
+    The gate must fail open (never block an edit it cannot reason about) but
+    must leave the `ripgrep_missing` breadcrumb that made this bug findable.
+
+    Every patch here lands on a SHARED object (`shutil`, `pathlib.Path`, the
+    cartographer lib), so all of them go through monkeypatch. Patching
+    `Path.home` directly would redirect HOME for the rest of the session and
+    break the write-scope suite.
+    """
+    mod = _import_hook_module()
+    monkeypatch.setattr(mod.shutil, "which", lambda _name: None)
+    monkeypatch.setenv("CLAUDE_CODE_EXECPATH", str(tmp_path / "absent"))
+    monkeypatch.setattr(mod.Path, "home", staticmethod(lambda: tmp_path / "nohome"))
+    mod._resolve_rg.cache_clear()
+    assert mod._resolve_rg() is None, "precondition: nothing resolvable"
+
+    audit: list[dict] = []
+    monkeypatch.setattr(mod.lib, "append_audit", audit.append)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "util.py").write_text("def formatPrice(p):\n    return 1\n")
+    target = root / "price.py"
+    target.write_text("# target\n")
+
+    assert mod.search_candidates("formatPrice", root, target) == []
+    assert any(e.get("event") == "ripgrep_missing" for e in audit), (
+        f"an unresolvable ripgrep must audit 'ripgrep_missing'; got {audit}"
+    )
+
+
 # --- ripgrep candidate search ---
 
 
