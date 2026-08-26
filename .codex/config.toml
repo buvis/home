@@ -1,6 +1,9 @@
 model = "gpt-5.6-sol"
-model_reasoning_effort = "high"
+model_reasoning_effort = "xhigh"
 personality = "pragmatic"
+
+notify = ["/Users/bob/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
+service_tier = "default"
 
 [mcp_servers]
 [mcp_servers.MCP_DOCKER]
@@ -10,6 +13,34 @@ args = ['mcp', 'gateway', 'run']
 [mcp_servers.serena]
 args = ['--from', 'git+https://github.com/oraios/serena', 'serena', 'start-mcp-server', '--enable-web-dashboard', 'False']
 command = 'uvx'
+
+[mcp_servers.node_repl]
+args = []
+command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = "/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_NODE_PATH = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/bob/.codex:/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
+CODEX_HOME = "/Users/bob/.codex"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+BROWSER_USE_TINYSKY_ENABLED = "0"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = "Control desktop apps on macOS through Computer Use."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.818.61809"
+NODE_REPL_TRUSTED_SERVICES = '{"browser":"/Users/bob/.codex/plugins/cache/openai-bundled/browser/26.818.61809/scripts/browser-service.mjs","sky":"@oai/sky/service"}'
+SKY_CUA_SERVICE_PATH = "/Users/bob/.codex/computer-use/Codex Computer Use.app"
+CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
+
+[mcp_servers.computer-use]
+command = "./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
+args = ["mcp"]
+cwd = "."
+enabled = false
 
 [notice]
 'hide_gpt-5.1-codex-max_migration_prompt' = true
@@ -87,16 +118,30 @@ trust_level = "trusted"
 [projects."/private/tmp/agoge_heidi/codex/repo"]
 trust_level = "trusted"
 
+[projects."/Users/bob/git/src/github.com/buvis/ovcaq"]
+trust_level = "trusted"
+
+[projects."/Users/bob/Documents/Codex/2026-08-22/ho"]
+trust_level = "trusted"
+
+[projects."/private/tmp/claude-501/-Users-bob-git-src-github-com-buvis-ovcaq/eee62532-e0a1-41c9-96d4-a812bdc48d9c/scratchpad/codex-spike"]
+trust_level = "trusted"
+
+[projects."/Users/bob/.codex"]
+trust_level = "trusted"
+
+[projects."/Users/bob/git/src/github.com/buvis/claude-plugins"]
+trust_level = "trusted"
+
 [features]
 multi_agent = true
+js_repl = false
 
 [marketplaces.openai-bundled]
-last_updated = "2026-05-20T11:02:10Z"
 source_type = "local"
 source = "/Users/bob/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-05-20T12:02:24Z"
 source_type = "local"
 source = "/Users/bob/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
@@ -113,6 +158,27 @@ enabled = true
 enabled = true
 
 [plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."codex-app-tools@openai-bundled"]
+enabled = true
+
+[plugins."sites@openai-bundled"]
+enabled = true
+
+[plugins."visualize@openai-bundled"]
+enabled = true
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
 enabled = true
 
 [hooks.state]
@@ -145,7 +211,7 @@ trusted_hash = "sha256:30ec7af818cd8f04bddbf86be6275253e168c1c94d726a97c3c0d1c87
 trusted_hash = "sha256:cf290e9ae8cf4036b113e874da2dedcc040888a9dfd2455100f022c439df3575"
 
 [hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:1:0"]
-trusted_hash = "sha256:673f6178bc922257646e40d2fc773c9b7e7d387badabaa68150bceebbaabdf8c"
+trusted_hash = "sha256:2902cf37cc16e808c9d646bc4a5abe1dba2afa48a855ed71fb9e62a599871e14"
 
 [hooks.state."/Users/bob/.codex/hooks.json:post_tool_use:2:0"]
 trusted_hash = "sha256:1df0524834290e05fad3af385ddfcdfd5b65912e54c1da391752788aa08d2017"
@@ -163,10 +229,17 @@ trusted_hash = "sha256:7742655e037b5286bc93728f0fbd3e27c012e42e8b5cea5cfb026ed05
 trusted_hash = "sha256:6f9ea9c3207a718b5331e2a60e43582dd7cc9f6cb907d2b236a2cc0b4d193b4f"
 
 [hooks.state."/Users/bob/.codex/hooks.json:stop:2:0"]
-trusted_hash = "sha256:cb56202426e0743b14e1ecf47ec018f25c98c0714c57474e2fcdfe90ae7c0bcc"
+trusted_hash = "sha256:dd9e7002d061d91af5beae47694a4e9947eaffc638d661d85b33837d35f1892d"
 
 [hooks.state."/Users/bob/.codex/hooks.json:stop:3:0"]
 trusted_hash = "sha256:dd9e7002d061d91af5beae47694a4e9947eaffc638d661d85b33837d35f1892d"
 
 [hooks.state."/Users/bob/.codex/hooks.json:stop:4:0"]
 trusted_hash = "sha256:dd9e7002d061d91af5beae47694a4e9947eaffc638d661d85b33837d35f1892d"
+
+[desktop]
+ambient-suggestions-enabled = true
+conversationDetailMode = "STEPS_PROSE"
+followUpQueueMode = "queue"
+dock-icon-preference = "codex-system"
+keepRemoteControlAwakeWhilePluggedIn = true
