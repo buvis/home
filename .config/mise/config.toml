@@ -2,6 +2,7 @@
 "cargo:rumdl" = "latest"
 "cargo:zoxide" = "latest"
 "github:neovim/neovim" = "latest"
+"lazygit" = "latest"
 "npm:@earendil-works/pi-coding-agent" = "latest"
 "npm:@github/copilot" = "latest"
 "npm:@google/gemini-cli" = "latest"
