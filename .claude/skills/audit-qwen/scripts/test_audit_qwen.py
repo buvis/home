@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
 import audit_qwen as aq
 
 FIXTURES = Path(__file__).parent / "fixtures"
+LEDGER_PRD = "00905-fixture-ledger-v1.md"
 
 
 def make_repo(
@@ -31,6 +33,7 @@ def agg_for_verdict(
 ) -> dict:
     return {
         "state_qwen": passed + failed + unclassified,
+        "ledger_qwen": 0,
         "report_qwen": report_qwen,
         "eligible": 0,
         "gate": {"passed": passed, "failed": failed, "unclassified": unclassified},
@@ -134,6 +137,7 @@ def test_repo_without_autopilot_dir_is_a_quiet_no_data_row(tmp_path):
         "repo": "bare",
         "reports": [],
         "states": [],
+        "ledger": [],
         "archived": 0,
         "unparsed": [],
     }
@@ -206,6 +210,94 @@ def test_verdict_holds_in_the_middle_band():
 def test_verdict_holds_when_attempts_lack_chains():
     word, reason = aq.verdict(agg_for_verdict(report_qwen=13))
     assert word == "HOLD" and "0 are gate-classifiable" in reason
+
+
+# --- Phase 1: attempt ledger ------------------------------------------------
+
+
+def ledger_row(task_id: str, prd: str = LEDGER_PRD, **attempt) -> str:
+    """One complete-prd row in the shape plugin PRD 00143 froze."""
+    return json.dumps(
+        {
+            "batch_id": "202608260000",
+            "prd": prd,
+            "task_id": task_id,
+            "task_name": f"task {task_id}",
+            "task_model": attempt.get("implementor", "qwen"),
+            "qwen_eligible": True,
+            "recorded_at": "2026-08-26T10:00:00Z",
+            "attempt": {"implementor": "qwen", "outcome": "completed", **attempt},
+        }
+    )
+
+
+def write_ledger(repo: Path, *rows: str) -> Path:
+    path = repo / "dev" / "local" / "autopilot" / "ledger" / "attempts.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return path
+
+
+def test_absent_ledger_reads_as_empty_and_leaves_the_card_unchanged(tmp_path):
+    repo = make_repo(tmp_path, "noledger", state="state-chains.json")
+    auto = repo / "dev" / "local" / "autopilot"
+    assert aq.read_attempt_ledger(auto / "ledger" / "attempts.jsonl") == []
+    record = aq.scan_repo(repo)
+    assert record["ledger"] == [] and record["archived"] == 0
+    records = [record]
+    agg = aq.compute(records)
+    assert agg["ledger_qwen"] == 0
+    assert agg["state_qwen"] == 4  # unchanged from the state-only aggregate
+    assert "| ledger |" not in aq.render(records, agg, "")
+
+
+def test_ledger_rows_feed_implementor_and_gate_histograms(tmp_path):
+    repo = make_repo(tmp_path, "ledgered")
+    write_ledger(
+        repo,
+        ledger_row("t1", preflight_outcome="healthy"),
+        ledger_row("t2", outcome="escalated", preflight_outcome="healthy"),
+        ledger_row("t3", implementor="claude"),
+    )
+    records = [aq.scan_repo(repo)]
+    assert records[0]["archived"] == 3
+    agg = aq.compute(records)
+    assert agg["ledger_qwen"] == 2  # the claude attempt is not a qwen attempt
+    assert agg["gate"] == {"passed": 1, "failed": 1, "unclassified": 0}
+    assert agg["preflight"] == {"healthy": 2}
+    assert agg["eligible"] == 3
+    card = aq.render(records, agg, "")
+    assert "| 202608260000 | ledgered | ledger | " + LEDGER_PRD + " | 2 |" in card
+    assert "| ledgered | 0 | 0 | 3 | ok |" in card
+
+
+def test_ledger_eligible_counts_tasks_not_rows(tmp_path):
+    repo = make_repo(tmp_path, "retried")
+    write_ledger(repo, ledger_row("t1", outcome="escalated"), ledger_row("t1"))
+    agg = aq.compute([aq.scan_repo(repo)])
+    assert agg["eligible"] == 1  # one task, two attempts
+    assert agg["ledger_qwen"] == 2
+
+
+def test_malformed_ledger_row_is_skipped_loud_not_fatal(tmp_path, capsys):
+    repo = make_repo(tmp_path, "torn")
+    write_ledger(repo, ledger_row("t1"), "{not json", "[]", ledger_row("t2"))
+    rows = aq.read_attempt_ledger(
+        repo / "dev" / "local" / "autopilot" / "ledger" / "attempts.jsonl"
+    )
+    assert [r["task_id"] for r in rows] == ["t1", "t2"]
+    err = capsys.readouterr().err
+    assert ":2: skipped malformed row" in err
+    assert ":3: skipped non-object row" in err
+
+
+def test_ledger_group_superseded_by_live_state_for_same_prd(tmp_path):
+    repo = make_repo(tmp_path, "both", state="state-chains.json")
+    write_ledger(repo, ledger_row("t1", prd="00901-fixture-prd-v1.md"))
+    agg = aq.compute([aq.scan_repo(repo)])
+    assert agg["ledger_qwen"] == 0
+    assert agg["state_qwen"] == 4
+    assert agg["superseded"] == 1
 
 
 # --- dedup + render ---------------------------------------------------------
