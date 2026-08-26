@@ -1,6 +1,7 @@
 ---
 name: brush
 description: Use when running a project hygiene pass on a repo - git cleanup, leftover triage, evolution check, backlog review, AGENTS.md refresh. Triggers on "brush", "project hygiene", "git hygiene", "tidy repo", "clean up this repo".
+compatibility: "Personal runtime; calls ~/.claude/hooks/notify.py and reads the Claude project auto-memory. Porting: later - both are optional enrichments and the git hygiene core is host-neutral."
 argument-hint: "[quick|dry|apply]"
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: purge-devlocal
 description: Use when purging stale dev/local artifacts across repos (review debris, done-PRD satellites, old autopilot state) via trash-first GC. Triggers on "purge dev local", "clean dev local", "gc dev local", "empty dev local trash".
+compatibility: "Personal runtime; reads the Claude project auto-memory, the autoclaude wrapper, and a sibling skill by ~/.claude/skills/ path. Porting: later - the dev/local GC contract itself is host-neutral."
 ---
 
 # Purge dev/local

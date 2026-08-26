@@ -1,6 +1,7 @@
 ---
 name: audit-qwen
 description: Use when producing the qwen utilization report card - dispatch rate, preflight/exclusion histograms, gate pass rate, and a WIDEN/NARROW/HOLD fence verdict from batch telemetry. Triggers on "audit qwen", "qwen report card", "qwen utilization".
+compatibility: "Personal runtime; reads autopilot batch telemetry and this author's qwen fence config. Porting: later - portable once the telemetry location is a parameter rather than a fixed path."
 ---
 
 # Audit Qwen

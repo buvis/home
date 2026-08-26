@@ -1,6 +1,7 @@
 ---
 name: audit-echo
 description: Use when reviewing cartographer-echo fire patterns to tune stopwords, threshold false-positives, or surface duplicate-detection trends. Triggers on "audit echo", "echo audit", "duplicate detection report".
+compatibility: "Claude-specific; reads the event log written by ~/.claude/hooks/cartographer-echo.py and has no data without that hook. Porting: no - needs an equivalent hook lifecycle on the target host first."
 ---
 
 # Audit Echo

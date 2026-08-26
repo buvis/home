@@ -1,6 +1,7 @@
 ---
 name: extract-plugin
 description: Use when extracting a cluster of personal skills/hooks/commands into a new Claude Code plugin repo and publishing to the buvis marketplace. Triggers on "extract plugin", "ship as plugin", "make plugin from", "spin out plugin".
+compatibility: "Claude-specific by subject; it builds Claude Code plugins and publishes them to the buvis marketplace. Porting: never - the thing it automates is Claude's own plugin system."
 ---
 
 # Extract Plugin
