@@ -223,12 +223,36 @@ def _malformed_return_msg(route, result) -> str | None:
     )
 
 
+def _no_decision_code(route) -> int:
+    """Exit code for a handler that produced NO decision at all.
+
+    An enforcement route blocks (2); an observer stays out of the way (0).
+
+    A handler that cannot be loaded, or that has no `run()`, never judged the
+    tool call - so reporting 0 tells the harness "allowed" on a gate that never
+    ran. That is indistinguishable from a real allow, and the only trace is
+    dispatch.log, which nothing reads: on 2026-08-25 an autopilot skills move
+    left three policy hooks pointing at deleted paths and they sat dark for a
+    full day across 302 faults, unnoticed. Blocking is the loud failure a gate
+    deserves - and it is already what a TIMED-OUT enforcement handler does, so
+    this only makes the likelier failure match the rarer one.
+    """
+    return 2 if route.kind == "enforcement" else 0
+
+
 def _invoke(route, payload) -> tuple[int, str, str]:
     """Run one handler under a SIGALRM cap with crash/timeout isolation.
 
     Degrades to NO per-handler wall-clock cap on a platform without
     SIGALRM/alarm (e.g. Windows): the handler still runs and its result still
     surfaces, isolation just loses the timeout half.
+
+    Three outcomes carry no decision from the handler - it failed to load, it
+    has no `run()`, or it timed out - and all three route through
+    `_no_decision_code`, so an enforcement gate that did not run blocks instead
+    of silently allowing. A MALFORMED RETURN is deliberately NOT one of them:
+    the handler ran to completion, and its non-blocking degrade is pinned by
+    its own tests.
     """
     has_alarm = hasattr(signal, "SIGALRM") and hasattr(signal, "alarm")
     prev = signal.signal(signal.SIGALRM, _raise_timeout) if has_alarm else None
@@ -239,7 +263,7 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         if not hasattr(mod, "run"):
             msg = f"[dispatch] {route.name}: handler has no run(); refusing to load it"
             log(msg)
-            return 0, "", msg + "\n"
+            return _no_decision_code(route), "", msg + "\n"
         result = mod.run(payload)
         if has_alarm:
             signal.alarm(0)  # handler DONE: cancel immediately
@@ -250,13 +274,12 @@ def _invoke(route, payload) -> tuple[int, str, str]:
         return result
     except HandlerTimeout:
         log(f"{route.name} timed out after {route.timeout}s")
-        code = 2 if route.kind == "enforcement" else 0
-        return code, "", f"[dispatch] {route.name}: timed out\n"
+        return _no_decision_code(route), "", f"[dispatch] {route.name}: timed out\n"
     except KeyboardInterrupt:
         raise
     except BaseException as exc:
         log(f"[dispatch] {route.name}: handler fault: {traceback.format_exc()}")
-        return 0, "", f"[dispatch] {route.name}: {exc}\n"
+        return _no_decision_code(route), "", f"[dispatch] {route.name}: {exc}\n"
     finally:
         if has_alarm:
             signal.signal(signal.SIGALRM, signal.SIG_IGN)
