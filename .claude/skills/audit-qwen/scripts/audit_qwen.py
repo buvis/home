@@ -189,12 +189,17 @@ def read_attempt_ledger(path: Path) -> list[dict]:
         try:
             row = json.loads(raw)
         except json.JSONDecodeError as exc:
-            print(f"audit_qwen: {path}:{lineno}: skipped malformed row - {exc}", file=sys.stderr)
+            print(
+                f"audit_qwen: {path}:{lineno}: skipped malformed row - {exc}",
+                file=sys.stderr,
+            )
             continue
         if isinstance(row, dict):
             rows.append(row)
         else:
-            print(f"audit_qwen: {path}:{lineno}: skipped non-object row", file=sys.stderr)
+            print(
+                f"audit_qwen: {path}:{lineno}: skipped non-object row", file=sys.stderr
+            )
     return rows
 
 
@@ -208,8 +213,12 @@ def group_ledger(rows: list[dict]) -> dict[tuple[str, str], dict]:
     """
     groups: dict[tuple[str, str], dict] = {}
     for row in rows:
-        key = (row.get("batch_id") or "?", row.get("prd") or "?")
-        group = groups.setdefault(key, {"attempts": [], "eligible": set(), "dispatch": {}})
+        # str() because the ledger is another repo's file: a numeric batch_id
+        # in one row would otherwise make the group sort raise TypeError.
+        key = (str(row.get("batch_id") or "?"), str(row.get("prd") or "?"))
+        group = groups.setdefault(
+            key, {"attempts": [], "eligible": set(), "dispatch": {}}
+        )
         if row.get("qwen_eligible"):
             group["eligible"].add(row.get("task_id"))
         attempt = row.get("attempt")
@@ -307,7 +316,9 @@ def _row_note(preflight: dict, plan: dict, dispatch: dict) -> str:
     return "; ".join(parts)
 
 
-def _absorb_chain(agg: dict, row: list, attempts: list, eligible: int, plan: dict, dispatch: dict) -> int:
+def _absorb_chain(
+    agg: dict, row: list, attempts: list, eligible: int, plan: dict, dispatch: dict
+) -> int:
     """Fold one batch's attempt chain into the aggregate and append its table
     row (`row` is [batch, repo, source, prd], the qwen count and note get
     appended here). Returns the qwen attempt count."""
@@ -349,7 +360,12 @@ def compute(records: list[dict]) -> dict:
         for state in record["states"]:
             agg["state_qwen"] += _absorb_chain(
                 agg,
-                [state["batch"] or "?", record["repo"], "state (live)", state["prd"] or "?"],
+                [
+                    state["batch"] or "?",
+                    record["repo"],
+                    "state (live)",
+                    state["prd"] or "?",
+                ],
                 state["attempts"],
                 state["eligible"],
                 state["plan"],
@@ -554,7 +570,9 @@ def main(argv: list[str] | None = None) -> int:
         help="scan only these repo roots (repeatable; overrides discovery)",
     )
     ap.add_argument(
-        "--output", type=Path, help="write the report card here instead of stdout"
+        "--output",
+        type=Path,
+        help="write the report card here instead of stdout",
     )
     args = ap.parse_args(argv)
     if args.repo:

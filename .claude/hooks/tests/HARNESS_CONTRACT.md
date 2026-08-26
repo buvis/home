@@ -54,7 +54,9 @@ written first so the new row still lands on its own line. Opens in mode `"a"`
 
 Parses a JSONL transcript into dict entries. Blank lines, malformed JSON lines
 and non-dict JSON values are skipped, not raised. A missing or unreadable file
-returns `[]`. Cached per `Path` for the life of the process. **A test that
+returns `[]` - but only `OSError` is caught, so a file that exists and is not
+valid UTF-8 raises `UnicodeDecodeError`. Cached per `Path` for the life of the
+process. **A test that
 rewrites a transcript between assertions must clear
 `_common._TRANSCRIPT_CACHE`** or use a fresh path.
 
@@ -77,6 +79,8 @@ Runs `fn()` with `payload` fed in as stdin JSON and returns
   `SystemExit` gives its int code, 0 for `None`, 1 otherwise; any other
   `Exception` gives 0 with the traceback appended to the captured stderr
   (handler isolation). `HandlerTimeout` is **not** caught and propagates.
+- A `bool` is not an int here: both branches guard on `not isinstance(..., bool)`,
+  so `return True` gives 0 and `SystemExit(False)` gives 1.
 
 **Trap for test authors**: `capture_main` installs its own `sys.stdin`, so a
 test that patches `sys.stdin` and drives the handler through `run(payload)` /
@@ -90,9 +94,10 @@ directly.
   `importlib.util.spec_from_file_location`, and the dispatcher calls its
   `run(payload)` - not `main()` - under a per-handler SIGALRM wall-clock cap.
   `run(payload)` must return an `(int, str, str)` triple.
-- A route that produces **no decision** - fails to import, has no `run()`, or
-  times out - exits 2 when `kind="enforcement"` and 0 for an observer. So a
-  timed-out enforcement hook **denies**; it does not silently allow.
+- A route that produces **no decision** - fails to import, has no `run()`,
+  raises out of `run()`, or times out - exits 2 when `kind="enforcement"` and 0
+  for an observer. So a timed-out or crashed enforcement hook **denies**; it
+  does not silently allow.
 - A malformed return is deliberately not a no-decision case: it exits 0.
 - On a platform without `SIGALRM` (Windows), the cap is skipped; the handler
   still runs and its result still surfaces.
