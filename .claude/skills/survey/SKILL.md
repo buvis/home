@@ -1,6 +1,7 @@
 ---
 name: survey
 description: Use to generate an on-demand codebase brief via /survey - where things live, naming conventions, error style, and extension points for the current repo. Triggers on "/survey", "survey repo", "codebase map", "where do things live".
+compatibility: "Claude-specific; scripts/run.py hard-imports ~/.claude/hooks/_lib_cartographer.py. Porting: no - vendor or replace that library first."
 ---
 
 # Survey

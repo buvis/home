@@ -1,6 +1,7 @@
 ---
 name: use-qwen
 description: Use when running a local Qwen model (llama.cpp + pi agent) for code tasks, or onboarding, qualifying, or promoting a new local model id. Triggers on "run qwen", "qwen analyze", "ask qwen", "onboard model", "qualify model", "promote model".
+compatibility: "Personal runtime; treats ~/.claude/skills/use-codex/references/dispatch-contract.md as mandatory and addresses its own scripts by ~/.claude/skills/ path. Porting: candidate - rewrite the paths and vendor the contract."
 ---
 
 # Qwen (Local) Skill Guide

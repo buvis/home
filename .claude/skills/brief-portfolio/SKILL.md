@@ -1,6 +1,7 @@
 ---
 name: brief-portfolio
 description: Use when the user wants a portfolio-wide status brief of all gita-registered repos as a single-file HTML dashboard with actionable follow-ups. Triggers on "brief portfolio", "state of my repos", "repo dashboard", "cross-repo todos".
+compatibility: "Personal runtime; reads gita-registered repos, and its Claude coupling is the CLAUDE_SKILL_DIR asset paths only. Porting: candidate - rewrite those nine paths to ~/.agents/skills/."
 ---
 
 # Brief Portfolio

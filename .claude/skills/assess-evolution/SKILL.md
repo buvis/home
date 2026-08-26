@@ -1,6 +1,7 @@
 ---
 name: assess-evolution
 description: Use when assessing a project's long-term evolution health and emitting a phased, session-sized PRD roadmap to get it back on track. Triggers on "evolution audit", "assess this project", "health-check the codebase", "what should we refactor".
+compatibility: "Portable; ships no scripts and its only Claude reference is a soft pointer to ~/.claude/rules/ai-app-design.md. Porting: candidate - generalise that pointer and move it to agent-skills."
 ---
 
 # Assess Evolution

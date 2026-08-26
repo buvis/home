@@ -1,6 +1,7 @@
 ---
 name: debrief-meeting
 description: Use when turning a meeting transcript (Teams/Webex/Zoom VTT, SRT, DOCX, TXT) into a self-contained interactive HTML debrief - agenda, notes, actions, decisions as ADRs, speaking share, timeline. Triggers on "debrief meeting", "process transcript".
+compatibility: "Portable; a self-contained transcript parser and Svelte app whose only Claude coupling is the CLAUDE_SKILL_DIR asset paths. Porting: best candidate - rewrite those eleven paths and move it."
 ---
 
 # Debrief Meeting
