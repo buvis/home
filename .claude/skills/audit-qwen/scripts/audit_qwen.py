@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """audit_qwen.py - qwen utilization report card (PRD 00112).
 
-Sweeps batch reports and autopilot state files across the gita-registered
-repos plus ~/.claude, computes utilization rates deterministically, and
-prints a markdown report card ending in a WIDEN/NARROW/HOLD verdict.
+Sweeps batch reports, autopilot state files and attempt ledgers across the
+gita-registered repos plus ~/.claude, computes utilization rates
+deterministically, and prints a markdown report card ending in a
+WIDEN/NARROW/HOLD verdict.
 stdlib only; every figure is a code-side parse, the skill only narrates.
 
 Quinn precision (the PRD's fifth number) is not computable and is reported
@@ -164,6 +165,61 @@ def parse_state(path: Path) -> dict:
     return result
 
 
+def read_attempt_ledger(path: Path) -> list[dict]:
+    """Rows of `<repo>/dev/local/autopilot/ledger/attempts.jsonl`.
+
+    `complete-prd` appends one JSONL row per attempt, shaped
+    {batch_id, prd, task_id, task_name, task_model, qwen_eligible,
+    recorded_at, attempt} where `attempt` is the verbatim attempt object
+    (plugin PRD 00143). An absent ledger is the normal case and yields [];
+    a malformed row is skipped loud on stderr and never fatal, so one bad
+    append cannot cost the run every other row.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"audit_qwen: unreadable ledger {path}: {exc}", file=sys.stderr)
+        return []
+    rows: list[dict] = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            print(f"audit_qwen: {path}:{lineno}: skipped malformed row - {exc}", file=sys.stderr)
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+        else:
+            print(f"audit_qwen: {path}:{lineno}: skipped non-object row", file=sys.stderr)
+    return rows
+
+
+def group_ledger(rows: list[dict]) -> dict[tuple[str, str], dict]:
+    """Ledger rows -> {(batch, prd): {attempts, eligible, dispatch}}.
+
+    `eligible` counts distinct qwen-eligible tasks, not rows: a retried task
+    writes one row per attempt and would otherwise inflate the denominator.
+    Plan-time exclusions are absent from the row shape, so only dispatch-time
+    reroutes (an attempt's own `qwen_excluded_reason`) are recoverable here.
+    """
+    groups: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        key = (row.get("batch_id") or "?", row.get("prd") or "?")
+        group = groups.setdefault(key, {"attempts": [], "eligible": set(), "dispatch": {}})
+        if row.get("qwen_eligible"):
+            group["eligible"].add(row.get("task_id"))
+        attempt = row.get("attempt")
+        if isinstance(attempt, dict):
+            group["attempts"].append(attempt)
+            if attempt.get("qwen_excluded_reason"):
+                _add(group["dispatch"], attempt["qwen_excluded_reason"])
+    return groups
+
+
 def classify_gate(attempt: dict) -> str:
     """Step-5.5 gate verdict for one qwen attempt, pinned to state-schema.md
     (PRD 00065): `qwen_gate_failed` is the durable failure signal; outcome
@@ -214,6 +270,7 @@ def scan_repo(repo: Path) -> dict:
         "repo": repo.name,
         "reports": [],
         "states": [],
+        "ledger": [],
         "archived": 0,
         "unparsed": [],
     }
@@ -226,7 +283,8 @@ def scan_repo(repo: Path) -> dict:
                 record["unparsed"].append((str(path), parsed["unparsed"]))
             else:
                 record["reports"].append(parsed)
-        record["archived"] = len(list(reports_dir.glob("*state*archived*.json")))
+    record["ledger"] = read_attempt_ledger(auto / "ledger" / "attempts.jsonl")
+    record["archived"] = len(record["ledger"])
     state_path = auto / "state.json"
     if state_path.is_file():
         parsed = parse_state(state_path)
@@ -249,12 +307,34 @@ def _row_note(preflight: dict, plan: dict, dispatch: dict) -> str:
     return "; ".join(parts)
 
 
+def _absorb_chain(agg: dict, row: list, attempts: list, eligible: int, plan: dict, dispatch: dict) -> int:
+    """Fold one batch's attempt chain into the aggregate and append its table
+    row (`row` is [batch, repo, source, prd], the qwen count and note get
+    appended here). Returns the qwen attempt count."""
+    qwen = [a for a in attempts if a.get("implementor") == "qwen"]
+    agg["eligible"] += eligible
+    preflight: dict[str, int] = {}
+    for attempt in qwen:
+        _add(agg["gate"], classify_gate(attempt))
+        if attempt.get("preflight_outcome"):
+            _add(preflight, attempt["preflight_outcome"])
+    for bucket, n in preflight.items():
+        _add(agg["preflight"], bucket, n)
+    for name, hist in (("plan", plan), ("dispatch", dispatch)):
+        for bucket, n in hist.items():
+            _add(agg[name], bucket, n)
+    agg["batch_rows"].append([*row, len(qwen), _row_note(preflight, plan, dispatch)])
+    return len(qwen)
+
+
 def compute(records: list[dict]) -> dict:
-    """Merge per-repo parses into the aggregate rate inputs. A report
-    section whose (repo, prd) a state also covers is skipped - the state
-    chain is richer and counting both would double-count."""
+    """Merge per-repo parses into the aggregate rate inputs. Each PRD is
+    counted once from its richest source: a live state chain beats a ledger
+    group, and either beats a report section - counting two of them would
+    double-count the same attempts."""
     agg = {
         "state_qwen": 0,
+        "ledger_qwen": 0,
         "report_qwen": 0,
         "eligible": 0,
         "gate": {"passed": 0, "failed": 0, "unclassified": 0},
@@ -267,34 +347,33 @@ def compute(records: list[dict]) -> dict:
     for record in records:
         state_prds = {s["prd"] for s in record["states"] if s["prd"]}
         for state in record["states"]:
-            qwen = [a for a in state["attempts"] if a.get("implementor") == "qwen"]
-            agg["state_qwen"] += len(qwen)
-            agg["eligible"] += state["eligible"]
-            preflight: dict[str, int] = {}
-            for attempt in qwen:
-                _add(agg["gate"], classify_gate(attempt))
-                if attempt.get("preflight_outcome"):
-                    _add(preflight, attempt["preflight_outcome"])
-            for bucket, n in preflight.items():
-                _add(agg["preflight"], bucket, n)
-            for hist in ("plan", "dispatch"):
-                for bucket, n in state[hist].items():
-                    _add(agg[hist], bucket, n)
-            agg["batch_rows"].append(
-                [
-                    state["batch"] or "?",
-                    record["repo"],
-                    "state (live)",
-                    state["prd"] or "?",
-                    len(qwen),
-                    _row_note(preflight, state["plan"], state["dispatch"]),
-                ],
+            agg["state_qwen"] += _absorb_chain(
+                agg,
+                [state["batch"] or "?", record["repo"], "state (live)", state["prd"] or "?"],
+                state["attempts"],
+                state["eligible"],
+                state["plan"],
+                state["dispatch"],
+            )
+        ledger_prds = set()
+        for (batch, prd), group in sorted(group_ledger(record["ledger"]).items()):
+            if prd in state_prds:
+                agg["superseded"] += 1
+                continue
+            ledger_prds.add(prd)
+            agg["ledger_qwen"] += _absorb_chain(
+                agg,
+                [batch, record["repo"], "ledger", prd],
+                group["attempts"],
+                len(group["eligible"]),
+                {},
+                group["dispatch"],
             )
         for report in record["reports"]:
             for section in report["sections"]:
                 if section["stalled"]:
                     continue
-                if section["prd"] in state_prds:
+                if section["prd"] in state_prds or section["prd"] in ledger_prds:
                     agg["superseded"] += 1
                     continue
                 mix = section["mix"]
@@ -323,8 +402,12 @@ def compute(records: list[dict]) -> dict:
     return agg
 
 
+def total_attempts(agg: dict) -> int:
+    return agg["state_qwen"] + agg["ledger_qwen"] + agg["report_qwen"]
+
+
 def verdict(agg: dict) -> tuple[str, str]:
-    total = agg["state_qwen"] + agg["report_qwen"]
+    total = total_attempts(agg)
     gate = agg["gate"]
     classifiable = gate["passed"] + gate["failed"]
     rate = gate["passed"] / classifiable if classifiable else None
@@ -365,7 +448,7 @@ def _hist(hist: dict) -> str:
 
 
 def render(records: list[dict], agg: dict, note: str) -> str:
-    total = agg["state_qwen"] + agg["report_qwen"]
+    total = total_attempts(agg)
     gate = agg["gate"]
     classifiable = gate["passed"] + gate["failed"]
     word, reason = verdict(agg)
@@ -377,14 +460,14 @@ def render(records: list[dict], agg: dict, note: str) -> str:
         "",
         "## Discovery",
         "",
-        "| Repo | Reports | States | Archived snapshots | Status |",
-        "|------|---------|--------|--------------------|--------|",
+        "| Repo | Reports | States | Ledger rows | Status |",
+        "|------|---------|--------|-------------|--------|",
     ]
     for r in records:
         status = (
             "UNPARSED entries"
             if r["unparsed"]
-            else ("ok" if r["reports"] or r["states"] else "no data")
+            else ("ok" if r["reports"] or r["states"] or r["ledger"] else "no data")
         )
         lines.append(
             f"| {r['repo']} | {len(r['reports'])} | {len(r['states'])} |"
@@ -411,8 +494,9 @@ def render(records: list[dict], agg: dict, note: str) -> str:
         if classifiable
         else "n/a (0 classifiable)"
     )
+    dispatched = agg["state_qwen"] + agg["ledger_qwen"]
     dispatch_rate = (
-        f"{agg['state_qwen']}/{agg['eligible']} = {agg['state_qwen'] / agg['eligible']:.2f}"
+        f"{dispatched}/{agg['eligible']} = {dispatched / agg['eligible']:.2f}"
         if agg["eligible"]
         else "n/a (0 eligible tasks observed)"
     )
@@ -421,11 +505,11 @@ def render(records: list[dict], agg: dict, note: str) -> str:
         "## Aggregate",
         "",
         f"- Qwen attempts on record: **{total}** (state chains {agg['state_qwen']},"
-        f" report sections {agg['report_qwen']})",
-        f"- Dispatch rate (qwen attempts / qwen-eligible tasks, state chains only):"
-        f" {dispatch_rate}",
+        f" ledger {agg['ledger_qwen']}, report sections {agg['report_qwen']})",
+        f"- Dispatch rate (qwen attempts / qwen-eligible tasks, state chains and"
+        f" ledger): {dispatch_rate}",
         f"- Preflight outcomes: {_hist(agg['preflight'])}",
-        f"- Gate pass rate (state chains only): {gate_rate}"
+        f"- Gate pass rate (state chains and ledger): {gate_rate}"
         + (f" — {gate['unclassified']} unclassified" if gate["unclassified"] else ""),
         f"- Exclusions, plan-time: {_hist(agg['plan'])};"
         f" dispatch-time reroutes: {_hist(agg['dispatch'])}",
@@ -447,10 +531,15 @@ def render(records: list[dict], agg: dict, note: str) -> str:
         " Pre-00065 chains wrote one entry per task, so an in-pass gate failure is"
         " invisible in them (the Claude fallback rewrote `implementor`); their qwen"
         " rows can only ever read as passes.",
-        "- Report sections whose PRD a live state also covers are counted from the"
-        f" state only ({agg['superseded']} superseded this run).",
-        "- Archived state snapshots (`*state*archived*.json`): the wrapper does not"
-        " currently write any; the glob stays for when it does.",
+        "- Each PRD is counted once, from its richest source: a live state chain"
+        " beats a ledger group, and either beats a report section"
+        f" ({agg['superseded']} superseded this run).",
+        "- The archived input is the attempt ledger"
+        " (`dev/local/autopilot/ledger/attempts.jsonl`), one JSONL row per attempt"
+        " appended by complete-prd; the `Ledger rows` column counts its rows. A repo"
+        " with no ledger contributes zero rather than failing the scan. Ledger rows"
+        " carry no plan-time exclusion reason, so plan-time buckets come from live"
+        " state and reports only.",
         "",
     ]
     return "\n".join(lines)
