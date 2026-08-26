@@ -12,13 +12,17 @@ Two tiers of memory, different homes:
 
 When the user says "remember this globally" or "put it in global memory," default to a buvis-tracked file under `~/.claude/`, not the project auto-memory.
 
-## Instincts vs auto-memory
+## Auto-memory is the only machine-written plane
 
-Two machine-written planes teach future sessions; they have different owners:
+`projects/<hash>/memory/` holds curated facts written deliberately, and nothing
+else teaches future sessions.
 
-- **Auto-memory** (`projects/<hash>/memory/`) holds curated facts written deliberately.
-- **Instincts** (`~/.local/share/agents/instincts/`) holds statistical habits distilled from tool
-  observations, confidence-gated; raw observations are pruned after
-  `INSTINCTS_RETENTION_DAYS` (default 14).
-- On conflict, auto-memory wins: an instinct that contradicts a memory is wrong or
-  stale - fix or delete the instinct, never follow it over a memory.
+The **instincts** plane (`~/.local/share/agents/instincts/`, written by
+`hooks/observe_tool.py` and `hooks/analyze-instincts.py`) was retired
+2026-08-26. It had never delivered: its only output went to
+`~/.claude/projects/<encoded>/CLAUDE.md`, and it encoded the repo path by
+replacing `/` alone while the harness also replaces `.`, so every repo under
+`github.com/` landed in a phantom sibling directory that held no sessions. What
+it produced was tautologies ("Repeated sequence: Bash -> Bash -> Bash", trigger
+identical to action), so it was deleted rather than repaired. Do not re-add a
+statistical-habit plane without a delivery path proven end to end first.

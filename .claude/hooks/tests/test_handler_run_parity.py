@@ -255,18 +255,17 @@ def _run_in_process(
 # its parity case is itself a discriminator (subprocess exits 2 -> a `(0, "")`
 # stub run() fails parity). The rest ride benign, empty-stdout, exit-0 paths.
 #
-# This parametrized suite is the EXISTENCE + parity floor. Seven handlers ALSO
+# This parametrized suite is the EXISTENCE + parity floor. Six handlers ALSO
 # get a dedicated STRONG discriminator below (a distinguishing exit / stdout /
 # side-effect a no-op or unconditional stub cannot fake):
 #   enforce_prd_location (block AND allow), validate_state_json_hook (reject AND
-#   accept), track_cost / track_skills / observe_tool (pinned side-effect file),
+#   accept), track_cost / track_skills (pinned side-effect file),
 #   review_coverage_hook (exit 2), autopilot_context_cap_hook (rotation stdout).
-# The remaining FIVE are EXISTENCE-ONLY here (benign parity + run-exists). Four
+# The remaining FOUR are EXISTENCE-ONLY here (benign parity + run-exists). Three
 # need external state this parity test must not fabricate hermetically -
 #   cartographer-echo                      (tree-sitter + real repo corpus)
 #   strunk-ruling-inject                   (installed strunk plugin cache)
 #   notify                                 (real desktop/network presence probes)
-#   analyze-instincts                      (a prior observation corpus)
 # and enforce_write_scope rides its disarmed path: _STRIP_ENV drops its arming
 # marker from BOTH legs, so it returns (0, "", "") whatever the payload names.
 # Each handler's OWN suite covers its behavior; here they only prove run()
@@ -297,17 +296,6 @@ _HANDLERS = [
         id="strunk-ruling-inject",
     ),
     pytest.param(
-        str(HOOKS_DIR / "observe_tool.py"),
-        {
-            "tool_name": "Read",
-            "tool_input": {"file_path": "/tmp/x"},
-            "tool_response": "ok",
-            "session_id": "s",
-            "cwd": "/tmp",
-        },
-        id="observe_tool",
-    ),
-    pytest.param(
         str(HOOKS_DIR / "notify.py"),
         {
             "hook_event_name": "Stop",
@@ -326,11 +314,6 @@ _HANDLERS = [
         str(HOOKS_DIR / "track_skills.py"),
         {"session_id": "s"},
         id="track_skills",
-    ),
-    pytest.param(
-        str(HOOKS_DIR / "analyze-instincts.py"),
-        {"session_id": "s"},
-        id="analyze-instincts",
     ),
     pytest.param(
         str(HOOKS_DIR / "enforce_write_scope.py"),
@@ -371,9 +354,9 @@ def test_run_parity_matches_subprocess(path, payload, tmp_path, monkeypatch):
 
     The FILE-TREE assertion carries the rest: whatever the subprocess wrote under
     its HOME, the in-process leg must have written too. A no-op `run()` leaves an
-    empty tree, so notify, analyze-instincts and observe_tool
-    all fail on it. Verified deterministic: each handler run twice under
-    different HOMEs/cwds yields identical trees, so nothing needs normalizing.
+    empty tree, so notify fails on it. Verified deterministic: each handler run
+    twice under different HOMEs/cwds yields identical trees, so nothing needs
+    normalizing.
     """
     sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
     code_sub, out_sub, err_sub = _run_subprocess(path, payload, sub_home, sub_cwd)
@@ -610,40 +593,6 @@ def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
             home / ".local" / "share" / "agents" / "metrics" / "skills.jsonl",
         )
         assert row["skill"] == "brush", row
-
-
-@pytest.mark.integration
-def test_observe_tool_writes_observation_row(tmp_path, monkeypatch):
-    path = str(HOOKS_DIR / "observe_tool.py")
-    # A non-empty tool_name on a non-automated session appends one observation
-    # under HOME/.local/share/agents/instincts/projects/<hash>/observations.jsonl. cwd is a
-    # non-git temp dir so project detection is deterministic; the exact <hash>
-    # (git-detected or the "global" fallback) is irrelevant - glob catches it.
-    payload = {
-        "tool_name": "Read",
-        "tool_input": {"file_path": "/tmp/x"},
-        "tool_response": "ok",
-        "session_id": "s",
-        "cwd": "/tmp",
-    }
-
-    sub_home, sub_cwd = _fresh_env(tmp_path, "sub")
-    code_sub, out_sub, _ = _run_subprocess(path, payload, sub_home, sub_cwd)
-    in_home, in_cwd = _fresh_env(tmp_path, "inproc")
-    code_in, out_in, _ = _run_in_process(path, payload, in_home, in_cwd, monkeypatch)
-
-    assert (code_in, out_in) == (code_sub, out_sub) == (0, "")
-    obs = "agents/instincts/projects/*/observations.jsonl"
-    data = Path(".local") / "share"
-    assert _glob_nonempty(sub_home / data, obs)
-    assert _glob_nonempty(in_home / data, obs), (
-        "run() must append an observation under HOME; a no-op leaves none"
-    )
-    # Pin the MEANING: the row must record the tool and session from the payload
-    # (kills a garbage-writing stub). Keys per observe_tool.py.
-    for home in (sub_home, in_home):
-        row = _last_json_row(_one_nonempty_glob(home / data, obs))
-        assert row["tool"] == "Read" and row["sid"] == "s", row
 
 
 # --------------------------------------------------------------------------- #

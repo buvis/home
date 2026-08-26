@@ -5,9 +5,11 @@ Split out of `_lib_cartographer.py` to keep that file under its PRD-00009
 `_lib_cartographer` re-exports `project_hash`, so `lib.project_hash` is
 unchanged for every caller and test.
 
-`project_hash` is a behavioral copy of `analyze-instincts.py:detect_project` on
-the git-resolution branches (a parity test guards drift), plus a ~/.claude
-meta-repo work-tree fallback the original deliberately lacks. Uses `Path.home()`
+`project_hash` began as a behavioral copy of
+`analyze-instincts.py:detect_project` on the git-resolution branches, plus a
+~/.claude meta-repo work-tree fallback the original deliberately lacked. That
+module was retired 2026-08-26 and this is now the only implementation, so the
+parity tests that guarded drift between them are gone. Uses `Path.home()`
 directly (tests patch it globally) — no `_home` indirection, so this module
 stays free of any `_lib_cartographer` import and the two cannot cycle.
 
@@ -47,7 +49,7 @@ def _meta_worktree_root(path: str | None) -> str | None:
 def project_hash(path: str | None = None) -> tuple[str, str, str]:
     """Determine project identity from git remote or toplevel path.
 
-    Behavioral copy of `analyze-instincts.py:detect_project` on the git
+    Originally a behavioral copy of the retired `analyze-instincts.py` on the git
     branches (parity test guards drift); adds a `path` parameter the original
     lacks. Returns `(hash, name, remote_url)`. Prefers the `origin` remote (with
     embedded credentials stripped), then the toplevel path. Where detect_project
