@@ -6,7 +6,7 @@
 # (exit code, whether pi dispatched, child stdin), never on script internals.
 set -u
 
-QWEN_RUN_SH=/Users/bob/.claude/skills/use-qwen/scripts/qwen-run.sh
+QWEN_RUN_SH="$(cd "$(dirname "$0")" && pwd)/qwen-run.sh"
 [ -n "${1:-}" ] && QWEN_RUN_SH="$1"
 
 # ── assert helpers ────────────────────────────────────────────────────────────
