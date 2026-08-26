@@ -63,7 +63,9 @@ def project_hash(path: str | None = None) -> tuple[str, str, str]:
         remote = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             cwd=cwd,
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if remote.returncode == 0 and remote.stdout.strip():
             url = remote.stdout.strip()
@@ -78,7 +80,9 @@ def project_hash(path: str | None = None) -> tuple[str, str, str]:
         toplevel = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=cwd,
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if toplevel.returncode == 0 and toplevel.stdout.strip():
             top = toplevel.stdout.strip()

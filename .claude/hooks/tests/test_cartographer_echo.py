@@ -446,7 +446,8 @@ def test_stopword_filter_test_path_returns_empty(rel_path: str) -> None:
 
 
 def test_search_candidates_works_when_rg_is_not_on_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Candidate search must survive `rg` being a shell function, not a binary.
 
@@ -479,7 +480,8 @@ def test_search_candidates_works_when_rg_is_not_on_path(
 
 
 def test_no_resolvable_ripgrep_degrades_quietly_and_audits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With no rg AND no host binary, search returns [] and records why.
 

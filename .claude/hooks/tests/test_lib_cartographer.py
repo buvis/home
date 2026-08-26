@@ -75,7 +75,7 @@ def test_project_hash_with_remote(lib, tmp_path: Path) -> None:
         os.chdir(cwd)
 
     expected_hash = hashlib.sha256(
-        b"https://github.com/example/widgets.git"
+        b"https://github.com/example/widgets.git",
     ).hexdigest()[:12]
     assert h == expected_hash
     assert name == "widgets"
@@ -299,7 +299,8 @@ def test_resolve_session_key_falls_back_to_transcript(lib, tmp_path: Path) -> No
 
 
 def test_resolve_session_key_falls_back_to_cwd(
-    lib, monkeypatch: pytest.MonkeyPatch
+    lib,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
     monkeypatch.delenv("CLAUDE_TRANSCRIPT_PATH", raising=False)
@@ -633,7 +634,8 @@ def test_try_import_tree_sitter_concurrent_first_callers_emit_single_audit(
 
 
 def test_mark_checked_concurrent_threads_preserve_all_keys(
-    lib, fake_home: Path
+    lib,
+    fake_home: Path,
 ) -> None:
     """Cycle 3 fix: concurrent mark_checked calls for distinct keys must not lose updates.
 
@@ -685,7 +687,8 @@ def test_load_session_state_non_utf8_returns_empty(lib, fake_home: Path) -> None
 
 
 def test_project_hash_with_regular_file_path_does_not_raise(
-    lib, tmp_path: Path
+    lib,
+    tmp_path: Path,
 ) -> None:
     """project_hash(path=<file>) must fall back gracefully.
 
