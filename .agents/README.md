@@ -1,6 +1,6 @@
 # Shared agent skills: machine-local policy
 
-The design, install steps, `braid` usage, `braid.ignore` format, multi-source
+The design, install steps, `braid` usage, `.braidignore` format, multi-source
 overlay pattern, and compatibility classes live in
 `~/git/src/github.com/buvis/agent-skills/README.md` and are canonical. This file
 carries only what is true of this machine.
@@ -8,7 +8,7 @@ carries only what is true of this machine.
 ## Plugin treatment outside Claude
 
 Which Claude plugins have a standalone copy here, and how each is handled. The
-names skipped by `braid` are listed in `braid.ignore`.
+names skipped by `braid` are listed in `.braidignore`.
 
 | Claude plugin | Treatment outside Claude |
 |---|---|
@@ -23,7 +23,8 @@ names skipped by `braid` are listed in `braid.ignore`.
 
 ## Sources composed here
 
-One source today: `~/git/src/github.com/buvis/agent-skills`. Every entry in
+One source today: `~/git/src/github.com/buvis/agent-skills`, recorded in
+`~/.config/agent-skills/sources.d/personal`. Every entry in
 `~/.agents/skills` is a symlink into it, and `~/.agents/bin/braid` is a symlink
-into its `bin/`. Add the work source and a `sources.d` list here when a second
-checkout exists.
+into its `bin/`. Add a work-machine-only `sources.d/work` file when a private
+employer checkout exists.
