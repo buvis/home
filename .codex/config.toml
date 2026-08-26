@@ -10,10 +10,6 @@ service_tier = "default"
 command = 'docker'
 args = ['mcp', 'gateway', 'run']
 
-[mcp_servers.serena]
-args = ['--from', 'git+https://github.com/oraios/serena', 'serena', 'start-mcp-server', '--enable-web-dashboard', 'False']
-command = 'uvx'
-
 [mcp_servers.node_repl]
 args = []
 command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
