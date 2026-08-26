@@ -28,7 +28,7 @@ This skill covers two distinct jobs - check which one the invocation wants befor
 
 ## Dispatch Contract (shared)
 
-Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in `/Users/bob/.claude/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill (local inference is slow, so the background-dispatch guidance matters even more here).
+Background dispatch and waiting (TaskOutput-only waiting), following up, error handling, and the always-use-`-f` prompt rule are defined once in the `autopilot` plugin's `use-codex` skill, at `${CLAUDE_PLUGIN_ROOT}/skills/use-codex/references/dispatch-contract.md`. Read it before dispatching; it applies verbatim to this skill. Without the autopilot plugin installed, follow the background-dispatch rules stated inline below (local inference is slow, so the background-dispatch guidance matters even more here).
 
 Qwen-specific deltas on error handling:
 

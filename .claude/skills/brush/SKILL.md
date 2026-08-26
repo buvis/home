@@ -105,7 +105,7 @@ nothing pending and no manual items -> no action needed
 ```
 
 If decisions are pending or a phase failed, also send
-`python3 /Users/bob/.claude/hooks/notify.py --send "brush <repo>" "<M> decisions pending - dev/local/audit-results/brush-report.md"`.
+`python3 ~/.claude/hooks/notify.py --send "brush <repo>" "<M> decisions pending - dev/local/audit-results/brush-report.md"`.
 Skip the notify silently if the script is absent or the human is present in
 an interactive session.
 
