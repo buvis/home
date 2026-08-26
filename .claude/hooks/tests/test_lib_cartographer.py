@@ -217,6 +217,31 @@ def test_append_audit_1000_sequential(lib, fake_home: Path) -> None:
     assert [p["i"] for p in parsed] == list(range(1000))
 
 
+def test_append_audit_rotates_past_size_cap(
+    lib,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lib, "_AUDIT_MAX_BYTES", 200)
+    for i in range(20):
+        lib.append_audit({"event": "fill", "i": i})
+    backup = _audit_path(fake_home).with_suffix(".jsonl.1")
+    assert backup.is_file(), "log past the cap was not rotated"
+    assert _audit_path(fake_home).stat().st_size <= 200
+    live = [
+        json.loads(line)["i"]
+        for line in _audit_path(fake_home).read_text(encoding="utf-8").splitlines()
+    ]
+    old = [json.loads(line)["i"] for line in backup.read_text(encoding="utf-8").splitlines()]
+    assert live[-1] == 19, "newest row must stay in the live log"
+    assert max(old) < min(live), "backup must hold strictly older rows than the live log"
+
+
+def test_append_audit_keeps_log_under_cap_unrotated(lib, fake_home: Path) -> None:
+    lib.append_audit({"event": "small"})
+    assert not _audit_path(fake_home).with_suffix(".jsonl.1").exists()
+
+
 def test_append_audit_concurrent_threads(lib, fake_home: Path) -> None:
     import threading
 
