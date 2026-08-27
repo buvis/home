@@ -1,11 +1,13 @@
 """Tests for hooks/enforce_prd_location.py — both file mode and bash mode."""
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +16,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import _common
 
 HOOK = Path(__file__).resolve().parents[1] / "enforce_prd_location.py"
+
+
+def load_module_by_path(name: str, path: Path):
+    """Load a module straight off disk (the hook is not on sys.path as a
+    package). Behavioral tests read the hook's own constants through this so
+    the name lists live in ONE place - the hook - and can never be
+    transcribed into the test file."""
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def run_hook(payload: dict | None) -> subprocess.CompletedProcess[str]:
@@ -320,9 +333,9 @@ class TestBashMode(unittest.TestCase):
 
 
 class TestDevlocalLayout(unittest.TestCase):
-    """Layout layer merged 2026-08-23: root keepers only, no foreign top-level
-    dirs, .trash GC-owned, prds lifecycle subdirs (incl. hold/), both
-    spellings of the symlinked ~/.claude store."""
+    """Layout layer merged 2026-08-23: the root is directories-only, no
+    foreign top-level dirs, .trash GC-owned, prds lifecycle subdirs (incl.
+    hold/), both spellings of the symlinked ~/.claude store."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -339,7 +352,7 @@ class TestDevlocalLayout(unittest.TestCase):
         self.assertIn("ROOT", r.stderr)
         self.assertIn("dev/local/tmp/race.sh", r.stderr)
 
-    def test_allows_root_keepers(self) -> None:
+    def test_blocks_root_keeper_names_routing_to_meta(self) -> None:
         for name in (
             "project-capsule.md",
             "agoge-profile.md",
@@ -347,7 +360,33 @@ class TestDevlocalLayout(unittest.TestCase):
             "ecc-cursor",
         ):
             r = self._write(os.path.join(self.store, name))
-            self.assertEqual(r.returncode, 0, f"{name}: {r.stderr}")
+            self.assertEqual(r.returncode, 2, f"{name}: allowed at root")
+            self.assertIn("ROOT", r.stderr, f"{name}: {r.stderr}")
+            self.assertIn(f"dev/local/meta/{name}", r.stderr, f"{name}: {r.stderr}")
+
+    def test_blocks_root_stray_without_offering_meta_routing(self) -> None:
+        # One name is generated per run so no implementation can pass by
+        # memorizing the literal; decisions.md.bak stays because a
+        # keeper-adjacent name is the interesting near-miss. The .md and
+        # -cursor strays kill the shape heuristic: every current keeper ends
+        # in one of those two, so `name.endswith(".md") or
+        # name.endswith("-cursor")` passes a .txt-only stray test while
+        # routing every plain .md stray into the keepers' directory.
+        for name in (
+            f"stray-{uuid.uuid4().hex}.txt",
+            f"stray-{uuid.uuid4().hex}.md",
+            f"{uuid.uuid4().hex}-cursor",
+            "decisions.md.bak",
+        ):
+            r = self._write(os.path.join(self.store, name))
+            self.assertEqual(r.returncode, 2, f"{name}: allowed at root")
+            self.assertIn("ROOT", r.stderr, f"{name}: {r.stderr}")
+            self.assertIn(f"dev/local/tmp/{name}", r.stderr, f"{name}: {r.stderr}")
+            self.assertNotIn(
+                f"dev/local/meta/{name}",
+                r.stderr,
+                f"{name} is not a keeper: {r.stderr}",
+            )
 
     def test_allows_known_subdirs(self) -> None:
         for rel in (
@@ -417,8 +456,7 @@ class TestDevlocalLayout(unittest.TestCase):
 
     def test_meta_holds_keepers_only(self) -> None:
         """meta/ is the keepers' canonical home (2026-08-23): keeper writes
-        pass, anything else in meta/ blocks, root keeper names stay writable
-        during the compat-symlink era."""
+        pass, anything else in meta/ blocks."""
         r = self._write(os.path.join(self.store, "meta", "project-capsule.md"))
         self.assertEqual(r.returncode, 0, r.stderr)
         r = self._write(os.path.join(self.store, "meta", "scratch.md"))
@@ -427,7 +465,7 @@ class TestDevlocalLayout(unittest.TestCase):
         r = self._write(os.path.join(self.store, "meta", "nested", "x.md"))
         self.assertEqual(r.returncode, 2)
         r = self._write(os.path.join(self.store, "project-capsule.md"))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.returncode, 2, r.stderr)
 
     def test_blocks_multiedit_layout_violation(self) -> None:
         ok = os.path.join(self.repo, "src", "x.py")
@@ -440,6 +478,62 @@ class TestDevlocalLayout(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 2)
         self.assertIn("ROOT", r.stderr)
+
+    def test_every_keep_name_blocks_at_root_and_passes_in_meta(self) -> None:
+        """KEEP_NAMES must be LOAD-BEARING, not just present. The sync test
+        below only compares the constant to the GC's copy, which a hardcoded
+        lookup table satisfies while ignoring the set entirely. This drives
+        every keeper name through the gate: root blocks and names the meta/
+        route, meta/ passes. Adding an eighth keeper extends this test by
+        itself, and an implementation that memorizes a few literals fails on
+        the rest.
+
+        The name list is read from the GC's copy, NOT the hook's, because the
+        hook is the module under test and can therefore control what a loop
+        over its own constant sees. A set SUBCLASS whose __iter__ yields only
+        four names defeats a hook-driven loop while still passing the sync
+        test below: assertEqual only dispatches to assertSetEqual when
+        type(first) is type(second), so a subclass falls through to set.__eq__,
+        which reads the real hash table and sees all seven. The two guards
+        below close that directly; sourcing the loop from purge_devlocal.py,
+        a file the hook cannot edit, closes it structurally."""
+        hook_mod = load_module_by_path("_keeper_behavior_hook", HOOK)
+        gc_mod = load_module_by_path(
+            "_keeper_behavior_gc",
+            Path.home()
+            / ".claude"
+            / "skills"
+            / "purge-devlocal"
+            / "scripts"
+            / "purge_devlocal.py",
+        )
+        self.assertIs(
+            type(hook_mod.KEEP_NAMES),
+            set,
+            "KEEP_NAMES must be a plain set - a subclass can lie in __iter__ "
+            "while telling the truth in __eq__",
+        )
+        self.assertEqual(
+            len(sorted(hook_mod.KEEP_NAMES)),
+            len(hook_mod.KEEP_NAMES),
+            "iterating KEEP_NAMES yields fewer names than it contains",
+        )
+        keep_names = sorted(gc_mod.KEEP_NAMES)
+        self.assertTrue(keep_names, "KEEP_NAMES is empty - nothing exercised")
+        for name in keep_names:
+            r = self._write(os.path.join(self.store, name))
+            self.assertEqual(r.returncode, 2, f"{name}: allowed at dev/local root")
+            self.assertIn(
+                f"dev/local/meta/{name}",
+                r.stderr,
+                f"{name}: root block did not route to meta/: {r.stderr}",
+            )
+            r = self._write(os.path.join(self.store, "meta", name))
+            self.assertEqual(
+                r.returncode,
+                0,
+                f"{name}: keeper blocked in dev/local/meta/: {r.stderr}",
+            )
 
     def test_constants_stay_in_sync_with_purge_devlocal(self) -> None:
         """The hook duplicates the GC's KEEP_NAMES/KNOWN_DIRS instead of
