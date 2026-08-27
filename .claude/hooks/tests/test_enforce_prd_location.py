@@ -538,16 +538,8 @@ class TestDevlocalLayout(unittest.TestCase):
     def test_constants_stay_in_sync_with_purge_devlocal(self) -> None:
         """The hook duplicates the GC's KEEP_NAMES/KNOWN_DIRS instead of
         importing across trees; this is the sync guard."""
-        import importlib.util
-
-        def load(name: str, path: Path):
-            spec = importlib.util.spec_from_file_location(name, str(path))
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-
-        hook_mod = load("_layout_sync_hook", HOOK)
-        gc_mod = load(
+        hook_mod = load_module_by_path("_layout_sync_hook", HOOK)
+        gc_mod = load_module_by_path(
             "_layout_sync_gc",
             Path.home()
             / ".claude"
