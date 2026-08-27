@@ -54,7 +54,9 @@ import unittest
 from pathlib import Path
 
 PLUGIN_ROOT_ENV = "_AUTOPILOT_SKILL_ROOT"
-PLUGIN_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "buvis-plugins" / "autopilot"
+PLUGIN_CACHE = (
+    Path.home() / ".claude" / "plugins" / "cache" / "buvis-plugins" / "autopilot"
+)
 GATE_RELATIVE = Path("skills/review-work-completion/scripts/check_review_file.py")
 
 
@@ -124,6 +126,7 @@ def _version_key(name: str) -> tuple[int, ...]:
     except ValueError:
         return (-1,)
 
+
 PURE_START = "// ---- pure region (start) ----"
 PURE_END = "// ---- pure region (end) ----"
 
@@ -137,7 +140,9 @@ VERDICT_LITERALS = ('"APPROVE"', '"CHANGES_REQUESTED"')
 
 # The inline ternary this contract replaces, quoted in full so its reappearance is
 # caught even if the code around it is reshuffled.
-LEGACY_INLINE_TERNARY = 'verified.blocking.length > 0 || incomplete ? "CHANGES_REQUESTED" : "APPROVE"'
+LEGACY_INLINE_TERNARY = (
+    'verified.blocking.length > 0 || incomplete ? "CHANGES_REQUESTED" : "APPROVE"'
+)
 
 
 def _between(text: str, start_marker: str, end_marker: str) -> str:
@@ -182,7 +187,9 @@ def _property_expression(block: str, key: str) -> str | None:
     if match is None:
         return None
     if match.group(1) != ":":
-        return key  # `return { verdict, ... }` -- shorthand for the binding of that name
+        return (
+            key  # `return { verdict, ... }` -- shorthand for the binding of that name
+        )
     return _balanced_slice(block[match.end() :], ",")
 
 
@@ -212,7 +219,10 @@ def _returned_verdict_expression(js: str, impure: str) -> tuple[str | None, str]
     if IDENT_RE.match(expr):
         resolved = _const_expression(impure, expr)
         if resolved is None:
-            return None, f"the returned verdict `{expr}` is bound nowhere in the impure region"
+            return (
+                None,
+                f"the returned verdict `{expr}` is bound nowhere in the impure region",
+            )
         return resolved, f"`return {{ {expr} }}` resolves to `{resolved}`"
     return expr, "the verdict is written inline in the returned object"
 
@@ -221,8 +231,12 @@ class ReviewFanoutContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.js = WORKFLOW_JS.read_text(encoding="utf-8")
-        cls.findings_schema = _between(cls.js, "const FINDINGS_SCHEMA = {", "const RUBRIC_SCHEMA = {")
-        cls.validate_args = _between(cls.js, "function validateArgs(a) {", "function securityish(text)")
+        cls.findings_schema = _between(
+            cls.js, "const FINDINGS_SCHEMA = {", "const RUBRIC_SCHEMA = {"
+        )
+        cls.validate_args = _between(
+            cls.js, "function validateArgs(a) {", "function securityish(text)"
+        )
         # Marker lookups are non-fatal here (`find`, not `index`): a missing marker
         # must fail its own test loudly, not error out every other test in the class.
         start = cls.js.find(PURE_START)
@@ -241,7 +255,9 @@ class ReviewFanoutContractTests(unittest.TestCase):
             r'severity:\s*\{\s*type:\s*"string",\s*enum:\s*\[([^\]]*)\]',
             self.findings_schema,
         )
-        self.assertIsNotNone(match, "could not locate the findings.severity enum in FINDINGS_SCHEMA")
+        self.assertIsNotNone(
+            match, "could not locate the findings.severity enum in FINDINGS_SCHEMA"
+        )
         values = [v.strip().strip('"') for v in match.group(1).split(",")]
         self.assertEqual(len(values), 4, f"expected exactly 4 severities, got {values}")
         self.assertEqual(set(values), {"CRITICAL", "HIGH", "MEDIUM", "LOW"})
@@ -270,7 +286,9 @@ class ReviewFanoutContractTests(unittest.TestCase):
             f"the if/then must trigger on exactly CRITICAL and HIGH, got {triggers}",
         )
 
-        then_match = re.search(r"then:\s*\{\s*required:\s*\[([^\]]*)\]", self.findings_schema)
+        then_match = re.search(
+            r"then:\s*\{\s*required:\s*\[([^\]]*)\]", self.findings_schema
+        )
         self.assertIsNotNone(
             then_match,
             "FINDINGS_SCHEMA has no then/required clause following the severity if",
@@ -298,7 +316,7 @@ class ReviewFanoutContractTests(unittest.TestCase):
         min_length_match = re.search(r"minLength:\s*(\d+)", body)
         self.assertIsNotNone(
             min_length_match,
-            "findings.evidence has no minLength, so evidence: \"\" satisfies the "
+            'findings.evidence has no minLength, so evidence: "" satisfies the '
             f"schema at the tool layer; property body: {body!r}",
         )
         self.assertGreaterEqual(
@@ -341,7 +359,9 @@ class ReviewFanoutContractTests(unittest.TestCase):
             js_regex = raw_pattern.encode("utf-8").decode("unicode_escape")
             compiled = re.compile(js_regex)
         except (UnicodeDecodeError, re.error) as exc:
-            self.fail(f"findings.proof pattern {raw_pattern!r} is not a usable regex: {exc}")
+            self.fail(
+                f"findings.proof pattern {raw_pattern!r} is not a usable regex: {exc}"
+            )
 
         self.assertIsNone(
             compiled.search(""),
@@ -367,7 +387,9 @@ class ReviewFanoutContractTests(unittest.TestCase):
         self.assertIn('a.rubric_text.trim() === "") bad(', self.validate_args)
 
     def test_invalid_args_rejects_oversized_diff_without_diff_path(self) -> None:
-        self.assertIn("a.diff_bytes > MAX_DIFF_BYTES && !a.diff_path) bad(", self.validate_args)
+        self.assertIn(
+            "a.diff_bytes > MAX_DIFF_BYTES && !a.diff_path) bad(", self.validate_args
+        )
 
     def test_pure_region_markers_present_and_ordered(self) -> None:
         start = self.js.find(PURE_START)
@@ -396,7 +418,9 @@ class ReviewFanoutContractTests(unittest.TestCase):
             "the engine calls is not the function the workflows/*.test.mjs suite proves correct",
         )
 
-    def test_engine_verdict_comes_from_decide_verdict_not_an_inline_ternary(self) -> None:
+    def test_engine_verdict_comes_from_decide_verdict_not_an_inline_ternary(
+        self,
+    ) -> None:
         # THE exploit this file exists to close: a correct decideVerdict in the pure
         # region satisfies every behavioral test even when the engine never calls it
         # and hardcodes its own answer. The contract is not "a correct function
@@ -429,7 +453,9 @@ class ReviewFanoutContractTests(unittest.TestCase):
             f"the legacy inline verdict ternary is still in the script: {LEGACY_INLINE_TERNARY}",
         )
 
-    def test_no_bare_verdict_string_is_assigned_to_the_returned_verdict_key(self) -> None:
+    def test_no_bare_verdict_string_is_assigned_to_the_returned_verdict_key(
+        self,
+    ) -> None:
         block = _top_level_return_block(self.js)
         self.assertTrue(block, "the script must end in a top-level `return { ... }`")
         hardcoded = re.search(r"(?m)^\s*verdict\s*:\s*[\"'`].*$", block)
@@ -447,13 +473,17 @@ class ReviewFanoutContractTests(unittest.TestCase):
                 "which state produces which word; in the impure region nothing can observe it",
             )
 
-    def test_decide_verdict_is_called_with_the_engines_live_state_not_a_clean_constant(self) -> None:
+    def test_decide_verdict_is_called_with_the_engines_live_state_not_a_clean_constant(
+        self,
+    ) -> None:
         # Binding the call site is not enough on its own: `decideVerdict({blocking: [],
         # incomplete: false, unverified: 0})` calls the right function and still always
         # approves. The three gates must arrive from the engine's own computed state.
         expr, provenance = _returned_verdict_expression(self.js, self.impure)
-        self.assertIsNotNone(expr, f"cannot find the verdict the engine returns: {provenance}")
-        call = re.match(r"^decideVerdict\s*\((?P<args>.*)\)\s*$", expr, re.S)
+        self.assertIsNotNone(
+            expr, f"cannot find the verdict the engine returns: {provenance}"
+        )
+        call = re.match(r"^decideVerdict\s*\((?P<args>.*)\)\s*$", expr, re.DOTALL)
         self.assertIsNotNone(
             call,
             f"the verdict must come from a decideVerdict(...) call, got: {expr}",
@@ -508,7 +538,9 @@ _RENDER_SCRIPT = (
 )
 
 
-def _render_review_markdown(overrides: dict | None = None, args: dict | None = None) -> str:
+def _render_review_markdown(
+    overrides: dict | None = None, args: dict | None = None
+) -> str:
     """Render review markdown via the engine's REAL pure region.
 
     Shells out to node to import `_harness.mjs`, build `reviewBase(p, overrides)`,
@@ -527,18 +559,22 @@ def _render_review_markdown(overrides: dict | None = None, args: dict | None = N
     if result.returncode != 0:
         raise AssertionError(
             "node failed to render review markdown via _harness.mjs "
-            f"(exit {result.returncode}): {result.stderr}"
+            f"(exit {result.returncode}): {result.stderr}",
         )
     return result.stdout
 
 
-def _run_coverage_gate(review_text: str, reviewers: str = "alice") -> subprocess.CompletedProcess:
+def _run_coverage_gate(
+    review_text: str, reviewers: str = "alice"
+) -> subprocess.CompletedProcess:
     """Write `review_text` to a temp file and run the REAL check_review_file.py on it.
 
     Passes `--reviewers alice`, matching what the review-work-completion skill
     passes at call time.
     """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as fh:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", delete=False, encoding="utf-8"
+    ) as fh:
         fh.write(review_text)
         tmp_path = Path(fh.name)
     try:
@@ -560,7 +596,9 @@ def _run_coverage_gate(review_text: str, reviewers: str = "alice") -> subprocess
 
 
 class RenderedReviewFilePassesTheRealCoverageGateTests(unittest.TestCase):
-    def test_rendered_review_file_with_findings_passes_the_real_coverage_gate(self) -> None:
+    def test_rendered_review_file_with_findings_passes_the_real_coverage_gate(
+        self,
+    ) -> None:
         # Code fixture: some findings, a real Tests: line -> gate exit 0.
         overrides = {
             "blocking": [
@@ -581,7 +619,7 @@ class RenderedReviewFilePassesTheRealCoverageGateTests(unittest.TestCase):
                     "evidence": "loop bound uses <= instead of <",
                     "verified": "confirmed",
                 },
-            ]
+            ],
         }
         args = {
             "prd": "00064",
@@ -623,13 +661,20 @@ class RenderedReviewFilePassesTheRealCoverageGateTests(unittest.TestCase):
             f"rendered file:\n{review_text}",
         )
 
-    def test_rendered_review_file_with_unsubstituted_tests_line_fails_the_real_coverage_gate(self) -> None:
+    def test_rendered_review_file_with_unsubstituted_tests_line_fails_the_real_coverage_gate(
+        self,
+    ) -> None:
         # No tests_line supplied -> the literal `{{TESTS_LINE}}` token ships, unfilled.
         # This is the negative half of the same contract: the gate must reject that
         # token, not accept it. If it ever started accepting the raw token, the
         # documented tests_line substitution step could silently stop happening and
         # the engine would ship a broken review file with nothing to catch it.
-        args = {"prd": "00064", "review": "1", "date": "2026-07-13", "head_sha": "abc1234"}
+        args = {
+            "prd": "00064",
+            "review": "1",
+            "date": "2026-07-13",
+            "head_sha": "abc1234",
+        }
         review_text = _render_review_markdown({}, args)
         self.assertIn(
             "{{TESTS_LINE}}",
