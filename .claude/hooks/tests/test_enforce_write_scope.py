@@ -62,7 +62,11 @@ EXTRA_ROOTS_ENV = "_AUTOPILOT_WRITE_SCOPE_EXTRA"
 VAULT_PATH = (
     "/Users/bob/bim/inbox/dmz/debrief-meeting/debrief-meeting/app/smoke.test.js"
 )
-IN_REPO_PATH = "/Users/bob/.claude/skills/debrief-meeting/app/smoke.test.js"
+# Must be a path that never leaves the repo through a symlink: the incident's
+# own skills/debrief-meeting/... became a braid link into the agent-skills repo
+# (2026-08-25), which the fence then rightly denied. Skill dirs are off limits
+# as fixtures for that reason; hooks/ is real.
+IN_REPO_PATH = "/Users/bob/.claude/hooks/enforce_write_scope.py"
 OUT_OF_SCOPE = "/Users/bob/bim/x.js"
 
 
