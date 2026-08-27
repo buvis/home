@@ -7,7 +7,8 @@ Two layers, one gate (merged 2026-08-23):
    Replaces the old enforce-prd-location.sh / enforce-prd-location-bash.sh
    pair; branches on `tool_name`.
 2. The dev/local layout contract (aegis rules/working-documents.md) holds at
-   write time: root is named keepers only, new top-level dirs are forbidden
+   write time: root holds no files (named keepers live in meta/), new
+   top-level dirs are forbidden
    (workspaces go under tmp/), .trash/ is GC-owned, and files directly in
    prds/ must sit in a lifecycle subdir. File tools only - aegis's
    block_devlocal_redirects.py funnels shell redirects into the Write tool,
@@ -93,11 +94,14 @@ If this is genuinely an unrelated directory, rename it to avoid clashing with PR
 
 
 def _root_msg(name: str) -> str:
+    if name in KEEP_NAMES:
+        return f"""\
+BLOCKED: `{name}` would land in dev/local ROOT. It is a named keeper, and its
+canonical home is `dev/local/meta/{name}` - write it there."""
     keepers = ", ".join(sorted(KEEP_NAMES))
     return f"""\
-BLOCKED: `{name}` would land in dev/local ROOT. Root holds only the compat
-symlinks of the named keepers ({keepers}); their canonical home is
-`dev/local/meta/`.
+BLOCKED: `{name}` would land in dev/local ROOT. Root holds no files: the named
+keepers ({keepers}) live in `dev/local/meta/`, everything else in a dir below.
 
 - Throwaway output -> `dev/local/tmp/{name}` (prefix the 5-digit PRD number
   when one applies, so it dies with the PRD).
@@ -169,10 +173,7 @@ def _check_devlocal_layout(rel: tuple[str, ...]) -> str | None:
     """Return a block reason if a store-relative path violates the layout."""
     top = rel[0]
     if len(rel) == 1:
-        # Root keeper names stay writable during the compat-symlink era: the
-        # symlink lands the bytes in meta/ anyway. Flip to a full block once
-        # the released plugins (agoge, git-ferry, aegis) read meta/ paths.
-        return None if top in KEEP_NAMES else _root_msg(top)
+        return _root_msg(top)
     if top == "meta":
         if len(rel) == 2 and rel[1] in KEEP_NAMES:
             return None
