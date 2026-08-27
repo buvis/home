@@ -304,8 +304,12 @@ class TestSharedCorpus(ParityCase):
             "rm -rf /tmp/csl_repro && mkdir -p /tmp/csl_repro && cp -r "
             "/Users/bob/git/src/github.com/buvis/claude-autopilot/skills /tmp/csl_repro/skills "
             "&& echo copied",
-            "test -d /Users/bob/.claude/skills/brief-portfolio/app/node_modules && echo EXISTS "
-            "|| mkdir -p /Users/bob/.claude/skills/brief-portfolio/app/node_modules",
+            # Was skills/brief-portfolio/app/node_modules until that skill became
+            # a braid link into the agent-skills repo (2026-08-25); writes through
+            # the link farm are out of scope by design, so the fixture moved to a
+            # directory that stays inside the repo.
+            "test -d /Users/bob/.claude/hooks/tests/node_modules && echo EXISTS "
+            "|| mkdir -p /Users/bob/.claude/hooks/tests/node_modules",
             "wc -c /Users/bob/.claude/hooks/_common.py",
             'rg -n "def run" /Users/bob/.claude/hooks/dispatch.py',
             "engram query --scope repo 'bim split the cli.py god registry' -k 5",
