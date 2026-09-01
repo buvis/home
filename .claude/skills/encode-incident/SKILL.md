@@ -104,6 +104,7 @@ Insert one entry into `~/.claude/rules-library/rationalizations.md`, immediately
 
 - **Why it's wrong**: <what the excuse costs, concretely>
 - **Counter-action**: <the specific thing to do instead>
+- **Triggers**: <comma-separated terms that substring-match the symbol names this excuse shows up around>
 ```
 
 Then commit it to the home repo, staging by explicit absolute path (never
@@ -114,12 +115,11 @@ git --git-dir=$HOME/.buvis --work-tree=$HOME add ':(top).claude/rules-library/ra
 git --git-dir=$HOME/.buvis --work-tree=$HOME commit -m "docs(rules): record <excuse> rationalization"
 ```
 
-**What this actually buys, today**: `cartographer-echo.py` parses every entry but
-selects only one - the helper-verb special case, or otherwise the **first** entry
-in file order (`_pick_rationalization`, `cartographer-echo.py:791-807`). A new
-entry lands in the catalog and is read by humans and by `/architect` prompts, but
-it will not appear in a deny message unless it is first. Do not claim otherwise
-in the run summary.
+The entry is live on arrival: Echo's deny messages cite the first catalog entry
+(file order) whose **Triggers** terms match a duplicate symbol, so an appended
+entry is reachable through its own triggers with no code change (PRD 00157).
+An entry without a Triggers bullet is still read by humans and `/architect`
+prompts but is never auto-cited - always include the bullet.
 
 ## Retroactive mode
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1536,9 +1537,10 @@ def test_rationalizations_path_yields_parsed_entries_not_pointer_stub() -> None:
         assert key in rats, (
             f"missing known catalog entry {key!r}; got keys {sorted(rats.keys())}"
         )
-        why, counter = rats[key]
+        why, counter, triggers = rats[key]
         assert why.strip(), f"empty 'why' text for {key!r}"
         assert counter.strip(), f"empty 'counter' text for {key!r}"
+        assert triggers, f"live catalog entry {key!r} carries no triggers"
 
 
 # --- Deny payload attribution: pinned to rules-library/ after the catalog move ---
@@ -1769,3 +1771,109 @@ def test_build_deny_envelope_surrounding_lines_unchanged_by_catalog_move() -> No
     assert (
         lines[-1] == "If this is genuinely new, retry — the second attempt will pass."
     )
+
+
+# --- rationalization selector: key integrity + trigger reachability (PRD 00157) ---
+
+
+def test_every_hardcoded_lookup_key_exists_in_catalog() -> None:
+    """A catalog heading rename must not silently kill a selector branch.
+
+    Regression for the `"Quick fix, skip atlas"` key: the heading was renamed
+    to "Quick fix, skip the map" (PRD 00138) and the lookup key never updated,
+    so that branch was dead and every non-helper-verb deny fell through to the
+    first entry."""
+    mod = _import_hook_module()
+    source = HOOK.read_text(encoding="utf-8")
+    keys = re.findall(r'rats\.get\(\s*"([^"]+)"', source)
+    mod._RATIONALIZATIONS_CACHE = None
+    rats = mod._load_rationalizations()
+    missing = [k for k in keys if k not in rats]
+    assert not missing, (
+        f"lookup keys with no matching catalog heading: {missing}; "
+        f"catalog has {sorted(rats)}"
+    )
+
+
+def _write_catalog(path: Path, body: str) -> None:
+    path.write_text(
+        "# Rationalizations Catalog\n\n## Excuses\n\n" + body,
+        encoding="utf-8",
+    )
+
+
+def test_appended_catalog_entry_is_cited_by_deny_message(tmp_path: Path) -> None:
+    """An entry appended to the bottom of ## Excuses must be reachable through
+    its own trigger terms, without being moved to the top and with no code
+    change. Fails while the selector falls back to the first entry in file
+    order."""
+    mod = _import_hook_module()
+    catalog = tmp_path / "rationalizations.md"
+    _write_catalog(
+        catalog,
+        '### "First entry"\n\n'
+        "- **Why it's wrong**: first why.\n"
+        "- **Counter-action**: first counter.\n\n"
+        '### "Appended entry"\n\n'
+        "- **Why it's wrong**: appended why.\n"
+        "- **Counter-action**: appended counter.\n"
+        "- **Triggers**: frobnicate\n",
+    )
+    mod._RATIONALIZATIONS_PATH = catalog
+    mod._RATIONALIZATIONS_CACHE = None
+    matches = [
+        {"symbol": "frobnicate_widget", "file": "src/w.py", "line": 7, "score": "strong"},
+    ]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "Appended entry" in reason, reason
+    assert "appended why" in reason, reason
+
+
+def test_no_trigger_match_renders_deny_without_rationalization(
+    tmp_path: Path,
+) -> None:
+    """When no entry's triggers match, the deny must render with no
+    rationalization block at all — an irrelevant excuse is worse than none."""
+    mod = _import_hook_module()
+    catalog = tmp_path / "rationalizations.md"
+    _write_catalog(
+        catalog,
+        '### "Only entry"\n\n'
+        "- **Why it's wrong**: only why.\n"
+        "- **Counter-action**: only counter.\n"
+        "- **Triggers**: frobnicate\n",
+    )
+    mod._RATIONALIZATIONS_PATH = catalog
+    mod._RATIONALIZATIONS_CACHE = None
+    matches = [
+        {"symbol": "load_config", "file": "src/c.py", "line": 3, "score": "strong"},
+    ]
+    env = mod.build_deny_envelope(matches)
+    reason = env["hookSpecificOutput"]["permissionDecisionReason"]
+    assert env["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "Rationalization" not in reason, reason
+    assert not any(line.startswith(">") for line in reason.splitlines()), reason
+    assert "load_config" in reason
+    assert reason.splitlines()[-1] == (
+        "If this is genuinely new, retry — the second attempt will pass."
+    )
+
+
+def test_entry_without_triggers_parses_but_is_never_cited(tmp_path: Path) -> None:
+    """An entry with no Triggers bullet still parses (humans and /architect
+    read it) but is never auto-cited by a deny."""
+    mod = _import_hook_module()
+    catalog = tmp_path / "rationalizations.md"
+    _write_catalog(
+        catalog,
+        '### "Untriggered entry"\n\n'
+        "- **Why it's wrong**: some why.\n"
+        "- **Counter-action**: some counter.\n",
+    )
+    mod._RATIONALIZATIONS_PATH = catalog
+    mod._RATIONALIZATIONS_CACHE = None
+    rats = mod._load_rationalizations()
+    assert "Untriggered entry" in rats
+    assert rats["Untriggered entry"][2] == ()
+    assert mod._pick_rationalization(["untriggered_entry_helper"]) is None
