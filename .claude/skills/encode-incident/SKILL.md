@@ -118,8 +118,9 @@ git --git-dir=$HOME/.buvis --work-tree=$HOME commit -m "docs(rules): record <exc
 The entry is live on arrival: Echo's deny messages cite the first catalog entry
 (file order) whose **Triggers** terms match a duplicate symbol, so an appended
 entry is reachable through its own triggers with no code change (PRD 00157).
-An entry without a Triggers bullet is still read by humans and `/architect`
-prompts but is never auto-cited - always include the bullet.
+Pick terms no earlier entry already claims - on a shared term the earlier entry
+wins. An entry without a Triggers bullet is still read by humans and
+`/architect` prompts but is never auto-cited - always include the bullet.
 
 ## Retroactive mode
 
