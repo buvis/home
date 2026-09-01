@@ -733,13 +733,9 @@ _RATIONALIZATIONS_CACHE: dict[str, tuple[str, str, tuple[str, ...]]] | None = No
 
 
 def _load_rationalizations() -> dict[str, tuple[str, str, tuple[str, ...]]]:
-    """Parse rules-library/rationalizations.md into {excuse: (why, counter, triggers)} once per process.
-
-    Triggers are the entry's own comma-separated `- **Triggers**:` terms,
-    lowercased; an entry without the bullet parses fine but is never
-    auto-cited. Keeping them in the catalog beside the text they select is
-    what stops the selector's keys drifting from the headings (PRD 00157).
-    """
+    """Parse the rationalizations catalog into {excuse: (why, counter, triggers)}
+    once per process. Triggers come from the entry's own `- **Triggers**:`
+    bullet; an entry without one parses but is never auto-cited (PRD 00157)."""
     global _RATIONALIZATIONS_CACHE
     if _RATIONALIZATIONS_CACHE is not None:
         return _RATIONALIZATIONS_CACHE
@@ -760,10 +756,9 @@ def _load_rationalizations() -> dict[str, tuple[str, str, tuple[str, ...]]]:
         r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)",
         re.DOTALL,
     )
-    triggers_re = re.compile(
-        r"-\s*\*\*Triggers\*\*:\s*(.+?)(?:\n-|\n\n|\Z)",
-        re.DOTALL,
-    )
+    # Single-line by design: an empty bullet must yield (), never swallow the
+    # next bullet's text the way the DOTALL idiom above would.
+    triggers_re = re.compile(r"-\s*\*\*Triggers\*\*:[ \t]*([^\n]*)")
 
     matches = list(header_re.finditer(text))
     for i, m in enumerate(matches):
@@ -774,11 +769,8 @@ def _load_rationalizations() -> dict[str, tuple[str, str, tuple[str, ...]]]:
         why_m = why_re.search(section)
         counter_m = counter_re.search(section)
         trig_m = triggers_re.search(section)
-        triggers = (
-            tuple(t.strip().lower() for t in trig_m.group(1).split(",") if t.strip())
-            if trig_m
-            else ()
-        )
+        raw_triggers = trig_m.group(1) if trig_m else ""
+        triggers = tuple(t.strip().lower() for t in raw_triggers.split(",") if t.strip())
         if why_m and counter_m:
             out[excuse] = (
                 " ".join(why_m.group(1).split()),

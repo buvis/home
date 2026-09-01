@@ -891,7 +891,8 @@ def test_rationalizations_parsed_from_rules_file(
     # Clear cache so loader actually runs.
     mod._RATIONALIZATIONS_CACHE = None
     rats = mod._load_rationalizations()
-    assert "Quick fix, skip atlas" in rats or "Couldn't find existing helper" in rats
+    assert "Quick fix, skip the map" in rats
+    assert "Couldn't find existing helper" in rats
 
 
 # --- Audit schema completeness ---
@@ -1785,7 +1786,7 @@ def test_every_hardcoded_lookup_key_exists_in_catalog() -> None:
     first entry."""
     mod = _import_hook_module()
     source = HOOK.read_text(encoding="utf-8")
-    keys = re.findall(r'rats\.get\(\s*"([^"]+)"', source)
+    keys = re.findall(r"rats(?:\.get\(\s*|\[)\s*['\"]([^'\"]+)['\"]", source)
     mod._RATIONALIZATIONS_CACHE = None
     rats = mod._load_rationalizations()
     missing = [k for k in keys if k not in rats]
@@ -1858,6 +1859,52 @@ def test_no_trigger_match_renders_deny_without_rationalization(
     assert reason.splitlines()[-1] == (
         "If this is genuinely new, retry — the second attempt will pass."
     )
+
+
+def test_shared_trigger_cites_the_earlier_entry(tmp_path: Path) -> None:
+    """When two entries claim the same trigger term, the earlier entry (file
+    order) wins — the documented precedence rule. Also pins comma-separated
+    multi-term parsing: the later entry stays reachable via its unshared term."""
+    mod = _import_hook_module()
+    catalog = tmp_path / "rationalizations.md"
+    _write_catalog(
+        catalog,
+        '### "Earlier entry"\n\n'
+        "- **Why it's wrong**: earlier why.\n"
+        "- **Counter-action**: earlier counter.\n"
+        "- **Triggers**: frobnicate\n\n"
+        '### "Later entry"\n\n'
+        "- **Why it's wrong**: later why.\n"
+        "- **Counter-action**: later counter.\n"
+        "- **Triggers**: glorp, frobnicate\n",
+    )
+    mod._RATIONALIZATIONS_PATH = catalog
+    mod._RATIONALIZATIONS_CACHE = None
+    picked = mod._pick_rationalization(["frobnicate_widget"])
+    assert picked is not None and picked[0] == "Earlier entry"
+    picked = mod._pick_rationalization(["glorp_widget"])
+    assert picked is not None and picked[0] == "Later entry"
+
+
+def test_empty_triggers_bullet_yields_no_triggers(tmp_path: Path) -> None:
+    """An empty Triggers bullet must parse to (), never swallow the following
+    bullet's text as garbage trigger terms (author puts Triggers mid-entry)."""
+    mod = _import_hook_module()
+    catalog = tmp_path / "rationalizations.md"
+    _write_catalog(
+        catalog,
+        '### "Empty triggers entry"\n\n'
+        "- **Why it's wrong**: some why.\n"
+        "- **Triggers**:\n"
+        "- **Counter-action**: some counter.\n",
+    )
+    mod._RATIONALIZATIONS_PATH = catalog
+    mod._RATIONALIZATIONS_CACHE = None
+    rats = mod._load_rationalizations()
+    assert "Empty triggers entry" in rats
+    why, counter, triggers = rats["Empty triggers entry"]
+    assert triggers == (), triggers
+    assert counter == "some counter."
 
 
 def test_entry_without_triggers_parses_but_is_never_cited(tmp_path: Path) -> None:

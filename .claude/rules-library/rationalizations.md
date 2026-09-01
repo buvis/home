@@ -1,6 +1,6 @@
 # Rationalizations Catalog
 
-Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each entry: the excuse, why it's wrong, the counter-action, and its trigger terms. Echo's deny messages cite the first entry (file order) whose trigger substring-matches a duplicate symbol name; no match, no citation. An entry without a **Triggers** bullet is never auto-cited. Also surfaced in `/architect` planning prompts.
+Common excuses agents (and humans) use to skip discovery, reuse, and tests. Each entry: the excuse, why it's wrong, the counter-action, and its trigger terms. Echo's deny messages cite the first entry (file order) whose trigger substring-matches a duplicate symbol name; no match, no citation. Terms match as plain substrings, so keep them distinctive - a term like `fix` also fires inside `prefix`. An entry without a **Triggers** bullet is never auto-cited. Also surfaced in `/architect` planning prompts.
 
 ## Excuses
 
