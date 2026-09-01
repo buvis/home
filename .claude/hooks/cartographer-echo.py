@@ -729,31 +729,22 @@ _RATIONALIZATIONS_PATH: Path = (
     Path.home() / ".claude" / "rules-library" / "rationalizations.md"
 )
 
-# Verbs whose presence in a symbol name triggers the "Couldn't find existing
-# helper" rationalization (Echo's highest-leverage scenario per PRD).
-_HELPER_VERBS: tuple[str, ...] = (
-    "format",
-    "parse",
-    "validate",
-    "normalize",
-    "serialize",
-    "transform",
-    "decode",
-    "encode",
-    "stringify",
-    "render",
-)
-
-_RATIONALIZATIONS_CACHE: dict[str, tuple[str, str]] | None = None
+_RATIONALIZATIONS_CACHE: dict[str, tuple[str, str, tuple[str, ...]]] | None = None
 
 
-def _load_rationalizations() -> dict[str, tuple[str, str]]:
-    """Parse rules-library/rationalizations.md into {excuse: (why, counter)} once per process."""
+def _load_rationalizations() -> dict[str, tuple[str, str, tuple[str, ...]]]:
+    """Parse rules-library/rationalizations.md into {excuse: (why, counter, triggers)} once per process.
+
+    Triggers are the entry's own comma-separated `- **Triggers**:` terms,
+    lowercased; an entry without the bullet parses fine but is never
+    auto-cited. Keeping them in the catalog beside the text they select is
+    what stops the selector's keys drifting from the headings (PRD 00157).
+    """
     global _RATIONALIZATIONS_CACHE
     if _RATIONALIZATIONS_CACHE is not None:
         return _RATIONALIZATIONS_CACHE
 
-    out: dict[str, tuple[str, str]] = {}
+    out: dict[str, tuple[str, str, tuple[str, ...]]] = {}
     try:
         text = _RATIONALIZATIONS_PATH.read_text(encoding="utf-8")
     except OSError:
@@ -769,6 +760,10 @@ def _load_rationalizations() -> dict[str, tuple[str, str]]:
         r"-\s*\*\*Counter-action\*\*:\s*(.+?)(?:\n-|\n\n|\Z)",
         re.DOTALL,
     )
+    triggers_re = re.compile(
+        r"-\s*\*\*Triggers\*\*:\s*(.+?)(?:\n-|\n\n|\Z)",
+        re.DOTALL,
+    )
 
     matches = list(header_re.finditer(text))
     for i, m in enumerate(matches):
@@ -778,10 +773,17 @@ def _load_rationalizations() -> dict[str, tuple[str, str]]:
         section = text[section_start:section_end]
         why_m = why_re.search(section)
         counter_m = counter_re.search(section)
+        trig_m = triggers_re.search(section)
+        triggers = (
+            tuple(t.strip().lower() for t in trig_m.group(1).split(",") if t.strip())
+            if trig_m
+            else ()
+        )
         if why_m and counter_m:
             out[excuse] = (
                 " ".join(why_m.group(1).split()),
                 " ".join(counter_m.group(1).split()),
+                triggers,
             )
 
     _RATIONALIZATIONS_CACHE = out
@@ -789,22 +791,20 @@ def _load_rationalizations() -> dict[str, tuple[str, str]]:
 
 
 def _pick_rationalization(symbols: list[str]) -> tuple[str, str, str] | None:
-    """Return (excuse, why, counter) — heuristic excuse choice based on symbol verbs."""
+    """Return (excuse, why, counter) for the first catalog entry (file order)
+    whose trigger terms substring-match a duplicate symbol, else None.
+
+    No match means no rationalization: an irrelevant excuse is worse than
+    none, and the deny envelope renders correctly without one.
+    """
     rats = _load_rationalizations()
     if not rats:
         return None
-    for sym in symbols:
-        low = sym.lower()
-        if any(v in low for v in _HELPER_VERBS):
-            entry = rats.get("Couldn't find existing helper")
-            if entry:
-                return ("Couldn't find existing helper", *entry)
-            break
-    entry = rats.get("Quick fix, skip atlas")
-    if entry:
-        return ("Quick fix, skip atlas", *entry)
-    k, (w, c) = next(iter(rats.items()))
-    return (k, w, c)
+    lows = [sym.lower() for sym in symbols]
+    for excuse, (why, counter, triggers) in rats.items():
+        if any(t in low for t in triggers for low in lows):
+            return (excuse, why, counter)
+    return None
 
 
 _DENY_REASON_CAP: int = 1500
