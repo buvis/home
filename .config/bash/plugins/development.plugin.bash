@@ -397,16 +397,16 @@ autoclaude() {
 }
 
 start_qwen() {
-  llama-server \
-    -hf unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q6_K_XL \
-    --spec-type draft-mtp \
-    --spec-draft-n-max 2 \
+  # Serves the promoted default (qualified 2026-08-31) on :8002, matching
+  # ~/.pi/agent/models.json provider llamacpp8002. No --alias, ever.
+  "$HOME/.local/share/llama-cpp-head/bin/llama-server" \
+    -hf unsloth/Qwen3.8-27B-GGUF:UD-Q6_K_XL \
     --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.00 \
     --ctx-size 131072 \
     --flash-attn on \
     --cache-type-k q8_0 --cache-type-v q8_0 \
     --jinja \
-    --port 8001 \
+    --port 8002 \
     --no-log-timestamps 2>&1 |
     gawk '{ print strftime("%H:%M:%S"), $0; fflush() }'
 }
