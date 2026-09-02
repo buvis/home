@@ -105,17 +105,37 @@ _DENY_REASON_CAP: int = 1500
 _RATIONALIZATION_EXCERPT_CAP: int = 400
 
 
+def _deny_envelope(reason: str) -> dict:
+    """The gateguard-format PreToolUse deny envelope around `reason`."""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        },
+    }
+
+
+def _rationalization_lines(symbols: list[str]) -> list[str]:
+    """The catalog excerpt block for `symbols`, or [] when no trigger matches."""
+    rationalization = _pick_rationalization(symbols)
+    if rationalization is None:
+        return []
+    excuse, why, counter = rationalization
+    excerpt = f'"{excuse}". Why it\'s wrong: {why} Counter-action: {counter}'
+    if len(excerpt) > _RATIONALIZATION_EXCERPT_CAP:
+        excerpt = excerpt[: _RATIONALIZATION_EXCERPT_CAP - 1].rstrip() + "…"
+    return [
+        "",
+        "Rationalization (`rules-library/rationalizations.md`):",
+        "> " + excerpt,
+    ]
+
+
 def build_deny_envelope(matches: list[dict]) -> dict:
     """Compose the gateguard-format deny envelope with a rationalization excerpt."""
     if not matches:
-        reason = "Echo: duplicate-detection deny — retry to override."
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            },
-        }
+        return _deny_envelope("Echo: duplicate-detection deny — retry to override.")
 
     strongest = next((m for m in matches if m.get("score") == "strong"), None)
     if strongest is None:
@@ -126,40 +146,18 @@ def build_deny_envelope(matches: list[dict]) -> dict:
     ln = strongest.get("line", 0)
 
     symbols_in_play = sorted({m.get("symbol", "") for m in matches if m.get("symbol")})
-    rationalization = _pick_rationalization(symbols_in_play)
-
     parts = [
         f"Echo: `{sym}` likely duplicates `{fp}:{ln}`.",
         "",
         f"Existing implementation is at `{fp}:{ln}` — import it instead of writing a parallel one.",
+        *_rationalization_lines(symbols_in_play),
+        "",
+        "If this is genuinely new, retry — the second attempt will pass.",
     ]
-    if rationalization is not None:
-        excuse, why, counter = rationalization
-        excerpt = f'"{excuse}". Why it\'s wrong: {why} Counter-action: {counter}'
-        if len(excerpt) > _RATIONALIZATION_EXCERPT_CAP:
-            excerpt = excerpt[: _RATIONALIZATION_EXCERPT_CAP - 1].rstrip() + "…"
-        parts.extend(
-            [
-                "",
-                "Rationalization (`rules-library/rationalizations.md`):",
-                "> " + excerpt,
-            ],
-        )
-
-    parts.extend(
-        ["", "If this is genuinely new, retry — the second attempt will pass."],
-    )
     reason = "\n".join(parts)
     if len(reason) > _DENY_REASON_CAP:
         reason = reason[: _DENY_REASON_CAP - 1].rstrip() + "…"
-
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        },
-    }
+    return _deny_envelope(reason)
 
 
 # --- audit emission ---
@@ -225,6 +223,136 @@ def evaluate_skip(tool_name: str, tool_input: dict) -> tuple[str, str] | None:
 # --- main dispatch ---
 
 
+def _bash_deny_reason(pattern_name: str, resolved_path: str) -> str:
+    return (
+        f"Echo: this Bash command writes source code via `{pattern_name}`. "
+        f"Use the Write tool — Echo cannot inspect content written through "
+        f"shell redirects.\n\nDetected target: `{resolved_path}`.\n\n"
+        f"If you must use shell, retry — the second attempt will pass."
+    )
+
+
+def _handle_bash(session: str, tool_input: dict) -> None:
+    """Gate a Bash command that writes source behind the Write tool's back."""
+    cmd = tool_input.get("command")
+    if not isinstance(cmd, str) or not cmd.strip():
+        return
+    hit = detect_bash_bypass(cmd, Path.cwd())
+    if hit is None:
+        audit_event(
+            session=session,
+            tool="Bash",
+            file="",
+            decision="allow",
+            reason="bash-clean",
+        )
+        return
+    pattern_name, resolved_path = hit
+    key = hashlib.sha256(
+        ("bash:" + pattern_name + ":" + resolved_path).encode("utf-8"),
+    ).hexdigest()[:24]
+    matches = [{"pattern": pattern_name}]
+    if lib.is_checked(session, _ECHO_NAMESPACE, key):
+        audit_event(
+            session=session,
+            tool="Bash",
+            file=resolved_path,
+            decision="allow",
+            reason="second-attempt",
+            matches=matches,
+        )
+        return
+    lib.mark_checked(session, _ECHO_NAMESPACE, key)
+    envelope = _deny_envelope(_bash_deny_reason(pattern_name, resolved_path))
+    sys.stdout.write(json.dumps(envelope))
+    audit_event(
+        session=session,
+        tool="Bash",
+        file=resolved_path,
+        decision="deny",
+        reason="bash-bypass",
+        matches=matches,
+    )
+
+
+def _deny_or_second_attempt(
+    session: str,
+    tool_name: str,
+    file_path: str,
+    symbols: list[str],
+    matches: list[dict],
+) -> None:
+    """The two-attempt gate: deny once per (file, symbols) key, allow the retry."""
+    key = deny_key(file_path, symbols)
+    if lib.is_checked(session, _ECHO_NAMESPACE, key):
+        audit_event(
+            session=session,
+            tool=tool_name,
+            file=file_path,
+            decision="allow",
+            reason="second-attempt",
+            symbols=symbols,
+            matches=matches,
+        )
+        return
+    lib.mark_checked(session, _ECHO_NAMESPACE, key)
+    sys.stdout.write(json.dumps(build_deny_envelope(matches)))
+    # Audit reason matches the strongest hit's score.
+    strongest_score = matches[0]["score"] if matches else "unknown"
+    audit_event(
+        session=session,
+        tool=tool_name,
+        file=file_path,
+        decision="deny",
+        reason=f"{strongest_score}-match",
+        symbols=symbols,
+        matches=matches,
+    )
+
+
+def _handle_write(
+    session: str,
+    tool_name: str,
+    tool_input: dict,
+    file_path: str,
+) -> None:
+    """Gate an Edit/Write/MultiEdit on the symbols it is about to define."""
+    content = extract_content(tool_name, tool_input)
+    raw_symbols = extract_symbols(content, file_extension(file_path))
+    symbols = filter_stopwords(raw_symbols, file_path)
+    if not symbols:
+        audit_event(
+            session=session,
+            tool=tool_name,
+            file=file_path,
+            decision="allow",
+            reason="no-symbols",
+        )
+        return
+
+    # Resolve project root. lib.project_hash returns (hash, name, remote)
+    # — the remote_url, not a usable path. Use git toplevel when in a
+    # repo; otherwise fall back to the target file's parent directory.
+    project_root = _resolve_project_root(file_path)
+    # One rg over an alternation of all symbols (PRD 00088 R3) — not one
+    # spawn per symbol, which blew the 5s hook budget on symbol-dense files.
+    candidate_groups = search_candidates_batch(symbols, project_root, Path(file_path))
+
+    decision, matches = decide(symbols, candidate_groups)
+    if decision == "allow":
+        audit_event(
+            session=session,
+            tool=tool_name,
+            file=file_path,
+            decision="allow",
+            reason="weak-only" if any(candidate_groups.values()) else "no-matches",
+            symbols=symbols,
+            matches=matches,
+        )
+        return
+    _deny_or_second_attempt(session, tool_name, file_path, symbols, matches)
+
+
 def handle(data: dict) -> None:
     tool_name = data.get("tool_name") or ""
     tool_input = data.get("tool_input") or {}
@@ -251,56 +379,7 @@ def handle(data: dict) -> None:
         return
 
     if tool_name == "Bash":
-        cmd = tool_input.get("command")
-        if not isinstance(cmd, str) or not cmd.strip():
-            return
-        hit = detect_bash_bypass(cmd, Path.cwd())
-        if hit is None:
-            audit_event(
-                session=session,
-                tool=tool_name,
-                file="",
-                decision="allow",
-                reason="bash-clean",
-            )
-            return
-        pattern_name, resolved_path = hit
-        key = hashlib.sha256(
-            ("bash:" + pattern_name + ":" + resolved_path).encode("utf-8"),
-        ).hexdigest()[:24]
-        if lib.is_checked(session, _ECHO_NAMESPACE, key):
-            audit_event(
-                session=session,
-                tool=tool_name,
-                file=resolved_path,
-                decision="allow",
-                reason="second-attempt",
-                matches=[{"pattern": pattern_name}],
-            )
-            return
-        lib.mark_checked(session, _ECHO_NAMESPACE, key)
-        reason_text = (
-            f"Echo: this Bash command writes source code via `{pattern_name}`. "
-            f"Use the Write tool — Echo cannot inspect content written through "
-            f"shell redirects.\n\nDetected target: `{resolved_path}`.\n\n"
-            f"If you must use shell, retry — the second attempt will pass."
-        )
-        envelope = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason_text,
-            },
-        }
-        sys.stdout.write(json.dumps(envelope))
-        audit_event(
-            session=session,
-            tool=tool_name,
-            file=resolved_path,
-            decision="deny",
-            reason="bash-bypass",
-            matches=[{"pattern": pattern_name}],
-        )
+        _handle_bash(session, tool_input)
         return
 
     if tool_name.startswith("mcp__serena__"):
@@ -317,77 +396,7 @@ def handle(data: dict) -> None:
         return
 
     if tool_name in ("Edit", "Write", "MultiEdit"):
-        content = extract_content(tool_name, tool_input)
-        ext = file_extension(file_path)
-        raw_symbols = extract_symbols(content, ext)
-        symbols = filter_stopwords(raw_symbols, file_path)
-
-        if not symbols:
-            audit_event(
-                session=session,
-                tool=tool_name,
-                file=file_path,
-                decision="allow",
-                reason="no-symbols",
-            )
-            return
-
-        # Resolve project root. lib.project_hash returns (hash, name, remote)
-        # — the remote_url, not a usable path. Use git toplevel when in a
-        # repo; otherwise fall back to the target file's parent directory.
-        project_root = _resolve_project_root(file_path)
-        # One rg over an alternation of all symbols (PRD 00088 R3) — not one
-        # spawn per symbol, which blew the 5s hook budget on symbol-dense files.
-        candidate_groups = search_candidates_batch(
-            symbols,
-            project_root,
-            Path(file_path),
-        )
-
-        decision, matches = decide(symbols, candidate_groups)
-
-        if decision == "allow":
-            audit_event(
-                session=session,
-                tool=tool_name,
-                file=file_path,
-                decision="allow",
-                reason="weak-only" if any(candidate_groups.values()) else "no-matches",
-                symbols=symbols,
-                matches=matches,
-            )
-            return
-
-        # Two-attempt gate.
-        key = deny_key(file_path, symbols)
-        if lib.is_checked(session, _ECHO_NAMESPACE, key):
-            audit_event(
-                session=session,
-                tool=tool_name,
-                file=file_path,
-                decision="allow",
-                reason="second-attempt",
-                symbols=symbols,
-                matches=matches,
-            )
-            return
-        lib.mark_checked(session, _ECHO_NAMESPACE, key)
-        envelope = build_deny_envelope(matches)
-        sys.stdout.write(json.dumps(envelope))
-        # Audit reason matches the strongest hit's score.
-        strongest_score = matches[0]["score"] if matches else "unknown"
-        audit_event(
-            session=session,
-            tool=tool_name,
-            file=file_path,
-            decision="deny",
-            reason=f"{strongest_score}-match",
-            symbols=symbols,
-            matches=matches,
-        )
-        return
-
-    return
+        _handle_write(session, tool_name, tool_input, file_path)
 
 
 def main() -> int:
