@@ -197,11 +197,12 @@ def search_candidates_batch(
     returns empty groups and appends a `ripgrep_*` audit-warn event.
     """
     uniq = [s for s in dict.fromkeys(symbols) if s]
+    empty: dict[str, list[dict]] = {s: [] for s in uniq}
     if not uniq or not root.exists():
-        return {s: [] for s in uniq}
+        return empty
     stdout = _spawn_rg(uniq, root)
     if stdout is None:
-        return {s: [] for s in uniq}
+        return empty
     groups = _group_hits(stdout, uniq, target_file)
     # Only definition lines can block, so rank them ahead of usage sites before
     # truncating: a stable sort keeps rg's order within each group, so the hit
