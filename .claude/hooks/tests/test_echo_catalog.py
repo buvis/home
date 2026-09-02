@@ -12,8 +12,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import _echo_catalog as catalog
 import pytest
+
+import _echo_catalog as catalog
 
 ENTRY = Path(__file__).resolve().parents[1] / "cartographer-echo.py"
 
