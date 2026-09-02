@@ -770,7 +770,9 @@ def _load_rationalizations() -> dict[str, tuple[str, str, tuple[str, ...]]]:
         counter_m = counter_re.search(section)
         trig_m = triggers_re.search(section)
         raw_triggers = trig_m.group(1) if trig_m else ""
-        triggers = tuple(t.strip().lower() for t in raw_triggers.split(",") if t.strip())
+        triggers = tuple(
+            t.strip().lower() for t in raw_triggers.split(",") if t.strip()
+        )
         if why_m and counter_m:
             out[excuse] = (
                 " ".join(why_m.group(1).split()),

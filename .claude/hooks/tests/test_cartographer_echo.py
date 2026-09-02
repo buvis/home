@@ -1823,7 +1823,12 @@ def test_appended_catalog_entry_is_cited_by_deny_message(tmp_path: Path) -> None
     mod._RATIONALIZATIONS_PATH = catalog
     mod._RATIONALIZATIONS_CACHE = None
     matches = [
-        {"symbol": "frobnicate_widget", "file": "src/w.py", "line": 7, "score": "strong"},
+        {
+            "symbol": "frobnicate_widget",
+            "file": "src/w.py",
+            "line": 7,
+            "score": "strong",
+        },
     ]
     env = mod.build_deny_envelope(matches)
     reason = env["hookSpecificOutput"]["permissionDecisionReason"]
