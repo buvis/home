@@ -44,7 +44,7 @@ def test_family_globs_match_the_split() -> None:
 
 @pytest.mark.parametrize("path", FAMILY, ids=lambda p: p.name)
 def test_family_file_within_line_limit(path: Path) -> None:
-    lines = path.read_text(encoding="utf-8").count("\n")
+    lines = len(path.read_text(encoding="utf-8").splitlines())
     assert lines <= MAX_FILE_LINES, f"{path.name}: {lines} lines"
 
 
