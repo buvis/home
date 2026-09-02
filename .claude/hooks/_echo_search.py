@@ -197,13 +197,29 @@ def search_candidates_batch(
     returns empty groups and appends a `ripgrep_*` audit-warn event.
     """
     uniq = [s for s in dict.fromkeys(symbols) if s]
-    groups: dict[str, list[dict]] = {s: [] for s in uniq}
     if not uniq or not root.exists():
-        return groups
+        return {s: [] for s in uniq}
     stdout = _spawn_rg(uniq, root)
     if stdout is None:
-        return groups
+        return {s: [] for s in uniq}
+    groups = _group_hits(stdout, uniq, target_file)
+    # Only definition lines can block, so rank them ahead of usage sites before
+    # truncating: a stable sort keeps rg's order within each group, so the hit
+    # cap never drops the duplicate definition behind unrelated call sites.
+    for s in uniq:
+        groups[s].sort(key=lambda c: _defined_name(c["snippet"]) is None)
+        groups[s] = groups[s][:_RG_MAX_HITS_PER_SYMBOL]
+    return groups
 
+
+def _group_hits(
+    stdout: str,
+    uniq: list[str],
+    target_file: Path,
+) -> dict[str, list[dict]]:
+    """Attribute rg output lines to every searched symbol they mention,
+    skipping `target_file` and stopping at the batch scan cap."""
+    groups: dict[str, list[dict]] = {s: [] for s in uniq}
     try:
         target_abs = str(target_file.resolve())
     except OSError:
@@ -228,13 +244,6 @@ def search_candidates_batch(
         for s in uniq:
             if s in snippet and len(groups[s]) < _RG_SCAN_LIMIT:
                 groups[s].append(hit)
-
-    # Only definition lines can block, so rank them ahead of usage sites before
-    # truncating: a stable sort keeps rg's order within each group, so the hit
-    # cap never drops the duplicate definition behind unrelated call sites.
-    for s in uniq:
-        groups[s].sort(key=lambda c: _defined_name(c["snippet"]) is None)
-        groups[s] = groups[s][:_RG_MAX_HITS_PER_SYMBOL]
     return groups
 
 
