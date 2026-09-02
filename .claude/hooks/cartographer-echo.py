@@ -262,17 +262,19 @@ def extract_symbols(content: str, ext: str) -> list[str]:
         )
         return []
 
+    # tree-sitter-language-pack >= 1.16 returns a dict; older releases an object.
+    if isinstance(result, dict):
+        structure, symbols = result.get("structure"), result.get("symbols")
+    else:
+        structure = getattr(result, "structure", None)
+        symbols = getattr(result, "symbols", None)
+
     collected: list[str] = []
     seen: set[str] = set()
-    _walk_structure(
-        getattr(result, "structure", None) or [],
-        _SYMBOL_KINDS,
-        collected,
-        seen,
-    )
+    _walk_structure(structure or [], _SYMBOL_KINDS, collected, seen)
     # Also merge in top-level `symbols` (some grammars — e.g. go's
     # `type` declarations — surface only here, not in `structure`).
-    for s in getattr(result, "symbols", None) or []:
+    for s in symbols or []:
         name = getattr(s, "name", None)
         kind = str(getattr(s, "kind", ""))
         if name and kind in _SYMBOL_KINDS and name not in seen:
