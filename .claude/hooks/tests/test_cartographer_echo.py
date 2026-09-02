@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+import _echo_catalog
+
 HOOK = Path(__file__).resolve().parents[1] / "cartographer-echo.py"
 
 
@@ -899,19 +901,6 @@ def test_main_non_dict_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert rc == 0
 
 
-def test_rationalizations_parsed_from_rules_file(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The rationalizations parser must successfully load real rule file content."""
-    mod = _import_hook_module()
-    # Clear cache so loader actually runs.
-    mod._RATIONALIZATIONS_CACHE = None
-    rats = mod._load_rationalizations()
-    assert "Quick fix, skip the map" in rats
-    assert "Couldn't find existing helper" in rats
-
-
 # --- Audit schema completeness ---
 
 
@@ -1527,40 +1516,6 @@ def test_skip_does_not_emit_deny_envelope(tmp_path: Path) -> None:
         ), "skip path must not deny"
 
 
-# --- Rationalizations catalog path: pinned after move to rules-library/ ---
-
-
-def test_rationalizations_path_points_to_existing_file() -> None:
-    """The module-level catalog path constant must resolve to a real file on disk."""
-    mod = _import_hook_module()
-    assert mod._RATIONALIZATIONS_PATH.is_file(), (
-        f"_RATIONALIZATIONS_PATH does not exist: {mod._RATIONALIZATIONS_PATH}"
-    )
-
-
-def test_rationalizations_path_yields_parsed_entries_not_pointer_stub() -> None:
-    """The catalog path must resolve to the real catalog (parseable entries), not
-    the <=200 byte pointer stub left behind at the old rules/ location."""
-    mod = _import_hook_module()
-    mod._RATIONALIZATIONS_CACHE = None
-    rats = mod._load_rationalizations()
-    assert rats, (
-        f"expected non-empty parsed entries from {mod._RATIONALIZATIONS_PATH}, got {rats}"
-    )
-    for key in (
-        "Quick fix, skip the map",
-        "Couldn't find existing helper",
-        "I'll add tests later",
-    ):
-        assert key in rats, (
-            f"missing known catalog entry {key!r}; got keys {sorted(rats.keys())}"
-        )
-        why, counter, triggers = rats[key]
-        assert why.strip(), f"empty 'why' text for {key!r}"
-        assert counter.strip(), f"empty 'counter' text for {key!r}"
-        assert triggers, f"live catalog entry {key!r} carries no triggers"
-
-
 # --- Deny payload attribution: pinned to rules-library/ after the catalog move ---
 
 
@@ -1791,44 +1746,32 @@ def test_build_deny_envelope_surrounding_lines_unchanged_by_catalog_move() -> No
     )
 
 
-# --- rationalization selector: key integrity + trigger reachability (PRD 00157) ---
+# --- rationalization reachability through the deny message (PRD 00157) ---
 
 
-def test_every_hardcoded_lookup_key_exists_in_catalog() -> None:
-    """A catalog heading rename must not silently kill a selector branch.
-
-    Regression for the `"Quick fix, skip atlas"` key: the heading was renamed
-    to "Quick fix, skip the map" (PRD 00138) and the lookup key never updated,
-    so that branch was dead and every non-helper-verb deny fell through to the
-    first entry."""
-    mod = _import_hook_module()
-    source = HOOK.read_text(encoding="utf-8")
-    keys = re.findall(r"rats(?:\.get\(\s*|\[)\s*['\"]([^'\"]+)['\"]", source)
-    mod._RATIONALIZATIONS_CACHE = None
-    rats = mod._load_rationalizations()
-    missing = [k for k in keys if k not in rats]
-    assert not missing, (
-        f"lookup keys with no matching catalog heading: {missing}; "
-        f"catalog has {sorted(rats)}"
-    )
+def _use_synthetic_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+    path: Path,
+    body: str,
+) -> None:
+    """Point the catalog module at a one-test synthetic catalog (auto-restored)."""
+    path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(_echo_catalog, "_RATIONALIZATIONS_PATH", path)
+    monkeypatch.setattr(_echo_catalog, "_RATIONALIZATIONS_CACHE", None)
 
 
-def _write_catalog(path: Path, body: str) -> None:
-    path.write_text(
-        "# Rationalizations Catalog\n\n## Excuses\n\n" + body,
-        encoding="utf-8",
-    )
-
-
-def test_appended_catalog_entry_is_cited_by_deny_message(tmp_path: Path) -> None:
-    """An entry appended to the bottom of ## Excuses must be reachable through
+def test_appended_catalog_entry_is_cited_by_deny_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An entry appended to the bottom of the catalog must be reachable through
     its own trigger terms, without being moved to the top and with no code
     change. Fails while the selector falls back to the first entry in file
     order."""
     mod = _import_hook_module()
-    catalog = tmp_path / "rationalizations.md"
-    _write_catalog(
-        catalog,
+    _use_synthetic_catalog(
+        monkeypatch,
+        tmp_path / "rationalizations.md",
         '### "First entry"\n\n'
         "- **Why it's wrong**: first why.\n"
         "- **Counter-action**: first counter.\n\n"
@@ -1837,8 +1780,6 @@ def test_appended_catalog_entry_is_cited_by_deny_message(tmp_path: Path) -> None
         "- **Counter-action**: appended counter.\n"
         "- **Triggers**: frobnicate\n",
     )
-    mod._RATIONALIZATIONS_PATH = catalog
-    mod._RATIONALIZATIONS_CACHE = None
     matches = [
         {
             "symbol": "frobnicate_widget",
@@ -1855,20 +1796,19 @@ def test_appended_catalog_entry_is_cited_by_deny_message(tmp_path: Path) -> None
 
 def test_no_trigger_match_renders_deny_without_rationalization(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When no entry's triggers match, the deny must render with no
     rationalization block at all — an irrelevant excuse is worse than none."""
     mod = _import_hook_module()
-    catalog = tmp_path / "rationalizations.md"
-    _write_catalog(
-        catalog,
+    _use_synthetic_catalog(
+        monkeypatch,
+        tmp_path / "rationalizations.md",
         '### "Only entry"\n\n'
         "- **Why it's wrong**: only why.\n"
         "- **Counter-action**: only counter.\n"
         "- **Triggers**: frobnicate\n",
     )
-    mod._RATIONALIZATIONS_PATH = catalog
-    mod._RATIONALIZATIONS_CACHE = None
     matches = [
         {"symbol": "load_config", "file": "src/c.py", "line": 3, "score": "strong"},
     ]
@@ -1881,68 +1821,3 @@ def test_no_trigger_match_renders_deny_without_rationalization(
     assert reason.splitlines()[-1] == (
         "If this is genuinely new, retry — the second attempt will pass."
     )
-
-
-def test_shared_trigger_cites_the_earlier_entry(tmp_path: Path) -> None:
-    """When two entries claim the same trigger term, the earlier entry (file
-    order) wins — the documented precedence rule. Also pins comma-separated
-    multi-term parsing: the later entry stays reachable via its unshared term."""
-    mod = _import_hook_module()
-    catalog = tmp_path / "rationalizations.md"
-    _write_catalog(
-        catalog,
-        '### "Earlier entry"\n\n'
-        "- **Why it's wrong**: earlier why.\n"
-        "- **Counter-action**: earlier counter.\n"
-        "- **Triggers**: frobnicate\n\n"
-        '### "Later entry"\n\n'
-        "- **Why it's wrong**: later why.\n"
-        "- **Counter-action**: later counter.\n"
-        "- **Triggers**: glorp, frobnicate\n",
-    )
-    mod._RATIONALIZATIONS_PATH = catalog
-    mod._RATIONALIZATIONS_CACHE = None
-    picked = mod._pick_rationalization(["frobnicate_widget"])
-    assert picked is not None and picked[0] == "Earlier entry"
-    picked = mod._pick_rationalization(["glorp_widget"])
-    assert picked is not None and picked[0] == "Later entry"
-
-
-def test_empty_triggers_bullet_yields_no_triggers(tmp_path: Path) -> None:
-    """An empty Triggers bullet must parse to (), never swallow the following
-    bullet's text as garbage trigger terms (author puts Triggers mid-entry)."""
-    mod = _import_hook_module()
-    catalog = tmp_path / "rationalizations.md"
-    _write_catalog(
-        catalog,
-        '### "Empty triggers entry"\n\n'
-        "- **Why it's wrong**: some why.\n"
-        "- **Triggers**:\n"
-        "- **Counter-action**: some counter.\n",
-    )
-    mod._RATIONALIZATIONS_PATH = catalog
-    mod._RATIONALIZATIONS_CACHE = None
-    rats = mod._load_rationalizations()
-    assert "Empty triggers entry" in rats
-    why, counter, triggers = rats["Empty triggers entry"]
-    assert triggers == (), triggers
-    assert counter == "some counter."
-
-
-def test_entry_without_triggers_parses_but_is_never_cited(tmp_path: Path) -> None:
-    """An entry with no Triggers bullet still parses (humans and /architect
-    read it) but is never auto-cited by a deny."""
-    mod = _import_hook_module()
-    catalog = tmp_path / "rationalizations.md"
-    _write_catalog(
-        catalog,
-        '### "Untriggered entry"\n\n'
-        "- **Why it's wrong**: some why.\n"
-        "- **Counter-action**: some counter.\n",
-    )
-    mod._RATIONALIZATIONS_PATH = catalog
-    mod._RATIONALIZATIONS_CACHE = None
-    rats = mod._load_rationalizations()
-    assert "Untriggered entry" in rats
-    assert rats["Untriggered entry"][2] == ()
-    assert mod._pick_rationalization(["untriggered_entry_helper"]) is None
