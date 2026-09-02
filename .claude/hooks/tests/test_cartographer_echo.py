@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -375,6 +376,22 @@ def test_extract_symbols_anonymous_arrow_not_included() -> None:
     assert "named" in syms
     # Anonymous functions (no identifier) must not contribute symbols.
     assert all(s and isinstance(s, str) for s in syms)
+
+
+def test_extract_symbols_reads_dict_results_from_pack_1_16(monkeypatch) -> None:
+    """tree-sitter-language-pack >= 1.16 returns `process()` results as a dict;
+    older releases returned an object with attributes. Both shapes must yield
+    the same symbols. Before the fix the dict shape silently produced []."""
+    mod = _import_hook_module()
+    func = types.SimpleNamespace(kind="Function", name="format_price", children=[])
+    typ = types.SimpleNamespace(kind="Type", name="Order")
+    fake = types.SimpleNamespace(
+        ProcessConfig=lambda **_kw: None,
+        process=lambda _content, _config: {"structure": [func], "symbols": [typ]},
+    )
+    monkeypatch.setattr(mod.lib, "try_import_tree_sitter", lambda: fake)
+    out = mod.extract_symbols("def format_price():\n    pass\n", ".py")
+    assert out == ["format_price", "Order"]
 
 
 # --- Stopword filter ---
