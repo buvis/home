@@ -232,12 +232,10 @@ def test_audit_every_event_has_required_keys(tmp_path: Path) -> None:
         run_hook(p, home=tmp_path, cwd=tmp_path)
     events = read_audit(tmp_path)
     assert events, "no events written"
-    decisions = {e["decision"] for e in events if "decision" in e}
-    assert decisions == {"allow", "deny", "skip"}, decisions
-    for e in events:
-        # tree_sitter_missing warnings have only `ts` + `event` keys; skip those.
-        if "decision" not in e:
-            continue
+    # tree_sitter_missing warnings have only `ts` + `event` keys; skip those.
+    decided = [e for e in events if "decision" in e]
+    assert {e["decision"] for e in decided} == {"allow", "deny", "skip"}
+    for e in decided:
         missing = _REQUIRED_AUDIT_KEYS - set(e.keys())
         assert not missing, f"event missing {missing}: {e}"
         assert e["phase"] == "echo"

@@ -15,12 +15,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 import _echo_search
 import _echo_symbols
+import pytest
 
 from .echo_test_helpers import HOOK, isolate_hook_for_direct_call, read_audit
+
+# --- Direct-call coverage (handle / main bypass subprocess for line coverage) ---
 
 
 def test_isolated_hook_shares_one_lib_instance_with_helpers(
@@ -32,8 +33,6 @@ def test_isolated_hook_shares_one_lib_instance_with_helpers(
     (PRD 00158 review 1, finding 3)."""
     mod = isolate_hook_for_direct_call(monkeypatch, tmp_path)
     assert mod.lib is _echo_search.lib is _echo_symbols.lib
-
-# --- Direct-call coverage (handle / main bypass subprocess for line coverage) ---
 
 
 def test_handle_direct_call_unknown_tool_no_audit(
