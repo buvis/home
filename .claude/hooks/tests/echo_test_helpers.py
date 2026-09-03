@@ -17,9 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 import _lib_cartographer as lib
+import pytest
 
 HOOK = Path(__file__).resolve().parents[1] / "cartographer-echo.py"
 
