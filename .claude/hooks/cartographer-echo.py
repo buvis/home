@@ -2,13 +2,17 @@
 """PreToolUse hook — Cartographer Phase 1 (Echo) duplicate-detection gate.
 
 Reads a single JSON payload from stdin, dispatches on `tool_name`, and emits
-an audit event for every decision (allow/deny/skip). At this scaffolding
-phase (PRD 00010 Task 1) only the skip rules are wired; symbol extraction,
-match search, and the deny envelope are added in later tasks.
+an audit event for every decision (allow/deny/skip). This entry file keeps the
+skip rules, the per-tool handlers, the two-attempt gate, the deny envelope and
+`main()`/`run()`; the rest lives in four helper modules imported eagerly at
+module scope so a broken helper fails closed at load (PRD 00158):
+`_echo_catalog` (rationalization catalog), `_echo_search` (ripgrep candidate
+search), `_echo_bash` (Bash bypass detection), `_echo_symbols` (symbol
+extraction and match scoring).
 
 Allow path: exit 0 with empty stdout (mirrors gateguard-fact-force.py).
 Deny path: exit 0 with a `hookSpecificOutput.permissionDecision = "deny"`
-JSON envelope on stdout (added in later tasks).
+JSON envelope on stdout.
 
 Stdlib-only. Optional `tree_sitter_language_pack` accessed lazily via
 `_lib_cartographer.try_import_tree_sitter`. Python 3.10+.
