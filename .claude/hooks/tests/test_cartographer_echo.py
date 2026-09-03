@@ -203,11 +203,17 @@ def test_audit_event_required_keys(tmp_path: Path) -> None:
 
 
 def _audit_probe_payloads(tmp_path: Path) -> list[dict]:
-    """One payload per decision class: skip (ext), skip (settings), allow (bash), allow (write)."""
+    """One payload per decision class: skip (ext), skip (settings), allow (bash),
+    deny (bash bypass: a redirect into a source file), allow (write)."""
     return [
         _edit_payload("s1", tmp_path / "a.md"),
         _edit_payload("s1", tmp_path / ".claude" / "settings.json"),
         {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "ls -la"}},
+        {
+            "session_id": "s1",
+            "tool_name": "Bash",
+            "tool_input": {"command": f"echo 'x = 1' > {tmp_path / 'gen.py'}"},
+        },
         {
             "session_id": "s1",
             "tool_name": "Write",
@@ -226,6 +232,8 @@ def test_audit_every_event_has_required_keys(tmp_path: Path) -> None:
         run_hook(p, home=tmp_path, cwd=tmp_path)
     events = read_audit(tmp_path)
     assert events, "no events written"
+    decisions = {e["decision"] for e in events if "decision" in e}
+    assert decisions == {"allow", "deny", "skip"}, decisions
     for e in events:
         # tree_sitter_missing warnings have only `ts` + `event` keys; skip those.
         if "decision" not in e:

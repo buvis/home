@@ -21,6 +21,7 @@ PRODUCT_FILES = sorted([HOOKS / "cartographer-echo.py", *HOOKS.glob("_echo_*.py"
 TEST_FILES = sorted(
     [
         HOOKS / "tests" / "test_cartographer_echo.py",
+        HOOKS / "tests" / "echo_test_helpers.py",
         *(HOOKS / "tests").glob("test_echo_*.py"),
     ],
 )

@@ -17,7 +17,21 @@ from pathlib import Path
 
 import pytest
 
+import _echo_search
+import _echo_symbols
+
 from .echo_test_helpers import HOOK, isolate_hook_for_direct_call, read_audit
+
+
+def test_isolated_hook_shares_one_lib_instance_with_helpers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The entry and the extracted helpers must bind the same lib object; on
+    two instances a direct-call test can pass on one while the other is stale
+    (PRD 00158 review 1, finding 3)."""
+    mod = isolate_hook_for_direct_call(monkeypatch, tmp_path)
+    assert mod.lib is _echo_search.lib is _echo_symbols.lib
 
 # --- Direct-call coverage (handle / main bypass subprocess for line coverage) ---
 

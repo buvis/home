@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+import _lib_cartographer as lib
+
 HOOK = Path(__file__).resolve().parents[1] / "cartographer-echo.py"
 
 
@@ -66,10 +68,12 @@ def isolate_hook_for_direct_call(
     monkeypatch: pytest.MonkeyPatch,
     home: Path,
 ) -> object:
-    """Import the hook with HOME pointed at a tmp dir and lib cache cleared."""
+    """Import the hook with HOME pointed at a tmp dir.
+
+    No module eviction: the entry and the `_echo_*` helpers must share one
+    `_lib_cartographer` instance (PRD 00158 review 1, finding 3). The one
+    piece of lib state that depends on HOME is the once-per-process audit-dir
+    sentinel, so reset it explicitly for the new HOME instead."""
     monkeypatch.setenv("HOME", str(home))
-    # Force fresh import of lib + hook
-    for name in ("_lib_cartographer", "cartographer_echo_mod"):
-        if name in sys.modules:
-            del sys.modules[name]
+    lib._reset_ensure_dirs_for_tests()
     return import_hook_module()
