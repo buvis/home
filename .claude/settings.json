@@ -131,7 +131,11 @@
       "/Users/bob/.local/tmp/claude-dev"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5-1[1m]",
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$(ls -d \"$HOME\"/.claude/plugins/cache/ponytail/ponytail/*/hooks/ponytail-statusline.sh | sort -V | tail -n1)\""
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -234,9 +238,16 @@
       }
     }
   },
+  "feedbackDrafts": "off",
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-sonnet-5": {
+      "effortLevel": "high"
+    },
+    "claude-fable-5-1": {
       "effortLevel": "xhigh"
     }
   },
