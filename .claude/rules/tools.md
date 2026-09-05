@@ -15,7 +15,7 @@ Hard-enforced by the **aegis** plugin's `prefer_tools.py` hook. See `aegis/rules
 
 `rg` for ad-hoc shell recon is allowed (faster than grep, respects `.gitignore`). `ast-grep` for structural search and codemods.
 
-The harness's auto-mode note ("read with cat/head/sed, search with grep/find, edit with sed") does not override this. aegis blocks `cat`, `head`, `tail`, `grep`, and `find` in every mode, so reach for `Read`, `Edit`, `rg`, and `rg --files` from the first call instead of losing a call per block.
+The harness's auto-mode note ("read with cat/head/sed, search with grep/find") does not override this. aegis blocks `cat`, `head`, `tail`, `grep`, and `find` in every mode, so reach for `Read`, `Edit`, `rg`, and `rg --files` from the first call instead of losing a call per block.
 
 ## Search Strategy (Grep/Glob tools unavailable)
 
