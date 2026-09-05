@@ -34,6 +34,7 @@ node = "latest"
 python = "latest"
 rust = "latest"
 uv = "latest"
+ripgrep = "latest"
 
 [settings]
 experimental = true
