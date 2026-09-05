@@ -49,14 +49,15 @@ A skill that defines its own stricter walkthrough keeps it; this protocol is the
 
 The user reads only the last screen. Every turn ends with a handoff block and nothing after it:
 
-1. **Status**: one of `Done.`, `Partly done.`, `Blocked.`, `Decision needed.`
-2. **Changed**: at most 3 lines, plus the proving check output in a code block (a test count, an exit code). Never "verified" without it. More detail goes to a file, linked here.
-3. **Not done**: one line per skipped, failed, or unverified item. Omit when empty.
+1. **Status**: one of `Done.`, `Partly done.`, `Blocked.`, `Decision needed.` `Done.` requires an empty Not done.
+2. **Changed**: at most 3 lines, plus the proving check output in a code block (a test count, an exit code). Never "verified" without it. More detail goes to a file, linked here. Work dropped by decision goes here as `deferred: <item> -> <PRD/issue/file>`, not under Not done.
+3. **Not done**: one line per skipped, failed, or unverified item, each naming what closes it. Omit when empty.
 4. **Next**: exactly one line naming who acts and the single concrete action:
    - `You: <run X and paste output | answer the question above | review <file>>`
    - `Me: <step>. Say "go".`
-   - `Nothing. Task complete.`
+   - `Nothing. Task complete.` (only when Not done is empty)
 
+- Not done and Next are one contract: while Not done has a line, Next is the action that closes its first line, or the one that unblocks the rest. Listing leftovers and then answering that nothing remains is forbidden.
 - `Decision needed.` ends with one AskUserQuestion, never questions in prose. One open question per turn, maximum.
 - Never end on a summary, an analysis, or a menu of possible next steps. Pick one; that is the Next line.
 - An offer ("Want me to...?") is a question: at most one, only in the Next line.
