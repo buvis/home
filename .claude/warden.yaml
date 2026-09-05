@@ -90,6 +90,10 @@ alwaysAllow:
   - awk
   # Skill scripts — glob matches all scripts under ~/.claude/skills/
   - ~/.claude/skills/**
+  # Skills moved to agent-skills on 2026-08-25 (braid lays ~/.claude/skills as
+  # a second hop); unattended loops invoke them by these paths
+  - ~/.agents/skills/**
+  - ~/git/src/github.com/buvis/agent-skills/skills/**
   # Trusted plugin skill/hook scripts (own marketplace only)
   - ~/.claude/plugins/cache/buvis-plugins/**
   # Hook scripts
@@ -240,6 +244,10 @@ rules:
           anyArgMatches: ["^pytest$"]
         decision: allow
         description: Allow uvx pytest
+      - match:
+          anyArgMatches: ["^ruff$"]
+        decision: allow
+        description: Allow uvx ruff
   # render: the playground hardware layout renderer. Allow only when a target
   # path is under the playground hardware tree (the autopilot loop's circuit
   # PRDs); any other `render` invocation still asks.
@@ -250,3 +258,21 @@ rules:
           anyArgMatches: ["tbouska/playground/hardware/"]
         decision: allow
         description: Allow render on playground hardware layouts
+  # Recurring unattended denies, 2026-08-29..09-05 (145 in 7 days, from
+  # `warden suggest --since 7d`): the loop's own helper scripts and tools.
+  - command: uuidgen
+    default: allow
+  - command: braid
+    default: allow
+  - command: release-checks
+    default: allow
+  - command: llama-server
+    default: allow
+  - command: qwen-run.sh
+    default: allow
+  - command: codex-run.sh
+    default: allow
+  - command: test_sonnet_run.sh
+    default: allow
+  - command: test_codex_run.sh
+    default: allow
