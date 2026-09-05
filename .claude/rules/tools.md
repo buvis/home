@@ -15,6 +15,8 @@ Hard-enforced by the **aegis** plugin's `prefer_tools.py` hook. See `aegis/rules
 
 `rg` for ad-hoc shell recon is allowed (faster than grep, respects `.gitignore`). `ast-grep` for structural search and codemods.
 
+The harness's auto-mode note ("read with cat/head/sed, search with grep/find, edit with sed") does not override this. aegis blocks `cat`, `head`, `tail`, `grep`, and `find` in every mode, so reach for `Read`, `Edit`, `rg`, and `rg --files` from the first call instead of losing a call per block.
+
 ## Search Strategy (Grep/Glob tools unavailable)
 
 The native `Grep`/`Glob` tools are unregistered in this build (upstream bug, native 2.1.117+). Don't call them, and ignore any hook message that says "use the Grep tool" - it points at a tool that does not exist. Pick by search shape:
@@ -31,3 +33,4 @@ Don't spawn `Explore` for a one-line lookup (slow, token-heavy), and don't pull 
 
 - `rg` uses Rust regex (extended). Alternation is `|`, not `\|`. `rg "a\|b"` matches the **literal string** `a|b` and almost always returns nothing. Use `rg "a|b"` or `rg -e a -e b`.
 - Treat `(Bash completed with no output)` as **unverified**, not **confirmed absent**. Before concluding a symbol does not exist, re-run the search with a term you know is present (or a single unambiguous term) to prove the pattern itself works. Repeated empty results from multi-term searches are a regex-syntax smell, not evidence.
+- Order searches narrow to wide. Over a large corpus (transcripts under `~/.claude/projects`, logs), start with the tightest literal the record format guarantees, prove it with a known-hit control, and widen only if that finds nothing. A loose first pass returns hundreds of files and buries the answer in a persisted dump.

@@ -19,6 +19,7 @@ Surface uncertainty, don't hide it.
 - Didn't run it? Don't say "verified" - run it, paste the output, claim it.
 - Worked around a failure? Say so - it's part of the result.
 - Guessed a value? Flag it, don't bury it.
+- Writing a measured state (git, disk, a process) into a durable note? Re-measure right before writing, or stamp the measurement time. A live work-tree moves under you.
 
 The bar: a reader who only sees your final message should be able to tell exactly what is and isn't done.
 
