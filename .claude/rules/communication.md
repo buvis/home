@@ -55,9 +55,9 @@ The user reads only the last screen. Every turn ends with a handoff block and no
 4. **Next**: exactly one line naming who acts and the single concrete action:
    - `You: <run X and paste output | answer the question above | review <file>>`
    - `Me: <step>. Say "go".`
-   - `Nothing. Task complete.` (only when Not done is empty)
+   - `Task complete. Suggested next: <one concrete follow-on>.` (only when Not done is empty; propose the most useful next step you can see, such as a related cleanup, a check, or the next PRD; never "nothing")
 
-- Not done and Next are one contract: while Not done has a line, Next is the action that closes its first line, or the one that unblocks the rest. Listing leftovers and then answering that nothing remains is forbidden.
+- Not done and Next are one contract: while Not done has a line, Next is the action that closes its first line, or the one that unblocks the rest.
 - `Decision needed.` ends with one AskUserQuestion, never questions in prose. One open question per turn, maximum.
 - Never end on a summary, an analysis, or a menu of possible next steps. Pick one; that is the Next line.
 - An offer ("Want me to...?") is a question: at most one, only in the Next line.
