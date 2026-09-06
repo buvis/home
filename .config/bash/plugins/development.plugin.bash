@@ -390,7 +390,11 @@ autoclaude() {
   # pause/park markers, per-session metrics, and the drained-path purge +
   # agoge run. This wrapper keeps only the operator subcommands above, the
   # tracon presentation front-end, and this hand-off.
-  autopilot loop
+  # caffeinate keeps the Mac from idle-sleeping for exactly as long as the loop
+  # runs (batch 202609050909 lost 13:01-19:42 on 2026-09-06 to a sleeping
+  # laptop) and passes the loop's exit code through (measured: exit 7 -> 7).
+  # Lid-closed sleep on battery is not covered; run batches on power.
+  caffeinate -is autopilot loop
   local _rc=$?
   unset _AUTOPILOT_LOOP
   return $_rc
@@ -400,7 +404,8 @@ autoclaude() {
 # the installed autopilot plugin; ~/.config/autocodex adapts process and review
 # boundaries without adding a second state writer.
 autocodex() {
-  mise exec -- python3 "$HOME/.config/autocodex/driver.py" "$@"
+  # Same keep-awake wrap as autoclaude; short subcommands pay nothing for it.
+  caffeinate -is mise exec -- python3 "$HOME/.config/autocodex/driver.py" "$@"
 }
 
 start_qwen() {
