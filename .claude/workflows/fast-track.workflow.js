@@ -324,7 +324,7 @@ let remaining = blocking
 if (blocking.length > 0 && REWORK_CAP > 0) {
   reworks = 1
   const list = blocking.map((f, i) => `${i + 1}. [${f.severity}] ${f.title} (${f.file}${f.line ? ':' + f.line : ''})\n   evidence: ${f.evidence}\n   proof: ${f.proof || '(none)'}\n   suggested fix: ${f.fix || '(none)'}`).join('\n')
-  const rework = await agent(ivanPrompt(`REWORK: independent reviewers confirmed these findings against your predecessor's change (the diff is already in the working tree). Fix exactly these, surgically, within your allowlist, keeping every spec test green:\n${list}`), { label: 'rework', phase: 'Rework', model: IMPL_MODEL, schema: IMPL_SCHEMA })
+  const rework = await agent(ivanPrompt(`REWORK: independent reviewers confirmed these findings against your predecessor's change (the diff is already in the working tree). Fix exactly these, surgically, within your allowlist, keeping every spec test green. Validate with the narrow spec tests and cargo build only; never run cargo test-ci or any suite (it outlives your Bash cap and the gate runner validates after you):\n${list}`), { label: 'rework', phase: 'Rework', model: IMPL_MODEL, schema: IMPL_SCHEMA })
   if (rework && rework.status === 'done') assumptions.push(...rework.assumptions)
   gate = await agent(gatePrompt(), { label: 'gate-after-rework', phase: 'Rework', schema: GATE_SCHEMA, effort: 'low' })
   if (!gate || !gate.passed) return { item: ITEM, outcome: 'gate_failed_after_rework', base_sha: prep.base_sha, gate, blocking, assumptions, lane_status: laneStatus }
