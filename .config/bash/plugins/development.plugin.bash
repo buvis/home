@@ -396,6 +396,13 @@ autoclaude() {
   return $_rc
 }
 
+# Codex-hosted counterpart to autoclaude. Lifecycle policy and state remain in
+# the installed autopilot plugin; ~/.config/autocodex adapts process and review
+# boundaries without adding a second state writer.
+autocodex() {
+  mise exec -- python3 "$HOME/.config/autocodex/driver.py" "$@"
+}
+
 start_qwen() {
   # Serves the promoted default (qualified 2026-08-31) on :8002, matching
   # ~/.pi/agent/models.json provider llamacpp8002. No --alias, ever.
