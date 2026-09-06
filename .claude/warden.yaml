@@ -156,6 +156,10 @@ rules:
         decision: allow
         description: Recursive delete under any tmp/ path segment (repo tmp/ dirs are ephemeral by the dev/local GC contract)
       - match:
+          argsMatch: ["^-rf dist/?$"]
+        decision: allow
+        description: Recursive delete of a bare relative dist build dir only (operator decision 2026-09-06, config-audit closure check)
+      - match:
           argsMatch: ["-rf ", "-rf$", "-r "]
         decision: ask
         description: Recursive delete
