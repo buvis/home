@@ -1,0 +1,17 @@
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+testpaths = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["driver", "adapter"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests load the installed plugin from its explicitly resolved location.
+"test_adapter.py" = ["E402"]
