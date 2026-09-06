@@ -236,7 +236,8 @@ const laneContext = (d) => `\n\n## Item card (the spec)\n${prep.card_text}\n\n##
 
 const evePrompt = fill(prep.personas.eve, { PACK_FINDINGS: '(no pack available this cycle)' }) + laneContext(diff) + `\nMap your buckets onto findings: FIX items keep their real severity, VERIFY items are MEDIUM with the exact check named in fix, KNOWN items are LOW with the justification in evidence. Emit the five D1-D5 verdict lines in verdict_lines.`
 
-const blakePrompt = fill(prep.personas.blake, { PRD: prep.card_text, RUBRIC: prep.rubric_text, OUTPUT_FORMAT: prep.output_format_text }) + `\n\n## Filesystem notes\nProject root: ${REPO}\n\`dev/local\` realpath: ${prep.devlocal_realpath}\n\`rg --files\` does not descend into dot-directories or follow this symlink; list or Read the realpath directly.\n\nYou see NO diff and NO changed-file list on purpose: find the code yourself. The spec is the card above; its "Tests" section names the regression tests that must now pass and must not be ignored. ${TOOL_RULES}\nReturn exactly the lane schema (findings + your B-rule verdict lines + raw excerpt).`
+// output_format_text carries the lane tag placeholder [{AGENT_NAME}]; fill it after the section is substituted in
+const blakePrompt = fill(prep.personas.blake, { PRD: prep.card_text, RUBRIC: prep.rubric_text, OUTPUT_FORMAT: prep.output_format_text, AGENT_NAME: 'BLAKE' }) + `\n\n## Filesystem notes\nProject root: ${REPO}\n\`dev/local\` realpath: ${prep.devlocal_realpath}\n\`rg --files\` does not descend into dot-directories or follow this symlink; list or Read the realpath directly.\n\nYou see NO diff and NO changed-file list on purpose: find the code yourself. The spec is the card above; its "Tests" section names the regression tests that must now pass and must not be ignored. ${TOOL_RULES}\nReturn exactly the lane schema (findings + your B-rule verdict lines + raw excerpt).`
 
 const cliLane = (name, script, personaBody) => {
   const promptFile = `${TMP}/${ITEM}-${name}-prompt.md`
@@ -248,6 +249,7 @@ const cliLane = (name, script, personaBody) => {
     REVIEW_CHECKLIST: prep.checklist_text,
     RUBRIC: prep.rubric_text,
     OUTPUT_FORMAT: prep.output_format_text,
+    AGENT_NAME: name.toUpperCase(),
   })
   return `You dispatch the external-model review lane "${name}" for fast-track item ${ITEM}. Steps, each a separate Bash call in the FOREGROUND with timeout 600000:
 1. Write the file ${TMP}/${ITEM}-no-pack.md with the single line "(no pack available this cycle)" and write the file ${promptFile} with EXACTLY the prompt text between the markers below (Write tool).
