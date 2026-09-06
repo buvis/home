@@ -17,6 +17,41 @@ from cli import state as state_mod
 
 import driver
 
+_SOURCE_ROUTE = routing.route
+
+
+class _ProviderStream:
+    """Relabel inherited lifecycle prose without altering upstream policy."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    def write(self, value: str) -> int:
+        return self._stream.write(value.replace("autoclaude", "autocodex"))
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+
+def codex_route(phase: str, autopilot_dir: Path, env: dict | None = None) -> Any:
+    """Translate inherited logical tiers before the loop renders or records them."""
+    effective_env = dict(os.environ) if env is None else env
+    source = _SOURCE_ROUTE(phase, autopilot_dir, env=effective_env)
+    model = driver.codex_model(source.model, effective_env)
+    return routing.Route(
+        model=model,
+        effort=driver.codex_effort(phase, model, effective_env),
+        cap_secs=source.cap_secs,
+    )
+
+
+# The inherited loop prints and records Route before _launch(). Adapt it at that
+# boundary so user-visible main-session labels always name the actual provider.
+routing.route = codex_route
+
 
 def read_bytes(path: Path) -> bytes | None:
     try:
@@ -102,6 +137,8 @@ class CodexLoop(loop.Loop):
         self.root, self.once = root, once
         env = dict(os.environ, _AUTOPILOT_LOOP=str(os.getpid()))
         super().__init__(cwd=cwd, env=env, runner_bin="codex", **kwargs)
+        self.out = _ProviderStream(self.out)
+        self.err = _ProviderStream(self.err)
         self._lock: Any = None
         self._result: driver.Result | None = None
         self._before: bytes | None = None
@@ -141,12 +178,62 @@ class CodexLoop(loop.Loop):
                 print(f"autocodex: state refused: {error}", file=self.err)
                 return 1
             if loop.pause_detail(state):
-                print(f"autocodex: paused: {loop.pause_detail(state)}", file=self.err)
+                self._print_pause_help(state, path)
                 return 1
             if state.get("phase") == "done" and state.get("next_phase") == "":
                 print("autocodex: batch already drained", file=self.out)
                 return 0
         return super()._schema_gate(ap_dir)
+
+    def _print_pause_help(self, state: dict, state_path: Path) -> None:
+        detail = loop.pause_detail(state) or "operator attention required"
+        print(f"autocodex: paused: {detail}", file=self.err)
+
+        prd = state.get("prd")
+        prd_name = prd if isinstance(prd, str) else ""
+        wip = self.cwd / "dev/local/prds/wip" / prd_name
+        done = self.cwd / "dev/local/prds/done" / prd_name
+        if prd_name and done.is_file() and not wip.exists():
+            preserved = f"dev/local/autopilot-{Path(prd_name).stem}-paused-preserved"
+            print(
+                f"\nThis state belongs to completed PRD {prd_name}; do not resume its findings.\n"
+                "Preserve and detach it before starting the current WIP PRD:\n\n"
+                f"  mv dev/local/autopilot {preserved}\n"
+                "  autocodex --once --scope <handoff.md>\n\n"
+                f"State: {state_path}",
+                file=self.err,
+            )
+            return
+
+        cap = state.get("cap_pause_reason")
+        findings = cap.get("unresolved_findings") if isinstance(cap, dict) else None
+        for finding in findings or []:
+            if not isinstance(finding, dict):
+                continue
+            severity = finding.get("severity") or "?"
+            consensus = finding.get("consensus") or "?"
+            issue = str(finding.get("issue") or "")
+            print(f"  - [{severity}; {consensus}] {issue}", file=self.err)
+
+        if isinstance(cap, dict):
+            print(
+                "\nThis is a deliberate review gate. Resolve it interactively:\n\n"
+                "  1. claude\n"
+                "  2. /autopilot:run-autopilot\n"
+                "  3. Choose Resume and optionally raise the rework cap.\n"
+                "  4. Exit Claude, then run autocodex again.\n\n"
+                "Do not edit state.json directly.",
+                file=self.err,
+            )
+        else:
+            print(
+                "\nInspect the recorded reason, then take over interactively:\n\n"
+                "  autocodex status\n"
+                "  claude  # then /autopilot:run-autopilot\n\n"
+                "After resolving the pause, run autocodex again.",
+                file=self.err,
+            )
+        print(f"\nState: {state_path}", file=self.err)
 
     def _launch(self, plan: Any, ap_dir: Path) -> None:
         self._before = read_bytes(ap_dir / "state.json")
@@ -321,7 +408,7 @@ class CodexLoop(loop.Loop):
                     },
                 },
             )
-        print(f"autocodex: paused: {decision['detail']}\nState: {state_path}", file=self.err)
+        self._print_pause_help(routing._load_json(state_path) or {}, state_path)
         return 1
 
     def _teardown(self) -> None:

@@ -75,6 +75,10 @@ def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> No
         timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "gpt-5.6-sol/high" in result.stdout
+    assert "gpt-6-astra/xhigh" in result.stdout
+    assert "claude-sonnet" not in result.stdout
+    assert "claude-opus" not in result.stdout
     launches = [json.loads(line) for line in (ap / "invocations.jsonl").read_text().splitlines()]
     assert len(launches) == 4
     assert len({launch["pid"] for launch in launches}) == 4
@@ -89,3 +93,49 @@ def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> No
     assert json.loads(archived[0].read_text())["next_phase"] == ""
     assert len(list((ap / "autocodex-sessions").glob("*.jsonl"))) == 3
     assert len(list((tmp_path / "registry").glob("*.json"))) == 0
+
+
+def test_fast_track_handoff_scope_runs_once_without_task_state(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    handoff = repo / "dev/local/plans/fast-track-handoffs/00004/rework-11.md"
+    handoff.parent.mkdir(parents=True)
+    handoff.write_text("# Standalone repair handoff\n")
+    fake = tmp_path / "fake-codex"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import json,sys\n"
+        "sys.stdin.read()\n"
+        "print(json.dumps({'type':'turn.completed'}))\n"
+    )
+    fake.chmod(0o700)
+    sysctl = tmp_path / "sysctl"
+    sysctl.write_text("#!/bin/sh\nprintf '1\\n'\n")
+    sysctl.chmod(0o700)
+    env = dict(
+        os.environ,
+        AUTOCODEX_BIN=str(fake),
+        AUTOCODEX_SKILL_ROOT=str(driver.skill_root()),
+        _AUTOPILOT_LOOPS_DIR=str(tmp_path / "registry"),
+        PATH=f"{tmp_path}:{os.environ['PATH']}",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(driver.HERE / "driver.py"),
+            "--cd",
+            str(repo),
+            "--scope",
+            str(handoff),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "fast-track handoff detected" in result.stdout
+    assert len(list((repo / "dev/local/autopilot/autocodex-sessions").glob("*.jsonl"))) == 1
+    assert not (repo / "dev/local/autopilot/state.json").exists()
+    assert "autoclaude:" not in result.stdout + result.stderr

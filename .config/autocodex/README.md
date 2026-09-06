@@ -12,11 +12,22 @@ autocodex --once           # finish one session, stop at its boundary
 autocodex status
 autocodex pause            # stop after the active session finishes
 autocodex --scope scope.md # carry additional user constraints into every session
+autocodex --once --scope dev/local/plans/fast-track-handoffs/.../rework-NN.md
+                            # run one standalone handoff session, then stop
 ```
 
 Ctrl-C terminates the active session's process group and exits. `--cd /repo`
 selects a different root explicitly. Existing paused batches remain paused;
-resolve their recorded reason through the workflow state CLI before resuming.
+`autocodex` prints the recorded findings and exact recovery steps without
+changing their state. For a current PRD review-cap pause, open `claude`, invoke
+`/autopilot:run-autopilot`, choose Resume (optionally raising the cap), exit,
+then run `autocodex` again. If the paused state names a PRD already under
+`dev/local/prds/done/`, preserve and detach that stale task tree with the `mv`
+command `autocodex` prints before starting the current WIP PRD. Never edit
+`state.json` directly.
+Fast-track handoff scopes intentionally have no task state. `autocodex`
+recognizes their path and implies `--once`, preventing a successful repair or
+review from being retried with its now-stale expected HEAD.
 This launcher uses that root's `dev/local/autopilot` tree, including existing
 autoclaude batches. It does not import OVCAQ state or choose a handoff PRD for you.
 
@@ -24,6 +35,12 @@ Logical model roles: Sonnet → `gpt-5.6-sol` (high); Opus → `gpt-6-astra`
 (xhigh); Haiku → `gpt-5.6-luna`. Finalization uses medium effort. These are role
 mappings, not performance-equivalence claims. Sol and Astra both passed local
 live CLI probes, as did the external Claude Opus invocation, on 2026-09-06.
+Session banners show the resolved Codex model. Inherited Claude tier names are
+internal routing inputs and must never appear as the main-session provider.
+Codex owns the coordinator and native subagents. The literal role swap also
+means that a source `/use-codex` lane runs through Claude; that can include an
+implementation lane. Bob's doubt review always uses Claude Opus. These are
+external subprocesses and never replace the Codex coordinator.
 
 The installed autopilot plugin provides lifecycle policy, state transactions,
 PRD selection, task procedures, persona sources and rubrics. The adapter provides
