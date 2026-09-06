@@ -30,6 +30,14 @@ def test_unknown_claude_model_refused() -> None:
         driver.codex_model("claude-fable-5", {})
 
 
+def test_fast_track_handoff_is_detected() -> None:
+    assert driver.is_fast_track_handoff(
+        Path("dev/local/plans/fast-track-handoffs/00004/rework-11.md")
+    )
+    assert not driver.is_fast_track_handoff(Path("scope.md"))
+    assert not driver.is_fast_track_handoff(None)
+
+
 def test_driver_uses_codex_native_flags(tmp_path: Path) -> None:
     argv = driver.codex_argv("codex", "gpt-5.6-sol", "high", tmp_path)
     assert argv[:3] == ["codex", "exec", "--json"]

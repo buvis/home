@@ -339,6 +339,10 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
+def is_fast_track_handoff(path: Path | None) -> bool:
+    return path is not None and "fast-track-handoffs" in path.parts
+
+
 def lifecycle_command(args: argparse.Namespace, cwd: Path, root: Path) -> int | None:
     ap_dir = cwd / "dev/local/autopilot"
     if args.command not in ("status", "pause"):
@@ -398,6 +402,9 @@ def main() -> int:
         return outcome
     if args.dry_run:
         return print_dry_run(args, cwd, root, routing)
+    if is_fast_track_handoff(args.scope) and not args.once:
+        print("autocodex: fast-track handoff detected; running one fresh session (--once)")
+        args.once = True
     if os.environ.get("_AUTOPILOT_LOOP") and os.environ.get("AUTOCODEX_OWNER") != str(os.getpid()):
         raise ValueError("a parent autopilot loop is active; nested loops are refused")
     # Direct exec starts with this tag, so the shared registry can identify us.
