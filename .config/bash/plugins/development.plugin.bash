@@ -394,8 +394,12 @@ autoclaude() {
   # runs (batch 202609050909 lost 13:01-19:42 on 2026-09-06 to a sleeping
   # laptop) and passes the loop's exit code through (measured: exit 7 -> 7).
   # Lid-closed sleep on battery is not covered; run batches on power.
-  caffeinate -is autopilot loop
-  local _rc=$?
+  # caffeinate execs a binary, so it cannot see the `autopilot` shell function
+  # (rc 127 "autopilot: No such file or directory"); call the CLI directly.
+  local _skill _rc
+  _skill=$(_autopilot_skill_root) || return 1
+  caffeinate -is python3 "$_skill/cli/__main__.py" loop
+  _rc=$?
   unset _AUTOPILOT_LOOP
   return $_rc
 }
