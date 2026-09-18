@@ -597,3 +597,8 @@ set classify+=' ::*.py,,*.pyc::, ::*.go::, ::*.rb::, ::*.lock::, 
 
 " text files
 set classify+=' ::*.md::, ::*.toml::, ::*.txt::, ::*.yaml::'
+
+" Load machine-specific settings not tracked in dotfiles
+if filereadable($HOME.'/.local/.vifmrc')
+  execute 'source' $HOME.'/.local/.vifmrc'
+endif
