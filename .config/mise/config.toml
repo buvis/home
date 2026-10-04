@@ -18,6 +18,7 @@
 "pipx:gita" = "latest"
 "pipx:llm" = "latest"
 "pipx:poetry" = "latest"
+"pipx:potrace-cli" = { version = "latest", uvx_args = "--with setuptools<81" }
 "pipx:pre-commit" = "latest"
 "pipx:pybooklid" = "latest"
 "pipx:pynvim" = "latest"
