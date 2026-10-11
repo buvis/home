@@ -11,7 +11,8 @@
     "allow": [
       "Read(~/git/**)",
       "Edit(./**)",
-      "Edit(~/git/**/dev/local/**)",
+      "Edit(~/git/**/docs/dev/project-management/**)",
+      "Edit(~/git/**/docs/dev/tmp/**)",
       "Read(//tmp/**)",
       "Read(//tmp/*)",
       "Read(//private/tmp/**)",
@@ -43,14 +44,14 @@
       "Read(~/.claude/.archive/*)",
       "Read(~/.claude/rules-library/**)",
       "Read(~/.claude/rules-library/*)",
-      "Read(~/.claude/dev/local/**)",
-      "Read(~/.claude/dev/local/*)",
-      "Edit(~/.claude/dev/local/**)",
-      "Edit(~/.claude/dev/local/*)",
-      "Read(//Users/bob/.local/tmp/claude-dev/**)",
-      "Read(//Users/bob/.local/tmp/claude-dev/*)",
-      "Edit(//Users/bob/.local/tmp/claude-dev/**)",
-      "Edit(//Users/bob/.local/tmp/claude-dev/*)",
+      "Read(~/.claude/docs/dev/project-management/**)",
+      "Read(~/.claude/docs/dev/project-management/*)",
+      "Edit(~/.claude/docs/dev/project-management/**)",
+      "Edit(~/.claude/docs/dev/project-management/*)",
+      "Read(~/.claude/docs/dev/tmp/**)",
+      "Read(~/.claude/docs/dev/tmp/*)",
+      "Edit(~/.claude/docs/dev/tmp/**)",
+      "Edit(~/.claude/docs/dev/tmp/*)",
       "mcp__claude_ai_Context7__*",
       "Bash(git:*)",
       "Bash(gh:*)",
@@ -127,15 +128,9 @@
       "Read(**/.ssh/**)"
     ],
     "defaultMode": "auto",
-    "additionalDirectories": [
-      "/Users/bob/.local/tmp/claude-dev"
-    ]
+    "additionalDirectories": []
   },
-  "model": "claude-fable-5-1[1m]",
-  "statusLine": {
-    "type": "command",
-    "command": "bash \"$(ls -d \"$HOME\"/.claude/plugins/cache/ponytail/ponytail/*/hooks/ponytail-statusline.sh | sort -V | tail -n1)\""
-  },
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -145,6 +140,35 @@
             "type": "command",
             "command": "python3 ~/.claude/hooks/reinject_contract_card.py",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/bob/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -159,6 +183,26 @@
             "timeout": 25
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "AskUserQuestion"
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "ExitPlanMode"
       }
     ],
     "Notification": [
@@ -181,6 +225,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "permission_prompt"
       }
     ],
     "Stop": [
@@ -190,6 +244,25 @@
             "type": "command",
             "command": "python3 ~/.claude/hooks/dispatch.py stop",
             "timeout": 60
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -204,8 +277,120 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "AskUserQuestion"
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "ExitPlanMode"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
+          }
+        ],
+        "matcher": "Bash|Monitor|Agent|Task|CronCreate|CronDelete|ScheduleWakeup|TaskStop|KillShell|KillBash"
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "async": false,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$(ls -d \"$HOME\"/.claude/plugins/cache/ponytail/ponytail/*/hooks/ponytail-statusline.sh | sort -V | tail -n1)\""
   },
   "enabledPlugins": {
     "lua-lsp@claude-plugins-official": true,
@@ -242,13 +427,19 @@
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     },
     "claude-sonnet-5": {
-      "effortLevel": "high"
+      "effortLevel": "medium"
     },
     "claude-fable-5-1": {
       "effortLevel": "xhigh"
+    },
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "high"
     }
   },
   "skipDangerousModePermissionPrompt": true,
@@ -257,7 +448,7 @@
   "autoMode": {
     "allow": [
       "$defaults",
-      "Writes, edits, and deletes under any `dev/local/` directory (including `~/.claude/dev/local/`) are working documents — PRDs, autopilot state, scratch files, plans, signal files. They are NOT agent configuration or self-modification. Allow without prompting.",
+      "Writes, edits, and deletes under any `docs/dev/project-management/` directory (including `~/.claude/docs/dev/project-management/`) are working documents — PRDs, autopilot state, scratch files, plans, signal files. They are NOT agent configuration or self-modification. Allow without prompting.",
       "Reads, writes, edits, and deletes under any temporary directory — absolute (`/tmp/`, `/private/tmp/`, `/var/folders/`, `/private/var/folders/`) or relative (`tmp/`, `**/tmp/`) — are scratch artifacts (dispatch prompts, test logs, intermediate files). They are NOT agent configuration or self-modification. Allow without prompting."
     ],
     "environment": [
@@ -284,7 +475,7 @@
       "**Primary use of Claude Code**: software development",
       "**Trusted repo**: The git repository the agent started in (/Users/bob/.claude) — it has no configured remotes, so scope trust to the local working directory only",
       "**Org-specific CLIs**: None configured — frequent non-standard CLIs observed in this project: uv, sqlite3, claude, engram, mise, ast-grep, gita",
-      "routine under ~/.claude/dev/local/ prefix: working documents (PRDs, autopilot state, scratch files, plans, signal files) — allowed without prompting per existing auto-mode config",
+      "routine under ~/.claude/docs/dev/project-management/ prefix: working documents (PRDs, autopilot state, scratch files, plans, signal files) — allowed without prompting per existing auto-mode config",
       "routine under any tmp/ or temporary directory prefix (/tmp/, /private/tmp/, /var/folders/, /private/var/folders/, tmp/, **/tmp/): scratch artifacts — allowed without prompting per existing auto-mode config"
     ]
   }
