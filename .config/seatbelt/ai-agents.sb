@@ -106,6 +106,9 @@
 (allow file-write* (subpath (string-append (param "_HOME") "/.ollama")))
 (allow file-write* (subpath (string-append (param "_HOME") "/.Trash")))
 (allow file-write* (subpath (param "_PROJECT_DIR")))
+;; All repos, so a session can work across projects (e.g. the autopilot plugin
+;; repo from a consumer repo). Git hooks/config stay denied below.
+(allow file-write* (subpath (string-append (param "_HOME") "/git/src")))
 (allow file-write* (subpath (param "_TMPDIR")))
 (allow file-write* (subpath "/private/var/folders/"))
 (allow file-write* (subpath "/private/tmp/"))
@@ -136,6 +139,11 @@
 (deny file-write* (literal (string-append (param "_PROJECT_DIR") "/.mcp.json")))
 (deny file-write* (subpath (string-append (param "_PROJECT_DIR") "/.vscode")))
 (deny file-write* (subpath (string-append (param "_PROJECT_DIR") "/.idea")))
+
+;; Same protections for every repo under ~/git/src (writable above)
+(deny file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/git/src/.*/\\.git/hooks(/|$)")))
+(deny file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/git/src/.*/\\.git/config$")))
+(deny file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/git/src/.*/\\.mcp\\.json$")))
 
 ;; Dedicated GitHub authentication and signing key
 (allow file-read*
