@@ -1,5 +1,24 @@
 # Autocodex host contract
 
+## Interactive recovery
+
+When the operator asks you to read this file for interactive recovery, work from
+the intended repository root. If its path placeholders are still unresolved,
+run `mise exec -- python3 ~/.config/autocodex/driver.py --dry-run` there and read
+the resolved host instructions it prints. This starts no agent and changes no
+workflow state. Do this once; the resolved output needs no further dry run.
+
+Use the resolved paths and host adaptations below to read the installed
+run-autopilot skill and its referenced Resume procedure. Inspect the committed
+pause reason and review evidence, then obtain any required operator decision
+interactively. The unattended execution wording below does not authorize
+clearing a pause, raising a cap, or starting repairs by itself. Keep Codex as
+coordinator and use the model-provider review routing defined below.
+Use the existing state CLI for any authorized transition. Preserve the fresh
+work/review session boundary, then exit so the operator can run `autocodex` again.
+
+## Phase execution
+
 The user requests unattended PRD execution through autocodex, inspired by
 autoclaude, with Codex driving and Claude taking the former external Codex role.
 Project root: {CWD}
@@ -24,43 +43,126 @@ coverage, evidence, review and transition obligations remain in force.
   No parent conversation for reviewers. Await every dispatched agent and process
   in this session. Use the available native agent tools; never shell out to a
   nested Codex CLI to simulate a native subagent.
-- Logical tiers: haiku = gpt-5.6-luna, sonnet = gpt-5.6-sol, opus = gpt-6-astra.
+- The main session coordinates and delegates substantive work. Its model/effort
+  do not prescribe worker or reviewer settings. Always set model and reasoning
+  effort explicitly when dispatching native agents; do not inherit the parent's
+  low effort. Use isolated prompts (no parent-history fork) to apply overrides.
+- Logical worker tiers: {ROLE_MAPPING}.
   Use the tier selected by the task classifier and escalation policy, recording
   the logical tier in existing schema fields and the actual provider/model in
   dispatch evidence. These are role mappings, not identical-capability claims.
+  After a failed opus attempt with a concrete unresolved defect, failed check,
+  or documented reasoning blocker, use {ESCALATION_ROLE} for the next bounded
+  attempt when the source escalation policy permits it. Record the trigger and
+  actual settings. Do not escalate merely because the logical tier is opus.
   Fable remains a distinct, human-gated rescue tier, not an alias for Astra.
-- A source `/use-codex` implementor or review dispatch becomes a Claude dispatch.
-  For implementation use the real `use-sonnet` skill and its native Claude CLI
-  wrapper at the equivalent logical tier. Preserve its guards and permission
-  checks. For Bob's doubt review use the helper below, which invokes Claude Opus
-  directly. Do not invoke codex-run.sh, codex_review_run.py, or strip nesting
-  guards. Do not resume a Codex thread as a Claude session. Start the external
-  reviewer fresh and supply all of the current cycle's required evidence.
-- Alice: isolated native Codex Sol, implementation-aware consensus, complete
-  consensus rubric. Blake: isolated native Codex Sol, PRD-only blind lens, complete
-  blind rubric; no diff, file list, plan, history or sibling findings. Bob:
-  external Claude Opus with the full assembled Bob persona, doubt D1-D5 and
-  de-slop appendix, every cycle. Retain the requested R1-R5 doubt intent under
-  the source's D1-D5 identifiers. Carl's optional Gemini lens and any required
-  Eve/Fable constraints still follow the skill. Do not claim native model
-  diversity without actual model dispatch evidence. Claude Bob supplies the
-  independent provider voice; if unavailable, preserve the failure and pause.
+- A source `/use-codex` implementation dispatch becomes a Claude dispatch through
+  the real use-sonnet skill and its wrapper. Preserve guards and permissions.
+- Review routing uses the **actual implementation model's company**, never the
+  launcher name. Codex, Claude, Kiro and Copilot are launchers, not evidence of
+  model origin. This operator-authorized policy replaces the source's
+  `implementor == "codex"` / additive Eve guard and the former fixed host roster.
+  Keep all three lenses, their complete rubrics, isolation and coverage.
 
-Bob dispatch, using absolute paths and argument arrays (or safe shell quoting):
+## Model evidence and review routing
 
-    python3 {DRIVER} --cd {CWD} reviewer -f <assembled-prompt> -o <unique-bob-output>
+Before every review cycle, inspect the current PRD's actual implementation logs:
+raw worker/session metadata and dispatched model, dispatch-ledger records, and
+per-task build evidence. Correlate task/attempt/session IDs and the work range;
+exclude planning, coordinator and read-only review models. Include test writers,
+repairs, prior contributing attempts, split tasks, model switches and fallbacks.
+Do not grep the entire transcript for model names and treat prompt examples or
+reviewer models as implementors. Prefer observed model metadata over requested
+configuration; a requested auto/tier alias does not prove the served model.
+
+Populate `tasks[].attempts[].actual_model` and `actual_provider` accurately via
+statectl from that evidence. Retain launcher identity separately. Never rewrite
+history to fit routing. Missing, ambiguous or conflicting evidence pauses for
+operator clarification; neither launcher identity nor the coordinator model is
+an acceptable fallback. Unknown model families require an explicit verified
+mapping, never a guess. Kiro/Copilot auto routing requires the resolved model in
+logs; if those logs do not expose it, pause.
+
+Write a durable audit at
+`docs/dev/project-management/autopilot/reports/<prd-stem>-implementation-models.json`:
+`{"fingerprint": <driver.implementation_fingerprint(state)>,
+"snapshot": <driver.implementation_snapshot(state)>, "evidence": [...]}`.
+Each evidence row contains `task`, `role: "implementation"`, exact `model`, a
+repo-relative `path`, 1-based `line`, and SHA-256 of that line's bytes (excluding
+its newline). Cite all observed contributing models, not just one model per task.
+Explain the correlation in a sibling Markdown audit. The fingerprint binds PRD,
+cycle, work_start_sha and implementation attempt provenance; regenerate before
+each new review. Keep the reviewed snapshot through rework: the boundary checks
+receipts against that snapshot; convergence additionally requires unchanged
+implementation provenance.
+Use actual log/evidence files, not a new restatement of the model claim.
+
+Run `python3 {DRIVER} --cd {CWD} review-route` before dispatch. It validates audit
+freshness, evidence hashes and task coverage and returns the required providers:
+
+- OpenAI GPT implementation → Anthropic Claude Opus/xhigh for Alice, Blake, Bob.
+- Anthropic Claude implementation → OpenAI {REVIEW_ROLE} for Alice, Blake, Bob.
+- Mixed implementation → both complete three-lens rosters, independently. Each
+  roster reviews the whole change so interactions also receive review. Consolidate
+  all findings; no same-company review replaces the opposite-company coverage.
+
+Alice retains the complete consensus rubric and implementation context. Blake
+gets only the PRD and repository access: no diff, file list, plan, history,
+implementation audit or sibling findings. Bob retains the full assembled persona,
+D1-D5 doubt rubric and de-slop appendix. Every invocation is fresh and isolated.
+Carl remains optional under the source rules. Eve is not added merely because
+Codex implemented a task: the provider guard now establishes independence. An
+explicit separate Fable rescue request remains human-gated.
+
+For these review lanes only, use real external reviewer processes via the helper
+below, including GPT reviewers. This is an explicit external-review transport,
+not an attempt to simulate native subagents; it overrides native reviewer dispatch
+examples. Do not strip nesting guards or resume an implementation thread. If the
+launcher cannot run the reviewer with its guards intact, preserve evidence and
+pause. Native work delegation remains as specified above.
+
+    python3 {DRIVER} --cd {CWD} reviewer --lens alice|blake|bob -m <model> -f <assembled-prompt> -o <unique-output>
+
+Use `opus` for Anthropic and the model portion of `{REVIEW_ROLE}` for OpenAI;
+GPT effort follows AUTOCODEX_REVIEW_EFFORT (default high). Pass absolute paths and
+argument arrays (or safe shell quoting). Await every process. The helper checks
+the selected lens's full rubric and writes immutable raw evidence and a receipt.
+
+External reviewer dispatches need network access in the calling Codex command.
+When that command's sandbox restricts network access, request
+`sandbox_permissions="require_escalated"` for the exact helper or dispatch
+command, with a narrow justification. Let the host's approval review decide;
+preserve the launcher's permission settings and nesting guards. An inherited
+network restriction can report `ENOTFOUND` even while the host can reach the API.
+If a dispatch already failed inside that sandbox, retain its evidence and follow
+the host tool's required approved retry before treating it as a terminal reviewer
+failure. If approval is denied, record the denial and pause. The terminal-failure
+rule below applies after dispatch with the required network access.
 
 The helper saves immutable raw JSONL, stderr, reviewer text, and a receipt at
-`<unique-bob-output>.receipt.json`. Include in the consolidated review top matter:
+`<unique-output>.receipt.json`. Include in the consolidated review top matter:
 
-    autocodex_bob_receipt: <absolute receipt path>
+    autocodex_<lens>_<provider>_receipt: <absolute receipt path>
 
-Retain every raw rubric verdict in each corresponding consolidated reviewer
-section: Alice's R rules, Blake's B rules, Bob's D1-D5. Do not emit a stale
-`codex_thread_id` for a Claude reviewer. Keep provider provenance accurate in
-state fields that accept it. The source codex-rung guard still needs accurate
-task evidence and a non-Codex doubt voice; do not fake an Eve dispatch or claim
-an unavailable capability. Record the Claude Bob host substitution explicitly.
+Use lens alice/blake/bob and provider anthropic/openai. Include every required
+receipt, including both providers for mixed work. Record `provider_review_guard:
+satisfied` on one line only after all required rosters succeed. The host gate
+checks each receipt, raw successful output, provider and complete rubric. Record
+`codex_rung_guard: not fired` only as the legacy compatibility field and explain
+that the model-provider guard supersedes it; never claim Eve ran.
+
+The helper handles confirmed Claude quota resets itself: after a structured
+API 429 rejection, it waits until the reported reset plus five seconds, within
+the quota-wait deadline, then retries with a fresh raw log. Keep
+awaiting that same helper while it waits; do not launch another reviewer,
+classify its pending output as a failed review, or retry before reset. If the
+helper exits unsuccessfully, preserve its raw evidence and pause as above.
+
+Retain every raw rubric verdict in the corresponding consolidated section:
+Alice's R rules, Blake's B rules, Bob's D1-D5. For mixed work, preserve both
+provider outputs under each persona heading, with explicit provider subheadings.
+Keep actual provider, model, effort, session and source evidence accurate. Do not
+reuse a Codex thread ID for Claude. Source schema enum labels are not provenance.
 
 Use the existing single state writer, never Write/Edit state.json directly:
 
@@ -69,7 +171,7 @@ Use the existing single state writer, never Write/Edit state.json directly:
 
 These explicit paths replace shell functions `autopilot` and `statectl` when
 they are unavailable in a headless shell. State is rooted at the exact project
-directory above, `dev/local/autopilot/state.json`. Never attach to a different
+directory above, `docs/dev/project-management/autopilot/state.json`. Never attach to a different
 ancestor or import another workflow's state.
 
 Claude hooks are not assumed to run inside Codex. Perform the source-mandated

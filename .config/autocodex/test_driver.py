@@ -15,9 +15,9 @@ import driver
 @pytest.mark.parametrize(
     ("tier", "expected"),
     [
-        ("sonnet", "gpt-5.6-sol"),
-        ("claude-opus-5[1m]", "gpt-6-astra"),
-        ("haiku", "gpt-5.6-luna"),
+        ("sonnet", "gpt-6.1-sol"),
+        ("claude-opus-5[1m]", "gpt-6.1-sol"),
+        ("haiku", "gpt-6-luna"),
         ("gpt-5.6-terra", "gpt-5.6-terra"),
     ],
 )
@@ -32,14 +32,14 @@ def test_unknown_claude_model_refused() -> None:
 
 def test_fast_track_handoff_is_detected() -> None:
     assert driver.is_fast_track_handoff(
-        Path("dev/local/plans/fast-track-handoffs/00004/rework-11.md")
+        Path("docs/dev/project-management/plans/fast-track-handoffs/00004/rework-11.md")
     )
     assert not driver.is_fast_track_handoff(Path("scope.md"))
     assert not driver.is_fast_track_handoff(None)
 
 
 def test_driver_uses_codex_native_flags(tmp_path: Path) -> None:
-    argv = driver.codex_argv("codex", "gpt-5.6-sol", "high", tmp_path)
+    argv = driver.codex_argv("codex", "gpt-6.1-sol", "high", tmp_path)
     assert argv[:3] == ["codex", "exec", "--json"]
     assert "--approve-for-me" in argv
     assert argv[-1] == "-"
@@ -121,7 +121,7 @@ def test_nonzero_process_cannot_certify_completion(tmp_path: Path) -> None:
     assert result.returncode == 7
 
 
-def test_wall_cap_kills_child_group(tmp_path: Path) -> None:
+def test_stall_timeout_kills_child_group(tmp_path: Path) -> None:
     pid_file = tmp_path / "child.pid"
     code = (
         "import subprocess,time,pathlib,sys; "
@@ -139,14 +139,15 @@ def test_wall_cap_kills_child_group(tmp_path: Path) -> None:
         provider="codex",
         grace=0.1,
     )
-    assert result.capped
+    assert result.stalled
+    assert "no substantive activity" in result.events.error
     assert time.monotonic() - started < 5
     child = int(pid_file.read_text())
     status = subprocess.run(["ps", "-o", "stat=", "-p", str(child)], capture_output=True, text=True)
     assert not status.stdout.strip() or status.stdout.strip().startswith("Z")
 
 
-def test_timeout_is_bounded_when_child_keeps_stdout_open(tmp_path: Path) -> None:
+def test_stall_timeout_is_bounded_when_child_keeps_stdout_open(tmp_path: Path) -> None:
     code = (
         "import subprocess,sys; "
         'subprocess.Popen([sys.executable,"-c","import time; time.sleep(90)"]); '
@@ -163,7 +164,87 @@ def test_timeout_is_bounded_when_child_keeps_stdout_open(tmp_path: Path) -> None
         grace=0.1,
     )
     assert not result.ok
-    assert result.capped
+    assert result.stalled
+
+
+def test_substantive_events_keep_a_long_session_alive(tmp_path: Path) -> None:
+    code = """
+import json
+import time
+
+for item in range(6):
+    print(json.dumps({"type": "item.completed", "item": {
+        "id": f"item_{item}", "type": "command_execution", "status": "completed"
+    }}), flush=True)
+    time.sleep(0.08)
+print(json.dumps({"type": "turn.completed"}), flush=True)
+"""
+    result = driver.run_process(
+        [sys.executable, "-c", code],
+        "",
+        tmp_path,
+        dict(os.environ),
+        tmp_path / "run",
+        0.15,
+        provider="codex",
+        grace=0.1,
+    )
+    assert result.ok
+    assert not result.stalled
+
+
+def test_wait_churn_does_not_hide_a_stall(tmp_path: Path) -> None:
+    code = """
+import json
+import time
+
+while True:
+    print(json.dumps({"type": "item.completed", "item": {
+        "id": "wait", "type": "collab_tool_call", "tool": "wait", "status": "completed"
+    }}), flush=True)
+    time.sleep(0.04)
+"""
+    result = driver.run_process(
+        [sys.executable, "-c", code],
+        "",
+        tmp_path,
+        dict(os.environ),
+        tmp_path / "run",
+        0.2,
+        provider="codex",
+        grace=0.1,
+    )
+    assert result.stalled
+
+
+def test_workspace_changes_keep_a_waiting_session_alive(tmp_path: Path) -> None:
+    marker = tmp_path / "subagent-work"
+    code = f"""
+import json
+import pathlib
+import time
+
+marker = pathlib.Path({str(marker)!r})
+for item in range(6):
+    marker.write_text(str(item))
+    print(json.dumps({{"type": "item.completed", "item": {{
+        "id": "wait", "type": "collab_tool_call", "tool": "wait", "status": "completed"
+    }}}}), flush=True)
+    time.sleep(0.08)
+print(json.dumps({{"type": "turn.completed"}}), flush=True)
+"""
+    result = driver.run_process(
+        [sys.executable, "-c", code],
+        "",
+        tmp_path,
+        dict(os.environ),
+        tmp_path / "run",
+        0.15,
+        provider="codex",
+        grace=0.1,
+    )
+    assert result.ok
+    assert not result.stalled
 
 
 def test_claude_reviewer_environment_preserves_guards() -> None:

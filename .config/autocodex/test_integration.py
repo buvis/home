@@ -13,29 +13,38 @@ import hashlib,json,os,pathlib,re,subprocess,sys,time
 root = pathlib.Path(os.environ["AUTOCODEX_SKILL_ROOT"])
 sys.path.insert(0,str(root))
 from cli import state, transitions
+sys.path.insert(0,str(pathlib.Path(os.environ["TEST_DRIVER"]).parent))
+import driver
 cwd = pathlib.Path.cwd()
-ap = cwd / "dev/local/autopilot"
+ap = cwd / "docs/dev/project-management/autopilot"
 path = ap / "state.json"
 prompt = sys.stdin.read()
 with (ap / "invocations.jsonl").open("a") as f:
     f.write(json.dumps({"pid":os.getpid(),"argv":sys.argv,"prompt":prompt})+"\n")
 if "--print" in sys.argv:
-    print(json.dumps({"type":"result","is_error":False,"result":"\n".join(f"D{n}: pass" for n in range(1,6))}))
+    print(json.dumps({"type":"result","is_error":False,"result":prompt}))
     raise SystemExit(0)
 current = state.load(path)[0]
 phase = current["next_phase"]
 if phase == "build":
     state.transaction(path, lambda s: transitions.apply(s,"tasks_done"))
 elif phase == "review":
-    prompt_path = ap / "bob-prompt.md"
-    prompt_path.write_text("synthetic review fixture")
-    output = ap / "bob.md"
-    subprocess.run([sys.executable,os.environ["TEST_DRIVER"],"--cd",str(cwd),"reviewer","-f",str(prompt_path),"-o",str(output)],check=True,stdout=subprocess.DEVNULL)
-    parts = ["autocodex_bob_receipt: " + str(output) + ".receipt.json", "codex_rung_guard: not fired"]
-    for name, rubric in [("Alice",root.parent / "review-work-completion/references/rubric.md"),("Blake",root.parent / "review-blindly/references/rubric.md")]:
-        parts += ["## " + name]
-        parts += [rule + ": pass" for rule in re.findall(r"^([RB]\d+):",rubric.read_text(),re.M)]
-    parts += ["## Bob",output.read_text(),"Verdict: converged","Tests: 1 passed (synthetic fixture)"]
+    evidence = ap / "implementation.jsonl"
+    evidence.write_text(json.dumps({"model":"gpt-6.1-sol"}))
+    reports = ap / "reports"
+    reports.mkdir(exist_ok=True)
+    audit = {"snapshot":driver.implementation_snapshot(current),"fingerprint":driver.implementation_fingerprint(current),"evidence":[{"task":"1","role":"implementation","model":"gpt-6.1-sol","path":str(evidence.relative_to(cwd)),"line":1,"sha256":hashlib.sha256(evidence.read_bytes()).hexdigest()}]}
+    (reports / "00001-demo-implementation-models.json").write_text(json.dumps(audit))
+    parts = ["provider_review_guard: satisfied", "codex_rung_guard: not fired"]
+    for lens in ("alice", "blake", "bob"):
+        prompt_path = ap / (lens+"-prompt.md")
+        prompt_path.write_text("\n".join(rule+": pass" for rule in driver.review_rules(lens)))
+        output = ap / (lens+".md")
+        subprocess.run([sys.executable,os.environ["TEST_DRIVER"],"--cd",str(cwd),"reviewer","--lens",lens,"-f",str(prompt_path),"-o",str(output)],check=True,stdout=subprocess.DEVNULL)
+        parts += ["autocodex_"+lens+"_anthropic_receipt: " + str(output) + ".receipt.json"]
+    for lens in ("alice", "blake", "bob"):
+        parts += ["## " + lens.title(), (ap/(lens+".md")).read_text()]
+    parts += ["Verdict: converged","Tests: 1 passed (synthetic fixture)"]
     review_path = ap / "review.md"
     review_path.write_text("\n".join(parts))
     doubts=[{"rule_id":f"D{n}","verdict":"pass"} for n in range(1,6)]
@@ -49,9 +58,25 @@ print(json.dumps({"type":"turn.completed","usage":{"output_tokens":1}}))
 
 def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> None:
     repo = tmp_path / "repo with spaces"
-    ap = repo / "dev/local/autopilot"
+    ap = repo / "docs/dev/project-management/autopilot"
     ap.mkdir(parents=True)
-    (ap / "state.json").write_text(json.dumps({"phase": "build", "next_phase": "build"}))
+    (ap / "state.json").write_text(
+        json.dumps(
+            {
+                "phase": "build",
+                "next_phase": "build",
+                "prd": "00001-demo.md",
+                "cycle": 1,
+                "tasks": [
+                    {
+                        "id": "1",
+                        "status": "completed",
+                        "attempts": [{"actual_model": "gpt-6.1-sol"}],
+                    }
+                ],
+            }
+        )
+    )
     fake = tmp_path / "fake-agent"
     fake.write_text(f"#!{sys.executable}\n" + FAKE)
     fake.chmod(0o700)
@@ -75,29 +100,44 @@ def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> No
         timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "gpt-5.6-sol/high" in result.stdout
-    assert "gpt-6-astra/xhigh" in result.stdout
+    assert "gpt-6.1-sol/low" in result.stdout
+    assert "gpt-6.1-sol/low" in result.stdout
     assert "claude-sonnet" not in result.stdout
     assert "claude-opus" not in result.stdout
     launches = [json.loads(line) for line in (ap / "invocations.jsonl").read_text().splitlines()]
-    assert len(launches) == 4
-    assert len({launch["pid"] for launch in launches}) == 4
-    assert "gpt-5.6-sol" in launches[0]["argv"]
-    assert "gpt-6-astra" in launches[1]["argv"]
+    assert len(launches) == 6
+    assert len({launch["pid"] for launch in launches}) == 6
+    assert "gpt-6.1-sol" in launches[0]["argv"]
+    assert "gpt-6.1-sol" in launches[1]["argv"]
     assert "opus" in launches[2]["argv"]
     assert "--print" in launches[2]["argv"]
-    assert "gpt-5.6-sol" in launches[3]["argv"]
+    assert "gpt-6.1-sol" in launches[5]["argv"]
     assert not (ap / "state.json").exists()
     archived = list((ap / "reports").glob("autocodex-*-state-final.json"))
     assert len(archived) == 1
     assert json.loads(archived[0].read_text())["next_phase"] == ""
+    from adapter import review_gap
+
+    completed = json.loads(archived[0].read_text())
+    assert review_gap(completed, driver.skill_root(), repo, 1) is None
+    completed.update(phase="review", next_phase="review", cycle=2)
+    completed["tasks"].append({"id": "2", "attempts": []})
+    assert review_gap(completed, driver.skill_root(), repo, 1) is None
+    completed["phase"] = "done"
+    assert "implementation changed" in review_gap(completed, driver.skill_root(), repo, 1)
+
     assert len(list((ap / "autocodex-sessions").glob("*.jsonl"))) == 3
+    metrics = [
+        json.loads(line) for line in (ap / "autocodex-metrics.jsonl").read_text().splitlines()
+    ]
+    assert [row["effort"] for row in metrics] == ["low", "low", "low"]
+    assert [row["signal"] for row in metrics] == ["continue", "continue", "done"]
     assert len(list((tmp_path / "registry").glob("*.json"))) == 0
 
 
 def test_fast_track_handoff_scope_runs_once_without_task_state(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    handoff = repo / "dev/local/plans/fast-track-handoffs/00004/rework-11.md"
+    handoff = repo / "docs/dev/project-management/plans/fast-track-handoffs/00004/rework-11.md"
     handoff.parent.mkdir(parents=True)
     handoff.write_text("# Standalone repair handoff\n")
     fake = tmp_path / "fake-codex"
@@ -136,6 +176,13 @@ def test_fast_track_handoff_scope_runs_once_without_task_state(tmp_path: Path) -
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "fast-track handoff detected" in result.stdout
-    assert len(list((repo / "dev/local/autopilot/autocodex-sessions").glob("*.jsonl"))) == 1
-    assert not (repo / "dev/local/autopilot/state.json").exists()
+    assert (
+        len(
+            list(
+                (repo / "docs/dev/project-management/autopilot/autocodex-sessions").glob("*.jsonl")
+            )
+        )
+        == 1
+    )
+    assert not (repo / "docs/dev/project-management/autopilot/state.json").exists()
     assert "autoclaude:" not in result.stdout + result.stderr

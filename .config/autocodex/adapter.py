@@ -27,7 +27,11 @@ class _ProviderStream:
         self._stream = stream
 
     def write(self, value: str) -> int:
-        return self._stream.write(value.replace("autoclaude", "autocodex"))
+        value = value.replace("autoclaude", "autocodex").replace(
+            "claude → /autopilot:run-autopilot",
+            "codex → read ~/.config/autocodex/host.md for interactive recovery",
+        )
+        return self._stream.write(value)
 
     def flush(self) -> None:
         self._stream.flush()
@@ -40,7 +44,7 @@ def codex_route(phase: str, autopilot_dir: Path, env: dict | None = None) -> Any
     """Translate inherited logical tiers before the loop renders or records them."""
     effective_env = dict(os.environ) if env is None else env
     source = _SOURCE_ROUTE(phase, autopilot_dir, env=effective_env)
-    model = driver.codex_model(source.model, effective_env)
+    model = driver.coordinator_model(source.model, effective_env)
     return routing.Route(
         model=model,
         effort=driver.codex_effort(phase, model, effective_env),
@@ -73,7 +77,7 @@ def review_gap(state: dict, root: Path, cwd: Path, cycle: int) -> str | None:
         text = path.read_text()
     except OSError as error:
         return f"review artifact unreadable: {error}"
-    gap = gate.check(text, ["alice", "blake", "bob"], require_codex_guard=True)
+    gap = gate.check(text, ["alice", "blake", "bob"], require_codex_guard=False)
     if gap:
         return gap
     for persona, rubric in (
@@ -88,9 +92,41 @@ def review_gap(state: dict, root: Path, cwd: Path, cycle: int) -> str | None:
             not re.search(rf"^{rule}: (?:pass|fail)\b", section[1], re.MULTILINE) for rule in rules
         ):
             return f"{persona} lacks the complete source rubric"
-    gap = bob_gap(text, cwd, cycle, state.get("prd", ""))
-    if gap:
-        return gap
+    try:
+        audit_path = (
+            cwd
+            / "docs/dev/project-management/autopilot/reports"
+            / f"{Path(state['prd']).stem}-implementation-models.json"
+        )
+        snapshot = json.loads(audit_path.read_text())["snapshot"]
+        if (
+            snapshot.get("cycle") != cycle
+            or snapshot.get("prd") != state.get("prd")
+            or snapshot.get("work_start_sha") != state.get("work_start_sha")
+        ):
+            return "review audit belongs to another PRD, cycle or work range"
+        providers = driver.audited_review_providers(snapshot, cwd)
+        if state.get("phase") == "done" and driver.implementation_fingerprint(
+            state
+        ) != driver.implementation_fingerprint(snapshot):
+            return "implementation changed since the converged review"
+    except (ValueError, OSError, KeyError, IndexError, TypeError) as error:
+        return f"review provider routing: {error}"
+    if not re.search(r"^provider_review_guard: satisfied$", text, re.MULTILINE):
+        return "missing model-provider review guard"
+    for provider in providers:
+        for lens in ("alice", "blake", "bob"):
+            gap = bob_gap(
+                text,
+                cwd,
+                cycle,
+                state.get("prd", ""),
+                lens,
+                provider,
+                driver.implementation_fingerprint(snapshot),
+            )
+            if gap:
+                return gap
     verdicts = state.get("doubts_rubric_verdicts") or []
     ids = {item.get("rule_id") for item in verdicts if isinstance(item, dict)}
     if not {f"D{n}" for n in range(1, 6)}.issubset(ids):
@@ -98,15 +134,33 @@ def review_gap(state: dict, root: Path, cwd: Path, cycle: int) -> str | None:
     return None
 
 
-def bob_gap(text: str, cwd: Path, cycle: int, prd: str) -> str | None:
-    match = re.search(r"^autocodex_bob_receipt: (.+)$", text, re.MULTILINE)
+def bob_gap(
+    text: str,
+    cwd: Path,
+    cycle: int,
+    prd: str,
+    lens: str = "bob",
+    provider: str | None = None,
+    fingerprint: str | None = None,
+) -> str | None:
+    key = f"autocodex_{lens}_{provider}_receipt" if provider else "autocodex_bob_receipt"
+    match = re.search(rf"^{key}: (.+)$", text, re.MULTILINE)
     if not match:
-        return "missing Claude Bob receipt"
+        return f"missing {key}"
     try:
         receipt = json.loads((cwd / match[1].strip()).read_text())
         raw = Path(receipt["output"]).read_bytes()
+        if fingerprint is not None and receipt.get("implementation_fingerprint") != fingerprint:
+            return "review receipt belongs to a different implementation snapshot"
         if (
-            receipt["provider"] != "claude"
+            receipt["provider"] != ("codex" if provider == "openai" else "claude")
+            or (
+                provider is not None
+                and (
+                    receipt.get("lens") != lens
+                    or driver.model_provider_for_review(receipt["model"]) != provider
+                )
+            )
             or receipt["cycle"] != cycle
             or receipt["prd"] != prd
             or receipt["root"] != str(cwd.resolve())
@@ -117,14 +171,14 @@ def bob_gap(text: str, cwd: Path, cycle: int, prd: str) -> str | None:
         captured = Path(receipt["raw"]).read_bytes()
         if hashlib.sha256(captured).hexdigest() != receipt["raw_sha256"]:
             return "Bob raw evidence changed after dispatch"
-        events = driver.Events("claude")
+        events = driver.Events(receipt["provider"])
         for line in captured.splitlines():
             events.accept(line)
         if not events.success or events.text.encode() != raw:
-            return "Bob output does not match a successful Claude result"
-        for n in range(1, 6):
-            if not re.search(rf"^D{n}: (?:pass|fail)\b", raw.decode(), re.MULTILINE):
-                return f"Bob missing D{n}"
+            return "review output does not match a successful provider result"
+        for rule in driver.review_rules(lens):
+            if not re.search(rf"^{rule}: (?:pass|fail)\b", raw.decode(), re.MULTILINE):
+                return f"{lens} missing {rule}"
     except (OSError, ValueError, KeyError, TypeError) as error:
         return f"invalid Bob receipt: {error}"
     return None
@@ -150,7 +204,7 @@ class CodexLoop(loop.Loop):
         self._scope = scope.read_text() if scope else ""
 
     def _resolve_ap_dir(self) -> Path:
-        path = self.cwd / "dev/local/autopilot"
+        path = self.cwd / "docs/dev/project-management/autopilot"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -168,6 +222,14 @@ class CodexLoop(loop.Loop):
 
     def _schema_gate(self, ap_dir: Path) -> int | None:
         if self.once and self._launched:
+            state = routing._load_json(ap_dir / "state.json") or {}
+            next_phase = state.get("next_phase") or "none"
+            print(
+                "\nautocodex: stopping because --once is active; workflow state "
+                "advanced, but no new session will start. "
+                f"Next phase queued: {next_phase}. Run plain 'autocodex' to continue.",
+                file=self.out,
+            )
             return 0
         path = ap_dir / "state.json"
         if path.exists():
@@ -191,14 +253,16 @@ class CodexLoop(loop.Loop):
 
         prd = state.get("prd")
         prd_name = prd if isinstance(prd, str) else ""
-        wip = self.cwd / "dev/local/prds/wip" / prd_name
-        done = self.cwd / "dev/local/prds/done" / prd_name
+        wip = self.cwd / "docs/dev/project-management/prds/wip" / prd_name
+        done = self.cwd / "docs/dev/project-management/prds/done" / prd_name
         if prd_name and done.is_file() and not wip.exists():
-            preserved = f"dev/local/autopilot-{Path(prd_name).stem}-paused-preserved"
+            preserved = (
+                f"docs/dev/project-management/autopilot-{Path(prd_name).stem}-paused-preserved"
+            )
             print(
                 f"\nThis state belongs to completed PRD {prd_name}; do not resume its findings.\n"
                 "Preserve and detach it before starting the current WIP PRD:\n\n"
-                f"  mv dev/local/autopilot {preserved}\n"
+                f"  mv docs/dev/project-management/autopilot {preserved}\n"
                 "  autocodex --once --scope <handoff.md>\n\n"
                 f"State: {state_path}",
                 file=self.err,
@@ -218,10 +282,11 @@ class CodexLoop(loop.Loop):
         if isinstance(cap, dict):
             print(
                 "\nThis is a deliberate review gate. Resolve it interactively:\n\n"
-                "  1. claude\n"
-                "  2. /autopilot:run-autopilot\n"
+                "  1. codex\n"
+                "  2. Ask Codex to read ~/.config/autocodex/host.md and follow\n"
+                "     its interactive recovery instructions.\n"
                 "  3. Choose Resume and optionally raise the rework cap.\n"
-                "  4. Exit Claude, then run autocodex again.\n\n"
+                "  4. Exit Codex, then run autocodex again.\n\n"
                 "Do not edit state.json directly.",
                 file=self.err,
             )
@@ -229,23 +294,26 @@ class CodexLoop(loop.Loop):
             print(
                 "\nInspect the recorded reason, then take over interactively:\n\n"
                 "  autocodex status\n"
-                "  claude  # then /autopilot:run-autopilot\n\n"
+                "  codex\n\n"
+                "Ask Codex to read ~/.config/autocodex/host.md and follow\n"
+                "its interactive recovery instructions.\n\n"
                 "After resolving the pause, run autocodex again.",
                 file=self.err,
             )
         print(f"\nState: {state_path}", file=self.err)
 
-    def _launch(self, plan: Any, ap_dir: Path) -> None:
+    def _launch(self, plan: Any, ap_dir: Path, phase: str) -> float:
         self._before = read_bytes(ap_dir / "state.json")
         self._before_state = json.loads(self._before) if self._before else {}
         phase = self._before_state.get("next_phase", "")
-        self._actual_model = driver.codex_model(plan.model, self.env)
+        self._actual_model = driver.coordinator_model(plan.model, self.env)
         effort = driver.codex_effort(phase, self._actual_model, self.env)
-        prompt = driver.host_prompt(self.root, self.cwd, phase, self._scope)
+        prompt = driver.host_prompt(self.root, self.cwd, phase, self._scope, env=self.env)
         stem = ap_dir / "autocodex-sessions" / uuid.uuid4().hex
         stem.parent.mkdir(parents=True, exist_ok=True)
         stem.with_suffix(".prompt.md").write_text(prompt)
         self._started = time.time()
+        ts_start = self._clock()
         self._launched += 1
         print(
             f"autocodex: {self._actual_model}/{effort}; fresh {phase or 'build'} session",
@@ -259,10 +327,11 @@ class CodexLoop(loop.Loop):
             self.cwd,
             self.env,
             stem,
-            plan.cap_secs,
+            self._int("AUTOCODEX_STALL_TIMEOUT", 1800),
             provider="codex",
         )
         (ap_dir / "last-session.log").write_bytes(self._result.log.read_bytes())
+        return ts_start
 
     def _observed_state(self, ap_dir: Path) -> tuple[bytes | None, dict, str]:
         current = read_bytes(ap_dir / "state.json")
@@ -359,6 +428,7 @@ class CodexLoop(loop.Loop):
         decision: dict,
         phase_launched: str,
         model: str,
+        effort: str,
     ) -> None:
         row = {
             "ts_start": ts_start,
@@ -366,6 +436,7 @@ class CodexLoop(loop.Loop):
             "wall_secs": ts_end - ts_start,
             "provider": "codex",
             "model": self._actual_model,
+            "effort": effort,
             "phase_launched": phase_launched,
             "phase_end": decision["phase_end"],
             "signal": decision["signal"],
@@ -376,7 +447,7 @@ class CodexLoop(loop.Loop):
             row.update(
                 raw=str(self._result.log),
                 returncode=self._result.returncode,
-                capped=self._result.capped,
+                stalled=self._result.stalled,
                 usage=self._result.events.usage,
                 thread_id=self._result.events.thread_id,
             )

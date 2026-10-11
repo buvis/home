@@ -22,7 +22,7 @@ import adapter
 @pytest.fixture
 def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple:
     repo = tmp_path / "repo"
-    ap = repo / "dev/local/autopilot"
+    ap = repo / "docs/dev/project-management/autopilot"
     ap.mkdir(parents=True)
     monkeypatch.setenv("_AUTOPILOT_LOOPS_DIR", str(tmp_path / "registry"))
     monkeypatch.setenv("AUTOCODEX_RETRY_DELAY", "0")
@@ -119,21 +119,26 @@ def test_once_really_runs_only_one_phase(harness: tuple, monkeypatch: pytest.Mon
     )
     assert one.run() == 0
     assert len(launches) == 1
-    assert "gpt-5.6-sol" in launches[0]
-    assert "gpt-5.6-sol/high" in out.getvalue()
+    assert "gpt-6.1-sol" in launches[0]
+    assert "gpt-6.1-sol/low" in out.getvalue()
     assert "claude-sonnet" not in out.getvalue()
+    assert out.getvalue().splitlines()[-1] == (
+        "autocodex: stopping because --once is active; workflow state advanced, "
+        "but no new session will start. Next phase queued: review. "
+        "Run plain 'autocodex' to continue."
+    )
     assert store.load(ap / "state.json")[0]["next_phase"] == "review"
 
 
 def test_inherited_routes_are_translated_before_display(tmp_path: Path) -> None:
-    ap = tmp_path / "dev/local/autopilot"
+    ap = tmp_path / "docs/dev/project-management/autopilot"
     ap.mkdir(parents=True)
     env = {"_AUTOPILOT_MODEL_BUILD": "claude-opus-5[1m]"}
 
     route = adapter.codex_route("build", ap, env)
 
-    assert route.model == "gpt-6-astra"
-    assert route.effort == "xhigh"
+    assert route.model == "gpt-6.1-sol"
+    assert route.effort == "low"
 
 
 def test_no_progress_retry_is_bounded(harness: tuple, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -154,11 +159,63 @@ def test_no_progress_retry_is_bounded(harness: tuple, monkeypatch: pytest.Monkey
     assert "autoclaude:" not in out.getvalue()
 
 
-def test_pause_marker_stops_without_launch(harness: tuple) -> None:
+@pytest.mark.parametrize("entrypoint, exit_code", [("run", 1), ("run_once", 0)])
+@pytest.mark.parametrize("effort", ["xhigh", "medium"])
+def test_review_pause_records_metrics_before_exit(
+    harness: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    entrypoint: str,
+    exit_code: int,
+    effort: str,
+) -> None:
     instance, ap, _ = harness
+    instance.env["AUTOCODEX_COORDINATOR_EFFORT"] = effort
+    store.init(ap / "state.json", {"phase": "review", "next_phase": "review"})
+
+    def fake(
+        argv: list, prompt: str, cwd: Path, env: dict, stem: Path, cap: int, **kwargs: object
+    ) -> driver.Result:
+        store.transaction(
+            ap / "state.json",
+            lambda state: {
+                **state,
+                "phase": "paused",
+                "next_phase": "paused",
+                "pause_reason": {"site": "data_loss_risk", "detail": "durability gap"},
+            },
+        )
+        return successful(stem.with_suffix(".jsonl"))
+
+    monkeypatch.setattr(driver, "run_process", fake)
+
+    assert getattr(instance, entrypoint)() == exit_code
+
+    [metrics] = [
+        json.loads(line) for line in (ap / "autocodex-metrics.jsonl").read_text().splitlines()
+    ]
+    assert metrics["effort"] == effort
+    assert metrics["model"] == "gpt-6.1-sol"
+    assert metrics["phase_launched"] == "review"
+    assert metrics["phase_end"] == "paused"
+    assert metrics["signal"] == "paused"
+    assert Path(metrics["raw"]).read_text() == '{"type":"turn.completed"}\n'
+    assert instance._launched == 1
+    paused = (ap / "state.json").read_bytes()
+    assert instance._schema_gate(ap) == 1
+    assert (ap / "state.json").read_bytes() == paused
+    assert store.load(ap / "state.json")[0]["pause_reason"]["site"] == "data_loss_risk"
+
+
+def test_pause_marker_stops_without_launch(harness: tuple) -> None:
+    instance, ap, out = harness
     (ap / "pause-requested").write_text('{"reason":"operator"}')
     assert instance.run() == 0
     assert instance._launched == 0
+    assert "Resume unattended: autocodex" in out.getvalue()
+    assert "To take over first: codex" in out.getvalue()
+    assert "~/.config/autocodex/host.md" in out.getvalue()
+    assert "claude" not in out.getvalue()
+    assert "/autopilot:run-autopilot" not in out.getvalue()
 
 
 def test_existing_paused_batch_is_untouched(harness: tuple) -> None:
@@ -169,13 +226,17 @@ def test_existing_paused_batch_is_untouched(harness: tuple) -> None:
     assert instance._launched == 0
     assert (ap / "state.json").read_bytes() == before
     assert "autocodex status" in out.getvalue()
-    assert "/autopilot:run-autopilot" in out.getvalue()
+    assert "  codex\n" in out.getvalue()
+    assert "~/.config/autocodex/host.md" in out.getvalue()
+    assert "interactive recovery" in out.getvalue()
+    assert "claude" not in out.getvalue()
+    assert "/autopilot:run-autopilot" not in out.getvalue()
 
 
 def test_current_cap_pause_prints_findings_and_resume_runbook(harness: tuple) -> None:
     instance, ap, out = harness
     prd = "00004-current.md"
-    wip = instance.cwd / "dev/local/prds/wip"
+    wip = instance.cwd / "docs/dev/project-management/prds/wip"
     wip.mkdir(parents=True)
     (wip / prd).write_text("# Current\n")
     store.init(
@@ -202,15 +263,21 @@ def test_current_cap_pause_prints_findings_and_resume_runbook(harness: tuple) ->
     rendered = out.getvalue()
     assert "[high; 3/3] lost update" in rendered
     assert "Choose Resume" in rendered
-    assert "claude" in rendered
+    assert "1. codex" in rendered
+    assert "~/.config/autocodex/host.md" in rendered
+    assert "interactive recovery" in rendered
+    assert "Exit Codex" in rendered
+    assert "claude" not in rendered.lower()
+    assert "/autopilot:run-autopilot" not in rendered
     assert "autocodex again" in rendered
+    assert instance._launched == 0
     assert (ap / "state.json").read_bytes() == before
 
 
 def test_completed_prd_pause_prints_detach_runbook(harness: tuple) -> None:
     instance, ap, out = harness
     prd = "00003-complete.md"
-    done = instance.cwd / "dev/local/prds/done"
+    done = instance.cwd / "docs/dev/project-management/prds/done"
     done.mkdir(parents=True)
     (done / prd).write_text("# Complete\n")
     store.init(
@@ -235,7 +302,10 @@ def test_completed_prd_pause_prints_detach_runbook(harness: tuple) -> None:
     rendered = out.getvalue()
     assert "belongs to completed PRD 00003-complete.md" in rendered
     assert "do not resume" in rendered
-    assert "mv dev/local/autopilot dev/local/autopilot-00003-complete-paused-preserved" in rendered
+    assert (
+        "mv docs/dev/project-management/autopilot docs/dev/project-management/autopilot-00003-complete-paused-preserved"
+        in rendered
+    )
     assert "autocodex --once --scope <handoff.md>" in rendered
     assert (ap / "state.json").read_bytes() == before
 
@@ -327,3 +397,20 @@ def test_tampered_raw_review_is_refused(bob_receipt: tuple) -> None:
     cwd, text = bob_receipt
     (cwd / "raw.jsonl").write_text("replaced")
     assert "raw evidence changed" in adapter.bob_gap(text, cwd, 2, "00001-demo.md")
+
+
+def test_same_provider_receipt_cannot_satisfy_opposite_roster(bob_receipt: tuple) -> None:
+    cwd, _ = bob_receipt
+    path = cwd / "receipt.json"
+    receipt = json.loads(path.read_text())
+    receipt.update(lens="bob", model="opus")
+    path.write_text(json.dumps(receipt))
+    text = f"autocodex_bob_openai_receipt: {path}\n"
+    assert adapter.bob_gap(text, cwd, 2, "00001-demo.md", "bob", "openai") is not None
+
+
+def test_changed_implementation_invalidates_receipt(bob_receipt: tuple) -> None:
+    cwd, text = bob_receipt
+    assert "implementation snapshot" in adapter.bob_gap(
+        text, cwd, 2, "00001-demo.md", fingerprint="new"
+    )
