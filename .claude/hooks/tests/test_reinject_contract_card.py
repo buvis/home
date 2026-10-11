@@ -20,7 +20,7 @@ def _run(payload: dict, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _write_card(root: Path, *, scratch: str | None = None, state_card: str | None = None) -> None:
-    base = root / "dev" / "local" / "autopilot"
+    base = root / "docs" / "dev" / "project-management" / "autopilot"
     base.mkdir(parents=True, exist_ok=True)
     if scratch is not None:
         (base / "contract-card.md").write_text(scratch, encoding="utf-8")

@@ -30,7 +30,7 @@ const need = (k) => { if (!a || typeof a[k] !== 'string' || a[k].trim() === '') 
 const REWORK_CAP = Number.isFinite(a.rework_cap) ? a.rework_cap : 1
 const ITEM = a.item
 const REPO = a.repo
-const TMP = `${REPO}/dev/local/tmp`
+const TMP = `${REPO}/docs/dev/tmp`
 const DIFF_PATH = `${TMP}/${ITEM}-fast-track.diff`
 const MAX_INLINE_DIFF = 300000
 
@@ -82,9 +82,9 @@ const PREP_SCHEMA = {
     rubric_text: { type: 'string' },
     checklist_text: { type: 'string' },
     output_format_text: { type: 'string' },
-    devlocal_realpath: { type: 'string' },
+    project_management_path: { type: 'string' },
   },
-  required: ['base_sha', 'dirty_tree', 'dirty_detail', 'card', 'card_text', 'tests_content', 'context_content', 'personas', 'rubric_text', 'checklist_text', 'output_format_text', 'devlocal_realpath'],
+  required: ['base_sha', 'dirty_tree', 'dirty_detail', 'card', 'card_text', 'tests_content', 'context_content', 'personas', 'rubric_text', 'checklist_text', 'output_format_text', 'project_management_path'],
 }
 
 const IMPL_SCHEMA = {
@@ -159,7 +159,7 @@ ${TOOL_RULES}
 4. context_content: Read every readonly_context file; concatenate with "### <path>" prefixes; cap the total at 40000 characters (truncate the largest files first and say so at the cut).
 5. personas: for each of ivan, eve, blake, bob, carl, rita, cora, grace, toby, mallory, trent, victor read ${a.plugin_root}/agents/<name>.md and return the body with the YAML frontmatter (the leading --- block) stripped.
 6. rubric_text = ${a.plugin_root}/skills/review-work-completion/references/rubric.md (whole file); checklist_text = .../references/review-dimensions.md (whole file); output_format_text = the "## Agent Output Format (Single Source of Truth)" section of .../references/output-formats.md (from that heading up to the next "## " heading).
-7. devlocal_realpath: the output of \`readlink -f ${REPO}/dev/local\` (or the path itself when it is not a symlink).
+7. project_management_path: the absolute path \`${REPO}/docs/dev/project-management\`.
 Return exactly the schema.`, { label: 'prep', phase: 'Prep', schema: PREP_SCHEMA, effort: 'low' })
 
 if (!prep) throw new Error('prep agent returned nothing')
@@ -210,7 +210,7 @@ if (!gate || !gate.passed) {
 }
 
 // ---- Diff ------------------------------------------------------------------
-const takeDiff = async (label) => agent(`In ${REPO}: run \`git -C ${REPO} add -A\` (timeout 60000; dev/local is gitignored, nothing under it is staged), then \`git -C ${REPO} diff --cached ${prep.base_sha}\` and write that exact output with the Write tool to ${DIFF_PATH} (create dev/local/tmp if missing). Run \`git -C ${REPO} diff --cached --name-only ${prep.base_sha}\` for changed_files and \`git -C ${REPO} rev-parse HEAD\` for head_sha. Measure the diff byte size with \`wc -c ${DIFF_PATH}\`. Return diff = the full diff text when it is at most ${MAX_INLINE_DIFF} bytes, otherwise an empty string. Do not edit any repo file. ${TOOL_RULES}`, { label, phase: 'Review', schema: DIFF_SCHEMA, effort: 'low' })
+const takeDiff = async (label) => agent(`In ${REPO}: run \`git -C ${REPO} add -A\` (timeout 60000; docs/dev/tmp is gitignored), then \`git -C ${REPO} diff --cached ${prep.base_sha}\` and write that exact output with the Write tool to ${DIFF_PATH} (create docs/dev/tmp if missing). Run \`git -C ${REPO} diff --cached --name-only ${prep.base_sha}\` for changed_files and \`git -C ${REPO} rev-parse HEAD\` for head_sha. Measure the diff byte size with \`wc -c ${DIFF_PATH}\`. Return diff = the full diff text when it is at most ${MAX_INLINE_DIFF} bytes, otherwise an empty string. Do not edit any repo file. ${TOOL_RULES}`, { label, phase: 'Review', schema: DIFF_SCHEMA, effort: 'low' })
 
 // ---- Review ----------------------------------------------------------------
 phase('Review')
@@ -237,7 +237,7 @@ const laneContext = (d) => `\n\n## Item card (the spec)\n${prep.card_text}\n\n##
 const evePrompt = fill(prep.personas.eve, { PACK_FINDINGS: '(no pack available this cycle)' }) + laneContext(diff) + `\nMap your buckets onto findings: FIX items keep their real severity, VERIFY items are MEDIUM with the exact check named in fix, KNOWN items are LOW with the justification in evidence. Emit the five D1-D5 verdict lines in verdict_lines.`
 
 // output_format_text carries the lane tag placeholder [{AGENT_NAME}]; fill it after the section is substituted in
-const blakePrompt = fill(prep.personas.blake, { PRD: prep.card_text, RUBRIC: prep.rubric_text, OUTPUT_FORMAT: prep.output_format_text, AGENT_NAME: 'BLAKE' }) + `\n\n## Filesystem notes\nProject root: ${REPO}\n\`dev/local\` realpath: ${prep.devlocal_realpath}\n\`rg --files\` does not descend into dot-directories or follow this symlink; list or Read the realpath directly.\n\nYou see NO diff and NO changed-file list on purpose: find the code yourself. The spec is the card above; its "Tests" section names the regression tests that must now pass and must not be ignored. ${TOOL_RULES}\nReturn exactly the lane schema (findings + your B-rule verdict lines + raw excerpt).`
+const blakePrompt = fill(prep.personas.blake, { PRD: prep.card_text, RUBRIC: prep.rubric_text, OUTPUT_FORMAT: prep.output_format_text, AGENT_NAME: 'BLAKE' }) + `\n\n## Filesystem notes\nProject root: ${REPO}\nProject-management root: ${prep.project_management_path}\nThe project-management tree is tracked; inspect it directly when the item card points there.\n\nYou see NO diff and NO changed-file list on purpose: find the code yourself. The spec is the card above; its "Tests" section names the regression tests that must now pass and must not be ignored. ${TOOL_RULES}\nReturn exactly the lane schema (findings + your B-rule verdict lines + raw excerpt).`
 
 const cliLane = (name, script, personaBody) => {
   const promptFile = `${TMP}/${ITEM}-${name}-prompt.md`
@@ -347,9 +347,9 @@ const summary = {
   files_touched: impl.files_touched,
   gate: gate.results.map((r) => ({ cmd: r.cmd, exit_code: r.exit_code, seconds: r.seconds })),
 }
-const report = await agent(`Write the consolidated fast-track review for item ${ITEM} to ${REPO}/dev/local/reviews/${ITEM}-fast-track-review.md (Write tool; create the directory if missing). Content, in this order: a YAML frontmatter (item, date ${a.date}, base_sha, head_sha, outcome, implementor_model, reworks, lanes as a map); "## Summary" with the outcome and the blocking/remaining/refuted counts; "## Fan-out (Alice-engine)" containing the fan-out review markdown verbatim; one "## <Lane>" section each for Eve, Blake, Bob (codex) and Carl (gemini) with lane_status, the findings as a table (severity | title | file | proof), and the verdict lines; "## Adversarial verification" listing every candidate with confirmed/refuted and the reason; "## Rework" listing closures; "## Advisory" (all non-blocking findings); "## Assumptions" (from the implementors); "## Gate" (commands, exit codes, seconds). Do not run cargo; do not edit any other file. ${TOOL_RULES}
+const report = await agent(`Write the consolidated fast-track review for item ${ITEM} to ${REPO}/docs/dev/project-management/reviews/${ITEM}-fast-track-review.md (Write tool; create the directory if missing). Content, in this order: a YAML frontmatter (item, date ${a.date}, base_sha, head_sha, outcome, implementor_model, reworks, lanes as a map); "## Summary" with the outcome and the blocking/remaining/refuted counts; "## Fan-out (Alice-engine)" containing the fan-out review markdown verbatim; one "## <Lane>" section each for Eve, Blake, Bob (codex) and Carl (gemini) with lane_status, the findings as a table (severity | title | file | proof), and the verdict lines; "## Adversarial verification" listing every candidate with confirmed/refuted and the reason; "## Rework" listing closures; "## Advisory" (all non-blocking findings); "## Assumptions" (from the implementors); "## Gate" (commands, exit codes, seconds). Do not run cargo; do not edit any other file. ${TOOL_RULES}
 DATA (JSON):
 ${JSON.stringify({ summary, fanout_markdown: fanout ? fanout.review_markdown : '(fan-out failed)', lanes: { eve, blake, bob, carl }, refuted, remaining, advisory }, null, 2)}`, { label: 'report', phase: 'Report', schema: REPORT_SCHEMA, effort: 'low' })
 
 log(`fast-track ${ITEM}: ${outcome} (blocking ${blocking.length}, remaining ${remaining.length}, refuted ${refuted.length}, advisory ${advisory.length}, reworks ${reworks})`)
-return { ...summary, review_path: report ? report.review_path : `${REPO}/dev/local/reviews/${ITEM}-fast-track-review.md`, diff_path: diff.diff_path }
+return { ...summary, review_path: report ? report.review_path : `${REPO}/docs/dev/project-management/reviews/${ITEM}-fast-track-review.md`, diff_path: diff.diff_path }

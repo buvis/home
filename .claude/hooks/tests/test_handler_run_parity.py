@@ -430,7 +430,7 @@ def test_enforce_prd_location_bash_block_exit_2(command, tmp_path, monkeypatch):
 def test_validate_state_json_invalid_json_exit_2(tmp_path, monkeypatch):
     path = str(SCRIPTS_DIR / "validate_state_json_hook.py")
     home, cwd = _fresh_env(tmp_path, "shared")
-    state = cwd / "dev" / "local" / "autopilot" / "state.json"
+    state = cwd / "docs" / "dev" / "project-management" / "autopilot" / "state.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text("this is not valid json {{{")
     payload = {"tool_input": {"file_path": str(state)}}
@@ -482,7 +482,7 @@ def test_validate_state_json_valid_json_allowed(tmp_path, monkeypatch):
     payload must resolve identically for subprocess and in-process)."""
     path = str(SCRIPTS_DIR / "validate_state_json_hook.py")
     home, cwd = _fresh_env(tmp_path, "shared")
-    state = cwd / "dev" / "local" / "autopilot" / "state.json"
+    state = cwd / "docs" / "dev" / "project-management" / "autopilot" / "state.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(json.dumps({"phase": "build", "prd": "00099-demo.md"}))
     payload = {"tool_input": {"file_path": str(state)}}
@@ -598,7 +598,7 @@ def test_track_skills_writes_skills_row(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 # AUTOPILOT-GATED discriminators. Both are gated by $_AUTOPILOT_LOOP (set here,
 # in BOTH legs) and locate their autopilot dir by walking up from cwd, so each
-# leg gets its own temp cwd carrying dev/local/autopilot/state.json. A no-op
+# leg gets its own temp cwd carrying docs/dev/project-management/autopilot/state.json. A no-op
 # run() takes neither the exit-2 nor the stdout path.
 # --------------------------------------------------------------------------- #
 @pytest.mark.integration
@@ -611,7 +611,7 @@ def test_review_coverage_hook_blocks_missing_review_exit_2(tmp_path, monkeypatch
 
     def prep(tag):
         home, cwd = _fresh_env(tmp_path, tag)
-        state = cwd / "dev" / "local" / "autopilot" / "state.json"
+        state = cwd / "docs" / "dev" / "project-management" / "autopilot" / "state.json"
         state.parent.mkdir(parents=True, exist_ok=True)
         # phases_completed carries the "review" convergence marker: since
         # 0b0cd6f1a the gate skips a prd that never converged (prd stays stale
@@ -677,7 +677,7 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
 
     def prep(tag):
         home, cwd = _fresh_env(tmp_path, tag)
-        state = cwd / "dev" / "local" / "autopilot" / "state.json"
+        state = cwd / "docs" / "dev" / "project-management" / "autopilot" / "state.json"
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(json.dumps({"phase": "build", "tasks": []}))
         return home, cwd
@@ -710,7 +710,7 @@ def test_autopilot_context_cap_hook_emits_rotation_envelope(tmp_path, monkeypatc
     # stub): state.json must gain a cap_rotations entry and next_phase == build.
     for state_cwd in (sub_cwd, in_cwd):
         st = json.loads(
-            (state_cwd / "dev" / "local" / "autopilot" / "state.json").read_text(),
+            (state_cwd / "docs" / "dev" / "project-management" / "autopilot" / "state.json").read_text(),
         )
         assert st.get("cap_rotations"), (
             "rotation must be recorded in state.cap_rotations"
@@ -732,12 +732,12 @@ def test_review_coverage_hook_allows_valid_review_exit_0(tmp_path, monkeypatch):
 
     def prep(tag):
         home, cwd = _fresh_env(tmp_path, tag)
-        ap = cwd / "dev" / "local" / "autopilot"
+        ap = cwd / "docs" / "dev" / "project-management" / "autopilot"
         ap.mkdir(parents=True, exist_ok=True)
         (ap / "state.json").write_text(
             json.dumps({"phase": "done", "prd": "00099-demo.md"}),
         )
-        reviews = cwd / "dev" / "local" / "reviews"
+        reviews = cwd / "docs" / "dev" / "project-management" / "reviews"
         reviews.mkdir(parents=True, exist_ok=True)
         # prd_base '00099-demo' + '-review-<n>.md'; body passes the shape check.
         (reviews / "00099-demo-review-1.md").write_text(

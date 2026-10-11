@@ -27,11 +27,11 @@ def card_from_cwd(cwd: str) -> str | None:
     """The contract card for the repo rooted at `cwd`, or None.
 
     Prefers the autopilot `state.json` `contract_card` field; falls back to a
-    scratch `contract-card.md`. Both live under `dev/local/autopilot/`.
+    scratch `contract-card.md`. Both live under `docs/dev/project-management/autopilot/`.
     """
     if not cwd:
         return None
-    base = Path(cwd) / "dev" / "local" / "autopilot"
+    base = Path(cwd) / "docs" / "dev" / "project-management" / "autopilot"
     state = base / "state.json"
     if state.is_file():
         try:

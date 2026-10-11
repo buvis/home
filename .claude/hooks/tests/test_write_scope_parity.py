@@ -123,7 +123,7 @@ class ParityCase(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.base = Path(os.path.realpath(tmp.name))
         self.repo = self.base / "repo"
-        (self.repo / "dev" / "local" / "autopilot").mkdir(parents=True)
+        (self.repo / "docs" / "dev" / "project-management" / "autopilot").mkdir(parents=True)
         (self.repo / "sub").mkdir()
         (self.repo / "src").mkdir()
         self.tmpdir = self.base / "tmproot"
@@ -209,7 +209,7 @@ class TestSharedRootSet(ParityCase):
         cwd = self.repo / "sub"
         expected = [
             str(self.repo),
-            str(self.repo / "dev" / "local"),
+            str(self.repo / "docs" / "dev" / "project-management"),
             str(self.tmpdir),
             os.path.realpath("/tmp"),
         ]
@@ -274,10 +274,10 @@ class TestSharedCorpus(ParityCase):
 
     def test_in_scope_batch_corpus_stays_allowed(self) -> None:
         # Real commands from batch transcripts (warden audit log, 2026-08),
-        # judged from the real ~/.claude session repo whose dev/local is a
+        # judged from the real ~/.claude session repo whose docs/dev/project-management is a
         # symlink: every one must resolve inside the scope. A false deny here
         # is the failure mode that stalls a batch with nobody watching.
-        claude_dev = os.path.realpath(CLAUDE_REPO / "dev" / "local")
+        claude_dev = os.path.realpath(CLAUDE_REPO / "docs" / "dev" / "project-management")
         corpus = [
             "uv run --with pytest --with tree-sitter-language-pack pytest "
             "/Users/bob/.claude/hooks/tests/ -q --no-header -p no:cacheprovider "
@@ -294,7 +294,7 @@ class TestSharedCorpus(ParityCase):
             "644fc591-a465-43af-9133-a91c69f1fa12/scratchpad/check-links.json",
             "sed -n '1,$p' /tmp/review-00132-c1-context.md >> /tmp/bob-prompt-00132-c1.md",
             "sed -n '1000,1115p' /Users/bob/.claude/skills/run-autopilot/cli/test_loop.py "
-            "> /Users/bob/.claude/dev/local/tmp/tess-3-sample-tests.py",
+            "> /Users/bob/.claude/docs/dev/tmp/tess-3-sample-tests.py",
             "sed -n 'p' /Users/bob/.claude/skills/review-work-completion/references/rubric.md "
             ">> /tmp/carl-prompt-00127-c1.md",
             "sed -i '' 's|~/\\.claude/metrics|~/.local/share/agents/metrics|g' "
@@ -314,15 +314,15 @@ class TestSharedCorpus(ParityCase):
             'rg -n "def run" /Users/bob/.claude/hooks/dispatch.py',
             "engram query --scope repo 'bim split the cli.py god registry' -k 5",
             "git --git-dir=/Users/bob/.buvis --work-tree=/Users/bob log --oneline -3",
-            "mkdir -p dev/local/tmp",
-            "echo x > dev/local/tmp/x.txt",
-            "tee dev/local/tmp/dispatch-ivan-1.txt",
-            "mv dev/local/prds/backlog/00145-close-bash-hole-in-write-fence-v1.md "
-            "dev/local/prds/wip/00145-close-bash-hole-in-write-fence-v1.md",
+            "mkdir -p docs/dev/tmp",
+            "echo x > docs/dev/tmp/x.txt",
+            "tee docs/dev/tmp/dispatch-ivan-1.txt",
+            "mv docs/dev/project-management/prds/backlog/00145-close-bash-hole-in-write-fence-v1.md "
+            "docs/dev/project-management/prds/wip/00145-close-bash-hole-in-write-fence-v1.md",
             "cp /Users/bob/.claude/hooks/_common.py /tmp/review-00145/_common.py",
             "cat /etc/hosts",
             "rg foo /etc/hosts",
-            "ls /Users/bob/.claude/dev/local/prds/backlog",
+            "ls /Users/bob/.claude/docs/dev/project-management/prds/backlog",
         ]
         self.assertGreaterEqual(len(corpus), 20)
         for command in corpus:

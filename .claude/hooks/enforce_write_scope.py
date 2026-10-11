@@ -4,7 +4,7 @@ Incident-bound: in batch 202608180438 (2026-08-18) an unattended subagent
 edited a file in the user's zettelkasten vault, which a sync daemon
 auto-committed and pushed. Armed only when CLAUDE_UNATTENDED=1, this hook
 denies Write/Edit/MultiEdit/NotebookEdit targets outside the session's repo,
-its dev/local and the temp roots; without the marker it allows every write.
+its docs/dev/tmp and the temp roots; without the marker it allows every write.
 
 This is one of two enforcement points. Bash writes (redirects, tee, cp, mv,
 sed -i, ...) are gated by the warden plugin (claude-warden src/write-scope.ts)
@@ -31,25 +31,24 @@ TMP_ROOTS = ("/tmp",)  # static temp roots; also the suite's test seam
 
 
 def _repo_root(cwd: Path) -> Path:
-    """Nearest ancestor of `cwd` holding `dev/local/autopilot`; `cwd` if none.
+    """Nearest ancestor of `cwd` holding `docs/dev/project-management/autopilot`; `cwd` if none.
 
     The predicate is the launcher's own (`cli/loop.py` walks up for
-    `dev/local/autopilot`), and the walk stops at $HOME exclusive so a stray
-    `$HOME/dev/local/autopilot` cannot pull every repo's scope up to $HOME;
+    `docs/dev/project-management/autopilot`), and the walk stops at $HOME exclusive so a stray
+    `$HOME/docs/dev/project-management/autopilot` cannot pull every repo's scope up to $HOME;
     with `cwd` at $HOME itself the floor in `_allowed_roots` drops root 1 but
-    `$HOME/dev/local` (root 2) survives as a descendant, so the fail-closed
+    `$HOME/docs/dev/tmp` (root 2) survives as a descendant, so the fail-closed
     block needs roots 1 and 2 both at $HOME or above, plus `TMPDIR` unset and
     `TMP_ROOTS` empty; with the shipped `TMP_ROOTS = ("/tmp",)` that last part
     never holds in a real session, so the block fires only through the
     suite's empty-`TMP_ROOTS` seam.
-    Walks UNRESOLVED: the `~/.claude` repo's `dev/local` is a symlink, and
-    resolving would hand back the target's ancestors instead of the repo's.
+    Walks unresolved so symlinked working trees retain their launch path.
     """
     home = Path.home()
     for candidate in (cwd, *cwd.parents):
         if home.is_relative_to(candidate):
             break
-        if (candidate / "dev" / "local" / "autopilot").is_dir():
+        if (candidate / "docs" / "dev" / "project-management" / "autopilot").is_dir():
             return candidate
     return cwd
 
@@ -64,8 +63,8 @@ def _allowed_roots(cwd: str, env: Mapping[str, str]) -> list[Path]:
     $HOME and its ancestors dropped and duplicates removed:
 
       1. the session repo (`_repo_root`: nearest ancestor of cwd holding
-         dev/local/autopilot, searched below $HOME; cwd itself when none)
-      2. <repo>/dev/local
+         docs/dev/project-management/autopilot, searched below $HOME; cwd itself when none)
+      2. <repo>/docs/dev/tmp
       3. $TMPDIR, when set
       4. each entry of TMP_ROOTS ("/tmp")
       5. each ':'-joined entry of _AUTOPILOT_WRITE_SCOPE_EXTRA, ~ expanded
@@ -73,7 +72,7 @@ def _allowed_roots(cwd: str, env: Mapping[str, str]) -> list[Path]:
     `env` is injected so tests can supply a synthetic TMPDIR. `TMP_ROOTS` is
     read as a module global here, never as a default argument, so the suite's
     seam keeps working. The root floor drops $HOME and its ancestors only;
-    root 2 (repo/dev/local) survives as a descendant, so the "no usable write
+    root 2 (repo/docs/dev/tmp) survives as a descendant, so the "no usable write
     scope" block fires only when roots 1 and 2 both resolve to $HOME or above,
     `TMPDIR` is unset, and `TMP_ROOTS` is empty. With the shipped
     `TMP_ROOTS = ("/tmp",)`, `realpath("/tmp")` never resolves to $HOME or
@@ -81,7 +80,7 @@ def _allowed_roots(cwd: str, env: Mapping[str, str]) -> list[Path]:
     reachable only under the test suite's `TMP_ROOTS = ()` seam.
     """
     repo = _repo_root(Path(cwd))
-    candidates = [repo, repo / "dev" / "local"]
+    candidates = [repo, repo / "docs" / "dev" / "tmp"]
     if env.get("TMPDIR"):
         candidates.append(Path(env["TMPDIR"]))
     candidates.extend(Path(root) for root in TMP_ROOTS)
@@ -153,7 +152,7 @@ def _breach(target: str, roots: list[Path], cwd: str) -> str | None:
     return (
         f"BLOCKED: autopilot write-scope fence: {resolved!r} is outside the "
         f"allowed scope ({', '.join(repr(str(r)) for r in roots)}). "
-        "Write inside the session's repo, its dev/local, or a temp dir; "
+        "Write inside the session's repo, its docs/dev/tmp, or a temp dir; "
         "add a root via _AUTOPILOT_WRITE_SCOPE_EXTRA, or set "
         "_AUTOPILOT_WRITE_SCOPE=off to disarm."
     )

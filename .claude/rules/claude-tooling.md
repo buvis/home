@@ -16,7 +16,7 @@ paths:
 
 ## Unattended write fence (two enforcement points)
 
-An autopilot batch (`CLAUDE_UNATTENDED=1`) may write only inside the session repo, its `dev/local`, `$TMPDIR`, `/tmp`, and `_AUTOPILOT_WRITE_SCOPE_EXTRA` roots. Two gates enforce it, and nothing else does:
+An autopilot batch (`CLAUDE_UNATTENDED=1`) may write only inside the session repo, its `docs/dev/project-management`, `$TMPDIR`, `/tmp`, and `_AUTOPILOT_WRITE_SCOPE_EXTRA` roots. Two gates enforce it, and nothing else does:
 
 - **Edit tools** (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`): `~/.claude/hooks/enforce_write_scope.py`, via `hooks/dispatch.py`. Its `_allowed_roots()` docstring is the root-set contract.
 - **Bash** (redirects, `tee`, `mkdir`, `touch`, `rm`, `cp`/`mv`/`ln`/`install` destinations, `sed -i`, `dd of=`): the warden plugin, `claude-warden/src/write-scope.ts` (`allowedRoots`). Covered vectors and named gaps: warden `docs/guide/write-scope.md`.

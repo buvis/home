@@ -36,7 +36,7 @@ Many small files over few large files:
 
 ## Production-Ready Code
 
-All code must be complete, working, and shippable, except deliberate throwaways in `dev/local/spikes/` and session-scratchpad files (the spike skill governs those).
+All code must be complete, working, and shippable, except deliberate throwaways in `docs/dev/project-management/spikes/` and session-scratchpad files (the spike skill governs those).
 
 - No stubs, placeholders, TODOs, `NotImplementedError`, `unimplemented!()`, or fake data. When requirements are unclear, ask.
 - Tests: per `rules/testing.md` (every new behavior and bug fix ships with one).

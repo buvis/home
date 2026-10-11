@@ -154,7 +154,7 @@ rules:
       - match:
           argsMatch: ["-r[f ].*/tmp/"]
         decision: allow
-        description: Recursive delete under any tmp/ path segment (repo tmp/ dirs are ephemeral by the dev/local GC contract)
+        description: Recursive delete under any tmp/ path segment (repo tmp/ dirs are ephemeral by the docs/dev/project-management GC contract)
       - match:
           argsMatch: ["^-rf dist/?$"]
         decision: allow

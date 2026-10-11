@@ -114,7 +114,10 @@ class TestFileMode(unittest.TestCase):
         r = run_hook({"tool_name": "Write", "tool_input": {"file_path": target}})
         self.assertEqual(r.returncode, 2)
         self.assertIn("BLOCKED", r.stderr)
-        self.assertIn("backlog/dev/local/prds/00003-z.md", r.stderr)
+        self.assertIn(
+            "docs/dev/project-management/prds/backlog/dev/local/prds/00003-z.md",
+            r.stderr,
+        )
 
     def test_allows_write_under_devlocal_prds_backlog(self) -> None:
         target = os.path.join(self.repo, "dev", "local", "prds", "backlog", "x.md")
@@ -178,7 +181,7 @@ class TestRelativePaths(unittest.TestCase):
         r = self._run_in_repo(
             {
                 "tool_name": "Write",
-                "tool_input": {"file_path": "dev/local/prds/wip/x.md"},
+                "tool_input": {"file_path": "docs/dev/project-management/prds/wip/x.md"},
             },
         )
         self.assertEqual(r.returncode, 0)
@@ -241,7 +244,7 @@ class TestBashMode(unittest.TestCase):
         r = run_hook(
             {
                 "tool_name": "Bash",
-                "tool_input": {"command": "mv x dev/local/prds/wip/y"},
+                "tool_input": {"command": "mv x docs/dev/project-management/prds/wip/y"},
             },
         )
         self.assertEqual(r.returncode, 0)
@@ -332,16 +335,14 @@ class TestBashMode(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
 
 
-class TestDevlocalLayout(unittest.TestCase):
-    """Layout layer merged 2026-08-23: the root is directories-only, no
-    foreign top-level dirs, .trash GC-owned, prds lifecycle subdirs (incl.
-    hold/), both spellings of the symlinked ~/.claude store."""
+class TestProjectManagementLayout(unittest.TestCase):
+    """The tracked tree is directories-only and PRDs use lifecycle dirs."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.mkdtemp(prefix="prdloc-layout-")
         cls.repo = make_repo(cls._tmp)
-        cls.store = os.path.join(cls.repo, "dev", "local")
+        cls.store = os.path.join(cls.repo, "docs", "dev", "project-management")
 
     def _write(self, path: str) -> subprocess.CompletedProcess[str]:
         return run_hook({"tool_name": "Write", "tool_input": {"file_path": path}})
@@ -350,7 +351,7 @@ class TestDevlocalLayout(unittest.TestCase):
         r = self._write(os.path.join(self.store, "race.sh"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("ROOT", r.stderr)
-        self.assertIn("dev/local/tmp/race.sh", r.stderr)
+        self.assertIn("docs/dev/tmp/race.sh", r.stderr)
 
     def test_blocks_root_keeper_names_routing_to_meta(self) -> None:
         for name in (
@@ -362,7 +363,7 @@ class TestDevlocalLayout(unittest.TestCase):
             r = self._write(os.path.join(self.store, name))
             self.assertEqual(r.returncode, 2, f"{name}: allowed at root")
             self.assertIn("ROOT", r.stderr, f"{name}: {r.stderr}")
-            self.assertIn(f"dev/local/meta/{name}", r.stderr, f"{name}: {r.stderr}")
+            self.assertIn(f"docs/dev/project-management/meta/{name}", r.stderr, f"{name}: {r.stderr}")
 
     def test_blocks_root_stray_without_offering_meta_routing(self) -> None:
         # One name is generated per run so no implementation can pass by
@@ -381,16 +382,15 @@ class TestDevlocalLayout(unittest.TestCase):
             r = self._write(os.path.join(self.store, name))
             self.assertEqual(r.returncode, 2, f"{name}: allowed at root")
             self.assertIn("ROOT", r.stderr, f"{name}: {r.stderr}")
-            self.assertIn(f"dev/local/tmp/{name}", r.stderr, f"{name}: {r.stderr}")
+            self.assertIn(f"docs/dev/tmp/{name}", r.stderr, f"{name}: {r.stderr}")
             self.assertNotIn(
-                f"dev/local/meta/{name}",
+                f"docs/dev/project-management/meta/{name}",
                 r.stderr,
                 f"{name} is not a keeper: {r.stderr}",
             )
 
     def test_allows_known_subdirs(self) -> None:
         for rel in (
-            "tmp/scratch-probe.py",
             "reviews/00042-foo-review-1.md",
             "designs/00042-foo-v1-design.md",
             "autopilot/state.json",
@@ -402,13 +402,13 @@ class TestDevlocalLayout(unittest.TestCase):
     def test_blocks_foreign_toplevel_dir(self) -> None:
         r = self._write(os.path.join(self.store, "heidi", "report.md"))
         self.assertEqual(r.returncode, 2)
-        self.assertIn("not a dev/local top-level dir", r.stderr)
-        self.assertIn("dev/local/tmp/heidi/", r.stderr)
+        self.assertIn("not a docs/dev/project-management top-level dir", r.stderr)
+        self.assertIn("docs/dev/tmp/heidi/", r.stderr)
 
     def test_blocks_trash_writes(self) -> None:
         r = self._write(os.path.join(self.store, ".trash", "2026-01-01", "x.md"))
         self.assertEqual(r.returncode, 2)
-        self.assertIn("purge-devlocal", r.stderr)
+        self.assertIn("docs/dev/tmp", r.stderr)
 
     def test_blocks_prds_root_file_allows_lifecycle_subdirs(self) -> None:
         r = self._write(os.path.join(self.store, "prds", "FASTTRACK-PLAN.md"))
@@ -428,11 +428,10 @@ class TestDevlocalLayout(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("hold/", r.stderr)
 
-    def test_blocks_symlinked_home_store_through_both_spellings(self) -> None:
+    def test_enforces_claude_home_project_management_path(self) -> None:
         home = tempfile.mkdtemp(prefix="prdloc-home-")
-        os.makedirs(os.path.join(home, ".claude", "dev"))
-        target = tempfile.mkdtemp(prefix="prdloc-target-")
-        os.symlink(target, os.path.join(home, ".claude", "dev", "local"))
+        store = os.path.join(home, ".claude", "docs", "dev", "project-management")
+        os.makedirs(store)
         env = {**os.environ, "HOME": home}
 
         def write_with_home(path: str) -> subprocess.CompletedProcess[str]:
@@ -446,12 +445,9 @@ class TestDevlocalLayout(unittest.TestCase):
                 env=env,
             )
 
-        symlink_form = os.path.join(home, ".claude", "dev", "local", "probe.py")
-        r = write_with_home(symlink_form)
+        r = write_with_home(os.path.join(store, "probe.py"))
         self.assertEqual(r.returncode, 2, r.stderr)
-        r = write_with_home(os.path.join(target, "probe.py"))
-        self.assertEqual(r.returncode, 2, r.stderr)
-        r = write_with_home(os.path.join(target, "tmp", "probe.py"))
+        r = write_with_home(os.path.join(home, ".claude", "docs", "dev", "tmp", "probe.py"))
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_meta_holds_keepers_only(self) -> None:
@@ -488,25 +484,8 @@ class TestDevlocalLayout(unittest.TestCase):
         itself, and an implementation that memorizes a few literals fails on
         the rest.
 
-        The name list is read from the GC's copy, NOT the hook's, because the
-        hook is the module under test and can therefore control what a loop
-        over its own constant sees. A set SUBCLASS whose __iter__ yields only
-        four names defeats a hook-driven loop while still passing the sync
-        test below: assertEqual only dispatches to assertSetEqual when
-        type(first) is type(second), so a subclass falls through to set.__eq__,
-        which reads the real hash table and sees all seven. The two guards
-        below close that directly; sourcing the loop from purge_devlocal.py,
-        a file the hook cannot edit, closes it structurally."""
+        The guards below ensure the constant is an ordinary, iterable set."""
         hook_mod = load_module_by_path("_keeper_behavior_hook", HOOK)
-        gc_mod = load_module_by_path(
-            "_keeper_behavior_gc",
-            Path.home()
-            / ".claude"
-            / "skills"
-            / "purge-devlocal"
-            / "scripts"
-            / "purge_devlocal.py",
-        )
         self.assertIs(
             type(hook_mod.KEEP_NAMES),
             set,
@@ -518,13 +497,13 @@ class TestDevlocalLayout(unittest.TestCase):
             len(hook_mod.KEEP_NAMES),
             "iterating KEEP_NAMES yields fewer names than it contains",
         )
-        keep_names = sorted(gc_mod.KEEP_NAMES)
+        keep_names = sorted(hook_mod.KEEP_NAMES)
         self.assertTrue(keep_names, "KEEP_NAMES is empty - nothing exercised")
         for name in keep_names:
             r = self._write(os.path.join(self.store, name))
-            self.assertEqual(r.returncode, 2, f"{name}: allowed at dev/local root")
+            self.assertEqual(r.returncode, 2, f"{name}: allowed at docs/dev/project-management root")
             self.assertIn(
-                f"dev/local/meta/{name}",
+                f"docs/dev/project-management/meta/{name}",
                 r.stderr,
                 f"{name}: root block did not route to meta/: {r.stderr}",
             )
@@ -532,24 +511,12 @@ class TestDevlocalLayout(unittest.TestCase):
             self.assertEqual(
                 r.returncode,
                 0,
-                f"{name}: keeper blocked in dev/local/meta/: {r.stderr}",
+                f"{name}: keeper blocked in docs/dev/project-management/meta/: {r.stderr}",
             )
 
-    def test_constants_stay_in_sync_with_purge_devlocal(self) -> None:
-        """The hook duplicates the GC's KEEP_NAMES/KNOWN_DIRS instead of
-        importing across trees; this is the sync guard."""
-        hook_mod = load_module_by_path("_layout_sync_hook", HOOK)
-        gc_mod = load_module_by_path(
-            "_layout_sync_gc",
-            Path.home()
-            / ".claude"
-            / "skills"
-            / "purge-devlocal"
-            / "scripts"
-            / "purge_devlocal.py",
-        )
-        self.assertEqual(hook_mod.KEEP_NAMES, gc_mod.KEEP_NAMES)
-        self.assertEqual(hook_mod.KNOWN_DIRS, gc_mod.KNOWN_DIRS)
+    def test_tmp_is_not_a_project_management_subdir(self) -> None:
+        hook_mod = load_module_by_path("_layout_dirs_hook", HOOK)
+        self.assertNotIn("tmp", hook_mod.KNOWN_DIRS)
 
 
 class TestUnknownTool(unittest.TestCase):

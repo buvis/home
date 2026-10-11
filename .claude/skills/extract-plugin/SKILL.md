@@ -59,7 +59,7 @@ The script greps **seven surfaces** for inbound references to each cluster item,
 
 - Other skill paths (`~/.claude/skills/<other>/...`)
 - Slash commands (`/other-command`) — find these by grepping for the leading slash followed by a known command name
-- Hardcoded state-file or sentinel paths shared with other subsystems (e.g. `dev/local/autopilot/state.json` read by the autoclaude wrapper and tracon)
+- Hardcoded state-file or sentinel paths shared with other subsystems (e.g. `docs/dev/project-management/autopilot/state.json` read by the autoclaude wrapper and tracon)
 
 **Ambient probes** (run by the script, no per-item argument):
 
@@ -137,7 +137,7 @@ If a skill in the cluster references scripts from a skill outside the cluster (e
 ### 5c. Sanitize personal references
 
 ```bash
-rg -ln '/Users/bob|buvis-plugins|~/bim/|/dev/local/' <repo>/skills/ <repo>/commands/ <repo>/agents/ <repo>/hooks/
+rg -ln '/Users/bob|buvis-plugins|~/bim/|/docs/dev/project-management/' <repo>/skills/ <repo>/commands/ <repo>/agents/ <repo>/hooks/
 ```
 
 Name only the directories that actually exist (rg errors on missing paths). Note rg alternation is `|`, not grep's `\|`.

@@ -137,7 +137,7 @@ echo "── SOFT COUPLING (non-cluster hooks referencing cluster runtime) ─"
 
 # Build a regex over likely-runtime identifiers derived from cluster names
 # (e.g. "autopilot" from "run-autopilot", "de-sloppify" if it appears as a literal).
-# Also include common sentinel patterns: _<UPPER>_LOOP env vars, dev/local/<cluster>/.
+# Also include common sentinel patterns: _<UPPER>_LOOP env vars, docs/dev/project-management/<cluster>/.
 SOFT_TERMS=()
 for item in "${ITEMS[@]}"; do
   # base name without 'run-' / 'use-' prefix
@@ -147,7 +147,7 @@ for item in "${ITEMS[@]}"; do
   # ALL CAPS sentinel form for env vars
   upper=$(echo "$stripped" | tr '[:lower:]-' '[:upper:]_')
   SOFT_TERMS+=("_${upper}_LOOP")
-  SOFT_TERMS+=("dev/local/${stripped}/")
+  SOFT_TERMS+=("docs/dev/project-management/${stripped}/")
 done
 
 # Dedupe + join
@@ -185,7 +185,7 @@ echo
 # ───────────────────────────────────────────────────────────────────
 echo "── PERSONAL-DATA PROBE (must be sanitized before publish) ─────"
 
-PERSONAL_PATTERN='/Users/bob|~/bim/|buvis-plugins|/dev/local/|affaan-m/'
+PERSONAL_PATTERN='/Users/bob|~/bim/|buvis-plugins|/docs/dev/project-management/|affaan-m/'
 for item in "${ITEMS[@]}"; do
   for loc in "$CLAUDE_DIR/skills/$item" "$CLAUDE_DIR/commands/$item.md" "$CLAUDE_DIR/agents/$item.md" "$CLAUDE_DIR/hooks/$item.py"; do
     if [ -e "$loc" ]; then

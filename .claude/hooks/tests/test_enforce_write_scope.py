@@ -6,7 +6,7 @@ the user's zettelkasten vault, which a sync daemon auto-committed and pushed.
 
 Fixtures deliberately sit OUTSIDE every allowed root. Each case neutralizes the
 static temp roots (patch.object(mod, "TMP_ROOTS", ())) and points TMPDIR at a
-dedicated fixture subdirectory, so roots 1 and 2 (the repo and its dev/local) do
+dedicated fixture subdirectory, so roots 1 and 2 (the repo and its docs/dev/tmp) do
 the discriminating work. Without that seam a fixture built under the machine's
 TMPDIR is allowed by root 3 outright and the whole suite goes tautological.
 Cases 7 and 8 are the only ones that exercise a temp root, one root each. The
@@ -84,12 +84,12 @@ class WriteScopeCase(unittest.TestCase):
         # realpath'd so fixture paths compare equal to the hook's realpath'd roots
         self.base = Path(os.path.realpath(tmp.name))
         self.repo = self.base / "repo"
-        (self.repo / "dev" / "local" / "autopilot").mkdir(parents=True)
+        (self.repo / "docs" / "dev" / "project-management" / "autopilot").mkdir(parents=True)
         self.tmpdir = self.base / "tmproot"
         self.tmpdir.mkdir()
-        # Contract order: repo root, its dev/local, TMPDIR. Every case that
+        # Contract order: repo root, its docs/dev/tmp, TMPDIR. Every case that
         # neither widens nor narrows the scope must see exactly this list.
-        self.default_roots = [self.repo, self.repo / "dev" / "local", self.tmpdir]
+        self.default_roots = [self.repo, self.repo / "docs" / "dev" / "tmp", self.tmpdir]
 
     def env(self, **overrides: str | None) -> dict[str, str]:
         """Env for one run(); pass Name=None to drop a default key."""
@@ -122,7 +122,7 @@ class WriteScopeCase(unittest.TestCase):
         return (
             f"BLOCKED: autopilot write-scope fence: {resolved!r} is outside the "
             f"allowed scope ({', '.join(repr(str(r)) for r in roots)}). "
-            "Write inside the session's repo, its dev/local, or a temp dir; "
+            "Write inside the session's repo, its docs/dev/tmp, or a temp dir; "
             "add a root via _AUTOPILOT_WRITE_SCOPE_EXTRA, or set "
             "_AUTOPILOT_WRITE_SCOPE=off to disarm."
         )
@@ -287,8 +287,8 @@ class TestArmingAndNormalization(WriteScopeCase):
                     ),
                 )
 
-    def test_denies_out_of_scope_write_from_a_repo_without_dev_local(self) -> None:
-        # No dev/local anywhere above this cwd - the shape of most repos on
+    def test_denies_out_of_scope_write_from_a_repo_without_autopilot_state(self) -> None:
+        # No docs/dev/project-management/autopilot above this cwd - the shape of most repos on
         # disk. A fence that arms only where it finds one is off almost
         # everywhere, and every other denial case here would still pass.
         plain = self.base / "plain"
@@ -314,7 +314,7 @@ class TestArmingAndNormalization(WriteScopeCase):
         # Anchored at the hook subprocess's cwd instead, this one leaves the repo.
         self.assertAllowed(
             self.call(
-                self.write_payload("dev/local/tmp/attempt-task-1.json", self.repo),
+                self.write_payload("docs/dev/tmp/attempt-task-1.json", self.repo),
                 self.env(),
             ),
         )
@@ -323,7 +323,7 @@ class TestArmingAndNormalization(WriteScopeCase):
         sub = self.repo / "sub"
         sub.mkdir()
         env = self.env()
-        target = str(self.repo / "dev" / "local" / "autopilot" / "state.json")
+        target = str(self.repo / "docs" / "dev" / "project-management" / "autopilot" / "state.json")
         self.assertAllowed(self.call(self.write_payload(target, sub), env))
         # The walk-up widens the scope to the repo, not to the whole disk: the
         # same basename outside the repo, from the same cwd, still breaches.
@@ -343,11 +343,11 @@ class TestArmingAndNormalization(WriteScopeCase):
         self.assertDenied(self.call(self.write_payload(stolen, sub), env), stolen)
         self.assertEqual(self.allowed_roots(sub, env), self.default_roots)
 
-    def test_walks_up_to_the_autopilot_repo_past_a_decoy_dev_local(self) -> None:
+    def test_walks_up_to_the_autopilot_repo_past_a_decoy_project_management_dir(self) -> None:
         sub = self.repo / "sub"
-        (sub / "dev" / "local").mkdir(parents=True)  # decoy: no autopilot/ inside
+        (sub / "docs" / "dev" / "project-management").mkdir(parents=True)  # decoy: no autopilot/ inside
         env = self.env()
-        target = str(self.repo / "dev" / "local" / "tmp" / "dispatch-ivan-1.txt")
+        target = str(self.repo / "docs" / "dev" / "tmp" / "dispatch-ivan-1.txt")
         self.assertAllowed(self.call(self.write_payload(target, sub), env))
         # Stopping at the decoy would shrink the scope to `sub`. The same
         # dispatch filename outside the repo must still be denied, against the
@@ -361,12 +361,12 @@ class TestArmingAndNormalization(WriteScopeCase):
         )
         self.assertEqual(self.allowed_roots(sub, env), self.default_roots)
 
-    def test_drops_a_dev_local_root_that_resolves_to_home(self) -> None:
+    def test_drops_a_dev_tmp_root_that_resolves_to_home(self) -> None:
         home = self.base / "home"
         home.mkdir()
         symrepo = self.base / "symrepo"
-        (symrepo / "dev").mkdir(parents=True)
-        os.symlink(home, symrepo / "dev" / "local")
+        (symrepo / "docs" / "dev").mkdir(parents=True)
+        os.symlink(home, symrepo / "docs" / "dev" / "tmp")
         err = self.assertDenied(
             self.call(
                 self.write_payload("~/bim/x.js", symrepo),
@@ -378,8 +378,8 @@ class TestArmingAndNormalization(WriteScopeCase):
 
     def test_denies_every_write_when_the_floor_empties_the_root_list(self) -> None:
         home = self.base / "home"
-        (home / "dev").mkdir(parents=True)
-        os.symlink(home, home / "dev" / "local")
+        (home / "docs" / "dev").mkdir(parents=True)
+        os.symlink(home, home / "docs" / "dev" / "tmp")
         code, _out, err = self.call(
             self.write_payload(str(home / "notes" / "x.md"), home),
             self.env(HOME=str(home), TMPDIR=None),
@@ -393,8 +393,8 @@ class TestArmingAndNormalization(WriteScopeCase):
 
     def test_repo_root_walk_up_stops_below_home(self) -> None:
         home = self.base / "home"
-        (home / "dev" / "local" / "autopilot").mkdir(parents=True)
-        nested = home / "proj"  # no dev/local/autopilot of its own
+        (home / "docs" / "dev" / "project-management" / "autopilot").mkdir(parents=True)
+        nested = home / "proj"  # no docs/dev/project-management/autopilot of its own
         nested.mkdir()
         self.assertAllowed(
             self.call(
@@ -483,23 +483,23 @@ class TestArmingAndNormalization(WriteScopeCase):
 
 
 class TestLegitimateWrites(WriteScopeCase):
-    def test_allows_dispatch_file_through_a_symlinked_dev_local(self) -> None:
+    def test_allows_dispatch_file_through_a_symlinked_dev_tmp(self) -> None:
         symrepo = self.base / "symrepo"
         external = self.base / "claude-dev"
-        (external / "autopilot").mkdir(parents=True)
-        (symrepo / "dev").mkdir(parents=True)
-        os.symlink(external, symrepo / "dev" / "local")
-        target = str(symrepo / "dev" / "local" / "tmp" / "dispatch-ivan-1.txt")
+        external.mkdir(parents=True)
+        (symrepo / "docs" / "dev").mkdir(parents=True)
+        os.symlink(external, symrepo / "docs" / "dev" / "tmp")
+        target = str(symrepo / "docs" / "dev" / "tmp" / "dispatch-ivan-1.txt")
         self.assertAllowed(self.call(self.write_payload(target, symrepo), self.env()))
 
-    def test_allows_the_work_skill_dev_local_write_locations(self) -> None:
-        dev_local = self.repo / "dev" / "local"
+    def test_allows_the_work_skill_project_management_locations(self) -> None:
+        project_management = self.repo / "docs" / "dev" / "project-management"
         targets = [
-            dev_local / "autopilot" / "state.json",
-            dev_local / "autopilot" / "contract-card.md",
-            dev_local / "assumptions.md",
-            dev_local / "prds" / "wip" / "00136-block-out-of-scope-writes.md",
-            dev_local / "reviews" / "00136-review-1.md",
+            project_management / "autopilot" / "state.json",
+            project_management / "autopilot" / "contract-card.md",
+            project_management / "assumptions.md",
+            project_management / "prds" / "wip" / "00136-block-out-of-scope-writes.md",
+            project_management / "reviews" / "00136-review-1.md",
         ]
         for target in targets:
             with self.subTest(target=str(target)):
@@ -740,7 +740,7 @@ class TestContractSeams(WriteScopeCase):
 
     def test_allowed_roots_is_the_documented_shared_contract(self) -> None:
         # The list warden's write-scope.ts must reproduce (PRD 00145): repo,
-        # repo/dev/local, TMPDIR, TMP_ROOTS, extras; realpath'd, in that order.
+        # repo/docs/dev/tmp, TMPDIR, TMP_ROOTS, extras; realpath'd, in that order.
         extra = self.base / "extra"
         extra.mkdir()
         env = self.env(**{EXTRA_ROOTS_ENV: str(extra)})
@@ -751,7 +751,7 @@ class TestContractSeams(WriteScopeCase):
             roots,
             [
                 self.repo,
-                self.repo / "dev" / "local",
+                self.repo / "docs" / "dev" / "tmp",
                 self.tmpdir,
                 Path(os.path.realpath("/tmp")),
                 extra,
@@ -766,7 +766,7 @@ class TestContractSeams(WriteScopeCase):
 
     def test_repo_root_returns_cwd_when_the_walk_up_stops_at_home(self) -> None:
         home = self.base / "home"
-        (home / "dev" / "local" / "autopilot").mkdir(parents=True)
+        (home / "docs" / "dev" / "project-management" / "autopilot").mkdir(parents=True)
         proj = home / "proj"  # nothing below $HOME qualifies
         proj.mkdir()
         with patch.dict(os.environ, self.env(HOME=str(home)), clear=True):

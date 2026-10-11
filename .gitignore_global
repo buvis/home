@@ -8,6 +8,11 @@ Thumbs.db
 **/.local
 dev/local/
 **/dev/local/
+docs/dev/tmp/
+**/docs/dev/tmp/
+**/docs/dev/project-management/.trash/
+**/.migration-placeholder
+**/.dev-migration-placeholder
 docs/superpowers/
 **/docs/superpowers/
 .superpowers
