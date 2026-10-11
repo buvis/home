@@ -7,6 +7,25 @@ local function is_vim(pane)
 	return pane:get_user_vars().IS_NVIM == "true"
 end
 
+local function is_herdr(pane)
+	local process = pane:get_foreground_process_name()
+	return process ~= nil and process:match("herdr$") ~= nil
+end
+
+local herdr_bin = wezterm.home_dir .. "/.local/share/mise/installs/herdr/latest/herdr"
+
+-- focus the herdr pane in `dir`; false when herdr is at its edge (or unreachable)
+local function herdr_focus(dir)
+	local ok, stdout = wezterm.run_child_process({ herdr_bin, "pane", "focus", "--direction", dir:lower() })
+	return ok and stdout:find('"changed":true', 1, true) ~= nil
+end
+
+-- focused herdr pane runs nvim; smart-splits there handles its own edges
+local function herdr_runs_nvim()
+	local ok, stdout = wezterm.run_child_process({ herdr_bin, "pane", "process-info" })
+	return ok and stdout:find('"nvim"', 1, true) ~= nil
+end
+
 local direction_keys = {
 	h = "Left",
 	j = "Down",
@@ -19,8 +38,12 @@ local function split_nav(resize_or_move, key)
 		key = key,
 		mods = resize_or_move == "resize" and "META" or "CTRL",
 		action = wezterm.action_callback(function(win, pane)
-			if is_vim(pane) then
-				-- pass the keys through to vim/nvim
+			if resize_or_move == "move" and is_herdr(pane) and not herdr_runs_nvim() then
+				if not herdr_focus(direction_keys[key]) then
+					win:perform_action({ ActivatePaneDirection = direction_keys[key] }, pane)
+				end
+			elseif is_vim(pane) or is_herdr(pane) then
+				-- pass the keys through
 				win:perform_action({
 					SendKey = { key = key, mods = resize_or_move == "resize" and "META" or "CTRL" },
 				}, pane)
@@ -55,7 +78,7 @@ else
 end
 
 config.launch_menu = {}
-config.leader = { key = "q", mods = "CTRL" }
+config.leader = { key = "a", mods = "CTRL" }
 config.disable_default_key_bindings = true
 config.keys = {
 	{ key = "LeftArrow", mods = "LEADER", action = act.MoveTabRelative(-1) },
