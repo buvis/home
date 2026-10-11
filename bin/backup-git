@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# backup-git - archive ~/.local/backup/src without generated artifacts
+set -euo pipefail
+
+SRC="${1:-$HOME/git/src}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+OUT="${2:-$HOME/.local/backup/git-src-${STAMP}.tar.gz}"
+
+if [[ ! -d "$SRC" ]]; then
+  echo "source not found: $SRC" >&2
+  exit 1
+fi
+
+# Reproducible artifacts - safe to drop, can be regenerated.
+EXCLUDES=(
+  # JS / TS
+  --exclude='node_modules'
+  --exclude='.next'
+  --exclude='.nuxt'
+  --exclude='.svelte-kit'
+  --exclude='.turbo'
+  --exclude='.parcel-cache'
+  --exclude='.eslintcache'
+  --exclude='.npm'
+  --exclude='.yarn/cache'
+  --exclude='.yarn/install-state.gz'
+  --exclude='.pnpm-store'
+  --exclude='.docusaurus'
+  # Python
+  --exclude='__pycache__'
+  --exclude='.venv'
+  --exclude='venv'
+  --exclude='.pytest_cache'
+  --exclude='.mypy_cache'
+  --exclude='.ruff_cache'
+  --exclude='.ropeproject'
+  --exclude='.tox'
+  --exclude='*.egg-info'
+  --exclude='*.pyc'
+  # Rust
+  --exclude='target'
+  # Java / JVM
+  --exclude='.gradle'
+  # Generic build output
+  --exclude='dist'
+  --exclude='build'
+  --exclude='out'
+  --exclude='coverage'
+  --exclude='.cache'
+  --exclude='.direnv'
+  # OS cruft
+  --exclude='.DS_Store'
+  --exclude='Thumbs.db'
+)
+
+echo "archiving $SRC -> $OUT"
+tar -czf "$OUT" "${EXCLUDES[@]}" -C "$(dirname "$SRC")" "$(basename "$SRC")"
+
+chmod 600 "$OUT"
+
+BYTES=$(stat -f%z "$OUT" 2>/dev/null || stat -c%s "$OUT")
+printf "done: %s (%s bytes)\n" "$OUT" "$BYTES"

@@ -1,0 +1,9 @@
+{
+  "packages": [
+    "git:github.com/huggingface/pi-llama"
+  ],
+  "lastChangelogVersion": "0.79.8",
+  "theme": "dark",
+  "defaultProvider": "llamacpp8001",
+  "defaultModel": "unsloth/Qwen3.6-35B-A3B"
+}

@@ -1,0 +1,38 @@
+rules:
+  - capability: fs_read
+    effect: allow
+    match:
+      - /Users/bob/.gitignore_global
+      - /Users/bob/.kiro/settings/permissions.yaml
+      - "**/docs/dev/project-management/**"
+      - "**/docs/dev/tmp/**"
+      - /Users/bob/.kiro/settings
+      - "**"
+  - capability: fs_write
+    effect: allow
+    match:
+      - "**/docs/dev/project-management/**"
+      - "**/docs/dev/tmp/**"
+  - capability: web_search
+    effect: allow
+  - capability: shell
+    effect: allow
+    match:
+      - cargo *
+      - tail *
+      - echo *
+      - seq *
+      - grep *
+      - break *
+      - sort *
+      - uniq *
+      - ps *
+      - head *
+      - ls *
+      - true *
+      - wc *
+      - exit *
+      - pgrep *
+      - pkill *
+      - uv *
+      - .venv/bin/python *

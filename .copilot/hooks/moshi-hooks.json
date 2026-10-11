@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "command": "'/Users/bob/.local/bin/moshi-hook' copilot-hook --event Notification",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "command": "'/Users/bob/.local/bin/moshi-hook' copilot-hook --event PostToolUse",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "command": "'/Users/bob/.local/bin/moshi-hook' copilot-hook --event SessionEnd",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "SessionStart": [
+      {
+        "command": "'/Users/bob/.local/bin/moshi-hook' copilot-hook --event SessionStart",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "'/Users/bob/.local/bin/moshi-hook' copilot-hook --event Stop",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "'/Users/bob/.local/bin/moshi-hook' copilot-hook --event UserPromptSubmit",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ]
+  },
+  "version": 1
+}

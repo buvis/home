@@ -1,0 +1,553 @@
+// ============================================================
+// Syncthing ignore patterns for macOS home folder backup
+// Place this as ~/.stignore in the synced folder
+//
+// Rule of thumb for pre-wipe handover:
+//   - Locked runtime files (WAL/SHM while app runs)  -> ignore
+//   - Build artifacts / re-downloadable caches       -> ignore
+//   - Secrets, local config, workspace state         -> KEEP
+//   - When in doubt, KEEP. Prune archive later.
+// ============================================================
+
+// ---- Environment files: NEVER ignore (contain secrets) ----
+// .env, .env.local, .env.*.local are all KEPT intentionally.
+// Do not add patterns for these.
+
+// ============================================================
+// Already in different Folder ID
+// ============================================================
+.local/
+bim/reference/local
+
+// ============================================================
+// macOS system cruft
+// ============================================================
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.DocumentRevisions-V100
+.PKInstallSandboxManager
+.PKInstallSandboxManager-SystemSoftware
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDouble
+.LSOverride
+Icon?
+.apdisk
+
+// ============================================================
+// macOS user-level system/runtime dirs (locked or massive)
+// ============================================================
+Library/Caches
+Library/Logs
+Library/Application Support/CrashReporter
+// iOS backups - huge; remove line if this is the only copy
+Library/Application Support/MobileSync/Backup
+// locked while Mail runs
+Library/Mail/V*/MailData/Envelope Index*
+Library/Mail Downloads
+// iCloud Drive - synced separately via bim/local folder, and iCloud itself
+// manages replication. Including it here causes stat-inflated size reports
+// (dataless files show full logical size) and Syncthing/iCloud conflicts.
+Library/Mobile Documents
+Library/Metadata/CoreSpotlight
+Library/Metadata/com.apple.IntelligentSuggestions
+// Containers and Group Containers are almost entirely TCC-sandboxed on
+// modern macOS (Sonoma+). Syncthing logs showed 870+ distinct "operation
+// not permitted" errors under these trees. Blanket-ignore both.
+// Tradeoff: some sandboxed apps store real documents under Containers/<bundle>/Data,
+// but since macOS blocks reading them, backing up via Syncthing is not viable anyway.
+// Use app-native export (Contacts, Notes, Messages, etc.) if you need that data.
+Library/Containers
+Library/Group Containers
+Library/Saved Application State
+Library/WebKit
+Library/Suggestions
+Library/Assistant
+Library/Biome
+// locked SQLite WALs
+Library/Accounts
+// locked
+Library/IdentityServices
+// locked
+Library/HomeKit
+// locked AND sensitive - export via Keychain Access separately
+Library/Keychains
+Library/Messages/chat.db-wal
+Library/Messages/chat.db-shm
+Library/CallHistoryDB
+Library/CallHistoryTransactions
+Library/FrontBoard
+Library/DuetExpertCenter
+// on-device intelligence; mostly locked (duplicate of earlier Library/Biome entry)
+Library/Biome
+Library/CoreFollowUp
+Library/Reminders/Container_v1/Stores/*-wal
+Library/Reminders/Container_v1/Stores/*-shm
+Library/Calendars/*.wal
+Library/Calendars/*.shm
+// locked, system-managed
+Library/Application Support/com.apple.TCC
+Library/Application Support/CallHistoryDB
+// locked
+Library/Application Support/Knowledge
+
+// ============================================================
+// Safari: only true caches (favicons). Quit Safari before sync.
+// LocalStorage, Databases, Cookies are KEPT - they hold real state.
+// ============================================================
+Library/Safari/Favicon Cache
+Library/Safari/Touch Icons Cache
+// Library/Safari/Downloads.plist                     // uncomment to drop download history
+
+// ============================================================
+// SQLite/database runtime sidecars (keep the .db, drop the WAL/SHM)
+// ============================================================
+*-wal
+*-shm
+*.db-journal
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+// ============================================================
+// Generic caches & temp
+// ============================================================
+*.tmp
+*.temp
+*.swp
+*.swo
+// generic XDG cache dir (at any depth)
+.cache
+.tmp
+tmp
+
+// ============================================================
+// Trash, shell session scratch
+// ============================================================
+.Trash
+.zsh_sessions
+.bash_sessions
+.lesshst
+.wget-hsts
+.sudo_as_admin_successful
+// NOTE: .zsh_history and .bash_history are KEPT (useful command history)
+// NOTE: .viminfo is KEPT (marks, recent files) - remove this line to ignore it
+
+// ============================================================
+// Downloads (optional - uncomment if you want to skip)
+// ============================================================
+// Downloads
+
+// ============================================================
+// Developer tooling - version managers & language runtimes
+// ============================================================
+.rustup
+.cargo/registry
+.cargo/git
+.cargo/.package-cache
+.cargo/.global-cache
+.npm
+.npm-packages
+.yarn/cache
+.yarn/unplugged
+.yarn/install-state.gz
+.pnpm-store
+.bun/install/cache
+.deno/gen
+.deno/deps
+.nvm/.cache
+// reinstallable; remove to keep
+.nvm/versions
+.fnm
+.volta/tools
+.nodenv/versions
+.pyenv/versions
+.pyenv/cache
+.rbenv/versions
+.rbenv/cache
+.asdf/installs
+.asdf/downloads
+// reinstallable
+.asdf/plugins
+.local/share/mise/installs
+.local/share/mise/downloads
+.local/share/mise/cache
+.mise/cache
+.local/share/uv
+.local/share/pipx/venvs
+.local/share/virtualenvs
+.local/pipx/.cache
+.goenv/versions
+
+// ============================================================
+// Python
+// ============================================================
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.pyright
+.pytype
+.tox
+.nox
+.coverage
+.coverage.*
+htmlcov
+.hypothesis
+*.egg-info
+.venv
+venv
+env
+pip-wheel-metadata
+pip-log.txt
+// NOTE: .ipynb_checkpoints is KEPT (may hold unsaved notebook state)
+// NOTE: .jupyter/runtime is locked at runtime but small - leaving KEPT
+
+// ============================================================
+// Rust
+// ============================================================
+// build output (matches at any depth)
+target
+**/*.rs.bk
+// NOTE: Cargo.lock is KEPT (pins dependencies; needed for reproducible builds)
+
+// ============================================================
+// Go
+// ============================================================
+go/pkg/mod/cache
+// re-downloadable
+go/pkg/mod
+// re-buildable
+go/bin
+
+// ============================================================
+// JVM
+// ============================================================
+.gradle
+// re-downloadable (huge)
+.m2/repository
+.ivy2/cache
+.sbt
+.scala_history
+
+// ============================================================
+// Other language/tool caches
+// ============================================================
+.bundle
+.cocoapods
+// CocoaPods generated
+Pods
+.gem
+.composer/cache
+vendor/bundle
+.dart_tool
+.pub-cache
+.nuget/packages
+// .NET build output
+obj
+
+// NOTE: "bin" and "vendor" are NOT in this list despite being generated.
+// They would also match ~/bin, ~/.local/bin (your scripts) and
+// deliberately-vendored dependencies. Add them path-anchored to specific
+// projects in per-project .stignore files if needed.
+
+// ============================================================
+// Editors / IDEs - only caches and indexes, not workspace state
+// ============================================================
+.vscode-server
+.vscode/.browse.VC.db*
+.idea/caches
+.idea/shelf
+.idea/usage.statistics.xml
+.idea/jsLibraryMappings.xml
+.idea/libraries
+*.iml~
+.history
+.ionide
+.ccls-cache
+.clangd
+// regenerable from build
+compile_commands.json
+.ensime_cache
+// NOTE: .idea/workspace.xml and .idea/tasks.xml are KEPT
+// (contain run configs, breakpoints, recent files - irreproducible)
+
+// ============================================================
+// Build outputs (project-local, safe to ignore at any depth)
+// ============================================================
+build
+dist
+out
+.next
+.nuxt
+.svelte-kit
+.turbo
+.parcel-cache
+.docusaurus
+.serverless
+.output
+coverage
+.nyc_output
+.rollup.cache
+.vite
+.webpack
+
+// ============================================================
+// Docker / container tooling
+// Ignore VM disks and build caches, KEEP configs
+// ============================================================
+// Docker Desktop VM disks - HUGE, regenerable
+Library/Containers/com.docker.docker/Data/vms
+Library/Containers/com.docker.docker/Data/log
+// large VM artifacts
+Library/Group Containers/group.com.docker/Data
+.docker/buildx/cache
+// NOTE: .docker/ itself is KEPT (config.json, contexts, credsStore)
+
+// VM disk images only
+.colima/*/diffdisk
+.colima/*/basedisk
+.colima/*/*.qcow2
+// NOTE: .colima/*/colima.yaml (config) is KEPT
+
+.lima/*/diffdisk
+.lima/*/basedisk
+.lima/*/cidata.iso
+// NOTE: .lima/*/lima.yaml is KEPT
+
+// NOTE: .orbstack/data is KEPT by default.
+// If you run stateful containers there and DON'T want them backed up,
+// add: .orbstack/data
+
+// ============================================================
+// Kubernetes / infra
+// ============================================================
+.kube/cache
+.kube/http-cache
+.helm/cache
+.helm/repository/cache
+// provider binaries & state cache
+.terraform
+.terragrunt-cache
+.vagrant
+.packer_cache
+// NOTE: .terraform.lock.hcl is KEPT (pins provider versions - needed for reproducibility)
+// NOTE: .kube/config is KEPT (contexts and credentials)
+
+// ============================================================
+// Git - keep .git directories (they ARE your history)
+// ============================================================
+// re-fetchable if remote exists; remove line for offline-only repos
+.git/lfs/objects
+
+// ============================================================
+// Browsers - caches only, never profile data
+// ============================================================
+Library/Application Support/Google/Chrome/*/Cache*
+Library/Application Support/Google/Chrome/*/Code Cache
+Library/Application Support/Google/Chrome/*/GPUCache
+Library/Application Support/Google/Chrome/*/Service Worker/CacheStorage
+Library/Application Support/Google/Chrome/*/Service Worker/ScriptCache
+Library/Application Support/Firefox/Profiles/*/cache2
+Library/Application Support/Firefox/Profiles/*/startupCache
+Library/Application Support/Firefox/Profiles/*/shader-cache
+Library/Application Support/BraveSoftware/Brave-Browser/*/Cache*
+Library/Application Support/Arc/User Data/*/Cache*
+Library/Application Support/Arc/User Data/*/Code Cache
+
+// ============================================================
+// Communication apps - Electron caches
+// ============================================================
+Library/Application Support/Slack/Cache
+Library/Application Support/Slack/Code Cache
+Library/Application Support/Slack/GPUCache
+Library/Application Support/Slack/Service Worker
+Library/Application Support/Slack/logs
+Library/Application Support/Microsoft/Teams/Cache
+Library/Application Support/Microsoft/Teams/Code Cache
+Library/Application Support/Microsoft/Teams/GPUCache
+Library/Application Support/Microsoft/Teams/blob_storage
+Library/Application Support/discord/Cache
+Library/Application Support/discord/Code Cache
+Library/Application Support/discord/GPUCache
+// cached meeting artifacts
+Library/Application Support/Zoom/data
+Library/Application Support/WhatsApp/Cache
+// NOTE: Signal's db.sqlite is KEPT (your messages); WAL/SHM already covered by global pattern
+
+// ============================================================
+// Spotify
+// ============================================================
+Library/Application Support/Spotify/PersistentCache
+
+// ============================================================
+// Notion / Obsidian / Logseq
+// Keep vault contents and backups; ignore only Electron caches
+// ============================================================
+Library/Application Support/Notion/Cache
+Library/Application Support/Notion/Code Cache
+Library/Application Support/Notion/GPUCache
+// NOTE: Obsidian workspace state (**/.obsidian/workspace.json) is KEPT
+// NOTE: **/logseq/bak and **/logseq/.recycle are KEPT (contain recoverable notes)
+
+// ============================================================
+// IDE caches in ~/Library (not project-local)
+// ============================================================
+Library/Application Support/Code/Cache
+Library/Application Support/Code/CachedData
+Library/Application Support/Code/CachedExtensions
+Library/Application Support/Code/CachedExtensionVSIXs
+Library/Application Support/Code/Code Cache
+Library/Application Support/Code/GPUCache
+Library/Application Support/Code/Service Worker
+Library/Application Support/Code/logs
+// NOTE: Code/User/ (settings, keybindings, snippets) is KEPT
+// NOTE: Code/User/workspaceStorage is KEPT (per-workspace state; small, useful for handover)
+// NOTE: Code/User/globalStorage is KEPT (extension state, sometimes holds irreproducible data)
+Library/Application Support/Cursor/Cache
+Library/Application Support/Cursor/Code Cache
+Library/Application Support/Cursor/GPUCache
+Library/Application Support/JetBrains/*/caches
+Library/Application Support/JetBrains/*/log
+Library/Application Support/JetBrains/*/tmp
+Library/Application Support/JetBrains/*/system/caches
+Library/Application Support/JetBrains/*/index
+
+// ============================================================
+// Photo/video apps - CAREFUL (you shoot Nikon/DJI)
+// These are app caches, NOT your photo/video library
+// ============================================================
+Library/Application Support/Lightroom/Caches
+Library/Application Support/Adobe/Common/Media Cache Files
+Library/Application Support/Adobe/Common/Media Cache
+Library/Application Support/Adobe/Bridge CC/Cache
+Library/Caches/Adobe
+Library/Application Support/Final Cut Pro/Render Files
+Library/Application Support/Final Cut Pro/Analysis Files
+Library/Application Support/DaVinci Resolve/CacheClip
+Library/Application Support/DaVinci Resolve/GalleryStills/cache
+Library/Application Support/Capture One/Cache
+
+// Photos.app library: lives in cloud and can be rengenerated
+**/*.photoslibrary
+
+// ============================================================
+// AI / ML model caches
+// All of these are re-downloadable but can be HUGE.
+// Remove individual lines if any contain private/fine-tuned models.
+// ============================================================
+.cache/huggingface
+.cache/torch
+.cache/tensorflow
+.ollama/models
+Library/Application Support/llama.cpp/models
+.lmstudio/models
+// ============================================================
+// Additional TCC/SIP-protected paths (from scan error log)
+// These return "operation not permitted" even when Syncthing runs
+// with Full Disk Access - macOS blocks them regardless
+// ============================================================
+
+// ---- Apple Intelligence / on-device ML ----
+Library/IntelligencePlatform
+Library/com.apple.aiml.instrumentation
+// Apple's on-device model experimentation
+Library/Trial
+
+// ---- Apple account / media services (TCC-protected) ----
+Library/AppleMediaServices
+
+// ---- Siri / Assistant ----
+Library/Assistant/SiriVocabulary
+Library/Shortcuts/ToolKit
+Library/Group Containers/group.com.apple.shortcuts
+Library/Group Containers/group.com.apple.siri.userfeedbacklearning
+Library/Group Containers/group.com.apple.feedbacklogger
+
+// ---- Duet / Proactive (Siri Suggestions, Spotlight intelligence) ----
+// I had Library/DuetExpertCenter as a parent ignore already, but being explicit
+// for the specific failing subpaths helps Syncthing skip faster:
+Library/DuetExpertCenter/ATXLocationManagerState-unrestricted
+Library/DuetExpertCenter/Bookmarks
+Library/DuetExpertCenter/ClientModelCaches
+Library/DuetExpertCenter/UICaches
+Library/DuetExpertCenter/caches
+Library/DuetExpertCenter/feedback
+Library/DuetExpertCenter/notificationAndSuggestionDB.db-wal
+Library/DuetExpertCenter/streams
+
+// ---- CoreSpotlight protected subpaths ----
+// My earlier ignore (Library/Metadata/CoreSpotlight) should cover these,
+// but the log shows Syncthing still tries them - add explicit entries:
+Library/Metadata/CoreSpotlight/NSFileProtectionCompleteUntilFirstUserAuthentication
+Library/Metadata/CoreSpotlight/SpotlightKnowledge
+Library/Metadata/CoreSpotlight/SpotlightKnowledgeEvents
+Library/Metadata/CoreSpotlight/heartbeat.plist
+
+// ---- IdentityServices - all variants (iMessage/FaceTime routing) ----
+// Parent already ignored, but the log shows many distinct failures:
+Library/IdentityServices/Persistence
+Library/IdentityServices/ids.db
+Library/IdentityServices/ids.db-shm
+Library/IdentityServices/ids.db-wal
+
+// ---- Daemon Containers (system daemons' sandboxes) ----
+Library/Daemon Containers
+
+// ---- Protected Group Containers ----
+Library/Group Containers/group.com.apple.icloud.searchpartyuseragent
+Library/Group Containers/group.com.apple.transparency
+Library/Group Containers/group.com.apple.chronod
+Library/Group Containers/group.com.apple.replicatord
+Library/Group Containers/group.com.apple.tipsnext
+Library/Group Containers/group.com.apple.tips
+Library/IdentityServices
+
+// ---- Other protected Caches ----
+// CloudKit daemon DB, locked
+Library/Caches/CloudKit
+Library/Group Containers/group.com.apple.loginwindow.persistent-apps
+// ---- Maps runtime cache (locked while Maps runs) ----
+Library/Containers/com.apple.Maps/Data/Maps/MapsSync_0.0.1_deviceLocalCache.db-shm
+// (parent Library/Containers/*/Data/Library/Caches is already ignored,
+// but MapsSync sits outside that path - hence the explicit entry)
+
+// ============================================================
+// Additional TCC-protected paths found in scan error log
+// ============================================================
+
+// ---- Application Support (TCC-protected subpaths) ----
+Library/Application Support/AddressBook
+Library/Application Support/CloudDocs
+Library/Application Support/com.apple.avfoundation
+Library/Application Support/com.apple.sharedfilelist
+Library/Application Support/DifferentialPrivacy
+Library/Application Support/FaceTime
+Library/Application Support/FileProvider
+
+// ---- Top-level Library dirs blocked by TCC ----
+Library/Autosave Information
+Library/ContainerManager
+Library/Cookies
+Library/DoNotDisturb
+Library/PersonalizationPortrait
+Library/Sharing
+Library/StatusKit
+Library/Weather
+
+// ---- Preferences plists blocked by TCC (iMessage/Contacts/Home/Mail) ----
+Library/Preferences/com.apple.AddressBook.plist
+Library/Preferences/com.apple.homed.plist
+Library/Preferences/com.apple.homed.notbackedup.plist
+Library/Preferences/com.apple.mail-shared.plist
+Library/Preferences/com.apple.messages.pinning.plist
+Library/Preferences/com.apple.MobileSMS.plist
+Library/Preferences/com.apple.MobileSMS.CKDNDList.plist

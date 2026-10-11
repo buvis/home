@@ -1,0 +1,25 @@
+[user]
+  signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICYrvNVA6j3PecXZ9dqT5S51LZ0n4EGRAVYH1U/zzl1c
+	name = Tomáš Bouška
+	email = tomas@buvis.net
+[commit]
+	gpgsign = true
+[gpg]
+  format = ssh
+[gpg "ssh"]
+  program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
+	allowedSignersFile = /Users/bob/.config/git/allowed_signers
+[pull]
+	rebase = false
+[core]
+	excludesfile = /Users/bob/.gitignore_global
+[fetch]
+	prune = true
+[init]
+	defaultBranch = master
+[credential "https://github.com"]
+	helper = 
+	helper = !gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !gh auth git-credential

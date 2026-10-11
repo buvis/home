@@ -1,0 +1,69 @@
+{
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "hooks": {
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' gemini-hook",
+            "name": "Moshi",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' gemini-hook",
+            "name": "Moshi",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' gemini-hook",
+            "name": "Moshi",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' gemini-hook",
+            "name": "Moshi",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' gemini-hook",
+            "name": "Moshi",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ]
+  }
+}

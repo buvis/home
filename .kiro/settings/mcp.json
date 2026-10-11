@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "calcard": {
+      "command": "/Users/bob/.local/share/mise/shims/uvx",
+      "args": [
+        "--from",
+        "/Users/bob/git/src/github.com/buvis/calcard-mcp",
+        "calcard-mcp",
+        "--config",
+        "/Users/bob/.config/buvis/buvis-mcp-calcard.local.yaml"
+      ],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

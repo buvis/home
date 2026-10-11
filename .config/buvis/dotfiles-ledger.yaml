@@ -1,0 +1,75 @@
+# Dotfiles checkup ledger (public half). Secret/machine verdicts live in
+# ~/.local/state/buvis/dotfiles-ledger.local.yaml (untracked).
+#
+# noise, link -> stable, never re-asked
+# skip        -> volatile, re-asked when sha256 changes
+# Paths are $HOME-relative; a trailing / covers the whole dir.
+
+noise:
+  decided: 2026-10-11
+  paths:
+    - .cache/
+    - .npm/
+    - .rustup/
+    - .cargo/
+    - .bash_sessions/
+    - .zsh_sessions/
+    - .cups/
+    - .dropbox/
+    - .OmniPage-licmgr/
+    - .homebrew/
+    - .matplotlib/
+    - .models/
+    - .llama-app/
+    - .mempalace/
+    - .semantic_search/
+    - .serena/
+    - .kiro/            # except settings/mcp.json, settings/permissions.yaml (tracked)
+    - .kiro-shared/
+    - .k8slens/
+    - .cagent/
+    - .copilot/         # except settings.json, hooks/moshi-hooks.json (tracked)
+    - .gemini/          # except settings.json (tracked)
+    - .pi/              # except agent/settings.json (tracked), agent/models.json (git-secret)
+    - .docker/          # except daemon.json (tracked)
+    - .arduinoIDE/      # except arduino-cli.yaml (tracked)
+    - .CFUserTextEncoding
+    - .kirocrew.breadcrumb
+    - .claude.json.bak-*
+    - .config/herdr/    # except config.toml (tracked)
+    - .config/buvis/updater.json
+    - .config/typora/
+    - .config/autocodex/.venv/
+    - .local/bin/       # installer-managed; own scripts live in ~/bin
+
+link:
+  decided: 2026-10-11
+  note: symlinks into other repos (agent-skills, cellar); never stage
+  paths:
+    - .agents/skills/
+    - .claude/skills/<symlinks>   # braid link farm; real dirs are Claude-only skills
+    - .config/ccc
+    - .config/hazel
+    - .config/syncthing
+
+skip:
+  - path: .claude/hooks/herdr-agent-state.sh
+    reason: herdr-managed, regenerated on install
+    sha256: 7f117c303ffc1a66975b76dda8189d70b718fc04af4cf7cb11449e4ee5b4ae86
+    decided: 2026-10-11
+  - path: .copilot/hooks/herdr-agent-state.sh
+    reason: herdr-managed, regenerated on install
+    sha256: 197460e7423d243862690eeb2dadaa0eeaec3d42f3106c5972483b029b797825
+    decided: 2026-10-11
+  - path: .config/buvis/buvis-postup.yaml
+    reason: user declined
+    sha256: 22d55a7f53e5cd2a2deb7fd707e18f9ef0d81f42c9827a150d2f1a22aa2ec6d3
+    decided: 2026-10-11
+  - path: .config/buvis/buvis-bim.yaml
+    reason: points at ~/bim-doc-test, looks like a test config
+    sha256: 8e53081741398cc0f94234761986443491716fb215c93444c8008e338054ca86
+    decided: 2026-10-11
+  - path: .config/klyreon/config.yaml
+    reason: root points at a throwaway tmp vault
+    sha256: 65ac4eea9914434ea26f23c05c0e895773205cf1cd24adbd4a7172dd5652bdad
+    decided: 2026-10-11
