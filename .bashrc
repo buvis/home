@@ -70,3 +70,5 @@ command -v zoxide >/dev/null && eval "$(zoxide init --cmd cd bash)"
 
 # Load Bash It
 [ -f "$BASH_IT/bash_it.sh" ] && source "$BASH_IT"/bash_it.sh
+
+[[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path bash)"

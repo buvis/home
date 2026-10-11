@@ -100,8 +100,8 @@ _autoclaude_tracon() {
   _skill=$(_autopilot_skill_root 2>/dev/null)
   _tracon_py="$_skill/scripts/tracon.py"
   _ap_dir=$(python3 "$_skill/scripts/_walk_up.py" --bash 2>/dev/null)
-  [ -n "$_ap_dir" ] || _ap_dir="$PWD/dev/local/autopilot"
-  _root="${_ap_dir%/dev/local/autopilot}"
+  [ -n "$_ap_dir" ] || _ap_dir="$PWD/docs/dev/project-management/autopilot"
+  _root="${_ap_dir%/docs/dev/project-management/autopilot}"
   mkdir -p "$_ap_dir" 2>/dev/null
 
   # Export the resolved loops dir BEFORE any child is spawned (guard,
@@ -240,7 +240,7 @@ _autoclaude_tracon_surface() {   # $1=wrapper.log, $2=child rc — surface swall
 # shapes (empty, `/` or `..` traversal, or off the 00XXX-name.md naming
 # convention). The traversal guard runs first on purpose: a bash glob's `*`
 # matches `/` too, so `00076-a/../b.md` would otherwise slip past the naming
-# pattern while still walking outside dev/local/prds. Exits 0 when <prd> is
+# pattern while still walking outside docs/dev/project-management/prds. Exits 0 when <prd> is
 # safe to use as a ledger key and an mv path component, 2 otherwise (with
 # the usage line already on stderr).
 _autopilot_fable_validate_prd() {
@@ -260,8 +260,8 @@ _autopilot_fable_validate_prd() {
 # refuses before touching a destination that is already a regular file:
 # unlike a directory target, `mv` overwrites a same-named regular file
 # silently and still exits 0, so the post-move existence check alone cannot
-# tell that from a real success, and dev/local/ is gitignored, so the
-# overwritten PRD would be unrecoverable. Prints the operator-facing outcome
+# tell that from a real success. The destination is tracked, but overwriting
+# still loses the prior work before the next commit. Prints the operator-facing outcome
 # itself, success on stdout and failure on stderr, and returns 0 on success
 # (including "nothing to move"), 2 on a failed or refused un-park.
 _autopilot_fable_unpark() {
@@ -398,7 +398,7 @@ autoclaude() {
   # (rc 127 "autopilot: No such file or directory"); call the CLI directly.
   local _skill _rc
   _skill=$(_autopilot_skill_root) || return 1
-  caffeinate -is python3 "$_skill/cli/__main__.py" loop
+  caffeinate -is run-agent python3 "$_skill/cli/__main__.py" loop
   _rc=$?
   unset _AUTOPILOT_LOOP
   return $_rc

@@ -1,1 +1,6 @@
-alias start-remote-dev='tmux attach -t remote_dev || tmux new -s remote_dev'
+alias claude-unbound='run-agent --no-sandbox claude'
+alias claude='run-agent claude'
+alias codex='run-agent codex --sandbox danger-full-access --ask-for-approval on-request'
+alias copilot='run-agent copilot --allow-all'
+alias kiro='run-agent kiro-cli --trust-all-tools'
+alias pi='run-agent pi'
