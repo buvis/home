@@ -36,6 +36,9 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 # Python wheels
 export PATH="${DOTFILES_ROOT}/.local/bin:${PATH}"
 
+# Personal scripts (tracked in buvis)
+export PATH="${HOME}/bin:${PATH}"
+
 # Set my editor and git editor
 export EDITOR="nvim"
 export GIT_EDITOR="nvim"

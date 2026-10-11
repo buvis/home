@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ------------------------------------------------------------
+# Sandbox configuration
+# ------------------------------------------------------------
+
+SANDBOX_PROFILE="$HOME/.config/seatbelt/ai-agents.sb"
+SANDBOX=1
+
+if [[ "${1:-}" == "--no-sandbox" ]]; then
+  SANDBOX=0
+  shift
+  echo "WARNING: running without Seatbelt sandbox" >&2
+fi
+
+if [[ $SANDBOX -eq 1 && ! -f "$SANDBOX_PROFILE" ]]; then
+  echo "ERROR: Sandbox profile not found: $SANDBOX_PROFILE" >&2
+  exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+  echo "Usage: $(basename "$0") [--no-sandbox] <agent> [arguments...]" >&2
+  exit 2
+fi
+
+# ------------------------------------------------------------
+# Resolve workspace
+# ------------------------------------------------------------
+
+RESOLVED_HOME="$(cd "$HOME" && pwd -P)"
+PROJECT_DIR="$(pwd -P)"
+
+# Use Git repository root when available.
+GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+
+if [[ -n "$GIT_ROOT" ]]; then
+  PROJECT_DIR="$(cd "$GIT_ROOT" && pwd -P)"
+fi
+
+# Prevent accidentally granting write access to HOME.
+if [[ $SANDBOX -eq 1 && "$PROJECT_DIR" == "$RESOLVED_HOME" ]]; then
+  echo "ERROR: Refusing to sandbox entire HOME directory" >&2
+  exit 1
+fi
+
+# Also reject filesystem root.
+if [[ $SANDBOX -eq 1 && "$PROJECT_DIR" == "/" ]]; then
+  echo "ERROR: Refusing to sandbox filesystem root" >&2
+  exit 1
+fi
+
+RESOLVED_TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
+
+# ------------------------------------------------------------
+# Git authentication
+# ------------------------------------------------------------
+
+SSH_KEY="$HOME/.ssh/agent_github"
+SSH_PUBLIC_KEY="$SSH_KEY.pub"
+
+if [[ ! -r "$SSH_PUBLIC_KEY" ]]; then
+  echo "ERROR: Git signing public key not found" >&2
+  exit 1
+fi
+
+# SSH authentication using dedicated agent key.
+export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes"
+
+# ------------------------------------------------------------
+# Git identity
+# ------------------------------------------------------------
+
+export GIT_AUTHOR_NAME="Agent ran by Tomáš Bouška"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+
+# ------------------------------------------------------------
+# Git SSH commit signing
+# ------------------------------------------------------------
+
+export GIT_CONFIG_COUNT=3
+
+export GIT_CONFIG_KEY_0="gpg.format"
+export GIT_CONFIG_VALUE_0="ssh"
+
+export GIT_CONFIG_KEY_1="user.signingkey"
+export GIT_CONFIG_VALUE_1="$SSH_PUBLIC_KEY"
+
+export GIT_CONFIG_KEY_2="gpg.ssh.program"
+export GIT_CONFIG_VALUE_2="ssh-keygen"
+
+# ------------------------------------------------------------
+# Launch inside macOS Seatbelt sandbox
+# ------------------------------------------------------------
+
+if [[ $SANDBOX -eq 0 ]]; then
+  exec "$@"
+fi
+
+exec /usr/bin/sandbox-exec \
+  -f "$SANDBOX_PROFILE" \
+  -D "_HOME=$RESOLVED_HOME" \
+  -D "_PROJECT_DIR=$PROJECT_DIR" \
+  -D "_TMPDIR=$RESOLVED_TMPDIR" \
+  "$@"
