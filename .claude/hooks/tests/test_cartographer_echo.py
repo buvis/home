@@ -45,7 +45,11 @@ def _edit_payload(session: str, file_path: Path) -> dict:
     return {
         "session_id": session,
         "tool_name": "Edit",
-        "tool_input": {"file_path": str(file_path), "old_string": "x", "new_string": "y"},
+        "tool_input": {
+            "file_path": str(file_path),
+            "old_string": "x",
+            "new_string": "y",
+        },
     }
 
 
@@ -60,7 +64,9 @@ def test_hook_file_exists() -> None:
 
 
 def test_skip_claude_settings_json(tmp_path: Path) -> None:
-    payload = _edit_payload("sess-test-settings", tmp_path / ".claude" / "settings.json")
+    payload = _edit_payload(
+        "sess-test-settings", tmp_path / ".claude" / "settings.json"
+    )
     proc = run_hook(payload, home=tmp_path)
     assert proc.returncode == 0
     if proc.stdout.strip():
@@ -335,7 +341,9 @@ def _write_payload(session: str, file_path: Path, content: str) -> dict:
 def test_two_attempt_first_call_denies(tmp_path: Path) -> None:
     root = _make_test_repo(tmp_path)
     payload = _write_payload(
-        "sess-gate-1", root / "price.py", "def formatPrice(p):\n    return f'${p}'\n"
+        "sess-gate-1",
+        root / "price.py",
+        "def formatPrice(p):\n    return f'${p}'\n",
     )
     proc = run_hook(payload, home=tmp_path, cwd=root)
     assert proc.returncode == 0
@@ -350,7 +358,9 @@ def test_two_attempt_first_call_denies(tmp_path: Path) -> None:
 def test_two_attempt_second_call_allows(tmp_path: Path) -> None:
     root = _make_test_repo(tmp_path)
     payload = _write_payload(
-        "sess-gate-2", root / "price.py", "def formatPrice(p):\n    return f'${p}'\n"
+        "sess-gate-2",
+        root / "price.py",
+        "def formatPrice(p):\n    return f'${p}'\n",
     )
     # First call: deny + mark.
     proc1 = run_hook(payload, home=tmp_path, cwd=root)
@@ -421,7 +431,9 @@ def test_extracted_symbols_recorded_in_audit(tmp_path: Path) -> None:
 
 def test_no_symbols_extracted_audits_no_symbols_reason(tmp_path: Path) -> None:
     payload = _write_payload(
-        "sess-no-syms", tmp_path / "src" / "empty.py", "# only a comment\n"
+        "sess-no-syms",
+        tmp_path / "src" / "empty.py",
+        "# only a comment\n",
     )
     proc = run_hook(payload, home=tmp_path)
     assert proc.returncode == 0

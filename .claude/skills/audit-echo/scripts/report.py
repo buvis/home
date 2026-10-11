@@ -8,6 +8,7 @@ rates, and the skip distribution.
 
 Read-only. Never mutates the audit log.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -16,15 +17,28 @@ import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
-AUDIT_PATH = Path.home() / ".local" / "share" / "agents" / "cartographer" / "audit.jsonl"
+AUDIT_PATH = (
+    Path.home() / ".local" / "share" / "agents" / "cartographer" / "audit.jsonl"
+)
 WINDOW_TOOLS = ("Edit", "Write", "MultiEdit", "Bash", "mcp__serena__*")
 LANG_BY_EXT = {
-    ".py": "py", ".ts": "ts", ".tsx": "ts", ".js": "js", ".jsx": "js",
-    ".rs": "rust", ".go": "go",
+    ".py": "py",
+    ".ts": "ts",
+    ".tsx": "ts",
+    ".js": "js",
+    ".jsx": "js",
+    ".rs": "rust",
+    ".go": "go",
 }
 SKIP_REASONS = (
-    "settings", "large-file", "no-tree-sitter", "test-file", "unsupported-ext",
-    "mcp-unsupported", "ripgrep-timeout", "tree-sitter-parse-failed",
+    "settings",
+    "large-file",
+    "no-tree-sitter",
+    "test-file",
+    "unsupported-ext",
+    "mcp-unsupported",
+    "ripgrep-timeout",
+    "tree-sitter-parse-failed",
 )
 # Timezone-aware sort fallback: event timestamps are aware, so a naive
 # datetime.min would raise TypeError when an event is missing its `ts`.
@@ -126,9 +140,12 @@ def analyze_denies(
             key_syms = frozenset(symbols)
             retry = next(
                 (
-                    r for r in retries
-                    if r["i"] > i and r["i"] not in used
-                    and r["file"] == target and r["syms"] == key_syms
+                    r
+                    for r in retries
+                    if r["i"] > i
+                    and r["i"] not in used
+                    and r["file"] == target
+                    and r["syms"] == key_syms
                 ),
                 None,
             )
@@ -138,13 +155,18 @@ def analyze_denies(
                 noise_second[(sym_key, target)] += 1
                 matches = event.get("matches") or []
                 first = matches[0] if matches else ""
-                sample = first.get("snippet") or first if isinstance(first, dict) else first
+                sample = (
+                    first.get("snippet") or first if isinstance(first, dict) else first
+                )
                 fp_samples.append((event["_ts"], sym_key, target, sample))
     return deny_total, second_attempt, noise, noise_second, fp_samples
 
 
 def print_noise(
-    deny_total: int, second_attempt: int, noise: Counter, noise_second: Counter,
+    deny_total: int,
+    second_attempt: int,
+    noise: Counter,
+    noise_second: Counter,
 ) -> None:
     print("\n=== Noise (top deny symbols) ===")
     ratio = f"{100 * second_attempt / deny_total:.0f}%" if deny_total else "n/a"
@@ -177,22 +199,24 @@ def print_languages(events: list[dict]) -> None:
     for lang, counts in sorted(by_lang.items(), key=lambda kv: -sum(kv[1].values())):
         n = sum(counts.values())
         rate = counts["deny"] / n if n else 0
-        flag = "  <-- >1.5x mean" if mean and rate > 1.5 * mean and counts["deny"] else ""
+        flag = (
+            "  <-- >1.5x mean" if mean and rate > 1.5 * mean and counts["deny"] else ""
+        )
         print(
             f"  {lang:6} n={n:6} allow={counts['allow']:6} "
             f"deny={counts['deny']:4} skip={counts['skip']:6} "
-            f"deny_rate={rate * 100:.2f}%{flag}"
+            f"deny_rate={rate * 100:.2f}%{flag}",
         )
-    print(f"  overall mean deny_rate={mean * 100:.3f}% "
-          "(note: diluted by Bash; compare code files to each other)")
+    print(
+        f"  overall mean deny_rate={mean * 100:.3f}% "
+        "(note: diluted by Bash; compare code files to each other)"
+    )
 
 
 def print_skips(events: list[dict]) -> None:
     print("\n=== Skip distribution ===")
     total = len(events)
-    reasons = Counter(
-        e.get("reason") for e in events if e.get("decision") == "skip"
-    )
+    reasons = Counter(e.get("reason") for e in events if e.get("decision") == "skip")
     for reason in SKIP_REASONS:
         count = reasons.get(reason, 0)
         if count:
@@ -205,21 +229,28 @@ def print_skips(events: list[dict]) -> None:
 def main() -> int:
     events = load_echo_events(AUDIT_PATH)
     if not events:
-        print("LOW: no Echo events recorded in window "
-              f"(audit log: {AUDIT_PATH})")
+        print(f"LOW: no Echo events recorded in window (audit log: {AUDIT_PATH})")
         return 0
     timestamps = [e["_ts"] for e in events if e["_ts"]]
-    now = max(timestamps) if timestamps else datetime.datetime.now(datetime.timezone.utc)
+    now = (
+        max(timestamps) if timestamps else datetime.datetime.now(datetime.timezone.utc)
+    )
     decisions = Counter(e.get("decision") for e in events)
     print(f"audit log: {AUDIT_PATH}")
     print(f"total echo events: {len(events)}")
     if timestamps:
-        print(f"ts range: {min(timestamps).isoformat()} -> {max(timestamps).isoformat()}")
-    print(f"allow/deny/skip: {decisions['allow']}/{decisions['deny']}/{decisions['skip']}\n")
+        print(
+            f"ts range: {min(timestamps).isoformat()} -> {max(timestamps).isoformat()}"
+        )
+    print(
+        f"allow/deny/skip: {decisions['allow']}/{decisions['deny']}/{decisions['skip']}\n"
+    )
 
     print_windows(events, now)
     by_session = sessions(events)
-    deny_total, second_attempt, noise, noise_second, fp_samples = analyze_denies(by_session)
+    deny_total, second_attempt, noise, noise_second, fp_samples = analyze_denies(
+        by_session
+    )
     print_noise(deny_total, second_attempt, noise, noise_second)
     print_fp_samples(fp_samples)
     print_languages(events)
