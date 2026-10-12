@@ -1,0 +1,195 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/design-quality-check.py'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/protect_config.py'",
+            "timeout": 5,
+            "type": "command"
+          },
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/enforce_prd_location.py'",
+            "timeout": 5,
+            "type": "command"
+          },
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/block-suppression-markers.py'",
+            "timeout": 5,
+            "type": "command"
+          },
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/gateguard-fact-force.py'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/validate_commit_msg.py'",
+            "timeout": 5,
+            "type": "command"
+          },
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/block_working_document_redirects.py'",
+            "timeout": 5,
+            "type": "command"
+          },
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/enforce_prd_location.py'",
+            "timeout": 5,
+            "type": "command"
+          },
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/gateguard-fact-force.py'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash '/Users/bob/.codex/herdr-agent-state.sh' session",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' codex-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/notify.py'",
+            "timeout": 15,
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "python3 '/Users/bob/.codex/hooks/track_cost.py'",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' codex-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' codex-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/bob/.local/bin/moshi-hook' codex-hook",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

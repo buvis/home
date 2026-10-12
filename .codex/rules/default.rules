@@ -1,0 +1,8 @@
+prefix_rule(pattern=["/opt/homebrew/bin/bash", "-lc", "for name in cuvac chodak bundas honak vendelin ovcak; do gh search repos \"$name in:name\" --limit 5 --json fullName,description,url --jq '.[] | [.fullName, (.description // \"\"), .url] | @tsv' | sed \"s/^/$name\\t/\"; done"], decision="allow")
+prefix_rule(pattern=["git", "add"], decision="allow")
+prefix_rule(pattern=["mise", "exec", "--", "uv"], decision="allow")
+prefix_rule(pattern=["git", "commit"], decision="allow")
+prefix_rule(pattern=["git", "diff", "--check"], decision="allow")
+prefix_rule(pattern=["/Users/bob/.agents/skills/use-sonnet/scripts/sonnet-run.sh"], decision="allow")
+prefix_rule(pattern=["/Users/bob/git/src/github.com/buvis/claude-autopilot/skills/use-sonnet/scripts/sonnet-run.sh"], decision="allow")
+prefix_rule(pattern=["git", "status", "--short"], decision="allow")
