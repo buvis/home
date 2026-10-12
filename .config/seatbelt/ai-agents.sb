@@ -107,7 +107,7 @@
 (allow file-write* (subpath (string-append (param "_HOME") "/.Trash")))
 (allow file-write* (subpath (param "_PROJECT_DIR")))
 ;; All repos, so a session can work across projects (e.g. the autopilot plugin
-;; repo from a consumer repo). Git hooks/config stay denied below.
+;; repo from a consumer repo). Git hooks stay denied below.
 (allow file-write* (subpath (string-append (param "_HOME") "/git/src")))
 (allow file-write* (subpath (param "_TMPDIR")))
 (allow file-write* (subpath "/private/var/folders/"))
@@ -132,7 +132,6 @@
 ;; Mandatory write denies — defense-in-depth (PROJECT)
 ;; ---------------------------------------------------------------------------
 (deny file-write* (subpath (string-append (param "_PROJECT_DIR") "/.git/hooks")))
-(deny file-write* (literal (string-append (param "_PROJECT_DIR") "/.git/config")))
 (deny file-write* (literal (string-append (param "_PROJECT_DIR") "/.bashrc")))
 (deny file-write* (literal (string-append (param "_PROJECT_DIR") "/.zshrc")))
 (deny file-write* (literal (string-append (param "_PROJECT_DIR") "/.gitconfig")))
@@ -142,7 +141,6 @@
 
 ;; Same protections for every repo under ~/git/src (writable above)
 (deny file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/git/src/.*/\\.git/hooks(/|$)")))
-(deny file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/git/src/.*/\\.git/config$")))
 (deny file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/git/src/.*/\\.mcp\\.json$")))
 
 ;; Dedicated GitHub authentication and signing key
