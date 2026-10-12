@@ -209,7 +209,7 @@ class TestSharedRootSet(ParityCase):
         cwd = self.repo / "sub"
         expected = [
             str(self.repo),
-            str(self.repo / "docs" / "dev" / "project-management"),
+            str(self.repo / "docs" / "dev" / "tmp"),
             str(self.tmpdir),
             os.path.realpath("/tmp"),
         ]
