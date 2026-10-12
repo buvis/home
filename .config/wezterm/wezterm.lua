@@ -78,7 +78,7 @@ else
 end
 
 config.launch_menu = {}
-config.leader = { key = "a", mods = "CTRL" }
+config.leader = { key = "w", mods = "CTRL" }
 config.disable_default_key_bindings = true
 config.keys = {
 	{ key = "LeftArrow", mods = "LEADER", action = act.MoveTabRelative(-1) },
