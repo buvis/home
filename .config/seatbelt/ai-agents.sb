@@ -158,6 +158,7 @@
 
     ;; Kiro CLI
     (subpath (string-append (param "_HOME") "/.kiro"))
+    (subpath (string-append (param "_HOME") "/Library/Application Support/kiro-cli"))
     (subpath (string-append (param "_HOME") "/.aws/sso/cache"))
 
     ;; GitHub Copilot CLI
