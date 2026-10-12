@@ -53,41 +53,32 @@ fi
 RESOLVED_TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 
 # ------------------------------------------------------------
-# Git authentication
+# Git authentication, identity and signing
+# Only on machines that have the dedicated agent key; elsewhere
+# git falls back to the user's own config.
 # ------------------------------------------------------------
 
 SSH_KEY="$HOME/.ssh/agent_github"
 SSH_PUBLIC_KEY="$SSH_KEY.pub"
 
-if [[ ! -r "$SSH_PUBLIC_KEY" ]]; then
-  echo "ERROR: Git signing public key not found" >&2
-  exit 1
+if [[ -r "$SSH_KEY" && -r "$SSH_PUBLIC_KEY" ]]; then
+  # SSH authentication using dedicated agent key.
+  export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes"
+
+  export GIT_AUTHOR_NAME="Agent ran by Tomáš Bouška"
+  export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+
+  export GIT_CONFIG_COUNT=3
+
+  export GIT_CONFIG_KEY_0="gpg.format"
+  export GIT_CONFIG_VALUE_0="ssh"
+
+  export GIT_CONFIG_KEY_1="user.signingkey"
+  export GIT_CONFIG_VALUE_1="$SSH_PUBLIC_KEY"
+
+  export GIT_CONFIG_KEY_2="gpg.ssh.program"
+  export GIT_CONFIG_VALUE_2="ssh-keygen"
 fi
-
-# SSH authentication using dedicated agent key.
-export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes"
-
-# ------------------------------------------------------------
-# Git identity
-# ------------------------------------------------------------
-
-export GIT_AUTHOR_NAME="Agent ran by Tomáš Bouška"
-export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
-
-# ------------------------------------------------------------
-# Git SSH commit signing
-# ------------------------------------------------------------
-
-export GIT_CONFIG_COUNT=3
-
-export GIT_CONFIG_KEY_0="gpg.format"
-export GIT_CONFIG_VALUE_0="ssh"
-
-export GIT_CONFIG_KEY_1="user.signingkey"
-export GIT_CONFIG_VALUE_1="$SSH_PUBLIC_KEY"
-
-export GIT_CONFIG_KEY_2="gpg.ssh.program"
-export GIT_CONFIG_VALUE_2="ssh-keygen"
 
 # ------------------------------------------------------------
 # Launch inside macOS Seatbelt sandbox
