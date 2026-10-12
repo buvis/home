@@ -156,9 +156,9 @@
       {
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
         ]
       },
@@ -185,24 +185,24 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
-        ],
-        "matcher": "AskUserQuestion"
+        ]
       },
       {
+        "matcher": "ExitPlanMode",
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
-        ],
-        "matcher": "ExitPlanMode"
+        ]
       }
     ],
     "Notification": [
@@ -227,14 +227,14 @@
         ]
       },
       {
+        "matcher": "permission_prompt",
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
-        ],
-        "matcher": "permission_prompt"
+        ]
       }
     ],
     "Stop": [
@@ -250,9 +250,9 @@
       {
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
         ]
       },
@@ -279,26 +279,27 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
-        ],
-        "matcher": "AskUserQuestion"
+        ]
       },
       {
+        "matcher": "ExitPlanMode",
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
-        ],
-        "matcher": "ExitPlanMode"
+        ]
       },
       {
+        "matcher": "Bash|Monitor|Agent|Task|CronCreate|CronDelete|ScheduleWakeup|TaskStop|KillShell|KillBash",
         "hooks": [
           {
             "type": "command",
@@ -306,17 +307,16 @@
             "timeout": 10,
             "async": true
           }
-        ],
-        "matcher": "Bash|Monitor|Agent|Task|CronCreate|CronDelete|ScheduleWakeup|TaskStop|KillShell|KillBash"
+        ]
       }
     ],
     "PermissionRequest": [
       {
         "hooks": [
           {
-            "async": false,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": false
           }
         ]
       }
@@ -325,9 +325,9 @@
       {
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
         ]
       },
@@ -346,9 +346,9 @@
       {
         "hooks": [
           {
-            "async": true,
+            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "type": "command"
+            "async": true
           }
         ]
       },
