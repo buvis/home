@@ -1,0 +1,8 @@
+#!/bin/sh
+# glean safety gate: block secrets, git-secret plaintext, .local paths and
+# ledger "never" paths on every dotfiles commit. Wired via core.hooksPath.
+# Bypass a false positive with: git commit --no-verify
+out=$(python3 "$HOME/.agents/skills/glean/scripts/glean.py" check-staged) && exit 0
+printf '%s\n' "$out" >&2
+echo "glean: commit blocked, see \"hard\" above" >&2
+exit 1
