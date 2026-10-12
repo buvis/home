@@ -81,10 +81,6 @@
 # Machine-local and regenerable; moved out of .claude/ so any assistant running
 # the same skills can reach it.
 .local/share/agents/
-.local/share/fctracker/cash/eur.csv
-.local/share/fctracker/ops/eur.csv
-.local/share/fctracker/revolut/eur.csv
-.local/share/fctracker/revolut/usd.csv
 .playbooks/.vault-pwd
 .ropeproject
 .ruff_cache
