@@ -29,6 +29,7 @@ With 1M context, research stays in-flight through implementation.
 
 ## Toolchain
 
+- Interactive agent sessions start via `~/bin/run-agent`, which runs the agent under the macOS Seatbelt profile `~/.config/seatbelt/ai-agents.sb`: reads of `~/.config/gh`, private keys and similar are denied, writes land only under the project, `~/git/src`, `~/.claude`, `~/.cache`, `~/.local/state` and temp dirs, and the Keychain is unreachable (every `security` secret read fails with exit 36). Claude Code's own sandbox is off, so `dangerouslyDisableSandbox` and `sandbox.excludedCommands` change nothing; the `!` prompt is inside the same boundary. `gh` authenticates with a dedicated scoped PAT in `~/.config/gh-agent` (the launcher exports `GH_CONFIG_DIR`); never try to read the user's own `~/.config/gh`.
 - CLI tools and language runtimes are managed with **mise**. Installs live under `~/.local/share/mise/installs/<tool>/<version>/`; shims at `~/.local/share/mise/shims/`.
 - Global `npm ls -g`, `/opt/homebrew/bin`, `/usr/local/bin` will NOT list mise-managed tools - don't conclude a tool is missing from those. Locate one with `mise which <tool>`; run one not on PATH via `mise exec -- <tool>`.
 - System updates run through **sysup** (buvis-gems tool, source `~/git/src/github.com/buvis/gems/src/tools/sysup/`; steps in `default.yaml`, capabilities in `capabilities/`). Any recurring upgrade/maintenance step belongs there as a new entry or capability, not in a shell alias or ad-hoc script.

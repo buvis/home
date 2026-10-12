@@ -81,6 +81,21 @@ if [[ -r "$SSH_KEY" && -r "$SSH_PUBLIC_KEY" ]]; then
 fi
 
 # ------------------------------------------------------------
+# GitHub CLI: dedicated agent token
+# The sandbox profile denies ~/.config/gh (the user's own token), and the
+# Keychain is unreachable inside the sandbox, so gh runs from a separate
+# config dir holding a scoped agent PAT in plain hosts.yml. Create it once:
+#   GH_CONFIG_DIR=~/.config/gh-agent gh auth login --with-token --insecure-storage
+# Absent, gh runs unauthenticated.
+# ------------------------------------------------------------
+
+GH_AGENT_CONFIG_DIR="$HOME/.config/gh-agent"
+
+if [[ -r "$GH_AGENT_CONFIG_DIR/hosts.yml" ]]; then
+  export GH_CONFIG_DIR="$GH_AGENT_CONFIG_DIR"
+fi
+
+# ------------------------------------------------------------
 # Launch inside macOS Seatbelt sandbox
 # ------------------------------------------------------------
 
