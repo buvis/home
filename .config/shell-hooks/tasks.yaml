@@ -1,0 +1,8 @@
+# Scheduled shell hooks, run visibly before the first prompt of an interactive shell
+# by ~/bin/run-shell-hooks. Machine-local additions and overrides go in
+# ~/.local/.config/shell-hooks/tasks.yaml (same shape, untracked); a local entry may
+# override any key here or set `enabled: false`. every: <N>(m|h|d|w).
+tasks:
+  gita-pull:
+    every: 1d
+    run: gita pull

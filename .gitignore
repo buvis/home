@@ -92,6 +92,8 @@
 # Machine-local and regenerable; moved out of .claude/ so any assistant running
 # the same skills can reach it.
 .local/share/agents/
+# Machine-local twins of tracked ~/.config files (e.g. shell-hooks/tasks.yaml); never public.
+.local/.config/
 .playbooks/.vault-pwd
 .ropeproject
 .ruff_cache

@@ -42,6 +42,7 @@ rust = "latest"
 uv = "latest"
 ripgrep = "latest"
 bun = "latest"
+yq = "latest"
 
 [settings]
 experimental = true
