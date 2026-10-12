@@ -45,3 +45,5 @@ bun = "latest"
 
 [settings]
 experimental = true
+# own package: take releases immediately (mise's default release-age delay otherwise hides them for a day+)
+minimum_release_age_excludes = ["pipx:buvis-gems"]
