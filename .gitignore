@@ -99,6 +99,5 @@ __pycache__
 !*.secret
 ynab-buddy/config.yaml
 **/.claude/settings.local.json
-test-encrypt.md
 .config/buvis/buvis-mcp-calcard.local.yaml
 .pi/agent/models.json
