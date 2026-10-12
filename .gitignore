@@ -104,7 +104,6 @@
 .vifm/vifminfo.json*
 __pycache__
 !*.secret
-.config/ynab-buddy/config.yaml
 **/.claude/settings.local.json
 .config/buvis/buvis-mcp-calcard.local.yaml
 .pi/agent/models.json
