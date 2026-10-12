@@ -12,19 +12,19 @@
 "npm:tree-sitter-cli" = { version = "latest", allow_builds = ["tree-sitter-cli"] }
 "pipx:Yapf" = "latest"
 "pipx:autopep8" = "latest"
-"pipx:beets" = { version = "latest", uvx_args = "--python 3.14" }
+"pipx:beets" = { version = "latest", extras = "discogs,lastgenre", uvx_args = "--managed-python --python 3.14" }
 "pipx:black" = "latest"
 "pipx:buvis-gems" = { version = "latest", extras = "all" }
-"pipx:gita" = "latest"
+"pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
 "pipx:llm" = "latest"
 "pipx:poetry" = "latest"
 "pipx:potrace-cli" = { version = "latest", uvx_args = "--with setuptools<81" }
 "pipx:pre-commit" = "latest"
-"pipx:pybooklid" = "latest"
-"pipx:pynvim" = "latest"
+"pipx:pybooklid" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
+"pipx:pynvim" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
 "pipx:ruff" = "latest"
-"pipx:showboat" = "latest"
-"pipx:yamllint" = "latest"
+"pipx:showboat" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
+"pipx:yamllint" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
 "pipx:yt-dlp" = "latest"
 ast-grep = "latest"
 awscli = { version = "latest", symlink_bins = "true" }
