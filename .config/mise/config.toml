@@ -10,6 +10,10 @@
 "npm:pnpm" = { version = "latest", allow_builds = ["pnpm"] }
 "npm:postman-cli" = "latest"
 "npm:tree-sitter-cli" = { version = "latest", allow_builds = ["tree-sitter-cli"] }
+# pipx tools run on uv-managed python so mise python bumps can't break their venvs.
+# Patch upgrades: `uv python upgrade` (in place, no reinstall).
+# Minor bump: change `--python 3.13` below, `uv python install 3.X`, then reinstall all:
+#   mise ls --global --json | jq -r 'keys[]|select(startswith("pipx:"))' | xargs mise install -f
 "pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
 "pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
 "pipx:beets" = { version = "latest", extras = "discogs,lastgenre", uvx_args = "--managed-python --python 3.14" }

@@ -24,10 +24,10 @@ plugins:
   - mbsync # https://beets.readthedocs.io/en/stable/plugins/mbsync.html
   - scrub # https://beets.readthedocs.io/en/stable/plugins/scrub.html
 discogs:
-  source_weight: 0.0
+  data_source_mismatch_penalty: 0.0
 fetchart:
   cautious: true
-  sources: itunes *
+  sources: [itunes, "*"]
 item_fields:
   multidisc: 1 if disctotal > 1 else 0
 fuzzy:
