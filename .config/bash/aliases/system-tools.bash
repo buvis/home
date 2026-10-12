@@ -23,4 +23,6 @@ alias rm="rm -i"
 
 alias ssh="LC_CTYPE=\"en_US.UTF-8\" TERM=xterm-256color ssh"
 
+alias upgrade-macos="sudo softwareupdate -l -d -i -a -R -r --os-only"
+
 if [[ $(command -v vifm) ]]; then alias vifm='vifm ~/Downloads "$(pwd)"'; fi
