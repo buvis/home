@@ -11,25 +11,25 @@
 "npm:postman-cli" = "latest"
 "npm:tree-sitter-cli" = { version = "latest", allow_builds = ["tree-sitter-cli"] }
 # pipx tools run on uv-managed python so mise python bumps can't break their venvs.
-# Patch upgrades: `uv python upgrade` (in place, no reinstall).
-# Minor bump: change `--python 3.13` below, `uv python install 3.X`, then reinstall all:
-#   mise ls --global --json | jq -r 'keys[]|select(startswith("pipx:"))' | xargs mise install -f
-"pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
+# sysup keeps them current: `uv python upgrade` handles patches in place, and the
+# pipx-python step moves every `--managed-python --python X.Y` pin to the global
+# python minor below (reverting any tool that fails to install on it).
+"pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:beets" = { version = "latest", extras = "discogs,lastgenre", uvx_args = "--managed-python --python 3.14" }
-"pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.13" }
-"pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:llm" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:potrace-cli" = { version = "latest", uvx_args = "--managed-python --python 3.13 --with setuptools<81" }
-"pipx:pre-commit" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:pybooklid" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:pynvim" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:ruff" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:showboat" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:yamllint" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
-"pipx:yt-dlp" = { version = "latest", uvx_args = "--managed-python --python 3.13" }
+"pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.14" }
+"pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:llm" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:potrace-cli" = { version = "latest", uvx_args = "--managed-python --python 3.14 --with setuptools<81" }
+"pipx:pre-commit" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:pybooklid" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:pynvim" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:ruff" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:showboat" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:yamllint" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:yt-dlp" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 ast-grep = "latest"
 awscli = { version = "latest", symlink_bins = "true" }
 deno = "latest"
