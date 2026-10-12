@@ -62,6 +62,14 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
 
+# pnpm
+export PNPM_HOME="$HOME/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME/bin:"*) ;;
+  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+esac
+# pnpm end
+
 # Initialize mise shims and autocompletion
 command -v mise >/dev/null && eval "$(mise activate bash)"
 
