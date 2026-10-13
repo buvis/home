@@ -171,7 +171,22 @@
     ;; Shared XDG state/cache directories
     (subpath (string-append (param "_HOME") "/.cache"))
     (subpath (string-append (param "_HOME") "/Library/Caches"))
-    (subpath (string-append (param "_HOME") "/.local/state")))
+    (subpath (string-append (param "_HOME") "/Library/Logs"))
+    (subpath (string-append (param "_HOME") "/.local/state"))
+
+    ;; Gemini CLI
+    (subpath (string-append (param "_HOME") "/.gemini"))
+
+    ;; Package/build caches: data only. Tool bin dirs (~/.cargo/bin, ~/go/bin,
+    ;; mise installs/shims, pnpm global bin) stay read-only: a writable PATH
+    ;; dir lets a sandboxed agent plant binaries the user runs unsandboxed.
+    (subpath (string-append (param "_HOME") "/.npm/_cacache"))
+    (subpath (string-append (param "_HOME") "/.npm/_logs"))
+    (subpath (string-append (param "_HOME") "/.cargo/registry"))
+    (subpath (string-append (param "_HOME") "/.cargo/git"))
+    (subpath (string-append (param "_HOME") "/go/pkg/mod"))
+    (subpath (string-append (param "_HOME") "/Library/pnpm/store"))
+    (subpath (string-append (param "_HOME") "/Library/Developer/Xcode/DerivedData")))
 
 ;; Claude Code transcripts are stored outside ~/.claude
 ;; because ~/.claude/projects is a symlink.
