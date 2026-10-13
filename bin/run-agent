@@ -95,6 +95,13 @@ if [[ -r "$GH_AGENT_CONFIG_DIR/hosts.yml" ]]; then
   export GH_CONFIG_DIR="$GH_AGENT_CONFIG_DIR"
 fi
 
+# Copilot CLI: Copilot-only PAT (personal owner, "Copilot Requests").
+# gh ignores this variable; the org-owned agent PAT keeps git.
+if [[ -r "$GH_AGENT_CONFIG_DIR/copilot-token" ]]; then
+  COPILOT_GITHUB_TOKEN="$(<"$GH_AGENT_CONFIG_DIR/copilot-token")"
+  export COPILOT_GITHUB_TOKEN
+fi
+
 # ------------------------------------------------------------
 # Launch inside macOS Seatbelt sandbox
 # ------------------------------------------------------------
