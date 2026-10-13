@@ -86,6 +86,7 @@
 .config/siril/*
 .config/syncthing/folderpairs.md
 .config/yarn
+/.gitconfig
 .gitsecret/keys/random_seed
 .kube/config
 # Cross-agent state (cartographer atlases, instincts, metrics, portfolio-brief).
