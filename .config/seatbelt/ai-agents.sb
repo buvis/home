@@ -180,6 +180,8 @@
     ;; mise installs and shims. Deliberate exception to the rule below: these
     ;; are on PATH, so a sandboxed agent can plant binaries run unsandboxed.
     (subpath (string-append (param "_HOME") "/.local/share/mise"))
+    ;; Global mise config (`mise use -g`); tracked in buvis, so changes are reviewable.
+    (subpath (string-append (param "_HOME") "/.config/mise"))
 
     ;; Package/build caches: data only. Other tool bin dirs (~/.cargo/bin,
     ;; ~/go/bin, pnpm global bin) stay read-only: a writable PATH dir lets a
