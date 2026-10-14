@@ -194,6 +194,10 @@
     (subpath (string-append (param "_HOME") "/Library/pnpm/store"))
     (subpath (string-append (param "_HOME") "/Library/Developer/Xcode/DerivedData")))
 
+;; Install target for locally built apps. Deliberate exception like mise above:
+;; apps here run unsandboxed when the user opens them. /Applications stays read-only.
+(allow file-write* (subpath (string-append (param "_HOME") "/Applications")))
+
 ;; Claude Code transcripts are stored outside ~/.claude
 ;; because ~/.claude/projects is a symlink.
 (allow file-write*
