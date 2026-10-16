@@ -66,6 +66,7 @@ alwaysAllow:
   - wc
   - sort
   - diff
+  - cmp
   - tree
   - which
   - xxd
