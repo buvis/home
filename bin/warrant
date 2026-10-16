@@ -301,6 +301,7 @@ def review(site: Site, req: dict) -> Op:
     cwd = Path(str(req.get("cwd", "")))
     if not (cwd.is_absolute() and cwd.is_dir()):
         raise Refused(f"cwd is not an existing absolute directory: {cwd}")
+    cwd = cwd.resolve()  # run where the human looked, so a repointed cwd symlink changes nothing
     env = req.get("env", {})
     if not (isinstance(env, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())):
         raise Refused("env must map strings to strings")
@@ -357,7 +358,13 @@ def execute(site: Site, op: Op) -> dict:
 
 
 def launch(site: Site, req_path: Path, op: Op, out: Out) -> int:
-    changed = [f"[{i}] {p}" for i, p, sha, _w, _h in op.files if not p.is_file() or sha256_file(p) != sha]
+    changed = [f"[{i}] {p}" for i, p, sha, _w, _h in op.files
+               if (op.cwd / op.argv[i]).resolve() != p or not p.is_file() or sha256_file(p) != sha]
+    reviewed = {i for i, *_ in op.files}
+    changed += [f"[{i}] {op.cwd / arg} (appeared)" for i, arg in enumerate(op.argv[1:], 1)
+                if i not in reviewed and (op.cwd / arg).is_file()]
+    if op.cwd.resolve() != op.cwd:
+        changed.append(f"cwd {op.cwd}")
     if sha256_file(op.exe) != op.exe_sha:
         changed.append(f"[0] {op.exe}")
     if changed:

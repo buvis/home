@@ -86,7 +86,13 @@ class WarrantCase(unittest.TestCase):
         )
 
     def approve(self, path: Path, secret: str = PIN, **kwargs: object) -> int:
-        return warrant.approve_one(self.site, path, lambda _prompt: secret, quiet, **kwargs)
+        return warrant.approve_one(
+            self.site,
+            path,
+            lambda _prompt: secret,
+            quiet,
+            **kwargs,
+        )
 
     def result(self, rid: str) -> dict:
         return json.loads((self.site.results / f"{rid}.json").read_text())
@@ -94,7 +100,10 @@ class WarrantCase(unittest.TestCase):
     def decisions(self) -> list[str]:
         if not self.site.ledger.exists():
             return []
-        return [json.loads(line)["decision"] for line in self.site.ledger.read_text().splitlines()]
+        return [
+            json.loads(line)["decision"]
+            for line in self.site.ledger.read_text().splitlines()
+        ]
 
     def last_entry(self) -> dict:
         return json.loads(self.site.ledger.read_text().splitlines()[-1])
@@ -200,7 +209,7 @@ class WarrantCase(unittest.TestCase):
         codes: list[int] = []
         worker = threading.Thread(
             target=lambda: codes.append(
-                self.request(["sh", "-c", "exit 7"], timeout=10)
+                self.request(["sh", "-c", "exit 7"], timeout=10),
             ),
         )
         worker.start()
@@ -258,6 +267,61 @@ class WarrantCase(unittest.TestCase):
         path, req = self.submit(["cat", str(note)])
         self.assertEqual(self.approve(path), 0)
         self.assertEqual(self.result(req["id"])["stdout"], "one")
+
+    def test_cwd_symlink_repointed_after_review_runs_the_reviewed_dir(self) -> None:
+        evil_ran = self.tmp / "evil-ran"
+        for name, target in (("good", self.marker), ("bad", evil_ran)):
+            (self.agentw / name).mkdir()
+            (self.agentw / name / "run.sh").write_text(f"touch {target}\n")
+        cwd = self.agentw / "cwd"
+        cwd.symlink_to(self.agentw / "good")
+        path, req = self.submit(["sh", "run.sh"], cwd=str(cwd))
+
+        def repoint(_prompt: str) -> str:
+            cwd.unlink()
+            cwd.symlink_to(self.agentw / "bad")
+            return PIN
+
+        self.assertEqual(warrant.approve_one(self.site, path, repoint, quiet), 0)
+        self.assertTrue(self.marker.exists())
+        self.assertFalse(evil_ran.exists())
+
+    def test_cwd_component_swapped_after_review_is_refused(self) -> None:
+        evil_ran = self.tmp / "evil-ran"
+        real = self.agentw / "real"
+        real.mkdir()
+        (real / "run.sh").write_text(f"touch {self.marker}\n")
+        bad = self.agentw / "bad"
+        bad.mkdir()
+        (bad / "run.sh").write_text(f"touch {evil_ran}\n")
+        path, req = self.submit(["sh", "run.sh"], cwd=str(real))
+
+        def swap(_prompt: str) -> str:
+            real.rename(self.agentw / "moved")
+            real.symlink_to(bad)
+            return PIN
+
+        self.assertEqual(
+            warrant.approve_one(self.site, path, swap, quiet),
+            warrant.EXIT_REFUSED,
+        )
+        self.assertFalse(evil_ran.exists())
+        self.assertIn("changed after review", self.result(req["id"])["reason"])
+
+    def test_file_argument_created_after_review_is_refused(self) -> None:
+        evil_ran = self.tmp / "evil-ran"
+        path, req = self.submit(["sh", "late.sh"], cwd=str(self.agentw))
+
+        def plant(_prompt: str) -> str:
+            (self.agentw / "late.sh").write_text(f"touch {evil_ran}\n")
+            return PIN
+
+        self.assertEqual(
+            warrant.approve_one(self.site, path, plant, quiet),
+            warrant.EXIT_REFUSED,
+        )
+        self.assertFalse(evil_ran.exists())
+        self.assertIn("changed after review", self.result(req["id"])["reason"])
 
     def test_small_agent_writable_file_head_is_shown(self) -> None:
         shown = self.agentw / "patch.diff"
