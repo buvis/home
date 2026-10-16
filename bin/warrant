@@ -55,8 +55,10 @@ NOTIFY_HOOK = Path.home() / ".claude" / "hooks" / "notify.py"
 ID_HEX_LEN = 32
 HEAD_LINES = 20
 HEAD_MAX_BYTES = 64 * 1024
-FORBIDDEN_ENV = {"PATH", "HOME", "BASH_ENV", "ENV", "SHELLOPTS", "RUBYOPT", "NODE_OPTIONS", "GIT_EXEC_PATH"}
-FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_", "PYTHON", "PERL5")
+FORBIDDEN_ENV = {"PATH", "HOME", "BASH_ENV", "ENV", "SHELLOPTS", "RUBYOPT", "NODE_OPTIONS", "GIT_EXEC_PATH",
+                 "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND", "GIT_EXTERNAL_DIFF",
+                 "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER", "EDITOR", "VISUAL", "PAGER"}
+FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_", "PYTHON", "PERL5", "GIT_CONFIG")  # GIT_CONFIG_{COUNT,KEY_n,VALUE_n,PARAMETERS,GLOBAL,...} inject any config, core.fsmonitor included
 SCRYPT = {"n": 2**17, "r": 8, "p": 1, "dklen": 32, "maxmem": 2**28}  # ~0.3s per check on Apple silicon
 PIN_LEN = (4, 8)
 LOCKOUT_AFTER, LOCKOUT_WINDOW_SEC = 3, 600
@@ -307,7 +309,7 @@ def review(site: Site, req: dict) -> Op:
         raise Refused("env must map strings to strings")
     bad = [k for k in env if k in FORBIDDEN_ENV or k.startswith(FORBIDDEN_ENV_PREFIXES)]
     if bad:
-        raise Refused(f"env keys that alter how programs load are never accepted: {', '.join(bad)}")
+        raise Refused(f"env keys that alter how programs load or what they run are never accepted: {', '.join(bad)}")
     created = req.get("created")
     if not isinstance(created, (int, float)):
         raise Refused("created must be a number")
@@ -316,11 +318,12 @@ def review(site: Site, req: dict) -> Op:
               str(req.get("reason", "")), str(req.get("agent", "")), float(created))
 
 
-def show(op: Op, out: Out, now: float) -> None:
+def show(site: Site, op: Op, out: Out, now: float) -> None:
     out(f"--- warrant request {op.id} ---")
     out(f"age    : {human_age(now - op.created)}   agent: {op.agent or '?'}")
     out(f"reason : {op.reason or '(none)'}")
-    out(f"cwd    : {op.cwd}")
+    cwd_writable = agent_writable(site, op.cwd)
+    out(f"cwd    : {op.cwd}{'   AGENT-WRITABLE' if cwd_writable else ''}")
     out(f"exe    : {op.exe}   sha256 {op.exe_sha[:16]}")
     out(f"argv   : {shlex.join(op.argv)}")
     out("env    : " + (" ".join(f"{k}={shlex.quote(v)}" for k, v in op.env.items()) or "(none declared)"))
@@ -330,6 +333,8 @@ def show(op: Op, out: Out, now: float) -> None:
             out("\n".join(f"         | {line}" for line in head.splitlines()))
     if any(writable for _i, _p, _s, writable, _h in op.files):
         out("note   : agent-writable files are re-hashed right before launch; any change refuses the run")
+    if cwd_writable:
+        out("note   : the agent controls cwd, so the command may run code from it (git hooks and config, Makefile, package scripts)")
 
 
 # --- execution ---
@@ -391,7 +396,7 @@ def approve_one(site: Site, req_path: Path, read_secret: Secret, out: Out, now: 
             raise Refused("request expired; submit a fresh one")
     except (Refused, ValueError) as exc:  # ValueError: malformed JSON
         return refuse(site, req_path, rid, str(exc), out)
-    show(op, out, now())
+    show(site, op, out, now())
     locked = lockout_until(site, now())
     if locked:
         out(f"locked: {LOCKOUT_AFTER} wrong PINs within {LOCKOUT_WINDOW_SEC // 60} min; try again after {time.ctime(locked)}")

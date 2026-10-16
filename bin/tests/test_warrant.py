@@ -381,6 +381,32 @@ class WarrantCase(unittest.TestCase):
         self.assertFalse(self.marker.exists())
         self.assertIn("DYLD_INSERT_LIBRARIES", self.result(req["id"])["reason"])
 
+    def test_env_keys_that_make_git_run_other_code_are_refused(self) -> None:
+        for env in (
+            {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.fsmonitor"},
+            {"GIT_SSH_COMMAND": f"touch {self.marker}"},
+            {"GIT_EDITOR": f"touch {self.marker}"},
+        ):
+            with self.subTest(env=env):
+                path, req = self.submit(self.touch_cmd(), env=env)
+                self.assertEqual(self.approve(path), warrant.EXIT_REFUSED)
+                self.assertFalse(self.marker.exists())
+                self.assertIn(sorted(env)[0], self.result(req["id"])["reason"])
+
+    def test_agent_writable_cwd_is_flagged(self) -> None:
+        path, _ = self.submit(["true"], cwd=str(self.agentw))
+        lines: list[str] = []
+        warrant.approve_one(self.site, path, lambda _prompt: "", lines.append)
+        [cwd_line] = [line for line in lines if line.startswith("cwd ")]
+        self.assertIn("AGENT-WRITABLE", cwd_line)
+        self.assertTrue(any("may run code from it" in line for line in lines))
+
+    def test_trusted_cwd_is_not_flagged(self) -> None:
+        path, _ = self.submit(["true"])
+        lines: list[str] = []
+        warrant.approve_one(self.site, path, lambda _prompt: "", lines.append)
+        self.assertNotIn("AGENT-WRITABLE", "\n".join(lines))
+
     def test_command_env_is_minimal_plus_declared(self) -> None:
         path, req = self.submit(["env"], env={"WARRANT_DECLARED": "yes"})
         with patch.dict(os.environ, {"WARRANT_LEAK": "1"}):
