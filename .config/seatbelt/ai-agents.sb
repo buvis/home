@@ -198,6 +198,13 @@
 ;; apps here run unsandboxed when the user opens them. /Applications stays read-only.
 (allow file-write* (subpath (string-append (param "_HOME") "/Applications")))
 
+;; Claude Code self-update: versions dir plus the ~/.local/bin/claude symlink
+;; (and any claude* temp file used for the atomic swap). Deliberate exception like
+;; mise above: the binary runs unsandboxed when launched outside run-agent.
+(allow file-write*
+    (subpath (string-append (param "_HOME") "/.local/share/claude"))
+    (regex (string-append "^" (regex-quote (param "_HOME")) "/\\.local/bin/\\.?claude[^/]*$")))
+
 ;; Claude Code transcripts are stored outside ~/.claude
 ;; because ~/.claude/projects is a symlink.
 (allow file-write*
