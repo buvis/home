@@ -1,0 +1,566 @@
+#!/opt/homebrew/bin/python3
+"""warrant: human-approved execution of one exact command outside the agent sandbox.
+
+  warrant request [--cwd DIR] [--env K=V]... [--reason TEXT] [--timeout SEC] [--no-wait] -- CMD [ARG...]
+      Agent side. Drops a request into the spool, pings the human through
+      ~/.claude/hooks/notify.py, and waits for the verdict. Never executes
+      anything. Exits with the command's exit code once it ran, 124 while the
+      request is still pending (re-attach with `warrant wait ID`), 125 when
+      rejected, 126 when refused by policy. --no-wait returns 0 right after
+      submitting.
+  warrant wait ID [--timeout SEC]
+      Agent side. Re-attach to a pending request; same exit codes.
+  warrant approve [ID]   Human side, on a terminal. Shows one pending request
+                         and executes it only after the passphrase is typed.
+  warrant list           Show the spool.
+  warrant init           Set the PIN (human, outside the sandbox).
+
+A request stays in the spool until a human decides it or request_ttl_sec
+(24h by default) passes: the agent's tool call cannot block that long, and
+the human may approve an hour later over SSH from a phone.
+
+Trust boundary (PRD 00159): this file, its interpreter and ~/.config/warrant
+sit outside every write path ~/.config/seatbelt/ai-agents.sb grants an agent,
+and the profile denies agents reading ~/.config/warrant (PIN hash, ledger).
+The spool sits inside the agent-writable paths, so a request is untrusted
+data until a human has read it here and typed the PIN. A 4-8 digit PIN is
+only safe with the hash unreadable plus two gates in approve: the attempt is
+written to the ledger before the PIN is checked (a sandboxed broker cannot
+write there, so it cannot test guesses), and three misses within ten minutes
+lock approvals. Invoke the human side by absolute path: ~/bin is last on
+PATH, behind agent-writable mise directories.
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import getpass
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import shlex
+import stat
+import subprocess
+import sys
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+CONFIG_DIR = Path.home() / ".config" / "warrant"
+SPOOL = Path(f"/private/tmp/warrant-{os.getuid()}")
+NOTIFY_HOOK = Path.home() / ".claude" / "hooks" / "notify.py"
+ID_HEX_LEN = 32
+HEAD_LINES = 20
+HEAD_MAX_BYTES = 64 * 1024
+FORBIDDEN_ENV = {"PATH", "HOME", "BASH_ENV", "ENV", "SHELLOPTS", "RUBYOPT", "NODE_OPTIONS", "GIT_EXEC_PATH"}
+FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_", "PYTHON", "PERL5")
+SCRYPT = {"n": 2**17, "r": 8, "p": 1, "dklen": 32, "maxmem": 2**28}  # ~0.3s per check on Apple silicon
+PIN_LEN = (4, 8)
+LOCKOUT_AFTER, LOCKOUT_WINDOW_SEC = 3, 600
+SETTLED = {"executed", "rejected", "refused", "timeout"}
+OUTPUT_CAP = 1_000_000
+EXIT_NO_VERDICT, EXIT_REJECTED, EXIT_REFUSED = 124, 125, 126
+REQUIRED_CONFIG = ("agent_writable_roots", "exec_path", "request_ttl_sec", "exec_timeout_sec")
+Out = Callable[[str], None]
+Secret = Callable[[str], str]
+
+
+class Refused(Exception):
+    """Policy refusal: the request never reaches the passphrase prompt or the launcher."""
+
+
+@dataclass(frozen=True)
+class Site:
+    spool: Path
+    config_dir: Path
+    config: dict | None = None
+
+    @property
+    def requests(self) -> Path:
+        return self.spool / "requests"
+
+    @property
+    def results(self) -> Path:
+        return self.spool / "results"
+
+    @property
+    def ledger(self) -> Path:
+        return self.config_dir / "ledger.jsonl"
+
+    @property
+    def passphrase_file(self) -> Path:
+        return self.config_dir / "passphrase.scrypt"
+
+
+@dataclass(frozen=True)
+class Op:
+    """One reviewed operation. Built from the request once; the file is never re-read."""
+
+    id: str
+    argv: tuple[str, ...]
+    exe: Path
+    exe_sha: str
+    cwd: Path
+    env: dict[str, str]
+    files: tuple[tuple[int, Path, str, bool, str | None], ...]  # (argv index, resolved path, sha256, agent-writable, head)
+    reason: str
+    agent: str
+    created: float
+
+
+# --- shared helpers ---
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def atomic_write(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(text)
+    tmp.replace(path)
+
+
+def human_age(seconds: float) -> str:
+    sec = int(seconds)
+    if sec >= 3600:
+        return f"{sec // 3600}h {sec % 3600 // 60}m"
+    return f"{sec // 60}m {sec % 60}s" if sec >= 60 else f"{sec}s"
+
+
+def ensure_spool(site: Site) -> None:
+    for directory in (site.spool, site.requests, site.results):
+        directory.mkdir(mode=0o700, exist_ok=True)
+    st = site.spool.lstat()
+    if stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        raise Refused(f"spool {site.spool} is not a private directory owned by uid {os.getuid()}")
+
+
+def load_config(path: Path) -> dict:
+    config = json.loads(path.read_text())
+    missing = [key for key in REQUIRED_CONFIG if key not in config]
+    if missing:
+        raise Refused(f"{path} lacks {', '.join(missing)}")
+    return config
+
+
+def agent_writable(site: Site, path: Path) -> bool:
+    """True when `path` (already resolved) lies under a root or glob the Seatbelt profile lets agents write.
+
+    Roots are resolved too: Seatbelt matches real paths, and /tmp, /var and
+    ~/.claude/projects are symlinks on this machine.
+    """
+    roots = [Path(root).expanduser().resolve() for root in site.config["agent_writable_roots"]]
+    if any(path == root or root in path.parents for root in roots):
+        return True
+    globs = [Path(glob).expanduser() for glob in site.config.get("agent_writable_globs", [])]
+    return any(fnmatch.fnmatchcase(str(path), str(glob.parent.resolve() / glob.name)) for glob in globs)
+
+
+def preflight(site: Site) -> None:
+    """Refuse to broker when any trusted component could have been written by an agent."""
+    for label, path in (("warrant", Path(__file__)), ("interpreter", Path(sys.executable)), ("config dir", site.config_dir)):
+        real = path.resolve()
+        if agent_writable(site, real):
+            raise Refused(f"{label} {real} lies inside an agent-writable path; refusing to act as a broker")
+
+
+# --- ledger and results ---
+
+
+def decided(site: Site, rid: str) -> dict | None:
+    """The ledger entry that settled `rid`, if any. Attempts and PIN mismatches are logged but settle nothing."""
+    if not site.ledger.exists():
+        return None
+    for line in site.ledger.read_text().splitlines():
+        entry = json.loads(line)
+        if entry["id"] == rid and entry["decision"] in SETTLED:
+            return entry
+    return None
+
+
+def lockout_until(site: Site, now: float) -> float | None:
+    """When approvals reopen, if LOCKOUT_AFTER mismatches landed within the window."""
+    if not site.ledger.exists():
+        return None
+    misses = sorted(entry["at"] for entry in map(json.loads, site.ledger.read_text().splitlines())
+                    if entry["decision"] == "mismatch" and now - entry["at"] < LOCKOUT_WINDOW_SEC)
+    if len(misses) < LOCKOUT_AFTER:
+        return None
+    return misses[-LOCKOUT_AFTER] + LOCKOUT_WINDOW_SEC
+
+
+def record(site: Site, rid: str, decision: str, detail: dict) -> None:
+    site.config_dir.mkdir(mode=0o700, exist_ok=True)
+    line = json.dumps({"id": rid, "decision": decision, "at": time.time(), **detail}, sort_keys=True)
+    fd = os.open(site.ledger, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a") as fh:
+        fh.write(line + "\n")
+
+
+def finish(site: Site, req_path: Path, rid: str, payload: dict) -> None:
+    atomic_write(site.results / f"{rid}.json", json.dumps({"id": rid, **payload, "at": time.time()}))
+    req_path.unlink(missing_ok=True)
+
+
+def refuse(site: Site, req_path: Path, rid: str, reason: str, out: Out, argv: list | None = None) -> int:
+    out(f"refused {rid}: {reason}")
+    record(site, rid, "refused", {"reason": reason, "argv": argv})
+    finish(site, req_path, rid, {"status": "refused", "reason": reason})
+    return EXIT_REFUSED
+
+
+# --- PIN ---
+
+
+def set_pin(site: Site, read_secret: Secret) -> None:
+    if site.passphrase_file.exists() and not verify_pin(site, read_secret("Current PIN or passphrase: ")):
+        raise ValueError("current secret mismatch")
+    new = read_secret(f"New PIN ({PIN_LEN[0]}-{PIN_LEN[1]} digits): ")
+    if not (new.isascii() and new.isdigit() and PIN_LEN[0] <= len(new) <= PIN_LEN[1]):
+        raise ValueError(f"PIN must be {PIN_LEN[0]} to {PIN_LEN[1]} digits")
+    if new != read_secret("Repeat: "):
+        raise ValueError("PINs differ")
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(new.encode(), salt=salt, **SCRYPT)
+    site.config_dir.mkdir(mode=0o700, exist_ok=True)
+    atomic_write(site.passphrase_file, f"scrypt${SCRYPT['n']}${SCRYPT['r']}${SCRYPT['p']}${salt.hex()}${digest.hex()}\n")
+
+
+def verify_pin(site: Site, secret: str) -> bool:
+    try:
+        _, n, r, p, salt, want = site.passphrase_file.read_text().strip().split("$")
+    except (OSError, ValueError):
+        return False
+    got = hashlib.scrypt(secret.encode(), salt=bytes.fromhex(salt), n=int(n), r=int(r), p=int(p),
+                         dklen=len(want) // 2, maxmem=256 * int(n) * int(r))
+    return hmac.compare_digest(got.hex(), want)
+
+
+# --- review ---
+
+
+def resolve_exe(site: Site, cwd: Path, name: str) -> Path:
+    if "/" in name:
+        candidates = [cwd / name]
+    else:
+        candidates = [Path(directory) / name for directory in site.config["exec_path"].split(":") if directory]
+    found = next((c for c in candidates if c.is_file() and os.access(c, os.X_OK)), None)
+    if found is None:
+        raise Refused(f"executable not found or not executable on the broker PATH: {name}")
+    real = found.resolve()
+    if agent_writable(site, real):
+        raise Refused(f"executable lies in an agent-writable path: {real}")
+    return real
+
+
+def inspect_file(path: Path, writable: bool) -> tuple[str, str | None]:
+    """Hash the file; for a small agent-writable one, keep the head of the very bytes the hash covers."""
+    if path.stat().st_size > HEAD_MAX_BYTES:
+        return sha256_file(path), None
+    data = path.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    if not writable:
+        return sha, None
+    try:
+        lines = data.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return sha, None
+    return sha, "\n".join(lines[:HEAD_LINES]) + ("\n..." if len(lines) > HEAD_LINES else "")
+
+
+def file_args(site: Site, cwd: Path, argv: tuple[str, ...]) -> tuple[tuple[int, Path, str, bool, str | None], ...]:
+    # ponytail: only whole arguments that name a file are inspected; `--flag=path` forms show up raw.
+    found = []
+    for index, arg in enumerate(argv[1:], 1):
+        candidate = cwd / arg
+        if candidate.is_file():
+            real = candidate.resolve()
+            writable = agent_writable(site, real)
+            sha, head = inspect_file(real, writable)
+            found.append((index, real, sha, writable, head))
+    return tuple(found)
+
+
+def review(site: Site, req: dict) -> Op:
+    rid = req.get("id")
+    if not (isinstance(rid, str) and len(rid) == ID_HEX_LEN and all(c in "0123456789abcdef" for c in rid)):
+        raise Refused(f"request id is not {ID_HEX_LEN} hex chars")
+    argv = req.get("argv")
+    if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
+        raise Refused("argv must be a non-empty list of strings")
+    cwd = Path(str(req.get("cwd", "")))
+    if not (cwd.is_absolute() and cwd.is_dir()):
+        raise Refused(f"cwd is not an existing absolute directory: {cwd}")
+    env = req.get("env", {})
+    if not (isinstance(env, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())):
+        raise Refused("env must map strings to strings")
+    bad = [k for k in env if k in FORBIDDEN_ENV or k.startswith(FORBIDDEN_ENV_PREFIXES)]
+    if bad:
+        raise Refused(f"env keys that alter how programs load are never accepted: {', '.join(bad)}")
+    created = req.get("created")
+    if not isinstance(created, (int, float)):
+        raise Refused("created must be a number")
+    exe = resolve_exe(site, cwd, argv[0])
+    return Op(rid, tuple(argv), exe, sha256_file(exe), cwd, dict(env), file_args(site, cwd, tuple(argv)),
+              str(req.get("reason", "")), str(req.get("agent", "")), float(created))
+
+
+def show(op: Op, out: Out, now: float) -> None:
+    out(f"--- warrant request {op.id} ---")
+    out(f"age    : {human_age(now - op.created)}   agent: {op.agent or '?'}")
+    out(f"reason : {op.reason or '(none)'}")
+    out(f"cwd    : {op.cwd}")
+    out(f"exe    : {op.exe}   sha256 {op.exe_sha[:16]}")
+    out(f"argv   : {shlex.join(op.argv)}")
+    out("env    : " + (" ".join(f"{k}={shlex.quote(v)}" for k, v in op.env.items()) or "(none declared)"))
+    for index, path, sha, writable, head in op.files:
+        out(f"file   : [{index}] {path}   sha256 {sha[:16]}{'   AGENT-WRITABLE' if writable else ''}")
+        if head is not None:
+            out("\n".join(f"         | {line}" for line in head.splitlines()))
+    if any(writable for _i, _p, _s, writable, _h in op.files):
+        out("note   : agent-writable files are re-hashed right before launch; any change refuses the run")
+
+
+# --- execution ---
+
+
+def cap(text: str | bytes | None) -> str:
+    text = text or ""
+    if isinstance(text, bytes):
+        text = text.decode(errors="replace")
+    return text if len(text) <= OUTPUT_CAP else text[:OUTPUT_CAP] + "\n[warrant: output truncated]\n"
+
+
+def execute(site: Site, op: Op) -> dict:
+    env = {"PATH": site.config["exec_path"], "HOME": str(Path.home()), "USER": os.environ.get("USER", ""),
+           "LOGNAME": os.environ.get("LOGNAME", ""), "LANG": os.environ.get("LANG", "C.UTF-8"), "TERM": "dumb"}
+    env.update({k: os.environ[k] for k in site.config.get("inherit_env", []) if k in os.environ})
+    env.update(op.env)
+    argv = [str(op.exe), *op.argv[1:]]  # the resolved target, so a swapped symlink changes nothing
+    try:
+        proc = subprocess.run(argv, cwd=op.cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, errors="replace", timeout=site.config["exec_timeout_sec"], check=False)
+    except subprocess.TimeoutExpired as exc:
+        return {"status": "timeout", "exit": None, "reason": f"exceeded exec_timeout_sec={site.config['exec_timeout_sec']}",
+                "stdout": cap(exc.stdout), "stderr": cap(exc.stderr)}
+    return {"status": "executed", "exit": proc.returncode, "stdout": cap(proc.stdout), "stderr": cap(proc.stderr)}
+
+
+def launch(site: Site, req_path: Path, op: Op, out: Out) -> int:
+    changed = [f"[{i}] {p}" for i, p, sha, _w, _h in op.files if not p.is_file() or sha256_file(p) != sha]
+    if sha256_file(op.exe) != op.exe_sha:
+        changed.append(f"[0] {op.exe}")
+    if changed:
+        return refuse(site, req_path, op.id, "changed after review: " + ", ".join(changed), out, list(op.argv))
+    result = execute(site, op)
+    record(site, op.id, result["status"], {"exit": result["exit"], "argv": list(op.argv), "cwd": str(op.cwd)})
+    finish(site, req_path, op.id, result)
+    out(result["stdout"] + result["stderr"])
+    out(f"{result['status']} {op.id}: exit {result['exit']}")
+    return 0
+
+
+def approve_one(site: Site, req_path: Path, read_secret: Secret, out: Out, now: Callable[[], float] = time.time) -> int:
+    rid = req_path.stem
+    try:
+        req = json.loads(req_path.read_bytes())  # read once; the file is never consulted again
+        if not isinstance(req, dict) or req.get("id") != rid:
+            raise Refused("request id does not match its file name")
+        prior = decided(site, rid)
+        if prior:
+            raise Refused(f"already decided ({prior['decision']}) at {time.ctime(prior['at'])}; submit a fresh request")
+        op = review(site, req)
+        if now() - op.created > site.config["request_ttl_sec"]:
+            raise Refused("request expired; submit a fresh one")
+    except (Refused, ValueError) as exc:  # ValueError: malformed JSON
+        return refuse(site, req_path, rid, str(exc), out)
+    show(op, out, now())
+    locked = lockout_until(site, now())
+    if locked:
+        out(f"locked: {LOCKOUT_AFTER} wrong PINs within {LOCKOUT_WINDOW_SEC // 60} min; try again after {time.ctime(locked)}")
+        return 2
+    try:
+        record(site, rid, "attempt", {})  # a guess that cannot be logged is never checked: sandboxed brokers stop here
+    except OSError as exc:
+        out(f"cannot record the attempt ({exc}); approve only works outside the sandbox")
+        return 2
+    secret = read_secret("Type the warrant PIN to EXECUTE (empty rejects): ")
+    if secret == "":
+        out(f"rejected {rid}")
+        record(site, rid, "rejected", {"argv": list(op.argv), "cwd": str(op.cwd)})
+        finish(site, req_path, rid, {"status": "rejected"})
+        return 0
+    if not verify_pin(site, secret):
+        out("PIN mismatch; nothing decided")
+        record(site, rid, "mismatch", {"argv": list(op.argv)})
+        time.sleep(2)
+        return 2
+    return launch(site, req_path, op, out)
+
+
+# --- agent side ---
+
+
+def build_request(argv: list[str], cwd: Path, env: dict[str, str], reason: str) -> dict:
+    return {"id": secrets.token_hex(16), "created": time.time(), "argv": list(argv), "cwd": str(cwd),
+            "env": dict(env), "reason": reason, "agent": os.environ.get("AI_AGENT", ""), "pid": os.getpid()}
+
+
+def submit(site: Site, req: dict) -> Path:
+    ensure_spool(site)
+    path = site.requests / f"{req['id']}.json"
+    atomic_write(path, json.dumps(req, sort_keys=True))
+    return path
+
+
+def notify_human(req: dict) -> bool:
+    """Ping through the shared notify hook: ntfy when the human is away, desktop otherwise."""
+    if not NOTIFY_HOOK.is_file():
+        return False
+    msg = f"~/bin/warrant approve {req['id']}\n{shlex.join(req['argv'])}\n{req.get('reason') or ''}".rstrip()
+    try:
+        proc = subprocess.run([sys.executable, str(NOTIFY_HOOK), "--send", f"warrant [{req.get('agent') or 'agent'}]", msg],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def report(result: dict, out: Out) -> int:
+    sys.stdout.write(result.get("stdout", ""))
+    sys.stderr.write(result.get("stderr", ""))
+    if result["status"] == "executed":
+        return int(result["exit"])
+    if result["status"] == "rejected":
+        out("warrant: rejected by the approver")
+        return EXIT_REJECTED
+    out(f"warrant: {result['status']}: {result.get('reason', '')}")
+    return EXIT_REFUSED
+
+
+def wait_for(site: Site, rid: str, timeout: float | None, out: Out, poll: float = 1.0) -> int:
+    result_path = site.results / f"{rid}.json"
+    deadline = None if timeout is None else time.monotonic() + timeout
+    while not result_path.exists():
+        if not (site.requests / f"{rid}.json").exists():
+            out(f"warrant: no request or result for {rid}")
+            return 2
+        if deadline is not None and time.monotonic() >= deadline:
+            out(f"warrant: {rid} still pending; re-attach with  ~/bin/warrant wait {rid}")
+            return EXIT_NO_VERDICT
+        time.sleep(poll)
+    return report(json.loads(result_path.read_text()), out)
+
+
+def request(site: Site, argv: list[str], cwd: Path, env: dict[str, str], reason: str, timeout: float | None,
+            out: Out, poll: float = 1.0, notify: Callable[[dict], bool] = notify_human, wait: bool = True) -> int:
+    req = build_request(argv, cwd, env, reason)
+    submit(site, req)
+    out(f"warrant: request {req['id']} waits for a human: {shlex.join(argv)}")
+    out(f"warrant: approve on the host with  ~/bin/warrant approve {req['id']}")
+    if not notify(req):
+        out("warrant: could not notify the human; tell them yourself")
+    if not wait:
+        return 0
+    return wait_for(site, req["id"], timeout, out, poll)
+
+
+# --- listing and entry point ---
+
+
+def list_requests(site: Site, out: Out, now: Callable[[], float] = time.time) -> int:
+    paths = sorted(site.requests.glob("*.json")) if site.requests.is_dir() else []
+    if not paths:
+        out("warrant: spool empty")
+        return 0
+    for path in paths:
+        try:
+            req = json.loads(path.read_text())
+            age = now() - float(req.get("created", 0))
+            argv = shlex.join(req.get("argv", []))
+        except (ValueError, TypeError):
+            out(f"{path.stem}  INVALID")
+            continue
+        state = "decided" if decided(site, path.stem) else ("expired" if age > site.config["request_ttl_sec"] else "pending")
+        out(f"{path.stem}  {state:8} {human_age(age):>8}  {argv}")
+    return 0
+
+
+def pick(site: Site, rid: str | None, out: Out) -> Path | None:
+    if rid:
+        path = site.requests / f"{rid}.json"
+        if path.is_file():
+            return path
+        out(f"warrant: no request {rid}")
+        return None
+    candidates = list(site.requests.glob("*.json")) if site.requests.is_dir() else []
+    if len(candidates) == 1:
+        return candidates[0]
+    out("warrant: nothing pending" if not candidates else "warrant: several requests pending; pass an ID")
+    if candidates:
+        list_requests(site, out)
+    return None
+
+
+def main(argv: list[str]) -> int:
+    split = argv.index("--") if "--" in argv else len(argv)
+    opts, command = argv[:split], argv[split + 1:]
+    parser = argparse.ArgumentParser(prog="warrant", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="verb", required=True)
+    req = sub.add_parser("request")
+    req.add_argument("--cwd", default=str(Path.cwd()))
+    req.add_argument("--env", action="append", default=[], metavar="K=V")
+    req.add_argument("--reason", default="")
+    req.add_argument("--timeout", type=float, default=None, help="seconds to wait; default: until a verdict")
+    req.add_argument("--no-wait", action="store_true")
+    wait = sub.add_parser("wait")
+    wait.add_argument("id")
+    wait.add_argument("--timeout", type=float, default=None)
+    sub.add_parser("approve").add_argument("id", nargs="?")
+    sub.add_parser("list")
+    sub.add_parser("init")
+    args = parser.parse_args(opts)
+    if args.verb == "request":
+        if not command:
+            parser.error("request needs `-- CMD [ARG...]`")
+        env = dict(kv.split("=", 1) for kv in args.env if "=" in kv)
+        if len(env) != len(args.env):
+            parser.error("--env takes K=V")
+        return request(Site(SPOOL, CONFIG_DIR), command, Path(args.cwd).resolve(), env, args.reason, args.timeout, print,
+                       wait=not args.no_wait)
+    if args.verb == "wait":
+        return wait_for(Site(SPOOL, CONFIG_DIR), args.id, args.timeout, print)
+    site = Site(SPOOL, CONFIG_DIR, load_config(CONFIG_DIR / "config.json"))
+    preflight(site)
+    if args.verb == "list":
+        return list_requests(site, print)
+    if not sys.stdin.isatty():
+        print("warrant: approve and init need a terminal", file=sys.stderr)
+        return 2
+    if args.verb == "init":
+        set_pin(site, getpass.getpass)
+        print("warrant: PIN set")
+        return 0
+    if not site.passphrase_file.is_file():
+        print("warrant: run `warrant init` first", file=sys.stderr)
+        return 2
+    path = pick(site, args.id, print)
+    return 2 if path is None else approve_one(site, path, getpass.getpass, print)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (Refused, ValueError, OSError) as exc:
+        print(f"warrant: {exc}", file=sys.stderr)
+        sys.exit(EXIT_REFUSED)
