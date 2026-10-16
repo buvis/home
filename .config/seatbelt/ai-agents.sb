@@ -173,6 +173,8 @@
     (subpath (string-append (param "_HOME") "/Library/Caches"))
     (subpath (string-append (param "_HOME") "/Library/Logs"))
     (subpath (string-append (param "_HOME") "/.local/state"))
+    ;; engram's sqlite index (data only; the binary is ~/.local/bin/engram)
+    (subpath (string-append (param "_HOME") "/.local/share/engram"))
 
     ;; Gemini CLI
     (subpath (string-append (param "_HOME") "/.gemini"))
