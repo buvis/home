@@ -5,6 +5,7 @@ Run: /opt/homebrew/bin/python3 -m unittest discover -s ~/bin/tests -t ~/bin/test
 
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import json
 import os
@@ -51,6 +52,8 @@ class WarrantCase(unittest.TestCase):
         config = {
             "agent_writable_roots": [str(self.agentw)],
             "agent_writable_globs": [str(self.tmp / "gl" / "claude*")],
+            "trusted_exe_roots": ["/usr/bin", "/bin"],
+            "allowed_env": ["WARRANT_DECLARED"],
             "exec_path": "/usr/bin:/bin",
             "inherit_env": [],
             "request_ttl_sec": 900,
@@ -157,6 +160,9 @@ class WarrantCase(unittest.TestCase):
 
     def test_guess_is_not_checked_when_the_ledger_cannot_be_written(self) -> None:
         path, _ = self.submit(self.touch_cmd())
+        self.site.ledger.write_text("")  # pre-existing, so the directory mode alone would not block an append
+        self.site.ledger.chmod(0o400)
+        self.addCleanup(self.site.ledger.chmod, 0o600)
         self.cfg.chmod(0o500)
         self.addCleanup(self.cfg.chmod, 0o700)
         asked: list[str] = []
@@ -175,6 +181,25 @@ class WarrantCase(unittest.TestCase):
         self.assertEqual(self.approve(path), warrant.EXIT_REFUSED)
         self.assertFalse(self.marker.exists())
         self.assertIn("expired", self.result(req["id"])["reason"])
+
+    def test_concurrent_approve_of_one_request_runs_once(self) -> None:
+        path, _ = self.submit(self.touch_cmd())
+        holder = path.open("rb")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        asked: list[str] = []
+
+        def spy(prompt: str) -> str:
+            asked.append(prompt)
+            return PIN
+
+        self.assertEqual(warrant.approve_one(self.site, path, spy, quiet), 2)
+        self.assertEqual(asked, [])
+        self.assertFalse(self.marker.exists())
+        self.assertTrue(path.exists())
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        self.assertEqual(self.approve(path), 0)
+        self.assertTrue(self.marker.exists())
 
     def test_replayed_id_is_refused(self) -> None:
         path, req = self.submit(self.touch_cmd())
@@ -231,6 +256,13 @@ class WarrantCase(unittest.TestCase):
     def test_wait_on_unknown_request_fails(self) -> None:
         code = warrant.wait_for(self.site, "0" * 32, timeout=1, out=quiet, poll=0.05)
         self.assertEqual(code, 2)
+
+    def test_wait_reports_a_result_whose_request_is_already_gone(self) -> None:
+        rid = "1" * 32
+        warrant.ensure_spool(self.site)
+        (self.site.results / f"{rid}.json").write_text(json.dumps({"id": rid, "status": "executed", "exit": 9}))
+        code = warrant.wait_for(self.site, rid, timeout=1, out=quiet, poll=0.05)
+        self.assertEqual(code, 9)
 
     def test_request_file_edited_after_load_is_ignored(self) -> None:
         path, req = self.submit(self.touch_cmd())
@@ -372,14 +404,37 @@ class WarrantCase(unittest.TestCase):
         self.assertTrue(self.marker.exists())
         self.assertFalse((self.tmp / "evil-ran").exists())
 
-    def test_loader_env_keys_are_refused(self) -> None:
-        path, req = self.submit(
-            self.touch_cmd(),
-            env={"DYLD_INSERT_LIBRARIES": "/x.dylib"},
-        )
+    def test_env_keys_outside_the_allowlist_are_refused(self) -> None:
+        for key in ("DYLD_INSERT_LIBRARIES", "HARMLESS_LOOKING"):
+            with self.subTest(key=key):
+                path, req = self.submit(self.touch_cmd(), env={key: "x"})
+                self.assertEqual(self.approve(path), warrant.EXIT_REFUSED)
+                self.assertFalse(self.marker.exists())
+                self.assertIn(key, self.result(req["id"])["reason"])
+
+    def test_executable_outside_trusted_roots_is_refused(self) -> None:
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        exe = elsewhere / "tool.sh"
+        exe.write_text(f"#!/bin/sh\ntouch {self.marker}\n")
+        exe.chmod(0o755)
+        path, req = self.submit([str(exe)])
         self.assertEqual(self.approve(path), warrant.EXIT_REFUSED)
         self.assertFalse(self.marker.exists())
-        self.assertIn("DYLD_INSERT_LIBRARIES", self.result(req["id"])["reason"])
+        self.assertIn("trusted_exe_roots", self.result(req["id"])["reason"])
+
+    def test_display_escapes_control_and_format_characters(self) -> None:
+        head = self.agentw / "patch.diff"
+        head.write_bytes(b"harmless\n\x1b[3A\x1b[2Kgit status\n")
+        argv = ["sh", "-c", "echo evil\r                 git status", str(head)]
+        path, _ = self.submit(argv, reason="fix\x1b[2K\rsafe", agent="bot‮")
+        lines: list[str] = []
+        warrant.approve_one(self.site, path, lambda _prompt: "", lines.append)
+        text = "\n".join(lines)
+        for raw in ("\x1b", "\r", "‮"):
+            self.assertNotIn(raw, text)
+        for escaped in ("\\x1b[3A", "\\x0d", "\\u202e", "echo evil"):
+            self.assertIn(escaped, text)
 
     def test_env_keys_that_make_git_run_other_code_are_refused(self) -> None:
         for env in (

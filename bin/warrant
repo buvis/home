@@ -11,7 +11,9 @@
   warrant wait ID [--timeout SEC]
       Agent side. Re-attach to a pending request; same exit codes.
   warrant approve [ID]   Human side, on a terminal. Shows one pending request
-                         and executes it only after the passphrase is typed.
+                         and executes it only after the PIN is typed. Exits 2
+                         when nothing was decided (locked, PIN mismatch, another
+                         approve holds the request, unknown id).
   warrant list           Show the spool.
   warrant init           Set the PIN (human, outside the sandbox).
 
@@ -27,12 +29,17 @@ data until a human has read it here and typed the PIN. A 4-8 digit PIN is
 only safe with the hash unreadable plus two gates in approve: the attempt is
 written to the ledger before the PIN is checked (a sandboxed broker cannot
 write there, so it cannot test guesses), and three misses within ten minutes
-lock approvals. Invoke the human side by absolute path: ~/bin is last on
-PATH, behind agent-writable mise directories.
+lock approvals. What the human reads is what runs: every agent-written string
+is printed with control characters escaped, declared env is an allowlist, the
+executable must resolve under trusted_exe_roots, and file arguments are
+re-hashed right before launch. On the agent side a command's own exit 124-126
+is ambiguous; results/<id>.json carries the status. Invoke the human side by
+absolute path: ~/bin is last on PATH, behind agent-writable mise directories.
 """
 from __future__ import annotations
 
 import argparse
+import fcntl
 import fnmatch
 import getpass
 import hashlib
@@ -55,17 +62,15 @@ NOTIFY_HOOK = Path.home() / ".claude" / "hooks" / "notify.py"
 ID_HEX_LEN = 32
 HEAD_LINES = 20
 HEAD_MAX_BYTES = 64 * 1024
-FORBIDDEN_ENV = {"PATH", "HOME", "BASH_ENV", "ENV", "SHELLOPTS", "RUBYOPT", "NODE_OPTIONS", "GIT_EXEC_PATH",
-                 "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND", "GIT_EXTERNAL_DIFF",
-                 "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER", "EDITOR", "VISUAL", "PAGER"}
-FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_", "PYTHON", "PERL5", "GIT_CONFIG")  # GIT_CONFIG_{COUNT,KEY_n,VALUE_n,PARAMETERS,GLOBAL,...} inject any config, core.fsmonitor included
+# Declared env is an allowlist (config "allowed_env"): too many variables make a program run other code
+# (DYLD_*, GIT_SSH_COMMAND, GIT_CONFIG_* with core.fsmonitor, exported bash functions, ...) for a denylist to hold.
 SCRYPT = {"n": 2**17, "r": 8, "p": 1, "dklen": 32, "maxmem": 2**28}  # ~0.3s per check on Apple silicon
 PIN_LEN = (4, 8)
 LOCKOUT_AFTER, LOCKOUT_WINDOW_SEC = 3, 600
 SETTLED = {"executed", "rejected", "refused", "timeout"}
 OUTPUT_CAP = 1_000_000
 EXIT_NO_VERDICT, EXIT_REJECTED, EXIT_REFUSED = 124, 125, 126
-REQUIRED_CONFIG = ("agent_writable_roots", "exec_path", "request_ttl_sec", "exec_timeout_sec")
+REQUIRED_CONFIG = ("agent_writable_roots", "trusted_exe_roots", "exec_path", "request_ttl_sec", "exec_timeout_sec")
 Out = Callable[[str], None]
 Secret = Callable[[str], str]
 
@@ -137,6 +142,17 @@ def human_age(seconds: float) -> str:
     if sec >= 3600:
         return f"{sec // 3600}h {sec % 3600 // 60}m"
     return f"{sec // 60}m {sec % 60}s" if sec >= 60 else f"{sec}s"
+
+
+def visible(text: str) -> str:
+    """Escape control and format characters so agent-controlled text cannot repaint the review on the terminal."""
+    return "\n".join(
+        "".join(c if c.isprintable() else (f"\\x{ord(c):02x}" if ord(c) < 0x100 else f"\\u{ord(c):04x}") for c in line)
+        for line in text.split("\n"))
+
+
+def guard(out: Out) -> Out:
+    return lambda text: out(visible(text))
 
 
 def ensure_spool(site: Site) -> None:
@@ -262,6 +278,9 @@ def resolve_exe(site: Site, cwd: Path, name: str) -> Path:
     real = found.resolve()
     if agent_writable(site, real):
         raise Refused(f"executable lies in an agent-writable path: {real}")
+    trusted = [Path(root).expanduser().resolve() for root in site.config["trusted_exe_roots"]]
+    if not any(real == root or root in real.parents for root in trusted):
+        raise Refused(f"executable is not under a trusted_exe_roots entry: {real}")
     return real
 
 
@@ -307,9 +326,10 @@ def review(site: Site, req: dict) -> Op:
     env = req.get("env", {})
     if not (isinstance(env, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())):
         raise Refused("env must map strings to strings")
-    bad = [k for k in env if k in FORBIDDEN_ENV or k.startswith(FORBIDDEN_ENV_PREFIXES)]
+    allowed = set(site.config.get("allowed_env", []))
+    bad = sorted(k for k in env if k not in allowed)
     if bad:
-        raise Refused(f"env keys that alter how programs load or what they run are never accepted: {', '.join(bad)}")
+        raise Refused(f"env keys outside allowed_env are refused: {', '.join(bad)}")
     created = req.get("created")
     if not isinstance(created, (int, float)):
         raise Refused("created must be a number")
@@ -342,7 +362,7 @@ def show(site: Site, op: Op, out: Out, now: float) -> None:
 
 def cap(text: str | bytes | None) -> str:
     text = text or ""
-    if isinstance(text, bytes):
+    if isinstance(text, bytes):  # TimeoutExpired carries undecoded bytes even in text mode
         text = text.decode(errors="replace")
     return text if len(text) <= OUTPUT_CAP else text[:OUTPUT_CAP] + "\n[warrant: output truncated]\n"
 
@@ -383,9 +403,26 @@ def launch(site: Site, req_path: Path, op: Op, out: Out) -> int:
 
 
 def approve_one(site: Site, req_path: Path, read_secret: Secret, out: Out, now: Callable[[], float] = time.time) -> int:
+    out = guard(out)
     rid = req_path.stem
     try:
-        req = json.loads(req_path.read_bytes())  # read once; the file is never consulted again
+        fh = req_path.open("rb")
+    except OSError:
+        out(f"warrant: no request {rid}")
+        return 2
+    with fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)  # one approve per request: one-shot holds across panes
+        except OSError:
+            out(f"{rid} is being reviewed by another approve")
+            return 2
+        return decide(site, req_path, fh.read(), read_secret, out, now)
+
+
+def decide(site: Site, req_path: Path, raw: bytes, read_secret: Secret, out: Out, now: Callable[[], float]) -> int:
+    rid = req_path.stem
+    try:
+        req = json.loads(raw)  # read once under the lock; the file is never consulted again
         if not isinstance(req, dict) or req.get("id") != rid:
             raise Refused("request id does not match its file name")
         prior = decided(site, rid)
@@ -425,7 +462,7 @@ def approve_one(site: Site, req_path: Path, read_secret: Secret, out: Out, now: 
 
 def build_request(argv: list[str], cwd: Path, env: dict[str, str], reason: str) -> dict:
     return {"id": secrets.token_hex(16), "created": time.time(), "argv": list(argv), "cwd": str(cwd),
-            "env": dict(env), "reason": reason, "agent": os.environ.get("AI_AGENT", ""), "pid": os.getpid()}
+            "env": dict(env), "reason": reason, "agent": os.environ.get("AI_AGENT", "")}
 
 
 def submit(site: Site, req: dict) -> Path:
@@ -439,7 +476,7 @@ def notify_human(req: dict) -> bool:
     """Ping through the shared notify hook: ntfy when the human is away, desktop otherwise."""
     if not NOTIFY_HOOK.is_file():
         return False
-    msg = f"~/bin/warrant approve {req['id']}\n{shlex.join(req['argv'])}\n{req.get('reason') or ''}".rstrip()
+    msg = visible(f"~/bin/warrant approve {req['id']}\n{shlex.join(req['argv'])}\n{req.get('reason') or ''}".rstrip())
     try:
         proc = subprocess.run([sys.executable, str(NOTIFY_HOOK), "--send", f"warrant [{req.get('agent') or 'agent'}]", msg],
                               stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
@@ -461,17 +498,19 @@ def report(result: dict, out: Out) -> int:
 
 
 def wait_for(site: Site, rid: str, timeout: float | None, out: Out, poll: float = 1.0) -> int:
-    result_path = site.results / f"{rid}.json"
+    result_path, request_path = site.results / f"{rid}.json", site.requests / f"{rid}.json"
     deadline = None if timeout is None else time.monotonic() + timeout
-    while not result_path.exists():
-        if not (site.requests / f"{rid}.json").exists():
+    while True:
+        if result_path.exists():
+            return report(json.loads(result_path.read_text()), out)
+        # finish() writes the result before unlinking the request, so a missing request is final only without a result
+        if not request_path.exists() and not result_path.exists():
             out(f"warrant: no request or result for {rid}")
             return 2
         if deadline is not None and time.monotonic() >= deadline:
             out(f"warrant: {rid} still pending; re-attach with  ~/bin/warrant wait {rid}")
             return EXIT_NO_VERDICT
         time.sleep(poll)
-    return report(json.loads(result_path.read_text()), out)
 
 
 def request(site: Site, argv: list[str], cwd: Path, env: dict[str, str], reason: str, timeout: float | None,
@@ -491,6 +530,7 @@ def request(site: Site, argv: list[str], cwd: Path, env: dict[str, str], reason:
 
 
 def list_requests(site: Site, out: Out, now: Callable[[], float] = time.time) -> int:
+    out = guard(out)
     paths = sorted(site.requests.glob("*.json")) if site.requests.is_dir() else []
     if not paths:
         out("warrant: spool empty")
@@ -509,6 +549,7 @@ def list_requests(site: Site, out: Out, now: Callable[[], float] = time.time) ->
 
 
 def pick(site: Site, rid: str | None, out: Out) -> Path | None:
+    out = guard(out)
     if rid:
         path = site.requests / f"{rid}.json"
         if path.is_file():

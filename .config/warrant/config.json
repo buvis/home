@@ -39,6 +39,27 @@
     "~/.local/bin/claude*",
     "~/.local/bin/.claude*"
   ],
+  "trusted_exe_roots": [
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    "/usr/libexec",
+    "/opt/homebrew",
+    "/System/Library",
+    "/Library/Apple",
+    "/Applications",
+    "~/bin"
+  ],
+  "allowed_env": [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_AUTHOR_DATE",
+    "GIT_COMMITTER_DATE",
+    "TZ"
+  ],
   "exec_path": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
   "inherit_env": ["SSH_AUTH_SOCK"],
   "request_ttl_sec": 86400,
