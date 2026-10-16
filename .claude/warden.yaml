@@ -133,6 +133,16 @@ rules:
           anyArgMatches: ["^patch$"]
         decision: allow
         description: Allow the routine patch release bump
+  # warrant (PRD 00159): the agent side of the approval broker. approve, init
+  # and list are the human's, run outside the sandbox; inside it they fail
+  # closed anyway (~/.config/warrant is deny-read), so they keep asking.
+  - command: warrant
+    default: ask
+    argPatterns:
+      - match:
+          anyArgMatches: ["^request$", "^wait$"]
+        decision: allow
+        description: Allow warrant request and wait (agent side)
   # Git: allow most ops, ask for dangerous ones
   - command: git
     default: allow
