@@ -79,6 +79,11 @@
 (deny file-read* (literal (string-append (param "_HOME") "/.cargo/credentials.toml")))
 (deny file-read* (literal (string-append (param "_HOME") "/.netrc")))
 
+;; -- warrant approval broker (PRD 00159) --
+;; PIN hash and ledger. A 4-digit PIN only holds while agents cannot read the
+;; hash; the agent side of ~/bin/warrant (request, wait) never reads here.
+(deny file-read* (subpath (string-append (param "_HOME") "/.config/warrant")))
+
 ;; -- Privacy & Secrets --
 ;; Simplified history block using regex
 (deny file-read* (regex (string-append "^" (regex-quote (param "_HOME")) "/\\..*_history$")))
