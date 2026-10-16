@@ -444,6 +444,7 @@
   },
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
+  "switchModelsOnFlag": false,
   "agentPushNotifEnabled": true,
   "autoMode": {
     "allow": [
