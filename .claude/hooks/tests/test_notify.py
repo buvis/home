@@ -756,6 +756,24 @@ class TestCountAgentAncestors(unittest.TestCase):
         self.assertEqual(notify._count_agent_ancestors("  300     1 -bash\n", 300), 0)
 
 
+class TestDispatchedByAgent(unittest.TestCase):
+    def test_process_inspection_denied_returns_false(self) -> None:
+        with patch("notify.subprocess.run", side_effect=PermissionError(1, "Operation not permitted", "ps")):
+            self.assertFalse(notify.dispatched_by_agent())
+
+    def test_stop_notifies_when_process_inspection_is_denied(self) -> None:
+        payload = {"hook_event_name": "Stop", "cwd": "/x/proj"}
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("notify.read_input", return_value=payload),
+            patch("notify.log_line"),
+            patch("notify.subprocess.run", side_effect=PermissionError(1, "Operation not permitted", "ps")),
+            patch("notify.dispatch") as dispatch,
+        ):
+            notify.main()
+        dispatch.assert_called_once_with("Claude [proj]: done", "Task complete")
+
+
 class TestDispatchedByAgentSuppression(unittest.TestCase):
     """main() must silence Stop/idle_prompt for a session nested under another
     agent CLI even with no env markers at all (the codex-scrubbed-env case)."""

@@ -144,7 +144,8 @@ def dispatched_by_agent() -> bool:
             text=True,
             timeout=PRESENCE_TIMEOUT_SEC,
         )
-    except (FileNotFoundError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError):
+        # Sandboxed agent sessions may deny process inspection entirely.
         return False
     return _count_agent_ancestors(proc.stdout or "", os.getppid()) >= 2
 
