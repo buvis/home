@@ -1,9 +1,11 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
 commands:
-  # herdr's plugins.json is tracked in dotfiles, the plugin clones are not.
-  # Install each listed plugin whose clone is missing or behind GitHub HEAD;
-  # skip the rest so plugins.json only changes on a real update.
+  # herdr's plugins.json holds machine-specific absolute paths, so dotfiles
+  # track plugins.txt (owner/repo per line) instead. Install each listed plugin
+  # whose clone is missing or behind GitHub HEAD, then rewrite plugins.txt from
+  # plugins.json so plugins installed on this machine get recorded too.
+  # ponytail: enabled/disabled state stays per machine.
   herdr-plugins:
     order: 80
     when: { check: herdr }
@@ -11,12 +13,21 @@ commands:
       - - sh
         - -ec
         - |
-          jq -r '.[] | select(.source.kind == "github")
-            | "\(.plugin_id) \(.source.owner)/\(.source.repo) \(.source.resolved_commit) \(.source.managed_path) \(.enabled)"' \
-            "$HOME/.config/herdr/plugins.json" |
-          while read -r id repo pinned dir enabled; do
+          cfg="$HOME/.config/herdr"
+          touch "$cfg/plugins.txt"
+          while read -r repo; do
+            [ -n "$repo" ] || continue
+            # sets $1 = installed commit, $2 = clone dir (both empty if absent);
+            # no brace expansion here, the buvis loader reads it as an env var
+            set -- "" ""
+            if [ -f "$cfg/plugins.json" ]; then
+              set -- $(jq -r --arg r "$repo" '.[] | select((.source.owner + "/" + .source.repo) == $r)
+                | "\(.source.resolved_commit) \(.source.managed_path)"' "$cfg/plugins.json") "" ""
+            fi
             head=$(git ls-remote "https://github.com/$repo" HEAD | cut -f1)
-            if [ -d "$dir" ] && [ "$head" = "$pinned" ]; then continue; fi
+            if [ -n "$1" ] && [ -d "$2" ] && [ "$1" = "$head" ]; then continue; fi
             herdr plugin install -y "$repo" </dev/null
-            if [ "$enabled" = false ]; then herdr plugin disable "$id" </dev/null; fi
-          done
+          done < "$cfg/plugins.txt"
+          [ -f "$cfg/plugins.json" ] || exit 0
+          jq -r '.[] | select(.source.kind == "github") | "\(.source.owner)/\(.source.repo)"' \
+            "$cfg/plugins.json" | sort -f > "$cfg/plugins.txt"
