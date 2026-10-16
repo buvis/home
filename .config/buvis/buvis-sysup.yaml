@@ -1,0 +1,13 @@
+# Personal sysup entries, deep-merged over the bundled default.yaml.
+
+commands:
+  # herdr keeps plugins as GitHub clones outside the dotfiles repo, so a synced
+  # machine has their config (~/.config/herdr/plugins/config) but no plugins.
+  # `install` is idempotent: it installs a missing plugin or updates it to HEAD.
+  herdr-plugins:
+    order: 80
+    when: { check: herdr }
+    steps:
+      - [herdr, plugin, install, -y, cdc-lst/herdr-wait]
+      - [herdr, plugin, install, -y, Resilient-Software/herdr-agent-activity]
+      - [herdr, plugin, install, -y, rjyo/herdr-window-title-sync]

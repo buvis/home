@@ -1,0 +1,54 @@
+# herdr-wait rules — first match wins.
+#
+# Seeded from the plugin's bundled default on first run. Edit freely; herdr-wait
+# re-reads this on every pane status change. Locate it any time with:
+#   herdr plugin config-dir herdr-wait
+#
+# Each rule maps a foreground command to a sidebar label, shown only while herdr
+# would otherwise display one of the rule's `when` statuses (default: "idle" and
+# "done") for that pane. A command with no matching rule keeps herdr's own
+# status — so dev servers, REPLs, etc. are left alone unless you add a rule.
+#
+#   match   regex tested against each foreground process's command line
+#   label   sidebar text to show on a match (herdr caps it at 32 chars).
+#           Supports {target}: the visible name of the herdr pane referenced in
+#           the matched command (used for `herdr wait <verb> <pane> …`).
+#   when    herdr status(es) this rule overrides — one status or a list.
+#           Default: ["idle", "done"]. Both matter: when an agent finishes a
+#           turn, herdr's status-change event carries "done" and only *later*
+#           settles to "idle" (with no further event). Covering "done" is what
+#           lets the label appear from the live event instead of only after a
+#           manual `herdr plugin action invoke herdr-wait.refresh`.
+#   ttl_ms  per-rule label lifetime; defaults to the top-level ttl_ms
+#
+# Tip: the defaults are anchored to the START of the command (an optional path,
+# then the binary) with `^(\S*/)?`. This matches the command being *run* rather
+# than text in an agent's prompt — an agent process carries its whole prompt on
+# its command line, so an unanchored `\bcodex\b` would mislabel a pane whose
+# prompt merely mentions codex.
+
+# Label lifetime (ms), refreshed on every status change. The label only lingers
+# this long if the hook stops firing, so it doubles as a safety net. [1, 86400000]
+ttl_ms = 900000
+
+# Blocked in `herdr wait …` (e.g. gating on another agent's status). {target}
+# resolves to the visible name of the pane being waited on.
+[[rule]]
+match = '^(\S*/)?herdr\s+wait\b'
+label = "waiting: {target}"
+
+# Running the codex CLI as a sub-reviewer / planner.
+[[rule]]
+match = '^(\S*/)?codex\b'
+label = "waiting: codex"
+
+# Running the opencode CLI as a sub-reviewer / planner.
+[[rule]]
+match = '^(\S*/)?opencode\b'
+label = "waiting: opencode"
+
+# Example — flag a dev server while idle (off by default; most people would
+# rather see the real status for these). Uncomment and tune to taste:
+# [[rule]]
+# match = '^(\S*/)?(vite|next|npm|pnpm|bun)\b.*\bdev\b'
+# label = "dev server"
