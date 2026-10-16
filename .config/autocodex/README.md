@@ -40,6 +40,13 @@ Haiku → `gpt-6-luna` / low, Sonnet → `gpt-6.1-sol` / medium, and
 Opus → `gpt-6.1-sol` / high; bounded failed Opus work may escalate to
 `gpt-6-astra` / high under the source policy.
 
+Before implementation dispatch, a source route without independent review
+support falls back to the mapped native worker at the task's existing tier.
+This includes UI tasks routed to an installed Gemini CLI. The coordinator
+records the fallback and preserves every task gate and review lens; no operator
+decision is needed. Unknown or conflicting evidence from work already performed
+still pauses for resolution.
+
 Reviewers are chosen from the actual implementation model company, verified
 against task/attempt logs, never from launcher identity. GPT implementation gets
 three separate Claude Opus/xhigh reviewers; Claude implementation gets three

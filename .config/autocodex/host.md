@@ -58,6 +58,18 @@ coverage, evidence, review and transition obligations remain in force.
   Fable remains a distinct, human-gated rescue tier, not an alias for Astra.
 - A source `/use-codex` implementation dispatch becomes a Claude dispatch through
   the real use-sonnet skill and its wrapper. Preserve guards and permissions.
+- Before any implementation dispatch, check that its model provider has an
+  independent review route supported by this host and its driver. If the source
+  routing table selects a provider without that support (including Gemini for
+  UI work), use the native worker at the task's existing logical tier and the
+  resolved mapping above. This operator-authorized fallback overrides the source
+  "Gemini if available" rule even when its CLI is installed; no further operator
+  decision is required. Record the selected source route, missing review support
+  and effective native dispatch in the build evidence. Preserve all task gates,
+  tier/escalation rules and review lenses. Do not change permission-denial or
+  supported-reviewer failure handling. This fallback applies only before
+  dispatch: it never relabels existing implementation evidence or supplies a
+  guessed review mapping for code already contributed by an unsupported model.
 - Review routing uses the **actual implementation model's company**, never the
   launcher name. Codex, Claude, Kiro and Copilot are launchers, not evidence of
   model origin. This operator-authorized policy replaces the source's
