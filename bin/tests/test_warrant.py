@@ -160,7 +160,9 @@ class WarrantCase(unittest.TestCase):
 
     def test_guess_is_not_checked_when_the_ledger_cannot_be_written(self) -> None:
         path, _ = self.submit(self.touch_cmd())
-        self.site.ledger.write_text("")  # pre-existing, so the directory mode alone would not block an append
+        self.site.ledger.write_text(
+            ""
+        )  # pre-existing, so the directory mode alone would not block an append
         self.site.ledger.chmod(0o400)
         self.addCleanup(self.site.ledger.chmod, 0o600)
         self.cfg.chmod(0o500)
@@ -260,7 +262,9 @@ class WarrantCase(unittest.TestCase):
     def test_wait_reports_a_result_whose_request_is_already_gone(self) -> None:
         rid = "1" * 32
         warrant.ensure_spool(self.site)
-        (self.site.results / f"{rid}.json").write_text(json.dumps({"id": rid, "status": "executed", "exit": 9}))
+        (self.site.results / f"{rid}.json").write_text(
+            json.dumps({"id": rid, "status": "executed", "exit": 9})
+        )
         code = warrant.wait_for(self.site, rid, timeout=1, out=quiet, poll=0.05)
         self.assertEqual(code, 9)
 
