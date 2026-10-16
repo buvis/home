@@ -1,0 +1,245 @@
+[
+  {
+    "plugin_id": "herdr-wait",
+    "name": "herdr-wait",
+    "version": "0.1.0",
+    "min_herdr_version": "0.7.0",
+    "description": "Enriches agent-pane sidebar status from the pane's actual foreground command (waiting / sub-CLI reviewer), leaving dev servers untouched.",
+    "manifest_path": "/Users/bob/.config/herdr/plugins/github/herdr-wait-56dac3e93728/herdr-plugin.toml",
+    "plugin_root": "/Users/bob/.config/herdr/plugins/github/herdr-wait-56dac3e93728",
+    "enabled": true,
+    "platforms": [
+      "macos",
+      "linux"
+    ],
+    "actions": [
+      {
+        "id": "refresh",
+        "title": "herdr-wait: refresh all panes",
+        "contexts": [
+          "workspace"
+        ],
+        "command": [
+          "bun",
+          "bin/refresh.ts"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "on": "pane.agent_status_changed",
+        "command": [
+          "bun",
+          "bin/enrich.ts"
+        ]
+      }
+    ],
+    "source": {
+      "kind": "github",
+      "owner": "cdc-lst",
+      "repo": "herdr-wait",
+      "resolved_commit": "76f81e4d7b61751650dfcab2be7736955b984dfa",
+      "managed_path": "/Users/bob/.config/herdr/plugins/github/herdr-wait-56dac3e93728",
+      "installed_unix_ms": 1791717913676
+    }
+  },
+  {
+    "plugin_id": "resilient-software.agent-activity",
+    "name": "Agent Activity",
+    "version": "0.1.0",
+    "min_herdr_version": "0.9.0",
+    "description": "Shows subagents, background tasks, monitors, and scheduled checks of Claude Code and Codex agents in the sidebar, and publishes them as pane and workspace tokens.",
+    "manifest_path": "/Users/bob/.config/herdr/plugins/github/resilient-software.agent-activity-fd7bccc1f2e1/herdr-plugin.toml",
+    "plugin_root": "/Users/bob/.config/herdr/plugins/github/resilient-software.agent-activity-fd7bccc1f2e1",
+    "enabled": true,
+    "platforms": [
+      "macos",
+      "linux"
+    ],
+    "startup": [
+      {
+        "command": [
+          "node",
+          "bin/cli.mjs",
+          "startup"
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "doctor",
+        "title": "Agent Activity: check setup",
+        "contexts": [
+          "workspace"
+        ],
+        "command": [
+          "node",
+          "bin/cli.mjs",
+          "doctor"
+        ]
+      },
+      {
+        "id": "install",
+        "title": "Agent Activity: install hooks and sidebar layout",
+        "contexts": [
+          "workspace"
+        ],
+        "command": [
+          "node",
+          "bin/cli.mjs",
+          "install"
+        ]
+      },
+      {
+        "id": "uninstall",
+        "title": "Agent Activity: remove hooks and sidebar layout",
+        "contexts": [
+          "workspace"
+        ],
+        "command": [
+          "node",
+          "bin/cli.mjs",
+          "uninstall"
+        ]
+      }
+    ],
+    "panes": [
+      {
+        "id": "doctor",
+        "title": "Agent Activity doctor",
+        "placement": "popup",
+        "width": "80%",
+        "height": "60%",
+        "command": [
+          "sh",
+          "-c",
+          "node bin/cli.mjs doctor; printf '\\npress enter to close'; read _"
+        ]
+      }
+    ],
+    "source": {
+      "kind": "github",
+      "owner": "Resilient-Software",
+      "repo": "herdr-agent-activity",
+      "resolved_commit": "66d8abca7b2adaeac512f5b74ea926b5099b7bb9",
+      "managed_path": "/Users/bob/.config/herdr/plugins/github/resilient-software.agent-activity-fd7bccc1f2e1",
+      "installed_unix_ms": 1791717896721
+    }
+  },
+  {
+    "plugin_id": "rjyo.window-title-sync",
+    "name": "Window Title Sync",
+    "version": "0.1.0",
+    "min_herdr_version": "0.7.0",
+    "description": "Sync the outer terminal title to the focused Herdr workspace, tab, and agent session.",
+    "manifest_path": "/Users/bob/.config/herdr/plugins/github/rjyo.window-title-sync-aa963fbbc3d9/herdr-plugin.toml",
+    "plugin_root": "/Users/bob/.config/herdr/plugins/github/rjyo.window-title-sync-aa963fbbc3d9",
+    "enabled": true,
+    "platforms": [
+      "macos",
+      "linux"
+    ],
+    "actions": [
+      {
+        "id": "refresh",
+        "title": "Refresh terminal title",
+        "contexts": [
+          "workspace",
+          "tab",
+          "pane"
+        ],
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "on": "pane.agent_detected",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "pane.agent_status_changed",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "pane.closed",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "pane.created",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "pane.focused",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "pane.moved",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "tab.focused",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "tab.renamed",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "workspace.focused",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "workspace.renamed",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      },
+      {
+        "on": "workspace.updated",
+        "command": [
+          "bun",
+          "sync-title.js"
+        ]
+      }
+    ],
+    "source": {
+      "kind": "github",
+      "owner": "rjyo",
+      "repo": "herdr-window-title-sync",
+      "resolved_commit": "b07f1140b7308d66487b2f4be546c0c7db065569",
+      "managed_path": "/Users/bob/.config/herdr/plugins/github/rjyo.window-title-sync-aa963fbbc3d9",
+      "installed_unix_ms": 1792182458137
+    }
+  }
+]

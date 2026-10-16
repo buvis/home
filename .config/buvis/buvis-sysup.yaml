@@ -1,13 +1,22 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
 commands:
-  # herdr keeps plugins as GitHub clones outside the dotfiles repo, so a synced
-  # machine has their config (~/.config/herdr/plugins/config) but no plugins.
-  # `install` is idempotent: it installs a missing plugin or updates it to HEAD.
+  # herdr's plugins.json is tracked in dotfiles, the plugin clones are not.
+  # Install each listed plugin whose clone is missing or behind GitHub HEAD;
+  # skip the rest so plugins.json only changes on a real update.
   herdr-plugins:
     order: 80
     when: { check: herdr }
     steps:
-      - [herdr, plugin, install, -y, cdc-lst/herdr-wait]
-      - [herdr, plugin, install, -y, Resilient-Software/herdr-agent-activity]
-      - [herdr, plugin, install, -y, rjyo/herdr-window-title-sync]
+      - - sh
+        - -ec
+        - |
+          jq -r '.[] | select(.source.kind == "github")
+            | "\(.plugin_id) \(.source.owner)/\(.source.repo) \(.source.resolved_commit) \(.source.managed_path) \(.enabled)"' \
+            "$HOME/.config/herdr/plugins.json" |
+          while read -r id repo pinned dir enabled; do
+            head=$(git ls-remote "https://github.com/$repo" HEAD | cut -f1)
+            if [ -d "$dir" ] && [ "$head" = "$pinned" ]; then continue; fi
+            herdr plugin install -y "$repo" </dev/null
+            if [ "$enabled" = false ]; then herdr plugin disable "$id" </dev/null; fi
+          done
