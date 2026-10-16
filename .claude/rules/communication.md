@@ -1,69 +1,43 @@
 # Communicating and Deciding
 
-The user disengages from long text and thinks in options. Keep talk short and structured.
+Keep talk concise. Apply `~/.claude/AGENTS.md`'s standing authorization before
+considering a question: routine reversible decisions belong to the agent.
 
-## Default shape for discussions and decisions
+## Default
 
-1. Lead with AT MOST 3 sentences of context, densely packed, no throat-clearing. If it needs more, it's a deliverable: put it in a file, not the chat.
-2. Then give 3-5 options (never fewer than 3, never more than 5).
-3. Each option states BOTH a benefit and a drawback - never a tradeoff-free option.
-4. Use the AskUserQuestion tool to render them; put the benefit/drawback in each option's description; put any recommendation first.
+- Lead with the outcome or next action, then the evidence the user needs.
+- Choose the best supported option and proceed. Mention material assumptions
+  and tradeoffs briefly; do not manufacture an option menu.
+- Complete authorized work instead of offering to continue or asking for "go".
+- Brevity governs conversation, never the completeness of requested work.
 
-## Decision points (asking the user to decide)
+## Decisions that need the user
 
-- ONE question per message: a single AskUserQuestion call carrying a single question. Wait for the answer before raising the next decision.
-- Context: each question ships with AT LEAST one full paragraph of background - enough to decide without re-reading the conversation. For decision points this overrides the 3-sentence cap above.
-- Options keep the default shape: 3-5, recommendation first and marked "(Recommended)", every option's description states both a benefit and a drawback.
+- Ask only when standing authorization does not cover the action, or required
+  information cannot be recovered and no safe reversible next step exists.
+- Before approval, finish the preparation so the user can judge a concrete
+  result. Name the irreversible consequence, exact action, and recommendation.
+- Ask one concise, self-contained question at a time. Use the available input
+  tool; offer only real alternatives when they help, with no minimum count.
+- Reuse prior authorization. Do not ask the same question after a handoff.
 
-## Findings walkthrough (reviews, audits, health checks)
+## Reviews and audits
 
-When a review, audit, or check surfaces findings that need the user's call, walk them through one at a time using the decision-point shape above. Write for a decider who has not seen the code and will not open it: plain words, expand jargon, keep each packet under one screen.
-
-Scope: only what is not already settled. Settled = a standing rule mandates the fix (apply it, report it in the minutes) or the user already decided it, this session or in memory.
-
-Triage before asking:
-
-- Merge duplicate and overlapping findings into one decision each. When reviewers disagree, their positions become options in one packet.
-- Order by severity (CRITICAL first); when one answer would change another finding, raise the upstream one first.
-- Open with a one-line agenda (count and severity split); it may share a message with the first finding.
-
-The packet, per finding:
-
-1. Header: position ("2 of 6"), severity, short title.
-2. What: three sentences on what it is, where it lives, and which check found it.
-3. Evidence: one concrete fact (a number, a failing case, an excerpt) plus confidence - confirmed or suspected. Never sell a guess as verified.
-4. If unchanged: what breaks or degrades, how likely, what is hit, and whether it compounds over time or stays stable.
-5. Options: at least three real solutions, then "accept or defer" last. The patch / root fix / prevent-the-class ladder usually yields three honest ones; if only two exist, say so in one line - never pad with a fake option.
-6. Per option: benefit, drawback, effort (S/M/L), and what the change itself could break. Mark guessed estimates as guesses. Use previews when options are concrete code or layouts.
-7. Recommendation first, marked, naming the strongest honest reason against picking it.
-
-After each answer: restate the decision in one line, apply or queue it, then move to the next finding. Bundle LOW-severity leftovers into one multiSelect question (up to 4 per batch, one recommended fix each) instead of full packets.
-
-Close with minutes: one line per finding (decision and status: applied / queued / deferred / rejected), including the rule-mandated fixes from triage. Append them to the active review or report file when one exists. Every deferred finding gets a durable home (report, PRD, or issue); chat is not a tracker.
-
-Unattended sessions (autopilot, headless): never guess approvals. Write the packets into the findings report in this exact shape and stop; the walkthrough runs when the user returns.
-
-A skill that defines its own stricter walkthrough keeps it; this protocol is the floor.
+- Merge duplicate findings, verify claims, and apply supported in-scope fixes.
+  Record rejected findings with evidence and deferred items in the review,
+  report, PRD, or issue. Severity alone neither requires approval nor settles it.
+- Report dispositions together; a findings report is not an approval queue.
+  Use a walkthrough only for genuinely unresolved consequential decisions or
+  when the user explicitly requests one.
+- Unattended agents use the same standing authorization. Pause only for an
+  uncovered consequential action or a real blocker, naming it precisely.
+- Skill-mandated task, evidence, and review procedures remain required; older
+  ask-first conventions do not revoke the user's standing authorization.
 
 ## Turn end
 
-The user reads only the last screen. Every turn ends with a handoff block and nothing after it:
-
-1. **Status**: one of `Done.`, `Partly done.`, `Blocked.`, `Decision needed.` `Done.` requires an empty Not done.
-2. **Changed**: at most 3 lines, plus the proving check output in a code block (a test count, an exit code). Never "verified" without it. More detail goes to a file, linked here. Work dropped by decision goes here as `deferred: <item> -> <PRD/issue/file>`, not under Not done.
-3. **Not done**: one line per skipped, failed, or unverified item, each naming what closes it. Omit when empty.
-4. **Next**: exactly one line naming who acts and the single concrete action:
-   - `You: <run X and paste output | answer the question above | review <file>>`
-   - `Me: <step>. Say "go".`
-   - `Task complete. Suggested next: <one concrete follow-on>.` (only when Not done is empty; propose the most useful next step you can see, such as a related cleanup, a check, or the next PRD; never "nothing")
-
-- Not done and Next are one contract: while Not done has a line, Next is the action that closes its first line, or the one that unblocks the rest.
-- `Decision needed.` ends with one AskUserQuestion, never questions in prose. One open question per turn, maximum.
-- Never end on a summary, an analysis, or a menu of possible next steps. Pick one; that is the Next line.
-- An offer ("Want me to...?") is a question: at most one, only in the Next line.
-- The whole final message fits one screen (about 25 lines). Anything longer is a deliverable: file it, link it.
-
-## Nuances (apply this well, not mechanically)
-
-- A simple factual answer or a confirmation is ONE line. Don't manufacture options for a yes/no or a "done."
-- Scope: this governs conversation and decision-framing, NOT requested artifacts. When the user asks for a full report, plan, PRD, code, or walkthrough, deliver it in full, but write it to a file and keep the chat about it in the 3-sentences-then-options shape. Brevity is how you talk, never an excuse to under-deliver the work.
+- State what changed and the verification result. Name any work still open,
+  its concrete blocker, and who must act if a genuine handoff is necessary.
+- Keep the final answer within one screen; link longer artifacts when needed.
+- Never claim unrun checks passed, hide skipped work, append a compulsory next
+  project, or stop authorized work merely to request confirmation.

@@ -38,7 +38,7 @@ Many small files over few large files:
 
 All code must be complete, working, and shippable, except deliberate throwaways in `docs/dev/project-management/spikes/` and session-scratchpad files (the spike skill governs those).
 
-- No stubs, placeholders, TODOs, `NotImplementedError`, `unimplemented!()`, or fake data. When requirements are unclear, ask.
+- No stubs, placeholders, TODOs, `NotImplementedError`, `unimplemented!()`, or fake data. Resolve unclear requirements from available evidence or the simplest safe reversible assumption; request input only for a real blocker under `AGENTS.md`'s autonomy policy.
 - Tests: per `rules/testing.md` (every new behavior and bug fix ships with one).
 - Self-review all changes for incomplete markers before responding.
 
