@@ -393,6 +393,18 @@ class TestShowDesktopNotification(unittest.TestCase):
         # passes.
         self.assertIs(result, True)
 
+    def test_retries_without_image_when_sandbox_denies_attachment(self) -> None:
+        # Under the run-agent Seatbelt profile, -contentImage fails with exit 5
+        # ("Failed to move attachment file into data store"); plain text works.
+        fail, ok = MagicMock(returncode=5), MagicMock(returncode=0)
+        with patch("notify.shutil.which", return_value="/usr/bin/terminal-notifier"):
+            with patch("notify.subprocess.run", side_effect=[fail, ok]) as run:
+                with patch("notify.log_line"):
+                    result = notify.show_desktop_notification("T", "M")
+        self.assertIs(result, True)
+        self.assertIn("-contentImage", run.call_args_list[0][0][0])
+        self.assertNotIn("-contentImage", run.call_args_list[1][0][0])
+
 
 class TestDispatch(unittest.TestCase):
     def test_returns_send_ntfy_result_when_user_away(self) -> None:

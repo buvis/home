@@ -11,7 +11,6 @@ angle) preserved verbatim from the bash original.
 import base64
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -25,16 +24,20 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import log_path, read_input  # noqa: E402
+from _common import log_path, read_input
 
 ICON_PATH = Path.home() / ".claude" / "hooks" / "claude-icon.png"
 SECRET_PATH = Path.home() / ".claude" / "hooks" / ".ntfy-secret"
 SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
-PYBOOKLID = Path.home() / ".local" / "share" / "uv" / "tools" / "pybooklid" / "bin" / "python"
+PYBOOKLID = (
+    Path.home() / ".local" / "share" / "uv" / "tools" / "pybooklid" / "bin" / "python"
+)
 IDLE_THRESHOLD_SEC = 300
 LID_CLOSED_BELOW = 70
 NTFY_TIMEOUT_SEC = 3
 PRESENCE_TIMEOUT_SEC = 5
+
+
 def project_name(cwd: str) -> str:
     """Last path segment of cwd, or empty string if cwd is empty."""
     if not cwd:
@@ -93,7 +96,7 @@ def notify_quiet() -> bool:
     # decision 3) covering the same children; _CLAUDE_NOTIFY_QUIET stays for
     # back-compat with call sites that predate it.
     return os.environ.get("_CLAUDE_NOTIFY_QUIET", "") == "1" or bool(
-        os.environ.get("CLAUDE_NESTED")
+        os.environ.get("CLAUDE_NESTED"),
     )
 
 
@@ -275,7 +278,11 @@ def lid_closed() -> bool:
         return False
     try:
         proc = subprocess.run(
-            [str(PYBOOKLID), "-c", "import pybooklid; print(pybooklid.read_lid_angle())"],
+            [
+                str(PYBOOKLID),
+                "-c",
+                "import pybooklid; print(pybooklid.read_lid_angle())",
+            ],
             capture_output=True,
             text=True,
             timeout=PRESENCE_TIMEOUT_SEC,
@@ -314,11 +321,17 @@ def _header_safe(value: str) -> str:
     return f"=?UTF-8?B?{token}?="
 
 
-def build_ntfy_request(url: str, topic: str, title: str, msg: str, creds: str) -> urllib.request.Request:
+def build_ntfy_request(
+    url: str, topic: str, title: str, msg: str, creds: str
+) -> urllib.request.Request:
     full_url = f"{url.rstrip('/')}/{topic}"
     # Override urllib's default `Python-urllib/*` UA — Cloudflare blocks it
     # (error code 1010, returned as HTTP 403) when ntfy is fronted by CF.
-    headers = {"Title": _header_safe(title), "Tags": "computer", "User-Agent": "claude-notify-hook/1.0"}
+    headers = {
+        "Title": _header_safe(title),
+        "Tags": "computer",
+        "User-Agent": "claude-notify-hook/1.0",
+    }
     if creds:
         token = base64.b64encode(creds.encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
@@ -360,32 +373,48 @@ def send_ntfy(title: str, msg: str) -> bool:
         log_line(f"[{now_local()}] Notification sent successfully (http={code})")
         return True
     except urllib.error.HTTPError as exc:
-        log_line(f"[{now_local()}] ERROR: Failed to send notification (exit code: HTTP {exc.code})")
+        log_line(
+            f"[{now_local()}] ERROR: Failed to send notification (exit code: HTTP {exc.code})"
+        )
         return False
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-        log_line(f"[{now_local()}] ERROR: Failed to send notification (exit code: {type(exc).__name__})")
+        log_line(
+            f"[{now_local()}] ERROR: Failed to send notification (exit code: {type(exc).__name__})"
+        )
         return False
 
 
 def show_desktop_notification(title: str, msg: str) -> bool:
     if shutil.which("terminal-notifier") is None:
-        log_line(f"[{now_local()}] Skipped: user present, terminal-notifier not available")
+        log_line(
+            f"[{now_local()}] Skipped: user present, terminal-notifier not available"
+        )
         return False
+    base = [
+        "terminal-notifier",
+        "-title",
+        title,
+        "-message",
+        msg,
+        # Impersonate Terminal.app so the left-side app icon resolves to
+        # an installed bundle (terminal-notifier's own icon is otherwise
+        # what shows there, which macOS often suppresses).
+        "-sender",
+        "com.apple.Terminal",
+    ]
     try:
         proc = subprocess.run(
-            [
-                "terminal-notifier",
-                "-title", title,
-                "-message", msg,
-                "-contentImage", str(ICON_PATH),
-                # Impersonate Terminal.app so the left-side app icon resolves to
-                # an installed bundle (terminal-notifier's own icon is otherwise
-                # what shows there, which macOS often suppresses).
-                "-sender", "com.apple.Terminal",
-            ],
+            base + ["-contentImage", str(ICON_PATH)],
             capture_output=True,
             timeout=PRESENCE_TIMEOUT_SEC,
         )
+        if proc.returncode != 0:
+            # The run-agent Seatbelt profile denies the attachment copy
+            # (exit 5, "Failed to move attachment file into data store");
+            # a text-only banner still delivers.
+            proc = subprocess.run(
+                base, capture_output=True, timeout=PRESENCE_TIMEOUT_SEC
+            )
     except (FileNotFoundError, subprocess.SubprocessError):
         log_line(f"[{now_local()}] ERROR: terminal-notifier failed")
         return False
@@ -445,15 +474,21 @@ def main() -> None:
         event == "Notification" and notif_type == "idle_prompt"
     )
     if loop_noise and autopilot_loop_active():
-        log_line(f"[{now_local()}] Suppressed: autopilot loop active ({notif_type or event})")
+        log_line(
+            f"[{now_local()}] Suppressed: autopilot loop active ({notif_type or event})"
+        )
         log_line("---")
         return
     if loop_noise and notify_quiet():
-        log_line(f"[{now_local()}] Suppressed: _CLAUDE_NOTIFY_QUIET ({notif_type or event})")
+        log_line(
+            f"[{now_local()}] Suppressed: _CLAUDE_NOTIFY_QUIET ({notif_type or event})"
+        )
         log_line("---")
         return
     if loop_noise and dispatched_by_agent():
-        log_line(f"[{now_local()}] Suppressed: nested under agent CLI ({notif_type or event})")
+        log_line(
+            f"[{now_local()}] Suppressed: nested under agent CLI ({notif_type or event})"
+        )
         log_line("---")
         return
 
@@ -461,13 +496,19 @@ def main() -> None:
     # final Stop (empty/terminal background_tasks) carries the real ping.
     running = running_background_tasks(payload)
     if event == "Stop" and running:
-        log_line(f"[{now_local()}] Suppressed: {running} background task(s) still running")
+        log_line(
+            f"[{now_local()}] Suppressed: {running} background task(s) still running"
+        )
         log_line("---")
         return
 
     # The ~60s-later idle_prompt after such a Stop is the same noise; its
     # payload lacks background_tasks, so fall back to subagent file activity.
-    if event == "Notification" and notif_type == "idle_prompt" and background_agents_active(payload):
+    if (
+        event == "Notification"
+        and notif_type == "idle_prompt"
+        and background_agents_active(payload)
+    ):
         log_line(f"[{now_local()}] Suppressed: idle_prompt with live subagent activity")
         log_line("---")
         return
