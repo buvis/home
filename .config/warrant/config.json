@@ -1,5 +1,5 @@
 {
-  "_comment": "Mirror of the file-write allow list in ~/.config/seatbelt/ai-agents.sb (2026-10-16). Edit both together. warrant refuses an executable under these paths and re-hashes argument files under them right before launch. The project dir of a run-agent session is also writable but unknown here; ~/git/src covers the usual repos.",
+  "_comment": "Mirror of the file-write allow list in ~/.config/seatbelt/ai-agents.sb (2026-10-17). Edit both together. warrant refuses an executable under these paths and re-hashes argument files under them right before launch. The project dir of a run-agent session is also writable but unknown here; ~/git/src covers the usual repos. ~/.local/bin (mise) and ~/.local/share/claude (claude update) are trusted because the profile no longer lets agents write them.",
   "agent_writable_roots": [
     "~/.claude",
     "~/.claude.json",
@@ -18,8 +18,6 @@
     "~/.local/state",
     "~/.local/share/engram",
     "~/.gemini",
-    "~/.local/share/mise",
-    "~/.config/mise",
     "~/.npm/_cacache",
     "~/.npm/_logs",
     "~/.cargo/registry",
@@ -27,18 +25,13 @@
     "~/go/pkg/mod",
     "~/Library/pnpm/store",
     "~/Library/Developer/Xcode/DerivedData",
-    "~/Applications",
-    "~/.local/share/claude",
     "/private/tmp",
     "/tmp",
     "/private/var/folders",
     "/var/folders",
     "/dev"
   ],
-  "agent_writable_globs": [
-    "~/.local/bin/claude*",
-    "~/.local/bin/.claude*"
-  ],
+  "agent_writable_globs": [],
   "trusted_exe_roots": [
     "/usr/bin",
     "/bin",
@@ -49,7 +42,9 @@
     "/System/Library",
     "/Library/Apple",
     "/Applications",
-    "~/bin"
+    "~/bin",
+    "~/.local/bin",
+    "~/.local/share/claude"
   ],
   "allowed_env": [
     "GIT_AUTHOR_NAME",
@@ -60,7 +55,7 @@
     "GIT_COMMITTER_DATE",
     "TZ"
   ],
-  "exec_path": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+  "exec_path": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/Users/bob/.local/bin",
   "inherit_env": ["SSH_AUTH_SOCK"],
   "request_ttl_sec": 86400,
   "exec_timeout_sec": 600
