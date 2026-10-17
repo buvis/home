@@ -37,6 +37,13 @@ With 1M context, research stays in-flight through implementation.
 - End plans with unresolved questions.
 - One question at a time, concise, with enough context to answer quickly.
 
+## Handing work to the user
+
+The user runs a hand-off top to bottom and does not read ahead. Write it so that order is safe.
+
+- One numbered list, steps in execution order, commands inline. A precondition is its own step placed before the step that needs it. A warning that applies to a step comes before that step, never after the list. Mark an optional step optional in its place. Put nothing after the list that changes how to run it. (2026-10-17, PRD 00163: the approve commands came first and the config fix came below them, so the commit went out without the fix.)
+- Write hand-offs in Simplified Technical English (ASD-STE100): one instruction per sentence, imperative mood, present tense, at most 20 words, one word for one meaning, no idioms, no synonyms for the same thing. State the expected result of a step when the user needs it to continue.
+
 ## Toolchain
 
 - Interactive agent sessions start via `~/bin/run-agent`, which runs the agent under the macOS Seatbelt profile `~/.config/seatbelt/ai-agents.sb`: reads of `~/.config/gh`, private keys and similar are denied, writes land only under the project, `~/git/src`, `~/.claude`, `~/.cache`, `~/Library/Caches`, `~/Library/Logs`, `~/.local/state`, agent state dirs, data-only package caches and temp dirs. No tool bin dir or install target is writable (`~/.local/share/mise`, `~/.config/mise`, `~/Applications`, `~/.local/share/claude` and `~/.local/bin` are read-only since 2026-10-17): install or update tools through warrant, e.g. `~/bin/warrant request --reason "..." -- mise install <tool>`. The Keychain is unreachable (every `security` secret read fails with exit 36). Claude Code's own sandbox is off, so `dangerouslyDisableSandbox` and `sandbox.excludedCommands` change nothing; the `!` prompt is inside the same boundary. `gh` authenticates with a dedicated scoped PAT in `~/.config/gh-agent` (the launcher exports `GH_CONFIG_DIR`); never try to read the user's own `~/.config/gh`.
