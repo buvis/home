@@ -50,8 +50,6 @@ class WarrantCase(unittest.TestCase):
         self.cfg = self.tmp / "cfg"
         self.cfg.mkdir(mode=0o700)
         config = {
-            "agent_writable_roots": [str(self.agentw)],
-            "agent_writable_globs": [str(self.tmp / "gl" / "claude*")],
             "trusted_exe_roots": ["/usr/bin", "/bin"],
             "allowed_env": ["WARRANT_DECLARED"],
             "exec_path": "/usr/bin:/bin",
@@ -59,7 +57,9 @@ class WarrantCase(unittest.TestCase):
             "request_ttl_sec": 900,
             "exec_timeout_sec": 30,
         }
-        self.site = warrant.Site(self.tmp / "spool", self.cfg, config)
+        self.site = warrant.Site(
+            self.tmp / "spool", self.cfg, config, (self.agentw.resolve(),)
+        )
         warrant.set_pin(self.site, lambda _prompt: PIN)
         self.marker = self.tmp / "ran"
 
@@ -161,7 +161,7 @@ class WarrantCase(unittest.TestCase):
     def test_guess_is_not_checked_when_the_ledger_cannot_be_written(self) -> None:
         path, _ = self.submit(self.touch_cmd())
         self.site.ledger.write_text(
-            ""
+            "",
         )  # pre-existing, so the directory mode alone would not block an append
         self.site.ledger.chmod(0o400)
         self.addCleanup(self.site.ledger.chmod, 0o600)
@@ -263,7 +263,7 @@ class WarrantCase(unittest.TestCase):
         rid = "1" * 32
         warrant.ensure_spool(self.site)
         (self.site.results / f"{rid}.json").write_text(
-            json.dumps({"id": rid, "status": "executed", "exit": 9})
+            json.dumps({"id": rid, "status": "executed", "exit": 9}),
         )
         code = warrant.wait_for(self.site, rid, timeout=1, out=quiet, poll=0.05)
         self.assertEqual(code, 9)
@@ -381,16 +381,6 @@ class WarrantCase(unittest.TestCase):
         self.assertFalse(self.marker.exists())
         self.assertIn("agent-writable", self.result(req["id"])["reason"])
 
-    def test_executable_matching_agent_writable_glob_is_refused(self) -> None:
-        glob_dir = self.tmp / "gl"
-        glob_dir.mkdir()
-        exe = glob_dir / "claude-x"
-        exe.write_text(f"#!/bin/sh\ntouch {self.marker}\n")
-        exe.chmod(0o755)
-        path, _ = self.submit([str(exe)])
-        self.assertEqual(self.approve(path), warrant.EXIT_REFUSED)
-        self.assertFalse(self.marker.exists())
-
     def test_symlink_in_agent_writable_root_runs_the_reviewed_target(self) -> None:
         link = self.agentw / "sh"
         link.symlink_to("/bin/sh")
@@ -501,7 +491,9 @@ class WarrantCase(unittest.TestCase):
     # --- trusted components stay outside agent-writable paths ---
 
     def test_preflight_refuses_agent_writable_config_dir(self) -> None:
-        inside = warrant.Site(self.site.spool, self.agentw / "cfg", self.site.config)
+        inside = warrant.Site(
+            self.site.spool, self.agentw / "cfg", self.site.config, self.site.writable
+        )
         with self.assertRaises(warrant.Refused):
             warrant.preflight(inside)
 
@@ -526,6 +518,154 @@ class WarrantCase(unittest.TestCase):
                 self.site,
                 warrant.build_request(["true"], self.tmp, {}, "t"),
             )
+
+
+def home_grant(rel: str, kind: str = "subpath") -> str:
+    return f'(allow file-write* ({kind} (string-append (param "_HOME") "{rel}")))'
+
+
+class ProfileCase(unittest.TestCase):
+    """The agent-writable roots come from the Seatbelt profile, and anything the parser cannot read refuses."""
+
+    def setUp(self) -> None:
+        self.home = Path(tempfile.mkdtemp(prefix="warrant-home-")).resolve()
+        self.addCleanup(shutil.rmtree, self.home, True)
+
+    def site(self, roots: tuple[Path, ...]) -> warrant.Site:
+        return warrant.Site(
+            Path("/nonexistent-spool"), Path("/nonexistent-cfg"), None, roots
+        )
+
+    def test_home_relative_and_absolute_grants_become_roots(self) -> None:
+        profile = "\n".join(
+            [
+                ";; comment (with parens) ;;",
+                "(version 1)",
+                "(deny default)",
+                "(allow file-read*)",
+                home_grant("/.claude"),
+                home_grant("/.claude.json", "literal"),
+                "(allow file-write*",
+                "    ;; data only",
+                '    (subpath "/private/tmp/")',
+                '    (subpath (string-append (param "_HOME") "/.cache")))',
+            ],
+        )
+        roots = warrant.write_grants(profile, self.home)
+        self.assertEqual(
+            set(roots),
+            {
+                self.home / ".claude",
+                self.home / ".claude.json",
+                Path("/private/tmp"),
+                self.home / ".cache",
+            },
+        )
+        site = self.site(roots)
+        for inside in (
+            self.home / ".claude" / "deep" / "f",
+            self.home / ".claude.json",
+            Path("/tmp/x").resolve(),
+        ):
+            self.assertTrue(warrant.agent_writable(site, inside), inside)
+        for outside in (
+            self.home / ".claudex",
+            self.home / ".cache-x" / "f",
+            Path("/private/tmpx"),
+        ):
+            self.assertFalse(warrant.agent_writable(site, outside), outside)
+
+    def test_runtime_params_are_skipped_not_refused(self) -> None:
+        profile = "\n".join(
+            [
+                '(allow file-write* (subpath (param "_PROJECT_DIR")))',
+                '(allow file-write* (subpath (param "_TMPDIR")))',
+                '(allow file-write* (subpath "/dev/"))',
+            ],
+        )
+        self.assertEqual(warrant.write_grants(profile, self.home), (Path("/dev"),))
+
+    def test_unreadable_grant_refuses_and_names_the_form(self) -> None:
+        base = '(allow file-write* (subpath "/private/tmp/"))\n'
+        for bad in (
+            '(allow file-write* (prefix "/opt"))',
+            r'(allow file-write* (regex (string-append "^" (regex-quote (param "_HOME")) "/\\.local/bin/claude[^/]*$")))',
+            '(allow file-write* (require-all (subpath "/a") (require-not (literal "/a/b"))))',
+            '(allow file-write* (subpath (param "_X")))',
+            '(allow file-write* (literal (param "_PROJECT_DIR")))',
+            "(allow file-write*)",
+            "(allow file-write-data (vnode-type REGULAR-FILE))",
+            "(allow default)",
+            "(allow file*)",
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(warrant.Refused) as caught:
+                    warrant.write_grants(base + bad, self.home)
+                self.assertIn(bad, str(caught.exception))
+
+    def test_deny_forms_and_read_grants_yield_no_root(self) -> None:
+        profile = "\n".join(
+            [
+                "(deny default)",
+                "(allow file-read*)",
+                '(deny file-write* (subpath (string-append (param "_HOME") "/.ssh")))',
+                '(deny file-read* (subpath (string-append (param "_HOME") "/.gnupg")))',
+                '(allow file-read* (literal (string-append (param "_HOME") "/.ssh/agent_github")))',
+                "(allow network*)",
+                "(allow process-exec)",
+                home_grant("/.claude"),
+            ],
+        )
+        self.assertEqual(
+            warrant.write_grants(profile, self.home), (self.home / ".claude",)
+        )
+
+    def test_missing_or_grantless_profile_refuses(self) -> None:
+        with self.assertRaises(warrant.Refused):
+            warrant.load_profile(self.home / "absent.sb", self.home)
+        with self.assertRaises(warrant.Refused):
+            warrant.write_grants(
+                "(version 1)\n(deny default)\n(allow file-read*)\n", self.home
+            )
+
+    def test_live_profile_parses_completely(self) -> None:
+        if not warrant.PROFILE.is_file():
+            self.skipTest(f"{warrant.PROFILE} absent")
+        home = Path.home().resolve()
+        roots = warrant.load_profile(warrant.PROFILE, home)
+        self.assertIn((home / ".claude").resolve(), roots)
+        self.assertIn(Path("/private/tmp"), roots)
+        site = self.site(roots)
+        for trusted in (
+            home / "bin" / "warrant",
+            home / "bin" / "run-agent",
+            home / ".config" / "warrant",
+            home / ".config" / "seatbelt" / "ai-agents.sb",
+        ):
+            self.assertFalse(warrant.agent_writable(site, trusted), trusted)
+
+    def test_live_profile_path_matches_run_agent(self) -> None:
+        if not warrant.LAUNCHER.is_file():
+            self.skipTest(f"{warrant.LAUNCHER} absent")
+        [line] = [
+            row
+            for row in warrant.LAUNCHER.read_text().splitlines()
+            if row.startswith("SANDBOX_PROFILE=")
+        ]
+        rel = line.split('"$HOME/', 1)[1].rstrip('"')
+        self.assertEqual(warrant.PROFILE, Path.home() / rel)
+
+    def test_preflight_refuses_a_profile_that_grants_its_own_directory(self) -> None:
+        with patch.object(warrant, "PROFILE", self.home / "seatbelt" / "p.sb"):
+            with self.assertRaises(warrant.Refused) as caught:
+                warrant.preflight(self.site((self.home / "seatbelt",)))
+        self.assertIn("profile", str(caught.exception))
+
+    def test_preflight_refuses_a_grant_over_run_agent(self) -> None:
+        with patch.object(warrant, "LAUNCHER", self.home / "bin" / "run-agent"):
+            with self.assertRaises(warrant.Refused) as caught:
+                warrant.preflight(self.site((self.home / "bin",)))
+        self.assertIn("launcher", str(caught.exception))
 
 
 if __name__ == "__main__":

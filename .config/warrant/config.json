@@ -1,37 +1,5 @@
 {
   "_comment": "Mirror of the file-write allow list in ~/.config/seatbelt/ai-agents.sb (2026-10-17). Edit both together. warrant refuses an executable under these paths and re-hashes argument files under them right before launch. The project dir of a run-agent session is also writable but unknown here; ~/git/src covers the usual repos. ~/.local/bin (mise) and ~/.local/share/claude (claude update) are trusted because the profile no longer lets agents write them.",
-  "agent_writable_roots": [
-    "~/.claude",
-    "~/.claude.json",
-    "~/.cache",
-    "~/.ollama",
-    "~/.Trash",
-    "~/git/src",
-    "~/.kiro",
-    "~/Library/Application Support/kiro-cli",
-    "~/.aws/sso/cache",
-    "~/.copilot",
-    "~/.codex",
-    "~/.pi",
-    "~/Library/Caches",
-    "~/Library/Logs",
-    "~/.local/state",
-    "~/.local/share/engram",
-    "~/.gemini",
-    "~/.npm/_cacache",
-    "~/.npm/_logs",
-    "~/.cargo/registry",
-    "~/.cargo/git",
-    "~/go/pkg/mod",
-    "~/Library/pnpm/store",
-    "~/Library/Developer/Xcode/DerivedData",
-    "/private/tmp",
-    "/tmp",
-    "/private/var/folders",
-    "/var/folders",
-    "/dev"
-  ],
-  "agent_writable_globs": [],
   "trusted_exe_roots": [
     "/usr/bin",
     "/bin",
@@ -56,7 +24,9 @@
     "TZ"
   ],
   "exec_path": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/Users/bob/.local/bin",
-  "inherit_env": ["SSH_AUTH_SOCK"],
+  "inherit_env": [
+    "SSH_AUTH_SOCK"
+  ],
   "request_ttl_sec": 86400,
   "exec_timeout_sec": 600
 }

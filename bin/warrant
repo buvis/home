@@ -24,6 +24,9 @@ the human may approve an hour later over SSH from a phone.
 Trust boundary (PRD 00159): this file, its interpreter and ~/.config/warrant
 sit outside every write path ~/.config/seatbelt/ai-agents.sb grants an agent,
 and the profile denies agents reading ~/.config/warrant (PIN hash, ledger).
+The human side reads those write grants from the profile itself at startup
+(PRD 00163, no mirror in config.json) and refuses to broker on any grant it
+cannot read, so a profile change is in force at the next approve.
 The spool sits inside the agent-writable paths, so a request is untrusted
 data until a human has read it here and typed the PIN. A 4-8 digit PIN is
 only safe with the hash unreadable plus two gates in approve: the attempt is
@@ -40,12 +43,12 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import fnmatch
 import getpass
 import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import shlex
 import stat
@@ -59,6 +62,15 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".config" / "warrant"
 SPOOL = Path(f"/private/tmp/warrant-{os.getuid()}")
 NOTIFY_HOOK = Path.home() / ".claude" / "hooks" / "notify.py"
+PROFILE = Path.home() / ".config" / "seatbelt" / "ai-agents.sb"  # the one profile ~/bin/run-agent hands to sandbox-exec
+LAUNCHER = Path.home() / "bin" / "run-agent"
+# Write-grant shapes the profile parser reads. Any other sub-form of an allow-write form refuses the broker:
+# a grant the parser missed would make warrant trust a path agents can write.
+RUNTIME_PARAMS = ("_PROJECT_DIR", "_TMPDIR")  # set per session by run-agent; _TMPDIR lands under /private/var/folders/
+FILTER = re.compile(r"\((?!allow |string-append |param |regex-quote )")
+HOME_PATH = re.compile(r'\((?:subpath|literal) \(string-append \(param "_HOME"\) "([^"]*)"\)\)')
+ABS_PATH = re.compile(r'\((?:subpath|literal) "(/[^"]*)"\)')
+PARAM_PATH = re.compile(r'\(subpath \(param "(\w+)"\)\)')
 ID_HEX_LEN = 32
 HEAD_LINES = 20
 HEAD_MAX_BYTES = 64 * 1024
@@ -70,7 +82,7 @@ LOCKOUT_AFTER, LOCKOUT_WINDOW_SEC = 3, 600
 SETTLED = {"executed", "rejected", "refused", "timeout"}
 OUTPUT_CAP = 1_000_000
 EXIT_NO_VERDICT, EXIT_REJECTED, EXIT_REFUSED = 124, 125, 126
-REQUIRED_CONFIG = ("agent_writable_roots", "trusted_exe_roots", "exec_path", "request_ttl_sec", "exec_timeout_sec")
+REQUIRED_CONFIG = ("trusted_exe_roots", "exec_path", "request_ttl_sec", "exec_timeout_sec")
 Out = Callable[[str], None]
 Secret = Callable[[str], str]
 
@@ -84,6 +96,7 @@ class Site:
     spool: Path
     config_dir: Path
     config: dict | None = None
+    writable: tuple[Path, ...] = ()  # resolved roots the Seatbelt profile lets agents write (load_profile)
 
     @property
     def requests(self) -> Path:
@@ -171,22 +184,64 @@ def load_config(path: Path) -> dict:
     return config
 
 
-def agent_writable(site: Site, path: Path) -> bool:
-    """True when `path` (already resolved) lies under a root or glob the Seatbelt profile lets agents write.
+def grants_write(form: str) -> bool:
+    """Whether a top-level `(allow ...)` form grants any write: a file-write operation, `file*`, or `default`."""
+    ops = form[len("(allow "):].split("(", 1)[0].rstrip(")").split()
+    return any(op == "default" or op.startswith(("file*", "file-write")) for op in ops)
 
-    Roots are resolved too: Seatbelt matches real paths, and /tmp, /var and
-    ~/.claude/projects are symlinks on this machine.
+
+def write_grants(profile: str, home: Path) -> tuple[Path, ...]:
+    """Resolved roots the Seatbelt profile lets agents write, read from its top-level allow forms.
+
+    `_HOME` is the resolved home run-agent passes; `_PROJECT_DIR` and `_TMPDIR`
+    are per-session and skipped. Deny forms are ignored on purpose: honoring
+    them could only make warrant trust more. Roots are resolved because
+    Seatbelt matches real paths, and /tmp, /var and ~/.claude/projects are
+    symlinks on this machine.
     """
-    roots = [Path(root).expanduser().resolve() for root in site.config["agent_writable_roots"]]
-    if any(path == root or root in path.parents for root in roots):
-        return True
-    globs = [Path(glob).expanduser() for glob in site.config.get("agent_writable_globs", [])]
-    return any(fnmatch.fnmatchcase(str(path), str(glob.parent.resolve() / glob.name)) for glob in globs)
+    text = re.sub(r";.*", "", profile)
+    forms, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                forms.append(" ".join(text[start:i + 1].split()))
+    roots: list[Path] = []
+    for form in (f for f in forms if f.startswith("(allow ") and grants_write(f)):
+        paths = [home / rel.lstrip("/") for rel in HOME_PATH.findall(form)]
+        paths += [Path(absolute) for absolute in ABS_PATH.findall(form)]
+        params = PARAM_PATH.findall(form)
+        filters = FILTER.findall(form)
+        if not filters or len(paths) + len(params) != len(filters) or any(p not in RUNTIME_PARAMS for p in params):
+            raise Refused(f"unreadable write grant in the Seatbelt profile: {form}")
+        roots += paths
+    if not roots:
+        raise Refused("no write grant found in the Seatbelt profile")
+    return tuple(root.resolve() for root in roots)
+
+
+def load_profile(path: Path, home: Path) -> tuple[Path, ...]:
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        raise Refused(f"cannot read the Seatbelt profile {path}: {exc}") from exc
+    return write_grants(text, home)
+
+
+def agent_writable(site: Site, path: Path) -> bool:
+    """True when `path` (already resolved) is, or lies under, a root the Seatbelt profile lets agents write."""
+    return any(path == root or root in path.parents for root in site.writable)
 
 
 def preflight(site: Site) -> None:
     """Refuse to broker when any trusted component could have been written by an agent."""
-    for label, path in (("warrant", Path(__file__)), ("interpreter", Path(sys.executable)), ("config dir", site.config_dir)):
+    trusted = (("warrant", Path(__file__)), ("interpreter", Path(sys.executable)), ("config dir", site.config_dir),
+               ("profile", PROFILE), ("launcher", LAUNCHER))
+    for label, path in trusted:
         real = path.resolve()
         if agent_writable(site, real):
             raise Refused(f"{label} {real} lies inside an agent-writable path; refusing to act as a broker")
@@ -593,7 +648,7 @@ def main(argv: list[str]) -> int:
                        wait=not args.no_wait)
     if args.verb == "wait":
         return wait_for(Site(SPOOL, CONFIG_DIR), args.id, args.timeout, print)
-    site = Site(SPOOL, CONFIG_DIR, load_config(CONFIG_DIR / "config.json"))
+    site = Site(SPOOL, CONFIG_DIR, load_config(CONFIG_DIR / "config.json"), load_profile(PROFILE, Path.home().resolve()))
     preflight(site)
     if args.verb == "list":
         return list_requests(site, print)
