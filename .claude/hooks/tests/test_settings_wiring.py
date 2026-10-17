@@ -10,7 +10,8 @@ dispatch.ROUTES) and nothing asserts that settings.json still wires
 dispatch.py at all. This file is that guardrail: it binds to the live
 settings.json (not a frozen fixture) so a future edit that drops or narrows
 the dispatcher entries fails loud instead of silently turning off every
-personal hook.
+personal hook. Third-party hooks (moshi, herdr) sit beside the dispatcher on
+the same events since 646f1401; only entries invoking hooks/dispatch.py count.
 
 Matcher coverage (last test) compares the '|'-joined alternatives in each
 settings.json matcher against the '|'-joined alternatives in dispatch.ROUTES's
@@ -42,8 +43,12 @@ def _load_dispatch():
     if "dispatch" in sys.modules:
         return sys.modules["dispatch"]
     if str(_HOOKS_DIR) not in sys.path:
-        sys.path.insert(0, str(_HOOKS_DIR))  # dispatch.py does `from _common import ...`
-    spec = importlib.util.spec_from_file_location("dispatch", str(_HOOKS_DIR / "dispatch.py"))
+        sys.path.insert(
+            0, str(_HOOKS_DIR)
+        )  # dispatch.py does `from _common import ...`
+    spec = importlib.util.spec_from_file_location(
+        "dispatch", str(_HOOKS_DIR / "dispatch.py")
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["dispatch"] = mod
     spec.loader.exec_module(mod)
@@ -55,7 +60,15 @@ def _settings() -> dict:
 
 
 def _entries(event: str) -> list[dict]:
-    return _settings().get("hooks", {}).get(event, [])
+    """Entries under hooks.<event> that invoke hooks/dispatch.py."""
+    return [
+        entry
+        for entry in _settings().get("hooks", {}).get(event, [])
+        if any(
+            "hooks/dispatch.py" in hook.get("command", "")
+            for hook in entry.get("hooks", [])
+        )
+    ]
 
 
 def _route_tokens(event: str) -> set[str]:
@@ -108,11 +121,12 @@ class SettingsWiringTests(unittest.TestCase):
         # Must parse — a malformed settings.json breaks the harness.
         json.loads(_SETTINGS_PATH.read_text())
 
-    def test_each_dispatched_event_has_exactly_one_entry(self) -> None:
+    def test_each_dispatched_event_has_exactly_one_dispatcher_entry(self) -> None:
         for event in _EVENT_ARG:
             entries = _entries(event)
             self.assertEqual(
-                len(entries), 1,
+                len(entries),
+                1,
                 f"hooks.{event} must carry exactly one dispatcher entry, "
                 f"found {len(entries)}",
             )
@@ -121,7 +135,8 @@ class SettingsWiringTests(unittest.TestCase):
         for event, arg in _EVENT_ARG.items():
             hooks = _entries(event)[0]["hooks"]
             self.assertEqual(
-                len(hooks), 1,
+                len(hooks),
+                1,
                 f"hooks.{event}[0].hooks must carry exactly one hook entry",
             )
             command = hooks[0]["command"]
@@ -132,7 +147,9 @@ class SettingsWiringTests(unittest.TestCase):
                 f"with the {arg!r} event argument",
             )
 
-    def test_each_dispatched_event_timeout_covers_worst_case_sequential_sum(self) -> None:
+    def test_each_dispatched_event_timeout_covers_worst_case_sequential_sum(
+        self,
+    ) -> None:
         # Handlers for one event run SEQUENTIALLY inside dispatch.py under a
         # single outer command timeout, so that timeout must cover the worst
         # case (over every tool name the event can route for) of the SUMMED
@@ -144,7 +161,8 @@ class SettingsWiringTests(unittest.TestCase):
             self.assertIsInstance(timeout, (int, float))
             minimum = _worst_case_sequential_timeout(event)
             self.assertGreaterEqual(
-                timeout, minimum,
+                timeout,
+                minimum,
                 f"hooks.{event}[0].hooks[0].timeout ({timeout}) is less than "
                 f"the worst-case sequential sum of dispatch.ROUTES handler "
                 f"timeouts for {event} ({minimum})",
