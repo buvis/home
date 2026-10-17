@@ -8,3 +8,5 @@ alias kiro-unbound='run-agent --no-sandbox kiro-cli chat --trust-all-tools'
 alias kiro='run-agent kiro-cli chat --trust-all-tools'
 alias pi-unbound='run-agent --no-sandbox pi'
 alias pi='run-agent pi'
+# A function beats PATH lookup: agents can write the mise dirs ahead of ~/bin (PRD 00160).
+warrant() { "$HOME/bin/warrant" "$@"; }
