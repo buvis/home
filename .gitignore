@@ -3,6 +3,16 @@
 .agents/.braid-state.json
 .agents/backups/
 .claude/*
+# ~/.claude work-management docs (rules/working-documents.md): PRDs and discovery
+# are public; tmp/, probes and scratch under docs/ stay ignored.
+!.claude/docs/
+.claude/docs/*
+!.claude/docs/dev/
+.claude/docs/dev/*
+!.claude/docs/dev/project-management/
+.claude/docs/dev/project-management/*
+!.claude/docs/dev/project-management/prds/
+!.claude/docs/dev/project-management/discovery/
 !.claude/agents/
 !.claude/agents/**
 !.claude/hooks/
