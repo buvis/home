@@ -110,6 +110,12 @@ if [[ $SANDBOX -eq 0 ]]; then
   exec "$@"
 fi
 
+# herdr: the profile denies its sockets (they run commands in the user's
+# panes); status hooks report through ~/bin/herdr-relay instead (PRD 00160).
+if [[ -n "${HERDR_SOCKET_PATH:-}" ]]; then
+  export HERDR_SOCKET_PATH="$HOME/.config/herdr-relay/relay.sock"
+fi
+
 exec /usr/bin/sandbox-exec \
   -f "$SANDBOX_PROFILE" \
   -D "_HOME=$RESOLVED_HOME" \

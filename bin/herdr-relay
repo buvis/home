@@ -1,0 +1,80 @@
+#!/opt/homebrew/bin/python3
+"""herdr-relay: sandboxed agents report status to herdr without reaching pane control (PRD 00160 Q2).
+
+herdr's socket also serves `pane run`, `send-text` and `send-keys`, and herdr
+panes are the user's unsandboxed shells, so ai-agents.sb denies agents the
+real sockets. run-agent points HERDR_SOCKET_PATH at this relay instead, which
+forwards only the display-only report methods the agent hooks send. Each
+request is re-serialized before forwarding, so a client cannot smuggle a
+second request into one line. Runs as the launchd agent com.buvis.herdr-relay.
+"""
+from __future__ import annotations
+
+import json
+import os
+import socket
+import socketserver
+import sys
+from pathlib import Path
+
+ALLOWED = frozenset({"pane.report_agent", "pane.report_agent_session", "pane.report_metadata"})
+UPSTREAM = Path.home() / ".config" / "herdr" / "herdr.sock"
+LISTEN = Path.home() / ".config" / "herdr-relay" / "relay.sock"
+MAX_LINE = 64 * 1024
+TIMEOUT_SEC = 2.0
+
+
+def error(rid: object, code: str, message: str) -> bytes:
+    return json.dumps({"id": rid, "error": {"code": code, "message": message}}).encode() + b"\n"
+
+
+def forward(line: bytes, upstream: Path) -> bytes:
+    """One reply line for one request line; only ALLOWED methods ever reach `upstream`."""
+    try:
+        req = json.loads(line)
+    except ValueError:
+        return error("", "invalid_request", "not JSON")
+    rid = req.get("id", "") if isinstance(req, dict) else ""
+    if not isinstance(req, dict) or req.get("method") not in ALLOWED:
+        return error(rid, "forbidden", f"herdr-relay forwards only {', '.join(sorted(ALLOWED))}")
+    clean = {"id": rid, "method": req["method"], "params": req.get("params", {})}
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(TIMEOUT_SEC)
+            conn.connect(str(upstream))
+            conn.sendall(json.dumps(clean).encode() + b"\n")
+            reply = conn.makefile("rb").readline(MAX_LINE)
+    except OSError as exc:
+        return error(rid, "upstream_unavailable", f"herdr: {exc.strerror or exc}")
+    return reply if reply.endswith(b"\n") else error(rid, "upstream_unavailable", "herdr sent no reply line")
+
+
+class Handler(socketserver.StreamRequestHandler):
+    timeout = 10
+
+    def handle(self) -> None:
+        while line := self.rfile.readline(MAX_LINE):
+            if line.strip():
+                self.wfile.write(forward(line, self.server.upstream))
+
+
+class Relay(socketserver.ThreadingUnixStreamServer):
+    daemon_threads = True
+
+    def __init__(self, listen: Path, upstream: Path) -> None:
+        listen.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        listen.unlink(missing_ok=True)
+        self.upstream = upstream
+        super().__init__(str(listen), Handler)
+
+
+def main() -> int:
+    os.umask(0o077)
+    with Relay(LISTEN, UPSTREAM) as relay:
+        print(f"herdr-relay: {LISTEN} -> {UPSTREAM}", file=sys.stderr, flush=True)
+        relay.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

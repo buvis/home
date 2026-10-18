@@ -32,6 +32,11 @@
 ;; Network — fully allowed
 ;; ---------------------------------------------------------------------------
 (allow network*)
+;; herdr's sockets serve `pane run` / `send-keys` into the user's unsandboxed
+;; panes. Agents report status through ~/bin/herdr-relay instead; run-agent
+;; points HERDR_SOCKET_PATH there (PRD 00160 Q2).
+(deny network-outbound
+  (remote unix-socket (path-regex (string-append "^" (regex-quote (param "_HOME")) "/\\.config/herdr/"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Read access — global allow, then deny secrets
