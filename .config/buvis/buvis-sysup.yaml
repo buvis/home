@@ -1,6 +1,22 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
 commands:
+  # Kiro CLI's background updater left every update DMG mounted (12 stale
+  # "Kiro CLI" volumes on 2026-10-17), so it is off via
+  # `kiro-cli settings app.disableAutoupdates true` and sysup updates it instead,
+  # ejecting whatever the updater leaves behind.
+  kiro-cli:
+    order: 55
+    when: { os: darwin, check: kiro-cli }
+    steps:
+      - [kiro-cli, update, --non-interactive]
+      - - sh
+        - -ec
+        - |
+          for v in "/Volumes/Kiro CLI"*; do
+            if [ -d "$v" ]; then hdiutil detach "$v"; fi
+          done
+
   # herdr's plugins.json holds machine-specific absolute paths, so dotfiles
   # track plugins.txt (owner/repo per line) instead. Install each listed plugin
   # whose clone is missing or behind GitHub HEAD, then rewrite plugins.txt from
