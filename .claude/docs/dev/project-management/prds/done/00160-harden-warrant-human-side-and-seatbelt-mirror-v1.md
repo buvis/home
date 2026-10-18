@@ -208,8 +208,14 @@ Exit criteria: both acceptance checks pass; nothing else changed.
    connects under `~/.config/herdr/`; run-agent repoints `HERDR_SOCKET_PATH`.
    6 relay tests green, live round trip through the real herdr OK, warrant
    parses identical write roots from the staged profile. Residual: an agent
-   can spoof display metadata or agent state on any pane. Pending: host
-   validation (warrant `0ab414fb`), then install on the user's yes.
+   can spoof display metadata or agent state on any pane.
+   **Installed 2026-10-18** on the user's approval (warrant `c7083fff`,
+   buvis `082c8778`; `feb24522` first fixed a warrant profile test that
+   failed when TMPDIR is unset, as under warrant). Host validation inside the
+   new profile: both herdr sockets refuse, `herdr pane list` refused, relay
+   reaches herdr. After install the real Claude SessionStart hook got
+   `{"type":"ok"}` through the relay. The Q2 escape is closed for sessions
+   started after the install; older sessions keep the old profile.
    Out of scope, same escape class: launchd `com.buvis.cellar-sync` runs
    `~/git/src/github.com/buvis/cellar/sync.sh` hourly outside the sandbox,
    and agents can write `~/git/src`.
