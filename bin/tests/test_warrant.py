@@ -537,6 +537,10 @@ class ProfileCase(unittest.TestCase):
         )
 
     def test_home_relative_and_absolute_grants_become_roots(self) -> None:
+        # A sibling of the fake home, not /private/tmp: with TMPDIR unset (as
+        # under warrant) the fake home itself lives in /private/tmp.
+        absolute = Path(tempfile.mkdtemp(prefix="warrant-abs-")).resolve()
+        self.addCleanup(shutil.rmtree, absolute, True)
         profile = "\n".join(
             [
                 ";; comment (with parens) ;;",
@@ -547,7 +551,7 @@ class ProfileCase(unittest.TestCase):
                 home_grant("/.claude.json", "literal"),
                 "(allow file-write*",
                 "    ;; data only",
-                '    (subpath "/private/tmp/")',
+                f'    (subpath "{absolute}/")',
                 '    (subpath (string-append (param "_HOME") "/.cache")))',
             ],
         )
@@ -557,7 +561,7 @@ class ProfileCase(unittest.TestCase):
             {
                 self.home / ".claude",
                 self.home / ".claude.json",
-                Path("/private/tmp"),
+                absolute,
                 self.home / ".cache",
             },
         )
@@ -565,13 +569,13 @@ class ProfileCase(unittest.TestCase):
         for inside in (
             self.home / ".claude" / "deep" / "f",
             self.home / ".claude.json",
-            Path("/tmp/x").resolve(),
+            absolute / "x",
         ):
             self.assertTrue(warrant.agent_writable(site, inside), inside)
         for outside in (
             self.home / ".claudex",
             self.home / ".cache-x" / "f",
-            Path("/private/tmpx"),
+            Path(f"{absolute}x"),
         ):
             self.assertFalse(warrant.agent_writable(site, outside), outside)
 
