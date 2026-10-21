@@ -15,7 +15,9 @@ field keeps the unattended drain from picking it, because every deploy target
 sits outside the sandbox write allowlist and needs a human to approve the `cp`
 through warrant. The agent cannot verify sudo end to end: warden denies `sudo`
 in-session and `approve` works only unsandboxed, so the host protocol is
-Phase 1.
+Phase 1. Backlog review 2026-10-19 (user decision) resolved discovery open
+question 4: the launch refuses when `sudo -k` fails or when a no-prompt sudo
+check right after it succeeds, and Phase 1 qualifies the host sudo policy once.
 
 ## Overview
 
@@ -52,9 +54,13 @@ class of operation where both matter most.
   Pinned by `test_unreadable_executable_runs_stat_pinned` and
   `test_unreadable_agent_writable_file_arg_refuses` green inside the sandbox.
 - Brokered sudo runs exactly one canonical shape (`sudo CMD ARG...`) and always
-  costs the password. Pinned by `test_sudo_plain_form_resolves_inner_command`,
-  `test_sudo_options_and_assignments_refuse` and
-  `test_sudo_launch_runs_dash_k_before_the_command` green inside the sandbox.
+  costs the password: a failed `sudo -k` or a sudo policy that needs no
+  password refuses the launch. Pinned by
+  `test_sudo_plain_form_resolves_inner_command`,
+  `test_sudo_options_and_assignments_refuse`,
+  `test_sudo_launch_runs_dash_k_before_the_command`,
+  `test_sudo_failed_dash_k_refuses` and
+  `test_sudo_passwordless_policy_refuses` green inside the sandbox.
 - On the host, `/opt/homebrew/bin/python3 -m unittest discover -s ~/bin/tests -t ~/bin/tests -p 'test_warrant*.py'`
   is green with no skipped test, and the host sudo protocol below runs or
   refuses, never strands.
@@ -153,18 +159,30 @@ always charged.
 
 #### Feature: Force the password with sudo -k before launch
 
-- **Description**: Right before launching a sudo request, `execute()` runs the
-  resolved sudo with `-k` to invalidate any cached tty ticket, so root always
-  costs the password even if the approver typed `sudo` in the same pane
-  minutes earlier.
-- **Inputs**: An `Op` whose executable is sudo, about to be executed.
-- **Outputs**: A side effect — the sudo ticket for this tty is invalidated;
-  `-k` needs no password and exits 0.
-- **Behavior**: In `execute()`, when the `Op` is a sudo op, run
-  `subprocess.run([str(op.exe), "-k"], ...)` with output discarded and
-  `check=False`, immediately before the main `subprocess.run`. Resolved
-  decision for discovery open question 1: force the prompt (the safe default);
-  reversible by deleting one line.
+- **Description**: Right before launching a sudo request, `launch()` runs the
+  resolved sudo with `-k` to invalidate any cached tty ticket, then proves
+  with two no-prompt checks that the sudo policy still asks for a password,
+  so root always costs the password even if the approver typed `sudo` in the
+  same pane minutes earlier.
+- **Inputs**: An `Op` whose executable is sudo, after the existing re-checks
+  and before `execute()`.
+- **Outputs**: The tty ticket invalidated and the launch continuing, or a
+  `refused` verdict through `refuse()` with one of two exact messages:
+  `sudo -k failed with exit <N>; root was not launched` or
+  `sudo needs no password on this host; root is not brokered without one`.
+- **Behavior**: Run `[str(op.exe), "-k"]` with stdin `DEVNULL`, output
+  captured and discarded and `check=False`; a non-zero exit refuses. Then run
+  `[str(op.exe), "-n", "-v"]` and `[str(op.exe), "-n", "-l"]` the same way.
+  `-n` never prompts. Per the sudoers manual, `sudo -v` succeeds without a
+  password only when every entry for the user carries NOPASSWD, and `sudo -l`
+  does so when any entry does. Either probe exiting 0 means the policy needs
+  no password for some command: run `-k` once more and refuse. Only when both
+  probes exit non-zero does the launch continue. Neither probe runs the inner
+  command. Settings that override `verifypw` or `listpw`, or a per-command
+  `!authenticate`, can hide an exemption from both probes; the Phase 1 host
+  qualification covers the sudoers state, and a later change stays a named
+  risk. Resolved decisions: discovery open question 1, force the prompt; open
+  question 4, launch probe plus host check (backlog review 2026-10-19).
 
 ### Capability: Fail accidental tty use closed
 
@@ -224,10 +242,10 @@ warrant act (Phase 1); the agent edits staged copies under
   - `review()` - detect sudo, resolve the inner command, call `fingerprint()`,
     refuse agent-writable sudo cwd.
   - `launch()` - re-check with `fingerprint()`; its re-check `OSError` routes
-    through `refuse()`.
+    through `refuse()`; for a sudo op, run `sudo -k` and the two no-prompt
+    probes, and refuse on a failed `-k` or a probe that exits 0.
   - `decide()` - catch `OSError` alongside `Refused` and `ValueError`.
-  - `execute()` - run `sudo -k` before a sudo command; pass
-    `start_new_session=True` for non-sudo children.
+  - `execute()` - pass `start_new_session=True` for non-sudo children.
   - `show()` - print the stat-pinned marker and the `password:` line.
 - New symbols: `fingerprint`
 
@@ -241,7 +259,8 @@ warrant act (Phase 1); the agent edits staged copies under
   `chmod 0o755`; tests name the rule they enforce.
 - **Exports** (new test methods on `WarrantCase`):
   - `test_unreadable_agent_writable_file_arg_refuses` - chmod 000 file argument
-    under `agent_writable_roots` refuses, settles, unblocks.
+    under the fixture's agent-writable root (`self.agentw`) refuses, settles,
+    unblocks.
   - `test_unreadable_non_agent_writable_file_arg_stat_pinned` - an unreadable
     non-agent-writable file argument is stat-pinned and runs.
   - `test_pin_callback_chmods_file_arg_zero_then_launch_refuses` - the PIN
@@ -256,7 +275,13 @@ warrant act (Phase 1); the agent edits staged copies under
   - `test_sudo_options_and_assignments_refuse` - `-u`, `-E` and `FOO=1` forms
     refuse with the options message.
   - `test_sudo_launch_runs_dash_k_before_the_command` - the launch log shows
-    `-k` before the command.
+    `-k`, then the `-n -v` and `-n -l` probes, then the command.
+  - `test_sudo_failed_dash_k_refuses` - a fake sudo whose `-k` exits 1: the
+    request refuses with the `-k` message, settles, and the command never
+    runs.
+  - `test_sudo_passwordless_policy_refuses` - a fake sudo whose `-n -v` or
+    `-n -l` exits 0 (one subtest each): the request refuses with the
+    no-password message, `-k` runs again, and the command never runs.
   - `test_sudo_from_agent_writable_cwd_refuses` - the same sudo request from an
     agent-writable cwd refuses.
   - `test_show_prints_password_rule` - `show()` prints
@@ -265,7 +290,7 @@ warrant act (Phase 1); the agent edits staged copies under
   - `test_detached_child_cannot_open_dev_tty` - a brokered
     `sh -c 'exec </dev/tty'` fails under the fixture (skipped when the test
     process itself has no tty).
-  - New symbols: `test_unreadable_agent_writable_file_arg_refuses`, `test_unreadable_non_agent_writable_file_arg_stat_pinned`, `test_pin_callback_chmods_file_arg_zero_then_launch_refuses`, `test_unreadable_executable_runs_stat_pinned`, `test_stat_pinned_executable_swapped_inode_refuses`, `test_sudo_plain_form_resolves_inner_command`, `test_sudo_options_and_assignments_refuse`, `test_sudo_launch_runs_dash_k_before_the_command`, `test_sudo_from_agent_writable_cwd_refuses`, `test_show_prints_password_rule`, `test_detached_child_cannot_open_dev_tty`
+  - New symbols: `test_unreadable_agent_writable_file_arg_refuses`, `test_unreadable_non_agent_writable_file_arg_stat_pinned`, `test_pin_callback_chmods_file_arg_zero_then_launch_refuses`, `test_unreadable_executable_runs_stat_pinned`, `test_stat_pinned_executable_swapped_inode_refuses`, `test_sudo_plain_form_resolves_inner_command`, `test_sudo_options_and_assignments_refuse`, `test_sudo_launch_runs_dash_k_before_the_command`, `test_sudo_failed_dash_k_refuses`, `test_sudo_passwordless_policy_refuses`, `test_sudo_from_agent_writable_cwd_refuses`, `test_show_prints_password_rule`, `test_detached_child_cannot_open_dev_tty`
 
 ## Dependency Graph
 
@@ -312,9 +337,10 @@ password forced, and detaches non-sudo children — all pinned by staged tests.
   `test_pin_callback_chmods_file_arg_zero_then_launch_refuses` pass and the
   request settles with a `refused` result and exit 126.
 - [ ] In `docs/dev/tmp/00166-stage/bin/warrant`, add `fingerprint(path)` and
-  replace the three `sha256_file` call sites (`review()` executable,
-  `file_args()`/`inspect_file()`, `launch()` re-check) with it; refuse an
-  unreadable agent-writable path (depends on: Phase 0 crash fix) - Acceptance:
+  route every content-hash read through it: `inspect_file()` (both its
+  `sha256_file` branch and its `read_bytes` branch), `review()`'s executable
+  hash, and both `launch()` re-checks (file arguments and executable); refuse
+  an unreadable agent-writable path (depends on: Phase 0 crash fix) - Acceptance:
   `test_unreadable_executable_runs_stat_pinned` and
   `test_stat_pinned_executable_swapped_inode_refuses` pass.
 - [ ] In `docs/dev/tmp/00166-stage/bin/warrant`, add the sudo branch to
@@ -324,23 +350,26 @@ password forced, and detaches non-sudo children — all pinned by staged tests.
   `test_sudo_plain_form_resolves_inner_command`,
   `test_sudo_options_and_assignments_refuse` and
   `test_sudo_from_agent_writable_cwd_refuses` pass.
-- [ ] In `docs/dev/tmp/00166-stage/bin/warrant`, run `sudo -k` before a sudo
-  command and pass `start_new_session=True` for non-sudo children in
-  `execute()` (depends on: sudo branch) - Acceptance:
-  `test_sudo_launch_runs_dash_k_before_the_command` and
+- [ ] In `docs/dev/tmp/00166-stage/bin/warrant`, run `sudo -k` and the two
+  no-prompt probes in `launch()` before a sudo command, refusing on a failed
+  `-k` or a probe that exits 0, and pass `start_new_session=True` for
+  non-sudo children in `execute()` (depends on: sudo branch) - Acceptance:
+  `test_sudo_launch_runs_dash_k_before_the_command`,
+  `test_sudo_failed_dash_k_refuses`,
+  `test_sudo_passwordless_policy_refuses` and
   `test_detached_child_cannot_open_dev_tty` pass.
 - [ ] In `docs/dev/tmp/00166-stage/bin/warrant`, add the `stat-pinned` marker
   and the `password:` line to `show()` (depends on: fingerprint(), sudo branch)
   - Acceptance: `test_show_prints_password_rule` passes and
   `test_unreadable_executable_runs_stat_pinned` finds `stat-pinned` in the
   review text.
-- [ ] Add the eleven new test methods listed in the test_warrant module block
+- [ ] Add the thirteen new test methods listed in the test_warrant module block
   to `docs/dev/tmp/00166-stage/bin/tests/test_warrant.py` (depends on: all
   above) - Acceptance: `/opt/homebrew/bin/python3 -m unittest discover -s docs/dev/tmp/00166-stage/bin/tests -t docs/dev/tmp/00166-stage/bin/tests -p 'test_warrant.py'`
-  exits 0 with the eleven new tests collected and no skips except the
+  exits 0 with the thirteen new tests collected and no skips except the
   `test_detached_child_cannot_open_dev_tty` tty skip.
 
-**Exit Criteria**: The staged suite passes inside the sandbox with the eleven
+**Exit Criteria**: The staged suite passes inside the sandbox with the thirteen
 new tests present; `rg -n "fingerprint" docs/dev/tmp/00166-stage/bin/warrant`
 shows the helper and its call sites.
 
@@ -362,11 +391,18 @@ so the source is hashed.
   `~/bin/warrant list` passes preflight against the real profile and prints the
   spool or `warrant: nothing pending`; a `diff` of the deployed files against
   the staged copies is empty.
-- [ ] Run the host suite including the mirror
+- [ ] Run the host suite
   (depends on: deploy) - Acceptance:
   `/opt/homebrew/bin/python3 -m unittest discover -s ~/bin/tests -t ~/bin/tests -p 'test_warrant*.py'`
   is green on the host with no skipped test except the tty skip.
-- [ ] Run the host sudo protocol (depends on: deploy) - Acceptance:
+- [ ] Qualify the host sudo policy once (depends on: deploy) - Acceptance: in
+  a host terminal the approver runs `sudo -l` and confirms that no entry
+  carries NOPASSWD or `!authenticate` and that no Defaults line changes the
+  verifypw, listpw or exempt_group settings for this user; the date and result
+  are recorded on this task line. A failed check means: stop, report, and do
+  not run the sudo protocol below; root brokerage stays unqualified on this
+  host.
+- [ ] Run the host sudo protocol (depends on: host sudo qualification) - Acceptance:
   `~/bin/warrant request -- sudo /usr/bin/true` is approved with the PIN, then
   prompts `Password:` even though the approver ran `sudo -v` in the same pane a
   minute earlier, then records `executed ... exit 0`, and the review showed two
@@ -374,10 +410,11 @@ so the source is hashed.
   `~/bin/warrant request -- sudo -u bob id` and `-- sudo FOO=1 id` are refused
   with the options message and nothing runs;
   `~/bin/warrant request -- sh -c 'echo x > /dev/tty'` executes with a non-zero
-  exit and nothing appears on the approver's terminal; a re-submitted
-  `sudo mdutil -E /` runs or is refused, never stranded (the stranded request
-  `bf2aa6d0` is left to expire at its 24h TTL — resolved decision for discovery
-  open question 3).
+  exit and nothing appears on the approver's terminal; the historical stranded
+  request `bf2aa6d0`, if still in the spool, settles as refused (expired) on
+  `~/bin/warrant approve bf2aa6d0b6903a15de1888ff8bde4c9e` without asking for
+  the PIN. Never re-run the old `mdutil -E /` job to verify the fix (discovery
+  00164 success criteria; resolved discovery open question 3).
 - [ ] One commit for the two paths, then push (depends on: host suite green) -
   Acceptance:
   `git --git-dir=~/.buvis --work-tree=~ commit -m "feat(warrant): broker root commands through sudo hardening" -- ':(top)bin/warrant' ':(top)bin/tests/test_warrant.py'`
@@ -392,7 +429,8 @@ so the source is hashed.
 
 - **Happy path**: `sudo /usr/bin/true` approved → Expected: `/usr/bin/sudo`
   stat-pinned and shown, inner `/usr/bin/true` resolved and shown, `sudo -k`
-  run before the command, password prompted, `executed exit 0` recorded.
+  and both no-prompt probes run before the command, password prompted,
+  `executed exit 0` recorded.
 - **Edge case**: unreadable non-agent-writable file argument (a copy of
   `/bin/echo` at mode 0111 in a trusted root) → Expected: stat-pinned and runs;
   the same binary swapped for a new inode after review → refused as changed.
@@ -403,8 +441,14 @@ so the source is hashed.
 ## Risks
 
 - **Root behind a 4-digit PIN**: Mitigated by forcing `sudo -k` before every
-  sudo launch so a fresh ticket cannot skip the password; the review shows the
-  real inner program resolved under trusted roots and launched by absolute path.
+  sudo launch so a fresh ticket cannot skip the password, and by refusing the
+  launch when `-k` fails or a no-prompt probe shows the policy needs no
+  password; the review shows the real inner program resolved under trusted
+  roots and launched by absolute path.
+- **Hidden sudo exemptions**: Settings that override `verifypw` or `listpw`,
+  or a per-command `!authenticate`, can hide a password-free command from both
+  probes. Mitigated by the Phase 1 host qualification; re-run it after any
+  sudoers change.
 - **Root running agent-controlled code**: Mitigated by refusing a sudo request
   whose cwd is agent-writable (`sudo make install` would hand root to the
   agent's Makefile, hooks or package scripts).

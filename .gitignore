@@ -13,6 +13,7 @@
 .claude/docs/dev/project-management/*
 !.claude/docs/dev/project-management/prds/
 !.claude/docs/dev/project-management/discovery/
+!.claude/docs/dev/procedures/
 !.claude/agents/
 !.claude/agents/**
 !.claude/hooks/
