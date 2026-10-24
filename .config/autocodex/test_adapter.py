@@ -159,6 +159,33 @@ def test_no_progress_retry_is_bounded(harness: tuple, monkeypatch: pytest.Monkey
     assert "autoclaude:" not in out.getvalue()
 
 
+@pytest.mark.parametrize(
+    "launch_args, expected_prd",
+    [
+        (("00001-launched.md",), "00001-launched.md"),
+        (("",), "00002-current.md"),
+        ((), "00002-current.md"),
+    ],
+    ids=["state-advanced", "bootstrap", "legacy-caller"],
+)
+def test_metrics_attribute_session_to_launched_prd(
+    harness: tuple, launch_args: tuple[str, ...], expected_prd: str
+) -> None:
+    instance, ap, _ = harness
+    decision = {
+        "phase_end": "build",
+        "signal": "continue",
+        "prd": "00002-current.md",
+        "batch": "test-batch",
+    }
+
+    instance._append_metrics(ap, 10, 20, decision, "done", "gpt-6.1-sol", "low", *launch_args)
+
+    metrics = json.loads((ap / "autocodex-metrics.jsonl").read_text())
+    assert metrics["prd"] == expected_prd
+    assert metrics["prd_end"] == "00002-current.md"
+
+
 @pytest.mark.parametrize("entrypoint, exit_code", [("run", 1), ("run_once", 0)])
 @pytest.mark.parametrize("effort", ["xhigh", "medium"])
 def test_review_pause_records_metrics_before_exit(

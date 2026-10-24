@@ -429,6 +429,7 @@ class CodexLoop(loop.Loop):
         phase_launched: str,
         model: str,
         effort: str,
+        launched_prd: str = "",
     ) -> None:
         row = {
             "ts_start": ts_start,
@@ -440,7 +441,8 @@ class CodexLoop(loop.Loop):
             "phase_launched": phase_launched,
             "phase_end": decision["phase_end"],
             "signal": decision["signal"],
-            "prd": decision["prd"],
+            "prd": launched_prd or decision["prd"],
+            "prd_end": decision["prd"],
             "batch": decision["batch"],
         }
         if self._result:
