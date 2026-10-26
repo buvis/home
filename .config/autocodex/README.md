@@ -124,7 +124,9 @@ remain active. Some inherited diagnostics still name autoclaude.
 
 Requires mise Python 3.12+, authenticated Codex and Claude CLIs, and the installed
 autopilot plugin. The adapter is personal tooling in `~/.config/autocodex`; the
-tracked development shell plugin exposes it as `autocodex`. Its tests use the
+tracked development shell plugin exposes it as `autocodex`, wrapped in
+`~/bin/run-agent` so git commits use the agent identity and `ssh-keygen` signing
+instead of the user's 1Password signer. Its tests use the
 resolved installed plugin and disposable repositories/processes:
 
 ```bash

@@ -419,7 +419,10 @@ autoclaude() {
 # boundaries without adding a second state writer.
 autocodex() {
   # Same keep-awake wrap as autoclaude; short subcommands pay nothing for it.
-  caffeinate -is mise exec -- python3 "$HOME/.config/autocodex/driver.py" "$@"
+  # run-agent gives codex the agent git identity and ssh-keygen signing; bare,
+  # codex inherits ~/.gitconfig's 1Password signer, which fails for agents
+  # (AP 00012 task 2 paused on "1Password: agent returned an error", 2026-10-26).
+  caffeinate -is run-agent mise exec -- python3 "$HOME/.config/autocodex/driver.py" "$@"
 }
 
 start_qwen() {
