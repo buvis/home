@@ -396,7 +396,7 @@ autoclaude() {
   # Lid-closed sleep on battery is not covered; run batches on power.
   # caffeinate execs a binary, so it cannot see the `autopilot` shell function
   # (rc 127 "autopilot: No such file or directory"); call the CLI directly.
-  local _skill _rc _oat="$HOME/.config/claude/setup-token"
+  local _skill _rc _oat="$HOME/.local/secret/claude-setup-token"
   _skill=$(_autopilot_skill_root) || return 1
   # The loop runs on a long-lived `claude setup-token` token when one is on
   # file, scoped to this one command (never exported into the user's shell).
