@@ -396,9 +396,19 @@ autoclaude() {
   # Lid-closed sleep on battery is not covered; run batches on power.
   # caffeinate execs a binary, so it cannot see the `autopilot` shell function
   # (rc 127 "autopilot: No such file or directory"); call the CLI directly.
-  local _skill _rc
+  local _skill _rc _oat="$HOME/.config/claude/setup-token"
   _skill=$(_autopilot_skill_root) || return 1
-  caffeinate -is run-agent python3 "$_skill/cli/__main__.py" loop
+  # The loop runs on a long-lived `claude setup-token` token when one is on
+  # file, scoped to this one command (never exported into the user's shell).
+  # The Keychain login's 8-hourly refresh has revoked every live session at
+  # the refresh window since 2026-10-24, parking healthy PRDs as wrapper_died;
+  # a setup-token never refreshes. rate_limit_event detection is unchanged
+  # (verified 2026-10-26: the stream still carries both windows' utilization).
+  if [ -r "$_oat" ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$(<"$_oat")" caffeinate -is run-agent python3 "$_skill/cli/__main__.py" loop
+  else
+    caffeinate -is run-agent python3 "$_skill/cli/__main__.py" loop
+  fi
   _rc=$?
   unset _AUTOPILOT_LOOP
   return $_rc
