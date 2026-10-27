@@ -119,6 +119,11 @@
 ;; All repos, so a session can work across projects (e.g. the autopilot plugin
 ;; repo from a consumer repo). Git hooks stay denied below.
 (allow file-write* (subpath (string-append (param "_HOME") "/git/src")))
+;; bim: personal knowledge base, writable from any project
+(allow file-write* (subpath (string-append (param "_HOME") "/bim")))
+(deny file-write* (subpath (string-append (param "_HOME") "/bim/.obsidian")))
+(deny file-write* (subpath (string-append (param "_HOME") "/bim/.git/hooks")))
+(deny file-write* (subpath (string-append (param "_HOME") "/bim/.claude")))
 (allow file-write* (subpath (param "_TMPDIR")))
 (allow file-write* (subpath "/private/var/folders/"))
 (allow file-write* (subpath "/private/tmp/"))
