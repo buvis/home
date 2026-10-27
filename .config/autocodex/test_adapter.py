@@ -347,6 +347,22 @@ def test_build_cannot_skip_fresh_review(harness: tuple) -> None:
     assert instance._decide(ap, 0)["signal"] == "paused"
 
 
+def test_build_drains_after_parking_its_prd(harness: tuple) -> None:
+    """oversized_task parked the PRD in hold/ and selection found nothing else:
+    the build session's ("build", "drained") transition is a batch end, not a
+    skipped review (AP 00012, 2026-10-26)."""
+    instance, ap, _ = harness
+    hold = instance.cwd / "docs/dev/project-management/prds/hold"
+    hold.mkdir(parents=True)
+    (hold / "00001-demo.md").write_text("# parked\n")
+    store.init(ap / "state.json", {"prd": "00001-demo.md", "phase": "build", "next_phase": "build"})
+    instance._before = (ap / "state.json").read_bytes()
+    instance._before_state = store.load(ap / "state.json")[0]
+    store.transaction(ap / "state.json", lambda state: {**state, "phase": "done", "next_phase": ""})
+    instance._result = successful(ap / "raw.jsonl")
+    assert instance._decide(ap, 0)["signal"] == "done"
+
+
 def test_failed_session_can_resume_partial_work(harness: tuple) -> None:
     instance, ap, _ = harness
     store.init(ap / "state.json", {"phase": "build", "next_phase": "build"})

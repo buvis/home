@@ -379,7 +379,8 @@ class CodexLoop(loop.Loop):
         if not self._result or not self._result.ok or not changed:
             return self._failed(decision, ap_dir)
         if self._before_state.get("next_phase", "build") in ("", "build") and (
-            decision["next"] == "done" or (not decision["next"] and state.get("prd"))
+            decision["next"] == "done"
+            or (not decision["next"] and state.get("prd") and not self._parked(state["prd"]))
         ):
             decision.update(signal="paused", detail="build skipped the fresh review handoff")
             return decision
@@ -392,6 +393,18 @@ class CodexLoop(loop.Loop):
         self._limit_started = None
         decision["signal"] = "continue" if decision["next"] else "done"
         return decision
+
+    def _parked(self, prd: Any) -> bool:
+        """A build session drains legitimately once its PRD sits in hold/ (the
+        source's oversized_task / loop-mode stall parks it there and the
+        ("build", "drained") transition empties next_phase): nothing is in
+        flight to review. Anywhere else an empty next_phase from build means
+        the fresh review handoff was skipped."""
+        return (
+            isinstance(prd, str)
+            and bool(prd)
+            and (self.cwd / "docs/dev/project-management/prds/hold" / prd).is_file()
+        )
 
     def _failed(self, decision: dict, ap_dir: Path) -> dict:
         reason = loop.pause.stand_down_reason(ap_dir, self._started)
