@@ -3,7 +3,6 @@
 "cargo:zoxide" = "latest"
 "github:neovim/neovim" = "latest"
 "lazygit" = "latest"
-"npm:@earendil-works/pi-coding-agent" = "latest"
 "npm:@github/copilot" = "latest"
 "npm:pake-cli" = "latest"
 "npm:pnpm" = { version = "latest", allow_builds = ["pnpm"] }
@@ -14,20 +13,15 @@
 # python minor below (reverting any tool that fails to install on it).
 "pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:beets" = { version = "latest", extras = "discogs,lastgenre", uvx_args = "--managed-python --python 3.14" }
 "pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.14" }
 "pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:llm" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:potrace-cli" = { version = "latest", uvx_args = "--managed-python --python 3.14 --with setuptools<81" }
 "pipx:pre-commit" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:pybooklid" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:pynvim" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:ruff" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:showboat" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:yamllint" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:yt-dlp" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 ast-grep = "latest"
 awscli = { version = "latest", symlink_bins = "true" }
 deno = "latest"
