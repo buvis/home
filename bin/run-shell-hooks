@@ -103,7 +103,7 @@ if [[ $mode == --list ]]; then
   exit 0
 fi
 
-[[ -t 1 ]] && bold=$'\e[1m' off=$'\e[0m' || bold= off=
+[[ -t 1 ]] && hl=$'\e[1;7m' off=$'\e[0m' || hl= off= # bold + reverse video: a highlight bar in the theme's own colors
 
 # ponytail: one global lock, tasks run sequentially; per-task locks if parallel runs are wanted
 if ! mkdir "$state/.lock" 2>/dev/null && kill -0 "$(cat "$state/.lock/pid" 2>/dev/null)" 2>/dev/null; then
@@ -124,7 +124,7 @@ while IFS=$'\x1f' read -r -u 3 name every run icon; do
   fi
   read -r last rc 2>/dev/null < "$state/$name.last" || { last=0; rc=0; }
   if [[ -n $mode ]] || (( now - last >= period )); then
-    printf '\n%s━━ %s %s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n' "$bold" "${icon:-▶}" "$name" "$off"
+    printf '\n%s━━ %s %s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n' "$hl" "${icon:-▶}" "$name" "$off"
     IFS=$'\x1e' read -r -a steps <<< "$run"
     rc=0
     for step in "${steps[@]}"; do
