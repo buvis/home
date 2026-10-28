@@ -2,7 +2,8 @@
 # by ~/bin/run-shell-hooks. Machine-local additions and overrides go in
 # ~/.local/.config/shell-hooks/tasks.yaml (same shape, untracked); a local entry may
 # override any key here or set `enabled: false`. every: <N>(m|h|d|w). `run` is one
-# line or a list of lines run in order, stopping at the first failure. `icon` is optional.
+# line, a list, or a `|` block: several lines run in order, each under a step header,
+# stopping at the first failure. `icon` is optional and marks the task when it runs.
 tasks:
   gita-pull:
     icon: 🔄
