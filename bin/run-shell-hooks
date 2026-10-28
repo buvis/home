@@ -10,6 +10,12 @@
 #     gita-pull:
 #       every: 1d          # <N>(m|h|d|w)
 #       run: gita pull     # one line, passed to bash -c; point it at a script for more
+#       icon: 🔄           # optional, marks the task header and --list row (default ▶)
+#     brew-up:
+#       every: 1w
+#       run:               # a list runs the lines in order and stops at the first failure
+#         - brew update
+#         - brew upgrade
 #   A local entry may override any key of a global task or set `enabled: false`.
 #
 # State: ${XDG_STATE_HOME:-~/.local/state}/shell-hooks/<task>.last = "<epoch> <rc>".
@@ -59,7 +65,11 @@ self_test() {
   out="$(PATH="$yq_dir:$PATH" HOME=$tmp XDG_CONFIG_HOME=$tmp/.config XDG_STATE_HOME=$tmp/.local/state "$0" 2>&1)"
   [[ $out == *"c failed"* && $out != *A* ]] || { echo "self-test: failure memory failed: $out" >&2; exit 1; }
   out="$(PATH="$yq_dir:$PATH" HOME=$tmp XDG_CONFIG_HOME=$tmp/.config XDG_STATE_HOME=$tmp/.local/state "$0" c 2>&1)"
-  [[ $out == *"shell-hooks: c"* ]] || { echo "self-test: forced run failed: $out" >&2; exit 1; }
+  [[ $out == *"── ▶ c ──"* ]] || { echo "self-test: forced run failed: $out" >&2; exit 1; }
+  printf 'tasks:\n  e: {every: 1d, run: [echo E1, echo E2], icon: 🔄}\n  f: {every: 1d, run: [exit 4, echo NOPE]}\n' > "$tmp/.config/shell-hooks/tasks.yaml"
+  out="$(PATH="$yq_dir:$PATH" HOME=$tmp XDG_CONFIG_HOME=$tmp/.config XDG_STATE_HOME=$tmp/.local/state "$0" 2>&1)"
+  [[ $out == *"── 🔄 e ──"* && $out == *E1* && $out == *E2* && $out != *NOPE* ]] || { echo "self-test: list run failed: $out" >&2; exit 1; }
+  [[ "$(<"$tmp/.local/state/shell-hooks/f.last")" == *" 4" ]] || { echo "self-test: list run rc not stamped" >&2; exit 1; }
   rm -rf "$tmp"
   echo "self-test ok"
 }
@@ -76,18 +86,20 @@ for f in "$global" "$local_cfg"; do [[ -f $f ]] && files+=("$f"); done
 [[ ${#files[@]} -eq 0 ]] && exit 0
 
 # Merge local over global by key; with one file, merging it with itself is the identity.
+# A list-form `run` becomes one `a && b` line, so the sequence stops at the first failure.
 # ponytail: one line per task; a multi-line `run` surfaces as a "needs every and run" warning
-tasks="$(SEP=$'\x1f' yq ea 'select(fi == 0) * select(fi == 1) | .tasks // {} | to_entries[] | select(.value.enabled != false) | [.key, .value.every // "", .value.run // ""] | join(strenv(SEP))' "${files[0]}" "${files[1]:-${files[0]}}")" \
+tasks="$(SEP=$'\x1f' yq ea 'select(fi == 0) * select(fi == 1) | .tasks // {} | to_entries[] | select(.value.enabled != false) | with(select(.value.run | tag == "!!seq"); .value.run |= join(" && ")) | [.key, .value.every // "", .value.run // "", .value.icon // ""] | join(strenv(SEP))' "${files[0]}" "${files[1]:-${files[0]}}")" \
   || { echo "shell-hooks: cannot parse ${files[*]}" >&2; exit 0; }
 
 mkdir -p "$state"
 
 if [[ $mode == --list ]]; then
-  printf '%-20s %-6s %-12s %s\n' TASK EVERY LAST RC
-  while IFS=$'\x1f' read -r -u 3 name every run; do
+  printf '%-22s %-6s %-12s %s\n' TASK EVERY LAST RC
+  while IFS=$'\x1f' read -r -u 3 name every run icon; do
     [[ -z $name ]] && continue
     read -r last rc 2>/dev/null < "$state/$name.last" || { last=0; rc=-; }
-    printf '%-20s %-6s %-12s %s\n' "$name" "$every" "$(ago "$last")" "$rc"
+    # ponytail: printf pads by characters, so a 2-cell emoji shifts its row one cell right
+    printf '%-22s %-6s %-12s %s\n' "${icon:-▶} $name" "$every" "$(ago "$last")" "$rc"
   done 3<<< "$tasks"
   exit 0
 fi
@@ -101,7 +113,7 @@ echo $$ > "$state/.lock/pid"
 trap 'rm -rf "$state/.lock"' EXIT
 
 found=0
-while IFS=$'\x1f' read -r -u 3 name every run; do
+while IFS=$'\x1f' read -r -u 3 name every run icon; do
   [[ -z $name ]] && continue
   [[ -n $mode && $mode != "$name" ]] && continue
   found=1
@@ -111,7 +123,7 @@ while IFS=$'\x1f' read -r -u 3 name every run; do
   fi
   read -r last rc 2>/dev/null < "$state/$name.last" || { last=0; rc=0; }
   if [[ -n $mode ]] || (( now - last >= period )); then
-    echo "shell-hooks: $name"
+    printf '\n── %s %s ──────────────────────────────────────\n' "${icon:-▶}" "$name"
     bash -c "$run"
     rc=$?
     echo "$(date +%s) $rc" > "$state/$name.last"
