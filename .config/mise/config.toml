@@ -8,7 +8,6 @@
 "npm:@google/gemini-cli" = "latest"
 "npm:pake-cli" = "latest"
 "npm:pnpm" = { version = "latest", allow_builds = ["pnpm"] }
-"npm:postman-cli" = "latest"
 "npm:tree-sitter-cli" = { version = "latest", allow_builds = ["tree-sitter-cli"] }
 # pipx tools run on uv-managed python so mise python bumps can't break their venvs.
 # sysup keeps them current: `uv python upgrade` handles patches in place, and the
