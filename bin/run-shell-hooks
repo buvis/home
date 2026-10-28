@@ -103,7 +103,7 @@ if [[ $mode == --list ]]; then
   exit 0
 fi
 
-[[ -t 1 ]] && hl=$'\e[1;7m' off=$'\e[0m' || hl= off= # bold + reverse video: a highlight bar in the theme's own colors
+[[ -t 1 ]] && hl=$'\e[1;97;44m' off=$'\e[0m' || hl= off= # bold base3 on blue (#268bd2) in a solarized palette
 
 # ponytail: one global lock, tasks run sequentially; per-task locks if parallel runs are wanted
 if ! mkdir "$state/.lock" 2>/dev/null && kill -0 "$(cat "$state/.lock/pid" 2>/dev/null)" 2>/dev/null; then
