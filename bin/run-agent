@@ -102,6 +102,19 @@ if [[ -r "$GH_AGENT_CONFIG_DIR/copilot-token" ]]; then
   export COPILOT_GITHUB_TOKEN
 fi
 
+# Claude Code: long-lived `claude setup-token`. Without it every session
+# shares one Keychain OAuth login whose 8h refresh races across concurrent
+# processes; a replayed refresh token revokes the whole family and forces
+# /login about twice a day (anthropics/claude-code#24317). A setup-token
+# never refreshes. Create it once: claude setup-token > ~/.local/secret/claude-setup-token
+# Cost (verified 2026-10-29): claude.ai MCP connectors (Docs, Context7, Reader)
+# and /usage are unavailable on a setup-token. RUN_AGENT_CLAUDE_LOGIN=1 skips
+# the token for one session and uses the Keychain login instead.
+if [[ -z "${RUN_AGENT_CLAUDE_LOGIN:-}" && -r "$HOME/.local/secret/claude-setup-token" ]]; then
+  CLAUDE_CODE_OAUTH_TOKEN="$(<"$HOME/.local/secret/claude-setup-token")"
+  export CLAUDE_CODE_OAUTH_TOKEN
+fi
+
 # ------------------------------------------------------------
 # Launch inside macOS Seatbelt sandbox
 # ------------------------------------------------------------
