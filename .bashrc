@@ -62,6 +62,9 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 # Use non-local gateway in faas-cli
 export OPENFAAS_URL=https://fn.buvis.net
 
+# Autopilot wave worktrees go under ~/git/src/worktrees/<repo>/, never beside the repo
+export AUTOPILOT_WORKTREE_ROOT="$HOME/git/src/worktrees"
+
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 case ":$PATH:" in
