@@ -60,6 +60,7 @@ The user runs a hand-off top to bottom and does not read ahead. Write it so that
 ## Conventions
 
 - Repos live at `~/git/src/github.com/{org}/{repo}` (Go-style layout).
+- **`buvis/claude-autopilot` is FROZEN (2026-11-01).** Never edit, commit, push, or run a loop there; autopilot work goes to `buvis/agent-plugins/plugins/autopilot` through its port inventory. Report a live bug in the installed plugin to the user instead of patching the old repo. Local hooks refuse commits and pushes; only the user lifts the freeze.
 - Git worktrees live at `~/git/src/worktrees/{repo}/{name}`, never beside the repo or anywhere under `~/git/src/github.com/` (that tree holds repos only). Create them with `git worktree add ~/git/src/worktrees/{repo}/{name}`; relocate a misplaced one with `git worktree move`, not `mv`. (2026-11-01: a closeout coordinator put four lanes in `buvis/agent-skills-closeout/`.)
 - Name tools, plugins, and projects with evocative single words (warden, strunk) over descriptive concatenations; offer 3-4 candidates with rationale.
 - When a standing rule already mandates a change discovered mid-task, produce the reversible artifact instead of asking; flag user-facing impact in the summary.
