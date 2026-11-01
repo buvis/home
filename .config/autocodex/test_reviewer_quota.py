@@ -37,6 +37,7 @@ def rejected(reset: object = 130, status: object = 429) -> driver.Events:
 
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    monkeypatch.setenv("AUTOCODEX_ANTHROPIC_BACKENDS", "claude")
     now = [100.0]
     monkeypatch.setattr(driver.time, "time", lambda: now[0])
     monkeypatch.setattr(driver.time, "monotonic", lambda: now[0])
@@ -232,7 +233,12 @@ def test_reviewer_cli_waits_for_real_process_reset_and_retains_attempts(tmp_path
     prompt = tmp_path / "prompt.md"
     prompt.write_text("Synthetic quota test")
     output = tmp_path / "bob.md"
-    env = dict(os.environ, AUTOCODEX_CLAUDE_BIN=str(fake), _AUTOPILOT_LIMIT_WAIT_MAX="20")
+    env = dict(
+        os.environ,
+        AUTOCODEX_CLAUDE_BIN=str(fake),
+        _AUTOPILOT_LIMIT_WAIT_MAX="20",
+        AUTOCODEX_ANTHROPIC_BACKENDS="claude",
+    )
     result = subprocess.run(
         [
             sys.executable,

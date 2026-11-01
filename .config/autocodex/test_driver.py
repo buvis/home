@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, create_autospec
 
 import pytest
 
@@ -38,7 +41,8 @@ def test_fast_track_handoff_is_detected() -> None:
     assert not driver.is_fast_track_handoff(None)
 
 
-def test_driver_uses_codex_native_flags(tmp_path: Path) -> None:
+def test_driver_uses_codex_native_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(driver.sys, "platform", "linux")
     argv = driver.codex_argv("codex", "gpt-6.1-sol", "high", tmp_path)
     assert argv[:3] == ["codex", "exec", "--json"]
     assert "--approve-for-me" in argv
@@ -46,6 +50,93 @@ def test_driver_uses_codex_native_flags(tmp_path: Path) -> None:
     assert "--permission-mode" not in argv
     assert "--dangerously-bypass-approvals-and-sandbox" not in argv
     assert "resume" not in argv
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "protected"),
+    [(1, 0, True), (0, 0, False), (-1, 1, False), (2, 0, False), (1, 1, False)],
+)
+def test_codex_sandbox_selection_requires_verified_seatbelt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    error: int,
+    protected: bool,
+) -> None:
+    monkeypatch.setattr(driver.sys, "platform", "darwin")
+
+    def check(_pid: int, operation: bytes | None, filter_type: int) -> int:
+        ctypes.set_errno(error)
+        return status
+
+    probe = create_autospec(check, side_effect=check)
+    library = create_autospec(ctypes.CDLL, return_value=SimpleNamespace(sandbox_check=probe))
+    monkeypatch.setattr(ctypes, "CDLL", library)
+    ctypes.set_errno(99)
+
+    argv = driver.codex_argv("codex", "gpt-6.1-sol", "high", tmp_path)
+
+    library.assert_called_once_with("/usr/lib/libsandbox.dylib", use_errno=True)
+    probe.assert_called_once_with(os.getpid(), None, 0)
+    assert probe.argtypes == [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    assert probe.restype is ctypes.c_int
+    assert ("--approve-for-me" not in argv) is protected
+    assert ("--sandbox" in argv) is protected
+    if protected:
+        assert argv[argv.index("--sandbox") + 1] == "danger-full-access"
+        assert 'approval_policy="on-request"' in argv
+        assert 'approvals_reviewer="auto_review"' in argv
+        assert "--ask-for-approval" not in argv  # exec does not accept this flag.
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_non_darwin_does_not_probe_or_disable_native_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    monkeypatch.setattr(driver.sys, "platform", platform)
+    library = create_autospec(ctypes.CDLL)
+    monkeypatch.setattr(ctypes, "CDLL", library)
+    argv = driver.codex_argv("codex", "gpt-6.1-sol", "low", tmp_path)
+    library.assert_not_called()
+    assert "--approve-for-me" in argv
+    assert "danger-full-access" not in argv
+
+
+@pytest.mark.parametrize("error", [OSError("probe unavailable"), AttributeError("missing symbol")])
+def test_seatbelt_probe_error_preserves_native_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    monkeypatch.setattr(driver.sys, "platform", "darwin")
+    library = create_autospec(ctypes.CDLL, side_effect=error)
+    monkeypatch.setattr(ctypes, "CDLL", library)
+    argv = driver.codex_argv("codex", "gpt-6.1-sol", "low", tmp_path)
+    library.assert_called_once()
+    assert "--approve-for-me" in argv
+    assert "danger-full-access" not in argv
+
+
+def test_gpt_reviewer_uses_the_shared_sandbox_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(driver.sys, "platform", "darwin")
+    probe = Mock(return_value=1)
+    monkeypatch.setattr(
+        ctypes,
+        "CDLL",
+        create_autospec(ctypes.CDLL, return_value=SimpleNamespace(sandbox_check=probe)),
+    )
+    result = driver.Result(0, tmp_path / "raw.jsonl", driver.Events("codex", success=True), False)
+    process = create_autospec(driver.run_process, return_value=result)
+    monkeypatch.setattr(driver, "run_process", process)
+    assert (
+        driver.run_reviewer("review", tmp_path / "review.md", "gpt-6.1-sol", tmp_path, "codex")
+        is result
+    )
+    argv = process.call_args.args[0]
+    assert argv[argv.index("--sandbox") + 1] == "danger-full-access"
+    assert 'approval_policy="on-request"' in argv
+    assert 'approvals_reviewer="auto_review"' in argv
 
 
 def test_external_reviewer_is_claude() -> None:

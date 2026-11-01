@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import driver
 
 FAKE = r"""
@@ -28,6 +30,15 @@ current = state.load(path)[0]
 phase = current["next_phase"]
 if phase == "build":
     state.transaction(path, lambda s: transitions.apply(s,"tasks_done"))
+elif phase == "review" and len(current["tasks"]) > 1:
+    # A fresh sweep session completes the task through the source state writer.
+    current["tasks"][-1].update(status="completed", attempts=[{"attempt":1,"actual_model":"gpt-6.1-sol","actual_provider":"openai","implementor":"codex","outcome":"completed","review_cycle":1}])
+    reports = ap / "reports"
+    audit = json.loads((reports / "00001-demo-implementation-models.json").read_text())
+    audit.update(snapshot=driver.implementation_snapshot(current), fingerprint=driver.implementation_fingerprint(current))
+    audit["evidence"].append({**audit["evidence"][0],"task":"2"})
+    (reports / "00001-demo-tail-sweep-models.json").write_text(json.dumps(audit))
+    state.transaction(path,lambda s:transitions.apply(current,"converged"))
 elif phase == "review":
     evidence = ap / "implementation.jsonl"
     evidence.write_text(json.dumps({"model":"gpt-6.1-sol"}))
@@ -48,7 +59,13 @@ elif phase == "review":
     review_path = ap / "review.md"
     review_path.write_text("\n".join(parts))
     doubts=[{"rule_id":f"D{n}","verdict":"pass"} for n in range(1,6)]
-    state.transaction(path,lambda s:transitions.apply({**s,"doubts_rubric_verdicts":doubts,"review_cycles":[{"cycle":1,"review_file":str(review_path)}]},"converged"))
+    current.update(doubts_rubric_verdicts=doubts,review_cycles=[{"cycle":1,"review_file":str(review_path)}])
+    if os.environ.get("TEST_TAIL_SWEEP") == "1":
+        current["tasks"].append({"id":"2","name":"[D1] Tail sweep: readability","status":"pending","attempts":[]})
+        current["applied_review_batches"] = [str(review_path)+"::decision-gate",str(review_path)+"::tail-sweep"]
+        state.transaction(path,lambda s:current)
+    else:
+        state.transaction(path,lambda s:transitions.apply(current,"converged"))
 elif phase == "done":
     state.transaction(path,lambda s:transitions.apply(s,"drained"))
 print(json.dumps({"type":"thread.started","thread_id":str(os.getpid())}))
@@ -56,7 +73,10 @@ print(json.dumps({"type":"turn.completed","usage":{"output_tokens":1}}))
 """
 
 
-def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> None:
+@pytest.mark.parametrize("tail_sweep", [False, True])
+def test_cli_runs_fresh_phases_and_swaps_external_reviewer(
+    tmp_path: Path, tail_sweep: bool
+) -> None:
     repo = tmp_path / "repo with spaces"
     ap = repo / "docs/dev/project-management/autopilot"
     ap.mkdir(parents=True)
@@ -87,8 +107,10 @@ def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> No
         os.environ,
         AUTOCODEX_BIN=str(fake),
         AUTOCODEX_CLAUDE_BIN=str(fake),
+        AUTOCODEX_ANTHROPIC_BACKENDS="claude",
         AUTOCODEX_SKILL_ROOT=str(driver.skill_root()),
         TEST_DRIVER=str(driver.HERE / "driver.py"),
+        TEST_TAIL_SWEEP="1" if tail_sweep else "0",
         _AUTOPILOT_LOOPS_DIR=str(tmp_path / "registry"),
         PATH=f"{tmp_path}:{os.environ['PATH']}",
     )
@@ -104,9 +126,11 @@ def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> No
     assert "gpt-6.1-sol/low" in result.stdout
     assert "claude-sonnet" not in result.stdout
     assert "claude-opus" not in result.stdout
-    launches = [json.loads(line) for line in (ap / "invocations.jsonl").read_text().splitlines()]
-    assert len(launches) == 6
-    assert len({launch["pid"] for launch in launches}) == 6
+    launches = [
+        json.loads(line) for line in (ap / "invocations.jsonl").read_text().splitlines()
+    ]
+    assert len(launches) == 6 + int(tail_sweep)
+    assert len({launch["pid"] for launch in launches}) == len(launches)
     assert "gpt-6.1-sol" in launches[0]["argv"]
     assert "gpt-6.1-sol" in launches[1]["argv"]
     assert "opus" in launches[2]["argv"]
@@ -120,18 +144,38 @@ def test_cli_runs_fresh_phases_and_swaps_external_reviewer(tmp_path: Path) -> No
 
     completed = json.loads(archived[0].read_text())
     assert review_gap(completed, driver.skill_root(), repo, 1) is None
+    if tail_sweep:
+        original = json.loads(
+            (ap / "reports/00001-demo-implementation-models.json").read_text()
+        )
+        assert len(original["snapshot"]["tasks"]) == 1
+        assert len(completed["tasks"]) == 2
+        assert completed["cycle"] == 1
+        for lens in ("alice", "blake", "bob"):
+            receipt = json.loads((ap / f"{lens}.md.receipt.json").read_text())
+            assert receipt["implementation_fingerprint"] == original["fingerprint"]
+        (ap / "alice.md").write_text("tampered")
+        assert "output changed" in review_gap(completed, driver.skill_root(), repo, 1)
+        receipt = json.loads((ap / "alice.md.receipt.json").read_text())
+        events = driver.Events(receipt["provider"])
+        for line in Path(receipt["raw"]).read_bytes().splitlines():
+            events.accept(line)
+        (ap / "alice.md").write_text(events.text)
     completed.update(phase="review", next_phase="review", cycle=2)
-    completed["tasks"].append({"id": "2", "attempts": []})
+    completed["tasks"].append({"id": "3", "attempts": []})
     assert review_gap(completed, driver.skill_root(), repo, 1) is None
     completed["phase"] = "done"
-    assert "implementation changed" in review_gap(completed, driver.skill_root(), repo, 1)
+    assert "implementation changed" in review_gap(
+        completed, driver.skill_root(), repo, 1
+    )
 
-    assert len(list((ap / "autocodex-sessions").glob("*.jsonl"))) == 3
+    assert len(list((ap / "autocodex-sessions").glob("*.jsonl"))) == 3 + int(tail_sweep)
     metrics = [
-        json.loads(line) for line in (ap / "autocodex-metrics.jsonl").read_text().splitlines()
+        json.loads(line)
+        for line in (ap / "autocodex-metrics.jsonl").read_text().splitlines()
     ]
-    assert [row["effort"] for row in metrics] == ["low", "low", "low"]
-    assert [row["signal"] for row in metrics] == ["continue", "continue", "done"]
+    assert [row["effort"] for row in metrics] == ["low"] * (3 + int(tail_sweep))
+    assert [row["signal"] for row in metrics] == ["continue"] * (2 + int(tail_sweep)) + ["done"]
     assert len(list((tmp_path / "registry").glob("*.json"))) == 0
 
 

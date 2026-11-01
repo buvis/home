@@ -64,6 +64,63 @@ def read_bytes(path: Path) -> bytes | None:
         return None
 
 
+def convergence_gap(state: dict, snapshot: dict, cwd: Path, review: Path) -> str | None:
+    """Allow only the source's completed, append-only post-convergence sweep.
+
+    Original review receipts stay bound to the reviewed snapshot. The companion
+    audit records sweep provenance; it is not another completion review. Task
+    completion remains the source work pipeline's verification/review boundary.
+    """
+    current = driver.implementation_snapshot(state)
+    if current == snapshot:
+        return None
+    refused = "implementation changed since the converged review"
+    reviewed_ids = {task["id"] for task in snapshot["tasks"]}
+    current_ids = [task["id"] for task in current["tasks"]]
+    if len(reviewed_ids) != len(snapshot["tasks"]) or len(set(current_ids)) != len(
+        current_ids
+    ):
+        return refused + ": duplicate task IDs"
+    original = {
+        **current,
+        "tasks": [t for t in current["tasks"] if t["id"] in reviewed_ids],
+    }
+    if original != snapshot:
+        return refused + ": reviewed tasks or cycle/work identity changed"
+    added = [task for task in state["tasks"] if task["id"] not in reviewed_ids]
+    if not added:
+        return refused
+    batches = state.get("applied_review_batches") or []
+    if any(
+        f"{review.resolve()}::{batch}" not in batches
+        for batch in ("decision-gate", "tail-sweep")
+    ):
+        return refused + ": missing current review tail-sweep batch"
+    if any(task.get("status") != "completed" for task in state["tasks"]):
+        return refused + ": incomplete tasks"
+    for task in added:
+        attempts = task.get("attempts") or []
+        if (
+            not task.get("name", "").startswith(f"[D{state['cycle']}] Tail sweep: ")
+            or not attempts
+            or attempts[-1].get("outcome") != "completed"
+            or any(
+                attempt.get("review_cycle") != state["cycle"] for attempt in attempts
+            )
+        ):
+            return refused + ": added task is not a completed current-cycle tail sweep"
+    audit_path = (
+        cwd
+        / "docs/dev/project-management/autopilot/reports"
+        / f"{Path(state['prd']).stem}-tail-sweep-models.json"
+    )
+    try:
+        driver.audited_review_providers(state, cwd, audit_path=audit_path)
+    except (ValueError, OSError, KeyError, IndexError, TypeError) as error:
+        return f"tail-sweep model audit: {error}"
+    return None
+
+
 def review_gap(state: dict, root: Path, cwd: Path, cycle: int) -> str | None:
     from cli import gate
 
@@ -106,10 +163,10 @@ def review_gap(state: dict, root: Path, cwd: Path, cycle: int) -> str | None:
         ):
             return "review audit belongs to another PRD, cycle or work range"
         providers = driver.audited_review_providers(snapshot, cwd)
-        if state.get("phase") == "done" and driver.implementation_fingerprint(
-            state
-        ) != driver.implementation_fingerprint(snapshot):
-            return "implementation changed since the converged review"
+        if state.get("phase") == "done":
+            gap = convergence_gap(state, snapshot, cwd, path)
+            if gap:
+                return gap
     except (ValueError, OSError, KeyError, IndexError, TypeError) as error:
         return f"review provider routing: {error}"
     if not re.search(r"^provider_review_guard: satisfied$", text, re.MULTILINE):
@@ -134,6 +191,138 @@ def review_gap(state: dict, root: Path, cwd: Path, cycle: int) -> str | None:
     return None
 
 
+def stall_snapshot_path(state: dict, cwd: Path) -> Path:
+    """Locate the one immutable receipt for this PRD's capped review cycle."""
+    prd = state["prd"]
+    if not isinstance(prd, str) or Path(prd).name != prd or not prd:
+        raise ValueError("invalid stall PRD")
+    return (cwd / "docs/dev/project-management/autopilot/reports"
+            / f"{Path(prd).stem}-cycle-{state['cycle']}-cap-regression-boundary.json")
+
+
+def _deferred_ledger(ap_dir: Path, batch: str) -> dict:
+    if not isinstance(batch, str) or not batch or "/" in batch or ".." in batch:
+        raise ValueError("invalid stall batch")
+    path = ap_dir / "deferred" / f"{batch}-deferred.json"
+    content = json.loads(path.read_text()) if path.exists() else {"batch_id": batch, "items": []}
+    if (content.get("batch_id") != batch or not isinstance(content.get("items"), list)
+            or not all(isinstance(row, dict) for row in content["items"])):
+        raise ValueError("invalid deferred ledger")
+    return content
+
+
+def capture_stall_review(root: Path, cwd: Path) -> Path:
+    """Preserve verified review evidence before the source's destructive reset."""
+    ap_dir = cwd / "docs/dev/project-management/autopilot"
+    state, _ = state_mod.load(ap_dir / "state.json")
+    schema.validate(state)
+    gap = review_gap(state, root, cwd, state["cycle"])
+    if gap:
+        raise ValueError(f"review stall snapshot refused: {gap}")
+    driver.audited_review_providers(state, cwd)
+    if state["cycle"] < state.get("rework_cap", 3):
+        raise ValueError("review stall snapshot requires the existing rework cap")
+    if not any(row.get("type") == "cap-overflow" for row in state.get("deferred_decisions", [])):
+        raise ValueError("record cap-overflow decisions before the stall snapshot")
+    path = stall_snapshot_path(state, cwd)
+    review = cwd / state["review_cycles"][-1]["review_file"]
+    prd = cwd / "docs/dev/project-management/prds/wip" / state["prd"]
+    payload = {
+        "state": state,
+        "review_sha256": hashlib.sha256(review.read_bytes()).hexdigest(),
+        "prd_sha256": hashlib.sha256(prd.read_bytes()).hexdigest(),
+        "deferred_before": _deferred_ledger(ap_dir, state["batch"]["id"]),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if path.exists():
+            if json.loads(path.read_text()) != payload:
+                raise ValueError(f"stall snapshot already exists with different evidence: {path}")
+        else:
+            state_mod.atomic_write(path, payload)
+    return path
+
+
+def stall_review_gap(state: dict, before: dict, root: Path, cwd: Path) -> str | None:
+    """Validate only a real cap_regression stall, without bypassing review gates."""
+    from cli import custody, records, triage
+
+    try:
+        receipt = json.loads(stall_snapshot_path(before, cwd).read_text())
+        reviewed = receipt["state"]
+        if (driver.implementation_snapshot(reviewed) != driver.implementation_snapshot(before)
+                or reviewed.get("batch") != before.get("batch")
+                or reviewed.get("rework_cap", 3) != before.get("rework_cap", 3)):
+            return "stall snapshot differs from launched PRD, cycle, batch or implementation"
+        driver.audited_review_providers(reviewed, cwd)
+        gap = review_gap(reviewed, root, cwd, before["cycle"])
+        if gap:
+            return gap
+        review = cwd / reviewed["review_cycles"][-1]["review_file"]
+        if hashlib.sha256(review.read_bytes()).hexdigest() != receipt["review_sha256"]:
+            return "review changed after stall snapshot"
+        if reviewed["cycle"] < reviewed.get("rework_cap", 3):
+            return "stall snapshot is below the existing rework cap"
+        if not any(row.get("type") == "cap-overflow" for row in reviewed.get("deferred_decisions", [])):
+            return "stall snapshot has no cap-overflow decisions"
+        ap_dir = cwd / "docs/dev/project-management/autopilot"
+        prds = cwd / "docs/dev/project-management/prds"
+        held = prds / "hold" / reviewed["prd"]
+        if ((prds / "wip" / reviewed["prd"]).exists()
+                or hashlib.sha256(held.read_bytes()).hexdigest() != receipt["prd_sha256"]):
+            return "stall PRD did not move intact to hold"
+        batch_id = reviewed["batch"]["id"]
+        ledger = _deferred_ledger(ap_dir, batch_id)
+        prior = receipt["deferred_before"]
+        prefix = prior["items"]
+        if prior.get("batch_id") != batch_id or ledger["items"][:len(prefix)] != prefix:
+            return "prior deferred ledger changed"
+        added = ledger["items"][len(prefix):]
+        if not added:
+            return "no new canonical stall record"
+        stall = added[0]
+        if (stall.get("type") != "stall" or stall.get("site") != "cap_regression"
+                or stall.get("prd") != reviewed["prd"] or not stall.get("detail")
+                or not isinstance(stall.get("op_id"), str) or not stall["op_id"]
+                or any(row.get("op_id") == stall["op_id"] for row in prefix)):
+            return "deferred record is not a fresh cap_regression stall"
+        expected_rows = custody.migration_records(reviewed, stall["op_id"], reviewed["prd"])
+        if added != [stall, *expected_rows]:
+            return "canonical stall deferral migration differs"
+        expected = records.reset_prd_fields(reviewed)
+        expected["batch"] = {**expected["batch"], "parks_consecutive": 0}
+        expected.pop("stall_op", None)
+        # The source mint-stubs call may append batch bookkeeping after reset.
+        old_stubs = reviewed["batch"].get("minted_stubs", [])
+        new_stubs = state.get("batch", {}).get("minted_stubs", old_stubs)
+        if new_stubs[:len(old_stubs)] != old_stubs or len(set(new_stubs)) != len(new_stubs):
+            return "minted stub history changed"
+        for name in new_stubs[len(old_stubs):]:
+            if not isinstance(name, str) or Path(name).name != name:
+                return "invalid minted stub path"
+            stub = (prds / "hold" / name).read_text()
+            if not any(
+                triage.qualifies(row) and triage.finding_text(row) is not None
+                and stub == triage.render_stub(row, batch_id, triage.ledger_key(triage.finding_text(row)))
+                for row in ledger["items"]
+            ):
+                return "minted stub does not match canonical deferred evidence"
+        if "minted_stubs" in state.get("batch", {}):
+            expected["batch"]["minted_stubs"] = new_stubs
+        candidate = dict(state)
+        # The canonical contract card is handoff prose, outside review provenance.
+        if "contract_card" in candidate:
+            if not isinstance(candidate["contract_card"], str):
+                return "invalid post-stall contract card"
+            candidate.pop("contract_card")
+        if candidate != expected:
+            return "post-stall state differs from the canonical per-PRD reset"
+    except (ValueError, OSError, KeyError, IndexError, TypeError, AttributeError) as error:
+        return f"invalid cap_regression stall evidence: {error}"
+    return None
+
+
 def bob_gap(
     text: str,
     cwd: Path,
@@ -153,7 +342,8 @@ def bob_gap(
         if fingerprint is not None and receipt.get("implementation_fingerprint") != fingerprint:
             return "review receipt belongs to a different implementation snapshot"
         if (
-            receipt["provider"] != ("codex" if provider == "openai" else "claude")
+            receipt["provider"]
+            not in ({"codex"} if provider == "openai" else {"claude", "kiro", "copilot"})
             or (
                 provider is not None
                 and (
@@ -174,7 +364,19 @@ def bob_gap(
         events = driver.Events(receipt["provider"])
         for line in captured.splitlines():
             events.accept(line)
-        if not events.success or events.text.encode() != raw:
+        if receipt["provider"] == "kiro":
+            stderr = Path(receipt["raw"]).with_suffix(".stderr").read_bytes()
+            if (receipt.get("stderr_sha256") is not None
+                    and hashlib.sha256(stderr).hexdigest() != receipt["stderr_sha256"]):
+                return "review stderr evidence changed after dispatch"
+            driver.check_permission_stderr(events, stderr)
+        if receipt["provider"] in {"kiro", "copilot"} and (
+            events.models != {receipt["model"]}
+            or events.efforts != {"xhigh"}
+            or receipt.get("effort") != "xhigh"
+        ):
+            return "review model/effort evidence does not match receipt"
+        if events.permission_denied or not events.success or events.text.encode() != raw:
             return "review output does not match a successful provider result"
         for rule in driver.review_rules(lens):
             if not re.search(rf"^{rule}: (?:pass|fail)\b", raw.decode(), re.MULTILINE):
@@ -385,7 +587,10 @@ class CodexLoop(loop.Loop):
             decision.update(signal="paused", detail="build skipped the fresh review handoff")
             return decision
         if self._before_state.get("next_phase") == "review":
-            gap = review_gap(state, self.root, self.cwd, self._before_state.get("cycle", 1))
+            if state.get("phase") == "build" and state.get("next_phase") == "build":
+                gap = stall_review_gap(state, self._before_state, self.root, self.cwd)
+            else:
+                gap = review_gap(state, self.root, self.cwd, self._before_state.get("cycle", 1))
             if gap:
                 decision.update(signal="paused", detail=f"review boundary refused: {gap}")
                 return decision

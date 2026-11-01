@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import io
 import json
@@ -457,3 +458,143 @@ def test_changed_implementation_invalidates_receipt(bob_receipt: tuple) -> None:
     assert "implementation snapshot" in adapter.bob_gap(
         text, cwd, 2, "00001-demo.md", fingerprint="new"
     )
+
+
+@pytest.fixture
+def tail_sweep(tmp_path: Path) -> tuple:
+    attempt = {
+        "attempt": 1,
+        "actual_model": "gpt-6.1-sol",
+        "actual_provider": "openai",
+        "implementor": "codex",
+        "outcome": "completed",
+        "review_cycle": 2,
+    }
+    state = {
+        "prd": "00001-demo.md",
+        "cycle": 2,
+        "work_start_sha": "base",
+        "phase": "done",
+        "tasks": [
+            {"id": "1", "status": "completed", "attempts": [copy.deepcopy(attempt)]}
+        ],
+    }
+    snapshot = driver.implementation_snapshot(state)
+    review = tmp_path / "review.md"
+    state["applied_review_batches"] = [
+        f"{review}::decision-gate",
+        f"{review}::tail-sweep",
+    ]
+    state["tasks"].append(
+        {
+            "id": "2",
+            "name": "[D2] Tail sweep: fixture readability",
+            "status": "completed",
+            "attempts": [copy.deepcopy(attempt)],
+        }
+    )
+    reports = tmp_path / "docs/dev/project-management/autopilot/reports"
+    reports.mkdir(parents=True)
+    evidence = tmp_path / "model.jsonl"
+    evidence.write_text('{"model":"gpt-6.1-sol"}\n')
+    audit = reports / "00001-demo-tail-sweep-models.json"
+    audit.write_text(
+        json.dumps(
+            {
+                "snapshot": driver.implementation_snapshot(state),
+                "fingerprint": driver.implementation_fingerprint(state),
+                "evidence": [
+                    {
+                        "task": task_id,
+                        "role": "implementation",
+                        "model": "gpt-6.1-sol",
+                        "path": "model.jsonl",
+                        "line": 1,
+                        "sha256": hashlib.sha256(
+                            evidence.read_bytes().rstrip(b"\n")
+                        ).hexdigest(),
+                    }
+                    for task_id in ("1", "2")
+                ],
+            }
+        )
+    )
+    return state, snapshot, tmp_path, review
+
+
+def test_completed_tail_sweep_preserves_review_snapshot(tail_sweep: tuple) -> None:
+    state, snapshot, cwd, review = tail_sweep
+    before = copy.deepcopy(snapshot)
+    assert adapter.convergence_gap(state, snapshot, cwd, review) is None
+    assert snapshot == before
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "ordinary-task",
+        "unfinished",
+        "failed-attempt",
+        "wrong-cycle",
+        "missing-attempt",
+        "changed-original",
+        "removed-original",
+        "duplicate-id",
+        "missing-batch",
+        "old-batch",
+        "changed-cycle",
+        "changed-prd",
+        "changed-base",
+        "missing-audit",
+        "tampered-evidence",
+        "unknown-model",
+        "conflicting-provider",
+    ],
+)
+def test_tail_sweep_does_not_waive_provenance(tail_sweep: tuple, change: str) -> None:
+    state, snapshot, cwd, review = tail_sweep
+    tail = state["tasks"][-1]
+    if change == "ordinary-task":
+        tail["name"] = "[D2] ordinary rework"
+    elif change == "unfinished":
+        tail["status"] = "in_progress"
+    elif change == "failed-attempt":
+        tail["attempts"][-1]["outcome"] = "failed"
+    elif change == "wrong-cycle":
+        tail["attempts"][-1]["review_cycle"] = 1
+    elif change == "missing-attempt":
+        tail["attempts"] = []
+    elif change == "changed-original":
+        state["tasks"][0]["attempts"].append(copy.deepcopy(tail["attempts"][0]))
+    elif change == "removed-original":
+        state["tasks"].pop(0)
+    elif change == "duplicate-id":
+        state["tasks"].append(copy.deepcopy(tail))
+    elif change == "missing-batch":
+        state["applied_review_batches"].pop()
+    elif change == "old-batch":
+        state["applied_review_batches"] = [f"{cwd}/old.md::tail-sweep"]
+    elif change == "changed-cycle":
+        state["cycle"] = 3
+    elif change == "changed-prd":
+        state["prd"] = "another.md"
+    elif change == "changed-base":
+        state["work_start_sha"] = "another"
+    elif change == "missing-audit":
+        (
+            cwd
+            / "docs/dev/project-management/autopilot/reports/00001-demo-tail-sweep-models.json"
+        ).unlink()
+    elif change == "tampered-evidence":
+        (cwd / "model.jsonl").write_text("changed")
+    elif change == "unknown-model":
+        tail["attempts"][-1]["actual_model"] = "auto"
+    elif change == "conflicting-provider":
+        tail["attempts"][-1]["actual_provider"] = "anthropic"
+    assert adapter.convergence_gap(state, snapshot, cwd, review) is not None
+
+
+def test_unchanged_convergence_needs_no_tail_audit(tail_sweep: tuple) -> None:
+    state, _, cwd, review = tail_sweep
+    snapshot = driver.implementation_snapshot(state)
+    assert adapter.convergence_gap(state, snapshot, cwd, review) is None

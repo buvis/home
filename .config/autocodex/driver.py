@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import math
@@ -19,6 +20,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import anthropic_routes
 
 HERE = Path(__file__).resolve().parent
 
@@ -87,9 +90,11 @@ def implementation_fingerprint(state: dict) -> str:
     ).hexdigest()
 
 
-def audited_review_providers(state: dict, cwd: Path) -> list[str]:
+def audited_review_providers(
+    state: dict, cwd: Path, *, audit_path: Path | None = None
+) -> list[str]:
     """Check the coordinator's log audit; never mine arbitrary prose for models."""
-    path = (
+    path = audit_path or (
         cwd
         / "docs/dev/project-management/autopilot/reports"
         / f"{Path(state['prd']).stem}-implementation-models.json"
@@ -144,12 +149,41 @@ def codex_model(model: str, env: dict[str, str]) -> str:
     raise ValueError(f"no Codex mapping for {model!r}; configure an explicit supported model")
 
 
+def inherited_seatbelt() -> bool:
+    """Only disable Codex's sandbox when Darwin confirms an inherited sandbox."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        # Chromium's sandbox/mac/seatbelt.cc documents this NULL-operation probe:
+        # sandbox_check(getpid(), NULL, 0) returns 1 when already sandboxed.
+        library = ctypes.CDLL("/usr/lib/libsandbox.dylib", use_errno=True)
+        check = library.sandbox_check
+        check.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+        check.restype = ctypes.c_int
+        ctypes.set_errno(0)
+        status = check(os.getpid(), None, 0)
+        return status == 1 and ctypes.get_errno() == 0
+    except (OSError, AttributeError):
+        # Missing libraries/symbols or probe errors retain Codex's native sandbox.
+        return False
+
+
 def codex_argv(binary: str, model: str, effort: str, cwd: Path) -> list[str]:
+    permissions = ["--approve-for-me"]
+    if inherited_seatbelt():
+        permissions = [
+            "--sandbox",
+            "danger-full-access",
+            "-c",
+            'approval_policy="on-request"',
+            "-c",
+            'approvals_reviewer="auto_review"',
+        ]
     return [
         binary,
         "exec",
         "--json",
-        "--approve-for-me",
+        *permissions,
         "--cd",
         str(cwd),
         "--model",
@@ -221,6 +255,11 @@ class Events:
     thread_id: str = ""
     quota_reset: float | None = None
     api_status: int | None = None
+    models: set[str] = field(default_factory=set)
+    efforts: set[str] = field(default_factory=set)
+    selected_model: str = ""
+    selected_effort: str = ""
+    permission_denied: bool = False
 
     def accept(self, line: bytes) -> bool:
         try:
@@ -229,6 +268,8 @@ class Events:
             return False
         if not isinstance(event, dict):
             return False
+        if self.provider in {"kiro", "copilot"}:
+            return anthropic_routes.accept(self, event)
         kind = event.get("type")
         if self.provider == "claude":
             if kind == "rate_limit_event":
@@ -292,7 +333,21 @@ class Result:
 
     @property
     def ok(self) -> bool:
-        return self.returncode == 0 and self.events.success and not self.stalled
+        return (
+            self.returncode == 0 and self.events.success
+            and not self.events.permission_denied and not self.stalled
+        )
+
+
+def check_permission_stderr(events: Events, captured: bytes) -> None:
+    """Kiro can exit zero after emitting a denial only on stderr."""
+    if events.provider == "kiro" and re.search(
+        rb"(?m)^\[denied\] tool permission approval is not supported in non-interactive mode\.",
+        captured,
+    ):
+        events.permission_denied = True
+        events.success = False
+        events.error = "Kiro tool permission approval unavailable in non-interactive mode"
 
 
 def signal_group(pid: int, sig: int) -> None:
@@ -444,7 +499,10 @@ def run_process(
                 cwd,
                 {log, stem.with_suffix(".stderr")},
             )
-            return Result(proc.wait(), log, events, stalled)
+            returncode = proc.wait()
+            stderr.flush()
+            check_permission_stderr(events, stem.with_suffix(".stderr").read_bytes())
+            return Result(returncode, log, events, stalled)
         finally:
             stop_group(proc, grace)
             assert proc.stdout is not None
@@ -490,26 +548,66 @@ def run_reviewer(prompt: str, output: Path, model: str, cwd: Path, binary: str) 
         env.get("AUTOCODEX_REVIEWER_STALL_TIMEOUT", env.get("AUTOCODEX_STALL_TIMEOUT", "1800"))
     )
     wait_deadline = time.monotonic() + int(env.get("_AUTOPILOT_LIMIT_WAIT_MAX", "21600"))
-    while True:
-        stem = output.parent / f"{output.stem}-{uuid.uuid4().hex}"
-        result = run_process(
-            (
-                codex_argv(binary, model, role_effort("review", env), cwd)
-                if model_provider_for_review(model) == "openai"
-                else claude_argv(binary, model)
-            ),
-            prompt,
-            cwd,
-            env,
-            stem,
-            stall_timeout,
-            provider="codex" if model_provider_for_review(model) == "openai" else "claude",
+    is_openai = model_provider_for_review(model) == "openai"
+    routes = ["codex"] if is_openai else anthropic_routes.backends(env)
+    result: Result | None = None
+    for route in routes:
+        if (cwd / "docs/dev/project-management/autopilot/pause-requested").exists():
+            raise ValueError("review dispatch stopped by operator pause")
+        selected = (
+            model if route in {"codex", "claude"} else anthropic_routes.concrete_model(model, env)
         )
-        if model_provider_for_review(model) == "openai" or not wait_for_reviewer_quota(
-            result, cwd, wait_deadline
+        command = (
+            codex_argv(binary, model, role_effort("review", env), cwd)
+            if is_openai
+            else claude_argv(binary, model)
+            if route == "claude"
+            else anthropic_routes.argv(route, selected, prompt, env)
+        )
+        print(f"autocodex: reviewer backend={route} model={selected}", flush=True)
+        stem = output.parent / f"{output.stem}-{uuid.uuid4().hex}"
+        try:
+            result = run_process(
+                command,
+                prompt if route in {"codex", "claude"} else "",
+                cwd,
+                env,
+                stem,
+                stall_timeout,
+                provider=route,
+            )
+        except FileNotFoundError:
+            print(f"autocodex: {route} executable unavailable", file=sys.stderr)
+            continue
+        if (
+            route in {"kiro", "copilot"}
+            and result.ok
+            and (result.events.models != {selected} or result.events.efforts != {"xhigh"})
         ):
+            result.events.success = False
+            result.events.error = "review model/effort evidence does not match requested route"
+        if result.ok or result.stalled or result.events.permission_denied:
             return result
+        if result.events.api_status not in {401, 402, 429}:
+            return result
+        print(
+            f"autocodex: {route} unavailable ({result.events.api_status}); trying remaining routes; raw={result.log}",
+            flush=True,
+        )
+    if result is None:
+        raise ValueError("no configured reviewer executable is available")
+    # Only the native route has a verified reset parser. Alternatives ran first.
+    while result.events.provider == "claude" and wait_for_reviewer_quota(
+        result, cwd, wait_deadline
+    ):
+        stem = output.parent / f"{output.stem}-{uuid.uuid4().hex}"
         print("autocodex: Claude quota reset reached; retrying reviewer", flush=True)
+        result = run_process(
+            claude_argv(binary, model), prompt, cwd, env, stem, stall_timeout, provider="claude"
+        )
+        if result.ok:
+            return result
+    return result
 
 
 def model_provider_for_review(model: str) -> str:
@@ -537,7 +635,11 @@ def review(
         "provider": result.events.provider,
         "model_provider": model_provider_for_review(model),
         "lens": lens,
-        "model": model,
+        "model": next(iter(result.events.models))
+        if result.events.provider in {"kiro", "copilot"}
+        else model,
+        "requested_model": model,
+        "effort": "xhigh" if result.events.provider in {"kiro", "copilot"} else None,
         "started": started,
         "completed": time.time(),
         "output": str(output.resolve()),
@@ -546,6 +648,10 @@ def review(
         "raw_sha256": hashlib.sha256(result.log.read_bytes()).hexdigest(),
         "thread_id": result.events.thread_id,
     }
+    if result.events.provider == "kiro":
+        receipt["stderr_sha256"] = hashlib.sha256(
+            result.log.with_suffix(".stderr").read_bytes()
+        ).hexdigest()
     state_path = cwd / "docs/dev/project-management/autopilot/state.json"
     context = json.loads(state_path.read_text()) if state_path.exists() else {}
     receipt.update(
@@ -619,6 +725,7 @@ def parser() -> argparse.ArgumentParser:
     sub = result.add_subparsers(dest="command")
     sub.add_parser("status")
     sub.add_parser("review-route", help="resolve reviewer providers from recorded actual models")
+    sub.add_parser("review-stall-snapshot", help="preserve verified review before a cap_regression stall")
     sub.add_parser("pause", help="request a stop after the current phase session")
     reviewer = sub.add_parser(
         "reviewer", help="run an isolated reviewer with raw evidence and a receipt"
@@ -701,8 +808,18 @@ def main() -> int:
     sys.path.insert(0, str(root))
     from cli import routing
 
-    from adapter import CodexLoop
+    from adapter import CodexLoop, capture_stall_review
 
+    if args.command == "review-stall-snapshot":
+        from cli import schema
+        from cli import state as state_mod
+
+        try:
+            print(capture_stall_review(root, cwd))
+        except (ValueError, OSError, KeyError, TypeError, state_mod.StateError, schema.SchemaError) as error:
+            print(f"autocodex: review stall snapshot refused: {error}", file=sys.stderr)
+            return 1
+        return 0
     outcome = lifecycle_command(args, cwd, root)
     if outcome is not None:
         return outcome

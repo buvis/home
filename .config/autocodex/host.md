@@ -105,8 +105,61 @@ its newline). Cite all observed contributing models, not just one model per task
 Explain the correlation in a sibling Markdown audit. The fingerprint binds PRD,
 cycle, work_start_sha and implementation attempt provenance; regenerate before
 each new review. Keep the reviewed snapshot through rework: the boundary checks
-receipts against that snapshot; convergence additionally requires unchanged
-implementation provenance.
+receipts against that snapshot. Convergence requires unchanged implementation
+provenance except for the source's completed Tail sweep described below.
+
+### Tail-sweep completion
+
+Follow the source Tail sweep steps, including its normal work verification and
+per-task review, then finalize without another completion review or cycle
+increment. Keep the original implementation audit and all review receipts intact.
+The host accepts only added `[D{cycle}] Tail sweep: ...` tasks when this review's
+`decision-gate` and `tail-sweep` batches are recorded, every task is completed,
+each added task has a completed final attempt, and all its attempts name the
+current `review_cycle`. Previously reviewed task provenance, PRD, cycle and work
+start must remain unchanged. Ordinary rework never qualifies for this exception.
+
+Before the finalize hand-off, write a companion audit at
+`docs/dev/project-management/autopilot/reports/<prd-stem>-tail-sweep-models.json`.
+Use the same fingerprint/snapshot/evidence format above for the **entire current
+task set**. Copy the unchanged original evidence rows and append log-backed
+evidence for every sweep implementor, including retries and model switches.
+Never replace the original audit, relabel a task, or alter old attempts to pass.
+This companion records model provenance; it does not claim the sweep received
+the earlier three-lens review. The source work pipeline remains responsible for
+sweep verification, task review, and recorded verify/sweep escapes.
+
+For an existing `host_tail_sweep_provenance` pause, retain completed sweep tasks
+and their evidence. Prepare the companion audit and check `adapter.review_gap`
+on an in-memory `phase: "done"` candidate before the normal authorized Resume
+and finalize hand-off. Do not implement the sweep again or reopen review.
+
+### Cap-regression stall boundary
+
+Keep the source cap and cap-check decision unchanged. Before the canonical
+`cap_regression` stall, record all required cap-overflow decisions through the
+state CLI, then run:
+
+    python3 {DRIVER} --cd {CWD} review-stall-snapshot
+
+This validates every provider receipt, raw result, rubric and implementation
+audit, and preserves the current reviewed state before `stall` resets it.
+The snapshot is immutable and idempotent; a differing existing snapshot is a
+boundary failure, never permission to overwrite it. Capture the latest review
+state even when this session produced the review after launch. A launch snapshot
+alone cannot prove that review ran. This command changes no workflow state.
+
+Then run the source `autopilot stall --site cap_regression` and, on exit 0,
+`autopilot mint-stubs`, write the normal contract card, and end the session for
+its fresh build handoff. Retain the snapshot and every underlying evidence file.
+The adapter verifies the intact hold move, fresh batch deferred record, migrated
+cap-overflow decisions and canonical reset. Only canonical minted-stub additions
+and the contract card may follow that reset. Missing or changed review evidence
+still refuses the boundary. This adaptation authorizes neither a cap increase
+nor further implementation repairs. Other stall sites retain their existing
+boundary behavior.
+
+### Review dispatch
 Use actual log/evidence files, not a new restatement of the model claim.
 
 Run `python3 {DRIVER} --cd {CWD} review-route` before dispatch. It validates audit
@@ -163,12 +216,36 @@ checks each receipt, raw successful output, provider and complete rubric. Record
 `codex_rung_guard: not fired` only as the legacy compatibility field and explain
 that the model-provider guard supersedes it; never claim Eve ran.
 
-The helper handles confirmed Claude quota resets itself: after a structured
-API 429 rejection, it waits until the reported reset plus five seconds, within
-the quota-wait deadline, then retries with a fresh raw log. Keep
-awaiting that same helper while it waits; do not launch another reviewer,
-classify its pending output as a failed review, or retry before reset. If the
-helper exits unsuccessfully, preserve its raw evidence and pause as above.
+Anthropic model origin is independent of the launcher. The helper tries Kiro,
+Copilot, then native Claude by default; `AUTOCODEX_ANTHROPIC_BACKENDS` sets the
+order or excludes a known unavailable route. Kiro/Copilot use an explicit model
+of the requested tier at xhigh effort. Their raw metadata must prove both.
+Quota/auth failures and missing CLIs try the next route before waiting.
+Permission denials, incomplete evidence and other failures still stop review.
+Kiro/Copilot permit read tools only: include applicable gate results in the
+prompt without adding implementation context to Blake's blind review.
+The prompt file's contents are delivered directly, including gitignored rubrics.
+
+Before dispatch, explicitly tell each Kiro/Copilot reviewer to use its read,
+glob and grep tools, never a shell (including git, rg or test commands). Supply
+required gate evidence through the coordinator. Check that every referenced
+input is readable under that backend's policy before launching the roster.
+Do not stage required inputs under ignored/denied paths such as docs/dev/tmp.
+An existing denial requires interactive recovery; do not copy denied inputs
+elsewhere or switch launchers to evade it. If coverage requires an unavailable
+capability, report the capability gap before spending a full review cycle.
+
+Kiro tool-call policy denials and failed approval requests invalidate the review
+even when runFinished reports success and the process exits zero. The helper
+also checks stderr and binds it into new Kiro receipts. Existing raw evidence
+must remain intact; a successful completion message never overrides a denial.
+
+After alternatives are exhausted, a final native Claude API 429 with a verified
+reset may wait until reset plus five seconds within the existing deadline.
+Await that helper; do not launch duplicate reviewers or retry exhausted routes.
+Already-running helpers need a safe restart to load updated routing code.
+Preserve evidence and use existing recovery for paused workflows; do not edit
+state.json or turn an incomplete review into a successful receipt.
 
 Retain every raw rubric verdict in the corresponding consolidated section:
 Alice's R rules, Blake's B rules, Bob's D1-D5. For mixed work, preserve both

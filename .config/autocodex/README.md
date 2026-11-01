@@ -60,18 +60,41 @@ its freshness, coverage and cited line hashes. See `host.md` for the format and
 log-correlation obligations. Audit all model switches, repairs and contributing
 attempts; read-only reviewers and coordinator models do not count.
 
+After convergence, the source's tail sweep may append completed cleanup tasks
+without reopening review. The host preserves the reviewed audit and receipts,
+requires unchanged original task provenance and the current review's batch
+stamps, and validates a separate `<prd-stem>-tail-sweep-models.json` audit of the
+completed task set. Ordinary rework, incomplete sweeps, and missing or stale
+model evidence still block finalization. The normal work pipeline supplies
+sweep tests and task review. See `host.md` for the companion audit and recovery
+procedure; installing this fix does not automatically clear an existing pause.
+
 The reviewer helper accepts `--lens alice|blake|bob` and `-m <model>` (`opus` for
 Claude, a concrete GPT model for OpenAI). Each external process is fresh and
 preserves launcher guards. It validates the source lens rubric and saves raw
 output plus a receipt. The completion gate checks all required provider/lens
 receipts. This provider guard replaces the source's launcher-based additive Eve
 guard; it does not remove a review lens. Live launcher availability remains a
-dispatch precondition, and failures remain visible pauses.
+dispatch precondition. Anthropic reviews try Kiro, Copilot, then native Claude
+by default. Quota/authentication failures and missing executables try the next
+route before any quota wait; permission denials, stalls, incomplete output,
+wrong model/effort evidence and other failures still stop review.
+Kiro and Copilot use explicit Claude models with xhigh effort and read tools
+only. Their raw model/effort events must match the receipt. These transports
+cannot execute test commands; provide existing gate evidence in the applicable
+review prompt. Preserve Blake's PRD-only context. Prompt contents are passed
+directly, so gitignored rubric files need not be readable through Kiro's tools.
 
-Codex uses `--approve-for-me`, retaining automatic approval review and the
-workspace sandbox. Claude uses automatic permissions with unanswered requests
-denied. Neither invocation bypasses approvals. Permission failures and rejected
-review gates remain visible; a failed session cannot certify completion.
+On macOS, Codex coordinator and GPT reviewer processes use the inherited Seatbelt
+sandbox when `sandbox_check(getpid(), NULL, 0)` confirms it. They pass
+`--sandbox danger-full-access -c approval_policy="on-request" -c approvals_reviewer="auto_review"`
+to avoid creating a second Seatbelt sandbox while retaining automatic approval
+review. `run-agent` continues to enforce its outer profile. The probe checks
+sandbox presence, not profile identity. Unprotected processes, other platforms,
+and probe errors retain `--approve-for-me` and Codex's native workspace sandbox.
+Claude uses automatic permissions with unanswered requests denied. Neither
+invocation bypasses approvals. Permission failures and rejected review gates
+remain visible; a failed session cannot certify completion.
 
 Raw JSONL, stderr and prompts are retained in
 `docs/dev/project-management/autopilot/autocodex-sessions/`; metrics in `autocodex-metrics.jsonl`.
@@ -88,6 +111,9 @@ Configuration:
 | `AUTOCODEX_OPUS_MODEL` / `AUTOCODEX_OPUS_EFFORT` | `gpt-6.1-sol` / `high` |
 | `AUTOCODEX_HAIKU_MODEL` / `AUTOCODEX_HAIKU_EFFORT` | `gpt-6-luna` / `low` |
 | `AUTOCODEX_REVIEWER_MODEL` | `opus` (Claude) |
+| `AUTOCODEX_ANTHROPIC_BACKENDS` | `kiro,copilot,claude`; explicit order, no duplicate routes |
+| `AUTOCODEX_ANTHROPIC_OPUS_MODEL` / `AUTOCODEX_ANTHROPIC_SONNET_MODEL` / `AUTOCODEX_ANTHROPIC_HAIKU_MODEL` | `claude-<tier>-5.5` for Kiro/Copilot; must retain the requested tier |
+| `AUTOCODEX_KIRO_BIN` / `AUTOCODEX_COPILOT_BIN` | `kiro-cli` / `copilot` |
 | `AUTOCODEX_COORDINATOR_MODEL` / `AUTOCODEX_COORDINATOR_EFFORT` | `gpt-6.1-sol` / `low` |
 | `AUTOCODEX_REVIEW_MODEL` / `AUTOCODEX_REVIEW_EFFORT` | `gpt-6.1-sol` / `high` (OpenAI reviewer lanes) |
 | `AUTOCODEX_ESCALATION_MODEL` / `AUTOCODEX_ESCALATION_EFFORT` | `gpt-6-astra` / `high` |
@@ -111,7 +137,8 @@ watchdog retains raw evidence, terminates the process group, and reports the
 inactivity duration explicitly.
 
 Usage-limit polling is bounded; reset times are not guessed from prose.
-Claude reviewer attempts with a structured API 429 quota rejection wait for the
+Only after configured alternatives have been attempted, a final native Claude
+reviewer attempt with a structured API 429 quota rejection waits for the
 reported reset plus five seconds, then retry with a fresh raw log. Waiting is
 bounded by `_AUTOPILOT_LIMIT_WAIT_MAX`; stale or missing resets fail normally.
 An operator pause interrupts the wait within
@@ -122,7 +149,13 @@ Other unsuccessful sessions get the configured retry budget and then stop with t
 evidence. Existing loop memory, plugin-version and repeated-progress guards
 remain active. Some inherited diagnostics still name autoclaude.
 
-Requires mise Python 3.12+, authenticated Codex and Claude CLIs, and the installed
+Already-running reviewers keep their loaded code. Restart a waiting helper at a
+safe session boundary to load a routing update; do not launch duplicate reviews
+or change workflow state by hand. Existing pauses still use interactive recovery.
+Set `AUTOCODEX_ANTHROPIC_BACKENDS=kiro,copilot` to exclude native Claude during
+a known outage, or `claude` to request the legacy native-only behavior.
+
+Requires mise Python 3.12+, authenticated Codex and an available Anthropic route, and the installed
 autopilot plugin. The adapter is personal tooling in `~/.config/autocodex`; the
 tracked development shell plugin exposes it as `autocodex`, wrapped in
 `~/bin/run-agent` so git commits use the agent identity and `ssh-keygen` signing
@@ -132,3 +165,15 @@ resolved installed plugin and disposable repositories/processes:
 ```bash
 mise exec -- uv run --with pytest --no-project pytest ~/.config/autocodex
 ```
+
+### Cap-regression stalls
+
+Before canonical `cap_regression` stall/reset, record cap-overflow decisions and
+run `python3 ~/.config/autocodex/driver.py --cd <repo> review-stall-snapshot`.
+Then follow the source stall, mint-stubs and handoff procedure. The immutable
+`reports/<prd-stem>-cycle-<cycle>-cap-regression-boundary.json` preserves the
+latest verified review, including one produced after session launch. The boundary
+rechecks receipts, audits and rubrics, the unchanged PRD's move into hold, fresh
+deferred stall and migrated decisions, and canonical reset. It permits only
+canonical minted-stub bookkeeping and a contract card after reset. Missing or
+tampered evidence still pauses. No cap or review requirement changes.
