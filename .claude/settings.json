@@ -135,7 +135,6 @@
     "defaultMode": "auto",
     "additionalDirectories": []
   },
-  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
