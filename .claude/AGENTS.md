@@ -16,6 +16,7 @@
 
 ## Workflow
 
+- Preserve model-family diversity independently of the launcher. Anthropic reviewers may use native Claude, Kiro, or Copilot with an explicit Anthropic model of the required tier and effort. Provider quota exhaustion blocks that route, not the model family: try another authorized route before waiting for reset, without asking again. Verify the selected model, retain isolated contexts, every review lens, permissions and evidence gates, and record the actual backend/model. Never substitute `auto`, silently downgrade, retry an exhausted route before reset, or bypass a permission denial. This supersedes older Claude-only routing and Copilot-credit prohibitions; carry it into active-session recovery and handoffs.
 - After completing all PRD tasks, run `/autopilot:review-work-completion` in a fresh session - never from the work session (hand off first; see the review-phase rule below).
 - For end-to-end PRD execution, use `/autopilot:run-autopilot`.
 - Procedures mandated by an invoked skill count as explicitly requested: ponytail (and any other minimalism mode) must never thin, skip, or down-scope skill-mandated steps. Minimalism governs what you build, not whether you follow the skill.
