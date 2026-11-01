@@ -1,7 +1,19 @@
 # Discovery: agoge - Product QA Agent Pack
 
+## Review disposition (2026-10-18)
+
+Historical source: buvis PRDs 00099 through 00103 (fixture, core, harnesses,
+drain hook, extraction) are in `prds/done/`. Current follow-up belongs in
+`~/git/src/github.com/buvis/claude-agoge`; do not recreate the five-PRD chain.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
-Depth: comprehensive | Date: 2026-07-31 | Status: complete
+Depth: comprehensive | Date: 2026-07-31 | Status: historical; implementation chain done
 
 ## Problem
 Autopilot's review pipeline is entirely static and diff-scoped: no lens runs the product, exercises a UI, or verifies user-visible behavior (Carl's `ui` lens reads the diff; the `Tests:` line accepts `none (docs-only)` with no notion of "behavior unverified"). Defects at the feature, workflow, integration, and release level - the kind an end user or the business hits - pass every existing lens. The gap compounds as autopilot drains PRDs unattended: code-correct, product-wrong changes accumulate with no catch point. The pack ("agoge", after the Spartan training regime: hard trials that make the product battle-ready) fills the product-time layer beside edit-time hooks and the review-time ensemble.
@@ -122,3 +134,9 @@ Autopilot's review pipeline is entirely static and diff-scoped: no lens runs the
 
 ### Q12: Pack name?
 **Answer**: agoge (user explored gauntlet's drawbacks - crowded namespace: Gauntlt/Atari/GauntletAI - then picked agoge: the Spartan training regime, hard trials that prepare for battle; near-empty namespace; known cost: obscure, needs the etymology explained). Repo: claude-agoge. Ensemble plugin naming space (quorum/tribunal/conclave/synod) untouched.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00099](/Users/bob/.claude/docs/dev/project-management/prds/done/00099-build-agoge-fixture-gym-v1.md) (done); [buvis 00100](/Users/bob/.claude/docs/dev/project-management/prds/done/00100-build-agoge-core-pack-v1.md) (done); [buvis 00101](/Users/bob/.claude/docs/dev/project-management/prds/done/00101-arm-agoge-execution-harnesses-v1.md) (done); [buvis 00102](/Users/bob/.claude/docs/dev/project-management/prds/done/00102-hook-agoge-into-autopilot-drain-v1.md) (done); [buvis 00103](/Users/bob/.claude/docs/dev/project-management/prds/done/00103-extract-agoge-plugin-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

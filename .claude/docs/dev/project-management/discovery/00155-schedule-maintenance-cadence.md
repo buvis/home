@@ -1,8 +1,21 @@
 # Discovery: Put Config Maintenance on a Calendar
 
+## Review disposition (2026-10-18)
+
+Historical source: agent-skills PRD 00006 (audit cadence in brief-portfolio)
+is in `prds/done/`. The final 'ready for create-prd' statement is historical;
+do not create a duplicate cadence PRD.
+
+The three inward lenses ran at minimal depth. Feasibility and Evolvability
+were not systematic passes, per the skill's depth rule.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: minimal | Date: 2026-08-28 | Status: decisions resolved, ready for create-prd
+Depth: minimal | Date: 2026-08-28 | Status: historical; agent-skills PRD 00006 done
 Seeded 2026-08-26 from `discovery/inbox/skill-ideas-2026-07-14.md` (2026-07-14
 transcript sweep; source trashed 2026-08-26 once split into per-idea docs). Full
 elicitation skipped by the seed's own judgement; the two open questions it left
@@ -146,3 +159,9 @@ so they are not re-proposed from scratch:
 Host, cadence and stamp source are decided. Ready for `/create-prd` - one PRD
 adding drift-rate nag rows to `brief-portfolio`, with the one open question
 above resolved during PRD creation.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [skills 00006](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00006-nag-audit-cadence-in-brief-portfolio-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

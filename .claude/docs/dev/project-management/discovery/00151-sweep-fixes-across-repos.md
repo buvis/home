@@ -1,8 +1,21 @@
 # Discovery: Sweep a Fix Across the Portfolio
 
+## Review disposition (2026-10-18)
+
+Historical source: agent-skills PRD 00002 (sweep-fix) is in `prds/done/`.
+That proves the skill chain has a completed specification, not that the
+separate aegis nag was released. Reconcile that separate hook requirement
+before proposing follow-up; the dated 'still unbuilt' scan is historical.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: standard | Date: 2026-08-27 | Status: elicitation complete
+Depth: standard | Date: 2026-08-27 | Status: skill PRD done; separate hook delivery unverified here
 Elicited from the 2026-08-26 seed of the same number. Original source:
 `discovery/inbox/skill-ideas-2026-07-14.md` (2026-07-14 transcript sweep; trashed
 2026-08-26 once split into per-idea docs).
@@ -225,3 +238,9 @@ of truth is how this gap happened).
   registry parser.
 - Tooling: `ast-grep` 0.45.0 present via mise; `rg` needs the cartographer-echo
   resolution dance.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [skills 00002](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00002-add-sweep-fix-skill-v1.md) (done); [aegis 00015](/Users/bob/git/src/github.com/buvis/claude-aegis/docs/dev/project-management/prds/backlog/00015-nag-sweep-fix-after-fix-commits-v1.md) (backlog).
+
+The separate nag is specified by aegis 00015 in backlog; its release is not established.

@@ -1,8 +1,21 @@
 # Discovery: Encode an Incident as an Invariant
 
+## Review disposition (2026-10-18)
+
+Historical source: buvis PRD 00156 (encode-incident) is in `prds/done/`.
+That PRD deliberately chose a Claude-only home instead of this discovery's
+agent-skills proposal. Preserve the history; do not recreate the feature or
+move its implementation based on the superseded placement requirement.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: comprehensive | Date: 2026-08-28 | Status: elicitation complete
+Depth: comprehensive | Date: 2026-08-28 | Status: historical; PRD 00156 done with revised skill placement
 Elicited from the 2026-08-26 seed of the same number. Original source:
 `discovery/inbox/skill-ideas-2026-07-14.md` (2026-07-14 transcript sweep; trashed
 2026-08-26 once split into per-idea docs).
@@ -313,3 +326,9 @@ around.
   `rules/`.
 - Guard mechanics: only `PreToolUse` can block, so a proposal relying on
   `PostToolUse` to gate is invalid on arrival.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00156](/Users/bob/.claude/docs/dev/project-management/prds/done/00156-add-encode-incident-skill-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

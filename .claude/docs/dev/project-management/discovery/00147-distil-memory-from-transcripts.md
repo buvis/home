@@ -1,8 +1,21 @@
 # Discovery: Distil Memory Candidates From Session Transcripts
 
+## Review disposition (2026-10-18)
+
+Historical source: agent-skills PRDs 00007 (extraction), 00008 (proposals)
+and 00009 (queue walkthrough) are in that repo's `prds/done/`. Review any
+remaining corrections-signal or cross-project-routing scope separately;
+do not recreate the implemented three-slice chain.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: comprehensive | Date: 2026-08-26
+Depth: comprehensive | Date: 2026-08-26 | Status: historical; three-slice chain done
 
 Replaces the instinct pipeline retired the same day (buvis `24975e2e`).
 
@@ -419,3 +432,9 @@ migrated to agent-plugins standard and therefore reusable beyond Claude."
 Recorded: the dependency-direction objection dissolves once claude-checkup is
 itself cross-agent. Home is `~/git/src/github.com/buvis/agent-skills`, reached
 via braid. Two carried risks are listed under Risks.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [skills 00007](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00007-extract-memory-candidates-from-transcripts-v1.md) (done); [skills 00008](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00008-distil-memory-proposals-v1.md) (done); [skills 00009](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00009-walk-memory-proposal-queue-v1.md) (done).
+
+The three-slice chain exists; corrections-signal and cross-project-routing coverage are not established by this check.

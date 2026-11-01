@@ -1,8 +1,21 @@
 # Discovery: Autopilot Review-Loop Productivity
 
+## Review disposition (2026-10-18)
+
+Historical source: buvis PRDs 00094 (severity convergence) and 00095
+(finding fidelity) are in `prds/done/`. New work must use current
+claude-autopilot contracts and shared AGENTS.md review requirements rather
+than re-enacting this experiment or its live-batch state edits.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: comprehensive | Date: 2026-08-02 | Sequence: 00116
+Depth: comprehensive | Date: 2026-08-02 | Sequence: 00116 | Status: historical; PRDs A/B done
 
 Source: live observation of the engram batch `202608012229` while it was still
 running.
@@ -498,3 +511,9 @@ criterion (strictly below 3) and keeping median <= 2 as the A+B criterion.
 **Answer**: **Set `rework_cap` to 3 now.** Applied and verified via `statectl`
 during this session. Rejected: letting it run to cap 5 for a clean baseline,
 stopping after cycle 3 by hand, killing and finalizing immediately.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00094](/Users/bob/.claude/docs/dev/project-management/prds/done/00094-converge-review-on-severity-v1.md) (done); [buvis 00095](/Users/bob/.claude/docs/dev/project-management/prds/done/00095-sharpen-review-finding-fidelity-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

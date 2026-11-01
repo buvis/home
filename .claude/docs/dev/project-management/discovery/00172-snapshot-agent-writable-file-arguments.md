@@ -2,7 +2,8 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: standard | Date: 2026-10-18 | Status: specified as PRD 00178
+(backlog, 2026-10-19); live deployment remains separate
 Seeded from session 523838c3 follow-ups; user instruction 2026-10-18: 'all
 of them must be recorded as discovery documents that I will go through'.
 The handoff item was "opt-in `request --snapshot ARG`". Written from a
@@ -74,20 +75,34 @@ those files at all.
    at `warrant:346-354`), and hold them in the `Op`. In `launch()`, after the
    existing checks and before `execute()`, write the held bytes to
    `SNAP_ROOT/<id>/<argv index>-<basename>`, mode 0600, directory 0700, with
-   `O_EXCL`, and point the child's argv at the copy. The original file is
-   never opened again. `SNAP_ROOT` is under `~/.config/warrant/` (not
+   `O_EXCL`, and point the child's argv at the copy. For copied arguments,
+   held bytes are the reviewed source of truth: validate their hash and
+   protected copy, and exclude original paths from launch-time re-hash and
+   appeared-file checks. Never reopen the original after capture. Other file
+   arguments retain their path/identity/content rechecks. Record original
+   index/path, snapshot hash and effective copy path in the terminal ledger
+   entry, without file contents. `SNAP_ROOT` is under `~/.config/warrant/` (not
    agent-writable and already denied for agent reads,
    `ai-agents.sb:90`); `preflight()` (`warrant:240-251`) refuses to broker if
    it ever becomes agent-writable.
 2. **Copies are removed after the run**, in a `finally` around
-   `execute()`, including on timeout. A crash leaves a directory named by the
-   request id; the next approve removes stale ones.
+   `execute()`, including on timeout. A crash may leave a request-id directory;
+   the next approve recovers abandoned directories only after acquiring their
+   ownership lock. Never remove another live approval's snapshot. Normal
+   cleanup waits for snapshot consumers to terminate; design must define the
+   child/descendant termination contract before claiming safe timeout cleanup.
 3. **Which arguments are copied.** Default rule, host-side and automatic: the
-   first argument after an interpreter (`argv[0]` resolves to `bash`, `sh`,
+   direct script operand at `argv[1]` after an interpreter (`argv[0]` resolves
+   to `bash`, `sh`,
    `zsh`, `dash` or `python3*`) when it is an agent-writable file. That is the
-   script, the case where lazy reads make the window minutes long. Every other
+   direct-script case where lazy reads make the window minutes long. This
+   rule does not identify scripts after interpreter options: `bash -e
+   script.sh`, `python3 -I script.py`, `-c` and `-m` are not automatically
+   protected. Eligible whole file operands can use explicit snapshot indices;
+   other indirect/module inputs remain residuals. Every other
    agent-writable file argument keeps today's re-hash, because substituting it
-   would break path semantics (requirement 4). The agent may additionally
+   would break path semantics (see Risks and Discovery Log Q3). The agent
+   may additionally
    mark data inputs with `warrant request --snapshot N` (argv index, repeatable),
    for files read only for content, such as a patch passed to `git apply`.
    The flag can only narrow what the agent controls, so trusting it is safe;
@@ -102,8 +117,8 @@ those files at all.
    `reads  : <path>   AGENT-WRITABLE, not pinned`. This is a hint for the
    human, not a boundary: a script can build paths at run time.
 6. **Tests ship with each behaviour** in `~/bin/tests/test_warrant.py`:
-   - an `execute` stub that rewrites the original script after `launch()`'s
-     re-hash: the child prints the reviewed text, not the rewritten one;
+   - an `execute` stub rewrites the original script after snapshot capture:
+     the child prints the reviewed text, not the rewritten one;
    - a bash script that appends a line to its own original path while running:
      the appended line does not run;
    - `--snapshot 2` on a `git apply`-style fake: the child gets the copy path;
@@ -112,6 +127,11 @@ those files at all.
      re-hash note shows;
    - the copy directory is gone after executed, timeout and refused outcomes;
    - preflight refuses when `SNAP_ROOT` lies under a write grant.
+   - snapshot originals may change or disappear after capture without being
+     reopened; equivalent changes to non-copied inputs still refuse;
+   - recovery skips another live approval's snapshot; abandoned copies are
+     recovered, and timeout cleanup waits for consumers to terminate;
+   - option-bearing interpreter forms do not claim automatic coverage.
 
 ### Nice to have
 
@@ -163,8 +183,9 @@ those files at all.
   `snapshot -> ...` for the script and, with `--snapshot 2`, for the patch.
 - `cp`, `git add` and `git apply` requests without the flag behave exactly as
   today.
-- No copy remains under `SNAP_ROOT` after any outcome; the test suite stays
-  green on the host with `TMPDIR` unset.
+- No copy remains after a handled outcome once consumers terminate; crash
+  leftovers are recovered at the next approval without touching another live
+  run. The suite stays green on the host with `TMPDIR` unset.
 
 ## Risks
 
@@ -197,6 +218,10 @@ those files at all.
 3. Build the `--snapshot-dir` nice-to-have now? It is the only fix for the
    `validate_relay.sh` shape (indirect inputs), which today is the bigger hole.
 4. Size cap for a snapshot: 16 MiB is a guess.
+5. **Before implementation:** define consumer lifetime on timeout and crash
+   recovery ownership, so cleanup cannot remove another live run's input or
+   race a surviving descendant. Automatic coverage remains direct `argv[1]`
+   scripts unless a separately specified interpreter grammar expands it.
 
 ## Discovery Log (2026-10-18)
 
@@ -235,3 +260,41 @@ substitution because it "would break path semantics such as `git add`"
 **Answer**: no. The flag can only ask the host to freeze more; it never
 widens what runs. A missing flag gives today's behaviour, and the host
 refuses an index that is not an agent-writable file argument.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F7 (Coherence, Blocking), option 1:
+captured bytes govern snapshots, while non-copied paths retain rechecks;
+define the ledger mapping required by acceptance. F8 (Coherence, Blocking),
+option 1: distinguish handled outcomes from crashes and prevent recovery from
+deleting live copies. F15 (Integrity, Non-blocking), option 1: state the
+direct-argv script boundary rather than inventing an interpreter parser.
+No broker change or snapshot ran. Automatic versus opt-in selection, storage
+and size cap remain proposals for PRD creation. Consumer termination on
+timeout is an additional design prerequisite for the cleanup claim.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes, [00178](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00178-snapshot-warrant-reviewed-file-inputs-v1.md) (backlog), saved 2026-10-19.
+The earlier no-match audit was superseded by the requested PRD creation.
+
+### Elicitation refresh
+
+Elicitation remains open on automatic versus explicit snapshots because automatic substitution changes script path semantics. Protected storage under ~/.config/warrant and a bounded 16 MiB initial cap remain proposals. Keep directory snapshots outside the initial slice. Live execute uses subprocess.run with a timeout; descendant lifetime and crash recovery must be designed before promising safe cleanup. No snapshot implementation or host storage was created.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.
+
+## PRD creation (2026-10-19)
+
+Specified as [00178](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00178-snapshot-warrant-reviewed-file-inputs-v1.md). The user requested creation of the missing PRDs.
+The earlier elicitation and review entries remain historical evidence.
+The PRD records final authoring defaults, dependency ordering and scope.
+Implementation uses an isolated checkout and headless acceptance checks;
+live deployment and host-only operational steps remain separate.
+Template, guess-density and grounding gates passed before saving.
+
+Authoring defaults: automatic direct-script snapshots, explicit indices for
+other whole-file inputs, protected storage, and a proposed 16 MiB aggregate
+request cap. Directory snapshots remain deferred. Uncertain consumer lifetime
+retains protected copies rather than risking deletion of live input.

@@ -2,7 +2,8 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: standard | Date: 2026-10-18 | Status: specified as PRD 00175
+(backlog, 2026-10-19); live deployment remains separate
 Seeded from session 523838c3 follow-ups; user instruction 2026-10-18: "all of
 them must be recorded as discovery documents that I will go through".
 Written from a sandboxed session. Nothing inside `~/.config/warrant` was read
@@ -11,13 +12,16 @@ Backblaze install under `/Library/Backblaze.bzpkg/bzdata` and the buvis index.
 
 ## Premise check
 
-**Confirmed, and worse than assumed: the PIN hash is already off the
-machine.** Backblaze backs up `/` continuously (`bzinfo.xml`: `bzdirfilter
+**Possible exposure; completed upload is not established.** Backblaze is
+configured to back up `/` continuously (`bzinfo.xml`: `bzdirfilter
 dir="/" whichfiles="all"`, `backup_schedule_type="continuously"`), and no
 rule excludes `/Users/bob/.config`. Its root file list
 (`bzfilelists/v000af2cabc23184acce9cd70210_root_filelist.dat`) names all three
 files: `config/warrant/passphrase.scrypt`, `config/warrant/config.json` and
-`config/warrant/ledger.jsonl`. Checked 2026-10-18 by name match only.
+`config/warrant/ledger.jsonl`. Checked 2026-10-18 by name match only. Local
+enumeration is not a completed-upload receipt; confirm remote presence from
+Restore or an authoritative upload record without reading the secret.
+Possible exposure is sufficient reason to rotate; do not wait for that proof.
 
 Other channels, as measured:
 
@@ -35,14 +39,10 @@ What a copy of the hash is worth offline: `SCRYPT = {"n": 2**17, "r": 8, "p":
 silicon core (the code's own comment). The PIN is 4 to 8 digits
 (`set_pin`, `warrant:298-309`), a space of 111,110,000 guesses.
 
-| PIN length | Guesses | One core | 10 cores | GPU (guess: ~1000/s) |
-|---|---|---|---|---|
-| 4 digits | 10^4 | ~50 min | ~5 min | seconds |
-| 6 digits | 10^6 | ~3.5 days | ~8 h | ~17 min |
-| 8 digits | 10^8 | ~350 days | ~35 days | ~1.2 days |
-
-The GPU column is an estimate, not a measurement: scrypt at 128 MiB per guess
-is memory-bound, so a 24 GB card runs roughly 180 guesses at once. The live
+The source comment is not a benchmark of an attacker: no CPU scaling or GPU
+cracking rate was measured. A short numeric secret permits offline guessing
+when its hash escapes; do not infer a reliable recovery time from memory
+capacity alone. The live
 gates do not apply to an offline copy: Seatbelt's deny-read, the ledgered
 `attempt` line and the three-misses-in-ten-minutes lockout
 (`LOCKOUT_AFTER, LOCKOUT_WINDOW_SEC = 3, 600`, `warrant:81`) all run inside
@@ -50,11 +50,11 @@ gates do not apply to an offline copy: Seatbelt's deny-read, the ledgered
 
 ## Problem
 
-The warrant PIN is safe only while nobody can test guesses offline. Backblaze
-already holds the hash, and keeps old versions for its retention period. Who
-gets the Backblaze copy (account takeover, a support-side leak, a lost
-restore drive) can recover a 4 to 6 digit PIN in hours and an 8 digit one in
-days. On its own, the PIN only approves requests typed at the host, but a
+The warrant PIN relies on preventing offline guesses. Backblaze may hold
+the hash and retained versions; remote presence and retention are not yet
+verified. Anyone obtaining a copy can attempt offline guessing without the
+broker's lockout. On its own, the PIN only approves requests typed at the
+host, but a
 short numeric PIN is often reused for a phone, a door or a card, so a cracked
 one may unlock more than warrant. Restoring from a backup also has a quiet
 cost: the machine comes back with an old PIN and an old ledger.
@@ -83,16 +83,20 @@ cost: the machine comes back with an old PIN and an old ledger.
    history until retention drops it; once rotated, cracking it yields a dead
    PIN. If the old PIN is used anywhere else, change it there too
    (AGENTS.md: "If a secret may have been exposed, rotate it").
-5. **Make the exclusion part of `warrant init` (code, agent drafts, deployed
-   through warrant):** after `set_pin` creates the directory
-   (`warrant:308`), set the exclusion on `config_dir`, and print a warning
-   rather than fail when it cannot. A fresh machine then cannot grow an
-   unexcluded hash. The attribute can be read back with `xattr` without Full
+5. **Make exclusion precede the secret write in `warrant init` (code,
+   agent drafts, deployed through warrant):** create `config_dir`, then
+   attempt its exclusion before writing the new hash or its temporary file.
+   Print a warning rather than fail when exclusion cannot be set, preserving
+   the proposed warning-only behavior; explicitly report that this degraded
+   initialization does not prevent backup exposure. Time Machine exclusion
+   alone does not prove Backblaze exclusion: requirement 3 remains a host
+   prerequisite for the full protection claim. Read back the attribute with
+   `xattr` without Full
    Disk Access, so a test and a later check do not depend on `tmutil
    isexcluded`.
 6. **Tests ship with the code** in `~/bin/tests/test_warrant.py`: `init` on a
-   fixture site marks the fixture `config_dir` excluded; an exclusion failure
-   warns and still writes the PIN.
+   fixture site marks `config_dir` excluded before the first hash write; an
+   exclusion failure warns about possible exposure and still writes the PIN.
 
 ### Nice to have
 
@@ -137,8 +141,10 @@ cost: the machine comes back with an old PIN and an old ledger.
 - On the host, `tmutil isexcluded ~/.config/warrant` (from a terminal with
   Full Disk Access) reports `[Excluded]`, or `xattr -l ~/.config/warrant`
   shows `com.apple.metadata:com_apple_backup_excludeItem`.
-- Backblaze Settings, Exclusions lists the folder, and after the next scan
-  the folder is gone from Restore in the Backblaze web UI.
+- Backblaze Settings, Exclusions lists the folder; verify that subsequent
+  scans exclude new contents. Record remote presence of older versions and
+  the applicable retention/removal behavior separately. A retained Restore
+  entry after the next scan does not disprove the new exclusion.
 - `warrant init` has run with a new PIN after the exclusion; `warrant
   approve` accepts it.
 - `test_warrant.py` stays green on the host, with the two new tests.
@@ -155,9 +161,10 @@ cost: the machine comes back with an old PIN and an old ledger.
   mode 0777 and its rule files 0666, so any unsandboxed process of any local
   user can add or remove exclusions. Sandboxed agents cannot (no write grant
   under `/Library`). Recorded, not addressed here.
-- **Old versions remain.** Until Backblaze retention expires, the pre-rotation
-  hash stays retrievable. Rotation makes it worthless unless the old PIN is
-  reused elsewhere.
+- **Old versions may remain.** Exclusion is not immediate historical deletion.
+  Check the account's actual removal behavior; do not promise a next-scan
+  disappearance. Rotation invalidates the old PIN for warrant; reuse elsewhere
+  still matters. See [Backblaze's deletion documentation](https://www.backblaze.com/computer-backup/docs/delete-uploaded-files).
 
 ## Open Questions
 
@@ -176,8 +183,9 @@ cost: the machine comes back with an old PIN and an old ledger.
 ## Discovery Log (2026-10-18)
 
 ### Q1: Is the hash actually in a backup today?
-**Answer** (measured, not asked): yes, Backblaze. Its root file list names
-all three warrant files. Time Machine has no destination.
+**Answer** (measured, not asked; corrected by review): the local Backblaze
+file list names all three files; that establishes enumeration, not upload.
+Remote presence is unverified. Time Machine has no destination.
 
 ### Q2: Who can set the exclusion?
 **Answer** (from the profile and tool behaviour): only the human on the host.
@@ -188,3 +196,34 @@ without Full Disk Access even before Seatbelt is reached.
 **Answer** (inferred, open to reversal): one-off, built into `warrant init`,
 because the exclusion must exist from the moment the hash does. sysup holds
 upgrades and expiring credentials, not birth-time setup.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F4 (Coherence, Blocking), option 1:
+exclusion precedes the hash write, and warning-only failure no longer claims
+protection. F5 (Integrity, Blocking), option 1: separate current exclusion,
+rotation and historical removal. F11 (Integrity, Non-blocking), option 1:
+qualify upload evidence and remove unmeasured cracking rates. No live secret,
+backup setting or PIN was read or changed. Host verification and rotation
+remain pending; this review does not certify exposure closed.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes, [00175](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00175-exclude-warrant-secrets-before-pin-writes-v1.md) (backlog), saved 2026-10-19.
+The earlier no-match audit was superseded by the requested PRD creation.
+
+### Elicitation refresh
+
+Continue with the existing whole-directory exclusion proposal. Live set_pin still writes the hash without an exclusion step. Required order remains exclusion, verification, then host-only rotation. Backup account settings and retained-version evidence are host acceptance inputs, not facts inferred here. No secret, exclusion, account setting or PIN was accessed or changed.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.
+
+## PRD creation (2026-10-19)
+
+Specified as [00175](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00175-exclude-warrant-secrets-before-pin-writes-v1.md). The user requested creation of the missing PRDs.
+The earlier elicitation and review entries remain historical evidence.
+The PRD records final authoring defaults, dependency ordering and scope.
+Implementation uses an isolated checkout and headless acceptance checks;
+live deployment and host-only operational steps remain separate.
+Template, guess-density and grounding gates passed before saving.

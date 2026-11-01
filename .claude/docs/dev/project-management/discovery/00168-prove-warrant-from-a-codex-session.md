@@ -2,7 +2,7 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: standard | Date: 2026-10-18 | Status: reviewed; host probe remains unrun
 Seeded from session 523838c3 follow-ups; user instruction 2026-10-18: 'all of
 them must be recorded as discovery documents that I will go through'.
 Written from a sandboxed Claude session. No Codex process was started and no
@@ -106,7 +106,7 @@ sandboxed Codex hook connects to, and nobody has looked at a Codex row since.
   (inherit the environment, minus names matching its default excludes such as
   `*KEY*`, `*SECRET*`, `*TOKEN*`; from Codex docs, not verified here). That
   passes `HERDR_SOCKET_PATH`, `GH_CONFIG_DIR` and `PATH` through and drops
-  `COPILOT_GITHUB_TOKEN`; step 4 of the protocol shows whether
+  `COPILOT_GITHUB_TOKEN`; step 5 of the protocol shows whether
   `HERDR_SOCKET_PATH` arrives.
 - **Instructions**: `~/.codex/AGENTS.md` is a symlink to
   `~/.claude/AGENTS.md`, which teaches `warrant request`/`wait` and forbids
@@ -143,36 +143,32 @@ sandboxed Codex hook connects to, and nobody has looked at a Codex row since.
 
 ## Host protocol
 
-Cost: one short interactive Codex session, one turn plus a few polling tool
-calls. Most of the cost is the instruction load every Codex session pays
-(AGENTS.md and rules). The Stop hook `~/.codex/hooks/track_cost.py` appends
-the real cost to `~/.claude/metrics/costs.jsonl`; read the last line after
-step 10.
+Cost: one short interactive Codex session plus polling tool calls. The probe
+does not require a new implementation PRD. Record observations here; PRD
+00160 is closed. Do not use an unrelated final cost-log row as probe cost.
 
 1. Open a new herdr pane.
 2. Type `cd ~/git/src/github.com/buvis/gems` and press Enter.
 3. Type `codex` and press Enter. Expected: Codex starts.
-4. Look at this pane's row in the herdr sidebar. Expected: the row shows a
-   Codex session.
-5. Give Codex this prompt: "Run `~/bin/warrant request --no-wait --reason
-   'codex probe' -- true`. Print the request ID. Then run `~/bin/warrant wait
-   ID --timeout 1` every 20 seconds until its exit code is not 124. Report
-   the last exit code and output." Expected: Codex prints a 32-character ID.
-6. Open a second herdr pane. Do not start an agent in it.
-7. Type `~/bin/warrant approve ID` with the ID from step 5. Expected: the
+4. Check the herdr sidebar. Expected: the pane shows a Codex session.
+5. Ask Codex to print `HERDR_SOCKET_PATH`. Expected: `/Users/bob/.config/herdr-relay/relay.sock`.
+6. Ask Codex to run `~/bin/warrant request --no-wait --reason 'codex probe' -- true`. Expected: a 32-character request ID.
+7. Open a second herdr pane without an agent.
+8. Type `~/bin/warrant approve ID` with the ID from step 6. Expected: the
    review shows `true`, the gems directory and the reason `codex probe`.
-8. At the PIN prompt, press Enter with no PIN. Expected: `rejected ID`.
-9. Go back to the Codex pane. Expected: Codex reports exit code 125 and
-   `warrant: rejected by the approver`.
-10. Exit Codex.
-11. Tell the agent the results of steps 4, 5 and 9.
+9. At the PIN prompt, press Enter with no PIN. Expected: `rejected ID`.
+10. Ask Codex to run `~/bin/warrant wait ID --timeout 1`. Expected: exit 125 and `warrant: rejected by the approver`.
+11. Ask Codex to read `/private/tmp/warrant-501/results/ID.json`. Expected: `status` is `rejected`.
+12. Exit Codex.
+13. Record the sidebar observation, socket value, request ID, result status, exit code and message in this document.
 
 ## Success Criteria
 
-- Step 4 shows the Codex row, with `HERDR_SOCKET_PATH` pointing at the relay.
-- Step 9 shows exit 125 and the rejected message inside Codex.
+- Steps 4 and 5 show the Codex row and observe `HERDR_SOCKET_PATH` pointing
+  at the relay, respectively.
+- Step 10 shows exit 125 and the rejected message inside Codex.
 - The result file for the probe ID reads `"status": "rejected"`.
-- The outcome is written into PRD 00160 Findings.
+- The outcome is written here, including the request ID and socket value.
 
 ## Risks
 
@@ -203,14 +199,14 @@ as the herdr socket. Not probed. It needs its own discovery.
 ## Open Questions
 
 1. Run the probe now, or fold it into the next real Codex session (same
-   steps 4 and 5 to 9 with a real request)? The history already proves the
+   steps 4 to 10 with a harmless request)? The history already proves the
    submit and execute paths, so the probe only adds the reject path and the
    post-relay sidebar.
 2. Add `decision="forbidden"` execpolicy rules for `~/bin/warrant approve`
    and `~/bin/warrant init` to `~/.codex/rules/default.rules`? It mirrors
    warden's stance for Claude. Whether Codex applies prefix rules inside
    `bash -lc` scripts is unverified, so it is a speed bump, not a boundary.
-3. Should the Moshi finding become its own discovery now?
+3. Resolved: the Moshi finding is discovery 00173; do not seed it again.
 
 ## Discovery Log
 
@@ -228,3 +224,25 @@ allowlisted. Unproven end to end; protocol step 4 settles it.
 ### Q3: Do Codex sessions get warrant approve gated?
 **Answer** (from config): only by Seatbelt (config unreadable), the tty and
 the PIN. There is no warden and no forbidden execpolicy rule.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F10 (Coherence, Non-blocking), option 1:
+the host protocol now observes the relay environment explicitly and records
+its outcome here rather than requiring edits to closed PRD 00160. Discovery
+00173 resolves the already-created Moshi follow-up. No probe or request ran;
+the host observations remain unverified. Optional policy changes remain out
+of this verification-only scope.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: no match found in local buvis project-management PRD trees,
+including the dotfiles project. Checked source references and subject matter,
+not just matching sequence numbers.
+
+### Elicitation refresh
+
+Verification-only item; its Host protocol explicitly requires no new implementation PRD. Preserve the existing request/reject/sidebar acceptance criteria and record results here. No probe ran in this audit. A genuine host-launched session and human sidebar/reject observations remain necessary; this session alone does not prove those conditions. Optional execpolicy changes stay outside this scope.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.

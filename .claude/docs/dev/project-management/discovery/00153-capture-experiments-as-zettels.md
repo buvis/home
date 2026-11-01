@@ -1,8 +1,20 @@
 # Discovery: Capture Playground Experiments as Zettels
 
+## Review disposition (2026-10-18)
+
+Historical source: agent-skills PRD 00004 (capture-experiment) is in
+`prds/done/`. Its dated 'still unbuilt' statement is not current readiness
+information; do not create another implementation PRD from this input.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: standard | Date: 2026-08-27 | Status: elicitation complete
+Depth: standard | Date: 2026-08-27 | Status: historical; skill PRD done
 Elicited from the 2026-08-26 seed of the same number. Original source:
 `discovery/inbox/skill-ideas-2026-07-14.md` (2026-07-14 transcript sweep; trashed
 2026-08-26 once split into per-idea docs).
@@ -179,3 +191,9 @@ what the seed set out to keep).
 - Invocation: request-only, stated in the seed and unchanged.
 - Follow-ups: rendered as checkboxes, matching the digest notes already in the
   inbox.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [skills 00004](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00004-add-capture-experiment-skill-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

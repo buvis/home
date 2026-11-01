@@ -2,7 +2,8 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: standard | Date: 2026-10-18 | Status: specified as PRD 00177
+(backlog, 2026-10-19); live deployment remains separate
 Seeded from session 523838c3 follow-ups; user instruction 2026-10-18: 'all of
 them must be recorded as discovery documents that I will go through'. The
 item was listed as optional polish in PRD 00160 ("`warrant log` plus purge of
@@ -121,11 +122,19 @@ session, not just the requester).
    (`warrant:470`), skip it if held, else call the existing `refuse()` with
    "request expired; submit a fresh one". That writes the ledger line, the
    result and unlinks the request, so a waiting agent exits 126 at its next
-   poll. A request whose JSON or id is invalid settles the same way.
+   poll. Validate the filename stem as a canonical 32-character lowercase
+   hexadecimal ID before creating any ledger or result identity. Malformed
+   JSON or a mismatched embedded ID may be refused under a valid filename ID;
+   an invalid filename is reported for inspection without synthesizing a
+   ledger ID or following a path outside the spool. Existing terminal ledger
+   records are never overwritten by cleanup, and automatic-execution claims
+   remain protected under the same concurrency contract as approval.
 3. **Old results are pruned by age, human side.** The same pass deletes
    `results/*.json` older than `result_ttl_sec` (new config key, default
-   86400) by mtime, and only when the ledger holds a settled entry for that
-   id; anything else stays for a human to look at. Prints one summary line
+   86400), measuring age from the protected terminal ledger entry rather
+   than an agent-editable result mtime. Prune only valid direct result files
+   with a settled identity, under the shared per-request lock; do not traverse
+   symlinks. Anything else stays for a human to look at. Prints one summary line
    (`pruned N results`) when N > 0.
 4. **Tests** in `~/bin/tests/test_warrant.py`, `WarrantCase` style
    (`created=time.time() - 901` against the fixture's 900 s TTL, as in
@@ -134,11 +143,16 @@ session, not just the requester).
      present, request gone, `wait_for` returns `EXIT_REFUSED`;
    - an expired request under another holder's `flock` is left alone;
    - a fresh request survives `list`;
-   - a settled result older than `result_ttl_sec` is pruned; an equally old
-     result with no ledger entry is kept; a fresh settled one is kept;
+   - a result whose protected settlement is older than `result_ttl_sec` is
+     pruned; an old result with no ledger entry is kept; a fresh settlement's
+     result is kept regardless of its mtime;
    - `log` escapes an argv carrying `\x1b[2J` and filters by id prefix,
      decision and `--last`;
    - `log` shows an unknown ledger key and survives a malformed line.
+   - invalid filename IDs never create ledger/result identities; mismatched
+     request IDs cannot settle another request; cleanup does not follow links;
+   - changing a result's mtime cannot age a fresh ledger settlement; an active
+     request claim and an existing terminal decision survive cleanup unchanged.
 
 ### Nice to have
 
@@ -200,7 +214,7 @@ session, not just the requester).
   bf2aa6d0b6903a15de1888ff8bde4c9e` exits 126.
 - A request left unapproved past the TTL unblocks its `warrant wait` with
   exit 126 the next time the human runs `list` or `approve`.
-- Results older than a day with a settled ledger entry disappear on the next
+- Results with a protected settlement older than a day disappear on the next
   `list`; `test_warrant.py` stays green on the host.
 
 ## Risks
@@ -208,18 +222,23 @@ session, not just the requester).
 - **Settling a request the human is reviewing right now.** The flock in
   requirement 2 skips any request another approve holds.
 - **Deleting the only copy of output a waiting agent still needs.** Results
-  are pruned only after `result_ttl_sec`, which defaults to the request TTL;
-  an agent that has not collected a result in a day re-runs the command.
+  are pruned only after the protected settlement ages past `result_ttl_sec`.
+  Missing output does not establish that execution failed. Check the protected
+  ledger and actual effects before considering a retry; never automatically
+  repeat an external or non-idempotent action merely to recover output.
 - **`log` as a new terminal-injection surface.** Every field goes through
   `visible()`; a test feeds an escape sequence.
-- **Pruning hides a forged result.** A forged result has no ledger entry, so
-  requirement 3 keeps it for the human to see in `log --show`.
+- **Pruning cannot authenticate a result.** A forged result may reuse an
+  already-settled ID; ledger membership does not prove its bytes are genuine.
+  Unknown IDs are retained for inspection, but the existing untrusted-result
+  boundary remains. `log --show` is only a nice-to-have, not a required
+  inspection mechanism.
 
 ## Open Questions
 
-1. `result_ttl_sec` default: one day (matches the request TTL) or shorter,
-   such as one hour, to cut the window in which other agent sessions can
-   read brokered output?
+1. Resolved for specification, 2026-10-18: keep the proposed configurable
+   one-day `result_ttl_sec` default. This preserves re-attachment and does not
+   claim to isolate output between agent sessions.
 2. Should the leak of results to every agent session be closed for real
    (results written outside `/private/tmp`, for example a host-only
    directory the profile denies, with `wait` unable to read them and the
@@ -244,3 +263,35 @@ re-attach after a context reset. The human side owns settling and pruning.
 **Answer** (inferred): on the human side, through the existing `refuse()`
 path, because only that side knows the TTL and can write the ledger. The
 agent side gets the verdict through the result file it already polls.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F6 (Integrity, Blocking), option 1:
+bound cleanup identities, paths, locking and retention to protected history.
+F13 (Integrity, Non-blocking), option 1: missing output requires inspection,
+not automatic replay. Host-driven expiry remains deliberately conditional on
+the next `list`/`approve`; no timer or agent-side TTL was invented. Result
+authentication remains out of scope and is not implied by ledger membership.
+No live spool entry was settled or deleted. Evidence: local `~/bin/warrant`
+`decided`, `finish`, `approve_one`, `wait_for` and `list_requests`.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes, [00177](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00177-show-warrant-history-and-settle-expired-requests-v1.md) (backlog), saved 2026-10-19.
+The earlier no-match audit was superseded by the requested PRD creation.
+
+### Elicitation refresh
+
+Routine planning default: retain results for 86400 seconds, configurable, measured from protected settlement history. Preserve host-triggered settlement on list/approve, ledger retention and shared request locking. Live main has no log command, and list_requests does not settle or prune. Result authentication and automatic expiry stay outside scope. No live request or result was changed; old request IDs are historical examples, not current acceptance prerequisites.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.
+
+## PRD creation (2026-10-19)
+
+Specified as [00177](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00177-show-warrant-history-and-settle-expired-requests-v1.md). The user requested creation of the missing PRDs.
+The earlier elicitation and review entries remain historical evidence.
+The PRD records final authoring defaults, dependency ordering and scope.
+Implementation uses an isolated checkout and headless acceptance checks;
+live deployment and host-only operational steps remain separate.
+Template, guess-density and grounding gates passed before saving.

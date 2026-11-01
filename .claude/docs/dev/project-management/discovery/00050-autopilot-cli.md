@@ -1,7 +1,19 @@
 # Discovery: Autopilot CLI (deterministic state machine as Python tooling)
 
+## Review disposition (2026-10-18)
+
+Historical source: buvis PRDs 00051 (core), 00106 (loop cutover), 00107
+(rendering) and 00144 (plugin extraction) are in `prds/done/`.
+Do not recreate this chain or restore the old in-tree ownership constraint.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
-Depth: comprehensive | Date: 2026-07-08 | Status: elicitation complete
+Depth: comprehensive | Date: 2026-07-08 | Status: historical; implementation chain done
 
 ## Problem
 
@@ -101,3 +113,9 @@ The autopilot workflow has evolved into a formalized, deterministic state machin
 
 ### Contradiction check
 Q2 (prove semantics in prose first) vs Q1 (orchestrator subsumes wrapper work): resolved by sequencing - the CLI consolidates after the drain rather than replacing the queued PRDs. No other conflicts found.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00051](/Users/bob/.claude/docs/dev/project-management/prds/done/00051-autopilot-state-machine-core-v1.md) (done); [buvis 00106](/Users/bob/.claude/docs/dev/project-management/prds/done/00106-autopilot-orchestrator-loop-cutover-v1.md) (done); [buvis 00107](/Users/bob/.claude/docs/dev/project-management/prds/done/00107-autopilot-validators-and-rendering-v1.md) (done); [buvis 00144](/Users/bob/.claude/docs/dev/project-management/prds/done/00144-extract-autopilot-plugin-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

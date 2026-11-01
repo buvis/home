@@ -3,7 +3,8 @@
 ## Classification
 
 Depth: comprehensive | Date: 2026-10-17 | Status: reviewed; two sequenced
-PRDs, with seed-enablement gates for A and a use-case prerequisite for B
+PRDs, with seed-enablement gates for A and a use-case prerequisite for B;
+A already specified as backlog PRD 00165 (review refresh 2026-10-18)
 Source: the first draft of this doc, seeded from the 2026-10-17 session that
 revoked the PATH write grants in the Seatbelt profile (buvis `14f93f50`, PRD
 00160 question 3), plus the same day's review notes. Legacy discovery layout,
@@ -625,3 +626,20 @@ was not read. Command semantics were checked against the official
 No broker commands, judge calls or security settings were changed or tested
 by this document review. Surprise-test feedback was not collected;
 actionability remains incomplete for B until open question 8 is answered.
+
+### Review refresh (2026-10-18)
+
+All five comprehensive-depth lenses ran. No new independent requirement
+defect beyond the existing gates was established. F14 (Coherence,
+Non-blocking), option 1: A is existing backlog PRD 00165, whose later review
+added agent Git identity, fixed cwd and a test-bound request form; reconcile
+with that PRD rather than regenerate A. B still lacks the useful judged
+operation/rubric in Open Question 8 and is not ready for specification.
+Mise activation and judge isolation remain conditional, not proven here.
+No broker, judge, policy or protected configuration was changed.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00165](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00165-warrant-bookkeeping-v1.md) (backlog).
+
+Only PRD A is created. PRD B still needs a useful operation inside the permitted envelope and a decision rubric.

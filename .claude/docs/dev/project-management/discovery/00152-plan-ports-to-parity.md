@@ -1,8 +1,20 @@
 # Discovery: Plan a Port and Retire the Original at Parity
 
+## Review disposition (2026-10-18)
+
+Historical source: agent-skills PRD 00003 (plan-port) is in `prds/done/`.
+Do not create a duplicate skill PRD from the dated 'still unbuilt' scan.
+The live skill/target port plan governs a new port's actual remaining work.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
-Depth: standard | Date: 2026-08-27 | Status: elicitation complete
+Depth: standard | Date: 2026-08-27 | Status: historical; skill PRD done
 Elicited from the 2026-08-26 seed of the same number. Original source:
 `discovery/inbox/skill-ideas-2026-07-14.md` (2026-07-14 transcript sweep; trashed
 2026-08-26 once split into per-idea docs).
@@ -219,3 +231,9 @@ is a PRD autopilot may try to drain).
 - Phase ordering: numeric order must equal execution order, because autopilot
   selects the lowest sequence number.
 - Skill home: the `agent-skills` repo, reached through the `~/.agents` braid.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [skills 00003](/Users/bob/git/src/github.com/buvis/agent-skills/docs/dev/project-management/prds/done/00003-add-plan-port-skill-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

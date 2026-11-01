@@ -2,7 +2,8 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: comprehensive | Date: 2026-10-18 | Status: specified as PRD 00174
+(backlog, 2026-10-19); live deployment remains separate
 Seeded from session 523838c3 follow-ups; user instruction 2026-10-18: "all of
 them must be recorded as discovery documents that I will go through".
 Written from a sandboxed session, read-only: nothing was planted or run to
@@ -120,6 +121,11 @@ human act.
    `ai-agents.sb`. The commit and push use the agent identity and key that
    run-agent already sets (`GIT_SSH_COMMAND` with `~/.ssh/agent_github`).
    Whatever an agent plants then runs with an agent's rights, not more.
+   This guarantee includes the launcher's bootstrap: current run-agent runs
+   `git rev-parse` in the caller's cwd before `sandbox-exec`. Before enabling
+   either scheduled job, establish that bootstrap executable resolution,
+   environment and configuration discovery cannot execute agent-written code
+   outside the sandbox. A protected launcher file alone is insufficient.
 2. **gita-pull runs inside the sandbox.** The task's `run:` line becomes a
    run-agent call with a fixed project dir, so the daily pull runs each
    repo's git config sandboxed. run-agent refuses `$HOME` as the project dir,
@@ -130,10 +136,15 @@ human act.
    leave the paths alone.
 4. **A test pins the rule.** A check in `~/bin/tests` parses every plist in
    `~/Library/LaunchAgents` and every `run:` line in the shell-hooks task
-   files, and fails when one names a program, script or log path under a root
-   from `warrant.load_profile`, unless it starts through run-agent. This
-   reuses warrant's profile parser (PRD 00163), so a new grant or a new job
-   gets flagged without a hand-kept list.
+   files. Execution checks cover script operands, executable configuration
+   (including Git config/helpers), and the launcher bootstrap, not just the
+   first executable's path. Agent-writable execution dependencies must run
+   only after sandbox entry. Check log paths independently: launchd opens
+   them outside the child sandbox, so run-agent never exempts a writable log.
+   Use roots from `warrant.load_profile` (PRD 00163), documenting its skipped
+   runtime project grant and conservative treatment of denies; it is not a
+   complete permission oracle. Unsupported dependency chains remain
+   unverified rather than passing on the absence of a direct writable path.
 
 ### Nice to have
 
@@ -179,15 +190,18 @@ human act.
 
 ## Success Criteria
 
-- With a marker `core.fsmonitor` set in the cellar repo's `.git/config` (a
-  host-run test that writes the PID and the result of `ls ~/.gnupg`), the next
-  cellar-sync run prints `Operation not permitted` for `~/.gnupg`. Today it
-  would list the dir.
-- The same marker in one gita repo gives the same result from the next
-  shell's `gita-pull`.
+- Isolated representative repository fixtures exercise the cellar-sync and
+  gita-pull launch paths. A marker helper records that it ran under confinement
+  and that an attempted read of a known denied fixture path failed; it must
+  not copy or print secrets. Do not alter live repository config for this test.
 - cellar-sync still commits and pushes hourly. The commits read `Agent ran by
   Tomáš Bouška`.
 - The pinning test fails on today's plist and passes after the fix.
+- Isolated host fixtures establish that malicious repository configuration
+  and executable-resolution inputs cannot execute during launcher bootstrap.
+  Do not plant payloads in live repositories or run escape commands.
+- A sandboxed job with an agent-writable launchd log still fails the log
+  check unless the documented no-follow host qualification applies.
 
 ## Risks
 
@@ -204,28 +218,23 @@ human act.
   open, so a hostile agent can still wait for the user to `cd` into a
   trusted repo.
 
-## Open Questions
+## Decisions and qualification gates
 
-1. Approach for cellar-sync (security boundary, your call):
-   - **(a) Sandbox it through run-agent (recommended).** It closes the job
-     whatever the agent plants. About three plist lines. Commits change to
-     the agent identity.
-   - (b) Move `sync.sh` to `~/bin` and run git against a protected git dir
-     (`--git-dir` outside `~/git/src`, the buvis pattern). It keeps the human
-     identity, but needs a repo migration. The worktree's `.gitattributes`
-     still steers filters. Every `git` call must pass `--git-dir`, since the
-     worktree's `.git` file is agent-writable.
-   - (c) Drop the job and back up transcripts another way (syncthing or
-     Backblaze). Largest change.
-   - (d) Accept the risk, as PRD 00160 first did for herdr.
-2. gita-pull: sandbox it as in (a), drop it, or limit it to repos agents
-   never write? With (a), which fixed project dir should the task use?
-3. Should the pinning test also cover the human-triggered class (mise
-   trusted-configs), or does that wait for its own discovery?
-4. Run `crontab -l` on the host and paste the output, so cron is covered or
-   ruled out.
+- User confirmed on 2026-10-18: preserve both hourly cellar-sync and daily
+  gita-pull inside the agent sandbox; cellar commits use the agent identity.
+- Use the cellar repository as the fixed non-HOME working directory for the
+  gita-pull wrapper. This is an implementation default, not another user answer.
+- Keep human-triggered tools outside this PRD. Cron remains unverified until
+  host inventory is available; the known scheduled jobs remain actionable.
+- Qualify launcher bootstrap, repository access and log handling before live
+  activation. Implementation delivers candidates and automated qualification
+  tools; live deployment is a separate operational step.
 
 ## Discovery Log (2026-10-18)
+
+### Q4: Should cellar-sync and daily gita-pull both continue inside the sandbox?
+**Answer** (user, 2026-10-18): yes. The question explicitly included the agent
+commit identity and launcher/repository-access qualification.
 
 ### Q1: Is the sync.sh rewrite the whole hole?
 **Answer** (from the profile and the repo, not asked): no. The `.git/hooks`
@@ -245,5 +254,46 @@ the daily `gita pull` from the user's shell. Two log paths (`/tmp`,
 
 ## Next step
 
-Your answers to Open Questions 1 and 2, then `/create-prd 00167`. Deploy is
-a human act through warrant.
+Create the implementation PRD from the recorded scheduling decision. Live
+activation remains a separate host operation through warrant.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F2 (Completeness, Blocking) adds the
+pre-sandbox bootstrap requirement; F3 (Coherence, Blocking) separates
+dependency and log checks and states the parser's limits. Both use option 1
+from the review decision summary. Evidence: `~/bin/run-agent` performs Git
+discovery before sandbox entry, and the premise already names indirect Git
+execution. No escape was exercised and no schedule or profile was changed.
+Open Questions 1 and 2 remain actual scheduling decisions, not authorization
+to deploy from this review.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes, [00174](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00174-confine-scheduled-repository-jobs-v1.md) (backlog), saved 2026-10-19.
+The earlier no-match audit was superseded by the requested PRD creation.
+
+### Elicitation refresh
+
+Elicitation active. Live reads confirm that the cellar plist executes sync.sh directly, the shell task runs gita pull, and run-agent performs git rev-parse before sandbox entry. The user confirmed preserving both jobs inside confinement. This records the requirements decision; live activation remains separate. Keep bootstrap qualification, credential access and log-path checks as acceptance gates; keep human-triggered tools outside this scope.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.
+
+Depth raised to comprehensive for this elicitation: clear requirements,
+cross-cutting scope, shared launcher impact, and confinement design choices.
+The earlier review remains a historical standard-depth review.
+
+Resolved: preserve both scheduled jobs inside the agent sandbox, as confirmed
+by the user. Bootstrap and repository-access qualification remain required.
+
+## PRD creation (2026-10-19)
+
+Specified as [00174](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00174-confine-scheduled-repository-jobs-v1.md). The user requested creation of the missing PRDs.
+The earlier elicitation and review entries remain historical evidence.
+The PRD records final authoring defaults, dependency ordering and scope.
+Implementation uses an isolated checkout and headless acceptance checks;
+live deployment and host-only operational steps remain separate.
+Template, guess-density and grounding gates passed before saving.
+
+The user explicitly confirmed sandboxing both scheduled jobs.

@@ -2,7 +2,8 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: standard | Date: 2026-10-18 | Status: specified as PRD 00176
+(backlog, 2026-10-19); live deployment remains separate
 Seeded from session 523838c3 follow-ups; user instruction 2026-10-18: "all of
 them must be recorded as discovery documents that I will go through".
 Written from a sandboxed session from `~/bin/warrant` at buvis HEAD `609a769c`
@@ -80,7 +81,8 @@ unchecked.
 
 1. **One candidate set, used by review and launch.** For each `argv[i]`,
    `i >= 1`, the candidates are: the whole entry; for `--name=value`, the text
-   after the first `=`; for a single-dash entry longer than two characters,
+   after the first `=`; for dashless `KEY=value`, the text after the first
+   `=`; for a single-dash entry longer than two characters,
    the text after the first two characters (`-fPATH`). A candidate is a file
    argument when `cwd / candidate` is an existing regular file, exactly the
    current predicate. No per-tool flag grammar.
@@ -101,11 +103,7 @@ unchecked.
    - a small agent-writable `--patch={diff}` shows its head;
    - `--message=hello` and `-n5` produce no `file :` line.
 
-### Nice to have
-
-- `KEY=value` entries without a dash (`dd if=`, `of=`, `make VAR=`) as a third
-  candidate form. Cheap with the same predicate; see Open questions.
-- A note line when an argument names an agent-writable **directory**
+6. A note line when an argument names an agent-writable **directory**
   (`-C dir`, `--git-dir=dir`, `--work-tree=dir`), the same warning `show()`
   already gives for an agent-writable cwd (`warrant:411-412`): git reads
   config and hooks from such a directory.
@@ -150,8 +148,10 @@ unchecked.
 
 ## Success Criteria
 
-- A request `cat --file=NOTE` whose NOTE the agent edits after the PIN is
-  refused with "changed after review", like `cat NOTE` today.
+- A fixture executable that actually reads `--file=NOTE` succeeds with the
+  reviewed contents when NOTE is unchanged; mutating NOTE in the PIN callback
+  instead refuses with "changed after review". The fixture controls cwd so
+  `--message=hello` and `-n5` have no accidental matching files.
 - The review of `foo -fPROFILE` prints a `file : [1 -f]` line with the hash.
 - No change for argv without glued paths: existing tests stay green on the
   host.
@@ -167,17 +167,21 @@ unchecked.
   script reads look covered. Mitigation: the out-of-scope line above, stated
   in the PRD.
 
-## Open Questions
+## Elicitation decisions (2026-10-18)
 
-1. Include dashless `KEY=value` (`dd if=`) as a candidate form, or leave it?
-   Default: include; the predicate (existing file) keeps false positives rare.
-2. Add the agent-writable directory note for `-C`, `--git-dir=` and
-   `--work-tree=` values in this change, or as its own item? Default: in this
-   change; it reuses the cwd note.
-3. Land before or after PRD 00166? Default: after, since 00166 changes the
-   hashing call sites this change extends.
+The existing proposed defaults are adopted as routine planning decisions under
+standing authorization: include dashless `KEY=value`, include directory
+notes, and land after PRD 00166. No additional user answers were needed.
+Directory notes report writable paths; they do not claim to hash a tree.
+No scope question remains; deployment and verification occur downstream.
 
 ## Discovery Log (2026-10-18)
+
+### Refresh: are the three remaining defaults material unresolved choices?
+**Answer** (agent decision under standing authorization): no. Include the
+existing candidate and warning proposals; follow the prerequisite that changes
+the same fingerprint call sites. The current code confirms the integration
+points. This records inferred decisions, not user replies.
 
 ### Q1: Does warrant already see `--flag PATH` as two entries?
 **Answer** (from code, not asked): yes. Only glued forms are missed; the
@@ -192,3 +196,33 @@ lines and no table to maintain. A grammar would be precise and endless.
 **Answer** (inferred, open to reversal): at argv. Warrant pins what the
 command line names; anything a shell string or script opens on its own is
 the human's call from the displayed text.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F12 (Integrity, Non-blocking), option 1:
+replace the unsupported `cat --file` example with a consuming fixture and
+both unchanged/mutated checks. The generic candidate heuristic is a deliberate
+tradeoff, not a tool-grammar guarantee; its false positives remain documented.
+No broker code or request was changed. Open Questions 1–3 remain visible for
+PRD creation; the defaults are proposals, not host changes.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes, [00176](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00176-inspect-warrant-glued-file-arguments-v1.md) (backlog), saved 2026-10-19.
+The earlier no-match audit was superseded by the requested PRD creation.
+
+### Elicitation refresh
+
+Routine planning defaults adopted under standing authorization: include dashless KEY=value candidates, include directory warnings, and sequence after PRD 00166. Live file_args still inspects whole arguments only; review and launch must share candidate extraction. Existing inferred answers cover the remaining elicitation questions. Requirements are ready for the next discovery review; no PRD or broker change was created.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.
+
+## PRD creation (2026-10-19)
+
+Specified as [00176](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00176-inspect-warrant-glued-file-arguments-v1.md). The user requested creation of the missing PRDs.
+The earlier elicitation and review entries remain historical evidence.
+The PRD records final authoring defaults, dependency ordering and scope.
+Implementation uses an isolated checkout and headless acceptance checks;
+live deployment and host-only operational steps remain separate.
+Template, guess-density and grounding gates passed before saving.

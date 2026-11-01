@@ -2,7 +2,8 @@
 
 ## Classification
 
-Depth: standard | Date: 2026-10-18 | Status: not reviewed
+Depth: standard | Date: 2026-10-18 | Status: specified as PRD 00179
+(backlog, 2026-10-19); live deployment remains separate
 Seeded from discovery 00168's side finding; user instruction 2026-10-18: 'all
 of them must be recorded as discovery documents that I will go through'.
 Written from a sandboxed session. Nothing was sent to the daemon except
@@ -13,8 +14,9 @@ the `moshi-hook` binary, and `lsof`.
 
 ## Premise check
 
-**Confirmed, and worse than the seed said: the gateway undoes the herdr
-relay fix.**
+**Gateway reachability is confirmed; an escape through its action routes is
+suspected, not demonstrated.** Authentication and retained-socket authority
+must be qualified before claiming that a mitigation closes Moshi escapes.
 
 - **What Moshi is.** `moshi-hook` 0.4.23 (`/Users/bob/.local/bin/moshi-hook`,
   Go, arm64, from `github.com/rjyo/moshi/app-hook`) is the host side of the
@@ -74,8 +76,8 @@ home directory" shows some path guards exist elsewhere.
 
 Since 2026-10-18, sandboxed agents reach herdr only through `herdr-relay`,
 which forwards three display-only methods. The Moshi gateway gives the same
-agents a second, much wider path to the same panes, with no credential, so
-the herdr fix closes one door of two. The user installed Moshi to answer
+agents a second potentially wider path to the same panes; whether action
+routes require a credential remains unverified. The user installed Moshi to answer
 agent questions and approvals from the phone, and per their 00160 Q2 rule
 ("either we find a solution that is still usable or we have to live with the
 risk") that feature must keep working.
@@ -84,12 +86,18 @@ risk") that feature must keep working.
 
 ### Must have
 
-1. **Agents cannot reach the gateway.** `ai-agents.sb` denies
+1. **Agents cannot reach the configured TCP gateway or web proxy.**
+   `ai-agents.sb` denies
    network-outbound to `127.0.0.1:24543` and to the web client's
    `127.0.0.1:24544`, next to the herdr deny, with a comment naming Moshi
    and this discovery. Form to validate first: `(deny network-outbound
    (remote ip "localhost:24543"))`. The SBPL syntax is unverified, so compile
    it with `sandbox-exec` on the host, as for the herdr deny.
+   Qualify actual configured listeners and address families, including IPv6
+   when enabled; fixed IPv4 tests alone do not establish endpoint isolation.
+   Include a configuration-drift check that fails if a live gateway/proxy
+   address changes beyond the tested deny. The upstream CLI permits a
+   configurable gateway bind, so this is part of the TCP mitigation's scope.
 2. **The hook socket stays open.** Sandboxed Claude, Codex, Copilot, pi and
    Gemini sessions keep writing events to `moshi-hook.sock`, so the inbox,
    notifications and phone answers keep working. The user's own callers
@@ -101,6 +109,13 @@ risk") that feature must keep working.
    A raw TCP connect to `127.0.0.1:24543` fails with EPERM.
 4. **warrant still reads the profile the same way.** `load_profile` gives the
    same write roots (it ignores deny forms), checked as in the herdr install.
+5. **State the remaining authority boundary.** Before claiming phone features
+   are preserved or all Moshi escapes are closed, inspect the hook paths and
+   retained Unix-socket protocol using source or equivalent read-only evidence.
+   Establish whether sandbox callers can invoke pane control, approvals or
+   protected-file reads through that socket. If unavailable, label the socket
+   unverified and the change a TCP-only mitigation; do not silently deny it or
+   certify it display-only. No action-route probe is authorized by this doc.
 
 ### Nice to have
 
@@ -120,7 +135,9 @@ risk") that feature must keep working.
   SMTP `1143`/`1025`, Dropbox `17600`/`17603`, CleanMyMac `54321`, Kiro
   helper, Adobe, several `ddb` and `llama-server` ports. Same question per
   service, not checked here. They belong in one sweep discovery of their own.
-- What the unix socket accepts beyond hook events. Symbols show an approval
+- Changing what the unix socket accepts beyond hook events. Qualification of
+  its existing authority is a prerequisite to broader claims, not permission
+  to redesign or block it in this change. Symbols show an approval
   bridge that waits for answers (`approvalWaitFor`,
   `LocalApprovalBridge.AnswerApproval`) and plan prompts for Codex
   (`openCodexPlanPrompt`). A sandboxed agent can at least send fake events,
@@ -153,8 +170,9 @@ risk") that feature must keep working.
   inside the candidate profile, then one warrant install that tests,
   compiles, verifies and commits.
 - **Similar implementation**: `~/bin/herdr-relay`. It is not needed here:
-  no in-session caller needs the gateway, so a plain deny is enough. Re-check
-  this if a hook turns out to call the gateway.
+  no in-session caller is currently known to need the gateway, so a TCP deny
+  is the proposed narrow mitigation. Qualify hook transport and retained-socket
+  authority before claiming preserved behavior or a closed escape class.
 
 ## Success Criteria
 
@@ -167,6 +185,10 @@ risk") that feature must keep working.
   sessions as before.
 - `~/bin/tests` stay green on the host; warrant reads identical write roots
   from the new profile.
+- Listener fixtures cover changed ports and enabled address families. A
+  passing TCP check never certifies the unverified Unix-socket route closed.
+- Record source/read-only evidence for hook transport and socket authority,
+  or explicitly retain those claims as unverified before PRD acceptance.
 
 ## Risks
 
@@ -179,7 +201,7 @@ risk") that feature must keep working.
   move the gateway. A Moshi update or a setting change would then reopen the
   door. Mitigation: a `~/bin` test, or the sweep discovery above, that reads
   the plist and `service.log` for the gateway address and checks it against
-  the profile.
+  the profile. This drift check is required by Must-have 1, not optional.
 - **Residual after the deny.** Agents can still send fake events on the
   socket. Display only, if the socket cannot type into panes (unknown, see
   Out of scope).
@@ -191,7 +213,8 @@ risk") that feature must keep working.
 
 1. Deny the gateway for agents now (recommended), wait for an upstream
    credential, or accept the risk until then? The deny keeps the phone
-   features, because no sandboxed caller needs the gateway.
+   features only if the hook-transport qualification confirms no sandboxed
+   caller needs the gateway.
 2. How do you answer from the phone today: over SSH (Easy Pair) into this
    Mac, or with the local `moshi` web client? Both stay unsandboxed and keep
    working, but the answer decides what to test after the install.
@@ -199,8 +222,16 @@ risk") that feature must keep working.
    API, Lens kube proxy, Proton Bridge and the rest)?
 4. Open an upstream issue at rjyo/moshi for gateway auth? That publishes the
    finding outside this machine, so it is your call.
+5. **Evidence gate:** do action routes authenticate callers, and what control
+   authority does the retained Unix socket expose? Inspect source or equivalent
+   read-only evidence; otherwise keep both conclusions explicitly unverified.
+6. **TCP qualification:** what gateway/proxy addresses and address families
+   does the installed configuration enable, and how is drift detected?
 
 ## Discovery Log (2026-10-18)
+
+These seeded answers preserve the original reasoning. Current requirements
+and the review below qualify their unverified transport and authority claims.
 
 ### Q1: Is the gateway reachable from a sandboxed agent?
 **Answer** (verified): yes. Moshi's own read-only probe, run in this
@@ -228,3 +259,40 @@ Moshi for. It stays open, and its residual is recorded under Risks.
 After your answers, `/create-prd 00173` for one small PRD: the profile deny,
 host validation inside the candidate profile, and one warrant install, the
 same shape as the herdr relay install.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F9 (Integrity, Blocking), option 1:
+separate observed reachability from inferred control authority, scope the
+proposed mitigation to actual TCP listeners, and qualify the retained socket
+before broader safety/usability claims. Source unavailability does not prove
+the socket safe. Authentication and socket behavior remain unresolved evidence
+gates; the port-deny proposal is not deployment authorization.
+No gateway action, upstream message, profile edit or service change ran.
+The upstream [settings documentation](https://getmoshi.app/docs/hook-settings)
+confirms configurable gateway binding; it does not prove installed-version
+authentication or socket restrictions.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes, [00179](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00179-prepare-moshi-tcp-isolation-and-qualification-v1.md) (backlog), saved 2026-10-19.
+The earlier no-match audit was superseded by the requested PRD creation.
+
+### Elicitation refresh
+
+Elicitation remains open on the phone workflow and acceptable mitigation. Live plist starts moshi-hook serve without listener overrides; the profile has the herdr socket deny and no Moshi TCP deny. These file reads do not establish live listeners, gateway authentication or socket authority. Preserve read-only qualification and phone round-trip acceptance gates; no action route, service, profile or upstream issue was touched.
+
+These are code-derived findings and planning defaults, not new user answers
+or a new discovery-review pass. Existing Discovery Log answers remain valid.
+
+## PRD creation (2026-10-19)
+
+Specified as [00179](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00179-prepare-moshi-tcp-isolation-and-qualification-v1.md). The user requested creation of the missing PRDs.
+The earlier elicitation and review entries remain historical evidence.
+The PRD records final authoring defaults, dependency ordering and scope.
+Implementation uses an isolated checkout and headless acceptance checks;
+live deployment and host-only operational steps remain separate.
+Template, guess-density and grounding gates passed before saving.
+
+This slice delivers candidate generation and qualification tooling. It does
+not claim live TCP isolation, phone compatibility or verified socket authority.

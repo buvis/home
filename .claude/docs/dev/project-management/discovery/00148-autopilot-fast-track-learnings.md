@@ -4,6 +4,18 @@
 
 Source: PRD 00136 review cycle 1 (4 lenses + shadow) and the hand-driven rework (/work tasks 4-5), all in one interactive session. Every item below is backed by a number or an artifact from that run; none is a guess. Ordered by expected payoff.
 
+## Review disposition (2026-10-18)
+
+Processed evidence note, not an unelicited discovery specification. F14
+(Coherence, Non-blocking), option 1: buvis PRD 00140 and claude-autopilot PRDs 00141,
+00148 and 00149 are now in their respective `prds/done/` directories; the opening paragraph's
+backlog labels are historical. Remaining low-priority observations are not
+newly approved requirements. Completeness, Coherence and Integrity were
+checked against this evidence-note purpose; no discovery sections or depth
+were invented. Feasibility and Evolvability had no current requirement set
+for systematic passes. Shared AGENTS.md and current lane code govern review
+routing; this note cannot authorize a thinner review roster.
+
 ## 1. Pre-review mechanical gate in /work step 7 (highest payoff, cheapest)
 
 - Evidence: 3 of the 14 cycle-1 findings were countable coding-style violations (R12: a 57-line test function; R13: `test_handler_run_parity.py` 796 -> 817 lines; plus a duplicated `_boom` helper). They cost a full review cycle plus a rework task (~35 min wall-clock, ~150K subagent tokens) to fix a -25-line prose trim.
@@ -65,3 +77,9 @@ Folded into 00140 (items a, b) and 00141 (item c) on the user's decision the sam
 
 - The per-task hunk-scoped `git add` discipline and the foreign-WIP rule worked: four foreign dirty files survived two tasks untouched.
 - Pat's closure verdicts (`CLOSURE | resolved`) on rework tasks gave a cheap, specific check that each finding was actually closed - keep.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00140](/Users/bob/.claude/docs/dev/project-management/prds/done/00140-gate-style-limits-before-review-v1.md) (done); [autopilot 00141](/Users/bob/git/src/github.com/buvis/claude-autopilot/docs/dev/project-management/prds/done/00141-hand-subagents-their-missing-context-v1.md) (done); [autopilot 00148](/Users/bob/git/src/github.com/buvis/claude-autopilot/docs/dev/project-management/prds/done/00148-trim-rework-and-review-ceremony-v1.md) (done); [autopilot 00149](/Users/bob/git/src/github.com/buvis/claude-autopilot/docs/dev/project-management/prds/done/00149-add-review-once-session-to-autopilot-cli-v1.md) (done); [buvis 00146](/Users/bob/.claude/docs/dev/project-management/prds/done/00146-close-autopilot-extraction-chores-v1.md) (done); [buvis 00150](/Users/bob/.claude/docs/dev/project-management/prds/done/00150-repoint-autoclaude-at-installed-plugin-v1.md) (done).
+
+Ownership correction: PRD 00140 is in buvis, not claude-autopilot. The low-priority observations remain separate from the created PRDs.

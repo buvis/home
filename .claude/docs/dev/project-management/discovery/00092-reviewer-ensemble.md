@@ -1,7 +1,20 @@
 # Discovery: Reviewer Ensemble Framework
 
+## Review disposition (2026-10-18)
+
+Partially implemented historical epic: buvis PRDs 00104 (workflow), 00108
+(rubrics) and 00109 (registry) are done. Reconcile remaining tracks with
+current claude-autopilot and the shared AGENTS.md review policy before new
+PRDs; historical rosters, model names and engine gates are not current policy.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
-Depth: comprehensive | Date: 2026-07-31 | Status: elicitation complete
+Depth: comprehensive | Date: 2026-07-31 | Status: historical epic; reconcile implemented tracks before new PRDs
 
 ## Problem
 The AI-code-review training's target architecture (specialist agents in
@@ -238,3 +251,9 @@ CHANGES_REQUESTED (native), runner error (CLI). No shadow prompt copies.
   track (A and B first).
 - Constraints: CLI-in-agent hang boundary, headless invariants,
   review-file contract stability - all standing rules or memories.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00104](/Users/bob/.claude/docs/dev/project-management/prds/done/00104-port-consensus-review-fanout-to-native-workflow-v1.md) (done); [buvis 00108](/Users/bob/.claude/docs/dev/project-management/prds/done/00108-disambiguate-review-rubric-namespaces-v1.md) (done); [buvis 00109](/Users/bob/.claude/docs/dev/project-management/prds/done/00109-register-reviewer-agents-v1.md) (done).
+
+Partial historical epic; reconcile remaining tracks with current autopilot contracts before new specifications.

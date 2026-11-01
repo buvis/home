@@ -1,7 +1,20 @@
 # Discovery: Engram - Context Engine for Agent Discovery/Memory
 
+## Review disposition (2026-10-18)
+
+Existing engram chain: PRDs 00001, 00003 and 00004 are in that repo's
+`prds/done/`; 00002 heavy corpora is in `prds/wip/`. Resume/reconcile that
+chain rather than regenerating it; the discovery is not a current completion
+claim, and its historical sequencing differs from the present PRD state.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
-Depth: comprehensive | Date: 2026-07-31
+Depth: comprehensive | Date: 2026-07-31 | Status: existing PRD chain; heavy-corpora PRD remains wip
 
 ## Problem
 Agents rebuild project context from scratch and lexical tools cap what they
@@ -310,3 +323,9 @@ last.
 ### Contradiction check (comprehensive-depth pass)
 None found. The one tension - packs are the most-wanted piece yet land in
 PRD C - was raised and explicitly accepted in Q11.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [engram 00001](/Users/bob/git/src/github.com/buvis/engram/docs/dev/project-management/prds/done/00001-engram-core-v1.md) (done); [engram 00002](/Users/bob/git/src/github.com/buvis/engram/docs/dev/project-management/prds/wip/00002-engram-heavy-corpora-v1.md) (wip); [engram 00003](/Users/bob/git/src/github.com/buvis/engram/docs/dev/project-management/prds/done/00003-engram-findings-corpus-v1.md) (done); [engram 00004](/Users/bob/git/src/github.com/buvis/engram/docs/dev/project-management/prds/done/00004-engram-review-packs-v1.md) (done).
+
+The listed file states establish PRD creation, not a fresh runtime or release audit.

@@ -1,7 +1,20 @@
 # Discovery: Deepen Model Escalation in the Autopilot Loop
 
+## Review disposition (2026-10-18)
+
+Partially implemented historical epic: buvis PRDs 00065 (diagnosis) and
+00111 (decay), plus claude-autopilot PRD 00170 (outcome tuning), are done.
+Reconcile remaining tracks against current routing before specifying more;
+this is not evidence that every original lever or measurement gate shipped.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
-Depth: comprehensive | Date: 2026-07-13
+Depth: comprehensive | Date: 2026-07-13 | Status: historical epic; reconcile implemented tracks before new PRDs
 
 ## Problem
 Autopilot already routes work by tier, but defaults are expensive and escalation is
@@ -294,3 +307,9 @@ F6): ALL FOUR are IN scope — codex implementor rung (M9), de-escalation (M10),
 adaptive routing (M11), and the 00051-00053 rewrite as the initiative's closing
 phase. Follow-up clarification: routing levers land in the wrapper first (savings
 start immediately); the epic unparks last and absorbs the wrapper's routing logic.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00065](/Users/bob/.claude/docs/dev/project-management/prds/done/00065-diagnose-and-escalate-in-work-v1.md) (done); [buvis 00111](/Users/bob/.claude/docs/dev/project-management/prds/done/00111-decay-escalations-when-signals-clear-v1.md) (done); [autopilot 00170](/Users/bob/git/src/github.com/buvis/claude-autopilot/docs/dev/project-management/prds/done/00170-tune-routing-from-outcomes-v1.md) (done).
+
+Partial historical epic; these PRDs do not establish coverage of every original track.

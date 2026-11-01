@@ -3,7 +3,8 @@
 ## Classification
 
 Depth: standard | Date: 2026-10-17 | Status: reviewed 2026-10-17 (6
-findings applied); next `/create-prd`
+findings applied); specified in backlog PRD 00166; authentication qualification
+must be reconciled there before build (review 2026-10-18)
 Seeded from the user's observation of 2026-10-17: "warrant can't run sudo
 commands". Written from a sandboxed session, so `~/.config/warrant` (config,
 ledger) was not read and the host's `sudo -V` is unknown; everything below
@@ -104,12 +105,20 @@ shown or pinned.
    whose cwd is agent-writable is refused: root would run code the agent
    controls (Makefile, git hooks, package scripts). Agent-writable file
    arguments stay allowed; their head is shown and re-hashed.
-4. **Root always costs the password.** Right before launching a sudo request,
+4. **Root requires fresh host authentication.** Enable root brokerage only
+   after host qualification establishes that the supported command policy
+   requires fresh authentication; password-free or unproven policies must
+   not silently reduce this to the warrant PIN. Do not edit sudoers here.
+   Invalidating a cached ticket alone does not prove this requirement.
+   Right before launching a sudo request,
    approve runs the resolved sudo (the `Op`'s executable, already
    trust-checked) with `-k` (invalidates the tty ticket, needs no
-   password, exits 0). Without it, a `sudo` the human typed in the approve
-   pane within the last five minutes makes the PIN the only gate for root.
-   Reversible by deleting one line if the prompt proves tiresome.
+   password, exits 0); a failed invalidation refuses the launch. Without it,
+   cached authentication in the approve pane can make the PIN the only
+   fresh gate for root.
+   `NOPASSWD` and other authentication exemptions are separate policy cases,
+   not defeated by `-k`; their refusal and the host qualification mechanism
+   must be specified in PRD 00166 before build.
 5. **Only sudo is expected to ask for a password.** Non-sudo commands run
    with `start_new_session=True`, so `open("/dev/tty")` fails with ENXIO and
    accidental tty use fails closed. This raises the bar, it is not a
@@ -201,9 +210,14 @@ shown or pinned.
 - `~/bin/warrant request -- sh -c 'echo x > /dev/tty'` executes with a
   non-zero exit and nothing appears on the approver's terminal (this closes
   `/dev/tty` only; see Risks).
-- The stranded request `bf2aa6d0` is deleted or left to expire; after the fix
-  a re-submitted `sudo mdutil -E /` runs or is refused, never stranded.
-- `test_warrant.py` and `test_warrant_mirror.py` stay green on the host.
+- The historical stranded request is separately inspected and settled if
+  still present; TTL alone does not remove it in the current broker. Verify
+  the fixed path with harmless `sudo /usr/bin/true`, not the old indexing job.
+- The current `test_warrant*.py` suite stays green on the host; PRD 00163
+  already removed `test_warrant_mirror.py`.
+- Authentication-policy fixtures cover cached credentials, password-free
+  policy and failed invalidation; unsupported or unproven cases never launch
+  the root command. The host protocol qualifies the actual supported policy.
 
 ## Risks
 
@@ -280,11 +294,34 @@ opens the phishing path and closing it later means a second deploy of
 2. `exec_path` for sudo requests: leave as is, or drop `/opt/homebrew/bin` and
    `~/.local/bin` when argv[0] is sudo so root's children resolve only system
    paths? Not needed for the inner command after requirement 3.
-3. The stranded request `bf2aa6d0`: delete now, or let the TTL take it on
-   2026-10-18 10:39? Approving it after the fix would run `sudo mdutil -E /`.
+3. Historical request `bf2aa6d0`: inspect its current state before deciding
+   whether manual rejection is still needed. TTL is checked at approval, not
+   automatic settlement; discovery 00171 covers cleanup. Do not execute the
+   old indexing command merely to verify this fix.
+4. **Before building PRD 00166:** define how root brokerage qualifies fresh
+   authentication and refuses password-free/unproven policies without sudoers
+   edits. `-k` alone is insufficient; update the existing PRD's requirements,
+   fixtures and host protocol rather than generating another PRD.
 
 ## Next step
 
-`/create-prd 00164` for one PRD covering
-requirements 1 to 6 with the host verification protocol under Success
-Criteria as its Phase 1 acceptance. Deploy is a human act as in 00159.
+Amend existing backlog PRD 00166 before build; do not create a duplicate.
+Reconcile its `sudo -k` guarantee with requirement 4's authentication-policy
+qualification and failure behavior. Deploy remains a human act as in 00159.
+
+## Discovery review (2026-10-18)
+
+All five standard-depth lenses ran. F1 (Integrity, Blocking) resolved in
+requirements: ticket invalidation is not proof of mandatory authentication;
+PRD 00166 needs the same correction before build. F14 (Coherence,
+Non-blocking) resolved by pointing to that existing PRD and removing the
+retired mirror-suite expectation. No root command or security change ran.
+The host qualification mechanism remains a specification prerequisite.
+Evidence: local `~/bin/warrant`, `~/bin/run-agent`, backlog PRD 00166 and
+the official [sudo manual](https://raw.githubusercontent.com/sudo-project/sudo/main/docs/sudo.man.in).
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00166](/Users/bob/.claude/docs/dev/project-management/prds/backlog/00166-broker-root-commands-through-warrant-v1.md) (backlog).
+
+Existing PRD 00166 owns this work; its authentication qualification remains a build prerequisite.

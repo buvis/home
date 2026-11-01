@@ -1,5 +1,17 @@
 # Discovery: Derive Agent-Writable Paths From the Seatbelt Profile
 
+## Review disposition (2026-10-18)
+
+Already done as buvis PRD 00163, as Classification records. The final
+'create-prd' instruction is historical; do not recreate it. The runtime
+project-dir gap remains explicitly deferred and is not fixed by this review.
+
+All five lenses ran at the declared depth.
+F14 (Coherence, Non-blocking), option 1: record lifecycle and existing PRD
+ownership; preserve historical requirements and answers. No additional
+current specification defect is asserted from an obsolete implementation
+snapshot. PRD status is file-state evidence, not a fresh runtime audit.
+
 ## Classification
 
 Depth: standard | Date: 2026-10-17 | Status: done as PRD 00163
@@ -188,3 +200,9 @@ policy rather than the policy.
 is a human act as in 00159 Phase 1: `~/bin` and `~/.config/warrant` are
 written only through warrant. Record question 1 in the PRD's open questions
 rather than deciding it there.
+
+## PRD coverage check (2026-10-18)
+
+PRD created: yes. Verified files: [buvis 00163](/Users/bob/.claude/docs/dev/project-management/prds/done/00163-derive-agent-writable-roots-from-seatbelt-profile-v1.md) (done).
+
+The runtime project-directory grant remains deferred.
