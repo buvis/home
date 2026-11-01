@@ -36,3 +36,13 @@ rules:
       - pkill *
       - uv *
       - .venv/bin/python *
+      - cd *
+      - python3 *
+      - mkdir *
+      - mv *
+      - rmdir *
+      - find *
+  - capability: power
+    effect: allow
+    match:
+      - specflow
