@@ -2,7 +2,8 @@
 
 Status: decided, 2026-11-02. Specced 2026-11-02: phase 1 as buvis/gems PRD 00115,
 buvis/agent-skills PRD 00159 and buvis home PRD 00183; phase 2 as buvis/gems PRD
-00116. Phase 3 (agent-rules repo and migration) not yet specced.
+00116; phase 3 as buvis home PRD 00184 (split ~/.claude/AGENTS.md and
+~/.claude/rules into agent-rules, cut every host over to braid output).
 
 ## Problem
 
