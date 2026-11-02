@@ -153,8 +153,8 @@ pointers; detail is read only when a pointer fires.
 ## Unresolved
 
 1. Decided 2026-11-02: new `buvis/agent-rules` repo; braid moves to gems.
-2. braid in gems takes buvis-pybase and Click as dependencies. A coworker
-   consuming only the company repo must install `buvis-gems`. Acceptable?
+2. Decided 2026-11-02: braid follows the full gems tool standard; colleagues
+   consuming a company repo install `buvis-gems`.
 3. Private-but-cross-machine content (toolchain, sandbox, personal repos)
    cannot go public: a dotfiles-tracked fourth source, or machine-local only?
 4. Conditional loading for shared rules - skip for v1, all shared rules
