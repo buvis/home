@@ -1,6 +1,6 @@
 # Discovery: cross-host agent rules with overlays
 
-Status: proposal, 2026-11-02. Not yet a PRD.
+Status: decided, 2026-11-02. Ready for PRDs (phase 1 in buvis/gems).
 
 ## Problem
 
@@ -155,7 +155,12 @@ pointers; detail is read only when a pointer fires.
 1. Decided 2026-11-02: new `buvis/agent-rules` repo; braid moves to gems.
 2. Decided 2026-11-02: braid follows the full gems tool standard; colleagues
    consuming a company repo install `buvis-gems`.
-3. Private-but-cross-machine content (toolchain, sandbox, personal repos)
-   cannot go public: a dotfiles-tracked fourth source, or machine-local only?
-4. Conditional loading for shared rules - skip for v1, all shared rules
-   always-on? (Host rules already get it through native frontmatter.)
+3. Decided 2026-11-02: personal-setup rules (seatbelt, warrant, mise, bare
+   dotfiles repo, autopilot) go in `agent-rules` too; buvis/home is already
+   public, so nothing new is exposed. A colleague who adopts `agent-rules`
+   drops unwanted names with `.braidignore`; a company repo never lists it
+   for them by default. Only secrets or employer-confidential rules stay in
+   the company or machine-local source.
+4. Decided 2026-11-02 (agent default): no conditional loading for shared
+   rules in v1; all shared rules are always-on. Host rules already get it
+   through native frontmatter.
