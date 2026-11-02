@@ -29,7 +29,34 @@ one composed file.
 ## Proposal: rules are a second braid kind
 
 Reuse everything braid already does for skills. Nothing new except one
-generated file.
+generated file per single-file host.
+
+### Repos and tooling
+
+Content and tooling split into separate repos:
+
+| Repo | Holds |
+|---|---|
+| `buvis/agent-skills` | `skills/` only (content) |
+| `buvis/agent-rules` (new, public) | `rules/`, `hosts/<host>/rules/` (content) |
+| `buvis/gems` | `braid` as `src/tools/braid/`, per the gems tool standard |
+| company repo(s) | any mix of `skills/`, `rules/`, `hosts/` |
+
+- braid is machine tooling, like `sysup`, so it belongs in gems; content repos
+  stop carrying a Python package. gems already ships to PyPI and supports
+  Windows, which braid needs.
+- The skill validator stays inside `skills/create-skill/`; it is part of that
+  skill. `agent-plugins/scripts/validate.py` and `tools/autopilot/` stay too:
+  they check that repo's own content in its CI, not a machine.
+- A source is any directory listed in `sources.d`; braid scans whichever of
+  `skills/`, `rules/`, `hosts/` it has. So `personal` lists two repos, and a
+  company may use one repo or two.
+- Config moves from `~/.config/agent-skills/` to `~/.config/braid/` (one-time
+  migration, no fallback path). State stays at `~/.agents/.braid-state.json`.
+
+Order: (1) port braid into gems at parity, retire `agent-skills-braid` and the
+`~/.agents/bin/braid` link; (2) add the rules kind in gems; (3) create
+`agent-rules` and migrate the public subset of `~/.claude/rules`.
 
 ### Source layout
 
@@ -116,6 +143,8 @@ pointers; detail is read only when a pointer fires.
 
 - Rules in buvis/docs: no composer, no `sources.d`, no validator, and a work
   machine may not have that checkout. Docs can still link to or render them.
+- Rules inside agent-skills: mixes two kinds of content in a repo named for
+  one, and keeps braid tied to skills.
 - Per-host `@import` chains: Codex, Copilot and Pi have no imports.
 - `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`, Gemini `context.fileName`: host-specific
   knobs; one generated file covers all single-file hosts.
@@ -123,8 +152,9 @@ pointers; detail is read only when a pointer fires.
 
 ## Unresolved
 
-1. Home repo: `agent-skills/rules/` (recommended) vs buvis/docs.
-2. Repo name now that it holds more than skills - keep `agent-skills`?
+1. Decided 2026-11-02: new `buvis/agent-rules` repo; braid moves to gems.
+2. braid in gems takes buvis-pybase and Click as dependencies. A coworker
+   consuming only the company repo must install `buvis-gems`. Acceptable?
 3. Private-but-cross-machine content (toolchain, sandbox, personal repos)
    cannot go public: a dotfiles-tracked fourth source, or machine-local only?
 4. Conditional loading for shared rules - skip for v1, all shared rules
