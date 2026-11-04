@@ -12,18 +12,18 @@
 # sysup keeps them current: `uv python upgrade` handles patches in place, and the
 # pipx-python step moves every `--managed-python --python X.Y` pin to the global
 # python minor below (reverting any tool that fails to install on it).
-"pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
 "pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.14" }
-"pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:isort" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:potrace-cli" = { version = "latest", uvx_args = "--managed-python --python 3.14 --with setuptools<81" }
-"pipx:pre-commit" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:pynvim" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:ruff" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
-"pipx:yamllint" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:isort" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:potrace-cli" = { version = "latest", uvx_args = "--managed-python --python 3.15 --with setuptools<81" }
+"pipx:pre-commit" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:pynvim" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:ruff" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
+"pipx:yamllint" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
 ast-grep = "latest"
 awscli = { version = "latest", symlink_bins = "true" }
 bat = "latest"
@@ -35,8 +35,7 @@ hadolint = "latest"
 helm = "latest"
 herdr = "latest"
 node = "latest"
-python = "3.14.6"
-rust = "latest"
+python = "3.15.2"
 terraform = "latest"
 terragrunt = "latest"
 tflint = "latest"
@@ -62,6 +61,7 @@ kubens = "latest"
 gum = "latest"
 viddy = "latest"
 git-lfs = "latest"
+groovy = "latest"
 
 [settings]
 experimental = true
