@@ -127,7 +127,6 @@
       "Read(**/.aws/**)",
       "Read(**/.ssh/**)",
       "Edit(**/dev/local/**)",
-      "Write(**/dev/local/**)",
       "Bash(mkdir *dev/local*)",
       "Bash(touch *dev/local*)",
       "Bash(tee *dev/local*)"
@@ -135,6 +134,7 @@
     "defaultMode": "auto",
     "additionalDirectories": []
   },
+  "model": "sonnet",
   "hooks": {
     "SessionStart": [
       {
