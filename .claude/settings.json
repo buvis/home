@@ -134,7 +134,7 @@
     "defaultMode": "auto",
     "additionalDirectories": []
   },
-  "model": "sonnet",
+  "model": "fable",
   "hooks": {
     "SessionStart": [
       {
