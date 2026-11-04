@@ -1,4 +1,5 @@
 [tools]
+"cargo:eza" = "latest"
 "cargo:rumdl" = "latest"
 "cargo:zoxide" = "latest"
 "github:neovim/neovim" = "latest"
@@ -16,6 +17,7 @@
 "pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.14" }
 "pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
+"pipx:isort" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
 "pipx:potrace-cli" = { version = "latest", uvx_args = "--managed-python --python 3.14 --with setuptools<81" }
 "pipx:pre-commit" = { version = "latest", uvx_args = "--managed-python --python 3.14" }
@@ -42,6 +44,23 @@ uv = "latest"
 ripgrep = "latest"
 bun = "latest"
 yq = "latest"
+java = "temurin-25"
+flux2 = "latest"
+k9s = "latest"
+krew = "latest"
+kubebuilder = "latest"
+kyverno = "latest"
+shellcheck = "latest"
+bats = "latest"
+sops = "latest"
+kubectl = "latest"
+go = "latest"
+typos = "latest"
+glow = "latest"
+kubectx = "latest"
+kubens = "latest"
+gum = "latest"
+viddy = "latest"
 
 [settings]
 experimental = true
