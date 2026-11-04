@@ -36,6 +36,9 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 # Python wheels
 export PATH="${DOTFILES_ROOT}/.local/bin:${PATH}"
 
+# Rust (rustup)
+export PATH="${HOME}/.cargo/bin:${PATH}"
+
 # Personal scripts (tracked in buvis)
 export PATH="${HOME}/bin:${PATH}"
 
