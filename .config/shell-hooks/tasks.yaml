@@ -5,6 +5,17 @@
 # line, a list, or a `|` block: several lines run in order, each under a step header,
 # stopping at the first failure. `icon` is optional and marks the task when it runs.
 tasks:
+  gita-discover:
+    icon: 📂
+    every: 1d
+    # Stop at repository roots: nested test fixtures are not portfolio repos.
+    # gita add preserves existing entries and adds only missing paths.
+    run: >-
+      GITA_PROJECT_HOME="$HOME/.local/.config"
+      find "$HOME/git/src" -type d
+      \( -name worktrees -o -name .local \) -prune -o
+      -type d -exec test -e '{}/.git' \;
+      -prune -exec gita add {} +
   gita-pull:
     icon: 🔄
     every: 1d
