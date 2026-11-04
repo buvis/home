@@ -1,6 +1,15 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
 commands:
+  # The bundled `rustup` entry is darwin-only and `when.os` takes one value, so
+  # Linux gets its own key. Same order: runs before mise so `cargo:` tools build
+  # with the fresh toolchain.
+  rustup-linux:
+    order: 55
+    when: { os: linux, check: rustup }
+    steps:
+      - rustup update
+
   # Kiro CLI's background updater left every update DMG mounted (12 stale
   # "Kiro CLI" volumes on 2026-10-17), so it is off via
   # `kiro-cli settings app.disableAutoupdates true` and sysup updates it instead,

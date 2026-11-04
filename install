@@ -228,6 +228,20 @@ if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
   fi
 fi
 
+# Rust: rustup owns the toolchain, mise does not (a mise `rust` entry fought
+# rustup over the default toolchain). `stable` is the shared default; `sysup`
+# keeps it current. Runs before `mise install` so `cargo:` tools can build.
+if [ ! -x "$CARGO_HOME/bin/rustup" ] && ! command -v rustup >/dev/null 2>&1; then
+  info "Installing rustup..."
+  curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-modify-path ||
+    info "warning: rustup installation failed, continuing"
+fi
+if [ -x "$CARGO_HOME/bin/rustup" ]; then
+  PATH="$CARGO_HOME/bin:$PATH"
+  export PATH
+  rustup default stable || info "warning: rustup default stable failed, continuing"
+fi
+
 if command -v mise >/dev/null 2>&1; then
   info "Installing mise-managed tools..."
   mise install || info "warning: mise install had errors, continuing anyway"
