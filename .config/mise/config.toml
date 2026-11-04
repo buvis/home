@@ -25,6 +25,8 @@
 ast-grep = "latest"
 awscli = { version = "latest", symlink_bins = "true" }
 deno = "latest"
+fd = "latest"
+fzf = "latest"
 github-cli = "latest"
 helm = "latest"
 herdr = "latest"
