@@ -9,3 +9,9 @@ tasks:
     icon: 🔄
     every: 1d
     run: gita pull
+  brew-dump:
+    icon: 🍺
+    every: 1d
+    run:
+      - mkdir -p ~/.local/.config/brew
+      - brew bundle dump --force --formula --cask --tap --file ~/.local/.config/brew/Brewfile
