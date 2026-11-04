@@ -61,6 +61,7 @@ kubectx = "latest"
 kubens = "latest"
 gum = "latest"
 viddy = "latest"
+git-lfs = "latest"
 
 [settings]
 experimental = true
