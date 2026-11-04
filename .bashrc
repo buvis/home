@@ -68,10 +68,15 @@ export AUTOPILOT_WORKTREE_ROOT="$HOME/git/src/worktrees"
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+*":$PNPM_HOME/bin:"*) ;;
+*) export PATH="$PNPM_HOME/bin:$PATH" ;;
 esac
 # pnpm end
+
+# Set up fzf key bindings and fuzzy completion
+command -v fzf >/dev/null && eval "$(fzf --bash)"
+# Make all kubectl completion fzf
+command -v fzf >/dev/null 2>&1 && source <(kubectl completion bash | sed 's#"${requestComp}" 2>/dev/null#"${requestComp}" 2>/dev/null | head -n -1 | fzf  --multi=0 #g')
 
 # Initialize mise shims and autocompletion
 command -v mise >/dev/null && eval "$(mise activate bash)"
