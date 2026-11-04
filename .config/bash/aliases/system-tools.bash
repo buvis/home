@@ -18,6 +18,9 @@ alias mv="mv -i"
 if [[ $(command -v nvim) ]]; then alias vim="nvim"; fi
 if [[ $(command -v nvim) ]]; then alias vi="nvim"; fi
 
+if [[ $(command -v eza) ]]; then alias tree="eza --tree"; fi
+if [[ $(command -v viddy) ]]; then alias watch="viddy"; fi
+
 alias remove-empty-dirs="find . -type d -empty -delete"
 alias rm="rm -i"
 
