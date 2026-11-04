@@ -129,6 +129,12 @@ if [[ -n "${HERDR_SOCKET_PATH:-}" ]]; then
   export HERDR_SOCKET_PATH="$HOME/.config/herdr-relay/relay.sock"
 fi
 
+# mise: the profile keeps ~/.local/share/mise read-only, so once any `latest`
+# tool gains an upstream release every `mise exec` dies trying to install it
+# (gems batch 202610292344, rust@latest). Warn and run with what is installed;
+# sysup updates tools outside the sandbox.
+export MISE_EXEC_AUTO_INSTALL=false
+
 exec /usr/bin/sandbox-exec \
   -f "$SANDBOX_PROFILE" \
   -D "_HOME=$RESOLVED_HOME" \
