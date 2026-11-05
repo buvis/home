@@ -146,6 +146,30 @@ cfg submodule update --remote --merge
 
 # --- Phase 3: Package installation ---
 
+# Rust: rustup owns the toolchain, mise does not (a mise `rust` entry fought
+# rustup over the default toolchain). `stable` is the shared default; `sysup`
+# keeps it current. Runs before `mise install` so `cargo:` tools can build.
+# rustup-init edits the user PATH itself (no .profile on Windows).
+$cargoBin = Join-Path $env:USERPROFILE ".cargo/bin"
+$rustup = Join-Path $cargoBin "rustup.exe"
+if (-not (Test-Path $rustup) -and -not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+    info "Installing rustup..."
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
+    $rustupInit = Join-Path $env:TEMP "rustup-init.exe"
+    try {
+        Invoke-WebRequest -Uri "https://win.rustup.rs/$arch" -OutFile $rustupInit
+        & $rustupInit -y --default-toolchain stable
+        if ($LASTEXITCODE -ne 0) { throw "rustup-init exited with $LASTEXITCODE" }
+    } catch {
+        info "warning: rustup installation failed, continuing: $_"
+    }
+}
+if (Test-Path $rustup) {
+    $env:PATH = "$cargoBin;$env:PATH"
+    & $rustup default stable
+    if ($LASTEXITCODE -ne 0) { info "warning: rustup default stable failed, continuing" }
+}
+
 if (Get-Command mise -ErrorAction SilentlyContinue) {
     info "Installing mise-managed tools..."
     mise install

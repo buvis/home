@@ -318,9 +318,7 @@ WSLRC
   if [ -n "$WIN_USER" ] && [ -d "/mnt/c/Users/$WIN_USER" ]; then
     WIN_HOME="/mnt/c/Users/$WIN_USER"
     info "Detected Windows user: $WIN_USER"
-    for link_name in windows-home; do
-      [ -L "$HOME/$link_name" ] || ln -s "$WIN_HOME" "$HOME/$link_name"
-    done
+    [ -L "$HOME/windows-home" ] || ln -s "$WIN_HOME" "$HOME/windows-home"
     [ -L "$HOME/Downloads" ] || ln -s "$WIN_HOME/Downloads" "$HOME/Downloads"
 
     # OneDrive symlinks - try to detect automatically

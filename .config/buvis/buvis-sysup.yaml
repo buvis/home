@@ -1,12 +1,28 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
 commands:
-  # The bundled `rustup` entry is darwin-only and `when.os` takes one value, so
-  # Linux gets its own key. Same order: runs before mise so `cargo:` tools build
-  # with the fresh toolchain.
+  # rustup is the Rust toolchain manager (mise does not manage rust). `when.os`
+  # takes one value, so each OS gets its own key. Order 55: before mise, so
+  # `cargo:` tools build with the fresh toolchain.
+  #
+  # `rustup` (darwin) duplicates the bundled default (gems 247c251c) under the
+  # same key, so it merges harmlessly. Installed gems 0.16.0 predates that
+  # commit and has no rustup step. Delete this key once a gems release contains it.
+  rustup:
+    order: 55
+    when: { os: darwin, check: rustup }
+    steps:
+      - rustup update
+
   rustup-linux:
     order: 55
     when: { os: linux, check: rustup }
+    steps:
+      - rustup update
+
+  rustup-win32:
+    order: 55
+    when: { os: win32, check: rustup }
     steps:
       - rustup update
 
