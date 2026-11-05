@@ -42,6 +42,27 @@ commands:
             if [ -d "$v" ]; then hdiutil detach "$v"; fi
           done
 
+  # The Herdr app (GUI + herdr-core) installs via its own vendor installer, not
+  # mise — it drops a macOS .app / Windows Start-menu app, not a PATH binary mise
+  # could manage. Distinct from the mise-managed `herdr` CLI that `herdr-plugins`
+  # below drives. Both installers are idempotent: a re-run updates the app and
+  # installs herdr-core only if absent, matching sysup's repeat-run model, so
+  # there is no `check:` guard — the step must also run when the app is missing.
+  # `when.os` takes one value, so macOS and Windows get their own key (Linux is
+  # also supported by install.sh but is out of scope here). Order 75: before
+  # herdr-plugins (80).
+  herdr-app:
+    order: 75
+    when: { os: darwin }
+    steps:
+      - curl -fsSL https://releases.herdr.dev/app/install.sh | sh
+
+  herdr-app-win32:
+    order: 75
+    when: { os: win32 }
+    steps:
+      - powershell -c "irm https://releases.herdr.dev/app/install.ps1 | iex"
+
   # herdr's plugins.json holds machine-specific absolute paths, so dotfiles
   # track plugins.txt (owner/repo per line) instead. Install each listed plugin
   # whose clone is missing or behind GitHub HEAD, then rewrite plugins.txt from

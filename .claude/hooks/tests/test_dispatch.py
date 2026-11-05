@@ -72,13 +72,14 @@ PLUGIN_OWNED = {
     "review_coverage_hook",
 }
 
-# Handlers retired outright - their files no longer exist. The frozen fixture
+# Hook registrations retired outright. The frozen fixture
 # still lists them, so they are filtered the same way PLUGIN_OWNED is; that keeps
 # "retired on purpose" distinguishable from "route silently dropped".
 # test_retired_matches_dispatch below pins this set against dispatch.py's.
 RETIRED = {
     "observe_tool",
     "analyze-instincts",
+    "notify",
 }
 
 
@@ -1099,7 +1100,7 @@ def test_routing_bash_pre_runs_exactly_one(dispatch, monkeypatch):
 
 
 @pytest.mark.integration
-def test_routing_stop_runs_all_three_in_order(dispatch, monkeypatch):
+def test_routing_stop_runs_both_trackers_in_order(dispatch, monkeypatch):
     recorded = []
     monkeypatch.setattr(
         dispatch,
@@ -1111,10 +1112,9 @@ def test_routing_stop_runs_all_three_in_order(dispatch, monkeypatch):
         dispatch.main("stop")
     names = [route_basename(r) for r in recorded]
     assert names == expected_handlers("Stop", "")
-    # Three, not six: review_coverage_hook is PLUGIN_OWNED now, cartographer-stop
-    # retired with the atlas (PRD 00138), and analyze-instincts retired with the
-    # instinct pipeline (2026-08-26).
-    assert len(names) == 3
+    # Only tracking remains: notifications moved to Herdr, review coverage is
+    # plugin-owned, and the atlas and instinct handlers were retired.
+    assert len(names) == 2
 
 
 @pytest.mark.integration
@@ -1218,15 +1218,13 @@ def test_routes_kind_is_enforcement_or_observer_for_every_entry(dispatch):
 # The four PLUGIN_OWNED handlers are absent: enforce_prd_location kept both
 # matchers when it was routed here, and autopilot_context_cap_hook,
 # validate_state_json_hook and review_coverage_hook were routed once each. The
-# autopilot plugin registers all four in its own hooks/hooks.json now. The two
-# RETIRED handlers (observe_tool, analyze-instincts) are absent for the other
-# reason: their files no longer exist.
+# autopilot plugin registers all four in its own hooks/hooks.json now. The
+# RETIRED handlers are absent because their hook registrations were removed.
 _EXPECTED_ROUTE_KIND = {
     "cartographer-echo": "enforcement",
     "strunk-ruling-inject": "observer",
     "enforce_write_scope": "enforcement",
     "check_skill_triggers": "observer",
-    "notify": "observer",
     "track_cost": "observer",
     "track_skills": "observer",
 }
@@ -1240,12 +1238,12 @@ def test_routes_kind_matches_exact_per_handler_classification(dispatch):
     fail-open bug this PRD exists to close. This test pins the SPECIFIC
     per-handler classification: exactly cartographer-echo and
     enforce_write_scope must be "enforcement" - including BOTH ROUTES entries
-    for cartographer-echo - and every other of the 8 entries must be
+    for cartographer-echo - and every other of the 7 entries must be
     "observer". An implementation that leaves every entry on the namedtuple
     default, or classifies a different subset as "enforcement", fails here even
     though it still satisfies the weaker completeness check."""
     actual = [(r.name, r.event, r.kind) for r in dispatch.ROUTES]
-    assert len(actual) == 8, f"expected 8 ROUTES entries, got {len(actual)}: {actual!r}"
+    assert len(actual) == 7, f"expected 7 ROUTES entries, got {len(actual)}: {actual!r}"
 
     seen_names = {name for (name, _event, _kind) in actual}
     assert seen_names == set(_EXPECTED_ROUTE_KIND), (

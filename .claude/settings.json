@@ -134,7 +134,7 @@
     "defaultMode": "auto",
     "additionalDirectories": []
   },
-  "model": "fable",
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -215,26 +215,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/notify.py",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "idle_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/notify.py",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "permission_prompt",
-        "hooks": [
-          {
-            "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
             "async": true
           }
@@ -265,6 +245,16 @@
           {
             "type": "command",
             "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/herdr_bg_status.py",
             "timeout": 10,
             "async": true
           }

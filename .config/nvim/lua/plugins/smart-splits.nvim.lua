@@ -20,6 +20,30 @@ return {
           vim.system({ "wezterm", "cli", "activate-pane-direction", dir })
         end
       end
+    -- inside herdr-app: herdr-app owns ctrl-hjkl; its `nav` mod calls herdr_nav over
+    -- this socket when the focused pane runs nvim. At a nvim edge, move the herdr-app pane.
+    elseif vim.env.HC_TERMINAL_ID then
+      opts.multiplexer_integration = false
+      opts.at_edge = function(ctx)
+        vim.system({ "herdr-app", "do", "pane.go", "--direction", ctx.direction })
+      end
+      local keys = { left = "<C-h>", down = "<C-j>", up = "<C-k>", right = "<C-l>" }
+      _G.herdr_nav = function(dir)
+        if vim.api.nvim_get_mode().mode == "n" then
+          require("smart-splits")["move_cursor_" .. dir]()
+        else
+          -- other modes keep the key's own meaning (insert: ctrl-h deletes)
+          vim.api.nvim_input(keys[dir])
+        end
+        return ""
+      end
+      local dir = vim.fn.expand("~/.cache/nvim")
+      vim.fn.mkdir(dir, "p")
+      local sock = dir .. "/herdr-" .. vim.env.HC_TERMINAL_ID .. ".sock"
+      if not pcall(vim.fn.serverstart, sock) then
+        os.remove(sock) -- stale socket from a crashed nvim
+        pcall(vim.fn.serverstart, sock)
+      end
     end
     require("smart-splits").setup(opts)
   end,

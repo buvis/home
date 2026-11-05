@@ -1,11 +1,8 @@
-"""Notification/Stop hook: forward event to ntfy and/or system notifier.
+"""Notification helpers for Herdr and explicit --send callers.
 
-Replaces ~/.claude/hooks/notify.sh. Reads JSON payload from stdin, builds an
-event-specific title/message, logs to ~/.claude/hooks/notify.log, and either
-posts to ntfy (when the user is away) or shows a desktop notification.
-
-Stdlib only. macOS-specific presence detection (idle time, screensaver, lid
-angle) preserved verbatim from the bash original.
+Agent hook entry points are inert, including cached registrations in live
+sessions. Herdr imports the sender and presence helpers; explicit --send
+callers retain presence-based delivery.
 """
 
 import base64
@@ -24,7 +21,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _common import log_path, read_input
+from _common import log_path
 
 ICON_PATH = Path.home() / ".claude" / "hooks" / "claude-icon.png"
 SECRET_PATH = Path.home() / ".claude" / "hooks" / ".ntfy-secret"
@@ -455,78 +452,12 @@ def main() -> None:
             sys.exit(1)
         return
 
-    payload = read_input()
-    event, title, msg = build_event_strings(payload)
-
-    # Log a one-line summary, never the raw payload: dumping the whole payload
-    # bloats notify.log and can spill transcript paths / message text into a
-    # plain log file (PRD 00086 R4). The event + title is enough to trace a ping.
-    log_line(f"[{now_local()}] Hook triggered: {event} — {title}")
-
-    # Inside a live loop, a `Stop` is a phase/PRD hand-off and an `idle_prompt`
-    # Notification just means the session is parked while a background task runs
-    # (the wrapper re-invokes Claude when it finishes). Both are loop noise the
-    # wrapper summarizes at real exit. Nested reviewer CLIs (_CLAUDE_NOTIFY_QUIET)
-    # are the same class of noise. A `permission_prompt` is a genuine "needs
-    # you", so it must still page even mid-loop.
-    notif_type = str(payload.get("notification_type") or "")
-    loop_noise = event == "Stop" or (
-        event == "Notification" and notif_type == "idle_prompt"
-    )
-    if loop_noise and autopilot_loop_active():
-        log_line(
-            f"[{now_local()}] Suppressed: autopilot loop active ({notif_type or event})"
-        )
-        log_line("---")
-        return
-    if loop_noise and notify_quiet():
-        log_line(
-            f"[{now_local()}] Suppressed: _CLAUDE_NOTIFY_QUIET ({notif_type or event})"
-        )
-        log_line("---")
-        return
-    if loop_noise and dispatched_by_agent():
-        log_line(
-            f"[{now_local()}] Suppressed: nested under agent CLI ({notif_type or event})"
-        )
-        log_line("---")
-        return
-
-    # A Stop while background tasks run is a turn boundary, not "done" — the
-    # final Stop (empty/terminal background_tasks) carries the real ping.
-    running = running_background_tasks(payload)
-    if event == "Stop" and running:
-        log_line(
-            f"[{now_local()}] Suppressed: {running} background task(s) still running"
-        )
-        log_line("---")
-        return
-
-    # The ~60s-later idle_prompt after such a Stop is the same noise; its
-    # payload lacks background_tasks, so fall back to subagent file activity.
-    if (
-        event == "Notification"
-        and notif_type == "idle_prompt"
-        and background_agents_active(payload)
-    ):
-        log_line(f"[{now_local()}] Suppressed: idle_prompt with live subagent activity")
-        log_line("---")
-        return
-
-    dispatch(title, msg)
-
-    log_line("---")
+    # Retired hook entry point: cached registrations in live agents do nothing.
 
 
-def run(payload):
-    """Dispatcher entry point (hooks/dispatch.py). The handler owns its own
-    capture: `capture_main` feeds `payload` as stdin, captures stdout/stderr and
-    maps main()'s exit, so run() RETURNS the (exit_code, stdout, stderr) triple
-    the dispatcher surfaces unchanged. `_common` is imported here, not at module
-    scope, so the standalone `__main__` path is unaffected."""
-    from _common import capture_main
-
-    return capture_main(main, payload)
+def run(payload: dict[str, Any]) -> tuple[int, str, str]:
+    """Keep stale in-process dispatcher registrations harmless."""
+    return 0, "", ""
 
 
 if __name__ == "__main__":

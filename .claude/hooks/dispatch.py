@@ -67,7 +67,7 @@ PLUGIN_OWNED = {
     "review_coverage_hook",
 }
 
-# Retired handlers. Their files are gone, so they are absent from ROUTES, but the
+# Retired hook registrations. They are absent from ROUTES, but the
 # frozen pre-swap fixture still lists them; the test suite filters this set out of
 # it the same way it filters PLUGIN_OWNED, which keeps "route deliberately retired"
 # distinguishable from "route silently dropped".
@@ -82,6 +82,7 @@ PLUGIN_OWNED = {
 RETIRED = {
     "observe_tool",
     "analyze-instincts",
+    "notify",  # Herdr owns alerts; the module remains a sender for explicit callers.
 }
 
 ROUTES = [
@@ -125,7 +126,6 @@ ROUTES = [
         5,
         kind="observer",
     ),
-    Route("Stop", None, "notify", HOOKS / "notify.py", 15, kind="observer"),
     Route("Stop", None, "track_cost", HOOKS / "track_cost.py", 10, kind="observer"),
     Route("Stop", None, "track_skills", HOOKS / "track_skills.py", 10, kind="observer"),
 ]
