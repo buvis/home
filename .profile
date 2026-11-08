@@ -36,6 +36,9 @@ export PATH="${PATH}:${DOTFILES_ROOT}/.krew/bin"
 # Python wheels
 export PATH="${DOTFILES_ROOT}/.local/bin:${PATH}"
 
+# mise shims
+export PATH="${HOME}/.local/share/mise/shims:${PATH}"
+
 # Rust (rustup)
 export PATH="${HOME}/.cargo/bin:${PATH}"
 

@@ -155,6 +155,15 @@
             "async": true
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.config/herdr-app/mods/revive/revive.mjs\" hook",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -281,6 +290,15 @@
             "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
             "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.config/herdr-app/mods/revive/revive.mjs\" hook",
+            "timeout": 10
           }
         ]
       }
