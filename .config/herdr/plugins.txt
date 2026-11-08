@@ -1,3 +1,0 @@
-cdc-lst/herdr-wait
-Resilient-Software/herdr-agent-activity
-rjyo/herdr-window-title-sync
