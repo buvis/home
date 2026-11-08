@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Carbonyl (Chromium in the terminal). Usage: browse [url]. Prompts when no url.
+CARBONYL="$(command -v carbonyl || echo "$HOME/.cache/carbonyl/node_modules/@fathyb/carbonyl-macos-arm64/build/carbonyl")"
+url="$1"
+if [ -z "$url" ]; then read -r -p "URL: " url; fi
+[ -z "$url" ] && exit 0
+case "$url" in http*|file:*|about:*) ;; *.*) url="https://$url" ;; *) url="https://duckduckgo.com/?q=$url" ;; esac
+exec "$CARBONYL" "$url"

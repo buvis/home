@@ -1,0 +1,63 @@
+{
+  "_": "Settings for the On screen mod. paths.home_only: list only paths under your home (agents' scratch folders under /tmp stay out). paths.ignore: never list these folders or anything in them (~ is your home). commands.enter: what Enter does on a command: run-split (run it in a new terminal beside the pane), paste-split, paste or copy. letters: one character per action, editor id or browser id; browser letters apply to links, editor letters to paths, command letters to commands, so they may overlap. Save to apply.",
+  "paths": {
+    "home_only": true,
+    "ignore": [
+      "/tmp",
+      "/private/tmp",
+      "~/Library",
+      "~/.cache",
+      "~/.Trash"
+    ]
+  },
+  "commands": {
+    "enter": "run-split"
+  },
+  "letters": {
+    "reveal": "o",
+    "copy": "y",
+    "paste": "p",
+    "paste-split": "n",
+    "run-split": "r",
+    "cursor": "c",
+    "vscode": "c",
+    "vscode-insiders": "c",
+    "windsurf": "w",
+    "antigravity": "a",
+    "kiro": "k",
+    "trae": "t",
+    "vscodium": "c",
+    "positron": "p",
+    "zed": "z",
+    "sublime": "s",
+    "idea": "i",
+    "webstorm": "w",
+    "pycharm": "p",
+    "goland": "g",
+    "phpstorm": "p",
+    "rustrover": "r",
+    "clion": "l",
+    "rider": "r",
+    "fleet": "f",
+    "nova": "n",
+    "bbedit": "b",
+    "textmate": "m",
+    "xcode": "x",
+    "nvim": "v",
+    "hx": "h",
+    "vim": "v",
+    "safari": "s",
+    "brave": "b",
+    "chrome": "c",
+    "chromium": "c",
+    "firefox": "f",
+    "arc": "a",
+    "edge": "e",
+    "zen": "z",
+    "vivaldi": "v",
+    "opera": "p",
+    "orion": "n",
+    "duckduckgo": "d",
+    "tor": "t"
+  }
+}

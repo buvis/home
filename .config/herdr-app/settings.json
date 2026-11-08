@@ -1,0 +1,13 @@
+{
+  "zoom": 1,
+  "sounds": {
+    "enabled": true
+  },
+  "font_ligatures": false,
+  "minimum_contrast": 1,
+  "appearance": "dark",
+  "theme": "solarized-dark",
+  "font_size": 12,
+  "font": "MesloLGS Nerd Font Mono",
+  "ui_font": "MesloLGL Nerd Font"
+}

@@ -1,0 +1,13 @@
+{
+  "place": "none",
+  "title": "On screen",
+  "overlay": {
+    "kind": "popup",
+    "at": "top",
+    "offset": 40
+  },
+  "cloned_from": {
+    "name": "path-menu",
+    "version": "d439c61"
+  }
+}

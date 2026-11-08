@@ -1,0 +1,4 @@
+#!/bin/sh
+# hmod: the herdr-mod-updater CLI, run from its clone with its data under ~/.local/state.
+export HMOD_HOME="${HMOD_HOME:-$HOME/.local/state/herdr-mod-updater}"
+exec /Users/bob/.local/share/mise/installs/bun/latest/bin/bun /Users/bob/git/src/github.com/jonathan-fielding/herdr-mod-updater/src/cli.ts "$@"

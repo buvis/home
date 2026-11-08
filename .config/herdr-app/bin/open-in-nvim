@@ -1,0 +1,4 @@
+#!/bin/sh
+# open-in-nvim: filetree's "open" command (mods/filetree/config.json). Opens the
+# given file in nvim, in a split right of the focused pane.
+exec herdr-app do pane.split --direction right --argv "$(jq -cn --arg f "$1" '["nvim", "--", $f]')"

@@ -72,3 +72,22 @@ commands:
           [ -f "$cfg/plugins.json" ] || exit 0
           jq -r '.[] | select(.source.kind == "github") | "\(.source.owner)/\(.source.repo)"' \
             "$cfg/plugins.json" | sort -f > "$cfg/plugins.txt"
+
+  # The dotfiles remote is public, so nothing gets tracked without a decision.
+  # glean (agent-skills) lists untracked dotfiles that no ledger verdict covers,
+  # such as a mod newly added to ~/.config/herdr-app. Any listed path fails this
+  # step: run /glean to track, encrypt or ledger each one. Runs last.
+  dotfiles-drift:
+    order: 90
+    when: { check: jq }
+    steps:
+      - - sh
+        - -ec
+        - |
+          scan="$HOME/.agents/skills/glean/scripts/glean.py"
+          if [ ! -f "$scan" ]; then echo "glean not installed, skipping"; exit 0; fi
+          out=$(python3 "$scan" scan)
+          printf '%s\n' "$out" | jq -r '(.candidates + .resurfaced)[] | .path'
+          n=$(printf '%s\n' "$out" | jq '.counts.new + .counts.resurfaced')
+          if [ "$n" -ne 0 ]; then echo "$n untracked dotfile(s) need a glean verdict: run /glean"; exit 1; fi
+          echo "no untracked dotfiles without a verdict"

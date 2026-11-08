@@ -1,0 +1,43 @@
+#!/bin/sh
+# By Johannes Hund (https://github.com/h0ru5), from https://github.com/h0ru5/herdr-md-review. Apache-2.0.
+# Opens a Markdown file in Herdr's markdown panel for review, waits until Done is
+# clicked there, then prints the reviewer's changes as a diff (empty: no changes).
+#   md-review <file.md>            open and wait
+#   md-review --no-wait <file.md>  open and return
+#   md-review --rule               the rule for agents, printed only inside Herdr
+# Herdr terminals set HC_TERMINAL_ID; outside Herdr there is no panel to open.
+if [ "$1" = --rule ]; then
+  [ -n "$HC_TERMINAL_ID" ] && cat <<'RULE'
+## Reviews in Herdr
+When you want me to review a Markdown file (plan, draft, spec), run `md-review <file>` in the background. It opens the file in Herdr's markdown panel and exits when I click Done, printing my changes as a diff. Treat that diff as my review comments and act on them. If it says it is not running inside Herdr, ask me in chat instead.
+RULE
+  exit 0
+fi
+[ -n "$HC_TERMINAL_ID" ] || { echo "md-review: not running inside Herdr; ask for the review in chat instead" >&2; exit 2; }
+wait=1; [ "$1" = --no-wait ] && { wait=; shift; }
+[ -f "$1" ] || { echo "usage: md-review [--no-wait] <file.md>" >&2; exit 1; }
+home=${HERDR_APP_HOME:-$HOME/.config/herdr-app}
+p=$(realpath "$1")
+inbox=$home/data/markdown-review waiting=$home/data/markdown-review-waiting done_dir=$home/data/markdown-review-done
+fail() { echo "md-review: $1" >&2; exit 1; }
+mkdir -p "$inbox" "$waiting" "$done_dir" || fail "cannot write under $home/data"
+# This review is waiting/<pid>.path until the panel answers done/<pid>; the panel shows Done
+# for the file while any live md-review waits on it, even after the window was closed.
+id=$$ snap=
+if [ -n "$wait" ]; then
+  rm -f "$done_dir/$id"
+  snap=$(mktemp) && cp "$p" "$snap" || fail "cannot keep a copy of $p to compare"
+  trap 'rm -f "$waiting/$id.path" "$done_dir/$id" "$snap"' EXIT
+  trap 'exit 130' INT TERM
+  printf '%s' "$p" > "$waiting/$id.path" || fail "cannot record the review"
+fi
+printf '%s' "$p" > "$inbox/$(date +%s)-$id.path" || fail "cannot hand $p to the panel"
+# mod.open toggles: open the panel only when it isn't open already.
+case "$(herdr-app status 2>/dev/null)" in
+  *'"markdown-panel"'*) ;;
+  *) herdr-app do mod.open --name markdown-panel >/dev/null || fail "cannot open the markdown panel (is it installed?)" ;;
+esac
+[ -n "$wait" ] || exit 0
+while [ ! -e "$done_dir/$id" ]; do sleep 1; done
+echo "Review done: $p"
+diff -u --label before --label after "$snap" "$p" || true

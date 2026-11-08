@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""ghx: `gh` for Ship it, with Bitbucket Cloud support.
+
+In a repo whose `origin` is on bitbucket.org it answers the `gh` commands
+Ship it uses (pr view/checks/list/comment/merge/create, repo view, the few
+GraphQL calls) from the Bitbucket Cloud REST API, in gh's JSON shape.
+Anywhere else it runs the real `gh` unchanged.
+
+Credentials: one line `atlassian-email:api-token` in ~/.local/secret/bitbucket
+(or in $BITBUCKET_AUTH). Token scopes: read/write pull requests, read
+repository, read user. $BITBUCKET_API_URL overrides the API base (tests).
+"""
+import base64, json, os, re, shutil, subprocess, sys
+import urllib.error, urllib.parse, urllib.request
+
+API = os.environ.get("BITBUCKET_API_URL", "https://api.bitbucket.org/2.0")
+SECRET = os.path.expanduser("~/.local/secret/bitbucket")
+
+
+class Err(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- pass-through
+
+def real_gh():
+    home = os.path.expanduser("~")
+    path = os.pathsep.join([os.environ.get("PATH", ""), f"{home}/.local/share/mise/shims", "/opt/homebrew/bin", "/usr/local/bin"])
+    return shutil.which("gh", path=path)
+
+
+def pass_through(argv):
+    gh = real_gh()
+    if not gh:
+        sys.stderr.write("gh is not installed\n")
+        sys.exit(127)
+    os.execv(gh, [gh] + argv)
+
+
+# ---------------------------------------------------------------- git / http
+
+def remote():
+    r = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True)
+    m = re.search(r"bitbucket\.org[:/]+([^/]+)/([^/]+?)(?:\.git)?/?$", r.stdout.strip()) if r.returncode == 0 else None
+    return (m.group(1), m.group(2)) if m else None
+
+
+def branch():
+    return subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
+
+
+def auth():
+    cred = os.environ.get("BITBUCKET_AUTH")
+    if not cred:
+        try:
+            cred = open(SECRET).read().strip()
+        except OSError:
+            raise Err("Bitbucket: not logged in (auth missing: put email:api-token in ~/.local/secret/bitbucket)")
+    return "Basic " + base64.b64encode(cred.encode()).decode()
+
+
+def req(method, path, body=None, params=None):
+    url = path if path.startswith("http") else API + path
+    if params:
+        url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params, doseq=True)
+    data = json.dumps(body).encode() if body is not None else None
+    r = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": auth(), "Accept": "application/json", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(r, timeout=25) as resp:
+            txt = resp.read()
+            return json.loads(txt) if txt else {}
+    except urllib.error.HTTPError as e:
+        msg = ""
+        try:
+            msg = json.loads(e.read()).get("error", {}).get("message", "")
+        except Exception:
+            pass
+        if e.code in (401, 403):
+            raise Err(f"Bitbucket: authentication failed ({e.code}) {msg}".strip())
+        raise Err(f"Bitbucket {e.code}: {msg}".strip())
+    except urllib.error.URLError as e:
+        raise Err(f"Bitbucket unreachable: {e.reason}")
+
+
+def paged(path, params=None, limit=None):
+    out, url, p = [], path, dict(params or {})
+    while url:
+        d = req("GET", url, params=p)
+        out += d.get("values", [])
+        url, p = d.get("next"), None
+        if limit and len(out) >= limit:
+            break
+    return out[:limit] if limit else out
+
+
+# ---------------------------------------------------------------- shaping
+
+STATE = {"OPEN": "OPEN", "MERGED": "MERGED", "DECLINED": "CLOSED", "SUPERSEDED": "CLOSED"}
+
+
+def person(u):
+    u = u or {}
+    return {"login": u.get("display_name") or u.get("nickname") or "ghost"}
+
+
+def decision(pr):
+    parts = pr.get("participants") or []
+    if any(p.get("state") == "changes_requested" for p in parts):
+        return "CHANGES_REQUESTED"
+    if any(p.get("approved") and p.get("role") == "REVIEWER" for p in parts) or \
+       (parts and any(p.get("approved") for p in parts) and (pr.get("reviewers") or [])):
+        return "APPROVED"
+    return "REVIEW_REQUIRED" if pr.get("reviewers") else ""
+
+
+def stat(ws, repo, n):
+    d = req("GET", f"/repositories/{ws}/{repo}/pullrequests/{n}/diffstat", params={"pagelen": 500})
+    vals = d.get("values", [])
+    return {
+        "additions": sum(v.get("lines_added", 0) for v in vals),
+        "deletions": sum(v.get("lines_removed", 0) for v in vals),
+        "changedFiles": d.get("size", len(vals)),
+        "conflict": any(v.get("status") == "merge conflict" for v in vals),
+    }
+
+
+def comments(ws, repo, n):
+    return [c for c in paged(f"/repositories/{ws}/{repo}/pullrequests/{n}/comments", {"pagelen": 100}) if not c.get("deleted")]
+
+
+def shape(pr, ws, repo, detail=False, full=True):
+    approvers = {(p.get("user") or {}).get("uuid") for p in pr.get("participants") or [] if p.get("approved")}
+    out = {
+        "number": pr["id"], "title": pr.get("title", ""), "state": STATE.get(pr.get("state"), "OPEN"),
+        "isDraft": bool(pr.get("draft")), "url": pr["links"]["html"]["href"],
+        "baseRefName": pr["destination"]["branch"]["name"], "headRefName": pr["source"]["branch"]["name"],
+        "headRefOid": (pr["source"].get("commit") or {}).get("hash"),
+        "reviewDecision": decision(pr), "author": person(pr.get("author")),
+        "createdAt": pr.get("created_on"), "updatedAt": pr.get("updated_on"), "labels": [],
+        "isCrossRepository": False,
+        "reviewRequests": [person(u) for u in pr.get("reviewers") or [] if u.get("uuid") not in approvers],
+        "mergeable": "UNKNOWN", "mergeStateStatus": "DRAFT" if pr.get("draft") else "CLEAN",
+    }
+    if full:
+        s = stat(ws, repo, pr["id"])
+        out.update(additions=s["additions"], deletions=s["deletions"], changedFiles=s["changedFiles"])
+        if s["conflict"]:
+            out.update(mergeable="CONFLICTING", mergeStateStatus="DIRTY")
+        elif not pr.get("draft"):
+            out["mergeable"] = "MERGEABLE"
+    if detail:
+        out["body"] = pr.get("description") or ""
+        out["comments"] = [{"author": person(c.get("user")), "createdAt": c.get("created_on"),
+                            "body": (c.get("content") or {}).get("raw", ""), "url": c["links"]["html"]["href"]}
+                           for c in comments(ws, repo, pr["id"]) if not c.get("inline")]
+        out["reviews"] = [{"author": person(p.get("user")),
+                           "state": "CHANGES_REQUESTED" if p.get("state") == "changes_requested" else "APPROVED",
+                           "body": "", "submittedAt": p.get("participated_on")}
+                          for p in pr.get("participants") or []
+                          if p.get("state") in ("approved", "changes_requested") or p.get("approved")]
+    return out
+
+
+def current_pr(ws, repo):
+    b = branch()
+    if not b:
+        raise Err("not on any branch")
+    base = f"/repositories/{ws}/{repo}/pullrequests"
+    q = 'source.branch.name="%s"' % b.replace('"', '\\"')
+    for states in (["OPEN"], ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"]):
+        vals = req("GET", base, params={"q": q, "state": states, "sort": "-updated_on", "pagelen": 1}).get("values", [])
+        if vals:
+            return req("GET", f"{base}/{vals[0]['id']}")
+    raise Err(f"no pull requests found for branch \"{b}\"")
+
+
+def opt(args, name):
+    return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else None
+
+
+# ---------------------------------------------------------------- commands
+
+def pr_view(ws, repo, args):
+    fields = opt(args, "--json") or ""
+    pr = current_pr(ws, repo)
+    print(json.dumps(shape(pr, ws, repo, detail="body" in fields.split(","))))
+
+
+def pr_checks(ws, repo, args):
+    pr = current_pr(ws, repo)
+    h = pr["source"]["commit"]["hash"]
+    sts = paged(f"/repositories/{ws}/{repo}/commit/{h}/statuses", {"pagelen": 100})
+    bucket = {"SUCCESSFUL": "pass", "FAILED": "fail", "STOPPED": "cancel", "INPROGRESS": "pending"}
+    out = [{"name": s.get("name") or s.get("key"), "workflow": s.get("key") or "", "bucket": bucket.get(s.get("state"), "pending"),
+            "state": s.get("state"), "link": s.get("url") or "", "startedAt": s.get("created_on"),
+            "completedAt": None if s.get("state") == "INPROGRESS" else s.get("updated_on"),
+            "description": s.get("description") or "", "event": ""} for s in sts]
+    print(json.dumps(out))
+
+
+def me():
+    return req("GET", "/user")
+
+
+def pr_list(ws, repo, args):
+    limit = int(opt(args, "--limit") or 30)
+    search = opt(args, "--search") or ""
+    q = None
+    if "author:@me" in search:
+        q = 'author.uuid="%s"' % me()["uuid"]
+    elif "review-requested:@me" in search:
+        q = 'reviewers.uuid="%s"' % me()["uuid"]
+    params = {"state": "OPEN", "sort": "-updated_on", "pagelen": min(limit, 50)}
+    if q:
+        params["q"] = q
+    vals = paged(f"/repositories/{ws}/{repo}/pullrequests", params, limit)
+    print(json.dumps([shape(p, ws, repo, full=False) for p in vals]))
+
+
+def pr_comment(ws, repo, args):
+    req("POST", f"/repositories/{ws}/{repo}/pullrequests/{args[2]}/comments", {"content": {"raw": opt(args, "--body") or ""}})
+
+
+def pr_merge(ws, repo, args):
+    strat = "merge_commit" if "--merge" in args else "rebase_merge" if "--rebase" in args else "squash"
+    req("POST", f"/repositories/{ws}/{repo}/pullrequests/{args[2]}/merge", {"merge_strategy": strat, "close_source_branch": False})
+
+
+def pr_create(ws, repo, args):
+    q = urllib.parse.urlencode({"source": branch()})
+    subprocess.run(["open", f"https://bitbucket.org/{ws}/{repo}/pull-requests/new?{q}"])
+
+
+def repo_view(ws, repo, args):
+    allowed = {"squashMergeAllowed": True, "mergeCommitAllowed": True, "rebaseMergeAllowed": True}
+    try:
+        strategies = current_pr(ws, repo)["destination"]["branch"].get("merge_strategies")
+        if strategies:
+            allowed = {"squashMergeAllowed": any("squash" in s for s in strategies),
+                       "mergeCommitAllowed": "merge_commit" in strategies,
+                       "rebaseMergeAllowed": any(s.startswith("rebase") or s == "fast_forward" for s in strategies)}
+    except Err:
+        pass
+    print(json.dumps(allowed))
+
+
+def graphql(ws, repo, args):
+    fields = {}
+    i = 0
+    while i < len(args):
+        if args[i] in ("-f", "-F") and i + 1 < len(args):
+            k, _, v = args[i + 1].partition("=")
+            fields[k] = v
+            i += 2
+        else:
+            i += 1
+    q = fields.get("query", "")
+    base = f"/repositories/{ws}/{repo}/pullrequests"
+    if "totalCount" in q:
+        print(req("GET", base, params={"state": "OPEN", "pagelen": 1}).get("size", 0))
+    elif "reviewThreads" in q:
+        n = fields["number"]
+        allc = comments(ws, repo, n)
+        roots = [c for c in allc if c.get("inline") and not c.get("parent")]
+        nodes = []
+        for r in roots:
+            inl = r["inline"]
+            kids = sorted([c for c in allc if (c.get("parent") or {}).get("id") == r["id"]], key=lambda c: c.get("created_on", ""))
+            line = inl.get("to") or inl.get("from")
+            nodes.append({
+                "id": f"bb:{n}:{r['id']}", "isResolved": bool(r.get("resolution")), "isOutdated": bool(inl.get("outdated")),
+                "path": inl.get("path"), "line": line, "originalLine": line, "diffSide": "RIGHT" if inl.get("to") else "LEFT",
+                "comments": {"nodes": [{"id": str(c["id"]), "author": {"login": person(c.get("user"))["login"]},
+                                        "body": (c.get("content") or {}).get("raw", ""), "createdAt": c.get("created_on"),
+                                        "url": c["links"]["html"]["href"]} for c in [r] + kids]}})
+        print(json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": nodes}}}}}))
+    elif "addPullRequestReviewThreadReply" in q:
+        _, n, cid = fields["id"].split(":")
+        req("POST", f"{base}/{n}/comments", {"content": {"raw": fields["body"]}, "parent": {"id": int(cid)}})
+        print("{}")
+    elif "unresolveReviewThread" in q:
+        _, n, cid = fields["id"].split(":")
+        req("DELETE", f"{base}/{n}/comments/{cid}/resolve")
+        print("{}")
+    elif "resolveReviewThread" in q:
+        _, n, cid = fields["id"].split(":")
+        req("POST", f"{base}/{n}/comments/{cid}/resolve")
+        print("{}")
+    else:
+        raise Err("unsupported GraphQL call on Bitbucket")
+
+
+ROUTES = {("pr", "view"): pr_view, ("pr", "checks"): pr_checks, ("pr", "list"): pr_list, ("pr", "comment"): pr_comment,
+          ("pr", "merge"): pr_merge, ("pr", "create"): pr_create, ("repo", "view"): repo_view, ("api", "graphql"): graphql}
+
+
+def main():
+    argv = sys.argv[1:]
+    rem = remote()
+    if not rem:
+        pass_through(argv)
+    handler = ROUTES.get(tuple(argv[:2]))
+    try:
+        if not handler:
+            raise Err("not supported on Bitbucket: gh " + " ".join(argv[:2]))
+        handler(*rem, argv)
+    except Err as e:
+        sys.stderr.write(str(e) + "\n")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
