@@ -33,6 +33,7 @@ alwaysAllow:
   - yarn
   - uv
   - ruff
+  - black
   - mypy
   - pytest
   - bats
