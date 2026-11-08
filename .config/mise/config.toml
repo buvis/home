@@ -15,7 +15,7 @@
 "pipx:Yapf" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
 "pipx:autopep8" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
 "pipx:black" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
-"pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.14" }
+"pipx:buvis-gems" = { version = "latest", extras = "all", uvx_args = "--managed-python --python 3.15" }
 "pipx:gita" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
 "pipx:isort" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
 "pipx:poetry" = { version = "latest", uvx_args = "--managed-python --python 3.15" }
