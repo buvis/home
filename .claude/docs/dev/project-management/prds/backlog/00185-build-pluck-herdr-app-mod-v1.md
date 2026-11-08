@@ -7,7 +7,7 @@ model_tier_rationale: invented predicates (session ownership, path and URL recog
 
 Source: herdr-plugins PRD 00001 (parked in `~/git/src/github.com/buvis/herdr-plugins/docs/dev/project-management/prds/hold/00001-pluck-v1.md`), the desktop part of herdr-plugins intake 00002 (`~/git/src/github.com/buvis/herdr-plugins/docs/dev/project-management/intake/new/00002-pluck-smart-copy-across-clients/idea.md`), and the user's decisions of 2026-11-08: JavaScript mod in herdr-app, the Python core retired, mods versioned in buvis, commands plus more kinds, a pi session reporter.
 
-Before launching: `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/herdr-app:$HOME/.pi/agent/extensions"` (the write-scope fence denies these roots otherwise).
+Before launching: `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/herdr-app:$HOME/.pi/agent/extensions"` (the write-scope fence denies these roots otherwise). The run-agent Seatbelt profile also denies writes under `~/.config/herdr-app` and `~/.pi` to a session whose project root is elsewhere (an `EPERM` was observed 2026-11-08), so launch the build from a session whose project root is `~/.config/herdr-app`, and file the `~/.pi/agent/extensions/pluck-session.ts` write and every buvis `add`/`commit` through `~/bin/warrant request`.
 
 ## Overview
 
