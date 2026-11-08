@@ -165,16 +165,6 @@
             "async": true
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
-            "async": true
-          }
-        ]
       }
     ],
     "PreToolUse": [
@@ -244,16 +234,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
-            "async": true
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "python3 ~/.claude/hooks/herdr_bg_status.py",
             "timeout": 10,
             "async": true
@@ -291,17 +271,6 @@
             "async": true
           }
         ]
-      },
-      {
-        "matcher": "Bash|Monitor|Agent|Task|CronCreate|CronDelete|ScheduleWakeup|TaskStop|KillShell|KillBash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
-            "async": true
-          }
-        ]
       }
     ],
     "PermissionRequest": [
@@ -324,16 +293,6 @@
             "async": true
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
-            "async": true
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
@@ -342,40 +301,6 @@
           {
             "type": "command",
             "command": "'/Users/bob/.local/bin/moshi-hook' claude-hook",
-            "async": true
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
-            "async": true
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
-            "async": true
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' claude",
-            "timeout": 10,
             "async": true
           }
         ]
