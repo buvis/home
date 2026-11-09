@@ -6,7 +6,7 @@ Ship it uses (pr view/checks/list/comment/merge/create, repo view, the few
 GraphQL calls) from the Bitbucket Cloud REST API, in gh's JSON shape.
 Anywhere else it runs the real `gh` unchanged.
 
-Credentials: one line `atlassian-email:api-token` in ~/.local/secret/bitbucket
+Credentials: one line `atlassian-email:api-token` in ~/.local/secrets/bitbucket
 (or in $BITBUCKET_AUTH). Token scopes: read/write pull requests, read
 repository, read user. $BITBUCKET_API_URL overrides the API base (tests).
 """
@@ -14,7 +14,7 @@ import base64, json, os, re, shutil, subprocess, sys
 import urllib.error, urllib.parse, urllib.request
 
 API = os.environ.get("BITBUCKET_API_URL", "https://api.bitbucket.org/2.0")
-SECRET = os.path.expanduser("~/.local/secret/bitbucket")
+SECRET = os.path.expanduser("~/.local/secrets/bitbucket")
 
 
 class Err(Exception):
@@ -55,7 +55,7 @@ def auth():
         try:
             cred = open(SECRET).read().strip()
         except OSError:
-            raise Err("Bitbucket: not logged in (auth missing: put email:api-token in ~/.local/secret/bitbucket)")
+            raise Err("Bitbucket: not logged in (auth missing: put email:api-token in ~/.local/secrets/bitbucket)")
     return "Basic " + base64.b64encode(cred.encode()).decode()
 
 
