@@ -47,11 +47,6 @@
       "decided": "2026-10-11"
     },
     {
-      "path": ".homebrew/",
-      "verdict": "noise",
-      "decided": "2026-10-11"
-    },
-    {
       "path": ".matplotlib/",
       "verdict": "noise",
       "decided": "2026-10-11"
@@ -508,6 +503,60 @@
       "verdict": "noise",
       "decided": "2026-11-08",
       "note": "shipped by Herdr, replaced on start"
+    },
+    {
+      "path": ".bash_profile.revive-backup",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "backup written by the revive mod; safe to delete"
+    },
+    {
+      "path": ".python_history",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "shell history"
+    },
+    {
+      "path": ".herdr/",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "herdr worktree root"
+    },
+    {
+      "path": ".config/herdr-app/windows.json",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "written by Herdr: mods kept windows"
+    },
+    {
+      "path": ".config/herdr-space-folders.json",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "state written by the my-space-folders mod"
+    },
+    {
+      "path": ".config/herdr-app/layouts/buvis.json.before-ship-it",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "backup of the tracked layout; safe to delete"
+    },
+    {
+      "path": ".homebrew/trust.json",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "Homebrew trust store, machine state"
+    },
+    {
+      "path": ".homebrew/trust.json.lock",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "Homebrew trust store lock"
+    },
+    {
+      "path": ".config/herdr-app/mods/file-picker/",
+      "verdict": "noise",
+      "decided": "2026-11-09",
+      "note": "gallery mod arjunmahishi/herdr-file-picker, upstream has no license so not redistributable; reinstall with hmod, redo the -lc edit (GALLERY.md)"
     }
   ]
 }

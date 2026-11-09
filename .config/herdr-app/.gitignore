@@ -2,3 +2,5 @@
 /pager.local.json
 __pycache__/
 *.pyc
+# Private, ephemeral notes saved per Herdr tab.
+/tab-notes/

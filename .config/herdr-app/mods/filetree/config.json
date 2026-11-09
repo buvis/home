@@ -1,0 +1,6 @@
+{
+  "activity": "reads and writes",
+  "follow": true,
+  "column": "date",
+  "open": "/Users/bob/.config/herdr-app/bin/open-in-nvim {path}"
+}

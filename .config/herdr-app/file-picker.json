@@ -1,0 +1,10 @@
+{
+  "actions": {
+    "enter": { "argv": ["nvim", "--", "{file}"], "label": "nvim" },
+    "ctrl-d": {
+      "argv": ["sh", "-c", "git diff --color=always -- \"$1\" | less -R", "diff", "{file}"],
+      "label": "diff",
+      "destination": "popup", "width": 0.8, "height": 0.8
+    }
+  }
+}

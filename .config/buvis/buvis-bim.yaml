@@ -1,0 +1,24 @@
+path_zettelkasten: ~/bim/notes/
+path_archive: ~/Documents/reference/40-archives/
+
+doc:
+  paths:
+    business_root: ~/Documents/reference/20-areas/business
+    vault_root: ~/bim
+    vault_documents_subdir: notes/documents
+    issuers_file: ~/bim/notes/documents/issuers.yml
+  ocr:
+    languages: [ces, eng]
+    skip_text: true
+    redo_on_low_confidence: true
+    low_confidence_threshold: 0.70
+  classifier:
+    # llama-server from `start_qwen` (development.plugin.bash); it serves one
+    # model and ignores the model names, so primary/fallback stay at defaults.
+    backend: llamacpp
+    endpoint: http://localhost:8002
+    triage_threshold: 0.85
+    max_retries: 2
+  zettel:
+    ocr_text_in_body: true
+    ocr_text_collapsible: true
