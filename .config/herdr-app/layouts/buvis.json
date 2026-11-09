@@ -148,7 +148,7 @@
                       "id": "changes",
                       "type": "block",
                       "content": {
-                        "mod": "ship-it-changes"
+                        "mod": "reviewer"
                       }
                     },
                     {

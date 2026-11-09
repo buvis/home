@@ -14,7 +14,7 @@ before adding it.
 | Mod folder | Source (gallery owner/repo, path) | Key | Local edits and notes |
 |---|---|---|---|
 | revive | dmazlum/herdr-revive 0.5.0 | cmd-alt-r | Key moved from cmd-shift-r (space.rename). `revive.mjs install` not run yet: it edits ~/.claude/settings.json, ~/.codex/hooks.json and the bash login file. Its dialog needs node on Herdr's PATH (see Setup). |
-| reviewer | vytasgavelis/herdr-reviewer 0.4.0 | (Changes slot) | Was the `changes` child of `panel-body`; another session replaced it with ship-it-changes the same evening. The folder stays installed and unreferenced. hmod can't link it (`cloned_from: changes`). |
+| reviewer | vytasgavelis/herdr-reviewer 0.4.0 | Changes slot (`changes` child of `panel-body`); no `mod:reviewer` keys, the panel's buttons do it | Inline diff comments sent to the space's agent with `hc send`. Lost the slot to ship-it-changes on 2026-11-08, got it back on 2026-11-09 (its agent comments are the point; ship-it-changes only fed the strip's file count). hmod can't link it (`cloned_from: changes`). |
 | obsidian | cunderw/herdr-obsidian | cmd-shift-n popup, cmd-alt-n panel | Keys moved from ctrl-b f / ctrl-b a. `obsidian.json` sets vault `~/bim`, editor nvim. mod:obsidian: ctrl-j/k, alt-enter send, cmd-s/ctrl-s save. |
 | markdown-panel | jlopezlira/herdr-kanso, markdown-panel/mods/markdown-panel | cmd-shift-m | Kanso Markdown `.md` handler app not installed. |
 | ciupaga | rgonek/Ciupaga | cmd-alt-t | No key shipped; cmd-alt-t chosen. |
@@ -31,8 +31,12 @@ before adding it.
 
 Installed by another session the same evening, not through this ledger:
 ship-it, ship-it-changes, ship-it-file, ship-it-prs, ship-it-review
-(ashrodan/ship-it): a 40px strip under the tabs and three panel children; it
-took the `changes` slot from reviewer. No downloads or network calls in its code.
+(ashrodan/ship-it): a 40px strip under the tabs and panel children
+ship-it-review and ship-it-prs. ship-it-changes held the `changes` slot from
+2026-11-08 to 2026-11-09, when reviewer took it back; its folder stays installed
+and unreferenced, so the strip shows no diff button or file count (it renders
+them only with a `ship-it-changes` block in `panel-body`). PR, checks, Review,
+PRs and Ship are unaffected. No downloads or network calls in its code.
 In dotfiles since 2026-11-09 with the upstream MIT `LICENSE` in each folder and
 `LICENSE-lucide` beside the icons. Local edit: `GH` in main.js and data.js is
 `() => \`${appHome()}/bin/ghx\`` (gh with Bitbucket Cloud support) instead of
