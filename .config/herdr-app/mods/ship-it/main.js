@@ -8,8 +8,9 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, layout, shared, setShared, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
-import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent } from "./data.js";
+import { theme, run, layout, shared, setShared, spaces, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
+import { cleanupPlan, removeCheckout } from "./cleanup.js";
+import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent } from "./data.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
@@ -38,7 +39,7 @@ export default class ShipIt extends View {
       if (pending || (this.tick = (this.tick ?? 0) + 1) % 4 === 0) this.refreshPr(cx);
     });
     // "ship-it.merge" comes back from the confirm dialog Ship opens.
-    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); cx.notify(); } });
+    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); cx.notify(); } });
   }
 
   // Git facts for the focused folder; a new repo or branch also refreshes the PR.
@@ -257,7 +258,7 @@ export default class ShipIt extends View {
     const how = { squash: "Squash and merge", merge: "Merge", rebase: "Rebase and merge" }[method];
     openOverlay({ mod: "confirm", kind: "dialog", width: 420, height: 200, props: {
       title: `Ship #${pr.number}?`,
-      detail: `${how} ${pr.headRefName} into ${pr.baseRefName}.${warn.length ? ` Note: ${warn.join(", ")}.` : ""} The branch stays.`,
+      detail: `${how} ${pr.headRefName} into ${pr.baseRefName}.${warn.length ? ` Note: ${warn.join(", ")}.` : ""} After merging, use Clean up to remove this worktree and local branch.`,
       command: { name: "ship-it.merge" },
     } });
   }
@@ -273,10 +274,52 @@ export default class ShipIt extends View {
       try {
         const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : [])];
         const r = await exec(GH(),args, { cwd: m.root, on: m.on });
-        if (r.code === 0) notify({ title: `#${m.number} shipped`, body: "Merged on GitHub", level: "info", timeout: 4 });
+        if (r.code === 0) notify({ title: `#${m.number} shipped`, body: `Merged on ${forgeOf(this.pr?.pr?.url)}`, level: "info", timeout: 4 });
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
       } catch (e) { notify({ title: `#${m.number} not merged`, body: String(e), level: "error", timeout: 8 }); }
       finally { this.merging = false; this.refreshPr(cx); cx.notify(); }
+    });
+  }
+
+  askCleanup() {
+    const g = this.git, pr = this.pr?.pr;
+    if (!g?.worktree || pr?.state !== "MERGED" || this.cleaning) return;
+    this.pendingCleanup = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, branch: pr.headRefName, space: this.loc?.space, at: Date.now() };
+    openOverlay({ mod: "confirm", kind: "dialog", width: 460, height: 230, props: {
+      title: `Clean up #${pr.number}?`,
+      detail: `Remove ${g.root} and local/remote branch ${pr.headRefName}. Closes this space and its terminals. Uncommitted work or new commits block cleanup. The merged tip remains recoverable. A remote branch that moved is never deleted.`,
+      command: { name: "ship-it.cleanup" },
+    } });
+  }
+
+  cleanup(cx) {
+    const target = this.pendingCleanup;
+    this.pendingCleanup = null;
+    if (!target || this.cleaning || Date.now() - target.at > 120000) return;
+    this.cleaning = true;
+    cx.spawn(async (cx) => {
+      try {
+        const plan = await cleanupPlan(exec, GH(), target);
+        if (plan.sha !== target.sha || plan.branch !== target.branch) throw new Error("The checkout changed since confirmation.");
+        const space = spaces().find((s) => s.id === target.space && (s.machine ?? null) === (target.on ?? null));
+        if (!space) throw new Error("The original space is no longer available.");
+        const tabs = new Set(space.tabs.map((t) => t.id));
+        const machineTabs = new Set(spaces().filter((s) => (s.machine ?? null) === (target.on ?? null)).flatMap((s) => s.tabs.map((t) => t.id)));
+        for (const pane of panes().filter((p) => machineTabs.has(p.tab) && p.terminal)) {
+          if (!pane.cwd) throw new Error("A terminal's folder is unknown; close it before cleanup.");
+          const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: pane.cwd, on: target.on });
+          const inside = r.code === 0 && r.stdout.trim() === plan.root;
+          if (tabs.has(pane.tab) && !inside) throw new Error("This space also contains terminals outside the worktree; move them before cleanup.");
+          if (!tabs.has(pane.tab) && inside) throw new Error("Another space is using this worktree; close it before cleanup.");
+        }
+        // Recheck after inspecting terminals, immediately before removing the checkout.
+        const fresh = await cleanupPlan(exec, GH(), target);
+        if (fresh.sha !== plan.sha || fresh.branch !== plan.branch || fresh.main !== plan.main || fresh.remoteUrl !== plan.remoteUrl || fresh.remoteRef !== plan.remoteRef) throw new Error("The checkout changed during cleanup.");
+        const result = await removeCheckout(exec, fresh);
+        run("space.close", { id: target.space, confirmed: true });
+        notify({ title: result.warning ? "Cleanup incomplete" : `#${target.number} cleaned up`, body: result.warning || `Worktree and local/remote branch removed. Recovery: ${result.recovery}`, level: result.warning ? "error" : "info", timeout: 8 });
+      } catch (e) { notify({ title: "Cleanup stopped", body: String(e), level: "error", timeout: 8 }); }
+      finally { this.cleaning = false; this.refreshGit(cx); cx.notify(); }
     });
   }
 
@@ -306,6 +349,10 @@ export default class ShipIt extends View {
   // Ship: solid when it can merge, quiet with the reason when it can't.
   shipButton(t) {
     const block = this.shipBlock(), merged = this.pr?.pr?.state === "MERGED";
+    if (merged && this.git?.worktree) return this.button("cleanup", t, {
+      icon: "check", label: this.cleaning ? "Cleaning…" : "Clean up",
+      onClick: () => this.askCleanup(), tip: "Remove the merged worktree and local/remote branch",
+    });
     return h_flex().id("ship").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1()
       .when(!block, (e) => e.border_color(t.solid).bg(t.solid).cursor_pointer().hover((s) => s.opacity(0.88)).on_click((_e, cx) => this.ship(cx)))
       .when(Boolean(block), (e) => e.border_color(t.border).bg(t.background))
@@ -374,10 +421,10 @@ export default class ShipIt extends View {
   }
 
   // The main action on the right: the PR (icon, number, state, the title's
-  // first 30 characters) opens its review; with none, Create opens GitHub's form.
+  // first 30 characters) opens its review; with none, Create opens the host's form.
   prButton(t, narrow) {
     const p = this.pr;
-    if (p?.kind === "none") return this.button("pr-create", t, { icon: "git-pull-request", label: "Create PR", tip: "Open a pull request for this branch on GitHub",
+    if (p?.kind === "none") return this.button("pr-create", t, { icon: "git-pull-request", label: "Create PR", tip: "Open a pull request for this branch on the remote host",
       onClick: () => { const g = this.git; exec(GH(),["pr", "create", "--web"], { cwd: g.root, on: g.on }); } });
     if (p?.kind !== "ok") return null;
     const pr = p.pr, look = prLook(pr), color = t[look.color] ?? t.muted;

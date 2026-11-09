@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, appHome, notify, watchFolder, nextCommand } from "herdr";
-import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown, panelShown, Recent, sharedPr } from "./data.js";
+import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, forgeOf, modShown, panelShown, Recent, sharedPr } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
@@ -544,14 +544,14 @@ export default class Review extends View {
         .when(Boolean(this.base), (e) => e.child(div().text_color(t.dim).child("→")).child(div().flex_none().child(this.base.replace(/^origin\//, ""))))))
       .child(div().w(6))
       .child(this.iconButton("refresh", t, "refresh-cw", "Refresh (r)", (_e, cx) => this.refresh(cx, true), { spin: this.loading }))
-      .when(Boolean(pr), (e) => e.child(this.iconButton("open-pr", t, "external-link", "Open on GitHub (o)", (_e, cx) => this.openUrl(pr.url, cx))));
+      .when(Boolean(pr), (e) => e.child(this.iconButton("open-pr", t, "external-link", `Open on ${forgeOf(pr.url)} (o)`, (_e, cx) => this.openUrl(pr.url, cx))));
   }
 
   footer(t) {
     const hints = {
-      overview: ["1 2 3 tabs", "r refresh", "o open on GitHub", "⌘↵ comment"],
+      overview: ["1 2 3 tabs", "r refresh", `o open on ${forgeOf(this.pr?.pr?.url)}`, "⌘↵ comment"],
       files: ["j/k files", "v viewed", "n next unviewed", "e open file", "r refresh"],
-      checks: ["j/k checks", "↵ log", "r refresh", "o open on GitHub"],
+      checks: ["j/k checks", "↵ log", "r refresh", `o open on ${forgeOf(this.pr?.pr?.url)}`],
     }[this.tab];
     return h_flex().h(28).flex_none().px(12).gap(14).items_center().border_t(1).border_color(t.border).bg(t.chrome)
       .text_size(11).text_color(t.dim).children(hints.map((h) => div().whitespace_nowrap().child(h)));
@@ -562,7 +562,7 @@ export default class Review extends View {
   overview(t) {
     const p = this.pr;
     if (!p) return this.empty(t, "loader", this.error ?? "Loading pull request…", null);
-    if (p.kind === "unavailable") return this.empty(t, "git-pull-request", "GitHub is not reachable", `${p.reason}. Files still work.`);
+    if (p.kind === "unavailable") return this.empty(t, "git-pull-request", "The remote host is not reachable", `${p.reason}. Files still work.`);
     if (p.kind === "none") {
       const branch = this.git?.branch ?? "this branch";
       return this.empty(t, "git-pull-request", `No pull request for ${branch}`, "Push the branch and open one to get a description, reviews and checks here.",
@@ -651,7 +651,7 @@ export default class Review extends View {
       .child(h_flex().h(36).px(12).gap(8).items_center().bg(t.ansi1 + "14")
         .child(this.icon("git-merge", t.ansi1, 14))
         .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(`Conflicts with ${base}`))
-        .child(div().text_size(12).text_color(t.muted).child(files?.length ? `${files.length} file${files.length > 1 ? "s" : ""}` : files ? "" : "GitHub reports conflicts"))
+        .child(div().text_size(12).text_color(t.muted).child(files?.length ? `${files.length} file${files.length > 1 ? "s" : ""}` : files ? "" : "The host reports conflicts"))
         .child(div().flex_1())
         .child(this.button("copy-conflicts", t, "Copy details", (_e, cx) => { cx.write_to_clipboard(details()); notify({ title: "Conflict details copied", level: "info", timeout: 2 }); }, { icon: "copy" })))
       .when(Boolean(files?.length), (e) => e.child(v_flex().px(12).py(8).gap(2).bg(t.background).font_family(settings().font_family ?? "JetBrains Mono").text_size(11.5)
@@ -891,7 +891,7 @@ export default class Review extends View {
   checksTab(t) {
     const p = this.pr;
     if (!p || (p.kind === "ok" && this.checks === null && this.loading)) return this.empty(t, "loader", "Loading checks…", null);
-    if (p.kind === "unavailable") return this.empty(t, "circle-dot", "GitHub is not reachable", p.reason);
+    if (p.kind === "unavailable") return this.empty(t, "circle-dot", "The remote host is not reachable", p.reason);
     if (p.kind === "none") return this.empty(t, "circle-dot", "No checks yet", "Checks run on a pull request. Create one from Overview.");
     const list = this.sortedChecks();
     if (!list.length) return this.empty(t, "circle-check", "No checks on this pull request", null);
@@ -924,7 +924,7 @@ export default class Review extends View {
     return h_flex().id(`check-${i}`).h(34).mx(6).px(10).gap(10).items_center().rounded(6).cursor_pointer()
       .when(Boolean(sel), (e) => e.bg(t.selected)).when(!sel, (e) => e.hover((s) => s.bg(t.hover)))
       .on_click((_e, cx) => { this.checkIndex = i; if (failed) this.showLog(x, cx); else this.openUrl(x.link, cx); cx.notify(); })
-      .tooltip(failed ? (x.job ? "Show the failed log" : "Open on GitHub") : "Open on GitHub")
+      .tooltip(failed ? (x.job ? "Show the failed log" : `Open on ${forgeOf(x.link)}`) : `Open on ${forgeOf(x.link)}`)
       .child(svg(ICON(pending ? "loader" : icon)).size(15).flex_none().text_color(color).when(pending, (e) => e.spin(1200)))
       .child(h_flex().flex_1().min_w(0).gap(8).items_center().text_size(12.5)
         .child(div().min_w(0).truncate().text_color(t.foreground).font_medium().child(x.name))

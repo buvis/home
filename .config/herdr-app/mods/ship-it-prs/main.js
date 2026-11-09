@@ -9,7 +9,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, appHome, shared, setShared, notify, theme, nextCommand } from "herdr";
-import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde } from "./data.js";
+import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde, forgeOf } from "./data.js";
 import { checkState, checkCounts, localBranch, worktrees, addWorktree, places, spaceAt, showSpace, treeLook } from "./prs.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
@@ -81,7 +81,7 @@ export default class PullRequests extends View {
         if (this.key() !== context || this.filter !== filter) return;
         if (list.code !== 0) {
           const err = (list.stderr || "").toLowerCase();
-          this.error = err.includes("no git remote") || err.includes("no default remote") ? "No GitHub remote" : err.includes("auth") ? "gh is not logged in" : (list.stderr || "gh failed").trim().split("\n")[0];
+          this.error = err.includes("no git remote") || err.includes("no default remote") ? "No supported remote" : err.includes("auth") ? "gh is not logged in" : (list.stderr || "gh failed").trim().split("\n")[0];
           this.root = root; this.prs = []; return;
         }
         this.root = root; this.on = on; this.branch = branch.stdout.trim() || null; this.trees = trees;
@@ -191,7 +191,7 @@ export default class PullRequests extends View {
       .child(line("folder", div().min_w(0).truncate().child(here ? "Checked out here" : path ? `${tilde(path)}${space ? "" : " · no space open"}` : "No worktree yet")))
       .child(h_flex().pt(3).gap(6).flex_wrap()
         .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : look.icon, busy ? (path ? "Opening…" : "Creating…") : look.label, true, (cx) => this.worktree(pr, cx))))
-        .child(button("github", "external-link", "GitHub", false, (cx) => cx.open_url(pr.url)))
+        .child(button("github", "external-link", forgeOf(pr.url), false, (cx) => cx.open_url(pr.url)))
         .child(button("copy", "copy", "Copy link", false, (cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })));
   }
 

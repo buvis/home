@@ -169,6 +169,12 @@ const THREADS = `query($owner:String!,$name:String!,$number:Int!){repository(own
   reviewThreads(first:100){nodes{id isResolved isOutdated path line originalLine diffSide
     comments(first:50){nodes{id author{login} body createdAt url}}}}}}}`;
 
+// Which host a pull request URL lives on, for labels.
+export function forgeOf(url) {
+  const u = url || "";
+  return /bitbucket\.org/.test(u) ? "Bitbucket" : /gitlab|\/-\/merge_requests\//.test(u) ? "GitLab" : "GitHub";
+}
+
 export function repoOf(url) {
   const m = /(?:github\.com\/([^/]+)\/([^/]+)\/pull|bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests)\/(\d+)/.exec(url || "");
   return m ? { owner: m[1] ?? m[3], name: m[2] ?? m[4], number: Number(m[5]) } : null;
