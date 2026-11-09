@@ -10,10 +10,9 @@ use the existing bounded retries in `main.js`.
 
 ## Private configuration
 
-`../../pager.local.json` is an ignored symlink to
-`~/.local/.config/herdr-app/pager.local.json`. Keep the real file mode `0600`.
-Provision it separately on each machine; never publish either its contents or
-copies in dotfiles. Its string fields are:
+The mod reads `~/.local/.config/herdr-app/pager.local.json` directly. Only
+`~/.local` is carried to a new machine; nothing in `.config` (dotfiles) holds
+or links to it. Keep the file mode `0600` and never put it in dotfiles. Its string fields are:
 
 - `url`: ntfy server URL.
 - `topic`: notification topic.

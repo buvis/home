@@ -1,5 +1,3 @@
-# Per-machine notification destination and credentials (symlink into ~/.local).
-/pager.local.json
 __pycache__/
 *.pyc
 # Private, ephemeral notes saved per Herdr tab.

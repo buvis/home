@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "pager.local.json"
+CONFIG_PATH = Path.home() / ".local/.config/herdr-app/pager.local.json"
 IDLE_THRESHOLD_SEC = 300
 LID_CLOSED_BELOW = 70
 NTFY_TIMEOUT_SEC = 3
