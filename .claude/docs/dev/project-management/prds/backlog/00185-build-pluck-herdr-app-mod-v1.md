@@ -5,7 +5,7 @@ model_tier_rationale: invented predicates (session ownership, path and URL recog
 
 # Build Pluck as a herdr-app mod
 
-Source: herdr-plugins PRD 00001 (parked in `~/git/src/github.com/buvis/herdr-plugins/docs/dev/project-management/prds/hold/00001-pluck-v1.md`), the desktop part of herdr-plugins intake 00002 (`~/git/src/github.com/buvis/herdr-plugins/docs/dev/project-management/intake/new/00002-pluck-smart-copy-across-clients/idea.md`), and the user's decisions of 2026-11-08: JavaScript mod in herdr-app, the Python core retired, mods versioned in buvis, commands plus more kinds, a pi session reporter.
+Source: herdr-plugins PRD 00001 and the desktop part of herdr-plugins intake 00002 (its phone half is discovery 00186). herdr-plugins was retired on 2026-11-09; its full history is the git bundle `~/.local/share/archive/herdr-plugins.bundle`, and the code this PRD ports is copied to `~/.claude/docs/dev/project-management/discovery/00185-pluck-reference/`. Also: and the user's decisions of 2026-11-08: JavaScript mod in herdr-app, the Python core retired, mods versioned in buvis, commands plus more kinds, a pi session reporter.
 
 Before launching: `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/herdr-app:$HOME/.pi/agent/extensions"` (the write-scope fence denies these roots otherwise). The run-agent Seatbelt profile also denies writes under `~/.config/herdr-app` and `~/.pi` to a session whose project root is elsewhere (an `EPERM` was observed 2026-11-08), so launch the build from a session whose project root is `~/.config/herdr-app`, and file the `~/.pi/agent/extensions/pluck-session.ts` write and every buvis `add`/`commit` through `~/bin/warrant request`.
 
@@ -13,7 +13,7 @@ Before launching: `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/herdr-app:
 
 ### Problem Statement
 
-The user runs coding agents (Claude Code, pi) in the herdr-app desktop window on herdr-core (`hc`). Copying a command, code block, URL, path or whole answer from agent output means dragging over rendered terminal text, which loses boundaries and keeps renderer line breaks. Pluck solved this for the Herdr TUI by reading the agent's own transcript, but herdr-app does not load TUI plugins. The transcript logic is Python (`plugins/pluck/pluck_transcripts.py` in herdr-plugins); herdr-app mods are JavaScript.
+The user runs coding agents (Claude Code, pi) in the herdr-app desktop window on herdr-core (`hc`). Copying a command, code block, URL, path or whole answer from agent output means dragging over rendered terminal text, which loses boundaries and keeps renderer line breaks. Pluck solved this for the Herdr TUI by reading the agent's own transcript, but herdr-app does not load TUI plugins. The transcript logic is Python (`pluck_transcripts.py`, copied to the 00185 reference folder); herdr-app mods are JavaScript.
 
 ### Target Users
 
@@ -71,13 +71,13 @@ Port the Python reader and extractor, then add more kinds.
 - **Description**: Read the newest assistant text from a Claude or pi transcript.
 - **Inputs**: Transcript path, agent, lookback 20.
 - **Outputs**: Entries `{ text, messageIndex, sourceOrder }`, messageIndex 0 for the newest message.
-- **Behavior**: Exactly the behavior of `read_claude_entries`, `read_pi_entries`, `_read_jsonl` and `_walk_pi_chain` in `plugins/pluck/pluck_transcripts.py`: blank lines skipped; an unparseable last line without a trailing newline ignored (a writer mid-append); any other unparseable line is `<path>: malformed record on line <n>`; Claude keeps `type == "assistant"` records whose `isSidechain` is not true and whose content blocks include text, thinking or tool_use; pi follows `parentId` links back from the last record and rejects unknown parents and cycles. Read with `fs/promises` `readFile`, not `readTextFile` (its 1 MiB cap is smaller than real transcripts).
+- **Behavior**: Exactly the behavior of `read_claude_entries`, `read_pi_entries`, `_read_jsonl` and `_walk_pi_chain` in the 00185 reference folder's `pluck_transcripts.py`: blank lines skipped; an unparseable last line without a trailing newline ignored (a writer mid-append); any other unparseable line is `<path>: malformed record on line <n>`; Claude keeps `type == "assistant"` records whose `isSidechain` is not true and whose content blocks include text, thinking or tool_use; pi follows `parentId` links back from the last record and rejects unknown parents and cycles. Read with `fs/promises` `readFile`, not `readTextFile` (its 1 MiB cap is smaller than real transcripts).
 
 #### Feature: Extract commands
 - **Description**: The command kind, ported as is.
 - **Inputs**: Entries.
 - **Outputs**: Items `{ kind: "command", raw, display, tier, messageIndex, sourceOrder }`.
-- **Behavior**: Exactly the behavior of `extract_snippets` and `_extract_fence_bodies` in `plugins/pluck/pluck_transcripts.py` at herdr-plugins commit d8ec3d2: the fence tag is the first word of the info string, lowercased; bash/sh/zsh/fish fences are one command, prompts stripped only when the first non-blank line is a `$ ` prompt; console and untagged fences yield only their `$ ` lines; standalone `$ ` lines outside fences; an odd number of trailing backslashes continues a command and a `> ` continuation prefix is stripped; tier 0 for bash/sh/zsh/fish fences, 1 when the prose since the previous block matches `\b(run|in another terminal|in a second pane)\b` (case-insensitive), else 2.
+- **Behavior**: Exactly the behavior of `extract_snippets` and `_extract_fence_bodies` in `~/.claude/docs/dev/project-management/discovery/00185-pluck-reference/pluck_transcripts.py` (herdr-plugins commit d8ec3d2 behavior): the fence tag is the first word of the info string, lowercased; bash/sh/zsh/fish fences are one command, prompts stripped only when the first non-blank line is a `$ ` prompt; console and untagged fences yield only their `$ ` lines; standalone `$ ` lines outside fences; an odd number of trailing backslashes continues a command and a `> ` continuation prefix is stripped; tier 0 for bash/sh/zsh/fish fences, 1 when the prose since the previous block matches `\b(run|in another terminal|in a second pane)\b` (case-insensitive), else 2.
 
 #### Feature: Extract more kinds
 - **Description**: Code blocks, URLs, paths and whole answers.
@@ -128,9 +128,9 @@ Port the Python reader and extractor, then add more kinds.
 ~/.config/herdr-app/keys.json                 # one added binding
 ~/.pi/agent/extensions/pluck-session.ts      # Maps to: Report pi sessions
 # Read-only reference (behavior to port, not edited):
-~/git/src/github.com/buvis/herdr-plugins/plugins/pluck/pluck_transcripts.py
-~/git/src/github.com/buvis/herdr-plugins/plugins/pluck/test_pluck_snippets.py
-~/git/src/github.com/buvis/herdr-plugins/plugins/pluck/test_pluck_recovery.py
+~/.claude/docs/dev/project-management/discovery/00185-pluck-reference/pluck_transcripts.py
+~/.claude/docs/dev/project-management/discovery/00185-pluck-reference/test_pluck_snippets.py
+~/.claude/docs/dev/project-management/discovery/00185-pluck-reference/test_pluck_recovery.py
 ```
 
 ### Module: transcripts
