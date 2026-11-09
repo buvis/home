@@ -1,0 +1,10 @@
+{
+  "programs": {
+    "kiro": {
+      "run": [
+        "run-agent",
+        "kiro-cli"
+      ]
+    }
+  }
+}
