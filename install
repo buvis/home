@@ -182,11 +182,16 @@ cfg submodule update --init --recursive
 # --- Phase 3: Package installation ---
 
 if [ "$OS" = "macos" ] && command -v brew >/dev/null 2>&1; then
-  BREWFILE="$HOME/.config/brew/Brewfile"
+  # Per-machine dump (shell-hooks brew-dump task); restored with ~/.local.
+  BREWFILE="$HOME/.local/.config/brew/Brewfile"
   if [ -f "$BREWFILE" ]; then
     info "Installing Homebrew packages..."
     brew bundle --file="$BREWFILE" --no-lock || info "warning: brew bundle had errors, continuing"
   fi
+  # Formulas that tracked dotfiles code needs on every Mac (herdr pager).
+  for formula in terminal-notifier; do
+    brew list --formula "$formula" >/dev/null 2>&1 || brew install "$formula" || info "warning: brew install $formula failed, continuing"
+  done
 fi
 
 if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
