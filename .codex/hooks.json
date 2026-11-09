@@ -84,29 +84,11 @@
         ]
       },
       {
-        "hooks": [
-          {
-            "command": "bash '/Users/bob/.codex/herdr-agent-state.sh' session",
-            "timeout": 10,
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "node /Users/bob/.config/herdr-app/mods/revive/revive.mjs hook",
+            "command": "bash -lc 'exec node \"$HOME/.config/herdr-app/mods/revive/revive.mjs\" hook'",
             "timeout": 10
           }
         ]
@@ -129,15 +111,6 @@
             "type": "command"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
@@ -148,56 +121,16 @@
             "type": "command"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
-            "timeout": 10
-          }
-        ]
-      },
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "node /Users/bob/.config/herdr-app/mods/revive/revive.mjs hook",
+            "command": "bash -lc 'exec node \"$HOME/.config/herdr-app/mods/revive/revive.mjs\" hook'",
             "timeout": 3
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh '/Users/bob/.config/herdr/plugins/config/resilient-software.agent-activity/hook.sh' codex",
-            "timeout": 10
           }
         ]
       }

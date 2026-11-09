@@ -170,20 +170,6 @@
       "note": "braid link farm"
     },
     {
-      "path": ".claude/hooks/herdr-agent-state.sh",
-      "verdict": "skip",
-      "decided": "2026-10-11",
-      "sha256": "7f117c303ffc1a66975b76dda8189d70b718fc04af4cf7cb11449e4ee5b4ae86",
-      "note": "herdr-managed, regenerated on install"
-    },
-    {
-      "path": ".copilot/hooks/herdr-agent-state.sh",
-      "verdict": "skip",
-      "decided": "2026-10-11",
-      "sha256": "197460e7423d243862690eeb2dadaa0eeaec3d42f3106c5972483b029b797825",
-      "note": "herdr-managed, regenerated on install"
-    },
-    {
       "path": ".config/buvis/buvis-postup.yaml",
       "verdict": "skip",
       "decided": "2026-10-11",
@@ -545,6 +531,12 @@
       "verdict": "noise",
       "decided": "2026-11-09",
       "note": "gallery mod arjunmahishi/herdr-file-picker, upstream has no license so not redistributable; reinstall with hmod, redo the -lc edit (GALLERY.md)"
+    },
+    {
+      "path": ".viminfo",
+      "verdict": "noise",
+      "decided": "2026-11-10",
+      "note": "vim history and marks"
     }
   ]
 }

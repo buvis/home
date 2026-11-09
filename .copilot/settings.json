@@ -1,12 +1,3 @@
 {
-  "effortLevel": "high",
-  "hooks": {
-    "SessionStart": [
-      {
-        "bash": "bash '/Users/bob/.copilot/hooks/herdr-agent-state.sh'",
-        "timeoutSec": 10,
-        "type": "command"
-      }
-    ]
-  }
+  "effortLevel": "high"
 }

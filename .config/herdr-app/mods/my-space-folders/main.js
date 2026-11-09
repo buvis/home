@@ -870,6 +870,12 @@ export default class Spaces extends View {
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
     const list = sp.map((w, i) => ({ w, i, g: this.git[where(w, ps)] ?? null })).filter((r) => this.shown.has(r.w.id));
     const mains = new Set(list.filter((r) => r.g && !r.g.linked).map((r) => r.g.repo));
+    // Share the same parent names with the agent panel, including remote worktrees.
+    const parentNames = new Map(list.filter(r => r.g && !r.g.linked).map(r => [r.g.repo, r.w.name]));
+    const agentNames = Object.fromEntries(list.map(r => [r.w.id, r.g?.linked ? (parentNames.get(r.g.repo) || r.g.name) : r.w.name]));
+    if (JSON.stringify(shared("workspace.agent-space-names")) !== JSON.stringify(agentNames)) {
+      setShared("workspace.agent-space-names", agentNames);
+    }
     const nested = (r) => r.g?.linked && mains.has(r.g.repo);
     const out = [];
     const placed = new Set(); // repos whose worktrees are listed (under the first of its spaces)
