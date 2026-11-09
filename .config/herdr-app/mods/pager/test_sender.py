@@ -39,7 +39,8 @@ import sender
             ]
             self.assertEqual(sender.read_lid_angle(), 31.0)
             self.assertEqual(
-                run.call_args_list[0].args[0], ["mise", "where", "pipx:pybooklid"]
+                run.call_args_list[0].args[0],
+                ["mise", "where", "pipx:pybooklid"],
             )
             self.assertEqual(
                 run.call_args_list[1].args[0][0],
@@ -76,7 +77,10 @@ import sender
                 patch.object(sender, "screensaver_active", return_value=screen),
                 patch.object(sender, "read_lid_angle", return_value=angle),
                 patch.object(
-                    sender, "send_ntfy", autospec=True, return_value=True
+                    sender,
+                    "send_ntfy",
+                    autospec=True,
+                    return_value=True,
                 ) as push,
                 patch.object(sender.subprocess, "run", autospec=True) as desktop,
                 contextlib.redirect_stdout(io.StringIO()) as output,
@@ -90,6 +94,21 @@ import sender
                 self.assertEqual(diagnostic["lid_closed"], angle < 70)
                 self.assertEqual(diagnostic["lid_angle"], angle)
 
+    def test_presence_probe_decides_away_without_sending(self) -> None:
+        for idle, phone in ((301, True), (0, False)):
+            with (
+                self.subTest(idle=idle),
+                patch.object(sender, "read_idle_seconds", return_value=idle),
+                patch.object(sender, "screensaver_active", return_value=False),
+                patch.object(sender, "read_lid_angle", return_value=90),
+                patch.object(sender, "send_ntfy", autospec=True) as push,
+                patch.object(sender.subprocess, "run", autospec=True) as desktop,
+            ):
+                presence = sender.read_presence()
+                self.assertEqual(presence["channel"], "phone" if phone else "desktop")
+                push.assert_not_called()
+                desktop.assert_not_called()
+
     def test_delivery_failure_stays_on_selected_channel(self) -> None:
         for closed in (False, True):
             with (
@@ -97,10 +116,15 @@ import sender
                 patch.object(sender, "read_idle_seconds", return_value=0),
                 patch.object(sender, "screensaver_active", return_value=False),
                 patch.object(
-                    sender, "read_lid_angle", return_value=31 if closed else 90
+                    sender,
+                    "read_lid_angle",
+                    return_value=31 if closed else 90,
                 ),
                 patch.object(
-                    sender, "send_ntfy", autospec=True, return_value=False
+                    sender,
+                    "send_ntfy",
+                    autospec=True,
+                    return_value=False,
                 ) as push,
                 patch.object(sender.subprocess, "run", autospec=True) as desktop,
                 contextlib.redirect_stdout(io.StringIO()) as output,

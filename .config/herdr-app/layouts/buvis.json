@@ -253,6 +253,14 @@
       },
       "edge": "bottom",
       "align": "start"
+    },
+    {
+      "id": "reaper",
+      "content": {
+        "mod": "reaper"
+      },
+      "edge": "bottom",
+      "align": "center"
     }
   ],
   "titlebar": "none",

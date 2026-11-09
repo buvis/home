@@ -8,6 +8,10 @@ present, or phone notifications after more than 300 seconds idle, while the
 screensaver runs, or when the lid angle is below 70 degrees. Failed deliveries
 use the existing bounded retries in `main.js`.
 
+`python3 -B mods/pager/sender.py --presence` runs the same probes and prints
+them as JSON without notifying (`"channel": "desktop"` means present). The
+`reaper` mod uses it, so both mods agree on when you are away.
+
 ## Private configuration
 
 The mod reads `~/.local/.config/herdr-app/pager.local.json` directly. Only
