@@ -505,12 +505,6 @@
       "note": "shipped by Herdr, replaced on start"
     },
     {
-      "path": ".bash_profile.revive-backup",
-      "verdict": "noise",
-      "decided": "2026-11-09",
-      "note": "backup written by the revive mod; safe to delete"
-    },
-    {
       "path": ".python_history",
       "verdict": "noise",
       "decided": "2026-11-09",
@@ -533,12 +527,6 @@
       "verdict": "noise",
       "decided": "2026-11-09",
       "note": "state written by the my-space-folders mod"
-    },
-    {
-      "path": ".config/herdr-app/layouts/buvis.json.before-ship-it",
-      "verdict": "noise",
-      "decided": "2026-11-09",
-      "note": "backup of the tracked layout; safe to delete"
     },
     {
       "path": ".homebrew/trust.json",
