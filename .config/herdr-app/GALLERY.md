@@ -34,14 +34,19 @@ Installed by another session the same evening, not through this ledger:
 ship-it, ship-it-changes, ship-it-file, ship-it-prs, ship-it-review
 (ashrodan/ship-it): a 40px strip under the tabs and panel children
 ship-it-review and ship-it-prs. ship-it-changes held the `changes` slot from
-2026-11-08 to 2026-11-09, when reviewer took it back; its folder stays installed
-and unreferenced, so the strip shows no diff button or file count (it renders
-them only with a `ship-it-changes` block in `panel-body`). PR, checks, Review,
-PRs and Ship are unaffected. No downloads or network calls in its code.
+2026-11-08 to 2026-11-09, when reviewer took it back; its folder was deleted
+2026-11-10 together with the strip's dead `pr-changes` button (it rendered only
+with a `ship-it-changes` block). PR, checks, Review, PRs and Ship are unaffected. No downloads or network calls in its code.
 In dotfiles since 2026-11-09 with the upstream MIT `LICENSE` in each folder and
 `LICENSE-lucide` beside the icons. Local edit: `GH` in main.js and data.js is
 `() => \`${appHome()}/bin/ghx\`` (gh with Bitbucket Cloud support) instead of
-upstream's `gh`; redo after an update.
+upstream's `gh`; redo after an update. Local edit 2026-11-10: the strip
+always shows the folder (upstream hides it at a repo root) and, beside it, the
+uncommitted files/+/− (`git diff HEAD`), or when clean the branch's since its
+base ("vs master"), as a button that toggles the `changes` panel (reviewer);
+my-tabs dropped its Files and Changes buttons for these and moved `+` beside
+the last tab. A deleted folder (a removed worktree) shows "folder deleted"
+instead of silently looking like a non-repo.
 
 ## Setup done 2026-11-08
 

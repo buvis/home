@@ -166,6 +166,13 @@
                       }
                     },
                     {
+                      "id": "ship-it-issues",
+                      "type": "block",
+                      "content": {
+                        "mod": "ship-it-issues"
+                      }
+                    },
+                    {
                       "id": "tab-notes",
                       "type": "block",
                       "content": {
@@ -215,8 +222,9 @@
                 "mod": "pager"
               },
               "size": {
-                "px": 270
-              }
+                "px": 1
+              },
+              "min": 1
             }
           ],
           "size": {

@@ -1,16 +1,16 @@
 // Ship it: a fixed strip under the tab bar that says where the work is (the
 // folder, and what the pull request waits on: checks, threads, review) and takes it from there
 // to shipped. On the right: the PR button (number, state, title) opens the
-// ship-it-review pane, the changes button what the branch changes in the side
-// panel, PRs the repo's open pull requests, and Ship merges this one (after a
+// ship-it-review pane, PRs the repo's open pull requests, and Ship merges this one (after a
 // confirm). Checks, threads and the review beside the branch open the review
 // too. It follows the focused pane.
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, layout, shared, setShared, spaces, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
+import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
 import { cleanupPlan, removeCheckout, checkTerminals } from "./cleanup.js";
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent } from "./data.js";
+const COUNT_TTL = 5 * 60 * 1000; // the badges' counts are re-asked at most this often per repo
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
@@ -24,20 +24,40 @@ function find(node, id) {
   return null;
 }
 
+// Files, additions and deletions from `git diff --numstat -z` plus untracked files.
+function countStat(numstat, untracked) {
+  let files = 0, add = 0, del = 0;
+  for (const entry of numstat.split("\0")) {
+    const [a, d, ...p] = entry.split("\t");
+    if (!p.length) continue;
+    files++; add += Number(a) || 0; del += Number(d) || 0;
+  }
+  return { files: files + untracked.split("\0").filter(Boolean).length, add, del };
+}
+
+// Uncommitted changes against HEAD (what the Changes panel shows first); null without a commit.
+async function workStat(g) {
+  const run = (args) => exec("git", [...READ, ...args], { cwd: g.root, on: g.on });
+  const [num, untracked] = await Promise.all([run(["diff", "HEAD", "--numstat", "-z", "--no-renames"]), run(["ls-files", "--others", "--exclude-standard", "-z"])]);
+  return num.code === 0 ? countStat(num.stdout, untracked.stdout) : null;
+}
+
 export default class ShipIt extends View {
   init(_props, cx) {
+    this.cx = cx;
     this.loc = null; this.git = null; this.pr = null; this.checks = null; this.threads = null; this.stat = null;
     this.width = 1200; this.first = true;
     // Last facts per folder and per branch: a worktree you come back to shows at once.
-    this.gits = new Recent(); this.prs = new Recent();
+    this.gits = new Recent(); this.prs = new Recent(); this.counts = new Recent(24); // open PRs and issues per repo
     this.refreshGit(cx);
     // A local repo's folder watch catches edits, so its poll is only a backstop.
-    cx.timer.every(5000, (cx) => { if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });
+    cx.timer.every(5000, (cx) => { this.watchAgents(cx); if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });
     cx.timer.every(30000, (cx) => {
       // Pending checks move fast; settled ones are polled gently.
       const pending = tally(this.checks).pending > 0;
       if (pending || (this.tick = (this.tick ?? 0) + 1) % 4 === 0) this.refreshPr(cx);
     });
+    cx.timer.every(60000, (cx) => this.refreshCounts(cx)); // checks its own 5-minute age limit
     // "ship-it.merge" comes back from the confirm dialog Ship opens.
     cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); if (c === "ask-cleanup" || c === "ship-it.ask-cleanup") this.tryAskCleanup(); cx.notify(); } });
   }
@@ -48,7 +68,7 @@ export default class ShipIt extends View {
     const loc = location(this.loc), key = JSON.stringify([loc.cwd, loc.on]);
     if (key !== this.locKey) {
       const known = this.gits.get(key);
-      this.locKey = key; this.loc = loc; this.git = known ?? null; this.first = !known; this.arrived = true;
+      this.locKey = key; this.loc = loc; this.git = known ?? null; this.first = !known; this.arrived = true; this.gone = false;
       this.restore(known ? this.branchOf(known) : null);
     }
     if (!loc.cwd) { this.first = false; return; }
@@ -62,7 +82,14 @@ export default class ShipIt extends View {
         if (facts) this.gits.set(key, facts);
         // Every redraw redraws the whole window: only notify when something shows differently.
         changed = this.first || JSON.stringify(was) !== JSON.stringify(facts);
-        this.git = facts;
+        this.git = facts; this.gone = false;
+        if (facts) this.refreshCounts(cx);
+        const work = facts ? await workStat(facts).catch(() => null) : null;
+        if (key !== this.locKey) return;
+        if (JSON.stringify(work) !== JSON.stringify(this.work)) { this.work = work; changed = true; }
+        // A push (the branch gained an upstream or sent its commits) is often followed by a PR:
+        // look again now and a little later.
+        if (was && facts && was.root === facts.root && was.branch === facts.branch && (was.upstream !== facts.upstream || facts.ahead < was.ahead)) this.afterPush(cx);
         if (facts && !loc.on && this.watched !== facts.root) this.watch(facts.root, cx);
         const arrived = this.arrived, moved = branchKey !== this.branchKey, known = branchKey && this.prs.get(branchKey);
         this.arrived = false;
@@ -72,7 +99,13 @@ export default class ShipIt extends View {
         if (arrived || moved) this.publish();
         if (branchKey && (moved || !known?.at || (arrived && Date.now() - known.at > 20000))) this.refreshPr(cx);
         else if (facts && (!this.stat || was?.dirty !== facts.dirty || was?.sha !== facts.sha)) this.refreshStat(cx);
-      } catch { if (key === this.locKey) this.git = null; }
+      } catch {
+        if (key !== this.locKey) return;
+        this.git = null;
+        // exec rejects in a folder that no longer exists (a removed worktree): say so.
+        const gone = await exec("test", ["-d", loc.cwd], { on: loc.on }).then((r) => r.code !== 0, () => false);
+        changed = gone !== this.gone; this.gone = gone;
+      }
       finally { this.gitBusy = false; this.first = false; if (changed) cx.notify(); }
     });
   }
@@ -99,6 +132,9 @@ export default class ShipIt extends View {
     cx.spawn(async (cx) => {
       try {
         const pr = await prFacts(g.root, g.on, PR_DETAIL), ok = pr.kind === "ok";
+        // A PR that appeared, merged or closed changes the PR badge now.
+        const sig = (x) => (x?.kind === "ok" ? `${x.pr.number}:${x.pr.state}` : x?.kind), before = this.prs.get(key)?.pr;
+        if (before && sig(before) !== sig(pr)) this.bumpCounts(cx);
         if (key === this.branchKey) this.pr = pr;
         const [list, threadList, base] = await Promise.all([
           ok ? checks(g.root, g.on) : null,
@@ -127,14 +163,7 @@ export default class ShipIt extends View {
     if (!mb) return;
     const [num, untracked] = await Promise.all([run(["diff", mb, "--numstat", "-z", "--no-renames"]), run(["ls-files", "--others", "--exclude-standard", "-z"])]);
     if (key !== this.branchKey) return;
-    let files = 0, add = 0, del = 0;
-    for (const entry of num.stdout.split("\0")) {
-      const [a, d, ...p] = entry.split("\t");
-      if (!p.length) continue;
-      files++; add += Number(a) || 0; del += Number(d) || 0;
-    }
-    files += untracked.stdout.split("\0").filter(Boolean).length;
-    const stat = { files, add, del, base };
+    const stat = { ...countStat(num.stdout, untracked.stdout), base };
     if (JSON.stringify(stat) === JSON.stringify(this.stat)) return;
     this.stat = stat;
     this.remember(key);
@@ -175,22 +204,6 @@ export default class ShipIt extends View {
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
     const has = (id) => Boolean(body?.children?.some((c) => c.id === id));
     return { panel, body, has, open: (id) => panel && !panel.hidden && body?.active === id };
-  }
-
-  // The block that holds the Changes panel: "changes" when it took the place
-  // of Herdr's own, else "ship-it-changes"; null without one.
-  changesHost() {
-    return this.panel().body?.children?.find((c) => c.content?.mod === "ship-it-changes")?.id ?? null;
-  }
-
-  // The changes button: Changes on its branch view (since the base). Open on
-  // that view already, it closes.
-  toggleChanges() {
-    const id = this.changesHost(), p = this.panel(), branch = shared("ship-it.changes")?.mode !== "dirty";
-    if (!id) return;
-    if (p.open(id) && branch) { run("layout.hide", { id: "panel" }); return; }
-    if (!branch) setShared("ship-it.changes", { mode: "branch", at: Date.now() });
-    run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" });
   }
 
   togglePanel(id) {
@@ -281,7 +294,7 @@ export default class ShipIt extends View {
         }
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
       } catch (e) { notify({ title: `#${m.number} not merged`, body: String(e), level: "error", timeout: 8 }); }
-      finally { this.merging = false; this.refreshPr(cx); cx.notify(); }
+      finally { this.merging = false; this.bumpCounts(cx); this.refreshPr(cx); cx.notify(); }
     });
   }
 
@@ -324,7 +337,7 @@ export default class ShipIt extends View {
         run("space.close", { id: target.space, confirmed: true });
         notify({ title: result.warning ? "Cleanup incomplete" : `#${target.number} cleaned up`, body: result.warning || `Worktree and local/remote branch removed. Recovery: ${result.recovery}`, level: result.warning ? "error" : "info", timeout: 8 });
       } catch (e) { notify({ title: "Cleanup stopped", body: e?.message || String(e ?? "") || "A command failed without saying why.", level: "error", timeout: 8 }); }
-      finally { this.cleaning = false; this.refreshGit(cx); cx.notify(); }
+      finally { this.cleaning = false; this.bumpCounts(cx); this.refreshGit(cx); cx.notify(); }
     });
   }
 
@@ -375,11 +388,29 @@ export default class ShipIt extends View {
     return this.group("folder", t, h_flex().gap(6).min_w(0).items_center()
       .child(this.icon("folder", t.muted))
       .child(div().min_w(0).text_color(t.foreground).whitespace_nowrap().text_ellipsis_start().child(narrow ? name : path))
-      .when(Boolean(g?.sub) && !narrow, (e) => e.child(div().flex_none().text_color(t.dim).whitespace_nowrap().child(g.sub))),
-      has ? () => this.togglePanel("files") : null, g ? `${g.root}${g.sub}` : this.loc?.cwd ?? "");
+      .when(Boolean(g?.sub) && !narrow, (e) => e.child(div().flex_none().text_color(t.dim).whitespace_nowrap().child(g.sub)))
+      .when(Boolean(this.gone), (e) => e.child(div().flex_none().text_color(t.ansi1).whitespace_nowrap().child("folder deleted"))),
+      has && !this.gone ? () => this.togglePanel("files") : null,
+      this.gone ? `${this.loc?.cwd} no longer exists (a removed worktree?). Close this space or cd elsewhere.` : g ? `${g.root}${g.sub}` : this.loc?.cwd ?? "");
   }
 
 
+
+  // Beside the folder: the uncommitted changes (files, +, −), else what the
+  // branch changes since its base, else "clean"; a click toggles the Changes panel.
+  workStat(t) {
+    const w = this.work, b = this.stat, on = this.panel().open("changes");
+    const base = (b?.base ?? "").replace(/^origin\//, "");
+    const shown = w?.files ? w : b?.files ? b : null;
+    const counts = (s) => [div().text_color(t.muted).child(`${s.files}`), div().text_color(t.ansi2).child(`+${s.add}`), div().text_color(t.ansi1).child(`−${s.del}`)];
+    const kids = !w ? [] : !shown ? [div().text_color(t.dim).child("clean")]
+      : shown === w ? counts(w) : [...counts(b), div().text_color(t.dim).child(`vs ${base}`)];
+    const tip = !shown ? "No uncommitted changes" : shown === w ? `${w.files} uncommitted file${w.files > 1 ? "s" : ""}`
+      : `Nothing uncommitted; ${b.files} file${b.files > 1 ? "s" : ""} changed since ${base}`;
+    return this.group("work", t, h_flex().gap(5).flex_none().items_center().whitespace_nowrap()
+      .child(this.icon("file-diff", on ? t.accent : t.muted, 13)).children(kids),
+      () => this.togglePanel("changes"), tip);
+  }
 
   // What the PR waits on, beside the folder: conflicts, open threads, the
   // review (its checks are a button on the right). Each opens the review. null when there is nothing to say.
@@ -400,16 +431,98 @@ export default class ShipIt extends View {
       .when(Boolean(review), (e) => e.child(this.group("review", t, div().text_color(t[review.color] ?? t.muted).whitespace_nowrap().child(review.label), () => this.openReview("overview"))));
   }
 
-  // First on the left: the repo's name and its open PRs; a click toggles the
-  // PRs panel. Without a GitHub remote (or the panel), only the name.
-  repoButton(t) {
-    const g = this.git, p = this.panel(), prs = p.has("ship-it-prs") && this.showPrs(), n = this.prCount(), on = prs && p.open("ship-it-prs");
-    return h_flex().id("repo").h(26).px(9).gap(6).flex_none().items_center().rounded(6)
+  // How many PRs and issues are open, for the badges: asked without any panel
+  // open: on arrival at a repo and then at most every five minutes. Capped at 100 ("100+").
+  refreshCounts(cx, again) {
+    const g = this.git;
+    if (!g) return;
+    const key = JSON.stringify([g.root, g.on ?? null]), have = this.counts.get(key);
+    if (this.counting === key || (!again && have && Date.now() - have.at < this.countTtl())) return;
+    this.counting = key;
+    const run1 = async (cmd, args) => { try { const r = await exec(cmd, args, { cwd: g.root, on: g.on }); return r.code === 0 ? JSON.parse(r.stdout || "[]").length : null; } catch { return null; } };
+    cx.spawn(async (cx) => {
+      try {
+        const url = (await exec("git", [...READ, "remote", "get-url", "origin"], { cwd: g.root, on: g.on })).stdout.trim();
+        const gitlab = /gitlab/.test(url) && !/bitbucket\.org/.test(url);
+        const [prs, issues] = await Promise.all([
+          gitlab ? null : run1(GH(), ["pr", "list", "--state", "open", "--limit", "100", "--json", "number"]),
+          gitlab ? run1("glab", ["issue", "list", "-F", "json", "--per-page", "100"]) : run1(GH(), ["issue", "list", "--state", "open", "--limit", "100", "--json", "number"]),
+        ]);
+        const was = this.counts.get(key);
+        this.counts.set(key, { prs: prs ?? was?.prs ?? null, issues: issues ?? was?.issues ?? null, at: Date.now() });
+        if (JSON.stringify([was?.prs, was?.issues]) !== JSON.stringify([prs ?? was?.prs, issues ?? was?.issues])) cx.notify();
+      } finally { if (this.counting === key) this.counting = null; }
+    });
+  }
+
+  // Something may have created, merged or closed a PR or an issue: forget what is known about every
+  // repo (the others refresh on arrival), ask again for this one, and tell the open panels.
+  bumpCounts(cx) {
+    this.counts = new Recent(24);
+    this.refreshCounts(cx, true);
+    setShared("ship-it.bump", Date.now());
+  }
+
+  // After a push: look for the PR now, then twice more while an agent or a script makes it.
+  afterPush(cx) {
+    if (this.pushing) return;
+    this.pushing = true;
+    this.refreshPr(cx);
+    cx.spawn(async (cx) => {
+      try { for (const wait of [8000, 25000]) { await cx.sleep(wait); this.refreshPr(cx); this.bumpCounts(cx); } }
+      finally { this.pushing = false; }
+    });
+  }
+
+  // An agent that stops working (done, blocked, closed) may just have opened a PR or an issue.
+  watchAgents(cx) {
+    const now = new Map(agents().map((a) => [a.address, a.status])), was = this.agentStatus;
+    this.agentStatus = now;
+    if (!was) return;
+    for (const [address, status] of was) if (status === "working" && now.get(address) !== "working") { this.bumpCounts(cx); this.refreshPr(cx); return; }
+  }
+
+  // Five minutes; a minute while an agent works in the shown space (it may open a PR or an issue any time).
+  countTtl() {
+    const space = spaces().find((s) => s.active)?.id;
+    return agents().some((a) => a.space === space && a.status === "working") ? 60000 : COUNT_TTL;
+  }
+
+  // The count badge on a pill: nothing while the count is unknown, "0" once it is known to be none (dimmer).
+  badge(t, n) {
+    if (n == null) return null;
+    const label = n >= 100 ? "100+" : String(n), base = div().px(5).py(1).rounded(4).border_1().text_size(10).font_semibold().whitespace_nowrap();
+    return n ? base.border_color(t.accent).bg(t.accent).text_color(t.background).child(label) : base.border_color(t.border).text_color(t.dim).child(label);
+  }
+
+  countOf(what) {
+    const g = this.git;
+    return (g && this.counts.get(JSON.stringify([g.root, g.on ?? null]))?.[what]) ?? null;
+  }
+
+  // One look for the repo's buttons (PRs, Issues): a bordered pill that fills when its panel is open.
+  repoPill(id, t, { icon, on, tip, click, kids }) {
+    return h_flex().id(id).h(26).px(9).gap(6).flex_none().items_center().rounded(6)
       .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
-      .when(prs, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(`Open pull requests in ${g.repo}`).on_click(() => this.togglePanel("ship-it-prs")))
-      .child(this.icon("git-pull-request", on ? t.accent : t.muted, 13))
-      .child(div().font_semibold().text_color(t.foreground).whitespace_nowrap().child(g.repo))
-      .when(prs, (e) => e.child(div().text_color(t.muted).whitespace_nowrap().child(n ? `${n} PR${n > 1 ? "s" : ""}` : "PRs")));
+      .when(Boolean(click), (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(tip).on_click(click))
+      .child(this.icon(icon, on ? t.accent : t.muted, 13))
+      .children(kids);
+  }
+
+  // First on the left: the open PRs; a click toggles the PRs panel.
+  repoButton(t) {
+    const g = this.git, p = this.panel(), prs = p.has("ship-it-prs") && this.showPrs(), on = prs && p.open("ship-it-prs");
+    return this.repoPill("repo", t, { icon: "git-pull-request", on, tip: `Open pull requests in ${g.repo}`, click: prs ? () => { this.togglePanel("ship-it-prs"); this.refreshCounts(this.cx, true); } : null,
+      kids: [div().font_semibold().text_color(t.foreground).whitespace_nowrap().child("PRs"), this.badge(t, prs ? this.countOf("prs") : null)].filter(Boolean) });
+  }
+
+  // Next to it: the open issues; a click toggles the Issues panel.
+  issuesButton(t) {
+    const p = this.panel();
+    if (!p.has("ship-it-issues") || !this.showPrs()) return null;
+    const on = p.open("ship-it-issues"), g = this.git;
+    return this.repoPill("issues", t, { icon: "circle-dot", on, tip: `Open issues in ${g.repo}`, click: () => { this.togglePanel("ship-it-issues"); this.refreshCounts(this.cx, true); },
+      kids: [div().font_semibold().text_color(t.foreground).whitespace_nowrap().child("Issues"), this.badge(t, this.countOf("issues"))].filter(Boolean) });
   }
 
   // CI on the right, between the changes and PRs buttons: the PR's checks
@@ -469,7 +582,7 @@ export default class ShipIt extends View {
     if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
     // Each is null when there is nothing to show (prButton while the PR loads).
-    const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);
+    const signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.foreground).overflow_hidden()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
@@ -479,15 +592,12 @@ export default class ShipIt extends View {
       // runs under them. The machine and branch are in Herdr's status bar.
       .child(h_flex().flex_1().min_w(0).overflow_hidden().items_center()
         .when(Boolean(g), (e) => e.child(this.repoButton(t)))
-        .when(!g || g.worktree || Boolean(g.sub), (e) => e.child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder")))
+        .when(Boolean(g) && Boolean(this.issuesButton(t)), (e) => e.child(h_flex().ml(6).child(this.issuesButton(t))))
+        .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
+        .when(Boolean(g) && p.has("changes"), (e) => e.child(this.workStat(t)))
         .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals.flex_none())))
       .when(Boolean(g), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
         .when(Boolean(prButton), (e) => e.child(prButton))
-        .when(Boolean(this.changesHost()), (e) => e.child(this.button("pr-changes", t, {
-          icon: "file-diff", label: null, on: p.open(this.changesHost()) && shared("ship-it.changes")?.mode !== "dirty", onClick: () => this.toggleChanges(),
-          extra: s?.files ? [div().text_color(t.muted).child(`${s.files}`), div().text_color(t.ansi2).child(`+${s.add}`), div().text_color(t.ansi1).child(`−${s.del}`)] : [],
-          tip: s ? `${s.files} files changed since ${s.base}` : "What this branch changes",
-        })))
         .when(Boolean(checks), (e) => e.child(checks))
         .when(this.showPr(), (e) => e.child(this.shipButton(t)))));
   }
