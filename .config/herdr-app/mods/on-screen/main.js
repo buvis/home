@@ -57,12 +57,15 @@ function items(p, git) {
       const parent = term?.parent && all.find((t) => t.address === term.parent);
       // Once they go to the program, Shift+right-click still opens this menu.
       const toProgram = term?.labels?.["herdr.right-click"] === "program";
+      const here = panes().find((x) => x.pane === tg.pane || (tg.terminal && x.terminal === tg.terminal));
       const found = (p.paths ?? []).map((f) => [f.cmd ? f.path : f.url ? f.path.replace(/^https?:\/\//i, "") : f.path.split("/").pop() + (f.dir ? "/" : ""), "pick", f]);
       return [
         ...found,
         ["Split right", "pane.split", { direction: "right", pane: tg.pane }],
         ["Split down", "pane.split", { direction: "down", pane: tg.pane }],
         ["Zoom", "pane.zoom", { pane: tg.pane }],
+        ...(here?.cwd ? [["Copy path", "copy", { text: here.cwd }]] : []),
+        ...(here?.branch ? [["Copy branch name", "copy", { text: here.branch }]] : []),
         ...(term
           ? [
               toProgram
@@ -302,7 +305,8 @@ export default class Menu extends View {
     if (!it) return;
     if (it[1] === "pick") return this.act(actions(it[2])[0], p, cx);
     closeOverlay(p.overlay);
-    if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    if (it[1] === "copy") { cx.write_to_clipboard(it[2].text); notify({ title: "Copied", body: it[2].text, level: "info", timeout: 2 }); }
+    else if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else run(it[1], it[2]);
   }
 

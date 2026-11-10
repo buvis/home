@@ -4,8 +4,51 @@
 // mods/ship-it-review/data.js is a copy (a mod can't import from another
 // mod's folder): edit this one and run scripts/install.sh.
 
-import { exec, spaces, panes, focused, home, appHome, layout, shared } from "herdr";
+import { exec, spaces, panes, focused, home, appHome, layout, shared, notify, agents, knownAgents, hc, run } from "herdr";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
+
+// What the agent is asked. One line: hc send submits on Enter.
+const prTask = (branch) => `Create a draft pull request for branch ${branch || "(the current one)"} of this repository. Do not edit or commit files: uncommitted changes stay out of it. Push the branch if the remote lacks it or is behind. Write the title and the description from the branch's commits and its diff against the base branch: what changed, why, and how it was tested. Follow the repository's pull request template and conventions if it has them. Create it with \`gh pr create --draft\`, then print its URL.`;
+
+// Creates the branch's pull request. On GitHub an agent writes it: one already
+// in this checkout that is free (it knows why the changes were made), else a new
+// one in its own tab. Other hosts, and no agent installed: the host's web form.
+// True when an agent took it, so the caller keeps its spinner until the PR shows.
+export async function createPr(root, on, branch) {
+  try {
+    const origin = (await exec("git", ["remote", "get-url", "origin"], { cwd: root, on })).stdout;
+    if (/bitbucket\.org|gitlab/.test(origin)) return await webForm(root, on);
+    const task = prTask(branch);
+    const machine = (address) => (address.includes("/") ? address.split("/")[0] : null);
+    const inRoot = (pane) => { const cwd = panes().find((p) => p.pane === pane)?.cwd; return cwd === root || Boolean(cwd?.startsWith(root + "/")); };
+    const free = agents().find((a) => (a.status === "idle" || a.status === "done") && machine(a.address) === (on ?? null) && inRoot(a.pane));
+    // --if idle: it may have started a turn since the list was read.
+    if (free && (await hc(["send", free.address, "--if", "idle", task])).code === 0) {
+      notify({ title: `Asked ${free.program?.name ?? "the agent"} to create the pull request`, body: "Click to watch it.", level: "info", timeout: 6, action: { name: "pane.focus", args: { pane: free.pane } } });
+      return true;
+    }
+    const agent = (await knownAgents({ on })).find((a) => a.installed && a.run?.length);
+    if (!agent) return await webForm(root, on);
+    run("tab.new", { folder: root, name: "Create PR", argv: agent.run, task });
+    return true;
+  } catch (e) {
+    notify({ title: "Could not create the pull request", body: String(e?.message ?? e).slice(-300) || "Unknown error", level: "error" });
+    return false;
+  }
+}
+
+// The host's new pull request form. gh refuses a branch with no upstream
+// ("you must first push"), so that one is pushed first.
+async function webForm(root, on) {
+  const ok = (r) => { if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim()); };
+  const up = await exec("git", ["rev-parse", "--abbrev-ref", "@{u}"], { cwd: root, on });
+  if (up.code !== 0) {
+    notify({ title: "Pushing the branch…", level: "info", timeout: 3 });
+    ok(await exec("git", ["push", "-u", "origin", "HEAD"], { cwd: root, on, timeout: 120000 }));
+  }
+  ok(await exec(GH(), ["pr", "create", "--web"], { cwd: root, on }));
+  return false;
+}
 
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie):
 // a folder watch would see it, and every refresh would start the next one.

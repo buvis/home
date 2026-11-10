@@ -6,7 +6,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { panes, props, run, theme, home } from "herdr";
+import { panes, props, run, theme, home, openOverlay } from "herdr";
 
 function icon(p, size, color) {
   if (!p?.icon) return null;
@@ -63,7 +63,11 @@ export default class Pane extends View {
       .on_click(() => run("pane.focus", { pane }))
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(260).font_medium().text_color(t.foreground).child(name))
-      .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))
+      // Right-click: the pane menu (my-menu), with Copy path and Copy branch name.
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "my-menu", kind: "popup", width: 200, height: 320, props: { tab: "pane", target: { pane, terminal: p.terminal } } }); })
+      .child(div().min_w(0).truncate().text_color(t.dim).child(folder(p.cwd)))
+      .when(Boolean(p.branch), (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(p.branch)))
+      .child(div().flex_1())
       .when(st === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
       .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you")))
       .when(st === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))

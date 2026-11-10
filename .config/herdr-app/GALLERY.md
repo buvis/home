@@ -46,7 +46,16 @@ uncommitted files/+/− (`git diff HEAD`), or when clean the branch's since its
 base ("vs master"), as a button that toggles the `changes` panel (reviewer);
 my-tabs dropped its Files and Changes buttons for these and moved `+` beside
 the last tab. A deleted folder (a removed worktree) shows "folder deleted"
-instead of silently looking like a non-repo.
+instead of silently looking like a non-repo. Local edit 2026-11-10: Create PR
+(strip and review) calls `createPr` in data.js. On GitHub it hands the PR to
+an agent (`prTask` is the prompt): an idle or done agent already in the
+checkout gets it with `hc send --if idle`, else the first installed agent
+starts in a "Create PR" tab; the button spins until the PR shows (5 min at
+most). Bitbucket, GitLab and no installed agent: push a branch with no
+upstream, then `gh pr create --web`, failures as a toast (upstream ran gh
+alone and dropped its "you must first push" error). data.js is copied to all
+four ship-it folders. on-screen's pane
+menu gained Copy path and Copy branch name the same day.
 
 ## Setup done 2026-11-08
 

@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, appHome, notify, watchFolder, nextCommand } from "herdr";
-import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, forgeOf, modShown, panelShown, Recent, sharedPr } from "./data.js";
+import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, forgeOf, modShown, panelShown, Recent, sharedPr, createPr } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
@@ -566,7 +566,16 @@ export default class Review extends View {
     if (p.kind === "none") {
       const branch = this.git?.branch ?? "this branch";
       return this.empty(t, "git-pull-request", `No pull request for ${branch}`, "Push the branch and open one to get a description, reviews and checks here.",
-        this.button("create", t, "Create pull request", () => exec(GH(),["pr", "create", "--web"], { cwd: this.root, on: this.on }), { icon: "git-pull-request", primary: true }));
+        // While an agent writes the PR (until it shows, 5 minutes at most) or the web form opens: the strip's spinner, and no second click.
+        this.creating?.root === this.root && Date.now() < this.creating.until
+          ? h_flex().id("create").h(28).px(10).gap(6).flex_none().items_center().rounded(6).text_size(12).font_medium().border_1().border_color(t.border).bg(t.background)
+              .child(svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(t.working).spin(900))
+              .child(div().text_color(t.muted).child("Creating PR…"))
+          : this.button("create", t, "Create pull request", (_e, cx) => {
+              const root = this.root, on = this.on;
+              this.creating = { root, until: Date.now() + 300000 }; cx.notify();
+              cx.spawn(async (cx) => { if (!(await createPr(root, on, this.git?.branch))) this.creating = null; cx.notify(); });
+            }, { icon: "git-pull-request", primary: true }));
     }
     const pr = p.pr, look = prLook(pr), color = t[look.color] ?? t.muted, review = reviewLook(pr.reviewDecision), c = tally(this.checks);
     const people = (pr.reviewRequests ?? []).map((r) => r.login ?? r.name ?? r.slug).filter(Boolean);

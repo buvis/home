@@ -5,7 +5,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec } from "herdr";
+import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, notify } from "herdr";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 function place(s) {
@@ -32,15 +32,19 @@ function items(p, git) {
       const parent = term?.parent && all.find((t) => t.address === term.parent);
       // Once they go to the program, Shift+right-click still opens this menu.
       const toProgram = term?.labels?.["herdr.right-click"] === "program";
+      const here = panes().find((x) => x.pane === tg.pane);
       return [
         ["Split right", "pane.split", { direction: "right", pane: tg.pane }],
         ["Split down", "pane.split", { direction: "down", pane: tg.pane }],
         ["Zoom", "pane.zoom", { pane: tg.pane }],
+        ...(here?.cwd ? [["Copy path", "copy", { text: here.cwd }]] : []),
+        ...(here?.branch ? [["Copy branch name", "copy", { text: here.branch }]] : []),
         ...(term
           ? [
               toProgram
                 ? ["Use Herdr right-click menu", "terminal.right_click", { terminal: term.address, to: "menu" }]
                 : ["Send right-clicks to pane", "terminal.right_click", { terminal: term.address, to: "program" }],
+              ["Move to tab…", "move-pane", { terminal: term.address }],
             ]
           : []),
         ...(parent ? [[`Send back to ${parent.name || parent.address}`, "terminal.park", { terminal: term.address }]] : []),
@@ -53,13 +57,17 @@ function items(p, git) {
         ["New tab", "tab.new", { space: tg.space }],
         ["Close", "tab.close", { id: tg.id }],
       ];
-    case "space":
+    case "space": {
+      const s = spaces().find((x) => x.id === tg.id);
       return [
         ["Rename", "space.rename", { id: tg.id }],
+        ...(s ? [["Copy path", "copy", { text: place(s) }]] : []),
+        ...(s?.branch ? [["Copy branch name", "copy", { text: s.branch }]] : []),
         ...(git ? [["New worktree", "worktree", { space: tg.id, action: "new" }], ["Open worktree", "worktree", { space: tg.id, action: "open" }]] : []),
         ...(git === "linked" ? [["Remove worktree", "worktree", { space: tg.id, action: "remove" }]] : []),
         ["Close", "space.close", { id: tg.id }],
       ];
+    }
     default:
       return [
         ["New space", "space.new", {}],
@@ -73,7 +81,7 @@ function items(p, git) {
 }
 
 function menuIcon(command) {
-  const name = command.endsWith(".close") ? "x" : command.endsWith(".rename") ? "square-pen" : command.endsWith(".new") ? "plus" : command === "worktree" ? "git-branch" : command === "app.help" ? "terminal" : command === "app.theme" ? "settings" : command === "pane.split" ? "panel-right" : command === "pane.zoom" ? "square" : "terminal";
+  const name = command === "copy" ? "files" : command.endsWith(".close") ? "x" : command.endsWith(".rename") ? "square-pen" : command.endsWith(".new") ? "plus" : command === "worktree" ? "git-branch" : command === "app.help" ? "terminal" : command === "app.theme" ? "settings" : command === "pane.split" ? "panel-right" : command === "pane.zoom" ? "square" : "terminal";
   return `mods/workspace-chrome/${name}.svg`;
 }
 
@@ -105,7 +113,9 @@ export default class Menu extends View {
     const it = items(props(), this.git)[i];
     if (!it) return;
     closeOverlay(props()?.overlay);
-    if (it[1] === "worktree") openOverlay({ mod: "my-worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    if (it[1] === "copy") { cx.write_to_clipboard(it[2].text); notify({ title: "Copied", body: it[2].text, level: "info", timeout: 2 }); }
+    else if (it[1] === "worktree") openOverlay({ mod: "my-worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    else if (it[1] === "move-pane") openOverlay({ mod: "move-pane", kind: "dialog", modal: true, width: 360, height: 320, props: it[2] });
     else run(it[1], it[2]);
   }
 

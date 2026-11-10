@@ -9,7 +9,7 @@ import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
 import { cleanupPlan, removeCheckout, checkTerminals } from "./cleanup.js";
-import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent } from "./data.js";
+import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent, createPr } from "./data.js";
 const COUNT_TTL = 5 * 60 * 1000; // the badges' counts are re-asked at most this often per repo
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
@@ -542,8 +542,16 @@ export default class ShipIt extends View {
   // first 30 characters) opens its review; with none, Create opens the host's form.
   prButton(t, narrow) {
     const p = this.pr;
+    // While an agent writes the PR (until it shows, 5 minutes at most) or the web form opens: a spinner, and no second click.
+    if (p?.kind === "none" && this.creating?.root === this.git?.root && Date.now() < this.creating.until) return h_flex().id("pr-create").h(26).px(9).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
+      .child(svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(t.working).spin(900))
+      .child(div().text_color(t.muted).child("Creating PR…"));
     if (p?.kind === "none") return this.button("pr-create", t, { icon: "git-pull-request", label: "Create PR", tip: "Open a pull request for this branch on the remote host",
-      onClick: () => { const g = this.git; exec(GH(),["pr", "create", "--web"], { cwd: g.root, on: g.on }); } });
+      onClick: (_e, cx) => {
+        const g = this.git;
+        this.creating = { root: g.root, until: Date.now() + 300000 }; cx.notify();
+        cx.spawn(async (cx) => { if (!(await createPr(g.root, g.on, g.branch))) this.creating = null; cx.notify(); });
+      } });
     if (p?.kind !== "ok") return null;
     const pr = p.pr, look = prLook(pr), color = t[look.color] ?? t.muted;
     const title = pr.title.length > 30 ? `${pr.title.slice(0, 30).trimEnd()}…` : pr.title;
