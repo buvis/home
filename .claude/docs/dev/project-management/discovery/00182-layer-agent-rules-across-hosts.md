@@ -56,6 +56,10 @@ Content and tooling split into separate repos:
   company may use one repo or two.
 - Config moves from `~/.config/agent-skills/` to `~/.config/braid/` (one-time
   migration, no fallback path). State stays at `~/.agents/.braid-state.json`.
+  **Superseded 2026-11-10:** gems tools keep config in `~/.config/buvis/`, so
+  sources become a `sources:` list in `~/.config/buvis/buvis-braid.yaml`, and
+  company or machine-only sources go in `~/.local/.config/buvis/buvis-braid.yaml`
+  (buvis/gems#272, #273). Read `sources.d` below as that list.
 
 Order: (1) port braid into gems at parity, retire `agent-skills-braid` and the
 `~/.agents/bin/braid` link; (2) add the rules kind in gems; (3) create

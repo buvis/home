@@ -1,5 +1,5 @@
 ---
-eligibility: test -f "$HOME/.config/braid/sources.d/personal" && ls "$HOME"/.local/share/mise/installs/pipx-buvis-gems/latest/lib/python*/site-packages/braid/domain/rules.py
+eligibility: test -f "$HOME/.config/buvis/buvis-braid.yaml" && ls "$HOME"/.local/share/mise/installs/pipx-buvis-gems/latest/lib/python*/site-packages/braid/domain/rules.py
 design: skip
 default_model: opus
 model_tier_rationale: generative prose at volume (slimming 20 instruction files into RULE.md plus references) and destructive blast radius (replaces every host's instruction file)
@@ -7,9 +7,9 @@ model_tier_rationale: generative prose at volume (slimming 20 instruction files 
 
 # Migrate global instructions into buvis/agent-rules
 
-Source: [Discovery 00182](../../discovery/00182-layer-agent-rules-across-hosts.md) (phase 3). Runs after buvis/gems PRD 00116 (rules kind) is released and installed, and after PRD 00183 moved `sources.d` to `~/.config/braid`; the `eligibility` check holds it until both are true.
+Source: [Discovery 00182](../../discovery/00182-layer-agent-rules-across-hosts.md) (phase 3). Runs after buvis/gems PRD 00116 (rules kind) is released and installed, and after PRD 00183 moved the source list into `~/.config/buvis/buvis-braid.yaml`; the `eligibility` check holds it until both are true.
 
-Before launching: `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/bash:$HOME/.codex:$HOME/.local/bin:$HOME/.config/braid:$HOME/.agents:$HOME/.copilot:$HOME/.pi:$HOME/.kiro:$HOME/git/src/github.com/buvis/agent-rules"`.
+Before launching: `export _AUTOPILOT_WRITE_SCOPE_EXTRA="$HOME/.config/bash:$HOME/.codex:$HOME/.local/bin:$HOME/.config/buvis:$HOME/.agents:$HOME/.copilot:$HOME/.pi:$HOME/.kiro:$HOME/git/src/github.com/buvis/agent-rules"`.
 
 ## Overview
 
@@ -85,7 +85,7 @@ colleagues who add `agent-rules` to their `sources.d`.
 - **Description**: Text that names the old files is updated.
 - **Inputs**: Lines matching `AGENTS\.md|CLAUDE\.md` in the sources.
 - **Outputs**: Rewritten lines, the only lines allowed to change.
-- **Behavior**: In `autonomy`, the intro bullet starting `This file (` becomes `Always-on agent instructions come from ~/git/src/github.com/buvis/agent-rules plus any company or machine-local source in ~/.config/braid/sources.d, composed by braid. Edit the rule source, then run braid and braid --check. Never edit ~/.claude/rules/*.md, ~/.kiro/steering/*.md or the generated ~/.agents/hosts/<host>/AGENTS.md. Custom agent prompts must preserve this shared authority.` (paths in backticks). In `communication`, `` Apply `~/.claude/AGENTS.md`'s standing authorization `` becomes `` Apply the `autonomy` rule's standing authorization ``. In `memory`, the first bullet's `live under ~/.claude/ (rules/, AGENTS.md) and MUST be committed to the buvis dotfiles bare repo` becomes `live in ~/git/src/github.com/buvis/agent-rules; commit there, then run braid --check`, its three sub-bullets about `git --git-dir=~/.buvis` staging stay, scoped by a new lead-in `Other ~/.claude config (settings, hooks) still goes to buvis:`, and the sub-bullet starting `` `~/.claude/CLAUDE.md` is only an `@AGENTS.md` pointer `` is deleted. Any other line matching the pattern: replace the old path with the rule name that now holds the text, and list each such line in the report.
+- **Behavior**: In `autonomy`, the intro bullet starting `This file (` becomes `Always-on agent instructions come from ~/git/src/github.com/buvis/agent-rules plus the sources listed in ~/.config/buvis/buvis-braid.yaml (shared) and ~/.local/.config/buvis/buvis-braid.yaml (company or machine-local), composed by braid. Edit the rule source, then run braid and braid --check. Never edit ~/.claude/rules/*.md, ~/.kiro/steering/*.md or the generated ~/.agents/hosts/<host>/AGENTS.md. Custom agent prompts must preserve this shared authority.` (paths in backticks). In `communication`, `` Apply `~/.claude/AGENTS.md`'s standing authorization `` becomes `` Apply the `autonomy` rule's standing authorization ``. In `memory`, the first bullet's `live under ~/.claude/ (rules/, AGENTS.md) and MUST be committed to the buvis dotfiles bare repo` becomes `live in ~/git/src/github.com/buvis/agent-rules; commit there, then run braid --check`, its three sub-bullets about `git --git-dir=~/.buvis` staging stay, scoped by a new lead-in `Other ~/.claude config (settings, hooks) still goes to buvis:`, and the sub-bullet starting `` `~/.claude/CLAUDE.md` is only an `@AGENTS.md` pointer `` is deleted. Any other line matching the pattern: replace the old path with the rule name that now holds the text, and list each such line in the report.
 
 #### Feature: Lossless check
 - **Description**: A scratch script proves nothing was dropped.
@@ -103,9 +103,9 @@ colleagues who add `agent-rules` to their `sources.d`.
 
 #### Feature: Compose and verify
 - **Description**: braid takes over.
-- **Inputs**: `~/.config/braid/sources.d/personal`.
+- **Inputs**: `~/.config/buvis/buvis-braid.yaml`.
 - **Outputs**: Links and generated files from PRD 00116.
-- **Behavior**: Append the line `~/git/src/github.com/buvis/agent-rules` to `~/.config/braid/sources.d/personal` (buvis-tracked), then run `braid`, then `braid --check`. Exit 0 is success. If `braid` fails or `--check` drifts, restore every deleted path from buvis `HEAD` (`git --git-dir=$HOME/.buvis --work-tree=$HOME checkout HEAD -- ':(top)<path>'`) and re-create the three untracked links to `~/.claude/AGENTS.md`, then report. Removing the hand-kept files and running braid happen in one task with no session boundary between them, so no host is left without instructions.
+- **Behavior**: Add `~/git/src/github.com/buvis/agent-rules` as a new item of the `sources:` list in `~/.config/buvis/buvis-braid.yaml` (buvis-tracked), then run `braid`, then `braid --check`. Exit 0 is success. If `braid` fails or `--check` drifts, restore every deleted path from buvis `HEAD` (`git --git-dir=$HOME/.buvis --work-tree=$HOME checkout HEAD -- ':(top)<path>'`) and re-create the three untracked links to `~/.claude/AGENTS.md`, then report. Removing the hand-kept files and running braid happen in one task with no session boundary between them, so no host is left without instructions.
 
 #### Feature: Repoint the remaining references
 - **Description**: Code and tests that name the deleted files.
@@ -128,7 +128,7 @@ colleagues who add `agent-rules` to their `sources.d`.
 └── tests/test_budget.py
 docs/dev/tmp/00184/check_lossless.py             # scratch, gitignored
 hooks/tests/test_check_skill_triggers.py         # repointed test
-~/.config/braid/sources.d/personal               # + agent-rules line
+~/.config/buvis/buvis-braid.yaml                 # + agent-rules source
 ~/.claude/AGENTS.md                              # deleted
 ~/.claude/CLAUDE.md                              # deleted
 ~/.claude/rules/<name>.md                        # 12 real files deleted, then braid links
@@ -148,7 +148,7 @@ hooks/tests/test_check_skill_triggers.py         # repointed test
 ### Module: host cut-over
 - **Maps to capability**: Host cut-over
 - **Responsibility**: Swap hand-kept files for braid output, verify, roll back on failure.
-- **Location**: `hooks/tests/test_check_skill_triggers.py`, `~/.config/braid/sources.d/personal`
+- **Location**: `hooks/tests/test_check_skill_triggers.py`, `~/.config/buvis/buvis-braid.yaml`
 - **Exports**: none
 
 ## Dependency Graph
