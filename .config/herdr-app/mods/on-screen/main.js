@@ -1,7 +1,7 @@
 // On screen: Herdr's terminal right-click menu with the files and folders on screen at
-// the top, and beside them the actions for the selected one: its full location, Open (the
-// default app), Reveal in Finder, and every code editor found here (GUI editors open the
-// path; Neovim, Helix and Vim open in a terminal split beside the pane). A web link on
+// the top, and beside them the actions for the selected one: Markdown preview, the
+// default app, Reveal in Finder, and every code editor found here. Right/Below/Tab
+// chooses placement for previews and terminal editors; GUI apps open externally. A web link on
 // screen is a row too: Enter opens it in the default browser, letters in the other browsers
 // found here (config.json: b Brave, s Safari, f Firefox, ...). Commands on screen (a `$ ` or
 // `! ` line, a fenced block, an indented line starting with a program) are rows too: Enter
@@ -20,7 +20,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, window, home, notify, shared, setShared, focused, readTextFile, appHome } from "herdr";
 import { pathsOnScreen } from "./paths.js";
-import { FOUND, detectEditors, editorsFound, browsersFound, openIn } from "./editors.js";
+import { FOUND, detectEditors, editorsFound, browsersFound, openIn, openPreview, isMarkdown } from "./editors.js";
 
 const MOD = "on-screen";
 const CONFIG = `${MOD}.config`;
@@ -132,7 +132,8 @@ function actions(f) {
   const letter = (e) => { const k = km[e.id] && !taken.has(km[e.id]) ? km[e.id] : null; if (k) taken.add(k); return k; };
   if (f.url) return [["Open in browser", "open", f, "enter"], ["Copy link", "copy", f, km.copy], ...(browsersFound() ?? []).map((b) => [b.name, "editor", b, letter(b)])];
   const list = [
-    ["Open", "open", f, "enter"],
+    ...(isMarkdown(f) ? [["Preview Markdown", "preview", f, "enter"]] : []),
+    ["Default app", "open", f, isMarkdown(f) ? null : "enter"],
     [window()?.platform === "macos" ? "Reveal in Finder" : "Show in folder", "reveal", f, km.reveal],
     ["Copy path", "copy", f, km.copy],
   ];
@@ -141,7 +142,7 @@ function actions(f) {
 }
 
 function menuIcon(command, args) {
-  if (command === "pick" || command === "open") return args.cmd ? "mods/workspace-chrome/terminal.svg" : args.url ? `mods/${MOD}/globe.svg` : `mods/files/${args.dir ? "folder" : "file"}.svg`;
+  if (command === "pick" || command === "open" || command === "preview") return args.cmd ? "mods/workspace-chrome/terminal.svg" : args.url ? `mods/${MOD}/globe.svg` : `mods/files/${args.dir ? "folder" : "file"}.svg`;
   if (command === "reveal") return "mods/workspace-chrome/folder.svg";
   if (command === "copy") return "mods/workspace-chrome/files.svg";
   if (command === "paste") return "mods/workspace-chrome/terminal.svg";
@@ -165,7 +166,9 @@ function openPath(f, reveal) {
   const [cmd, args] = platform === "windows" ? ["explorer", reveal ? [`/select,${f.path}`] : [f.path]]
     : platform === "linux" ? ["xdg-open", [reveal ? f.path.replace(/\/[^/]*$/, "") || "/" : f.path]]
     : ["open", reveal ? ["-R", f.path] : [f.path]];
-  exec(cmd, args).catch(() => null);
+  exec(cmd, args).then(result => {
+    if (result.code !== 0) throw new Error(result.stderr || result.stdout || `Exit ${result.code}`);
+  }).catch(error => notify({ title: "Could not open file", body: String(error), level: "error" }));
 }
 
 const shortPath = (p) => { const h = home(); return p === h ? "~" : p.startsWith(h + "/") ? "~" + p.slice(h.length) : p; };
@@ -181,7 +184,7 @@ function leftHeight(list) {
 function rightHeight(acts) {
   const editors = acts.some((a) => a[1] === "editor" || a[1] === "split"), split = acts.some((a) => a[1] === "split");
   if (acts.some((a) => a[1] === "run-split")) return 50 + 9 + acts.length * 31 + 9 + 12;
-  return 50 + 9 + acts.length * 31 + (editors ? 9 : 0) + (split ? 24 : 0) + 12;
+  return 50 + 9 + acts.length * 31 + (editors ? 9 : 0) + (split ? 24 : 0) + 12 + 38;
 }
 
 // Reopens the menu in place with new props (a popup's size is fixed when it opens). Opened by
@@ -206,6 +209,7 @@ export default class Menu extends View {
     this.at = 0;
     this.sel = 0;
     this.git = null;
+    this.destination = "right";
     this.handle = cx.focus_handle();
     this.handle.focus();
     // Opened by the key (mod.open, no props): act on the focused terminal, as a right-click on it would.
@@ -232,7 +236,7 @@ export default class Menu extends View {
         // right-click popup comes at Herdr's fixed size, so that one reopens, sized for its rows.
         if (p.via === "key") { this.paths = paths; cx.notify(); return; }
         const next = { ...p, paths };
-        reopen(p, next, WIDE, Math.max(leftHeight(items(next, null)), rightHeight(actions(paths[0]))));
+        reopen(p, next, WIDE, Math.max(leftHeight(items(next, null)), ...paths.map(path => rightHeight(actions(path)))));
       });
     const space = p.tab === "space" && spaces().find((s) => s.id === p.target?.id);
     const folder = space && place(space);
@@ -283,19 +287,22 @@ export default class Menu extends View {
     }
     closeOverlay(p.overlay);
     if (a[1] === "copy") return;
-    if (a[1] === "open") openPath(a[2], false);
+    if (a[1] === "preview") {
+      try { openPreview(a[2], this.targetPane(p), this.destination); }
+      catch (error) { notify({ title: "Could not open preview", body: String(error), level: "error" }); }
+    }
+    else if (a[1] === "open") openPath(a[2], false);
     else if (a[1] === "reveal") openPath(a[2], true);
-    else openIn(a[2], p.paths[this.sel], this.targetPane(p)).catch((err) => notify({ title: `Could not open ${a[2].name}`, body: String(err?.message ?? err).slice(0, 300), level: "error" }));
+    else openIn(a[2], p.paths[this.sel], this.targetPane(p), this.destination).catch((err) => notify({ title: `Could not open ${a[2].name}`, body: String(err?.message ?? err).slice(0, 300), level: "error" }));
   }
 
   choose(i, cx) {
     const p = this.p();
     const it = items(p, this.git)[i];
     if (!it) return;
-    if (it[1] === "pick" && it[2].cmd) return this.act(actions(it[2])[0], p, cx);
+    if (it[1] === "pick") return this.act(actions(it[2])[0], p, cx);
     closeOverlay(p.overlay);
-    if (it[1] === "pick") openPath(it[2], false);
-    else if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else run(it[1], it[2]);
   }
 
@@ -372,10 +379,16 @@ export default class Menu extends View {
             .child(div().text_size(14).font_semibold().truncate().child(f.cmd ? f.path : f.url ? f.path.replace(/^https?:\/\//i, "").split("/")[0] : f.path.split("/").pop() + (f.dir ? "/" : "")))
             .child(div().text_size(11).text_color(t.dim).truncate().child(f.cmd ? "command" : f.url ? f.path : shortPath(dirname(f.path)))))
           .child(this.divider(t))
+          .when(!f.url && !f.cmd, el => el.child(h_flex().px(6).pb(6).gap(3)
+            .children([["right", "Right"], ["down", "Below"], ["tab", "Tab"]].map(([place, label]) =>
+              div().id(`destination-${place}`).flex_1().py(4).rounded(5).text_center().cursor_pointer()
+                .tooltip("Placement for Markdown preview and terminal editors")
+                .when(this.destination === place, el => el.bg(t.selected))
+                .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.destination = place; cx.notify(); }).child(label)))))
           .children(acts.map((a, i) =>
             v_flex()
               .when(i > 0 && (a[1] === "editor" || a[1] === "split") && (acts[i - 1][1] === "reveal" || acts[i - 1][1] === "open") || (i === 1 && f.cmd), (el) => el.child(this.divider(t)))
-              .when(a[1] === "split" && acts[i - 1]?.[1] !== "split", (el) => el.child(this.heading("In a split", t)))
+              .when(a[1] === "split" && acts[i - 1]?.[1] !== "split", (el) => el.child(this.heading(this.destination === "tab" ? "In a new tab" : "In a split", t)))
               .child(this.row(`act-${i}`,
                 a[1] === "editor" || a[1] === "split" ? this.glyph(a[2], t) : svg(menuIcon(a[1], a[2])).size(14).flex_none().text_color(t.muted),
                 a[0], a[3] === "enter" ? "↵" : a[3] ?? "", false, t)

@@ -1,9 +1,26 @@
 // Editors on this computer. A trimmed copy of the Open with mod's catalog, detection and
 // launch (jlopezlira/herdr-kanso, open-with, Apache-2.0): macOS app bundles and CLIs on PATH
 // only, since Path menu scans local terminals and there is no remote case here.
-import { exec, run, shared, setShared } from "herdr";
+import { exec, run, shared, setShared, panes, spaces, focused, appHome } from "herdr";
 
-export const FOUND = "on-screen.found";
+export const isMarkdown = target => !target.dir && !target.url && !target.cmd && /\.(md|markdown|mdx)$/i.test(target.path);
+
+function openContent(content, pane, place = "right") {
+  const source = panes().find(p => p.pane === pane);
+  if (place === "tab") {
+    const space = spaces().find(s => s.tabs.some(t => t.id === source?.tab))?.id ?? focused()?.space;
+    run("tab.new", { ...content, ...(space ? { space } : {}) });
+  } else {
+    if (!source) throw new Error("This terminal has no pane to split. Choose Tab instead.");
+    run("pane.split", { pane: source.pane, direction: place, ...content });
+  }
+}
+
+export function openPreview(target, pane, place = "right") {
+  openContent({ mod: "folio", props: { path: target.path }, ...(place === "tab" ? { name: target.path.split("/").at(-1) } : {}) }, pane, place);
+}
+
+export const FOUND = "on-screen.found.v2";
 
 // Catalog order is the order shown. mac: app bundle names; cli: commands on PATH;
 // tui: opens in a terminal split; icon: one of Herdr's shipped icons.
@@ -56,6 +73,7 @@ export const BROWSERS = [
 
 // One shell pass: prints `app|cli <tab> name <tab> path` per hit. Names are arguments, never script text.
 const DETECT = `
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 for a in "$@"; do
   case "$a" in
     app:*) n=\${a#app:}
@@ -104,14 +122,16 @@ export function browsersFound() {
 
 const dirname = (p) => p.replace(/\/[^/]*$/, "") || "/";
 
-// Opens a path in an editor. A terminal editor runs in a new terminal to the right of the
-// clicked pane (focus it first: terminal.open splits beside the focused pane).
-export async function openIn(e, target, pane) {
+// GUI editors open externally; terminal editors use the menu's selected placement.
+// Explicit pane/space targets keep an asynchronous action attached to its source.
+export async function openIn(e, target, pane, place = "right") {
   const how = shared(FOUND)?.[e.id];
   if (!how) throw new Error(`${e.name} was not found`);
   if (e.tui) {
-    if (pane) run("pane.focus", { pane });
-    run("terminal.open", { argv: [how.cli ?? e.cli[0], target.path], folder: target.dir ? target.path : dirname(target.path), place: "right" });
+    const argv = e.id === "nvim" && isMarkdown(target)
+      ? ["env", `HERDR_APP_HOME=${appHome()}`, "sh", `${appHome()}/mods/folio/nvim.sh`, target.path]
+      : [how.cli ?? e.cli[0], "--", target.path];
+    openContent({ argv, ...(place === "tab" ? { folder: target.dir ? target.path : dirname(target.path) } : {}) }, pane, place);
     return;
   }
   const r = how.app ? await exec("open", ["-a", how.app, target.path]) : await exec("sh", ["-c", DETACH, "sh", how.cli, target.path]);

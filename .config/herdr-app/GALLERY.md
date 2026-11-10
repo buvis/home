@@ -19,7 +19,8 @@ before adding it.
 | markdown-panel | jlopezlira/herdr-kanso, markdown-panel/mods/markdown-panel | cmd-shift-m | Kanso Markdown `.md` handler app not installed. |
 | ciupaga | rgonek/Ciupaga | cmd-alt-t | No key shipped; cmd-alt-t chosen. |
 | copy-mode | zamonia500/herdr-copy-mode | ctrl-shift-x | Runs nvim and hc in a terminal tab. |
-| on-screen | kerembakir/herdr-mods, on-screen/mods/on-screen | cmd-shift-o, right-click | `terminal_menu: on-screen` on the buvis root (items match shipped `menu` 0.1.13). hmod can't link it (`cloned_from: path-menu`). |
+| on-screen | kerembakir/herdr-mods, on-screen/mods/on-screen | cmd-shift-o, right-click | `terminal_menu: on-screen` on the buvis root (items match shipped `menu` 0.1.13). Local changes: Markdown defaults to Folio preview; Right/Below/Tab placement for previews and terminal editors; other paths use the default app. Editor detection includes mise shims. hmod can't link it (`cloned_from: path-menu`). |
+| folio | local | From on-screen's Markdown actions | Read-only native Markdown preview; Neovim replaces it in place and quitting restores the preview. Watches file changes. `nvim.sh` uses native pane commands and preserves sizing; see `mods/folio/README.md`. |
 | recall | shihyuho/herdr-recall | cmd-e | Opens a kept 2x2 tracker window `recall-tracker`. |
 | attn-next | iml885203/herdr-mods, attn-next/mods/attn-next | cmd-shift-j (J/K inside) | |
 | last-pane | ohneda/herdr-last-pane | ctrl-q ; | Floating 0x0 block `last-pane` on the buvis root; `;` added to mods/prefix KEYS. |

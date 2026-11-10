@@ -38,6 +38,19 @@ export async function cleanupPlan(exec, gh, target) {
   return { root: top, on, number, branch, sha, main, remoteUrl, remoteRef, trackingRef, trackingSha };
 }
 
+// The closing space's terminals ({cwd, own: true}) must all be in the worktree;
+// no other terminal on that machine may be. A folder that is gone is in no
+// worktree: Herdr's exec rejects there, and that must not block cleanup.
+export async function checkTerminals(exec, root, on, terminals) {
+  for (const { cwd, own } of terminals) {
+    if (!cwd) throw new Error("A terminal's folder is unknown; close it before cleanup.");
+    const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }).catch(() => null);
+    const inside = r?.code === 0 && r.stdout.trim() === root;
+    if (own && !inside) throw new Error(`This space also contains a terminal outside the worktree (${cwd}); move it before cleanup.`);
+    if (!own && inside) throw new Error(`Another space is using this worktree (${cwd}); close it before cleanup.`);
+  }
+}
+
 export async function removeCheckout(exec, plan) {
   const { main, root, on, branch, sha, remoteUrl, remoteRef } = plan;
   const git = async (args, cwd = main) => {

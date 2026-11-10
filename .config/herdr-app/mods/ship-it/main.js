@@ -9,7 +9,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, layout, shared, setShared, spaces, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
-import { cleanupPlan, removeCheckout } from "./cleanup.js";
+import { cleanupPlan, removeCheckout, checkTerminals } from "./cleanup.js";
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent } from "./data.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
@@ -39,7 +39,7 @@ export default class ShipIt extends View {
       if (pending || (this.tick = (this.tick ?? 0) + 1) % 4 === 0) this.refreshPr(cx);
     });
     // "ship-it.merge" comes back from the confirm dialog Ship opens.
-    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); cx.notify(); } });
+    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); if (c === "ask-cleanup" || c === "ship-it.ask-cleanup") this.tryAskCleanup(); cx.notify(); } });
   }
 
   // Git facts for the focused folder; a new repo or branch also refreshes the PR.
@@ -274,7 +274,11 @@ export default class ShipIt extends View {
       try {
         const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : [])];
         const r = await exec(GH(),args, { cwd: m.root, on: m.on });
-        if (r.code === 0) notify({ title: `#${m.number} shipped`, body: `Merged on ${forgeOf(this.pr?.pr?.url)}`, level: "info", timeout: 4 });
+        if (r.code === 0) {
+          // Shows Clean up at once instead of Ship until gh's next answer lands.
+          if (this.pr?.pr?.number === m.number) this.pr = { ...this.pr, pr: { ...this.pr.pr, state: "MERGED" } };
+          notify({ title: `#${m.number} shipped`, body: `Merged on ${forgeOf(this.pr?.pr?.url)}`, level: "info", timeout: 4 });
+        }
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
       } catch (e) { notify({ title: `#${m.number} not merged`, body: String(e), level: "error", timeout: 8 }); }
       finally { this.merging = false; this.refreshPr(cx); cx.notify(); }
@@ -283,7 +287,8 @@ export default class ShipIt extends View {
 
   askCleanup() {
     const g = this.git, pr = this.pr?.pr;
-    if (!g?.worktree || pr?.state !== "MERGED" || this.cleaning) return;
+    const why = !g?.worktree ? "This folder is not a linked worktree." : pr?.state !== "MERGED" ? "The pull request is not merged yet." : this.cleaning ? "Cleanup is already running." : null;
+    if (why) { notify({ title: "Can't clean up", body: why, level: "error", timeout: 6 }); return; }
     this.pendingCleanup = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, branch: pr.headRefName, space: this.loc?.space, at: Date.now() };
     openOverlay({ mod: "confirm", kind: "dialog", width: 460, height: 230, props: {
       title: `Clean up #${pr.number}?`,
@@ -292,10 +297,16 @@ export default class ShipIt extends View {
     } });
   }
 
+  // A click handler swallows throws: say what broke.
+  tryAskCleanup() {
+    try { this.askCleanup(); } catch (e) { notify({ title: "Clean up failed to open", body: String(e?.stack ?? e), level: "error", timeout: 12 }); }
+  }
+
   cleanup(cx) {
     const target = this.pendingCleanup;
     this.pendingCleanup = null;
-    if (!target || this.cleaning || Date.now() - target.at > 120000) return;
+    const why = !target ? "No cleanup was confirmed in this window. Press Clean up again." : this.cleaning ? "Cleanup is already running." : Date.now() - target.at > 120000 ? "The confirmation expired after 2 minutes. Press Clean up again." : null;
+    if (why) { notify({ title: "Cleanup not started", body: why, level: "error", timeout: 8 }); return; }
     this.cleaning = true;
     cx.spawn(async (cx) => {
       try {
@@ -305,20 +316,14 @@ export default class ShipIt extends View {
         if (!space) throw new Error("The original space is no longer available.");
         const tabs = new Set(space.tabs.map((t) => t.id));
         const machineTabs = new Set(spaces().filter((s) => (s.machine ?? null) === (target.on ?? null)).flatMap((s) => s.tabs.map((t) => t.id)));
-        for (const pane of panes().filter((p) => machineTabs.has(p.tab) && p.terminal)) {
-          if (!pane.cwd) throw new Error("A terminal's folder is unknown; close it before cleanup.");
-          const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: pane.cwd, on: target.on });
-          const inside = r.code === 0 && r.stdout.trim() === plan.root;
-          if (tabs.has(pane.tab) && !inside) throw new Error("This space also contains terminals outside the worktree; move them before cleanup.");
-          if (!tabs.has(pane.tab) && inside) throw new Error("Another space is using this worktree; close it before cleanup.");
-        }
+        await checkTerminals(exec, plan.root, target.on, panes().filter((p) => machineTabs.has(p.tab) && p.terminal).map((p) => ({ cwd: p.cwd, own: tabs.has(p.tab) })));
         // Recheck after inspecting terminals, immediately before removing the checkout.
         const fresh = await cleanupPlan(exec, GH(), target);
         if (fresh.sha !== plan.sha || fresh.branch !== plan.branch || fresh.main !== plan.main || fresh.remoteUrl !== plan.remoteUrl || fresh.remoteRef !== plan.remoteRef) throw new Error("The checkout changed during cleanup.");
         const result = await removeCheckout(exec, fresh);
         run("space.close", { id: target.space, confirmed: true });
         notify({ title: result.warning ? "Cleanup incomplete" : `#${target.number} cleaned up`, body: result.warning || `Worktree and local/remote branch removed. Recovery: ${result.recovery}`, level: result.warning ? "error" : "info", timeout: 8 });
-      } catch (e) { notify({ title: "Cleanup stopped", body: String(e), level: "error", timeout: 8 }); }
+      } catch (e) { notify({ title: "Cleanup stopped", body: e?.message || String(e ?? "") || "A command failed without saying why.", level: "error", timeout: 8 }); }
       finally { this.cleaning = false; this.refreshGit(cx); cx.notify(); }
     });
   }
@@ -351,7 +356,7 @@ export default class ShipIt extends View {
     const block = this.shipBlock(), merged = this.pr?.pr?.state === "MERGED";
     if (merged && this.git?.worktree) return this.button("cleanup", t, {
       icon: "check", label: this.cleaning ? "Cleaning…" : "Clean up",
-      onClick: () => this.askCleanup(), tip: "Remove the merged worktree and local/remote branch",
+      onClick: () => this.tryAskCleanup(), tip: "Remove the merged worktree and local/remote branch",
     });
     return h_flex().id("ship").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1()
       .when(!block, (e) => e.border_color(t.solid).bg(t.solid).cursor_pointer().hover((s) => s.opacity(0.88)).on_click((_e, cx) => this.ship(cx)))

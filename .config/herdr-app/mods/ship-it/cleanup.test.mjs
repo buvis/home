@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cleanupPlan, removeCheckout } from './cleanup.js';
+import { cleanupPlan, removeCheckout, checkTerminals } from './cleanup.js';
 
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'ship-cleanup-'));
@@ -123,6 +123,24 @@ test('git refuses new files appearing after preflight without forcing removal', 
   await assert.rejects(removeCheckout(f.exec, plan));
   assert.equal(existsSync(f.root), true);
   assert.equal(f.git(['rev-parse', 'topic']), f.sha);
+});
+
+// Herdr's exec rejects (empty reason) when the folder is gone, e.g. a deleted repo's terminal.
+const herdrExec = (f) => async (program, args, opts) => {
+  if (!existsSync(opts.cwd)) throw '';
+  return f.exec(program, args, opts);
+};
+
+// The plan's root is git's own --show-toplevel: a real path (macOS tmpdir is a symlink).
+test('ignores another space whose terminal folder was deleted', async (t) => {
+  const f = fixture(t), root = realpathSync(f.root), gone = join(f.main, '..', 'deleted-repo');
+  await checkTerminals(herdrExec(f), root, null, [{ cwd: f.root, own: true }, { cwd: gone, own: false }]);
+});
+
+test('refuses a deleted folder in the space being closed, and other spaces in the worktree', async (t) => {
+  const f = fixture(t), root = realpathSync(f.root), gone = join(f.main, '..', 'deleted-repo');
+  await assert.rejects(checkTerminals(herdrExec(f), root, null, [{ cwd: gone, own: true }]), /outside the worktree/);
+  await assert.rejects(checkTerminals(herdrExec(f), root, null, [{ cwd: f.root, own: false }]), /Another space/);
 });
 
 test('retains a branch moved concurrently after worktree removal', async (t) => {
