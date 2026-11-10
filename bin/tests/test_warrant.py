@@ -255,6 +255,34 @@ class WarrantCase(unittest.TestCase):
         code = warrant.wait_for(self.site, path.stem, timeout=1, out=quiet, poll=0.05)
         self.assertEqual(code, 5)
 
+    def test_wait_tells_herdr_blocked_then_restores_the_agents_own_status(self) -> None:
+        self.assertEqual(self.request(["true"], wait=False), 0)
+        [path] = self.pending()
+        told: list[tuple[str, str]] = []
+        code = warrant.wait_for(
+            self.site, path.stem, timeout=0.2, out=quiet, poll=0.05,
+            herdr=lambda: {"app": "codex", "state": "working"},
+            tell=lambda app, state: told.append((app, state)),
+        )
+        self.assertEqual(code, warrant.EXIT_NO_VERDICT)
+        self.assertEqual(told, [("codex", "blocked"), ("codex", "working")])
+
+    def test_wait_stays_silent_for_a_decided_request_and_outside_herdr(self) -> None:
+        self.assertEqual(self.request(["true"], wait=False), 0)
+        [path] = self.pending()
+        told: list[tuple[str, str]] = []
+
+        def tell(app: str, state: str) -> None:
+            told.append((app, state))
+
+        warrant.wait_for(self.site, path.stem, timeout=0.2, out=quiet, poll=0.05, tell=tell)
+        self.assertEqual(self.approve(path), 0)
+        warrant.wait_for(
+            self.site, path.stem, timeout=1, out=quiet, poll=0.05,
+            herdr=lambda: {"app": "codex", "state": "working"}, tell=tell,
+        )
+        self.assertEqual(told, [])
+
     def test_wait_on_unknown_request_fails(self) -> None:
         code = warrant.wait_for(self.site, "0" * 32, timeout=1, out=quiet, poll=0.05)
         self.assertEqual(code, 2)

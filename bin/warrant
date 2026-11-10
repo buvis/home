@@ -82,6 +82,7 @@ LOCKOUT_AFTER, LOCKOUT_WINDOW_SEC = 3, 600
 SETTLED = {"executed", "rejected", "refused", "timeout"}
 OUTPUT_CAP = 1_000_000
 EXIT_NO_VERDICT, EXIT_REJECTED, EXIT_REFUSED = 124, 125, 126
+HERDR_WORD = re.compile(r"[\w.-]+")  # an app or state name we echo into an escape sequence
 REQUIRED_CONFIG = ("trusted_exe_roots", "exec_path", "request_ttl_sec", "exec_timeout_sec")
 Out = Callable[[str], None]
 Secret = Callable[[str], str]
@@ -552,24 +553,64 @@ def report(result: dict, out: Out) -> int:
     return EXIT_REFUSED
 
 
-def wait_for(site: Site, rid: str, timeout: float | None, out: Out, poll: float = 1.0) -> int:
+def herdr_status() -> dict | None:
+    """The calling agent's own herdr-core status report, or None outside herdr and for a plain program."""
+    terminal = os.environ.get("HC_TERMINAL_ID")
+    if not terminal:
+        return None
+    try:
+        proc = subprocess.run(["hc", "get", terminal, "--json"], stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, timeout=5, check=False)
+        status = json.loads(proc.stdout)["status"]
+        return status if HERDR_WORD.fullmatch(status["app"]) and HERDR_WORD.fullmatch(status["state"]) else None
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+
+
+def tell_herdr(app: str, state: str) -> None:
+    """Report a status for the agent (OSC 7501). A tool call has no controlling tty, so fall back to GPG_TTY."""
+    for path in ("/dev/tty", os.environ.get("GPG_TTY", "")):
+        try:
+            with open(path, "w") as tty:
+                tty.write(f"\x1b]7501;state={state}:app={app}\x07")
+            return
+        except OSError:
+            continue
+
+
+def wait_for(site: Site, rid: str, timeout: float | None, out: Out, poll: float = 1.0,
+             herdr: Callable[[], dict | None] = lambda: None, tell: Callable[[str, str], None] = tell_herdr) -> int:
     result_path, request_path = site.results / f"{rid}.json", site.requests / f"{rid}.json"
     deadline = None if timeout is None else time.monotonic() + timeout
-    while True:
-        if result_path.exists():
-            return report(json.loads(result_path.read_text()), out)
-        # finish() writes the result before unlinking the request, so a missing request is final only without a result
-        if not request_path.exists() and not result_path.exists():
-            out(f"warrant: no request or result for {rid}")
-            return 2
-        if deadline is not None and time.monotonic() >= deadline:
-            out(f"warrant: {rid} still pending; re-attach with  ~/bin/warrant wait {rid}")
-            return EXIT_NO_VERDICT
-        time.sleep(poll)
+    # While a human decides, the agent is blocked, not working: say so, then put its own word back.
+    # Ceiling: the agent's next report (a turn end) overwrites ours; Claude's Stop hook herdr_bg_status.py repeats it.
+    before: dict | None = None
+    try:
+        while True:
+            if result_path.exists():
+                return report(json.loads(result_path.read_text()), out)
+            # finish() writes the result before unlinking the request, so a missing request is final only without a result
+            if not request_path.exists() and not result_path.exists():
+                out(f"warrant: no request or result for {rid}")
+                return 2
+            if deadline is not None and time.monotonic() >= deadline:
+                out(f"warrant: {rid} still pending; re-attach with  ~/bin/warrant wait {rid}")
+                return EXIT_NO_VERDICT
+            if before is None:
+                before = herdr() or {}
+                if before.get("state") == "blocked":  # another wait already said so, and it restores
+                    before = {}
+                if before:
+                    tell(before["app"], "blocked")
+            time.sleep(poll)
+    finally:
+        if before:
+            tell(before["app"], before["state"])
 
 
 def request(site: Site, argv: list[str], cwd: Path, env: dict[str, str], reason: str, timeout: float | None,
-            out: Out, poll: float = 1.0, notify: Callable[[dict], bool] = notify_human, wait: bool = True) -> int:
+            out: Out, poll: float = 1.0, notify: Callable[[dict], bool] = notify_human, wait: bool = True,
+            herdr: Callable[[], dict | None] = lambda: None) -> int:
     req = build_request(argv, cwd, env, reason)
     submit(site, req)
     out(f"warrant: request {req['id']} waits for a human: {shlex.join(argv)}")
@@ -578,7 +619,7 @@ def request(site: Site, argv: list[str], cwd: Path, env: dict[str, str], reason:
         out("warrant: could not notify the human; tell them yourself")
     if not wait:
         return 0
-    return wait_for(site, req["id"], timeout, out, poll)
+    return wait_for(site, req["id"], timeout, out, poll, herdr)
 
 
 # --- listing and entry point ---
@@ -645,9 +686,9 @@ def main(argv: list[str]) -> int:
         if len(env) != len(args.env):
             parser.error("--env takes K=V")
         return request(Site(SPOOL, CONFIG_DIR), command, Path(args.cwd).resolve(), env, args.reason, args.timeout, print,
-                       wait=not args.no_wait)
+                       wait=not args.no_wait, herdr=herdr_status)
     if args.verb == "wait":
-        return wait_for(Site(SPOOL, CONFIG_DIR), args.id, args.timeout, print)
+        return wait_for(Site(SPOOL, CONFIG_DIR), args.id, args.timeout, print, herdr=herdr_status)
     site = Site(SPOOL, CONFIG_DIR, load_config(CONFIG_DIR / "config.json"), load_profile(PROFILE, Path.home().resolve()))
     preflight(site)
     if args.verb == "list":
