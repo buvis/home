@@ -2,7 +2,8 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, exec, appHome, notify, openOverlay, theme, watchFolder } from "herdr";
 import { ownItems, toCard, scanRefs } from "./model.js";
-import { snapshot, texts, repos, location, panelShown, places, spaceAt } from "./read.js";
+import { snapshot, texts, repos, location, panelShown, places, spaceAt, installedAgents, specflowHosts } from "./read.js";
+import { pickOf, startLabel, startFor } from "./start.js";
 
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support (fixed path; exec takes argv, no shell)
 const KIND_NAMES = { prd: "PRD", spec: "Spec", idea: "Idea" };
@@ -21,10 +22,15 @@ async function buildCards(snap) {
     worktrees: snap.checkouts.map(({ path, branch, main }) => ({ path, branch, main })),
     lanes: main?.wave?.lanes ?? [],
   };
+  // Each checkout's autopilot pick, from the PRDs it still owns (raw buckets keep stale names).
+  const picks = new Map(snap.checkouts.map((c) => {
+    const names = (b) => items.filter((i) => i.checkout === c && i.bucket === b).map((i) => i.name);
+    return [c, pickOf({ buckets: { wip: names("wip"), backlog: names("backlog") } })];
+  }));
   return items.map((i, k) => {
     const t = text[bare[k].file] ?? "";
     const card = toCard(i, t, i.checkout);
-    return { ...card, chips: scanRefs(card, t, ctx), main: i.checkout.main };
+    return { ...card, chips: scanRefs(card, t, ctx), main: i.checkout.main, pick: picks.get(i.checkout) ?? null };
   });
 }
 
@@ -41,6 +47,7 @@ export default class Runway extends View {
     this.loading = false;
     this.again = false;
     this.stale = false;
+    this.agentsBy = new Map(); // machine -> { loading } | { list, hosts } | { error }
     this.refresh(cx);
     cx.timer.every(30000, (cx) => this.onTick(cx));
   }
@@ -86,7 +93,7 @@ export default class Runway extends View {
     if (!rendering) cx.notify();
     cx.spawn(async (cx) => {
       try {
-        if (this.scope === "all") await this.loadAll();
+        if (this.scope === "all") await this.loadAll(cx);
         else await this.loadThis(cx);
       } finally {
         this.loading = false;
@@ -141,6 +148,7 @@ export default class Runway extends View {
         this.watching = null;
         return;
       }
+      this.loadAgents(snap.on, cx);
       const cards = await buildCards(snap);
       this.thisData = { snap, cards, error: null };
       this.context = this.keyOf(loc);
@@ -152,7 +160,35 @@ export default class Runway extends View {
     }
   }
 
-  async loadAll() {
+  // Once per machine; a failed listing is retried on the next refresh.
+  loadAgents(on, cx) {
+    const got = this.agentsBy.get(on);
+    if (got && !got.error) return;
+    this.agentsBy.set(on, { loading: true });
+    cx.spawn(async (cx) => {
+      try {
+        const [list, hosts] = await Promise.all([installedAgents(on), specflowHosts(on)]);
+        this.agentsBy.set(on, { list, hosts });
+      } catch {
+        this.agentsBy.set(on, { error: true });
+      }
+      cx.notify();
+    });
+  }
+
+  startAgent(card, start, snap) {
+    const task = start.task ? { task: start.task } : {};
+    const s = spaceAt(card.checkout, places(snap.on), snap.checkouts.map((c) => c.path));
+    if (s) {
+      run("space.select", { id: s.id });
+      run("tab.new", { space: s.id, folder: card.checkout, name: start.name, argv: start.argv, ...task });
+    } else {
+      run("space.new", { folder: card.checkout, tab: start.name, ...(snap.on ? { machine: snap.on } : {}), argv: start.argv, ...task });
+    }
+  }
+
+  async loadAll(cx) {
+    this.loadAgents(null, cx);
     try {
       const list = await repos();
       if (!list.length) {
@@ -277,7 +313,32 @@ export default class Runway extends View {
         e.child(div().text_size(11).text_color(t.dim).truncate().child(card.reason)))
       .when(card.chips.length > 0, (e) =>
         e.child(h_flex().gap(4).flex_wrap().items_center().pt(2)
-          .children(card.chips.map((chip) => this.renderChip(chip, card, snap, t)))));
+          .children(card.chips.map((chip) => this.renderChip(chip, card, snap, t)))))
+      .when(Boolean(startLabel(card)), (e) => e.child(this.renderStart(card, snap, t)));
+  }
+
+  // The card's next stage, one button per installed agent, then why any button is off.
+  renderStart(card, snap, t) {
+    const got = this.agentsBy.get(snap.on);
+    const env = { on: snap.on, pick: card.pick, specflow: got?.hosts ?? {} };
+    const starts = (got?.list ?? []).map((a) => [a, startFor(card, a, env)]);
+    const tips = [...new Set(starts.map(([, s]) => s.tip).filter(Boolean))];
+    return v_flex().gap(3).pt(2).text_size(11)
+      .child(h_flex().gap(4).flex_wrap().items_center()
+        .child(div().text_color(t.dim).child(startLabel(card)))
+        .when(!got || got.loading, (e) => e.child(ring(t)))
+        .when(Boolean(got?.error), (e) => e.child(div().text_color(t.dim).child("Could not list agents")))
+        .children(starts.map(([a, s]) =>
+          div().id(idOf(`start-${snap.root}-${card.id}-${a.key}`)).px(6).py(2).rounded(4)
+            .border_1().border_color(t.border).bg(t.raised).text_color(t.foreground)
+            .when(s.disabled, (e) => e.opacity(0.5))
+            .when(!s.disabled, (e) => e.cursor_pointer().hover((st) => st.bg(t.hover)))
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              if (!s.disabled) this.startAgent(card, s, snap);
+            })
+            .child(s.gated ? a.name : `${a.name} · ungated`))))
+      .children(tips.map((tip) => div().text_color(t.dim).child(tip)));
   }
 
   renderGroups(snap, cards, t) {
