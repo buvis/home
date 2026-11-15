@@ -8,6 +8,7 @@ const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support (fi
 const KIND_NAMES = { prd: "PRD", spec: "Spec", idea: "Idea" };
 const ring = (t) => svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
 const busy = (t, text) => h_flex().p(8).gap(6).items_center().text_color(t.dim).child(ring(t)).child(text);
+const idOf = (s) => s.replace(/[^A-Za-z0-9_-]/g, "_");
 
 async function buildCards(snap) {
   const items = ownItems(snap.checkouts);
@@ -46,12 +47,19 @@ export default class Runway extends View {
 
   toggleScope(cx) {
     this.scope = this.scope === "this" ? "all" : "this";
-    this.refresh(cx, true);
+    this.refresh(cx);
+  }
+
+  // A folder inside the loaded repo keys as that repo's root: a cd within it does not reload.
+  keyOf({ cwd, on }) {
+    const snap = this.thisData?.snap;
+    const inside = snap && snap.on === on && cwd && snap.checkouts.some((c) => cwd === c.path || cwd.startsWith(c.path + "/"));
+    return JSON.stringify([inside ? snap.root : cwd, on]);
   }
 
   locKey() {
     this.loc = location(this.loc);
-    return JSON.stringify([this.loc.cwd, this.loc.on]);
+    return this.keyOf(this.loc);
   }
 
   onTick(cx) {
@@ -64,12 +72,12 @@ export default class Runway extends View {
     }
   }
 
-  refresh(cx, force, rendering) {
+  refresh(cx, rendering) {
     if (!panelShown("runway")) {
       this.stale = true;
       return;
     }
-    if (this.loading && !force) {
+    if (this.loading) {
       this.again = true;
       return;
     }
@@ -108,10 +116,12 @@ export default class Runway extends View {
         try {
           await watchFolder(dir);
         } catch {
+          // The 30 s timer keeps refreshing; the next load starts a new watch.
+          if (this.watchId === id) this.watching = null;
           return;
         }
         if (this.watchId !== id || this.watching !== dir) return;
-        this.refresh(cx);
+        if (this.scope === "this") this.refresh(cx);
       }
     });
   }
@@ -133,6 +143,7 @@ export default class Runway extends View {
       }
       const cards = await buildCards(snap);
       this.thisData = { snap, cards, error: null };
+      this.context = this.keyOf(loc);
       this.updateWatch(snap, cx);
     } catch (e) {
       const msg = String(e?.message ?? e) || "Could not read the repository";
@@ -194,10 +205,8 @@ export default class Runway extends View {
           return;
         }
         const url = r.stdout.trim();
-        if (url) {
-          const o = await exec("open", [url]);
-          if (o.code !== 0) notify({ title: "Runway", body: o.stderr.trim() || `Could not open #${val}`, level: "error" });
-        }
+        const o = url ? await exec("open", [url]) : null;
+        if (o?.code !== 0) notify({ title: "Runway", body: o?.stderr.trim() || `Could not open #${val}`, level: "error" });
       } catch (e) {
         notify({ title: "Runway", body: e?.stderr?.trim() || String(e?.message ?? e) || `Could not open #${val}`, level: "error" });
       }
@@ -211,9 +220,8 @@ export default class Runway extends View {
       if (s) {
         run("space.select", { id: s.id });
       } else {
-        const args = { folder: chip.path };
-        if (snap.on) args.machine = snap.on;
-        run("space.new", args);
+        // "" is this computer; an omitted machine would follow the focused space.
+        run("space.new", { folder: chip.path, machine: snap.on ?? "" });
       }
       return;
     }
@@ -234,8 +242,7 @@ export default class Runway extends View {
   }
 
   renderChip(chip, card, snap, t) {
-    const rootId = snap.root.replace(/[^A-Za-z0-9_-]/g, "_");
-    const chipId = `chip-${rootId}-${card.id}-${chip.type}-${chip.value}`.replace(/[^A-Za-z0-9_-]/g, "_");
+    const chipId = idOf(`chip-${snap.root}-${card.id}-${chip.type}-${chip.value}`);
     if (chip.type === "lane") {
       return div().id(chipId).px(6).py(2).rounded(4).text_size(10).border_1().border_color(t.border).bg(t.raised).text_color(t.muted)
         .child(chip.label);
@@ -254,7 +261,7 @@ export default class Runway extends View {
     const kind = KIND_NAMES[card.kind] ?? card.kind;
     const checkoutName = card.main ? "main" : card.checkout.split("/").pop();
     const meta = [card.stage, card.detail, card.next ? `next: ${card.next}` : null, checkoutName].filter(Boolean).join(" · ");
-    const rootId = snap.root.replace(/[^A-Za-z0-9_-]/g, "_");
+    const rootId = idOf(snap.root);
 
     return v_flex().id(`card-${rootId}-${card.id}`).flex_none().px(10).py(7).gap(3).rounded(7).cursor_pointer()
       .hover((s) => s.bg(t.hover))
@@ -279,7 +286,7 @@ export default class Runway extends View {
     const ideas = cards.filter((c) => c.group === "idea");
     const parked = cards.filter((c) => c.group === "parked");
     const elements = [];
-    const rootId = snap.root.replace(/[^A-Za-z0-9_-]/g, "_");
+    const rootId = idOf(snap.root);
 
     if (prds.length > 0) {
       elements.push(
@@ -330,7 +337,7 @@ export default class Runway extends View {
       const repos = this.allData?.repos ?? [];
       if (!repos.length) return [div().p(8).text_color(t.dim).child("Nothing waiting")];
       return repos.flatMap((r) => [
-        div().id(`repo-${r.snap.root.replace(/[^A-Za-z0-9_-]/g, "_")}`).px(10).pt(8).pb(2).font_semibold().text_size(13).text_color(t.foreground).child(r.snap.repo),
+        div().id(`repo-${idOf(r.snap.root)}`).px(10).pt(8).pb(2).font_semibold().text_size(13).text_color(t.foreground).child(r.snap.repo),
         ...this.renderGroups(r.snap, r.cards, t),
       ]);
     }
@@ -339,17 +346,8 @@ export default class Runway extends View {
     if (this.thisData && this.thisData.snap === null) return [div().p(8).text_color(t.dim).child("Not in a repository")];
     const snap = this.thisData?.snap;
     const cards = this.thisData?.cards ?? [];
-    if (!cards.length) {
-      const empty = [];
-      if (snap?.specflow === "missing") {
-        empty.push(
-          div().id("group-specs").px(10).pt(8).pb(2).text_size(11).font_semibold().text_color(t.muted).child("Specs"),
-          div().id("missing-specflow").px(10).py(4).text_size(12).text_color(t.dim).child("specflow not found")
-        );
-      }
-      empty.push(div().p(8).text_color(t.dim).child("Nothing waiting"));
-      return empty;
-    }
+    // With no cards, renderGroups draws only the Specs "specflow not found" line, when it applies.
+    if (!cards.length) return [...(snap ? this.renderGroups(snap, [], t) : []), div().p(8).text_color(t.dim).child("Nothing waiting")];
     return this.renderGroups(snap, cards, t);
   }
 
@@ -358,7 +356,7 @@ export default class Runway extends View {
       const key = this.locKey();
       if (this.stale || (this.scope === "this" && key !== this.context)) {
         this.context = key;
-        this.refresh(cx, false, true);
+        this.refresh(cx, true);
       }
     }
     const t = theme();

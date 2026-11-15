@@ -106,6 +106,7 @@ export function places(on) {
     return { s, at: ps.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder || null };
   });
 }
+
 export function spaceAt(path, where, paths = []) {
   if (!path) return undefined;
   const inside = (p, dir) => p === dir || p?.startsWith(dir + "/");
