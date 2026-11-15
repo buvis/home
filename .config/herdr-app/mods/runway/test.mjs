@@ -357,7 +357,14 @@ test("prd_done_in_main_is_dropped", () => {
   const main = checkout("/repo", "master", true, { buckets: { done: [D, E], backlog: [H] } });
   const one = checkout("/wt/one", "feature/one", false, { buckets: { backlog: [D], wip: [E], done: [G], hold: [H] } });
 
+  // A branch forked before E finished still holds it in wip: master's done wins.
   assert.deepEqual(ownersOf(ownItems([main, one]), "prd"), {
+    [H]: "backlog@/repo",
+  });
+
+  // Reopened for real: autopilot state in that checkout names it.
+  const reopened = checkout("/wt/one", "feature/one", false, { buckets: { wip: [E] }, state: { prd: E, phase: "build" } });
+  assert.deepEqual(ownersOf(ownItems([main, reopened]), "prd"), {
     [E]: "wip@/wt/one",
     [H]: "backlog@/repo",
   });
@@ -404,14 +411,18 @@ test("prd_absent_from_main_is_owned_by_first_checkout", () => {
   const one = checkout("/wt/one", "feature/one", false, { buckets: { backlog: [P], hold: [Q] } });
   const two = checkout("/wt/two", "feature/two", false, { buckets: { hold: [P], backlog: [Q, R] } });
 
+  // P was renamed on master (00060-first-v2.md): old copies elsewhere are stale.
   const items = ownItems([main, one, two]);
   assert.deepEqual(ownersOf(items, "prd"), {
     "00060-first-v2.md": "backlog@/repo",
-    [P]: "backlog@/wt/one",
     [Q]: "hold@/wt/one",
     [R]: "backlog@/wt/two",
   });
   assert.strictEqual(items.find((i) => i.name === R).checkout, two);
+
+  // Unless autopilot state in a checkout still names the old file.
+  const working = checkout("/wt/two", "feature/two", false, { buckets: { wip: [P] }, state: { prd: P, phase: "build" } });
+  assert.equal(ownersOf(ownItems([main, one, working]), "prd")[P], "wip@/wt/two");
 
   assertIdeaOwnershipAndCards();
 });

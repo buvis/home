@@ -60,7 +60,8 @@ export function titleOf(text, fallback) {
 
 const PRDS = "docs/dev/project-management/prds";
 
-// First rule that matches: state owner holding it in wip/hold, first wip holder, main, first holder.
+// First rule that matches: state owner holding it in wip/hold; stale (done on main, or renamed
+// there: same number, other name) -> done; first wip holder; main; first holder.
 function ownPrd(checkouts, name) {
   const find = (match, buckets) => {
     for (const c of checkouts) {
@@ -68,8 +69,13 @@ function ownPrd(checkouts, name) {
       if (bucket) return { kind: "prd", name, bucket, checkout: c };
     }
   };
-  return find((c) => c.state?.prd === name, ["wip", "hold"]) ?? find(() => true, ["wip"])
-    ?? find((c) => c.main, BUCKETS) ?? find(() => true, BUCKETS);
+  const main = checkouts.find((c) => c.main);
+  const onMain = main ? BUCKETS.flatMap((b) => main.buckets[b]) : [];
+  const stale = main && (main.buckets.done.includes(name)
+    || (!onMain.includes(name) && onMain.some((n) => n.slice(0, 5) === name.slice(0, 5))));
+  return find((c) => c.state?.prd === name, ["wip", "hold"])
+    ?? (stale ? { kind: "prd", name, bucket: "done", checkout: main } : null)
+    ?? find(() => true, ["wip"]) ?? find((c) => c.main, BUCKETS) ?? find(() => true, BUCKETS);
 }
 
 // Main's specs, each `feature/specflow-<n>` checkout replacing or adding its own `<n>-` entry.
