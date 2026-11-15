@@ -77,8 +77,8 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    // "projects" (the bim-projects mod) is always on; the welcome's choice only governs Files and Changes.
-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "projects", "tab-notes"];
+    // "projects" (bim-projects), "tab-notes" and "runway" are always on; the welcome's choice only governs Files and Changes.
+    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "projects", "tab-notes", "runway"];
     this.syncPanel(space, panel, body, enabled);
     const panelButton = (id, label, icon) => {
       const on = panel && !panel.hidden && body?.active === id;
@@ -96,6 +96,7 @@ export default class Tabs extends View {
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item))
         .child(button("tab-new", "+", () => openOverlay({ mod: "my-new-menu", kind: "popup", width: 250, height: 512 }))))
       // Files and Changes open from the ship-it strip (the folder and its +/- stat).
+      .child(panelButton("runway", "Runway", "mods/runway/runway.svg"))
       .child(panelButton("projects", "Projects", "mods/bim-projects/projects.svg"))
       .child(panelButton("tab-notes", "Notes", "mods/tab-notes/notes.svg"))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
