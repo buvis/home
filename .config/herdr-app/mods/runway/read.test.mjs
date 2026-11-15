@@ -17,22 +17,29 @@ registerHooks({
 let generation = 0;
 const freshReader = () => import(new URL(`./read.js?case=${++generation}`, import.meta.url));
 
-const at = (on, path) => `${on}|${path}`;
+const at = (on, path) => JSON.stringify([on, path]);
+const HOME_LOOKUP = ["sh", ["-c", 'printf %s "$HOME"']];
 const specflowPaths = (h) => ({
   claude: `${h}/.claude/plugins/cache/buvis-agent-plugins/specflow`,
   codex: `${h}/.codex/plugins/cache/buvis-agent-plugins`,
   kiro: `${h}/.kiro/powers/installed/specflow`,
 });
 
-// A fake set of machines: `homes[on]` is each machine's home, `dirs` holds "on|path" folders that exist.
-function fakeMachines({localHome, homes = {}, dirs = new Set(), rejects = new Set()}) {
+// A fake set of machines: `homes` maps a remote machine to its home lookup result (a home string,
+// an exec result, or an Error to reject); `dirs` holds at(on, path) folders that exist.
+function fakeMachines({localHome, homes = new Map(), dirs = new Set(), rejects = new Set()}) {
   const calls = [];
   globalThis.__herdr = {
     home: () => localHome,
     exec: async (command, args = [], options = {}) => {
       const on = options?.on ?? null;
       calls.push({command, args, on});
-      if (command !== "test") return {code: 0, stdout: `${homes[on]}\n`, stderr: ""};
+      if (JSON.stringify([command, args]) === JSON.stringify(HOME_LOOKUP) && homes.has(on)) {
+        const h = homes.get(on);
+        if (h instanceof Error) throw h;
+        return typeof h === "string" ? {code: 0, stdout: h, stderr: ""} : {stderr: "", ...h};
+      }
+      if (command !== "test") throw new Error(`unknown command on ${on}: ${command} ${args.join(" ")}`);
       const key = at(on, args[1]);
       if (rejects.has(key)) throw new Error(`unreachable: ${key}`);
       return {code: dirs.has(key) ? 0 : 1, stdout: "", stderr: ""};
@@ -62,13 +69,28 @@ test("specflow_hosts_checks_each_host_folder_in_the_local_home", async () => {
 test("specflow_hosts_reads_a_remote_machine_in_that_machines_home", async () => {
   const remote = specflowPaths("/srv/carol");
   const local = specflowPaths("/home/alice");
-  const fake = fakeMachines({localHome: "/home/alice", homes: {vps: "/srv/carol"},
+  const fake = fakeMachines({localHome: "/home/alice", homes: new Map([["vps", "/srv/carol"]]),
     dirs: new Set([at("vps", remote.codex), at("vps", remote.kiro), at(null, local.claude), at("vps", local.claude)])});
   const {specflowHosts} = await freshReader();
   assert.deepEqual(await specflowHosts("vps"), {claude: false, codex: true, kiro: true});
-  assert.ok(fake.calls.length > 0);
+  assert.deepEqual(fake.calls.filter((c) => c.command !== "test"),
+    [{command: HOME_LOOKUP[0], args: HOME_LOOKUP[1], on: "vps"}], "the home is read once, on the remote machine");
   assert.ok(fake.calls.every((c) => c.on === "vps"), "every exec runs on the remote machine");
   assert.deepEqual(sortedArgs(fake.testCalls()), expectedArgs("vps", "/srv/carol"));
+});
+
+test("specflow_hosts_reports_no_host_when_the_remote_home_is_unknown", async () => {
+  const local = specflowPaths("/home/alice");
+  const remote = specflowPaths("/srv/carol");
+  const machines = ["failed", "empty", "unreachable"];
+  const fake = fakeMachines({localHome: "/home/alice", homes: new Map([["failed", {code: 1, stdout: "/srv/carol"}],
+    ["empty", {code: 0, stdout: ""}], ["unreachable", new Error("ssh: connect refused")]]),
+  dirs: new Set(machines.flatMap((m) => [...Object.values(local), ...Object.values(remote)].map((p) => at(m, p))))});
+  const {specflowHosts} = await freshReader();
+  for (const m of machines) {
+    assert.deepEqual(await specflowHosts(m), {claude: false, codex: false, kiro: false}, m);
+  }
+  assert.deepEqual(fake.testCalls(), [], "no folder is checked without the machine's own home");
 });
 
 test("specflow_hosts_counts_a_rejected_check_as_absent", async () => {
@@ -88,8 +110,10 @@ test("specflow_hosts_caches_each_machine_separately", async () => {
   const local = specflowPaths("/home/alice");
   const vps = specflowPaths("/srv/carol");
   const vps2 = specflowPaths("/srv/dave");
-  const fake = fakeMachines({localHome: "/home/alice", homes: {"vps": "/srv/carol", "vps-2": "/srv/dave"},
-    dirs: new Set([at(null, local.claude), at("vps", vps.codex), at("vps-2", vps2.kiro)])});
+  const nil = specflowPaths("/srv/nil");
+  const fake = fakeMachines({localHome: "/home/alice",
+    homes: new Map([["vps", "/srv/carol"], ["vps-2", "/srv/dave"], ["null", "/srv/nil"]]),
+    dirs: new Set([at(null, local.claude), at("vps", vps.codex), at("vps-2", vps2.kiro), at("null", nil.kiro)])});
   const {specflowHosts} = await freshReader();
   assert.deepEqual(await specflowHosts(null), {claude: true, codex: false, kiro: false});
   const afterLocal = fake.calls.length;
@@ -98,6 +122,10 @@ test("specflow_hosts_caches_each_machine_separately", async () => {
   fake.dirs.add(at("vps", vps.kiro));
   assert.deepEqual(await specflowHosts(null), {claude: true, codex: false, kiro: false});
   assert.equal(fake.calls.length, afterLocal, "a cached machine is not checked again");
+
+  assert.deepEqual(await specflowHosts("null"), {claude: false, codex: false, kiro: true},
+    "a machine named \"null\" is not this computer");
+  assert.deepEqual(sortedArgs(fake.testCalls().filter((c) => c.on === "null")), expectedArgs("null", "/srv/nil"));
 
   assert.deepEqual(await specflowHosts("vps"), {claude: false, codex: true, kiro: true});
   assert.deepEqual(sortedArgs(fake.testCalls().filter((c) => c.on === "vps")), expectedArgs("vps", "/srv/carol"));
@@ -144,7 +172,7 @@ test("installed_agents_keeps_installed_runnable_agents_with_claude_first", async
 
 test("installed_agents_puts_only_the_claude_key_first_whatever_the_names", async () => {
   fakeAgents([agent("codex", "Codex", ["codex"]), agent("claude-alt", "Claude", ["claude-alt"]),
-    {key: "aider", name: "Aider", installed: true}, agent("kiro", "Kiro", ["kiro-cli"]),
+    {key: "aider", name: "Aider", installed: true}, agent("kiro", "Kiro", ["kiro-cli"]), {key: "x", name: "X", run: ["x"]},
     agent("claude", "My Assistant", ["my-claude", "--fast"]), agent("amp", "Amp", ["amp"])]);
   const {installedAgents} = await freshReader();
   const list = await installedAgents(null);
@@ -159,6 +187,8 @@ test("installed_agents_returns_empty_when_none_are_installed", async () => {
   assert.deepEqual(await installedAgents(null), []);
   fakeAgents([agent("claude", "Claude", ["claude"], false), agent("cursor", "Cursor", [])]);
   assert.deepEqual(await installedAgents(null), []);
+  fakeAgents([agent("amp", "Amp", ["amp"])]);
+  assert.deepEqual((await installedAgents(null)).map((a) => a.key), ["amp"], "a later call lists agents again");
 });
 
 test("installed_agents_surfaces_a_failed_agent_listing", async () => {
