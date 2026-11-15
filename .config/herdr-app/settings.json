@@ -3,6 +3,10 @@
   "sounds": {
     "enabled": true
   },
+  "worktrees": {
+    "directory": "~/git/src/worktrees"
+  },
+  "copy_on_select": false,
   "font_ligatures": false,
   "minimum_contrast": 1,
   "appearance": "dark",

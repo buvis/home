@@ -2,6 +2,7 @@
   "global": {
     "ctrl-q": "mod.open:prefix",
     "cmd-q": "app.quit",
+    "cmd-m": "window.minimize",
     "cmd-h": "app.hide",
     "cmd-alt-h": "app.hide_others",
     "cmd-t": "tab.new",
@@ -10,30 +11,10 @@
     "ctrl-shift-tab": "tab.prev",
     "cmd-shift-]": "tab.next",
     "cmd-shift-[": "tab.prev",
-    "cmd-alt-]": "space.next",
-    "cmd-alt-[": "space.prev",
     "cmd-]": "agent.next",
     "cmd-[": "agent.prev",
-    "cmd-shift-l": "layout.switch",
     "cmd-n": "space.new",
-    "cmd-p": "mod.open:picker",
-    "cmd-shift-a": "mod.open:launcher",
-    "cmd-shift-p": "app.palette",
     "cmd-,": "app.settings",
-    "cmd-s": "pane.split:right",
-    "cmd-alt-b": {
-      "command": "pane.split",
-      "args": {
-        "direction": "right",
-        "argv": [
-          "/Users/bob/.config/herdr-app/bin/browse"
-        ]
-      }
-    },
-    "cmd-shift-s": "pane.split:down",
-    "cmd-shift-w": "pane.close",
-    "cmd-shift-enter": "pane.zoom",
-    "cmd-z": "pane.zoom",
     "ctrl-h": "pane.go:left",
     "ctrl-j": "pane.go:down",
     "ctrl-k": "pane.go:up",
@@ -46,18 +27,7 @@
     "cmd-alt-shift-right": "pane.swap:right",
     "cmd-alt-shift-up": "pane.swap:up",
     "cmd-alt-shift-down": "pane.swap:down",
-    "cmd-r": "tab.rename",
-    "cmd-shift-r": "space.rename",
     "cmd-/": "app.help",
-    "cmd-shift-/": "app.help",
-    "cmd-b": "layout.toggle:sidebar",
-    "cmd-shift-b": {
-      "command": "tab.new",
-      "args": {
-        "name": "projects",
-        "mod": "bim-projects"
-      }
-    },
     "cmd-=": "app.zoom_in",
     "cmd-+": "app.zoom_in",
     "cmd--": "app.zoom_out",
@@ -79,31 +49,7 @@
     "ctrl-6": "space.select:6",
     "ctrl-7": "space.select:7",
     "ctrl-8": "space.select:8",
-    "ctrl-9": "space.select:9",
-    "cmd-alt-r": "mod.open:revive",
-    "cmd-shift-n": "mod.open:obsidian",
-    "cmd-alt-n": {
-      "command": "pane.split",
-      "args": {
-        "direction": "right",
-        "mod": "obsidian",
-        "props": {
-          "view": "panel"
-        }
-      }
-    },
-    "cmd-shift-m": "mod.open:markdown-panel",
-    "cmd-alt-t": "mod.open:ciupaga",
-    "ctrl-shift-x": "mod.open:copy-mode",
-    "cmd-shift-o": "mod.open:on-screen",
-    "cmd-e": "mod.open:recall",
-    "cmd-o": "mod.open:file-picker",
-    "cmd-shift-e": "layout.toggle:panel",
-    "cmd-shift-j": "mod.open:attn-next",
-    "cmd-alt-i": "mod.open:worktreeinclude",
-    "cmd-alt-shift-i": "worktreeinclude.copy",
-    "cmd-shift-u": "mod.open:mod-updater",
-    "ctrl-shift-u": "mod.open:mod-updater"
+    "ctrl-9": "space.select:9"
   },
   "layout:buvis": {
     "cmd-ctrl-left": "nav.tab-left",
@@ -116,6 +62,7 @@
     "ctrl-space shift-p": "my-space-folders.prev"
   },
   "terminal": {
+    "cmd-a": "terminal.select_all",
     "cmd-f": "terminal.search",
     "cmd-c": "terminal.copy",
     "cmd-v": "terminal.paste",
