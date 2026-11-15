@@ -1,5 +1,5 @@
 // The repo reader: git, the PRD folders, autopilot state and specflow status, per checkout.
-import { exec, readTextFile, home, spaces, panes, focused, layout } from "herdr";
+import { exec, readTextFile, home, spaces, panes, focused, layout, knownAgents } from "herdr";
 import { parseWorktrees, parseListing, newestVersion } from "./model.js";
 
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie):
@@ -105,6 +105,27 @@ export function places(on) {
     const tabs = new Set((s.tabs ?? []).map((t) => t.id));
     return { s, at: ps.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder || null };
   });
+}
+
+export async function installedAgents(on) {
+  const all = (await knownAgents({ on })).filter((a) => a.installed && a.run?.length);
+  return all.sort((a, b) => (b.key === "claude") - (a.key === "claude"));
+}
+
+// Which hosts have specflow installed on a machine, cached per machine until reload.
+const hostsCache = new Map();
+export function specflowHosts(on) {
+  if (!hostsCache.has(on)) hostsCache.set(on, (async () => {
+    const h = on
+      ? await exec("sh", ["-c", 'printf %s "$HOME"'], { on }).then((r) => (r.code === 0 ? r.stdout : ""), () => "")
+      : home();
+    const dirs = { claude: `${h}/.claude/plugins/cache/buvis-agent-plugins/specflow`,
+      codex: `${h}/.codex/plugins/cache/buvis-agent-plugins`, kiro: `${h}/.kiro/powers/installed/specflow` };
+    const found = await Promise.all(Object.values(dirs).map((d) =>
+      h ? exec("test", ["-d", d], { on }).then((r) => r.code === 0, () => false) : false));
+    return Object.fromEntries(Object.keys(dirs).map((k, i) => [k, found[i]]));
+  })());
+  return hostsCache.get(on);
 }
 
 export function spaceAt(path, where, paths = []) {
