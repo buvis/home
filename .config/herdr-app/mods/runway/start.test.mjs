@@ -97,6 +97,8 @@ test("labels_each_prd_stage", () => {
   assert.equal(label("wip", "build"), "Start build");
   assert.equal(label("build", "review, cycle 1"), "Start review, cycle 1");
   assert.equal(label("review", "review, cycle 2"), "Start review, cycle 2");
+  assert.equal(label("build", "review, cycle 3"), "Start review, cycle 3");
+  assert.equal(label("review", "review, cycle 12"), "Start review, cycle 12");
   assert.equal(label("review", "build"), "Start rework");
   assert.equal(label("review", "done"), "Finish");
   assert.equal(label("closed", "done"), "Finish");
@@ -183,6 +185,17 @@ test("local_codex_prd_start_runs_autocodex_once", () => {
   assert.equal(b.name, "00010 OpenAI Codex");
   assert.equal(b.gated, true);
   assert.ok(!b.disabled);
+
+  // A key that only starts with "codex" is another agent: ungated, its own argv, no specflow gate.
+  const alt = agent("codex-alt", "Codex (alt)", ["my-codex-alt"]);
+  const c = startFor(ALPHA, alt, env("00012-gamma.md", null, NO_SPECFLOW));
+  assert.deepEqual(c.argv, ["my-codex-alt"]);
+  assert.equal(c.task, ALPHA_TASK);
+  assert.equal(c.gated, false);
+  assert.ok(!c.disabled);
+  const d = startFor(QUEUE, alt, env(null, null, NO_SPECFLOW));
+  assert.ok(!d.disabled);
+  assert.equal(d.gated, false);
 });
 
 test("remote_codex_prd_start_is_ungated", () => {
@@ -197,6 +210,13 @@ test("remote_codex_prd_start_is_ungated", () => {
   assert.deepEqual(b.argv, ["codex", "--no-daemon"]);
   assert.equal(b.task, ALPHA_TASK);
   assert.equal(b.gated, false);
+
+  // Any machine other than this one, not a fixed list.
+  const c = startFor(ALPHA, CODEX, env(null, "osewa"));
+  assert.deepEqual(c.argv, ["codex", "--no-daemon"]);
+  assert.equal(c.task, ALPHA_TASK);
+  assert.equal(c.gated, false);
+  assert.ok(!c.disabled);
 });
 
 test("other_agent_prd_start_is_ungated_plain_task", () => {
@@ -219,6 +239,10 @@ test("other_agent_prd_start_is_ungated_plain_task", () => {
   assert.equal(c.task, plain("PRD", "00014", "Two words", `${PRDS}/wip/00014-two-words.md`, "review", "Start rework"));
   assert.equal(c.gated, false);
   assert.equal(c.name, "00014 Kiro");
+
+  // The path is the card's own file, wherever it sits.
+  const done = prdCard("00015-delta.md", "review", "done", { title: "Delta", bucket: "done", checkout: "/wt/d" });
+  assert.equal(startFor(done, GEMINI, env(null)).task, plain("PRD", "00015", "Delta", `${PRDS}/done/00015-delta.md`, "review", "Finish"));
 });
 
 test("gated_prd_start_is_disabled_off_the_pick", () => {
@@ -308,6 +332,11 @@ test("spec_start_is_disabled_without_specflow", () => {
   const b = startFor(LANES, CLAUDE_ALT, env(null, null, NO_SPECFLOW));
   assert.equal(b.task, plain("spec", "00007", "runway cards", "specs/v2/00007-runway-cards/requirements.md", "implementation", "Continue: task T4"));
   assert.equal(b.gated, false);
+
+  // The plain task uses the card's title, not one made from the folder name.
+  const titled = specCard("00009-lanes", "tasks", "design gate", { title: "Queue View" });
+  const c = startFor(titled, GEMINI, env(null, null, NO_SPECFLOW));
+  assert.equal(c.task, plain("spec", "00009", "Queue View", "docs/specs/00009-lanes/requirements.md", "tasks", "Continue: design gate"));
 });
 
 test("copilot_gets_dash_i", () => {
@@ -326,4 +355,8 @@ test("copilot_gets_dash_i", () => {
   // Only copilot gets it.
   assert.deepEqual(startFor(GAMMA, GEMINI, env(null)).argv, ["gemini"]);
   assert.deepEqual(startFor(ALPHA, CLAUDE_ALT, env(null)).argv, ["my-claude-alt"]);
+
+  // The key decides, not the name.
+  assert.deepEqual(startFor(ALPHA, agent("copilot", "GH CLI", ["gh"]), env(null)).argv, ["gh", "-i"]);
+  assert.deepEqual(startFor(ALPHA, agent("other", "Copilot Clone", ["x"]), env(null)).argv, ["x"]);
 });
