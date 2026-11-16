@@ -38,6 +38,20 @@ With 1M context, research stays in-flight through implementation.
 - End plans with unresolved questions.
 - One question at a time, concise, with enough context to answer quickly.
 
+## Final report and decisions
+
+The user returns after hours of agent work and has lost the thread. Write the report for that reader. (Decided 2026-11-16: long summaries buried the call to action.)
+
+- Keep the report within one screen: outcome first, then the verification result, then what stays open. Link longer material.
+- End every report with a `Call to action` block as its last lines. State exactly what the user must do or decide, in order. If nothing is needed, write `Call to action: none`. Put nothing after it. When it needs steps, it follows "Handing work to the user" below.
+- Prepare every material decision the same way, asked or not, so the choice is a considered one:
+  - at least three real options;
+  - each option summarized in three sentences;
+  - each option assessed critically: what is good, what is bad, and what is ugly (the hidden or long-term cost);
+  - one option marked **Recommended**, with the reason.
+- Do not ask when the decision is reversible or follows earlier thinking, strategy, or architecture. Take the recommended option, continue, and report the choice and its reason in one line.
+- Ask only for the rest: the irreversible actions and external commitments named under Autonomy, or a break from the agreed direction. Present one decision at a time in the format above, recommended option first, and say how many more wait.
+
 ## Handing work to the user
 
 The user runs a hand-off top to bottom and does not read ahead. Write it so that order is safe.
