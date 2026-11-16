@@ -287,7 +287,7 @@ export const LOCAL = {
 };
 export const SPECS = {...LOCAL, specflowDirs: [PLUGIN], checkouts: [
   {...LOCAL.checkouts[0], specflow: [spec("00009-cross-host-validation")]},
-  {...LOCAL.checkouts[1], specflow: [spec("00008-side-quest")]}]};
+  {...LOCAL.checkouts[1], branch: "feature/specflow-00008", specflow: [spec("00008-side-quest")]}]};
 export const ZED = {checkouts: [{path: "/work/zed", branch: "master", backlog: ["00011-beta.md"]}],
   spaces: [{id: "s5", folder: "/work/zed", tabs: [{id: "t5", pane: "p5", cwd: "/work/zed"}]}], focusedPane: "p5"};
 // Another repo and home on this computer, so hardcoded alpha, /work/app or /home/u values fail.
