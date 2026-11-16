@@ -9,7 +9,7 @@ export function planLane(card, repo, home) {
   let name;
   if (card.kind === "prd") {
     name = card.file.slice(card.file.lastIndexOf("/") + 1);
-    if (card.file !== `${repo.main}/${PRDS}/backlog/${name}`) {
+    if (card.checkout !== repo.main || card.file !== `${repo.main}/${PRDS}/backlog/${name}`) {
       return { error: "Only a backlog PRD in the main checkout can move" };
     }
     slug = name.replace(/\.md$/, "").replace(/-v\d+$/, "");
@@ -65,7 +65,7 @@ export async function openLane(plan, io) {
 export function actionFor(card, fm, env) {
   if (card.kind === "prd") {
     if (card.group !== "parked") return null;
-    if (fm?.ledger_key) {
+    if (fm && Object.prototype.hasOwnProperty.call(fm, "ledger_key")) {
       return { label: "Un-park", kind: "move", disabled: true, tip: "Triage stub: promote it by writing a PRD" };
     }
     return { label: "Un-park", kind: "move" };
