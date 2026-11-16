@@ -19,7 +19,7 @@ considering a question: routine reversible decisions belong to the agent.
 - Before approval, finish the preparation so the user can judge a concrete
   result. Name the irreversible consequence, exact action, and recommendation.
 - Ask one self-contained question at a time, in the format of `AGENTS.md`'s
-  "Final report and decisions": at least three real options, each summarized
+  "Final report and decisions": at least three real options when they exist, each summarized
   in three sentences and assessed good/bad/ugly, one marked **Recommended**.
   Use the available input tool.
 - Reuse prior authorization. Do not ask the same question after a handoff.
