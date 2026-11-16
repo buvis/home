@@ -3,6 +3,8 @@
 - Solo developer. Be extremely concise, skip formalities.
 - Simplest safe assumption when ambiguity isn't material.
 - This file (`~/.claude/AGENTS.md`) is the single source of user-global agent instructions. Claude imports it through `~/.claude/CLAUDE.md`; Codex (`~/.codex/AGENTS.md`), Copilot (`~/.copilot/copilot-instructions.md`), Kiro (`~/.kiro/steering/AGENTS.md`), and Pi (`~/.pi/agent/AGENTS.md`) symlink here. Edit this file, never the pointers. New sessions load the updated instructions; custom agent prompts must preserve this shared authority.
+- A rule for all agents goes in this file. Only Claude loads `~/.claude/rules/`, so that directory holds Claude-specific rules only (`tools.md`, `claude-tooling.md`, `memory.md`) and one-line pointers for the rules that moved here on 2026-11-16. (A rule kept only in `rules/` never reached Codex, Copilot, Kiro, or Pi.)
+- This file is larger than the Codex default limit of 32 KiB. `~/.codex/config.toml` sets `project_doc_max_bytes = 65536`; that file is not tracked, so set it again on a new machine. Without it, Codex drops the end of this file silently.
 
 ## Autonomy — standing authorization
 
@@ -44,6 +46,7 @@ The user comes back after hours of agent work and does not remember the details.
 
 - Write reports, questions, and decisions in Simplified Technical English. The rules are in "Handing work to the user". Do this where it does not change the meaning.
 - Use this format for a report on completed work. Give a quick answer or a confirmation in one line.
+- This format is for reports to the user. When another agent or a tool reads your output (a reviewer lane, a subagent, a parser), use the format that the reader requires.
 - Start the report with one status word: `Done.`, `Partly done.`, `Blocked.`, or `Decision needed.` Use `Done.` only when no required work stays open.
 - Keep the report within one screen. Give the result first, then the verification result, then the open items. For each open item, say what closes it. Link longer material.
 - Do not write "verified" or "passing" unless you ran the check in this session. Show the output that proves it (a test count, an exit code). Give the count of skipped tests.
@@ -74,6 +77,267 @@ The user runs a hand-off top to bottom and does not read ahead. Write it so that
 - One numbered list, steps in execution order, commands inline. A precondition is its own step placed before the step that needs it. A warning that applies to a step comes before that step, never after the list. Mark an optional step optional in its place. Put nothing after the list that changes how to run it. (2026-10-17, PRD 00163: the approve commands came first and the config fix came below them, so the commit went out without the fix.)
 - Write hand-offs in Simplified Technical English (ASD-STE100): one instruction per sentence, imperative mood, present tense, at most 20 words, one word for one meaning, no idioms, no synonyms for the same thing. State the expected result of a step when the user needs it to continue.
 
+## Communicating and deciding
+
+Keep talk concise. Apply the standing authorization above before considering a question: routine reversible decisions belong to the agent.
+
+### Default
+
+- Lead with the outcome or next action, then the evidence the user needs.
+- Choose the best supported option and proceed. Mention material assumptions and tradeoffs briefly; do not put a decision the agent owns in front of the user.
+- Complete authorized work instead of offering to continue or asking for "go".
+- Brevity governs conversation, never the completeness of requested work.
+
+### Decisions that need the user
+
+- Ask only when standing authorization does not cover the action, or required information cannot be recovered and no safe reversible next step exists.
+- Before approval, finish the preparation so the user can judge a concrete result. Name the irreversible consequence, exact action, and recommendation.
+- Use the available input tool, in the format of "Final report and decisions".
+- Reuse prior authorization. Do not ask the same question after a handoff.
+
+### Reviews and audits
+
+- Merge duplicate findings, verify claims, and apply supported in-scope fixes. Record rejected findings with evidence and deferred items in the review, report, PRD, or issue. Severity alone neither requires approval nor settles it.
+- Report dispositions together; a findings report is not an approval queue. Use a walkthrough only for genuinely unresolved consequential decisions or when the user explicitly requests one.
+- Unattended agents use the same standing authorization. Pause only for an uncovered consequential action or a real blocker, naming it precisely.
+- Skill-mandated task, evidence, and review procedures remain required; older ask-first conventions do not revoke the user's standing authorization.
+
+### Turn end
+
+- Never claim unrun checks passed, hide skipped work, append a compulsory next project, or stop authorized work merely to request confirmation.
+
+## Operating principles
+
+### Critical Thinking
+
+Before acting, question rigorously: assumptions grounded in code I've read? Simplest explanation, or overcomplicating? What breaks if wrong? Existing pattern solves this? 2-3 alternatives, why this one? Edge cases or failure modes ignored?
+
+Obvious answers deserve suspicion - what if the opposite were true?
+
+Flag flawed assumptions directly. Present real tradeoffs concisely. Say why when uncertain. Codebase patterns contradict? Pick one (newer or better tested), explain why, flag the other for cleanup - don't blend them.
+
+Never: withhold answers to force dialogue, add ceremony to simple tasks, mistake verbosity for rigor.
+
+### Fail Loud
+
+Surface uncertainty, don't hide it.
+
+- Skipped something? Don't say "done" - name it and why.
+- Skipped, xfailed, or filtered tests? Don't say "passing" - report the count.
+- Didn't run it? Don't say "verified" - run it, paste the output, claim it.
+- Worked around a failure? Say so - it's part of the result.
+- Guessed a value? Flag it, don't bury it.
+- Writing a measured state (git, disk, a process) into a durable note? Re-measure right before writing, or stamp the measurement time. A live work-tree moves under you.
+
+The bar: a reader who only sees your final message should be able to tell exactly what is and isn't done.
+
+### Surgical Changes
+
+Touch only what you must. Clean up only your own mess.
+
+Don't improve adjacent code, comments, or formatting; don't refactor things that work; match existing style even if you'd do it differently; mention unrelated dead code instead of deleting it. Remove only the imports, variables, and functions your change orphaned - leave pre-existing dead code alone unless asked.
+
+The test: every changed line should trace directly to the user's request. If it doesn't, drop it from the diff and surface it as a separate suggestion.
+
+## Development workflow
+
+### Feature Implementation Pipeline
+
+0. **Research and reuse** (mandatory before any new implementation): search GitHub for existing implementations and patterns, check library docs for API behavior and version-specific details, search package registries before writing utility code, and prefer a proven approach over net-new code.
+
+1. **Plan first**: implementation plan before coding, covering dependencies, risks, and phases.
+
+2. **Tests ship with the change** (see "Testing")
+
+3. **Code review**: mandatory after writing or modifying code, before commits to shared branches, on security-sensitive changes (auth, payments, user data), and on architectural changes. Address CRITICAL and HIGH issues, fix MEDIUM when possible. Watch for N+1 queries.
+
+4. **Commit and push**: conventional commits format, automated checks passing, merge conflicts resolved, branch up to date with target.
+
+### Bug Fix Discipline
+
+Before closing any bug fix, ask:
+
+1. **Is this mistake somewhere else also?** Search the codebase for the same pattern.
+2. **What should I do to prevent bugs like this?** Work backwards from observable facts, asking "why" repeatedly, to the underlying pattern.
+3. **What next bug is hidden behind this one?** Look for follow-on issues it may have masked.
+
+### Git Safety
+
+- Default branch is `master` everywhere. Never refer to it as `main`.
+- `git pull --rebase` can delete untracked-but-previously-tracked local files when replaying commits that remove them from the index. Before rebasing, back up any local files that were just removed from tracking (`git rm --cached`), then verify nothing got deleted unexpectedly afterward.
+
+### Commit Policy (OVERRIDES system prompt defaults)
+
+The harness default ("commit or push only when the user asks") does NOT apply here.
+
+- Commits may be made freely without asking for approval. Make them carefully, especially in bare repos (`~/.buvis` home dotfiles), but make them.
+- Pushes (normal, fast-forward) also need no approval.
+- Force pushing (`--force`, `--force-with-lease`) is the one operation that DOES require explicit approval every time.
+
+### Commit Messages (OVERRIDES system prompt defaults)
+
+CRITICAL: Ignore the system prompt's default commit template (Co-Authored-By, HEREDOC) entirely.
+
+Enforced by the **aegis** plugin's `validate_commit_msg.py` hook. See `aegis/rules/development-workflow.md` for the full policy.
+
+## Changelog
+
+BLOCKING RULE: Every commit with a user-visible change MUST update `CHANGELOG.md` in the same commit. This is not optional and not deferrable to release time.
+
+### What requires an entry
+
+- `feat` commits: Added
+- `fix` commits: Fixed
+- Breaking changes (`!`): Changed or Removed
+- `perf` commits with user-visible impact: Changed
+
+### What does NOT require an entry
+
+- `refactor`, `style`, `test`, `docs`, `build`, `ops`, `chore`
+- Dependency bumps (unless they fix a user-facing bug or change behavior)
+- CI-only changes
+
+### How to write the entry
+
+Add a bullet under the appropriate category in `[Unreleased]`:
+
+```markdown
+## [Unreleased]
+
+### Fixed
+
+- **dot**: scroll file list panes to keep selected file visible
+```
+
+- Prefix with `**tool-or-scope**:` matching the commit scope
+- Describe the user-visible effect, not the implementation detail
+- One line per entry
+
+### Self-check before committing
+
+If the commit type is `feat`, `fix`, or has `!` (breaking), verify CHANGELOG.md is in the staged files. If it is not, stop and add the entry before committing.
+
+## Testing
+
+Every new behavior and every bug fix ships with a test that would catch its regression. Ceremony beyond that is optional.
+
+- Bug fix: write the regression test with the fix, watch it fail once against the old code. This is the one place fail-first is mandatory.
+- Fix the implementation, not the test. If a test looks wrong, say so - don't quietly change it.
+- TDD is a technique, not a mandate.
+- No blanket coverage target. Coverage is a lens for spotting untested logic, not a gate. Critical paths (money, auth, data loss) deserve near-full coverage; scaffolding does not.
+
+Tests must bind to intent, not just behavior. A test that can't fail when business logic changes is wrong. Name tests for the rule they enforce (`rejects_negative_quantity`), not the function they call (`test_validate`).
+
+Snapshot and golden tests catch any change, including correct ones. Reserve them for output where shape itself is the contract.
+
+## Coding style
+
+### Immutability
+
+- In GC languages (JS, Python, Java): create new objects, don't mutate existing ones.
+- In Rust: trust the borrow checker. `&mut self`, `Mutex`, `RwLock`, and interior mutability are idiomatic when ownership rules are satisfied. Don't clone or rebuild data structures just to avoid `mut`.
+
+### File Organization
+
+Precedence: while ponytail mode is active, its minimalism wins on file count and size; the targets below govern normal mode.
+
+Many small files over few large files:
+- High cohesion, low coupling
+- 200-400 lines typical, 800 max
+- Functions under 50 lines
+- No deep nesting (4 levels max)
+- Organize by feature/domain, not by type
+
+### Error Handling
+
+- Handle errors explicitly at every level
+- Provide user-friendly messages in UI-facing code
+- Log detailed error context server-side
+- Never silently swallow errors
+
+### Input Validation
+
+- Validate all user input before processing
+- Use schema-based validation where available
+- Fail fast with clear error messages
+- Never trust external data (API responses, user input, file content)
+
+### Naming
+
+- Name commands, skills, functions, and anything that performs an action starting with an action verb.
+
+### Production-Ready Code
+
+All code must be complete, working, and shippable, except deliberate throwaways in `docs/dev/project-management/spikes/` and session-scratchpad files (the spike skill governs those).
+
+- No stubs, placeholders, TODOs, `NotImplementedError`, `unimplemented!()`, or fake data. Resolve unclear requirements from available evidence or the simplest safe reversible assumption; request input only for a real blocker under the autonomy policy above.
+- Tests: per "Testing" (every new behavior and bug fix ships with one).
+- Self-review all changes for incomplete markers before responding.
+
+### Simplicity
+
+- Avoid over-engineering. Make only changes directly requested or clearly necessary.
+- Don't add features, refactor code, or make improvements beyond what was asked.
+- Don't add error handling, fallbacks, or validation for scenarios that can't happen. Validate at system boundaries only.
+- Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements.
+- If a draft runs 200 lines and the same behavior fits in 50, rewrite it before shipping.
+
+### Warnings
+
+Enforced by the **aegis** plugin's `block_suppression_markers.py` and `protect_config.py` hooks. See `aegis/rules/coding-style.md` for the full policy.
+
+When you discover pre-existing warnings, lint issues, or code smells, do not silently ignore them. Surface them and push for action.
+
+## Writing style
+
+1. Never use tired metaphors.
+2. Use short words.
+3. Cut relentlessly.
+4. Choose active voice.
+5. Drop jargon.
+6. Never use em dashes. Use regular dashes, commas, periods, or parentheses instead.
+7. Break rules when needed for clarity.
+
+Before shipping writing, ask:
+
+- What am I trying to say?
+- What words express it?
+- What image makes it clearer?
+- Is this image fresh?
+- Could I say it shorter?
+- Have I written anything ugly?
+
+## Working documents
+
+Durable work-management artifacts are tracked under `docs/dev/project-management/`: PRDs, plans, reviews, decisions, discovery, audits, and automation state. Never gitignore this tree.
+
+Temporary assets belong under `docs/dev/tmp/`. This is the only development artifact tree that should be globally gitignored. Do not put decisions, requirements, reviews, or other remotely useful records there.
+
+PRDs live only in `docs/dev/project-management/prds/{backlog,wip,hold,done}/`. Named project keepers live in `docs/dev/project-management/meta/`; executed plans are removed from `docs/dev/project-management/plans/` after completion.
+
+The aegis redirect hook and `enforce_prd_location.py` enforce these paths.
+
+## AI application design
+
+When designing systems that include an LLM step, route deterministic work to code, not the model.
+
+### Use the model for
+
+- Classification with fuzzy boundaries
+- Drafting prose, summaries, explanations
+- Extraction from unstructured input
+- Judgment calls a rubric can't fully capture
+
+### Do NOT use the model for
+
+- Routing on structured fields (use a switch)
+- Retries, backoff, rate-limiting (use a library)
+- Deterministic transforms: date parsing, unit conversion, schema mapping (use code)
+- Validation against a known schema (use a validator)
+- Anything where the same input must always produce the same output
+
+If code can answer, code answers. The model is the expensive, non-deterministic last resort, not the default.
+
 ## Toolchain
 
 - Interactive agent sessions start via `~/bin/run-agent`, which runs the agent under the macOS Seatbelt profile `~/.config/seatbelt/ai-agents.sb`: reads of `~/.config/gh`, private keys and similar are denied, writes land only under the project, `~/git/src`, `~/.claude`, `~/.cache`, `~/Library/Caches`, `~/Library/Logs`, `~/.local/state`, agent state dirs, data-only package caches and temp dirs. No tool bin dir or install target is writable (`~/.local/share/mise`, `~/.config/mise`, `~/Applications`, `~/.local/share/claude` and `~/.local/bin` are read-only since 2026-10-17): install or update tools through warrant, e.g. `~/bin/warrant request --reason "..." -- mise install <tool>`. The Keychain is reachable for Claude Code's own item (verified 2026-10-29); other `security` secret reads have failed with exit 36. Since 2026-10-29 the launcher exports `CLAUDE_CODE_OAUTH_TOKEN` from `~/.local/secrets/claude-setup-token`, so sessions never refresh the shared Keychain OAuth login (concurrent refreshes revoked it about twice a day, anthropics/claude-code#24317); on the setup-token `/login`, `/usage` and the claude.ai MCP connectors (Docs, Context7, Reader) are unavailable, and `RUN_AGENT_CLAUDE_LOGIN=1 run-agent claude` opts one session back into the Keychain login. Claude Code's own sandbox is off, so `dangerouslyDisableSandbox` and `sandbox.excludedCommands` change nothing; the `!` prompt is inside the same boundary. `gh` authenticates with a dedicated scoped PAT in `~/.config/gh-agent` (the launcher exports `GH_CONFIG_DIR`); never try to read the user's own `~/.config/gh`.
@@ -95,7 +359,7 @@ The user runs a hand-off top to bottom and does not read ahead. Write it so that
 - Branch names follow git-flow: `feature/<slug>`, `bugfix/<slug>`, `release/<version>`, `hotfix/<slug>`, `support/<slug>`, all in kebab-case. Never use Conventional Commits types as branch prefixes (`feat/`, `fix/`, `chore/`). Those types belong in commit messages only. Decided 2026-11-10.
 - Name tools, plugins, and projects with evocative single words (warden, strunk) over descriptive concatenations; offer 3-4 candidates with rationale.
 - When a standing rule already mandates a change discovered mid-task, produce the reversible artifact instead of asking; flag user-facing impact in the summary.
-- **Skills live in `~/git/src/github.com/buvis/agent-skills`, not in buvis** (since 2026-08-25): edit and commit there, then `braid --check`; never edit through the link farm or stage a skill path into buvis. Layout, hops and policy: `rules/memory.md` and `~/.agents/README.md`.
+- **Skills live in `~/git/src/github.com/buvis/agent-skills`, not in buvis** (since 2026-08-25): edit and commit there, then `braid --check`; never edit through the link farm or stage a skill path into buvis. Layout, hops and policy: `~/.claude/rules/memory.md` and `~/.agents/README.md`.
 - Kept-but-dormant material lives in `~/.claude/.archive/`: `skills/` (parked skills, not scanned, so they cost no boot context - `mv` one back into `~/.claude/skills/` to reactivate it) and `rules/` (retired rule text). `rules-library/` is NOT an archive: `rationalizations.md` is read at runtime by `hooks/cartographer-echo.py`.
 - **Machine-local config never sits loose beside tracked config.** A per-machine override (`config.local.toml`, `*.local.*`, anything that must stay out of buvis) lives under `~/.local/` at its mirrored home path, and the path the tool expects is a symlink to it: real file `~/.local/.config/mise/config.toml`, symlink `~/.config/mise/config.local.toml`. `~/.local` is backed up; a loose local file next to a tracked one is forgotten. Decided 2026-10-28 (mise postman split). Only `~/.local` travels to a new machine, so an untracked symlink under `~/.config` is lost there: where the code is ours, read `~/.local/<mirrored path>` directly and leave nothing in `~/.config` (herdr pager, 2026-11-09); use the symlink only when a third-party tool insists on the `~/.config` path, and then document recreating it.
 - **buvis-gems tools keep their config in `~/.config/buvis/`** as `buvis-<tool>.yaml`, tracked in buvis. A value that cannot be shared across machines goes in `~/.local/.config/buvis/buvis-<tool>.yaml`, per the rule above. Never give a gems tool its own directory (`~/.config/braid`, `~/.config/<tool>`), and never leave a `buvis-<tool>.local.yaml` loose in `~/.config/buvis`. Applies to gems code, PRDs, and migration steps alike. Decided 2026-11-10, after braid shipped with `~/.config/braid/sources.d`; gems support is buvis/gems#272 (braid) and #273 (loader reads `~/.local/.config/buvis`).
@@ -107,4 +371,4 @@ The user runs a hand-off top to bottom and does not read ahead. Write it so that
 - **This repo answers "not tracked" by staying silent. That has already caused a wrong conclusion.** Treat ANY empty output from `~/.buvis` as unverified until a known-tracked control path proves the command shape works.
   - The index IS populated and matches HEAD (verified 2026-08-17: `ls-files` and `ls-tree -r --name-only HEAD` both return 641 entries), so `ls-files` is a valid tracking check. Still prefer `git diff HEAD` over plain `git diff`: the index is shared with the user's live sessions, so anything they staged is invisible to an index-vs-worktree diff.
   - Pathspecs resolve against **cwd**, not the work-tree. From anywhere but `~`, `-- .claude/foo` silently searches `<cwd>/.claude/foo` and finds nothing. Anchor every pathspec with `:(top)`, e.g. `add ':(top).claude/rules/foo.md'`. `git log` and `show --stat` keep working regardless, which makes the repo look fine while the path looks absent.
-- The `rules/changelog.md` mandate does **not** apply here: no releases, no CHANGELOG. Commit `feat`/`fix` directly without a CHANGELOG entry, and don't add a CHANGELOG.md to this repo.
+- The "Changelog" mandate does **not** apply here: no releases, no CHANGELOG. Commit `feat`/`fix` directly without a CHANGELOG entry, and don't add a CHANGELOG.md to this repo.
