@@ -132,6 +132,15 @@ test("plans_feature_branch_and_worktree_path_for_prd", () => {
   const kept = planLane(prdCard("00143-x+y_1.2.md"), HERDR, "/h");
   assert.equal(kept.branch, "feature/00143-x+y_1.2");
   assert.equal(kept.path, "/h/git/src/worktrees/herdr/feature-00143-x-y_1.2");
+  const punct = planLane(prdCard("00145-a:b#c@d.md"), HERDR, "/h");
+  assert.equal(punct.branch, "feature/00145-a:b#c@d");
+  assert.equal(punct.path, "/h/git/src/worktrees/herdr/feature-00145-a-b-c-d");
+
+  // The slug comes from the file name, never the title; only a trailing -v<N> goes.
+  const titled = planLane({ ...GAMMA, title: "Gamma Feature" }, HERDR, "/h");
+  assert.equal(titled.branch, "feature/00012-gamma");
+  assert.equal(titled.path, "/h/git/src/worktrees/herdr/feature-00012-gamma");
+  assert.equal(planLane(prdCard("00150-v2-api.md"), HERDR, "/h").branch, "feature/00150-v2-api");
 });
 
 test("plans_specflow_branch_for_spec", () => {
@@ -173,6 +182,10 @@ test("refuses_prd_outside_main_backlog", () => {
   // Paths that share the main backlog prefix but are not directly in it.
   for (const bucket of ["backlog/old", "backlog-old"]) {
     assert.deepEqual(planLane(prdCard("00012-gamma.md", { bucket }), HERDR, "/h"), { error: msg }, bucket);
+  }
+  // A backlog folder elsewhere under main is not the PRD backlog.
+  for (const file of ["/repo/other/backlog/00012-gamma.md", "/repo/vendor/x/backlog/00012-gamma.md"]) {
+    assert.deepEqual(planLane({ ...GAMMA, file }, HERDR, "/h"), { error: msg }, file);
   }
 
   // The backlog rule wins over an existing branch.
@@ -239,6 +252,7 @@ test("changes_nothing_when_worktree_add_fails", async () => {
   const cases = [
     [GAMMA, HERDR, { code: 128, stderr: "Preparing worktree (new branch)\nfatal: '/x' already exists\n" }, "fatal: '/x' already exists"],
     [CACHE, TOOL, { code: 1, stderr: "fatal: invalid reference: HEAD" }, "fatal: invalid reference: HEAD"],
+    [GAMMA, HERDR, { code: 1, stderr: "Preparing worktree\nerror: unable to create file\n" }, "error: unable to create file"],
   ];
   for (const [card, r, git, line] of cases) {
     const plan = planLane(card, r, "/h");
@@ -295,6 +309,15 @@ test("reports_both_paths_when_move_is_incomplete", async () => {
     assert.ok(f.fs.has(plan.from));
     assert.ok(f.fs.has(plan.stale));
   }
+
+  // A move that drops the source without writing the target is not a success.
+  const plan = planLane(GAMMA, HERDR, "/h");
+  const lose = fakeIo([plan.from], { checkout: [plan.stale], move: (fs, from) => void fs.delete(from) });
+  await assert.rejects(openLane(plan, lose.io), {
+    message: `The PRD move did not complete. Check ${plan.from} and ${plan.to}`,
+  });
+  assert.deepEqual(lose.calls.filter((c) => c[0] === "remove"), []);
+  assert.ok(lose.fs.has(plan.stale));
 });
 
 test("refuses_second_lane_while_one_opens", async () => {
@@ -326,7 +349,17 @@ test("clears_busy_flag_after_failure", async () => {
     fakeIo([plan.from], { git: { code: 128, stderr: "fatal: nope\n" } }),
     fakeIo([plan.from], { move: () => {} }),
     fakeIo([plan.from], { git: () => Promise.reject(new Error("spawn git ENOENT")) }),
+    fakeIo([plan.from], { move: () => Promise.reject(new Error("EACCES")) }),
   ];
+  // Every injected I/O call that throws must still clear the flag.
+  const boom = async () => {
+    throw new Error("EIO");
+  };
+  for (const name of ["exists", "mkdir", "remove"]) {
+    const f = fakeIo([plan.from], { checkout: [plan.stale] });
+    f.io[name] = boom;
+    failures.push(f);
+  }
   for (const f of failures) {
     await assert.rejects(openLane(plan, f.io), Error);
     const next = fakeIo([plan.from]);
