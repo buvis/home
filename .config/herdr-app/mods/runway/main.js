@@ -22,11 +22,8 @@ async function buildCards(snap) {
     worktrees: snap.checkouts.map(({ path, branch, main }) => ({ path, branch, main })),
     lanes: main?.wave?.lanes ?? [],
   };
-  // Each checkout's autopilot pick, from the PRDs it still owns (raw buckets keep stale names).
-  const picks = new Map(snap.checkouts.map((c) => {
-    const names = (b) => items.filter((i) => i.checkout === c && i.bucket === b).map((i) => i.name);
-    return [c, pickOf({ buckets: { wip: names("wip"), backlog: names("backlog") } })];
-  }));
+  // Each checkout's autopilot pick, from its raw folders: autopilot enters a stale wip name too.
+  const picks = new Map(snap.checkouts.map((c) => [c, pickOf(c)]));
   return items.map((i, k) => {
     const t = text[bare[k].file] ?? "";
     const card = toCard(i, t, i.checkout);

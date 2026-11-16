@@ -96,13 +96,14 @@ const walk = (n, out = []) => {
 const SECTIONS = ["backlog", "wip", "hold", "done", "intake"];
 function listing(c) {
   const lines = SECTIONS.flatMap((s) => [`@${s}`, ...(c[s] ?? [])]);
-  return [...lines, "@pm", "@specflow", ""].join("\n");
+  return [...lines, "@pm", "@specflow", c.specflow ? JSON.stringify({specsDir: "docs/specs"}) : ""].join("\n");
 }
 const inside = (path, root) => path === root || path?.startsWith(`${root}/`);
 const PM = "docs/dev/project-management";
 const TITLES = {"00005-old.md": "Old thing", "00010-alpha.md": "Queue alpha", "00011-beta.md": "Queue beta",
   "00012-gamma.md": "Gamma work", "00030-paused.md": "Paused thing", "00040-done.md": "Done thing",
-  "00022-late": "Late idea", "00020-remote.md": "Remote thing", "00021-delta.md": "Delta work"};
+  "00022-late": "Late idea", "00020-remote.md": "Remote thing", "00021-delta.md": "Delta work",
+  "00009-cross-host-validation": "cross host validation"};
 // Every file the reader may ask for: PRD texts, intake ideas and autopilot state; anything else is null.
 function filesOf(checkouts) {
   const files = {};
@@ -120,7 +121,8 @@ const PANEL = {id: "root", children: [{id: "panel", hidden: false, children: [{i
 const DIM = "#111111";
 const MUTED = "#222222";
 
-function world({on = null, checkouts, spaces, focusedPane, agents}) {
+// `specflowDirs`: folders `test -d` finds; a checkout's `specflow` list is its validate_spec.py status.
+function world({on = null, checkouts, spaces, focusedPane, agents, specflowDirs = []}) {
   const calls = {exec: [], run: [], knownAgents: [], readTextFile: []};
   const files = filesOf(checkouts);
   // Reads and git calls answer only on the fixture's machine, so dropped `on` plumbing fails.
@@ -135,10 +137,12 @@ function world({on = null, checkouts, spaces, focusedPane, agents}) {
     exec: async (command, args = [], options = {}) => {
       calls.exec.push({command, args, options});
       const where = args.includes("-C") ? args[args.indexOf("-C") + 1] : options.cwd;
-      if (command === "test") return {code: 1, stdout: "", stderr: ""};
+      if (command === "test") return {code: specflowDirs.includes(args[1]) ? 0 : 1, stdout: "", stderr: ""};
       if (!here(options)) return {code: 255, stdout: "", stderr: `ssh: wrong machine ${options?.on}`};
       if (command === "sh" && String(args[1]).includes("HOME")) return ok(on ? "/srv/home" : "/home/u");
+      if (command === "sh" && args[1] === 'test -f "$1"') return {code: specflowDirs.length ? 0 : 1, stdout: "", stderr: ""};
       const c = owner(where) ?? checkouts.find((k) => args.some((a) => String(a).includes(k.path)));
+      if (command === "python3" && c?.specflow) return ok(JSON.stringify({specs: c.specflow}));
       if (command === "git" && args.includes("rev-parse") && c) {
         return ok(`${args.includes("--git-common-dir") ? `${checkouts[0].path}/.git` : c.path}\n`);
       }
@@ -192,7 +196,8 @@ const CODEX = agent("codex", "Codex", ["codex", "--no-daemon"]);
 const GEMINI = agent("gemini", "Gemini", ["gemini"]);
 
 // This computer: main /work/app with a space; worktree /wt/gamma without one, whose lowest wip name
-// (00005-old.md) is done on main and so is dropped. 00040-done.md is finished per state: no label.
+// (00005-old.md) is done on main: its card is dropped, yet autopilot there still picks it.
+// 00040-done.md is finished per state: no label.
 const LOCAL = {
   checkouts: [
     {path: "/work/app", branch: "master", backlog: ["00011-beta.md", "00010-alpha.md"], hold: ["00030-paused.md"],
@@ -232,9 +237,12 @@ function cardOf(tree, title) {
 const buttonRe = (name) => new RegExp(`^${name}(\\W+ungated)?$`);
 const buttonOf = (card, name) => walk(card).slice(1).find((n) => buttonRe(name).test(norm(n)));
 const agentButtons = (card) => [CLAUDE, CODEX, GEMINI, KIRO].map((a) => a.name).filter((n) => buttonOf(card, n));
-async function click(node) {
+// Clicks `node`; with `parent` (the card) given, the click bubbles to it unless stopped.
+async function click(node, parent) {
   const handler = walk(node).map((n) => n.on.on_click).find(Boolean);
-  if (handler) handler({}, makeCx());
+  let stopped = false;
+  if (handler) handler({}, {...makeCx(), stop_propagation() { stopped = true; }});
+  if (parent && !stopped) parent.on.on_click?.({}, makeCx());
   await settle();
   return Boolean(handler);
 }
@@ -281,7 +289,7 @@ test("off-pick card dims gated buttons, shows the tip last and starts nothing on
     const button = buttonOf(beta, name);
     assert.ok(button, `${name} button shown`);
     assert.ok(dimmed(button), `${name} is dimmed`);
-    await click(button);
+    await click(button, beta);
     assert.deepEqual(calls.run, [], `disabled ${name} runs nothing, not even the card's open`);
   }
   assert.ok(!dimmed(buttonOf(beta, "Gemini")), "ungated Gemini stays enabled");
@@ -348,16 +356,18 @@ test("button in a checkout with a space selects it and opens the agent tab there
   clean();
 });
 
-test("stale done-on-main wip name does not block the worktree's next card, which opens a new local space", async () => {
+test("stale done-on-main wip name still blocks gated starts, because autopilot reads the raw wip folder", async () => {
   const calls = world({...LOCAL, agents: AGENTS});
   const panel = await openPanel();
   const gamma = cardOf(panel.render(), "Gamma work");
   assert.match(norm(gamma), /Start build/);
-  assert.doesNotMatch(norm(gamma), /starts 00005-old\.md first/);
-  assert.ok(!dimmed(buttonOf(gamma, "Claude")), "Claude enabled on the surviving pick");
-  await click(buttonOf(gamma, "Claude"));
-  assert.deepEqual(calls.run, [["space.new", {folder: "/wt/gamma", tab: "00012 Claude", machine: "", argv: ["claude"],
-    task: "/autopilot:run-autopilot 00012-gamma.md"}]]);
+  assert.match(norm(gamma), /autopilot 0\.10\.0 starts 00005-old\.md first/);
+  assert.ok(dimmed(buttonOf(gamma, "Claude")), "Claude dimmed: autopilot in /wt/gamma enters 00005-old.md");
+  await click(buttonOf(gamma, "Claude"), gamma);
+  assert.deepEqual(calls.run, [], "a gated start off the raw pick runs nothing");
+  await click(buttonOf(gamma, "Gemini"), gamma);
+  assert.deepEqual(calls.run, [["space.new", {folder: "/wt/gamma", tab: "00012 Gemini", machine: "", argv: ["gemini"],
+    task: plain("00012", "Gamma work", `${PM}/prds/wip/00012-gamma.md`, "wip", "Start build")}]]);
   assert.equal(calls.run[0][1].machine, "", "explicitly target this computer");
   clean();
 });
@@ -399,6 +409,30 @@ test("All repos starts a local card locally while a remote space is focused", as
   await click(buttonOf(alpha, "Claude"));
   assert.deepEqual(calls.run, [["space.new", {folder: "/work/app", tab: "00010 Claude", machine: "",
     argv: ["claude"], task: "/autopilot:run-autopilot 00010-alpha.md"}]]);
+  clean();
+});
+
+test("spec card starts specflow only where it is installed, and tells which agent lacks it", async () => {
+  const spec = {spec: "00009-cross-host-validation", phase: "requirements", state: "valid",
+    gates: {design: "closed", tasks: "closed", implementation: "closed"}, nextTask: null, hold: null};
+  const calls = world({...LOCAL, checkouts: [{...LOCAL.checkouts[0], specflow: [spec]}], agents: AGENTS,
+    specflowDirs: ["/home/u/.claude/plugins/cache/buvis-agent-plugins/specflow"]});
+  const panel = await openPanel();
+  const card = cardOf(panel.render(), "cross host validation");
+  const text = norm(card);
+  assert.match(text, /Continue: design gate/);
+  assert.ok(text.endsWith("specflow is not installed for Codex"), `tip is the row's last line: ${text}`);
+  assert.ok(!dimmed(buttonOf(card, "Claude")), "Claude has specflow");
+  assert.ok(dimmed(buttonOf(card, "Codex")), "Codex lacks specflow");
+  assert.match(norm(buttonOf(card, "Gemini")), /ungated$/);
+  await click(buttonOf(card, "Codex"), card);
+  assert.deepEqual(calls.run, [], "a start without specflow runs nothing");
+  await click(buttonOf(card, "Claude"), card);
+  assert.deepEqual(calls.run, [
+    ["space.select", {id: "s1"}],
+    ["tab.new", {space: "s1", folder: "/work/app", name: "00009 Claude", argv: ["claude"],
+      task: "/specflow:spec-workflow Continue spec 00009-cross-host-validation"}],
+  ]);
   clean();
 });
 
