@@ -40,21 +40,27 @@ With 1M context, research stays in-flight through implementation.
 
 ## Final report and decisions
 
-The user returns after hours of agent work and has lost the thread. Write the report for that reader. (Decided 2026-11-16: long summaries buried the call to action.)
+The user comes back after hours of agent work and does not remember the details. Write the report for that reader. (Decided 2026-11-16: long summaries hid the call to action.)
 
-- This format is for reports on completed work. A quick answer or a confirmation is one line.
-- Open the report with one status word: `Done.`, `Partly done.`, `Blocked.`, or `Decision needed.` `Done.` means nothing stays open.
-- Keep the report within one screen: outcome first, then the verification result, then what stays open, each open item naming what closes it. Link longer material.
-- End every report with a `Call to action` block as its last lines. Name who acts and state exactly what the user must do or decide, in order. If nothing is needed, write `Call to action: none`. Put nothing after it. When it needs steps, it follows "Handing work to the user" below.
-- Prepare every material decision the same way, asked or not, so the choice is a considered one:
-  - at least three real options, each a distinct approach ("you specify" and "skip" do not count);
-  - each option summarized in three sentences;
-  - each option assessed critically: what is good, what is bad, and what is ugly (the hidden or long-term cost);
-  - one option marked **Recommended**, with the reason.
-- Do not ask when the decision is reversible. Do not ask about an irreversible one either when it fits the overall strategy or architecture and confidence is high. Confidence is high when the strategy is recorded (a PRD, a decision, a rule, the user's own words), not inferred, and the facts behind the action were verified in this session. (Decided 2026-11-16.)
-- For a decision you take yourself: take the recommended option, continue, and report the choice and its reason in one line. Mark an irreversible one as irreversible and say what it destroyed, sent, or committed.
-- Ask only for the rest: an irreversible action or external commitment that breaks from the agreed direction, or one where confidence is not high. Present one decision at a time in the format above, recommended option first, and say how many more wait.
-- Open each asked decision with enough background to decide without rereading the session. Write for a reader who has not seen the code: plain words, jargon expanded.
+- Write reports, questions, and decisions in Simplified Technical English. The rules are in "Handing work to the user". Do this where it does not change the meaning.
+- Use this format for a report on completed work. Give a quick answer or a confirmation in one line.
+- Start the report with one status word: `Done.`, `Partly done.`, `Blocked.`, or `Decision needed.` Use `Done.` only when no required work stays open.
+- Keep the report within one screen. Give the result first, then the verification result, then the open items. For each open item, say what closes it. Link longer material.
+- End every report with a `Call to action` block. Put nothing after it.
+  - `Required`: name who acts. State exactly what the user must do or decide, in order. If the user must do nothing, write `Required: none`. If the action has steps, obey "Handing work to the user".
+  - `Follow-up`: list each open item and each item that needs the attention of the user. Use one line for each item and give the proposed next action. Include assumptions that the user can change, checks that did not run, and problems found outside the scope. A follow-up item is optional for the user. (Decided 2026-11-16: reports said "none" while open items stayed in the body.)
+  - Do a follow-up item yourself when it is in scope and authorized. List only the items that stay.
+  - Write `Call to action: none` only when there is no required action and no follow-up item.
+- Prepare each material decision in the same way, whether you ask the user or not. This makes sure that you compare the options.
+  - Give a minimum of three real options. Each option is a different approach. "You specify" and "skip" are not options.
+  - Summarize each option in three sentences.
+  - Assess each option critically. Say what is good, what is bad, and what is ugly (the hidden cost or the long-term cost).
+  - Mark one option **Recommended** and give the reason.
+- Do not ask when the decision is reversible.
+- Do not ask about an irreversible decision when it agrees with the overall strategy or architecture and the confidence is high. The confidence is high when the strategy is recorded (a PRD, a decision, a rule, the words of the user), not inferred, and you verified the facts in this session. (Decided 2026-11-16.)
+- When you make the decision yourself, use the recommended option and continue. Report the choice and its reason in one line. If the decision is irreversible, say so. Say what the action deleted, sent, or committed.
+- Ask about all other decisions: an irreversible action or external commitment that does not agree with the overall strategy, or one where the confidence is not high. Ask about one decision at a time in the format above. Put the recommended option first. Say how many decisions remain.
+- Start each question with sufficient background to decide without reading the session again. Write for a reader who did not see the code. Use plain words and explain special terms.
 
 ## Handing work to the user
 
