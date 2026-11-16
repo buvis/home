@@ -1,5 +1,12 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
+# Push alerts go to ntfy (NTFY_URL, NTFY_TOPIC from the environment). The server
+# refuses anonymous posts (HTTP 403, 2026-11-16), so sysup signs in with the
+# user:password in this file. It is a secret: it lives under ~/.local/secrets,
+# never in dotfiles. Without it, sysup still shows attention, only the push fails.
+ntfy:
+  credentials_file: ~/.local/secrets/ntfy-credentials
+
 commands:
   # rustup is the Rust toolchain manager (mise does not manage rust). `when.os`
   # takes one value, so each OS gets its own key. Order 55: before mise, so
@@ -42,36 +49,26 @@ commands:
             if [ -d "$v" ]; then hdiutil detach "$v"; fi
           done
 
-  # herdr's plugins.json holds machine-specific absolute paths, so dotfiles
-  # track plugins.txt (owner/repo per line) instead. Install each listed plugin
-  # whose clone is missing or behind GitHub HEAD, then rewrite plugins.txt from
-  # plugins.json so plugins installed on this machine get recorded too.
-  # ponytail: enabled/disabled state stays per machine.
-  herdr-plugins:
-    order: 80
-    when: { check: herdr }
+  # Herdr app mods (replaces the bundled herdr-mods steps, same key and order 78).
+  # hmod updates unedited mods it has approved before; hmod-merge (Herdr home
+  # bin/) then 3-way merges upstream into edited mods, and checks the forks in
+  # forks.json. Anything that needs a decision (a first update, a fork whose
+  # upstream moved, a merge conflict) goes to stderr with the command to run,
+  # and the step fails, so sysup's attention shows it until it is handled.
+  # (The herdr-plugins step for the retired Herdr TUI was removed 2026-11-16:
+  # ~/.config/herdr is gone since 2026-11-08, so it could only fail.)
+  herdr-mods:
+    order: 78
+    when: { os: darwin, check: herdr-app }
     steps:
-      - - sh
-        - -ec
-        - |
-          cfg="$HOME/.config/herdr"
-          touch "$cfg/plugins.txt"
-          while read -r repo; do
-            [ -n "$repo" ] || continue
-            # sets $1 = installed commit, $2 = clone dir (both empty if absent);
-            # no brace expansion here, the buvis loader reads it as an env var
-            set -- "" ""
-            if [ -f "$cfg/plugins.json" ]; then
-              set -- $(jq -r --arg r "$repo" '.[] | select((.source.owner + "/" + .source.repo) == $r)
-                | "\(.source.resolved_commit) \(.source.managed_path)"' "$cfg/plugins.json") "" ""
-            fi
-            head=$(git ls-remote "https://github.com/$repo" HEAD | cut -f1)
-            if [ -n "$1" ] && [ -d "$2" ] && [ "$1" = "$head" ]; then continue; fi
-            herdr plugin install -y "$repo" </dev/null
-          done < "$cfg/plugins.txt"
-          [ -f "$cfg/plugins.json" ] || exit 0
-          jq -r '.[] | select(.source.kind == "github") | "\(.source.owner)/\(.source.repo)"' \
-            "$cfg/plugins.json" | sort -f > "$cfg/plugins.txt"
+      - |
+        bin="$HOME/.config/herdr-app/bin"
+        [ -x "$bin/hmod" ] || { echo "hmod not installed, skipping"; exit 0; }
+        herdr-app status >/dev/null 2>&1 || { echo "Herdr not running, skipping"; exit 0; }
+        rc=0
+        "$bin/hmod" update --all || rc=1
+        "$bin/hmod-merge" --auto || rc=1
+        exit $rc
 
   # The dotfiles remote is public, so nothing gets tracked without a decision.
   # glean (agent-skills) lists untracked dotfiles that no ledger verdict covers,

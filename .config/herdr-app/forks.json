@@ -1,0 +1,8 @@
+{
+  "on-screen": { "repo": "kerembakir/herdr-mods", "path": "on-screen/mods/on-screen", "branch": null, "commit": "a88ff07bb56b00233464fedb7ed81b5ec3a21fb2" },
+  "reviewer": { "repo": "vytasgavelis/herdr-reviewer", "path": "mods/reviewer", "branch": null, "commit": "065ebe65adf04205fa39735a836f3de38eb1d5e1" },
+  "ship-it": { "repo": "ashrodan/ship-it", "path": "mods/ship-it", "branch": null, "commit": "017e5e7130f20d02a99e33e3eda6d0aabb503da2" },
+  "ship-it-file": { "repo": "ashrodan/ship-it", "path": "mods/ship-it-file", "branch": null, "commit": "017e5e7130f20d02a99e33e3eda6d0aabb503da2" },
+  "ship-it-prs": { "repo": "ashrodan/ship-it", "path": "mods/ship-it-prs", "branch": null, "commit": "017e5e7130f20d02a99e33e3eda6d0aabb503da2" },
+  "ship-it-review": { "repo": "ashrodan/ship-it", "path": "mods/ship-it-review", "branch": null, "commit": "017e5e7130f20d02a99e33e3eda6d0aabb503da2" }
+}

@@ -1,0 +1,4 @@
+#!/bin/sh
+# hmod-merge: 3-way merge upstream changes into an edited gallery mod (see hmod-merge.ts).
+export HMOD_HOME="${HMOD_HOME:-$HOME/.local/state/herdr-mod-updater}"
+exec /Users/bob/.local/share/mise/installs/bun/latest/bin/bun "$(dirname "$0")/hmod-merge.ts" "$@"
