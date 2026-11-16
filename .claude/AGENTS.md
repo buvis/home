@@ -43,9 +43,9 @@ With 1M context, research stays in-flight through implementation.
 The user returns after hours of agent work and has lost the thread. Write the report for that reader. (Decided 2026-11-16: long summaries buried the call to action.)
 
 - Keep the report within one screen: outcome first, then the verification result, then what stays open. Link longer material.
-- End every report with a `Call to action` block as its last lines. State exactly what the user must do or decide, in order. If nothing is needed, write `Call to action: none`. Put nothing after it. When it needs steps, it follows "Handing work to the user" below.
+- End every report with a `Call to action` block as its last lines. Name who acts and state exactly what the user must do or decide, in order. If nothing is needed, write `Call to action: none`. Put nothing after it. When it needs steps, it follows "Handing work to the user" below.
 - Prepare every material decision the same way, asked or not, so the choice is a considered one:
-  - at least three real options;
+  - at least three real options, each a distinct approach ("you specify" and "skip" do not count);
   - each option summarized in three sentences;
   - each option assessed critically: what is good, what is bad, and what is ugly (the hidden or long-term cost);
   - one option marked **Recommended**, with the reason.
