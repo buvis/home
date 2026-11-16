@@ -1,10 +1,15 @@
 # Personal sysup entries, deep-merged over the bundled default.yaml.
 
-# Push alerts go to ntfy (NTFY_URL, NTFY_TOPIC from the environment). The server
+# Push alerts go to ntfy, the same server and topic as the agents' alerts
+# (~/.claude/settings.json sets NTFY_URL and NTFY_TOPIC only for agent
+# sessions, so a sysup run from a plain terminal needs them here). The server
 # refuses anonymous posts (HTTP 403, 2026-11-16), so sysup signs in with the
-# user:password in this file. It is a secret: it lives under ~/.local/secrets,
-# never in dotfiles. Without it, sysup still shows attention, only the push fails.
+# user:password in credentials_file. It is a secret: it lives under
+# ~/.local/secrets, never in dotfiles. Without it, sysup still shows attention,
+# only the push fails.
 ntfy:
+  url: https://ntfy.buvis.net
+  topic: claude
   credentials_file: ~/.local/secrets/ntfy-credentials
 
 commands:
