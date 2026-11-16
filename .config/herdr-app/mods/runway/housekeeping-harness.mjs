@@ -130,6 +130,8 @@ function listing(fs, c) {
 function move(fs, src, dst, noClobber) {
   if (!exists(fs, src)) return status(1, `mv: ${src}: No such file or directory`);
   if (noClobber && exists(fs, dst)) return ok();
+  // As a real mv: the destination folder must already exist (a fresh worktree has no empty prds/wip).
+  if (!exists(fs, dst.slice(0, dst.lastIndexOf("/")))) return status(1, `mv: ${dst}: No such file or directory`);
   for (const k of [...fs.keys()]) {
     if (inside(k, src)) { fs.set(dst + k.slice(src.length), fs.get(k)); fs.delete(k); }
   }
@@ -313,11 +315,18 @@ export function cardOf(tree, title) {
 export const LANE = "New worktree";
 export const LOOP = "Run loop (whole queue)";
 export const labelled = (card, label) => walk(card).slice(1).find((n) => norm(n) === label);
+// A control click that is not stopped reaches its card; this run makes that visible in calls.run.
+export const BUBBLED = "test.card-click-bubbled";
+export const notBubbled = (calls) =>
+  assert.ok(!calls.run.some(([n]) => n === BUBBLED), `the control stopped the card click: ${JSON.stringify(calls.run)}`);
 export async function click(node, parent) {
   const handler = walk(node).map((n) => n.on.on_click).find(Boolean);
   let stopped = false;
   if (handler) handler({}, {...makeCx(), stop_propagation() { stopped = true; }});
-  if (parent && !stopped) parent.on.on_click?.({}, makeCx());
+  if (parent && !stopped) {
+    globalThis.__herdr.run(BUBBLED, {});
+    parent.on.on_click?.({}, makeCx());
+  }
   await settle();
   return Boolean(handler);
 }

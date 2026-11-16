@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {CLAUDE, LANE, LOCAL, NO_CLAUDE, PLUGIN, PM, REMOTE, SPECS, WITH_CLAUDE, cardOf, clean, click, exists,
-  failed, labelled, mutations, norm, ok, openPanel, press, reloads, spec, started, status, unfoldParked, walk,
-  world} from "./housekeeping-harness.mjs";
+  failed, hasSpinner, labelled, mutations, norm, notBubbled, ok, openPanel, press, reloads, runsOf, settle, spec,
+  started, status, unfoldParked, walk, world} from "./housekeeping-harness.mjs";
 
 // Un-park, Resume and intake controls (actionFor's result); lane and loop are in housekeeping.test.mjs.
 const UNPARK = "Un-park";
@@ -45,8 +45,38 @@ test("un-park moves the hold PRD to backlog on the card's machine, checks it lan
     assert.deepEqual(started(calls), [], "a move starts no agent");
     assert.ok(reloads(calls) > before, "the panel reloads");
     assert.doesNotMatch(norm(panel.render()), /Parked \(1\)/, "the card left Parked");
+    notBubbled(calls);
     clean();
   }
+});
+
+test("un-park shows the busy ring on its card until the move settles", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  world({...LOCAL, agents: WITH_CLAUDE, intercept: ({command, real}) => (command === "mv" ? gate.then(real) : undefined)});
+  const panel = await openPanel();
+  const {card, control} = await parkedControl(panel, "Paused thing", UNPARK);
+  assert.ok(!hasSpinner(card), "no ring before the click");
+  await click(control, card);
+  assert.ok(hasSpinner(cardOf(panel.render(), "Paused thing")), "ring while the PRD moves");
+  release();
+  await settle();
+  assert.ok(!hasSpinner(panel.render()), "ring gone once settled");
+  clean();
+});
+
+test("ledger_key outside the frontmatter does not make a triage stub: Un-park stays enabled and moves", async () => {
+  const text = "# Paused thing\n\nledger_key: X\n";
+  const checkouts = [{...LOCAL.checkouts[0], texts: {"00030-paused.md": text}}, LOCAL.checkouts[1]];
+  const {calls, fs} = world({...LOCAL, checkouts, agents: WITH_CLAUDE});
+  const panel = await openPanel();
+  const {card, control} = await parkedControl(panel, "Paused thing", UNPARK);
+  assert.ok(!shows(card, TRIAGE_TIP), `not a stub: ${norm(card)}`);
+  await click(control, card);
+  assert.equal(fs.get(`/work/app/${PM}/prds/backlog/00030-paused.md`), text, "the PRD is queued");
+  assert.ok(!exists(fs, `/work/app/${PM}/prds/hold/00030-paused.md`), "and left hold");
+  assert.deepEqual(calls.notify.filter(failed), [], "no failure toast");
+  clean();
 });
 
 test("un-park refuses when backlog already holds the file and never overwrites the queued PRD", async () => {
@@ -166,6 +196,34 @@ test("an idea in a repo with .agents/specflow.json offers Create spec for its fu
   for (const specflowDirs of [[], [PLUGIN]]) {
     await startIdeas({...LOCAL, checkouts, specflowDirs}, CREATE,
       (name) => `/specflow:spec-workflow Create a spec for ${name}`);
+  }
+});
+
+// /work/app has no space; the focus is in the worktree's space.
+const NO_SPACE = {focusedPane: "p3", spaces: [LOCAL.spaces[0],
+  {id: "s3", folder: "/wt/gamma", tabs: [{id: "t3", pane: "p3", cwd: "/wt/gamma"}]}]};
+
+test("Resume, Elicit and Create spec without a space for main open a new space on this computer with the task", async () => {
+  const config = [{...LOCAL.checkouts[0], config: true}, LOCAL.checkouts[1]];
+  const cases = [
+    {fixture: PARKED_SPEC, title: "cross host validation", label: RESUME, parked: true,
+      task: "/specflow:spec-workflow Resume 00009-cross-host-validation"},
+    {fixture: LOCAL, title: "Late idea", label: ELICIT, task: "/elicit-requirements 00022"},
+    {fixture: {...LOCAL, checkouts: config}, title: "Late idea", label: CREATE,
+      task: "/specflow:spec-workflow Create a spec for 00022-late"},
+  ];
+  for (const c of cases) {
+    const {calls} = world({...c.fixture, ...NO_SPACE, agents: WITH_CLAUDE});
+    const panel = await openPanel();
+    if (c.parked) await unfoldParked(panel);
+    await press(panel, c.title, c.label);
+    const spaces = runsOf(calls, "space.new");
+    assert.equal(spaces.length, 1, `${c.label}: one new space: ${JSON.stringify(calls.run)}`);
+    const {folder, machine, argv, task} = spaces[0];
+    assert.deepEqual({folder, machine, argv, task}, {folder: "/work/app", machine: "", argv: CLAUDE.run, task: c.task});
+    assert.deepEqual(runsOf(calls, "tab.new"), [], `${c.label}: no tab in another space`);
+    notBubbled(calls);
+    clean();
   }
 });
 

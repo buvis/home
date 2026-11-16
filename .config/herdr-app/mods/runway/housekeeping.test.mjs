@@ -1,35 +1,53 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {CLAUDE, LANE, LOCAL, LOOP, NO_CLAUDE, PM, REMOTE, SPECS, WITH_CLAUDE, ZED, ZETA, allRepos, cardOf, clean,
-  exists, failed, gitCalls, gitWhere, hasSpinner, labelled, mutations, openPanel, press, reloads, runsOf, settle, status,
-  unfoldParked, world} from "./housekeeping-harness.mjs";
+  click, exists, failed, gitCalls, gitWhere, hasSpinner, labelled, mutations, norm, notBubbled, openPanel, press,
+  reloads, runsOf, settle, started, status, unfoldParked, world} from "./housekeeping-harness.mjs";
 
 // Lane and loop controls; un-park and intake controls are in housekeeping-actions.test.mjs.
 
 test("New worktree shows on main-checkout backlog PRDs and main specs only", async () => {
-  world({...SPECS, agents: WITH_CLAUDE});
+  // 00010-alpha.md carries a heading no fixture table knows, so card titles must come from the PRD's # line.
+  const checkouts = [{...SPECS.checkouts[0], texts: {"00010-alpha.md": "# Fresh heading\n\nBody.\n"}},
+    SPECS.checkouts[1]];
+  world({...SPECS, checkouts, agents: WITH_CLAUDE});
   const panel = await openPanel();
   await unfoldParked(panel);
   const tree = panel.render();
-  for (const title of ["Queue alpha", "Queue beta", "cross host validation"]) {
+  assert.doesNotMatch(norm(tree), /Queue alpha/, "the PRD's own heading is the title");
+  for (const title of ["Fresh heading", "Queue beta", "cross host validation"]) {
     assert.ok(labelled(cardOf(tree, title), LANE), `${title} offers ${LANE}`);
   }
   for (const title of ["Gamma work", "side quest", "Paused thing", "Late idea"]) {
     assert.equal(labelled(cardOf(tree, title), LANE), undefined, `${title}: no ${LANE}`);
   }
+  assert.ok(!norm(tree).includes("Old thing"), "the worktree's wip card already done on main is dropped");
   clean();
 });
 
 test("remote cards offer neither New worktree nor the loop", async () => {
-  world({...REMOTE, agents: WITH_CLAUDE});
-  const panel = await openPanel();
-  const tree = panel.render();
-  assert.ok(labelled(cardOf(tree, "Remote thing"), "Claude"), "remote agents are loaded");
-  for (const title of ["Remote thing", "Delta work"]) {
-    assert.equal(labelled(cardOf(tree, title), LANE), undefined, `${title}: no ${LANE}`);
-    assert.equal(labelled(cardOf(tree, title), LOOP), undefined, `${title}: no loop`);
+  for (const agents of [WITH_CLAUDE, ...NO_CLAUDE]) {
+    const {calls} = world({...REMOTE, agents});
+    const panel = await openPanel();
+    const tree = panel.render();
+    for (const title of ["Remote thing", "Delta work"]) {
+      assert.equal(labelled(cardOf(tree, title), LANE), undefined, `${title}: no ${LANE}`);
+      assert.equal(labelled(cardOf(tree, title), LOOP), undefined, `${title}: no loop`);
+    }
+    const card = cardOf(tree, "Remote thing");
+    if (agents !== WITH_CLAUDE) {
+      // No live Claude control without Claude: absent, or marked as needing it and starting nothing.
+      assert.ok(!labelled(card, "Claude") || /Needs Claude Code/.test(norm(card)), `no Claude control: ${norm(card)}`);
+      if (labelled(card, "Claude")) await click(labelled(card, "Claude"), card);
+      assert.deepEqual(started(calls), [], "nothing starts without Claude");
+      clean();
+      continue;
+    }
+    await press(panel, "Remote thing", "Claude");
+    assert.ok(runsOf(calls, "tab.new").some((a) => JSON.stringify(a.argv) === JSON.stringify(CLAUDE.run)),
+      `the Claude control starts Claude: ${JSON.stringify(calls.run)}`);
+    clean();
   }
-  clean();
 });
 
 test("Run loop shows only on a local raw-pick card and opens autoclaude in its checkout's space", async () => {
@@ -72,6 +90,7 @@ test("Run loop without a space for the checkout opens a new space on this comput
     assert.ok(spaces[0].tab === undefined || spaces[0].tab === "autoclaude", `${c.name}: tab ${spaces[0].tab}`);
     assert.deepEqual(runsOf(calls, "tab.new"), [], `${c.name}: no tab in another space`);
     assert.deepEqual(runsOf(calls, "space.select"), [], `${c.name}: no other space selected`);
+    notBubbled(calls);
     clean();
   }
 });
@@ -157,6 +176,25 @@ test("without Claude the worktree still opens as a shell space and the toast say
     assert.equal(spaces[0].task, undefined);
     assert.ok(calls.notify.some((n) => n.body === "Claude is not installed; the worktree is ready"),
       JSON.stringify(calls.notify));
+    notBubbled(calls);
+    clean();
+  }
+});
+
+test("a failed mv or rm while opening the lane is a Runway error toast and no space starts", async () => {
+  for (const program of ["mv", "rm"]) {
+    let hits = 0;
+    const {calls} = world({...LOCAL, agents: WITH_CLAUDE, intercept: ({command}) =>
+      (command === program && ++hits === 1 ? status(1, `${program}: Permission denied`) : undefined)});
+    const panel = await openPanel();
+    await press(panel, "Queue alpha", LANE);
+    assert.ok(hits >= 1, `${program}: the lane ran ${program}`);
+    const errors = calls.notify.filter((n) => n.level === "error");
+    assert.ok(errors.length && errors.every((n) => n.title === "Runway"), `${program}: ${JSON.stringify(calls.notify)}`);
+    assert.ok(!calls.notify.some((n) => !failed(n) && String(n.body).includes("00010-alpha.md")),
+      `${program}: no success toast`);
+    assert.deepEqual(runsOf(calls, "space.new"), [], `${program}: no space for a lane whose move failed`);
+    assert.ok(!hasSpinner(cardOf(panel.render(), "Queue alpha")), `${program}: busy ring cleared`);
     clean();
   }
 });
