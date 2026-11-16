@@ -178,6 +178,10 @@ test("refuses_prd_outside_main_backlog", () => {
   // Backlog of a linked worktree, and a checkout whose path only starts like main.
   assert.deepEqual(planLane(prdCard("00140-api-cache.md", { checkout: wt }), TOOL, "/h"), { error: msg });
   assert.deepEqual(planLane(prdCard("00140-api-cache.md", { checkout: "/src/tool-old" }), TOOL, "/h"), { error: msg });
+  // The file is in the main backlog, but the card's checkout is not main.
+  for (const [card, r] of [[{ ...GAMMA, checkout: "/elsewhere" }, HERDR], [{ ...CACHE, checkout: wt }, TOOL]]) {
+    assert.deepEqual(planLane(card, r, "/h"), { error: msg }, card.checkout);
+  }
 
   // Paths that share the main backlog prefix but are not directly in it.
   for (const bucket of ["backlog/old", "backlog-old"]) {
@@ -383,7 +387,8 @@ const SPEC_ON = { specflow: true };
 const SPEC_OFF = { specflow: false };
 
 test("triage_stub_cannot_be_unparked", () => {
-  for (const [card, key] of [[PARKED, "T-12"], [PARKED2, "triage-7"]]) {
+  // The key being present is what counts, even when it is empty.
+  for (const [card, key] of [[PARKED, "T-12"], [PARKED2, "triage-7"], [PARKED, ""], [PARKED2, ""]]) {
     for (const env of [SPEC_ON, SPEC_OFF]) {
       const a = actionFor(card, { ledger_key: key, status: "hold" }, env);
       assert.equal(a.label, "Un-park");
