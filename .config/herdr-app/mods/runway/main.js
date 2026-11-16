@@ -183,7 +183,7 @@ export default class Runway extends View {
       run("space.select", { id: s.id });
       run("tab.new", { space: s.id, folder: card.checkout, name: start.name, argv: start.argv, ...task });
     } else {
-      run("space.new", { folder: card.checkout, tab: start.name, ...(snap.on ? { machine: snap.on } : {}), argv: start.argv, ...task });
+      run("space.new", { folder: card.checkout, tab: start.name, machine: snap.on ?? "", argv: start.argv, ...task });
     }
   }
 

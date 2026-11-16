@@ -356,9 +356,9 @@ test("stale done-on-main wip name does not block the worktree's next card, which
   assert.doesNotMatch(norm(gamma), /starts 00005-old\.md first/);
   assert.ok(!dimmed(buttonOf(gamma, "Claude")), "Claude enabled on the surviving pick");
   await click(buttonOf(gamma, "Claude"));
-  assert.deepEqual(calls.run, [["space.new", {folder: "/wt/gamma", tab: "00012 Claude", argv: ["claude"],
+  assert.deepEqual(calls.run, [["space.new", {folder: "/wt/gamma", tab: "00012 Claude", machine: "", argv: ["claude"],
     task: "/autopilot:run-autopilot 00012-gamma.md"}]]);
-  assert.ok(!("machine" in calls.run[0][1]), "no machine key for this computer");
+  assert.equal(calls.run[0][1].machine, "", "explicitly target this computer");
   clean();
 });
 
@@ -379,6 +379,26 @@ test("remote cards list agents on their machine and start there, Codex ungated",
   assert.deepEqual(calls.run, [["space.new", {folder: "/srv/wt/delta", tab: "00021 Claude", machine: "vps",
     argv: ["claude"], task: "/autopilot:run-autopilot 00021-delta.md"}]]);
   assert.deepEqual(calls.knownAgents.map((o) => o?.on), ["vps"], "one listing, on vps");
+  clean();
+});
+
+test("All repos starts a local card locally while a remote space is focused", async () => {
+  const calls = world({...LOCAL, spaces: REMOTE.spaces, focusedPane: REMOTE.focusedPane, agents: AGENTS});
+  const read = globalThis.__herdr.readTextFile;
+  globalThis.__herdr.readTextFile = (path, options) => path === "/home/u/.config/gita/repos.csv"
+    ? Promise.resolve("/work/app,app\n") : read(path, options);
+  const panel = await openPanel();
+  const scope = walk(panel.render()).find((n) => n.calls.some(([name, args]) =>
+    name === "id" && args[0] === "runway-scope-chip"));
+  assert.ok(scope, "scope control exists");
+  await click(scope);
+  const alpha = cardOf(panel.render(), "Queue alpha");
+  assert.deepEqual(agentButtons(alpha), ["Claude", "Codex", "Gemini"]);
+  assert.equal(globalThis.__herdr.spaces().find((s) => s.active).machine, "vps");
+  assert.deepEqual(calls.knownAgents, [{on: null}], "All repos discovers local agents");
+  await click(buttonOf(alpha, "Claude"));
+  assert.deepEqual(calls.run, [["space.new", {folder: "/work/app", tab: "00010 Claude", machine: "",
+    argv: ["claude"], task: "/autopilot:run-autopilot 00010-alpha.md"}]]);
   clean();
 });
 
