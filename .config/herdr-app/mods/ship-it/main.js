@@ -7,7 +7,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, notify, exec, appHome, openOverlay, nextCommand } from "herdr";
+import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, exec, appHome, openOverlay, nextCommand, notify } from "herdr";
 import { cleanupPlan, removeCheckout, checkTerminals } from "./cleanup.js";
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent, createPr } from "./data.js";
 const COUNT_TTL = 5 * 60 * 1000; // the badges' counts are re-asked at most this often per repo
@@ -59,12 +59,14 @@ export default class ShipIt extends View {
     });
     cx.timer.every(60000, (cx) => this.refreshCounts(cx)); // checks its own 5-minute age limit
     // "ship-it.merge" comes back from the confirm dialog Ship opens.
-    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); if (c === "ask-cleanup" || c === "ship-it.ask-cleanup") this.tryAskCleanup(); cx.notify(); } });
+    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); if (c === "ask-cleanup" || c === "ship-it.ask-cleanup") this.tryAskCleanup(cx); cx.notify(); } });
   }
 
   // Git facts for the focused folder; a new repo or branch also refreshes the PR.
   refreshGit(cx) {
-    if (this.gitBusy) return;
+    // Cleanup runs git in this folder (index locks) and then removes it: a read now
+    // would fail, drop the repo facts and make the bar blink. It refreshes when done.
+    if (this.gitBusy || this.cleaning) return;
     const loc = location(this.loc), key = JSON.stringify([loc.cwd, loc.on]);
     if (key !== this.locKey) {
       const known = this.gits.get(key);
@@ -254,8 +256,24 @@ export default class ShipIt extends View {
 
   // Asks first: what merges into what, how, and anything that looks wrong.
   async ship(cx) {
-    const g = this.git, pr = this.pr?.pr;
-    if (!g || !pr || this.shipBlock()) return;
+    const g = this.git;
+    if (!g || !this.pr?.pr || this.shipBlock() || this.preparing) return;
+    this.origin = focused()?.terminal ?? null;
+    this.preparing = true; cx.notify();
+    try { await this.confirmShip(cx, g); }
+    catch (e) { this.say(cx, "error", "Ship failed to start", e?.message || String(e)); }
+    finally { this.preparing = false; cx.notify(); }
+  }
+
+  async confirmShip(cx, g) {
+    // The shown PR can be stale (a push from elsewhere moves its head): ask GitHub now,
+    // so the dialog and --match-head-commit use the head that is really there.
+    const fresh = await prFacts(g.root, g.on, PR_DETAIL);
+    if (fresh.kind !== "ok") throw new Error(fresh.reason || "Could not read the pull request.");
+    this.pr = fresh; this.remember(this.branchKey);
+    const why = this.shipBlock();
+    if (why) { this.say(cx, "error", "Can't ship", why); return; }
+    const pr = fresh.pr;
     const r = await exec(GH(),["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: g.root, on: g.on }).catch(() => null);
     let allowed = {};
     try { allowed = JSON.parse(r?.stdout || "{}"); } catch {}
@@ -269,9 +287,9 @@ export default class ShipIt extends View {
     if (open) warn.push(`${open} open thread${open > 1 ? "s" : ""}`);
     this.pendingMerge = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, method, at: Date.now() };
     const how = { squash: "Squash and merge", merge: "Merge", rebase: "Rebase and merge" }[method];
-    openOverlay({ mod: "confirm", kind: "dialog", width: 420, height: 200, props: {
+    openOverlay({ mod: "confirm", kind: "dialog", width: 560, height: 230, props: {
       title: `Ship #${pr.number}?`,
-      detail: `${how} ${pr.headRefName} into ${pr.baseRefName}.${warn.length ? ` Note: ${warn.join(", ")}.` : ""} After merging, use Clean up to remove this worktree and local branch.`,
+      detail: `${how} ${pr.headRefName} into ${pr.baseRefName}.${warn.length ? ` Note: ${warn.join(", ")}.` : ""} Then use Clean up.`,
       command: { name: "ship-it.merge" },
     } });
   }
@@ -290,36 +308,44 @@ export default class ShipIt extends View {
         if (r.code === 0) {
           // Shows Clean up at once instead of Ship until gh's next answer lands.
           if (this.pr?.pr?.number === m.number) this.pr = { ...this.pr, pr: { ...this.pr.pr, state: "MERGED" } };
-          notify({ title: `#${m.number} shipped`, body: `Merged on ${forgeOf(this.pr?.pr?.url)}`, level: "info", timeout: 4 });
+          this.say(cx, "info", `#${m.number} shipped`, `Merged on ${forgeOf(this.pr?.pr?.url)}`);
         }
-        else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
-      } catch (e) { notify({ title: `#${m.number} not merged`, body: String(e), level: "error", timeout: 8 }); }
+        else this.say(cx, "error", `#${m.number} not merged`, (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "));
+      } catch (e) { this.say(cx, "error", `#${m.number} not merged`, String(e)); }
       finally { this.merging = false; this.bumpCounts(cx); this.refreshPr(cx); cx.notify(); }
     });
   }
 
-  askCleanup() {
+  askCleanup(cx) {
     const g = this.git, pr = this.pr?.pr;
+    this.origin = focused()?.terminal ?? null;
     const why = !g?.worktree ? "This folder is not a linked worktree." : pr?.state !== "MERGED" ? "The pull request is not merged yet." : this.cleaning ? "Cleanup is already running." : null;
-    if (why) { notify({ title: "Can't clean up", body: why, level: "error", timeout: 6 }); return; }
+    if (why) { this.say(cx, "error", "Can't clean up", why); return; }
     this.pendingCleanup = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, branch: pr.headRefName, space: this.loc?.space, at: Date.now() };
-    openOverlay({ mod: "confirm", kind: "dialog", width: 460, height: 230, props: {
+    openOverlay({ mod: "confirm", kind: "dialog", width: 600, height: 260, props: {
       title: `Clean up #${pr.number}?`,
-      detail: `Remove ${g.root} and local/remote branch ${pr.headRefName}. Closes this space and its terminals. Uncommitted work or new commits block cleanup. The merged tip remains recoverable. A remote branch that moved is never deleted.`,
+      detail: `Removes ${g.root} and branch ${pr.headRefName}, local and remote. Closes this space and its terminals. Uncommitted work or new commits stop it. The merged tip stays recoverable.`,
       command: { name: "ship-it.cleanup" },
     } });
   }
 
   // A click handler swallows throws: say what broke.
-  tryAskCleanup() {
-    try { this.askCleanup(); } catch (e) { notify({ title: "Clean up failed to open", body: String(e?.stack ?? e), level: "error", timeout: 12 }); }
+  tryAskCleanup(cx) {
+    try { this.askCleanup(cx); } catch (e) { this.say(cx, "error", "Clean up failed to open", String(e?.stack ?? e)); }
+  }
+
+  // Errors land in the status bar's log (my-toast), info shows as a toast.
+  // Both offer the terminal the ship or cleanup started from.
+  say(_cx, level, title, body) {
+    const terminal = this.origin ?? focused()?.terminal;
+    notify({ level, title, body, ...(terminal ? { action: { name: "pane.focus", args: { terminal } } } : {}), ...(level === "error" ? {} : { timeout: 6000 }) });
   }
 
   cleanup(cx) {
     const target = this.pendingCleanup;
     this.pendingCleanup = null;
     const why = !target ? "No cleanup was confirmed in this window. Press Clean up again." : this.cleaning ? "Cleanup is already running." : Date.now() - target.at > 120000 ? "The confirmation expired after 2 minutes. Press Clean up again." : null;
-    if (why) { notify({ title: "Cleanup not started", body: why, level: "error", timeout: 8 }); return; }
+    if (why) { this.say(cx, "error", "Cleanup not started", why); return; }
     this.cleaning = true;
     cx.spawn(async (cx) => {
       try {
@@ -335,8 +361,8 @@ export default class ShipIt extends View {
         if (fresh.sha !== plan.sha || fresh.branch !== plan.branch || fresh.main !== plan.main || fresh.remoteUrl !== plan.remoteUrl || fresh.remoteRef !== plan.remoteRef) throw new Error("The checkout changed during cleanup.");
         const result = await removeCheckout(exec, fresh);
         run("space.close", { id: target.space, confirmed: true });
-        notify({ title: result.warning ? "Cleanup incomplete" : `#${target.number} cleaned up`, body: result.warning || `Worktree and local/remote branch removed. Recovery: ${result.recovery}`, level: result.warning ? "error" : "info", timeout: 8 });
-      } catch (e) { notify({ title: "Cleanup stopped", body: e?.message || String(e ?? "") || "A command failed without saying why.", level: "error", timeout: 8 }); }
+        this.say(cx, result.warning ? "error" : "info", result.warning ? "Cleanup incomplete" : `#${target.number} cleaned up`, result.warning || `Worktree and local/remote branch removed. Recovery: ${result.recovery}`);
+      } catch (e) { this.say(cx, "error", "Cleanup stopped", e?.message || String(e ?? "") || "A command failed without saying why."); }
       finally { this.cleaning = false; this.bumpCounts(cx); this.refreshGit(cx); cx.notify(); }
     });
   }
@@ -355,11 +381,11 @@ export default class ShipIt extends View {
       .child(el);
   }
 
-  button(id, t, { icon, label, extra, on, onClick, tip }) {
+  button(id, t, { icon, label, extra, on, onClick, tip, spin }) {
     return h_flex().id(id).h(26).px(9).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
       .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
       .hover((s) => s.bg(t.hover)).on_click(onClick).when(Boolean(tip), (e) => e.tooltip(tip))
-      .child(this.icon(icon, on ? t.accent : t.muted, 13))
+      .child(spin ? svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(t.working).spin(900) : this.icon(icon, on ? t.accent : t.muted, 13))
       .when(Boolean(label), (e) => e.child(div().text_color(t.foreground).child(label)))
       .children(extra ?? []);
   }
@@ -368,15 +394,17 @@ export default class ShipIt extends View {
   shipButton(t) {
     const block = this.shipBlock(), merged = this.pr?.pr?.state === "MERGED";
     if (merged && this.git?.worktree) return this.button("cleanup", t, {
-      icon: "check", label: this.cleaning ? "Cleaning…" : "Clean up",
-      onClick: () => this.tryAskCleanup(), tip: "Remove the merged worktree and local/remote branch",
+      icon: "check", label: this.cleaning ? "Cleaning…" : "Clean up", spin: this.cleaning,
+      onClick: (_e, cx) => this.tryAskCleanup(cx), tip: "Remove the merged worktree and local/remote branch",
     });
     return h_flex().id("ship").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1()
-      .when(!block, (e) => e.border_color(t.solid).bg(t.solid).cursor_pointer().hover((s) => s.opacity(0.88)).on_click((_e, cx) => this.ship(cx)))
+      .when(!block, (e) => e.border_color(t.solid).bg(t.solid).cursor_pointer().hover((s) => s.opacity(0.88)).on_click((_e, cx) => cx.spawn(async (cx) => this.ship(cx))))
       .when(Boolean(block), (e) => e.border_color(t.border).bg(t.background))
       .tooltip(block ?? `Merge #${this.pr.pr.number} into ${this.pr.pr.baseRefName}`)
-      .child(this.icon(merged ? "git-merge" : "rocket", block ? t.dim : t.solid_foreground, 13))
-      .child(div().text_color(block ? t.dim : t.solid_foreground).font_semibold().child(this.merging ? "Shipping…" : merged ? "Shipped" : "Ship"));
+      .child(this.merging || this.preparing
+        ? svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(t.working).spin(900)
+        : this.icon(merged ? "git-merge" : "rocket", block ? t.dim : t.solid_foreground, 13))
+      .child(div().text_color(block ? t.dim : t.solid_foreground).font_semibold().child(this.merging || this.preparing ? "Shipping…" : merged ? "Shipped" : "Ship"));
   }
 
 
@@ -391,7 +419,13 @@ export default class ShipIt extends View {
       .when(Boolean(g?.sub) && !narrow, (e) => e.child(div().flex_none().text_color(t.dim).whitespace_nowrap().child(g.sub)))
       .when(Boolean(this.gone), (e) => e.child(div().flex_none().text_color(t.ansi1).whitespace_nowrap().child("folder deleted"))),
       has && !this.gone ? () => this.togglePanel("files") : null,
-      this.gone ? `${this.loc?.cwd} no longer exists (a removed worktree?). Close this space or cd elsewhere.` : g ? `${g.root}${g.sub}` : this.loc?.cwd ?? "");
+      this.gone ? `${this.loc?.cwd} no longer exists (a removed worktree?). Close this space or cd elsewhere.` : g ? `${g.root}${g.sub}` : this.loc?.cwd ?? "")
+      // Right-click: the same Copy path / Copy branch name as the pane header and spaces.
+      .on_mouse_down("right", (_e, cx) => {
+        cx.stop_propagation();
+        const full = g ? `${g.root}${g.sub}` : this.loc?.cwd;
+        openOverlay({ mod: "my-menu", kind: "popup", width: 200, height: 90, props: { tab: "path", path: full, branch: g?.branch } });
+      });
   }
 
 
@@ -599,12 +633,12 @@ export default class ShipIt extends View {
       // buttons leave: the folder's path shortens from its start, so nothing
       // runs under them. The machine and branch are in Herdr's status bar.
       .child(h_flex().flex_1().min_w(0).overflow_hidden().items_center()
-        .when(Boolean(g), (e) => e.child(this.repoButton(t)))
-        .when(Boolean(g) && Boolean(this.issuesButton(t)), (e) => e.child(h_flex().ml(6).child(this.issuesButton(t))))
         .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
         .when(Boolean(g) && p.has("changes"), (e) => e.child(this.workStat(t)))
         .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals.flex_none())))
       .when(Boolean(g), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
+        .child(this.repoButton(t))
+        .when(Boolean(this.issuesButton(t)), (e) => e.child(this.issuesButton(t)))
         .when(Boolean(prButton), (e) => e.child(prButton))
         .when(Boolean(checks), (e) => e.child(checks))
         .when(this.showPr(), (e) => e.child(this.shipButton(t)))));
