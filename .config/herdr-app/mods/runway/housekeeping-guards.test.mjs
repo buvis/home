@@ -29,6 +29,21 @@ test("intake uses its checkout's config rather than another checkout's config", 
   }
 });
 
+test("a failed specflow config probe keeps every card and falls back to Elicit", async () => {
+  const probe = ({command, args}) => command === "test" && args[0] === "-e" && args.at(-1).endsWith("/.agents/specflow.json");
+  const failures = [() => status(2, "test: permission denied"), () => Promise.reject(new Error("machine unreachable"))];
+  for (const fail of failures) {
+    world({...LOCAL, agents: WITH_CLAUDE, intercept: (e) => (probe(e) ? fail() : undefined)});
+    const panel = await openPanel();
+    const tree = panel.render();
+    assert.ok(cardOf(tree, "Queue alpha"), "an optional intake hint never hides the queue");
+    const idea = cardOf(tree, "Late idea");
+    assert.ok(labelled(idea, "Elicit"), "an unknown config reads as no config");
+    assert.equal(labelled(idea, "Create spec"), undefined);
+    clean();
+  }
+});
+
 test("an unreadable lane state guard stops before any PRD move or agent start", async () => {
   const {calls} = world({...LOCAL, agents: WITH_CLAUDE, intercept: ({command, args}) =>
     command === "test" && args[0] === "-e" && args.at(-1).endsWith("/autopilot/state.json")

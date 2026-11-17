@@ -50,9 +50,9 @@ async function buildCards(snap) {
   };
   // Each checkout's autopilot pick, from its raw folders: autopilot enters a stale wip name too.
   const picks = new Map(snap.checkouts.map((c) => [c, pickOf(c)]));
-  // Each checkout's own .agents/specflow.json decides its intake action.
+  // Each checkout's own .agents/specflow.json decides its intake action; a failed probe reads as no config.
   const configs = new Map(await Promise.all(snap.checkouts.map(async (c) =>
-    [c, await there(`${c.path}/.agents/specflow.json`, snap.on)])));
+    [c, await there(`${c.path}/.agents/specflow.json`, snap.on).catch(() => false)])));
   return items.map((i, k) => {
     const t = text[bare[k].file] ?? "";
     const card = toCard(i, t, i.checkout);
