@@ -16,13 +16,13 @@ REDIRECT_MSG = """\
 BLOCKED: shell redirects into docs/dev/project-management/ or docs/dev/tmp/ are not allowed.
 
 Use the Write tool for development artifacts.
-See ~/.claude/rules/working-documents.md."""
+See ~/.claude/AGENTS.md (Working documents)."""
 
 TEE_MSG = """\
 BLOCKED: tee writes into docs/dev/project-management/ or docs/dev/tmp/ are not allowed.
 
 Use the Write tool for development artifacts.
-See ~/.claude/rules/working-documents.md."""
+See ~/.claude/AGENTS.md (Working documents)."""
 
 
 def main() -> None:

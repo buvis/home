@@ -7,7 +7,7 @@ Two layers, one gate (merged 2026-08-23):
    Replaces the old enforce-prd-location.sh / enforce-prd-location-bash.sh
    pair; branches on `tool_name`.
 2. The tracked docs/dev/project-management layout contract (aegis
-   rules/working-documents.md) holds at write time: root holds no files
+   AGENTS.md "Working documents") holds at write time: root holds no files
    (named keepers live in meta/), new top-level dirs are forbidden, and files
    directly in prds/ must sit in a lifecycle subdir. Temporary assets belong
    under the globally ignored docs/dev/tmp/ tree. File tools only - aegis's

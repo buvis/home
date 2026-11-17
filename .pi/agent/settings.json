@@ -4,6 +4,6 @@
   ],
   "lastChangelogVersion": "0.79.8",
   "theme": "dark",
-  "defaultProvider": "llamacpp8001",
-  "defaultModel": "unsloth/Qwen3.6-35B-A3B"
+  "defaultProvider": "llamacpp8002",
+  "defaultModel": "unsloth/Qwen3.8-27B-GGUF:UD-Q6_K_XL"
 }

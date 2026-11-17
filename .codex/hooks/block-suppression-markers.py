@@ -82,7 +82,7 @@ def main() -> None:
         print(f"  + {label} (x{n}, in {where})", file=sys.stderr)
     print("", file=sys.stderr)
     print("Policy: fix the root cause, don't silence warnings.", file=sys.stderr)
-    print("See ~/.claude/rules/coding-style.md (Warnings section).", file=sys.stderr)
+    print("See ~/.claude/AGENTS.md (Coding style, Warnings).", file=sys.stderr)
     sys.exit(2)
 
 
