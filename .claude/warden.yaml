@@ -292,3 +292,6 @@ rules:
     default: allow
   - command: test_codex_run.sh
     default: allow
+  # deno: allowed whole (2026-11-15), same footing as node, cargo and uv
+  - command: deno
+    default: allow
