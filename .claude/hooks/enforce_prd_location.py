@@ -241,10 +241,11 @@ def _validate_bash_mode(data: dict) -> None:
                 continue
             if parts[:4] == ("docs", "dev", "project-management", "prds"):
                 continue
-            if parts[0] in LIFECYCLE_DIRS and (
+            head = parts[0]
+            if head in LIFECYCLE_DIRS and (
                 len(parts) > 1 or segment.endswith("/") or has_fs_mutator
             ):
-                key = f"{parts[0]}/"
+                key = f"{head}/"
                 if key not in seen:
                     seen.add(key)
                     matches.append(key)
