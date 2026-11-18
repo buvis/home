@@ -67,7 +67,13 @@ export async function removeCheckout(exec, plan) {
   if (remoteHead) {
     if (remoteHead !== `${sha}\t${remoteRef}`) throw new Error("The remote branch has moved since the PR merged. Nothing removed.");
     // The server checks the expected tip atomically, including a push racing this check.
-    await git(["push", "--porcelain", "--no-follow-tags", `--force-with-lease=${remoteRef}:${sha}`, "--", remoteUrl, `:${remoteRef}`]);
+    const push = await exec("git", ["push", "--porcelain", "--no-follow-tags", `--force-with-lease=${remoteRef}:${sha}`, "--", remoteUrl, `:${remoteRef}`], { cwd: main, on });
+    if (push.code !== 0) {
+      // The host (Renovate automerge, auto-delete on merge) may have deleted it after ls-remote.
+      const now = await git(["ls-remote", "--refs", "--", remoteUrl, remoteRef]);
+      if (now && now !== `${sha}\t${remoteRef}`) throw new Error("The remote branch has moved since the PR merged. Nothing removed.");
+      if (now) throw new Error(`The remote refused to delete the branch. Nothing removed. ${pushReason(push)}`);
+    }
   }
   try {
     // Hosting services can delete the remote branch without updating our cached ref.
@@ -88,4 +94,13 @@ export async function removeCheckout(exec, plan) {
   } catch (e) {
     return { recovery, warning: `Worktree removed; local branch retained: ${e.message}` };
   }
+}
+
+// git push puts the per-ref reason in --porcelain stdout ("!\t...\t[rejected] (stale info)")
+// and "remote:" lines in stderr, ending with a generic summary. Lead with the reason.
+function pushReason(r) {
+  const lines = `${r.stderr}\n${r.stdout}`.split("\n").map((s) => s.trim()).filter((s) => s && s !== "Done" && !s.startsWith("To "));
+  const summary = lines.filter((s) => s.startsWith("error: failed to push"));
+  const reason = lines.filter((s) => !summary.includes(s));
+  return [...reason, ...summary].join(" ") || "git push failed without saying why.";
 }

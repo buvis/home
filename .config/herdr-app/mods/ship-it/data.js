@@ -6,15 +6,19 @@
 
 import { exec, spaces, panes, focused, home, appHome, layout, shared, notify, agents, knownAgents, hc, run } from "herdr";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
+// notify() args that lead back to what is focused now (my-toast's Go to terminal).
+// Capture it before the first await: by the time an error lands, focus may have moved.
+export const backTo = (f = focused()) => f?.terminal || f?.pane ? { action: { name: "pane.focus", args: f.terminal ? { terminal: f.terminal } : { pane: f.pane } } } : {};
 
 // What the agent is asked. One line: hc send submits on Enter.
-const prTask = (branch) => `Create a draft pull request for branch ${branch || "(the current one)"} of this repository. Do not edit or commit files: uncommitted changes stay out of it. Push the branch if the remote lacks it or is behind. Write the title and the description from the branch's commits and its diff against the base branch: what changed, why, and how it was tested. Follow the repository's pull request template and conventions if it has them. Create it with \`gh pr create --draft\`, then print its URL.`;
+const prTask = (branch) => `Create a draft pull request for branch ${branch || "(the current one)"} of this repository. First commit any uncommitted changes, following the repository's commit conventions (sensible separate commits, changelog if it requires one); leave out only what clearly does not belong (secrets, scratch files, build output) and say what you left. Then push the branch. Write the title and the description from the branch's commits and its diff against the base branch: what changed, why, and how it was tested. Follow the repository's pull request template and conventions if it has them. Create it with \`gh pr create --draft\`, then print its URL.`;
 
 // Creates the branch's pull request. On GitHub an agent writes it: one already
 // in this checkout that is free (it knows why the changes were made), else a new
 // one in its own tab. Other hosts, and no agent installed: the host's web form.
 // True when an agent took it, so the caller keeps its spinner until the PR shows.
 export async function createPr(root, on, branch) {
+  const back = backTo();
   try {
     const origin = (await exec("git", ["remote", "get-url", "origin"], { cwd: root, on })).stdout;
     if (/bitbucket\.org|gitlab/.test(origin)) return await webForm(root, on);
@@ -32,7 +36,7 @@ export async function createPr(root, on, branch) {
     run("tab.new", { folder: root, name: "Create PR", argv: agent.run, task });
     return true;
   } catch (e) {
-    notify({ title: "Could not create the pull request", body: String(e?.message ?? e).slice(-300) || "Unknown error", level: "error" });
+    notify({ title: "Could not create the pull request", body: String(e?.message ?? e).slice(-300) || "Unknown error", level: "error", ...back });
     return false;
   }
 }

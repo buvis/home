@@ -73,6 +73,29 @@ test('remote lease rejects a push racing the deletion', async (t) => {
   assert.equal(f.git(['rev-parse', 'topic'], f.remote), base);
 });
 
+// Renovate automerge or GitHub auto-delete can remove the branch after ls-remote saw it.
+test('accepts a remote branch deleted by the host while cleanup pushes', async (t) => {
+  const f = fixture(t), plan = await cleanupPlan(f.exec, 'gh', f.target);
+  const exec = async (program, args, opts) => {
+    if (args[0] === 'push') f.git(['update-ref', '-d', 'refs/heads/topic'], f.remote);
+    return f.exec(program, args, opts);
+  };
+  const result = await removeCheckout(exec, plan);
+  assert.equal(result.warning, null);
+  assert.equal(existsSync(f.root), false);
+  assert.equal(f.git(['rev-parse', result.recovery]), f.sha);
+});
+
+test('a refused push reports git\'s per-ref reason, not only the summary line', async (t) => {
+  const f = fixture(t);
+  f.git(['config', 'receive.denyDeletes', 'true'], f.remote);
+  await assert.rejects(removeCheckout(f.exec, await cleanupPlan(f.exec, 'gh', f.target)), (e) => {
+    assert.match(e.message, /rejected|deletion prohibited/);
+    assert.doesNotMatch(e.message.slice(0, 80), /failed to push some refs/);
+    return true;
+  });
+});
+
 test('remote rejection preserves the local branch and worktree', async (t) => {
   const f = fixture(t);
   f.git(['config', 'receive.denyDeletes', 'true'], f.remote);
