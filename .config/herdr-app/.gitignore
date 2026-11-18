@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 # Private, ephemeral notes saved per Herdr tab.
 /tab-notes/
+/mods/*/gpui-kit.d.ts
