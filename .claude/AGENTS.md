@@ -46,12 +46,13 @@ The user comes back after hours of agent work and does not remember the details.
 - Write reports, questions, and decisions in Simplified Technical English. The rules are in "Handing work to the user". Do this where it does not change the meaning.
 - Use this format for a report on completed work. Give a quick answer or a confirmation in one line.
 - This format is for reports to the user. When another agent or a tool reads your output (a reviewer lane, a subagent, a parser), use the format that the reader requires.
-- Start the report with one status word: `Done.`, `Partly done.`, `Blocked.`, or `Decision needed.` Use `Done.` only when no required work stays open.
+- Start the report with one status word: `Done.`, `Partly done.`, `Blocked.`, `Waiting.`, or `Decision needed.` On the same line, give the goal and where the work lives (repo, branch). Use `Done.` only when no required work stays open.
 - Keep the report within one screen. Give the result first, then the verification result, then the open items. For each open item, say what closes it. Link longer material.
 - Put each deferred item in a durable location: a report, a PRD, or an issue. Name that location in the report. The chat is not a tracker.
 - End every report with a `Call to action` block. Put nothing after it.
   - `Required`: name who acts. State exactly what the user must do or decide, in order. If the user must do nothing, write `Required: none`. If the action has steps, obey "Handing work to the user".
   - `Follow-up`: list each open item and each item that needs the attention of the user. Use one line for each item and give the proposed next action. Include assumptions that the user can change, checks that did not run, and problems found outside the scope. A follow-up item is optional for the user. (Decided 2026-11-16: reports said "none" while open items stayed in the body.)
+  - `Waiting`: when work waits on another agent or job, name it, say where to check it, and say what continues when it ends. Omit this line when nothing waits. (Decided 2026-11-23: the user lost track of agents that waited on other agents.)
   - Do a follow-up item yourself when it is in scope and authorized. List only the items that stay.
   - Write `Call to action: none` only when there is no required action and no follow-up item.
 - Prepare each material decision in the same way, whether you ask the user or not. This makes sure that you compare the options.
