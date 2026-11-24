@@ -54,8 +54,100 @@ starts in a "Create PR" tab; the button spins until the PR shows (5 min at
 most). Bitbucket, GitLab and no installed agent: push a branch with no
 upstream, then `gh pr create --web`, failures as a toast (upstream ran gh
 alone and dropped its "you must first push" error). data.js is copied to all
-four ship-it folders. on-screen's pane
+four ship-it folders. Local edit 2026-11-10: an open PR row in ship-it-prs
+offers "Review with <agent>" per installed agent (as ship-it-issues does for
+issues): it starts the agent in a `#<n> <agent>` tab in the PR's checkout
+(created if missing) with `reviewTask` in main.js as the prompt. Both panels
+add `-i` before the task for Copilot (`copilot "<prompt>"` is rejected);
+`programs.json` runs Kiro as `kiro-cli chat` for the same reason and retires
+Gemini with `"run": []` (CLI discontinued; ship-it and my-new-menu skip
+agents with an empty `run`). on-screen's pane
 menu gained Copy path and Copy branch name the same day.
+Local edit 2026-11-16: Ship ran `ship(cx)` straight from the click and used
+the click's `cx` after an await ("cx is no longer valid"); it now runs in
+`cx.spawn`. The strip's own message banner is gone: `say` posts `notify()`,
+so errors land in the status bar log (my-toast, see below). data.js exports
+`backTo()`; createPr and the error paths in ship-it-review, -prs and -issues
+capture it before their first await, so each error's Go leads to the terminal
+the action started from.
+
+## Notification history (updated 2026-11-24)
+
+The buvis layout sets `"toast": "my-toast"` (clone of `toast`) and its status
+block shows `my-status` (clone of `workspace-status`). Every toast enters shared
+`alerts.log`: the newest 50 routine notices, plus all errors and warnings until
+Clear. The Notifications count opens full text (selectable, Copy, Copy all,
+Clear, Go to terminal/pane); `my-status.log` opens it too. The count is red for
+errors, amber for warnings, otherwise muted. Errors and warnings go straight
+to the log instead of popping up, except Herdr's `agent.focus` "needs you"
+toasts, which stay visible and are also logged. Info and success still pop up.
+Herdr 0.1.17 always expires native toasts; `timeout: 0` is not persistent.
+A mod that reports after an await passes
+`action: {name: "pane.focus", args: {terminal} | {pane}}` captured at the start.
+Gallery mods edited for that, redo after an hmod update: file-picker (Go to
+where the picker was opened), reviewer `ask.js` (Send failed goes to the
+agent). Local: move-pane, folio, runway. The other gallery mods' errors
+(obsidian, filetree, on-screen) come within a second of the click, so the
+focused terminal at post time is right; left unedited to keep hmod updates clean.
+
+## Custom mod fixes (2026-11-24)
+
+2026-11-24: selectively ported 0.1.17 fixes into my-agents (kept-child Done
+status and parent priority), my-tabs/my-agents/my-space-folders/my-spaces
+(saved-state recovery), and my-toast (full text with scrolling). Herdr only
+auto-sizes its shipped toast, so the custom card keeps its fixed height.
+Local branch labels, hold-in-Done, and the error log remain. Provenance versions
+remain unchanged because these are partial ports. Regression command:
+`node --test tests/mod-ports.test.mjs`. See
+`docs/dev/project-management/reviews/herdr-mod-ports-2026-11-24.md`.
+
+Toast durations now use milliseconds. Check-mode startup skips background work.
+See `docs/dev/project-management/reviews/herdr-checker-closeout-2026-11-24.md`.
+
+## Keeping mods current (2026-11-16)
+
+Three lanes; `bin/hmod-merge status` shows all of them.
+
+- **hmod** (linked, unedited): `hmod update --all` in sysup. A mod's first
+  update is never automatic (`first_update_pending`): run `hmod update <mod>`.
+- **merge** (linked, edited: revive, file-picker, filetree, worktreeinclude,
+  ciupaga, file-icons): `bin/hmod-merge <mod>` 3-way merges upstream into the
+  local files (base = hmod's recorded install commit), checks, backs up, and
+  records the new baseline in hmod's sources.json. A conflict changes nothing.
+  Never `hmod update --force` these: it replaces the edits.
+- **fork** (`forks.json`: ship-it, ship-it-prs, ship-it-review, ship-it-file,
+  reviewer, on-screen): rewritten here or refused by hmod (`cloned_from`).
+  Same merge engine, base = the commit in forks.json, never unattended. Install
+  commits found 2026-11-16 from the mods' versions and dates.
+- Ours, nothing upstream: ship-it-issues, tab-notes, folio, runway, and the
+  other local mods. my-* clones of Herdr's own mods: gems PRDs 00156/00160.
+
+2026-11-18 round: recall a7b0134 and markdown-panel 8375f11 (hmod), revive
+0.11.0 (hmod-merge; its spinner edit redone on 0.8's new dialog), reviewer
+0.6.0 (fork merged, two spinner conflicts resolved by hand). Reviewed first:
+markdown-panel 3.30 vendors Kanso's platform library (process kill, Docker,
+Herdr restart, keystroke paste); only its file, `userHome` and clipboard-read
+parts are called. revive 0.8+ asks GitHub's releases API once a day while its
+dialog is open: turned off with its own "Stop checking" flag (shared
+`revive.update.off`), not by editing `CHECK`, because a line next to
+`VERSION` conflicts on every release. Keep local edits away from lines
+upstream bumps; prefer settings and shared state over code edits.
+
+2026-11-24 round: markdown-panel c0fe910 (adds saving edits, local and
+remote, with a changed-on-disk check; no network) and revive 0.12.1 (Muse,
+Code Mode; merged, spinner edits kept) via sysup. ship-it fork: upstream
+1a9978d (Ship = a 3 s stoppable countdown instead of the confirm, `--admin`
+override when branch rules block, confetti mod `ship-it-confetti`) was NOT
+taken: it conflicts in 5 places with this fork's own Ship flow (fresh PR
+re-read, ghx/Bitbucket, Clean up, `say()` error log), and its GraphQL query
+needs GitHub. forks.json marks 1a9978d as seen; port it by hand if wanted.
+obsidian 0998781 (a stale viewer opens a new pane) waits: another session
+was editing the mod; the merge was dry-run clean on 2026-11-24 10:27.
+
+sysup `herdr-mods` (personal override in `~/.config/buvis/buvis-sysup.yaml`)
+runs `hmod update --all`, then `hmod-merge --auto`: edited mods past their
+first update merge unattended; everything that needs a decision fails the
+step with the command to run, so it stays in sysup's attention until done.
 
 ## Setup done 2026-11-08
 
@@ -93,29 +185,3 @@ Changes buttons again (`workspace.panels`).
 | Desktop notifications | mods/pager covers desktop and phone alerts. |
 | Automations, Automate everything, Task scheduler | Overlap the autoclaude loop and the sysup rule for recurring work. |
 | Linear, Jira, Sentry, Vercel, Cloudflare, Kubernetes, Pokémon family | Not used. |
-
-## Notification history (updated 2026-11-24)
-
-The buvis layout sets `"toast": "my-toast"` (clone of `toast`) and its status
-block shows `my-status` (clone of `workspace-status`). Every toast enters shared
-`alerts.log`: the newest 50 routine notices, plus all errors and warnings until
-Clear. The Notifications count opens full text (selectable, Copy, Copy all,
-Clear, Go to terminal/pane); `my-status.log` opens it too. The count is red for
-errors, amber for warnings, otherwise muted. Errors and warnings go straight
-to the log instead of popping up, except Herdr's `agent.focus` "needs you"
-toasts, which stay visible and are also logged. Info and success still pop up.
-Herdr 0.1.17 always expires native toasts; `timeout: 0` is not persistent.
-
-## Custom mod fixes (2026-11-24)
-
-2026-11-24: selectively ported 0.1.17 fixes into my-agents (kept-child Done
-status and parent priority), my-tabs/my-agents/my-space-folders/my-spaces
-(saved-state recovery), and my-toast (full text with scrolling). Herdr only
-auto-sizes its shipped toast, so the custom card keeps its fixed height.
-Local branch labels, hold-in-Done, and the error log remain. Provenance versions
-remain unchanged because these are partial ports. Regression command:
-`node --test tests/mod-ports.test.mjs`. See
-`docs/dev/project-management/reviews/herdr-mod-ports-2026-11-24.md`.
-
-Toast durations now use milliseconds. Check-mode startup skips background work.
-See `docs/dev/project-management/reviews/herdr-checker-closeout-2026-11-24.md`.
