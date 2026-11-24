@@ -1,5 +1,132 @@
 import { checked, jsonRows, powershell, psQuote, windowsArg } from "./platform-command.js";
 
+// 2097150 is a multiple of 3, so only the last read slice's base64 is padded. A write uses WRITE_RAW.
+export const CHUNK = 2097150;
+// Write chunks stay under Linux 131072 bytes per argument, macOS 1048576 for argv plus the environment, and Windows 32767 for the command line.
+export const WRITE_RAW = { linux: 90000, macos: 210000, windows: 4500 };
+const WIN_LINE = "powershell.exe -NoProfile -NonInteractive -Command ".length + "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); ".length + 2;
+export const windowsCommandLength = (script) => WIN_LINE + String(script).length;
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+class Utf8 {
+  constructor() { this.raw = []; this.n = 0; }
+
+  add(b) { this.raw[this.n] = b & 255; this.n = this.n + 1; return this; }
+
+  put(cp) {
+    if (cp < 0x80) return this.add(cp);
+    if (cp < 0x800) return this.add(0xc0 | (cp >> 6)).add(0x80 | (cp & 63));
+    if (cp < 0x10000) return this.add(0xe0 | (cp >> 12)).add(0x80 | ((cp >> 6) & 63)).add(0x80 | (cp & 63));
+    return this.add(0xf0 | (cp >> 18)).add(0x80 | ((cp >> 12) & 63)).add(0x80 | ((cp >> 6) & 63)).add(0x80 | (cp & 63));
+  }
+}
+
+const bytesOf = (text) => [...String(text ?? "")].reduce((out, ch) => out.put(ch.codePointAt(0)), new Utf8());
+
+const encodeSlice = (raw, start, end) => Array.from({ length: Math.ceil((end - start) / 3) }, (_, group) => {
+  const i = start + group * 3;
+  const b0 = raw[i];
+  const b1 = i + 1 < end ? raw[i + 1] : null;
+  const b2 = i + 2 < end ? raw[i + 2] : null;
+  return B64[b0 >> 2] + B64[((b0 & 3) << 4) | ((b1 ?? 0) >> 4)] + (b1 == null ? "=" : B64[((b1 & 15) << 2) | ((b2 ?? 0) >> 6)]) + (b2 == null ? "=" : B64[b2 & 63]);
+}).join("");
+
+export const base64Chunks = (text, chunk = CHUNK) => {
+  const { raw, n } = bytesOf(text);
+  if (n === 0) return [""];
+  return Array.from({ length: Math.ceil(n / chunk) }, (_, i) => encodeSlice(raw, i * chunk, Math.min(n, (i + 1) * chunk)));
+};
+
+export class SaveConflict extends Error {
+  constructor() { super("changed on disk"); this.conflict = true; }
+}
+
+// GNU stat and base64 on a Mac PATH do not speak the system flags.
+const bin = (platform, name) => platform === "macos" ? `/usr/bin/${name}` : name;
+
+const unixScript = (platform) => {
+  const stat = `${bin(platform, "stat")} ${platform === "macos" ? "-L -f %z" : "-L -c %s"}`;
+  const hash = platform === "macos" ? `${bin(platform, "shasum")} -a 256` : "sha256sum";
+  const b64 = `${bin(platform, "base64")} ${platform === "macos" ? "-D" : "-d"}`;
+  return [
+    "target=$1",
+    "textb64=$2",
+    "expb64=$3",
+    "mode=$4",
+    "phase=$5",
+    "dir=$6",
+    'if [ "$phase" = shot ] || [ "$phase" = begin ]; then dir=$(mktemp -d) || exit 1; fi',
+    'cleanup() { status=$?; trap - EXIT; if [ -n "$dir" ]; then rm -rf "$dir"; fi; exit "$status"; }',
+    "trap cleanup EXIT",
+    'if [ -n "$textb64" ]; then',
+    `  if [ "$phase" = more ] || [ "$phase" = end ]; then printf %s "$textb64" | ${b64} >> "$dir/new" || exit 1`,
+    `  else printf %s "$textb64" | ${b64} > "$dir/new" || exit 1; fi`,
+    'elif [ "$phase" = shot ] || [ "$phase" = begin ]; then : > "$dir/new"; fi',
+    'if [ "$mode" = match ]; then',
+    '  if [ -n "$expb64" ]; then',
+    `    if [ "$phase" = more ] || [ "$phase" = end ]; then printf %s "$expb64" | ${b64} >> "$dir/exp" || exit 1`,
+    `    else printf %s "$expb64" | ${b64} > "$dir/exp" || exit 1; fi`,
+    '  elif [ "$phase" = shot ] || [ "$phase" = begin ]; then : > "$dir/exp"; fi',
+    "fi",
+    'if [ "$phase" = begin ] || [ "$phase" = more ]; then trap - EXIT; printf %s "$dir"; exit 0; fi',
+    'if [ "$mode" = create ]; then if [ -e "$target" ] || [ -L "$target" ]; then exit 3; fi',
+    'else',
+    '  if [ ! -f "$target" ]; then exit 3; fi',
+    `  s1=$(${stat} "$target") || exit 1`,
+    `  s2=$(${stat} "$dir/exp") || exit 1`,
+    '  [ "$s1" = "$s2" ] || exit 3',
+    `  h1=$(${hash} "$target") || exit 1`,
+    `  h2=$(${hash} "$dir/exp") || exit 1`,
+    '  [ "${h1%% *}" = "${h2%% *}" ] || exit 3',
+    "fi",
+    'cat "$dir/new" > "$target"',
+  ].join("\n");
+};
+
+const winPut = (b64, dest, append) => {
+  const quoted = psQuote(b64 ?? "");
+  if (append) return b64
+    ? `$extra=[Convert]::FromBase64String(${quoted}); $out=[IO.File]::Open(${dest},'Append','Write','Read'); try { $out.Write($extra,0,$extra.Length) } finally { $out.Dispose() }`
+    : "";
+  return `if ([string]::IsNullOrEmpty(${quoted})) { [IO.File]::WriteAllBytes(${dest}, [byte[]]::new(0)) } else { [IO.File]::WriteAllBytes(${dest}, [Convert]::FromBase64String(${quoted})) }`;
+};
+
+const winScript = ({ path, textB64, expB64, mode, phase, dir }) => {
+  const fresh = phase === "shot" || phase === "begin";
+  const keep = phase === "begin" || phase === "more";
+  const start = fresh
+    ? "$dir=Join-Path $env:TEMP ('kanso-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Path $dir | Out-Null"
+    : `$dir=${psQuote(dir)}`;
+  const compare = mode === "create"
+    ? "if (Test-Path -LiteralPath $target) { $code = 3 }"
+    : "if (-not (Test-Path -LiteralPath $target)) { $code = 3 } else { $ra=[IO.File]::Open($target,'Open','Read','ReadWrite'); $rb=[IO.File]::Open($expected,'Open','Read','Read'); try { if ($ra.Length -ne $rb.Length) { $code = 3 } } finally { $ra.Dispose(); $rb.Dispose() }; if ($code -eq 0 -and (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $expected -Algorithm SHA256).Hash) { $code = 3 } }";
+  const put = "if ($code -eq 0) { $bytes=[IO.File]::ReadAllBytes($new); if (Test-Path -LiteralPath $target) { $fs=[IO.File]::Open($target,'Open','Write','Read'); try { $fs.SetLength(0); $fs.Write($bytes,0,$bytes.Length) } finally { $fs.Dispose() } } else { [IO.File]::WriteAllBytes($target,$bytes) } }";
+  const body = [
+    winPut(textB64, "$new", !fresh),
+    mode === "match" ? winPut(expB64, "$expected", !fresh) : "",
+    keep ? "$keep=$true; [Console]::Out.Write($dir)" : compare,
+    keep ? "" : put,
+  ].filter(Boolean).join("; ");
+  return `${start}; $code=0; $keep=$false; $target=${psQuote(path)}; $new=Join-Path $dir 'new'; $expected=Join-Path $dir 'exp'; try { ${body} } finally { if (-not $keep -and (Test-Path -LiteralPath $dir)) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue } }; if ($code -ne 0) { exit $code }`;
+};
+
+const writeStep = (platform, path, textB64, expB64, mode, phase) => platform === "windows"
+  ? { script: (dir) => winScript({ path, textB64, expB64, mode, phase, dir }), keeps: phase === "begin" || phase === "more" }
+  : { cmd: "sh", args: (dir) => ["-c", unixScript(platform), "put", path, textB64, expB64, mode, phase, dir ?? ""], keeps: phase === "begin" || phase === "more" };
+
+export const writeSteps = (platform, path, text, expected) => {
+  const raw = WRITE_RAW[platform] ?? WRITE_RAW.linux;
+  const parts = base64Chunks(text, raw);
+  const expParts = expected == null ? null : base64Chunks(expected, raw);
+  const mode = expected == null ? "create" : "match";
+  const one = parts.length === 1 && (expParts == null || expParts.length <= 1);
+  const rounds = one ? 1 : Math.max(parts.length, expParts?.length ?? 1);
+  return Array.from({ length: rounds }, (_, i) => writeStep(
+    platform, path, parts[i] ?? "", expParts ? (expParts[i] ?? "") : "", mode,
+    one ? "shot" : i === 0 ? "begin" : i === rounds - 1 ? "end" : "more",
+  ));
+};
+
 // find prints each directory twice in a row, so its type costs no extra call.
 export const pairEntries = (raw) => {
   const names = raw.slice(0, 2 * (500 + 2)).map((name) => name.slice(2));
@@ -8,7 +135,7 @@ export const pairEntries = (raw) => {
 };
 
 const unixTree = (platform) => {
-  const stat = platform === "macos" ? "stat -f '%z %m'" : "stat -c '%s %Y'";
+  const stat = `${bin(platform, "stat")} ${platform === "macos" ? "-L -f '%z %m'" : "-L -c '%s %Y'"}`;
   return [
     "root=$1",
     "shift",
@@ -137,7 +264,7 @@ test -d "$1"`;
   const stat = async (path, options) => {
     const r = platform === "windows"
       ? checked(await ps(`$i=Get-Item -LiteralPath ${psQuote(path)}; '{0} {1}' -f $i.Length, ([DateTimeOffset]$i.LastWriteTimeUtc).ToUnixTimeSeconds()`, options))
-      : checked(await run("stat", platform === "macos" ? ["-f", "%z %m", path] : ["-c", "%s %Y", path], options));
+      : checked(await run(bin(platform, "stat"), platform === "macos" ? ["-L", "-f", "%z %m", path] : ["-L", "-c", "%s %Y", path], options));
     const [size, mtime] = r.stdout.trim().split(/\s+/).map(Number);
     return { size, mtime };
   };
@@ -146,8 +273,9 @@ test -d "$1"`;
     if (platform === "windows") return whole
       ? ps(`[Convert]::ToBase64String([IO.File]::ReadAllBytes(${psQuote(path)}))`, options)
       : ps(`$s=[IO.File]::OpenRead(${psQuote(path)}); try { [void]$s.Seek(${Number(range.offset)}, 'Begin'); $b=New-Object byte[] ${Number(range.length)}; $n=$s.Read($b,0,$b.Length); [Convert]::ToBase64String($b,0,$n) } finally { $s.Dispose() }`, options);
-    if (!whole) return run("sh", ["-c", "tail -c +\"$2\" \"$1\" | head -c \"$3\" | base64", "slice", path, String(Number(range.offset) + 1), String(Number(range.length))], options);
-    return platform === "macos" ? run("base64", ["-i", path], options) : run("base64", [path], options);
+    const b64 = bin(platform, "base64");
+    if (!whole) return run("sh", ["-c", `tail -c +"$2" "$1" | head -c "$3" | ${b64}`, "slice", path, String(Number(range.offset) + 1), String(Number(range.length))], options);
+    return platform === "macos" ? run(b64, ["-i", path], options) : run(b64, [path], options);
   };
   const decodeBase64File = async (from, to, options = {}) => {
     const { append: extra, ...rest } = options;
@@ -161,7 +289,7 @@ test -d "$1"`;
     const decoded = platform === "windows"
       ? await ps(`[IO.File]::WriteAllBytes(${psQuote(to)}, [Convert]::FromBase64String(([IO.File]::ReadAllText(${psQuote(from)}) -replace '\\s','')))`, rest)
       : platform === "macos"
-        ? await run("base64", ["-D", "-i", from, "-o", to], rest)
+        ? await run(bin(platform, "base64"), ["-D", "-i", from, "-o", to], rest)
         : await run("sh", ["-c", "base64 -d \"$1\" > \"$2\"", "b64", from, to], rest);
     checked(decoded);
   };
@@ -177,8 +305,21 @@ test -d "$1"`;
     if (result.code !== 0 && !result.stdout) checked(result);
     return Boolean(result.stdout);
   };
+  const write = async (path, text, expected, options) => {
+    const outcome = await writeSteps(platform, path, text, expected).reduce(async (done, step) => {
+      const prev = await done;
+      if (prev.error) return prev;
+      const result = await (step.script ? powershell(run, step.script(prev.dir), options) : run(step.cmd, step.args(prev.dir), options)).catch((error) => ({ thrown: error }));
+      if (result.thrown) return { dir: prev.dir, error: result.thrown, wipe: Boolean(prev.dir) };
+      if (result.code === 3) return { dir: "", error: new SaveConflict(), wipe: false };
+      if (result.code !== 0) return { dir: prev.dir, error: new Error(String(result.stderr || `Command failed (${result.code})`).trim()), wipe: Boolean(prev.dir) };
+      return { dir: step.keeps ? String(result.stdout ?? "").trim() : "", error: null, wipe: false };
+    }, Promise.resolve({ dir: "", error: null, wipe: false }));
+    if (outcome.wipe && outcome.dir) await remove([outcome.dir], { recursive: true, ...options }).catch(() => {});
+    if (outcome.error) throw outcome.error;
+  };
   const migrate = (from, to) => platform === "windows"
     ? ps(`$from=${psQuote(from)}; $to=${psQuote(to)}; if (-not (Test-Path -LiteralPath (Join-Path $to 'store.json')) -and (Test-Path -LiteralPath $from -PathType Container)) { [IO.Directory]::CreateDirectory($to) | Out-Null; Get-ChildItem -LiteralPath $from -Force | Copy-Item -Destination $to -Recurse -Force; Get-ChildItem -LiteralPath $to -Filter '*.lock' -Force | Remove-Item -Force -Recurse }`)
     : run("sh", ["-c", 'if [ ! -e "$2/store.json" ] && [ -d "$1" ]; then mkdir -p "$2" && cp -R "$1/." "$2/" && rm -rf "$2"/*.lock; fi', "sh", from, to]);
-  return { recent, migrate, mkdir, remove, copy, move, test, directory, existing, legacyStatus, drain, read, walk, size, touch, stat, encode, tree, decodeBase64File };
+  return { recent, migrate, mkdir, remove, copy, move, test, directory, existing, legacyStatus, drain, read, walk, size, touch, stat, encode, tree, decodeBase64File, write };
 }

@@ -9,7 +9,7 @@
 // the tests can run it under node.
 
 /** The installed version: the same as mod.json and package.json (test/version.test.js). */
-export const VERSION = "0.11.0";
+export const VERSION = "0.12.1";
 const CHECK = true;
 export const REPO = "dmazlum/herdr-revive";
 export const RELEASES = `https://github.com/${REPO}/releases`;

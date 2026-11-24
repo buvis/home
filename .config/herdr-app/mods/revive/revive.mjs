@@ -3,8 +3,8 @@
 // the machine is rebooting, so the work happens where the session lives:
 //
 //   revive.mjs hook [--agent K]   an agent's SessionStart and SessionEnd (Claude Code, Codex,
-//                                 Droid, Cursor, Copilot CLI, pi's through pi/revive.ts and omp's through
-//                                 omp/revive.ts): remember the
+//                                 Droid, Cursor, Copilot CLI, Muse's through its plugin, pi's through
+//                                 pi/revive.ts and omp's through omp/revive.ts): remember the
 //                                 session on its terminal, or forget it
 //   revive.mjs check --shell PID  from the shell's rc file: print the commands that
 //                                 resume a session lost to a restart, or nothing
@@ -19,7 +19,7 @@
 //                                 nobody recorded (started before Revive was
 //                                 installed), or only T's; --dry-run says what
 //                                 it would write
-//   revive.mjs install [--zsh] [--bash] [--no-shell] [--no-codex] [--no-pi] [--no-omp] [--no-droid] [--no-cursor] [--no-copilot]
+//   revive.mjs install [--zsh] [--bash] [--no-shell] [--no-codex] [--no-pi] [--no-omp] [--no-droid] [--no-cursor] [--no-copilot] [--no-muse]
 //   revive.mjs uninstall
 //   revive.mjs doctor             what is installed, as JSON
 //
@@ -38,6 +38,7 @@ import {
   isPowerShell, resumeScriptPwsh, notResumingLine, parseWinProcesses, psQuote, canRestore,
 } from "./lib/core.js";
 import { agentDirs, claudeProject, claudeStartFolder, findSession } from "./lib/sessions.js";
+import { VERSION } from "./lib/update.js";
 
 const run = promisify(execFile);
 
@@ -64,9 +65,14 @@ function powershell() {
 const psArgs = (script) => ["-NoProfile", "-NonInteractive", "-NoLogo", "-ExecutionPolicy", "Bypass", "-EncodedCommand",
   Buffer.from(`[Console]::OutputEncoding = [Text.Encoding]::UTF8\n${script}`, "utf16le").toString("base64")];
 const runPs = async (script, env = {}) => (await run(powershell(), psArgs(script), { env: { ...process.env, ...env }, maxBuffer: 16 * 1024 * 1024, windowsHide: true, timeout: 15_000 })).stdout;
-const runPsSync = (script, env = {}) => execFileSync(powershell(), psArgs(script), { env: { ...process.env, ...env }, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true, timeout: 15_000, stdio: ["ignore", "pipe", "ignore"] });
+const runPsSync = (script, env = {}, { timeout = 15_000 } = {}) => execFileSync(powershell(), psArgs(script), { env: { ...process.env, ...env }, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true, timeout, stdio: ["ignore", "pipe", "ignore"] });
 export const ENGINE = fileURLToPath(import.meta.url);
-const HC = process.env.REVIVE_HC || "hc";
+/**
+ * `hc` by its full path when it can be found (PATH, then ~/.local/bin, where
+ * its installer puts it): Muse runs hooks with a reduced PATH.
+ */
+let hcExe;
+const hcBin = () => (hcExe ??= process.env.REVIVE_HC || whichCli("hc") || "hc");
 
 // ── herdr-core ──────────────────────────────────────────────────────────────
 
@@ -78,10 +84,17 @@ const HC = process.env.REVIVE_HC || "hc";
  */
 export const hcEnv = (env) => Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("CLAUDE_CODE_") && k !== "CLAUDECODE"));
 
-async function hc(args, env = process.env) {
-  const { stdout } = await run(HC, args, { env: hcEnv(env), maxBuffer: 8 * 1024 * 1024, timeout: 10_000 });
+async function hc(args, env = process.env, { timeout = 10_000 } = {}) {
+  const { stdout } = await run(hcBin(), args, { env: hcEnv(env), maxBuffer: 8 * 1024 * 1024, timeout });
   return stdout;
 }
+
+/**
+ * The socket an `hc` with no HC_TERMINAL_SOCKET talks to: the default core's,
+ * under XDG_STATE_HOME (or ~/.local/state). REVIVE_HC_SOCKET: another, for tests.
+ */
+export const defaultSocket = (env = process.env, home = homedir()) =>
+  env.REVIVE_HC_SOCKET || join(env.XDG_STATE_HOME || join(home, ".local", "state"), "herdr-core", "default", "default.sock");
 
 /**
  * Whether herdr-core answers on the terminal's socket. An `hc` older than
@@ -200,18 +213,33 @@ async function hook(args = []) {
   // REVIVE_DEBUG=1 in the agent's environment: why a hook recorded nothing, on stderr.
   const skip = (why) => { if (process.env.REVIVE_DEBUG) process.stderr.write(`revive hook: ${why}\n`); };
   const payload = hookPayload(await readStdin());
-  const t = process.env.HC_TERMINAL_ID;
+  let t = process.env.HC_TERMINAL_ID;
   const { event, session } = payload;
-  if (!t || !validId(session)) return skip(!t ? "not in a herdr terminal" : "no valid session id");
+  // Muse's hooks don't get HC_TERMINAL_ID (see terminalOfHook).
+  const lookup = !t && hintOf(args) === "muse";
+  if ((!t && !lookup) || !validId(session)) return skip(!t && !lookup ? "not in a herdr terminal" : "no valid session id");
+  // Muse's hooks don't get HC_TERMINAL_SOCKET either: without it coreUp would
+  // take the core as up, and the `hc` below would start one if it isn't. That
+  // `hc` talks to the default core, so its socket is the one to check; the
+  // settle process spawned below inherits it.
+  if (lookup && !process.env.HC_TERMINAL_SOCKET) process.env.HC_TERMINAL_SOCKET = defaultSocket();
   // The agent ends when the core stops, and its SessionEnd comes after: with
   // no core, there is no label to change, and `hc` would start a new core.
   if (!(await coreUp())) return skip("herdr-core is not up");
-  const terminal = await getTerminal(t);
+  let table = null;
+  let terminal;
+  if (t) terminal = await getTerminal(t);
+  else {
+    table = await processes();
+    terminal = await terminalOfHook(table);
+    if (!terminal) return skip("no herdr terminal runs this hook's agent in its foreground");
+    t = terminal.address;
+  }
   // The hook must belong to the agent in the terminal's foreground, not to a
   // `claude -p` that agent ran as a tool (it inherits HC_TERMINAL_ID too).
   const target = terminal.foreground?.pid ?? terminal.pid;
   if (!target) return skip("no foreground process");
-  const table = await processes();
+  table ??= await processes();
   const owner = hookOwner(table, process.ppid, target);
   if (!owner.owned) return skip(`not the foreground agent's hook (from ${process.ppid} to ${target}, ${table.size} processes)`);
   const rec = readRecord(terminal.labels);
@@ -276,6 +304,32 @@ async function hook(args = []) {
   }
 }
 
+/**
+ * The terminal a hook's agent runs in, for an agent whose hooks don't get
+ * HC_TERMINAL_ID: Muse runs them with a reduced environment. Its plugin loads
+ * only inside an hc terminal (the bundle's `when`), so a core is there to ask.
+ * The terminal is the live one whose foreground process is the hook's nearest
+ * ancestor among all terminals', checked by the same walk the check after it
+ * makes (hookOwner): a tool call's agent below the foreground one still counts
+ * as not owned. Only the hook installed for Muse (`--agent muse`) looks; every
+ * other hook still needs HC_TERMINAL_ID.
+ */
+async function terminalOfHook(table) {
+  const byTarget = new Map();
+  for (const t of await listTerminals()) {
+    const target = t.foreground?.pid ?? t.pid;
+    if (target && !byTarget.has(target)) byTarget.set(target, t);
+  }
+  // The nearest terminal above the hook, not the first one listed: a terminal
+  // whose shell is an ancestor of herdr-core (a core started by hand from
+  // inside another terminal) is above every hook.
+  for (let pid = process.ppid, hops = 0; pid > 1 && hops < 64; hops++) {
+    if (byTarget.has(pid)) return hookOwner(table, process.ppid, pid).owned ? byTarget.get(pid) : null;
+    pid = table.get(pid)?.ppid;
+  }
+  return null;
+}
+
 const settleMs = () => {
   const ms = Number(process.env.REVIVE_SETTLE_MS ?? 1500);
   return Number.isFinite(ms) && ms > 0 ? ms : 0;
@@ -307,22 +361,23 @@ const alive = (pid) => {
 
 /**
  * For a SessionEnd whose reason can't tell the person's exit from a signal
- * (Copilot CLI's `user_exit`): whether the terminal outlived the agent, so
- * the person ended it. A core restart or a reboot closes the terminal, which
- * hangs up its shell, or stops the core; `/exit` leaves the shell at its
- * prompt. After REVIVE_SETTLE_MS, the core must still be up, the terminal live
- * with the same shell, and the same session on record. Copilot still in the
- * foreground as the same process (`agentPid`) means `/clear`: the person ended
- * this session for a new one. Another Copilot there may be resuming it, so it
- * stays. Any doubt keeps it.
+ * (Copilot CLI's `user_exit`, Muse's `other`): whether the terminal outlived
+ * the agent, so the person ended it. A core restart or a reboot closes the
+ * terminal, which hangs up its shell, or stops the core; `/exit` leaves the
+ * shell at its prompt. After REVIVE_SETTLE_MS, the core must still be up, the
+ * terminal live with the same shell, and the same session on record. The same
+ * agent still in the foreground as the same process (`agentPid`) means
+ * `/clear`: the person ended this session for a new one. Another process of
+ * that agent there may be resuming it, so it stays. Any doubt keeps it.
  */
 async function outlived(t, pid, session, agentPid) {
   await new Promise((resolve) => setTimeout(resolve, settleMs()));
   if (!(await coreUp())) return false;
   const now = await getTerminal(t).catch(() => null);
   if (!now || now.state !== "live" || !pid || now.pid !== pid || !alive(now.pid)) return false;
-  if (readRecord(now.labels)?.session !== session) return false;
-  return liveAgent(now) !== "copilot" || now.foreground?.pid === agentPid;
+  const rec = readRecord(now.labels);
+  if (rec?.session !== session) return false;
+  return liveAgent(now) !== rec.agent || now.foreground?.pid === agentPid;
 }
 
 // ── records read back ───────────────────────────────────────────────────────
@@ -343,7 +398,12 @@ export function vetRecord(rec, { uid = process.getuid?.(), gid = process.getgid?
     const st = statSync(real);
     // Windows has no mode bits to read (every folder says 0o666) and no uid:
     // the folder's ACL says who owns it and who may write to it (winOwners).
-    if (win) return st.isDirectory() && owners([real]).get(real) === true ? { ...rec, cwd: real } : { ...rec, cwd: null, cwdRefused: rec.cwd };
+    if (win) {
+      const owned = st.isDirectory() ? owners([real]).get(real) : false;
+      if (owned === true) return { ...rec, cwd: real };
+      // PowerShell didn't answer in time: refused, but only for now (see shouldResume).
+      return { ...rec, cwd: null, cwdRefused: rec.cwd, ...(owned === null ? { cwdUnknown: true } : {}) };
+    }
     const groupOk = (st.mode & 0o020) === 0 || (uid !== undefined && st.gid === gid && gid === uid);
     if (st.isDirectory() && (uid === undefined || st.uid === uid) && (st.mode & 0o002) === 0 && groupOk) return { ...rec, cwd: real };
   } catch { /* gone */ }
@@ -358,32 +418,42 @@ export function vetRecord(rec, { uid = process.getuid?.(), gid = process.getgid?
  * outside the user profile (C:\\code, D:\\work), the place most code lives, so
  * refusing it would refuse nearly every project. Answers are kept for the
  * process: the dialog asks for many folders at once (see `list`).
+ *
+ * The paths are assigned before the loop: Windows PowerShell 5.1's
+ * ConvertFrom-Json writes a JSON array as one object, which `@()` would
+ * wrap into a one-element list, and every folder would be refused.
+ * A folder PowerShell didn't answer for (a timeout while a rebooted machine
+ * starts many shells at once) is null, "don't know", and isn't kept.
  */
 const WIN_OWNERS = `
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $owners = @($me, 'S-1-5-32-544', 'S-1-5-18')
 $open = @('S-1-1-0', 'S-1-5-7')
 $res = @{}
-foreach ($p in @(ConvertFrom-Json $env:REVIVE_PATHS)) {
+$paths = ConvertFrom-Json $env:REVIVE_PATHS
+foreach ($p in $paths) {
   try {
     $acl = Get-Acl -LiteralPath $p
     $ok = $owners -contains $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
     foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
       if ($r.AccessControlType -eq 'Allow' -and $open -contains $r.IdentityReference.Value -and ([int64]$r.FileSystemRights -band 0x500C0006)) { $ok = $false }
     }
-    $res[$p] = $ok
-  } catch { $res[$p] = $false }
+    $res[[string]$p] = $ok
+  } catch { $res[[string]$p] = $false }
 }
 ConvertTo-Json -InputObject $res -Compress`;
 const ownerCache = new Map();
 export function winOwners(paths) {
   const ask = [...new Set(paths)].filter((p) => !ownerCache.has(p));
   if (ask.length) {
-    let got = {};
-    try { got = JSON.parse(runPsSync(WIN_OWNERS, { REVIVE_PATHS: JSON.stringify(ask) }) || "{}"); } catch { /* unknown: refused */ }
-    for (const p of ask) ownerCache.set(p, got[p] === true);
+    let got = null;
+    // Once more, with longer, when it times out: at boot every shell asks at once.
+    for (const timeout of [15_000, 90_000]) {
+      try { got = JSON.parse(runPsSync(WIN_OWNERS, { REVIVE_PATHS: JSON.stringify(ask) }, { timeout }) || "{}"); break; } catch { /* again */ }
+    }
+    if (got) for (const p of ask) ownerCache.set(p, got[p] === true);
   }
-  return new Map(paths.map((p) => [p, ownerCache.get(p) === true]));
+  return new Map(paths.map((p) => [p, ownerCache.has(p) ? ownerCache.get(p) : null]));
 }
 
 /** Asks for every recorded folder at once (Windows), so the dialog makes one PowerShell call, not one per terminal. */
@@ -446,7 +516,8 @@ async function check(args) {
   debug(verdict.why);
   if (!verdict.go && verdict.hint) {
     // Said once: marked failed, the next shell stays quiet; the dialog offers it by hand.
-    await label(t, labelArgs({ failed: Date.now() }));
+    // Not when it is only unknown for now: the next start asks again.
+    if (!verdict.retry) await label(t, labelArgs({ failed: Date.now() }));
     process.stdout.write(`${notResumingLine(rec, verdict.why, { dialect })}\n`);
     return;
   }
@@ -600,7 +671,9 @@ async function resume(args) {
   // Run from inside a herdr terminal, `hc send` delivers the text as a note from
   // that terminal (`<hc from="t3">…</hc>`), which the shell can't run.
   const { HC_TERMINAL_ID: _, ...env } = process.env;
-  await hc(["send", t, line], env);
+  // `hc send` waits for a half-typed draft in the terminal (up to 60 s), and a
+  // loaded machine is slow to start it: 10 s reports a send that still arrives.
+  await hc(["send", t, line], env, { timeout: 90_000 });
 }
 
 async function auto(args) {
@@ -723,7 +796,7 @@ function adoptReport(results, { dry = false } = {}) {
     lines.push(`${dry ? "Would remember" : "Remembered"} ${done.length} running session${done.length === 1 ? "" : "s"}:`);
     for (const r of done) {
       lines.push(`  ${at(r)}  ${AGENTS[r.agent].name} ${shortId(r.session)}  ${tilde(r.fields.cwd)}`);
-      if (dry) lines.push(`    ${shJoin([HC, "label", r.address, ...labelArgs(r.fields)])}`);
+      if (dry) lines.push(`    ${shJoin([hcBin(), "label", r.address, ...labelArgs(r.fields)])}`);
     }
   }
   if (left.length) lines.push("Not remembered:", ...left.map((r) => `  ${at(r)}  ${AGENTS[r.agent].name}: ${r.why}`));
@@ -794,16 +867,152 @@ const cursorDir = () => agentDirs({ ...process.env, HOME: homedir(), USERPROFILE
 const copilotHooks = () => join(copilotDir(), "hooks", "herdr-revive.json");
 
 /**
- * Whether a CLI is installed: on PATH, or in ~/.local/bin, where the Droid and
- * cursor-agent installers put it, or in `extra` folders. The Herdr app may run Revive with a shorter
- * PATH than the person's shell has, hence the fallback.
+ * Muse has no hooks file either: its hooks come from a plugin bundle, which
+ * `muse plugins install` copies into Muse's own cache, so the bundle can't find
+ * the engine from its place. Install writes the bundle into the mod, naming
+ * the engine by its full path, then installs and trusts it (`muse plugins
+ * install`, `approve`). Each hook has a script of its own: Muse refuses a
+ * bundle whose two hooks share one source. The plugin loads only inside an hc
+ * terminal (`when`), like Muse's own Herdr plugin. REVIVE_MUSE: another `muse`,
+ * for tests. Not on Windows: unchecked there.
  */
-const hasCli = (bin, extra = []) => {
+const MUSE_PLUGIN = "herdr-revive";
+// By the path hasCli found: in ~/.local/bin (where Muse installs) and not on
+// the app's PATH, a bare `muse` would fail.
+const museCli = () => process.env.REVIVE_MUSE || whichCli("muse") || "muse";
+// REVIVE_MUSE set but empty: no Muse (tests on a machine that has one).
+const musePresent = () => !IS_WIN && (process.env.REVIVE_MUSE !== undefined ? process.env.REVIVE_MUSE !== "" : hasCli("muse"));
+// REVIVE_MUSE_BUNDLE: another folder, for tests, so they never touch the mod's own.
+const museBundle = () => process.env.REVIVE_MUSE_BUNDLE || join(dirname(ENGINE), "muse-plugin");
+/**
+ * Which bundle the installed plugin came from, written by install: another
+ * checkout may have installed it since, and Muse runs that one's engine.
+ */
+const museStamp = () => join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "herdr-revive", "muse-plugin");
+const MUSE_HOOKS = { SessionStart: "session_start.sh", SessionEnd: "session_end.sh" };
+
+/**
+ * The bundle's files, by path inside it. Muse runs the hooks with a reduced
+ * environment, PATH too: the script names node and hc by the paths install
+ * found, and falls back to PATH when they have moved since (a node upgrade).
+ */
+export function museBundleFiles(engine = ENGINE, version = VERSION, { node = process.execPath, hc = process.env.REVIVE_HC ? null : whichCli("hc") } = {}) {
+  const script = [
+    "#!/bin/sh",
+    "# herdr-revive: Muse hook, written by revive.mjs install. Muse runs it from its plugin cache.",
+    `node=${shQuote(node)}`,
+    `[ -x "$node" ] || node=node`,
+    ...(hc ? [`if [ -z "$REVIVE_HC" ] && [ -x ${shQuote(hc)} ]; then REVIVE_HC=${shQuote(hc)}; export REVIVE_HC; fi`] : []),
+    `exec "$node" ${shQuote(engine)} hook --agent muse`,
+    "",
+  ].join("\n");
+  const manifest = {
+    schemaVersion: 1,
+    name: MUSE_PLUGIN,
+    displayName: "Herdr Revive",
+    version,
+    description: "Remembers this Muse session on its herdr-core terminal, so Revive can bring it back after a restart or reboot.",
+    compat: { source: "native", manifestDir: ".muse-plugin" },
+    when: { anyOf: [{ envPresent: "HC_TERMINAL_ID" }] },
+    capabilities: {
+      hooks: Object.entries(MUSE_HOOKS).map(([event, file]) => ({
+        id: `revive-${event === "SessionStart" ? "start" : "end"}`, event, command: ["sh", `hooks/${file}`], timeoutMs: 10000,
+      })),
+    },
+  };
+  return {
+    ".muse-plugin/plugin.json": JSON.stringify(manifest, null, 2) + "\n",
+    ...Object.fromEntries(Object.values(MUSE_HOOKS).map((file) => [`hooks/${file}`, script])),
+  };
+}
+
+const museRun = (args, timeout = 30_000) => execFileSync(museCli(), args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout });
+const muse = (...args) => museRun(args);
+
+/**
+ * Revive's Muse plugin: null when Muse says it isn't installed, else whether
+ * both hooks are trusted and enabled. Any other failure (a timeout, a crash,
+ * no muse to run) is thrown: it says nothing about the plugin.
+ */
+function museState(timeout) {
+  let out;
+  try { out = museRun(["plugins", "inspect", MUSE_PLUGIN], timeout); } catch (err) {
+    if (/is not installed/.test(String(err?.stderr ?? ""))) return null;
+    throw err;
+  }
+  return { trusted: (out.match(/status=trusted_enabled/g) ?? []).length >= Object.keys(MUSE_HOOKS).length };
+}
+
+/**
+ * Installs Revive's Muse plugin, or with remove takes it out. Returns whether
+ * anything changed. A plugin already installed from the same bundle (this
+ * folder, per the stamp, with the same files), trusted, is left as it is; a
+ * changed bundle (another engine path, a new version, another checkout's)
+ * replaces it. Muse has no upgrade in place: the old plugin is removed first,
+ * and if the new one then fails to install, the old files go back in.
+ */
+function installMuse(remove) {
+  const dir = museBundle();
+  const stamp = museStamp();
+  const state = museState();
+  if (remove) {
+    if (state) muse("plugins", "remove", MUSE_PLUGIN, "--delete-data");
+    const had = existsSync(dir);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(stamp, { force: true });
+    return Boolean(state) || had;
+  }
+  const files = Object.entries(museBundleFiles());
+  const old = files.map(([name]) => [name, readText(join(dir, name))]);
+  const write = (entries) => {
+    let wrote = false;
+    for (const [name, text] of entries) {
+      const path = join(dir, name);
+      if (readText(path) === text) continue;
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, text);
+      wrote = true;
+    }
+    return wrote;
+  };
+  const wrote = write(files);
+  const ours = readText(stamp).trim() === dir;
+  if (state?.trusted && !wrote && ours) return false;
+  const add = () => {
+    muse("plugins", "install", dir, "--scope", "user");
+    muse("plugins", "approve", MUSE_PLUGIN);
+  };
+  if (state) muse("plugins", "remove", MUSE_PLUGIN);
+  try { add(); } catch (err) {
+    // The old plugin is gone: put the old bundle back, when there was a whole one, and install it again.
+    if (state && wrote && old.every(([, text]) => text)) {
+      try { write(old); add(); } catch { /* the error that matters is the first one */ }
+    }
+    throw err;
+  }
+  mkdirSync(dirname(stamp), { recursive: true });
+  writeFileSync(stamp, `${dir}\n`);
+  return true;
+}
+
+/**
+ * Where a CLI is installed, or null: on PATH, or in ~/.local/bin, where the
+ * Droid, cursor-agent, Muse and hc installers put it, or in `extra` folders.
+ * The Herdr app may run Revive with a shorter PATH than the person's shell
+ * has, hence the fallback; hasCli says only whether.
+ */
+function whichCli(bin, extra = []) {
   // Windows: PATH is split by `;`, and a program is `bin.exe`, `bin.cmd`, … (PATHEXT).
   const exts = IS_WIN ? ["", ...(process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)] : [""];
-  return [...(process.env.PATH ?? "").split(delimiter).filter(Boolean), join(homedir(), ".local", "bin"), ...extra]
-    .some((dir) => exts.some((ext) => existsSync(join(dir, bin + ext))));
-};
+  for (const dir of [...(process.env.PATH ?? "").split(delimiter).filter(Boolean), join(homedir(), ".local", "bin"), ...extra]) {
+    for (const ext of exts) {
+      const path = join(dir, bin + ext);
+      if (existsSync(path)) return path;
+    }
+  }
+  return null;
+}
+const hasCli = (bin, extra = []) => whichCli(bin, extra) !== null;
 
 /**
  * On macOS herdr-core starts terminals as login shells (`zsh -l`, `bash -l`).
@@ -1248,6 +1457,15 @@ async function install(args, remove = false) {
       }
     } catch (err) { warnings.push(err.message); }
   }
+  // Muse: a plugin of Revive's own, through Muse's CLI.
+  if (!args.includes("--no-muse") && musePresent()) {
+    try {
+      if (installMuse(remove)) {
+        changed.push(museBundle());
+        if (!remove) notes.push("Muse loads the plugin the next time a session starts.");
+      }
+    } catch (err) { warnings.push(`Couldn't ${remove ? "remove" : "install"} the Muse plugin: ${String(err?.stderr || err?.message || err).trim().split("\n")[0]}`); }
+  }
   if (!args.includes("--no-shell")) {
     const kindOf = (rc) => Object.keys(RC).find((k) => RC[k]() === rc) ?? null;
     for (const rc of remove ? ALL_RC() : shells(args).map((s) => RC[s]()).filter(Boolean)) {
@@ -1301,7 +1519,7 @@ async function unremembered() {
 const unrememberedNote = (n) => `${n} running Claude Code session${n === 1 ? " isn't" : "s aren't"} remembered yet: revive.mjs adopt --dry-run lists ${n === 1 ? "it" : "them"}, and revive.mjs adopt remembers ${n === 1 ? "it" : "them"}.`;
 
 /** Why an `hc` call failed, in one line. */
-const hcFailure = (err) => (err?.code === "ENOENT" ? `${HC} isn't on PATH` : String(err?.stderr || err?.message || err).trim().split("\n")[0]);
+const hcFailure = (err) => (err?.code === "ENOENT" ? `${hcBin()} isn't on PATH` : String(err?.stderr || err?.message || err).trim().split("\n")[0]);
 
 /**
  * Links pi's or omp's extension to the mod's, or, with remove, takes out that
@@ -1348,6 +1566,8 @@ export function doctorReport() {
     engine: ENGINE,
     ...hooks,
     ...Object.fromEntries(EXTENSION_AGENTS.map((key) => [key, existsSync(EXTENSIONS[key].dir()) ? safe(() => isExtension(key, extensionPath(key))) : null])),
+    // A short wait: the panel asks for this on every refresh.
+    muse: musePresent() ? safe(() => Boolean(museState(5_000)?.trusted)) : null,
     shell: Object.fromEntries(Object.entries(RC).map(([s, rc]) => [s, safe(() => { const f = rc(); return Boolean(f) && readText(f).includes(BEGIN); })])),
   };
   // Windows: whether PowerShell runs a profile at all (see executionPolicy).

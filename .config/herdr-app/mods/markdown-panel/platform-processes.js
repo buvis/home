@@ -103,6 +103,14 @@ for f in "$d"/*.json; do
   echo "$p"; exit 0
 done
 exit 0`;
+const PROC_CWD = 'for p; do t=$(readlink "/proc/$p/cwd" 2>/dev/null) && printf "%s\\t%s\\n" "$p" "$t"; done; exit 0';
+const PROC_FDS = 'for p; do for f in /proc/"$p"/fd/*; do t=$(readlink "$f" 2>/dev/null) && printf "%s\\t%s\\n" "$p" "$t"; done; done; exit 0';
+export const procLinks = (text) => String(text ?? "").split("\n").flatMap((line) => {
+  const at = line.indexOf("\t");
+  const pid = Number(line.slice(0, at));
+  return at > 0 && pid > 0 ? [{ pid, path: line.slice(at + 1) }] : [];
+});
+
 export function processApi(platform, run) {
   const list = async ({ pids, on } = {}) => {
     if (pids) pids.forEach(validPid);
@@ -123,6 +131,7 @@ export function processApi(platform, run) {
     pids.forEach(validPid);
     if (platform === "windows") return unavailable("Working directories of other processes");
     if (!pids.length) return { state: "ok", values: new Map() };
+    if (platform === "linux") return { state: "ok", values: new Map(procLinks(checked(await run("sh", ["-c", PROC_CWD, "sh", ...pids.map(String)], options)).stdout).map(({ pid, path }) => [pid, path])) };
     const r = await run("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-F", "pn"], options);
     if (r.code !== 0 && r.code !== 1) checked(r);
     return { state: "ok", values: new Map(lsofFields(r.stdout).flatMap(({ pid, fields }) => fields.filter((line) => line[0] === "n").map((line) => [pid, line.slice(1)]))) };
@@ -131,6 +140,7 @@ export function processApi(platform, run) {
     pids.forEach(validPid);
     if (platform === "windows") return unavailable("Open files of other processes");
     if (!pids.length) return { state: "ok", values: [] };
+    if (platform === "linux") return { state: "ok", values: procLinks(checked(await run("sh", ["-c", PROC_FDS, "sh", ...pids.map(String)], options)).stdout) };
     const r = await run("lsof", ["-a", "-p", pids.join(","), "-Fn"], options);
     if (r.code !== 0 && r.code !== 1) checked(r);
     return { state: "ok", values: lsofFields(r.stdout).flatMap(({ pid, fields }) => fields.filter((line) => line[0] === "n").map((line) => ({ pid, path: line.slice(1) }))) };

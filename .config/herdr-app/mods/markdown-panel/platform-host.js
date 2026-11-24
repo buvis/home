@@ -7,7 +7,6 @@ export const sleepFor = (platform, runner, seconds) => platform === "windows"
   ? powershell(runner, `Start-Sleep -Milliseconds ${Math.max(0, Math.round(Number(seconds) * 1000))}`)
   : runner("sleep", [String(seconds)]);
 export const localSleep = (seconds) => sleepFor(localName(), exec, seconds);
-// A poor link has to give up, or a panel would spin until Herdr's own limit.
 export const REMOTE_TIMEOUT = 12000;
 class RemoteServices {
   constructor() { this.names = new Map(); }
@@ -24,9 +23,9 @@ class RemoteServices {
 }
 const remoteServices = new RemoteServices();
 export const serviceOn = (factory, on) => remoteServices.get(factory, on);
-// Timeout only when `machine` is set: a local service keeps today's runner.
+export const platformOf = (machine) => (machine ? serviceOn((platform) => platform, machine).catch(() => "linux") : Promise.resolve(localName()));
+const withTimeout = (run, timeout) => (timeout == null ? run : (cmd, args, options = {}) => run(cmd, args, { timeout, ...options }));
 export function serviceFor(factory, machine = null, timeout = null, remote = null) {
-  if (!machine) return Promise.resolve(localService(factory));
-  const timed = (run) => (cmd, args, options = {}) => run(cmd, args, { timeout, ...options });
-  return (remote ?? serviceOn)((platform, run) => factory(platform, timeout == null ? run : timed(run)), machine);
+  if (!machine) return Promise.resolve(localService((platform, run, write) => factory(platform, withTimeout(run, timeout), write)));
+  return (remote ?? serviceOn)((platform, run) => factory(platform, withTimeout(run, timeout)), machine);
 }

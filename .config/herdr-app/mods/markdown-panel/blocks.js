@@ -14,11 +14,11 @@ const startsBlock = (lines, i) => FENCE.test(lines[i]) || HEADING.test(lines[i])
 
 // step(state, j) answers { state, emit }; emits go in runs of 64 so the array is not copied once per item.
 const RUN = 64;
-function collect(n, step, init) {
+export function collect(n, step, init, keep = Boolean) {
   const done = range(Math.ceil(n / RUN)).reduce((acc, r) => {
     const run = range(Math.min(RUN, n - r * RUN), r * RUN).reduce((inner, j) => {
       const next = step(inner.state, j);
-      return { state: next.state, items: next.emit ? [...inner.items, next.emit] : inner.items };
+      return { state: next.state, items: keep(next.emit) ? [...inner.items, next.emit] : inner.items };
     }, { state: acc.state, items: [] });
     return { state: run.state, runs: [...acc.runs, run.items] };
   }, { state: init, runs: [] });

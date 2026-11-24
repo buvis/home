@@ -10,10 +10,13 @@ import { markdownApi } from "./platform-markdown.js";
 // markdown-handler.sh leaves .md paths opened from outside in data/kanso-open; bin/md-review leaves
 // the ones to review in data/markdown-review; watchOpens picks both up.
 // doc.js and blocks.js are synced copies of kanso-panel's; edit those.
-import { View, div, svg } from "gpui-kit";
+import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, exec, watchFolder, focused, spaces, props, closeOverlay, theme, home } from "herdr";
 import { MarkdownDoc, tildePath } from "./doc.js";
+import { tokens } from "./ui.js";
+import { button, iconButton } from "./ui-button.js";
+import { tooltip } from "./kit.js";
 import { afterMount } from "./pure.js";
 import { pollStart, pollNext, takeStamp, ArmPoll, asOf } from "./remote-file.js";
 
@@ -220,25 +223,22 @@ export default class MarkdownPanel extends View {
   render() {
     const t = theme();
     const doc = this.doc;
-    const button = (id, icon, tip, action) => div().id(id).p(4).rounded(6).cursor_pointer().text_color(t.muted).tooltip(tip)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => action(cx))
-      .child(svg(`${ICONS}/${icon}.svg`).size(14));
+    const c = tokens(t);
+    const tool = (id, icon, tip, action) => iconButton(id, `${ICONS}/${icon}.svg`, tip, action, c);
     const reviewing = Boolean(doc) && !doc.on && this.reviewing.some((x) => x.path === doc.path);
     return v_flex().id("markdown-panel").key_context("MarkdownPanel").track_focus(this.handle)
       .on_action("markdown_panel_escape", (_e, cx) => { if (doc && doc.active !== null) { doc.close(); cx.notify(); } else this.close(cx); })
       .size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .on_key_down((e, cx) => doc?.key(e, cx))
       .child(h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .when(Boolean(doc), (el) => el.child(button("md-back", "chevron-left", "Markdown in this folder", (cx) => this.back(cx))))
+        .when(Boolean(doc), (el) => el.child(tool("md-back", "chevron-left", "Markdown in this folder", (cx) => this.back(cx))))
         .child(v_flex().flex_1().min_w(0).pl(doc ? 0 : 4)
           .child(div().truncate().font_semibold().child(doc ? nameOf(doc.path) : "Markdown"))
           .child(div().truncate().text_size(11).text_color(t.dim).child(`${tildePath(doc ? folderOf(doc.path) : this.folder, doc ? doc.on : this.on)}${doc?.held ? ` · ${asOf(doc.held.at, Date.now())}` : ""}`)))
         .children(doc ? doc.controls(t, "md") : [])
-        .when(Boolean(doc) && !doc.editing, (el) => el.child(button("md-refresh", "refresh", doc.held ? "Retry" : "Read again", (cx) => { this.poll = pollStart(); doc.load(cx); })))
-        .when(reviewing, (el) => el.child(div().id("md-done").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
-          .bg(t.raised).border_1().border_color(t.border).tooltip("Review done: tell the agent").hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.done(cx)).child("Done")))
-        .child(button("md-close", "close", "Close", (cx) => this.close(cx))))
+        .when(Boolean(doc) && !doc.editing, (el) => el.child(tool("md-refresh", "refresh-cw", doc.held ? "Retry" : "Read again", (cx) => { this.poll = pollStart(); doc.load(cx); })))
+        .when(reviewing, (el) => el.child(button("md-done", "Done", (cx) => this.done(cx), c, { kind: "tonal", small: true }).tooltip(tooltip({ label: "Review done", detail: "tell the agent" }))))
+        .child(tool("md-close", "x", "Close", (cx) => this.close(cx))))
       .when(Boolean(this.notice), (el) => el.child(div().flex_none().px(14).py(6).text_size(12).text_color(t.blocked).border_b(1).border_color(t.border).child(this.notice ?? "")))
       .child(doc ? doc.body(t, "md-doc") : this.listView(t));
   }

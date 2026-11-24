@@ -1,18 +1,17 @@
 // A file on another machine, copied into the app folder so a picture can be drawn here.
-import { appHome } from "herdr";
+import { appHome, shared } from "herdr";
 import { exists, mkdir, readFile, readdir, unlink, writeFile } from "fs/promises";
 import { localService, serviceOn } from "./platform-host.js";
-import { fileApi, pairEntries } from "./platform-files.js";
+import { fileApi, pairEntries, CHUNK } from "./platform-files.js";
 import { paths } from "./platform-paths.js";
-import { extOf } from "./pure.js";
+import { aliasText, extOf, machineTitle } from "./pure.js";
 
 export const BYTE_CAP = 20 * 1024 * 1024;
 export const ASK_BYTES = 2 * 1024 * 1024;
 export const CHECK_MS = 5000;
 export const SLOW_MS = 30000;
 export const QUIET_LIMIT = 3;
-// 2097150 is a multiple of 3, so only the last slice's base64 is padded, and it stays under the exec cap.
-export const CHUNK = 2097150;
+export { CHUNK };
 export const REMOTE_DIR = "data/kanso-panel/remote";
 const DAY = 86400000;
 const QUIET = /unreachable|did not answer|timed out|timeout|econnrefused|connection refused|offline|no route|was lost/i;
@@ -42,13 +41,19 @@ export const lookStamp = (name) => {
 };
 
 export const sweepLook = async (root, id, keep) => {
-  const names = await readdir(root).catch(() => []);
-  const now = Date.now();
+  const { names, now } = await cacheContents(root);
   const drop = dropCopies(names.map((name) => ({ name, mtime: lookStamp(name) })), { id, keep, now });
-  await Promise.all(drop.map((old) => unlink(paths.join(root, old)).catch(() => {})));
+  await removeCached(root, drop);
 };
 
 export const said = (error) => String(error?.message ?? error ?? "").replace(/^Error:\s*/, "").trim();
+
+const aliasName = (machine) => aliasText(shared("kanso.alias"), machine);
+
+export const quietError = (error) => {
+  const text = said(error);
+  return !text || QUIET.test(text);
+};
 
 export const copyFailure = (error, machine) => {
   const text = said(error);
@@ -56,14 +61,17 @@ export const copyFailure = (error, machine) => {
   if (/cut short|truncat/i.test(text)) return "The copy was cut short";
   if (DENIED.test(text)) return "Cannot read this file: permission denied";
   if (MISSING.test(text)) return "This file is no longer available";
-  if (!text || QUIET.test(text)) return `${machine} did not answer`;
+  if (!text || QUIET.test(text)) {
+    const alias = aliasName(machine);
+    return `${alias ? machineTitle(machine || "", "", alias) : machine} did not answer`;
+  }
   return text;
 };
 
 export const listFailure = (error, machine) => {
   const text = said(error);
   if (DENIED.test(text)) return "Cannot list this folder: permission denied";
-  if (!text || QUIET.test(text)) return machine ? `${machine} did not answer` : "This computer did not answer";
+  if (!text || QUIET.test(text)) return `${machineTitle(machine || "", "", aliasName(machine))} did not answer`;
   return text || "Cannot list this folder";
 };
 
@@ -212,12 +220,11 @@ const readKept = async (file) => (await readFile(file, "utf8").catch(() => "")).
 const atOf = (rows, name) => rows.find((row) => row[0] === name)?.[1];
 
 const sweep = async (root, id, keep) => {
-  const names = await readdir(root).catch(() => []);
-  const now = Date.now();
+  const { names, now } = await cacheContents(root);
   const rows = await readKept(keptFile(root));
   const known = atOf(rows, keep) === undefined ? [...rows, [keep, now]] : rows;
   const drop = dropCopies(names.map((entry) => ({ name: entry, mtime: atOf(known, entry) ?? stampAt(entry) })), { id, keep, now });
-  await Promise.all(drop.map((old) => unlink(paths.join(root, old)).catch(() => {})));
+  await removeCached(root, drop);
   const gone = new Set(drop);
   const live = names.filter((entry) => !gone.has(entry)).map((entry) => [entry, atOf(known, entry) ?? now]);
   const listed = live.some((row) => row[0] === keep) ? live : [...live, [keep, atOf(known, keep) ?? now]];
@@ -277,4 +284,18 @@ export async function bring(file, on, { ask = false } = {}) {
   } catch (e) {
     throw new Error(copyFailure(e, on));
   }
+}
+
+const cacheContents = async (root) => ({ names: await readdir(root).catch(() => []), now: Date.now() });
+const removeCached = (root, names) => Promise.all(names.map((name) => unlink(paths.join(root, name)).catch(() => {})));
+
+export function startRemotePoll() {
+  this.poll = pollStart(); this.stamp = null; this.fresh = null; this.held = null; this.arm = null;
+}
+
+export function advanceRemotePoll(cx, outcome, failure = null) {
+  if (failure && !failure.keep && !this.error) this.error = failure.error;
+  this.poll = pollNext(this.poll, outcome);
+  new ArmPoll(this).start(cx, (tick) => this.probe(tick));
+  cx.notify();
 }

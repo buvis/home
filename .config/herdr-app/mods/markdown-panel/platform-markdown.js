@@ -27,7 +27,7 @@ export function markdownApi(platform, run) {
     const recordPath = foreground?.pid ? paths.join(home, ".claude", "sessions", `${foreground.pid}.json`) : null;
     const record = recordPath && await files.test(recordPath) ? JSON.parse(await files.read(recordPath)) : null;
     const temp = record?.sessionId ? await systemApi(platform, run).temporary() : [];
-    const scratch = temp.length ? await files.walk(temp, { depth: 5 }) : [];
+    const scratch = temp?.length ? await files.walk(temp, { depth: 5 }) : [];
     const found = scratch.filter((file) => file.split(/[\\/]/).includes(record.sessionId) && paths.basename(paths.dirname(file)) === "scratchpad" && /\.md$/i.test(file));
     const expanded = candidates.map((file) => /^~[\\/]/.test(file) ? paths.join(home, file.slice(2)) : file);
     return { code: 0, stdout: (await files.existing([...new Set([...expanded, ...found])])).slice(0, 15).join("\n") };

@@ -108,8 +108,14 @@ function codexOneShot(args) {
  *
  * `env` lists the variables that say where the agent keeps its sessions: a
  * session started under `CLAUDE_CONFIG_DIR=~/.claude-work` is found, and
- * resumed, only under that same folder. The hook records their names, not
- * their values (see `needs` below). `findIn` lists flags of the same kind.
+ * resumed, only under that same folder. Claude Code's
+ * `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` is one too: a session started in its
+ * Code Mode can be resumed only with Code Mode on, and Claude Code refuses it
+ * otherwise. The hook records their names, not their values (see `needs`
+ * below). `on` gives the one value that counts for a variable that is a
+ * switch, not a folder: `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0` is Code Mode
+ * off, so neither a session started with it nor a shell that sets it is in
+ * Code Mode. `findIn` lists flags of the same kind.
  * `oneShot` tells a run that answers and quits (`claude -p`, `codex exec`)
  * from an interactive session, given the words after the program's name:
  * such a run has hooks too, and must not replace the session on record.
@@ -126,7 +132,8 @@ export const AGENTS = {
     resume: (id, flags) => ["claude", ...flags, "--resume", id],
     fork: (id, flags) => ["claude", ...flags, "--resume", id, "--fork-session"],
     end: claudeEnd,
-    env: ["CLAUDE_CONFIG_DIR"],
+    env: ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"],
+    on: { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "1" },
     oneShot: (args) => args.some((w) => w === "-p" || w === "--print"),
     carry: {
       "--dangerously-skip-permissions": 0,
@@ -393,7 +400,66 @@ export const AGENTS = {
       "--allow-url": true,
     },
   },
+  // Muse, checked against muse 1.4.24 on macOS: its hooks come from a plugin
+  // bundle (see revive.mjs), and get Claude Code's input. SessionStart fires
+  // at a session's first answer (source "startup") and at the first message
+  // after `muse resume <id>` (source "resume"), with `session_id` and `cwd`.
+  // The `muse` launcher execs a versioned binary (`muse-bin-1.4.24-R9131.1`),
+  // which is what the terminal's foreground shows. It has no fork on the
+  // command line. Its hooks run with a reduced environment, without
+  // HC_TERMINAL_ID: the engine finds the terminal from the process tree.
+  muse: {
+    name: "Muse",
+    bin: "muse",
+    match: (word) => {
+      const name = base(word);
+      return name === "muse" || /^muse-bin-[0-9]/.test(name);
+    },
+    apps: ["muse"],
+    // A short, common word: only as the program itself.
+    argv0Only: true,
+    resume: (id, flags) => ["muse", ...flags, "resume", id],
+    fork: null,
+    // /exit sends "other", and so might anything else that ends it; a hangup
+    // (a core restart, a reboot) sends no SessionEnd at all. "other" can't
+    // tell the person's exit from a signal, so it is settled by whether the
+    // terminal outlived Muse. clear and resume start another session in the
+    // same process, as in Claude Code. The trade-off: if Muse alone crashes or
+    // is killed and still sends a SessionEnd, its shell outlives it as after
+    // /exit, and the session is forgotten where Claude Code's ("other") would
+    // be kept. Muse 1.4.24's reason for those wasn't captured: if it is one of
+    // their own, mapping it to "keep" here keeps them.
+    end: (reason) => (reason === "clear" || reason === "resume" ? "ignore" : "settle"),
+    oneShot: museOneShot,
+    carry: {
+      "--model": 1,
+      "--reasoning-effort": 1,
+      "--effort": 1,
+      "--approval-mode": 1,
+    },
+    // never: tools run without asking. Anything other than Muse's asking modes is left out.
+    unattended: { "--approval-mode": unless("untrusted", "on-request") },
+  },
 };
+
+/** Muse's subcommands that run once and quit, with no session to resume (`muse resume` is not one). */
+const MUSE_COMMANDS = new Set(["exec", "config", "export", "trace", "model-profile", "skills", "voice", "plugins", "sandbox", "schema", "serve", "mxp", "attach", "acp", "session-message", "sessions", "mcp", "auth", "login", "logout", "usage", "init"]);
+// Muse accepts its options on either side of a subcommand. Skip their values
+// too: a model named `exec` is still an interactive launch.
+const MUSE_VALUE_FLAGS = new Set([
+  "--agents", "--provider", "--preset", "--model", "-c", "--config", "--contributor-mode", "--reasoning-effort", "--effort",
+  "--base-url", "--image", "--workspace", "--worktree-base", "--worktree-existing", "--approval-mode",
+]);
+function museOneShot(args) {
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i];
+    if (word === "--") return false;
+    if (MUSE_VALUE_FLAGS.has(word)) { i++; continue; }
+    if (word.startsWith("-")) continue;
+    return MUSE_COMMANDS.has(word);
+  }
+  return false;
+}
 
 /** Copilot CLI's subcommands: each runs once and quits, with no session to resume. */
 const COPILOT_COMMANDS = new Set(["login", "logout", "help", "init", "config", "update", "version", "workflow", "sessions", "memories", "plugin", "mcp", "skill", "instruction", "lsp", "sandbox", "completion", "app"]);
@@ -706,7 +772,9 @@ export function needsCommand(rec, { dialect = "posix" } = {}) {
 
 /** What to do by hand for a record with needs, as one sentence ending in the command. */
 export function needsHint(rec, { dialect = "posix" } = {}) {
-  const vars = rec.needs.filter((n) => !n.startsWith("-"));
+  const on = AGENTS[rec.agent]?.on ?? {};
+  // A switch's value is no folder: it can be named (`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`).
+  const vars = rec.needs.filter((n) => !n.startsWith("-")).map((n) => (on[n] === undefined ? n : `${n}=${on[n]}`));
   const flags = rec.needs.filter((n) => n.startsWith("-"));
   const how = [vars.length ? `set ${vars.join(", ")}` : "", flags.length ? `fill in ${flags.join(", ")}` : ""].filter(Boolean).join(" and ");
   return `${how[0].toUpperCase()}${how.slice(1)}, then run: ${needsCommand(rec, { dialect })}`;
@@ -727,7 +795,17 @@ export function unresumable(rec) {
  * The needs the shell doesn't meet: a variable it doesn't set, a `findIn`
  * flag always. The session then isn't resumed by itself.
  */
-export const unmet = (rec, env = {}) => (rec?.needs ?? []).filter((n) => n.startsWith("-") || typeof env[n] !== "string" || env[n] === "");
+export const unmet = (rec, env = {}) => (rec?.needs ?? []).filter((n) => n.startsWith("-") || !isSet(rec.agent, n, env[n]));
+
+/**
+ * Whether the agent's `env` variable `name` counts as set to `value`: any
+ * value but "" for a folder, only the `on` value for a switch.
+ */
+function isSet(key, name, value) {
+  if (typeof value !== "string" || value === "") return false;
+  const on = AGENTS[key]?.on?.[name];
+  return on === undefined || value === on;
+}
 
 /** One word for a POSIX shell, quoted only when it needs to be. */
 export function shQuote(word) {
@@ -797,7 +875,7 @@ export function needsOf(key, argv = [], env = {}) {
   if (!agent) return [];
   const words = argv.slice(argsStart(key, argv)).map(String);
   const flags = (agent.findIn ?? []).filter((f) => words.some((w) => w === f || w.startsWith(`${f}=`)));
-  const set = (agent.env ?? []).filter((n) => typeof env[n] === "string" && env[n] !== "");
+  const set = (agent.env ?? []).filter((n) => isSet(key, n, env[n]));
   return [...set, ...flags];
 }
 
@@ -908,6 +986,8 @@ export function shouldResume(rec, { pid, since = null, shellPid, env = {} }) {
   if (rec.failed) return { go: false, why: "the last resume failed" };
   if (sameShell(rec, { pid, since })) return { go: false, why: "same shell as before" };
   // The engine found the folder missing or not the person's (vetRecord).
+  // Unknown (PowerShell didn't answer in time) is said, but not remembered as failed.
+  if (rec.cwdRefused && rec.cwdUnknown) return { go: false, why: "couldn't check in time whether its folder is yours", hint: true, retry: true };
   if (rec.cwdRefused) return { go: false, why: "its folder is missing or not yours", hint: true };
   const missing = unmet(rec, env);
   if (missing.length) return { go: false, why: `it was started with ${missing.join(", ")}`, hint: true };

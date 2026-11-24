@@ -4,7 +4,11 @@ import { powershell, psQuote, windowsArg } from "./platform-command.js";
 export const STOP_LOOP = 'g="$1"; shift; for a in "$@"; do case "$a" in *:force) "$0" "$g" stop-server "${a%:force}" force;; *) "$0" "$g" stop-server "$a";; esac; done';
 const DETACHED = 'nohup "$0" "$@" >/dev/null 2>&1 &';
 
-const memoryGuardReason = "Memory is not available on Linux.";
+const memoryGuardReason = "Memory is not available on this computer.";
+const MEMORY_GUARD = new Set(["macos", "windows", "linux"]);
+const LINUX_DOCKER = `for u in docker-desktop docker; do systemctl --user cat "$u.service" >/dev/null 2>&1 && exec systemctl --user "$1" "$u"; done
+if [ "$1" = start ]; then docker info >/dev/null 2>&1 && exit 0; exec systemctl start docker.service; fi
+exec systemctl stop docker.service docker.socket`;
 
 export function systemApi(platform, run) {
   const status = (appHome) => platform === "windows"
@@ -20,21 +24,22 @@ export function systemApi(platform, run) {
     }
     const r = platform === "windows"
       ? await powershell(run, "Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.SystemInformation]::PowerStatus.PowerLineStatus.ToString()")
-      : await run("sh", ["-c", 'for f in /sys/class/power_supply/*/online; do [ -f "$f" ] || continue; cat "$f"; done']);
+      : await run("sh", ["-c", 'for f in /sys/class/power_supply/*/status; do [ "$(cat "$f" 2>/dev/null)" = Discharging ] && { echo 0; exit 0; }; done; for f in /sys/class/power_supply/*/online; do [ -f "$f" ] || continue; cat "$f"; done']);
     if (r.code !== 0 || !r.stdout.trim() || /Unknown/.test(r.stdout)) return null;
     return platform === "windows" ? r.stdout.trim() === "Offline" : !r.stdout.split(/\s+/).includes("1");
   };
   const hostname = ({ short = true } = {}) => platform === "windows" ? powershell(run, "[Environment]::MachineName") : run("hostname", short ? ["-s"] : []);
   const temporary = async () => {
-    if (platform === "windows") return [(await powershell(run, "[IO.Path]::GetTempPath()")).stdout.trim()].filter(Boolean);
-    const r = await run("sh", ["-c", 'printf %s "${TMPDIR:-/tmp}"']);
-    return [...new Set([...(platform === "macos" ? ["/private/tmp"] : []), "/tmp", r.code === 0 ? r.stdout.trim() : ""].filter(Boolean))];
+    const r = await (platform === "windows" ? powershell(run, "[IO.Path]::GetTempPath()") : run("sh", ["-c", 'printf %s "${TMPDIR:-/tmp}"'])).catch(() => null);
+    const dir = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+    if (!dir) return null;
+    return platform === "windows" ? [dir] : [...new Set([...(platform === "macos" ? ["/private/tmp"] : []), "/tmp", dir])];
   };
   const userHome = async () => (platform === "windows" ? await powershell(run, "$HOME") : await run("sh", ["-c", 'printf %s "$HOME"'])).stdout.trim();
   const startDocker = () => platform === "macos" ? run("open", ["-a", "Docker"]) : platform === "windows"
     ? powershell(run, "Start-Process -FilePath (Join-Path $env:ProgramFiles 'Docker\\Docker\\Docker Desktop.exe') -ErrorAction Stop")
-    : run("systemctl", ["--user", "start", "docker-desktop"]);
-  const stopDocker = () => platform === "macos" ? run("osascript", ["-e", 'quit app "Docker"']) : platform === "windows" ? run("taskkill", ["/IM", "Docker Desktop.exe"]) : run("systemctl", ["--user", "stop", "docker-desktop"]);
+    : run("sh", ["-c", LINUX_DOCKER, "sh", "start"]);
+  const stopDocker = () => platform === "macos" ? run("osascript", ["-e", 'quit app "Docker"']) : platform === "windows" ? run("taskkill", ["/IM", "Docker Desktop.exe"]) : run("sh", ["-c", LINUX_DOCKER, "sh", "stop"]);
   const hiddenGuard = (node, file, args, appHome) => {
     const start = `$child=Start-Process -FilePath ${psQuote(node)} -ArgumentList ${psQuote([file, ...args].map(windowsArg).join(" "))} -WindowStyle Hidden -PassThru -ErrorAction Stop`;
     const capture = args[0] === "install" && appHome
@@ -50,5 +55,5 @@ export function systemApi(platform, run) {
     }).join("; ")].map(windowsArg).join(" "))} -ErrorAction Stop`)
     : run("sh", ["-c", DETACHED, "sh", "-c", STOP_LOOP, node, file, ...args]);
   const containerShell = (name, os) => ["docker", "exec", "-it", name, ...(os === "windows" ? ["cmd.exe"] : ["sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"])];
-  return { guardRun, guardStop, containerShell, status, restart, battery, hostname, temporary, userHome, startDocker, stopDocker, memoryGuardAvailable: platform === "macos" || platform === "windows", memoryGuardReason };
+  return { guardRun, guardStop, containerShell, status, restart, battery, hostname, temporary, userHome, startDocker, stopDocker, memoryGuardAvailable: MEMORY_GUARD.has(platform), memoryGuardReason };
 }
