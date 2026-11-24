@@ -13,6 +13,7 @@
     { "title": "Mod updates", "command": "mod.open", "args": { "name": "mod-updater" }, "words": "updater hmod gallery" },
     { "title": "Worktree include", "command": "mod.open", "args": { "name": "worktreeinclude" }, "words": "worktreeinclude" },
     { "title": "Copy mode", "command": "mod.open", "args": { "name": "copy-mode" }, "words": "select scrollback" },
+    { "title": "Walkthrough", "command": "mod.open", "args": { "name": "walkthrough" }, "words": "diff change read explain steps" },
     { "title": "Launcher", "command": "mod.open", "args": { "name": "launcher" }, "words": "apps" },
     { "title": "Recall", "command": "mod.open", "args": { "name": "recall" }, "words": "recent closed tabs" },
     { "title": "File picker", "command": "mod.open", "args": { "name": "file-picker" }, "words": "find open file fzf" },

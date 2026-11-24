@@ -1,0 +1,15 @@
+#!/bin/sh
+# Runs claude with the long-lived setup token, as ~/bin/run-agent does for agent
+# sessions. A mod that starts `claude -p` from Herdr gets no token from the
+# launcher, and the OAuth login it would fall back to expires.
+# Used by mods/walkthrough (engine.js programOf). Test: tests/walkthrough-local.test.mjs
+
+# The version probe needs no token. The mod reads a failed probe as "claude isn't
+# installed", so a missing token must fail the run itself, with the reason below.
+[ "$1" = --version ] && exec claude "$@"
+
+token_file="$HOME/.local/secrets/claude-setup-token"
+CLAUDE_CODE_OAUTH_TOKEN=$(tr -d '[:space:]' < "$token_file") || exit 1
+[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || { echo "run-claude-pat: $token_file is empty" >&2; exit 1; }
+export CLAUDE_CODE_OAUTH_TOKEN
+exec claude "$@"

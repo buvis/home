@@ -78,6 +78,7 @@ export const MOD_ITEMS = [
   [["u"], "updater", open("mod-updater")],
   [["i"], "worktree include", open("worktreeinclude")],
   [["x"], "copy mode", open("copy-mode")],
+  [["w"], "walkthrough", open("walkthrough")],
 ];
 
 const lookup = (items) => {

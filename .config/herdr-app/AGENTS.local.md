@@ -49,6 +49,9 @@ you rename or replace one of them.
   `r` resize mode.
 - The mods list (`MOD_ITEMS`) is mirrored in `mods/prefix/mod.json`
   `palette`. `node --test mods/prefix/palette.test.mjs` fails when they drift.
+- Agent's note, 2026-11-24. `keys.json` holds no direct shortcut that opens a
+  mod. A new mod gets a Ctrl-Q `m` entry and its palette mirror, not the
+  global key that it ships (walkthrough: Ctrl-Q `m` `w`, not cmd-shift-k).
 
 ## Rules and decisions of the person
 
@@ -119,11 +122,12 @@ use a tab of your own and keep the switch as short as you can.
 - `mods/ship-it/data.js` is copied byte for byte to `ship-it-prs`,
   `ship-it-review` and `ship-it-issues`. Edit one, copy to the others.
 - Agent's note, checked 2026-11-24. A mod that starts `claude` itself does
-  not go through `run-agent`, so it gets no setup token and would use the
-  Keychain login. Start it through a wrapper that sets only
-  `CLAUDE_CODE_OAUTH_TOKEN` from `~/.local/secrets/claude-setup-token`:
-  `claude -p` then works from a clean environment. Inside an agent session,
-  a nested `claude -p` with the inherited environment failed to authenticate.
+  not go through `run-agent`, so it gets no setup token, and the OAuth login
+  it would use expires. Make it start `bin/run-claude-pat` in place of
+  `claude` (walkthrough does): the wrapper sets `CLAUDE_CODE_OAUTH_TOKEN`
+  from `~/.local/secrets/claude-setup-token` and passes all arguments on.
+  Inside an agent session, a nested `claude -p` with the inherited
+  environment failed to authenticate; from a clean environment it works.
 - Agent's note, checked 2026-11-24. The agent sandbox cannot write `~/.herdr`
   (`sandbox-exec` with the profile: "Operation not permitted"). A Claude hook
   of a mod that keeps its state there does nothing in agent sessions, and
