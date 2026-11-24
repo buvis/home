@@ -1,0 +1,25 @@
+elkjs 0.11.1 upstream notices
+
+From src/js/elk-api.js:
+Copyright (c) 2017 Kiel University and others.
+
+This program and the accompanying materials are made
+available under the terms of the Eclipse Public License 2.0
+which is available at https://www.eclipse.org/legal/epl-2.0/
+
+SPDX-License-Identifier: EPL-2.0
+
+From src/js/main-node.js:
+Copyright (c) 2021 Kiel University and others.
+This program and the accompanying materials are made available under the
+terms of the Eclipse Public License 2.0 which is available at
+http://www.eclipse.org/legal/epl-2.0.
+
+SPDX-License-Identifier: EPL-2.0
+
+Sources:
+https://github.com/kieler/elkjs/blob/0.11.1/src/js/elk-api.js
+https://github.com/kieler/elkjs/blob/0.11.1/src/js/main-node.js
+
+Preview Plus applies QuickJS compatibility patches to elk.bundled.js.
+See THIRD_PARTY.md for the changes, source locations and build instructions.

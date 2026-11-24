@@ -284,5 +284,8 @@
     16
   ],
   "preview": "layouts/buvis.svg",
-  "terminal_menu": "on-screen"
+  "terminal_menu": "on-screen",
+  "link_handlers": [
+    "folio"
+  ]
 }

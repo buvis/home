@@ -11,6 +11,16 @@ if [ "${1:-}" = "--check" ]; then
 fi
 file=$1
 preview=${2:-}
+line=${3:-0}
+column=${4:-1}
+case $line:$column in
+  *[!0-9:]*|*:*:*) echo "Invalid Neovim source position." >&2; exit 1 ;;
+esac
+if ! [ "$line" -ge 0 ] || ! [ "$line" -le 2147483647 ] ||
+   ! [ "$column" -gt 0 ] || ! [ "$column" -le 2147483647 ]; then
+  echo "Invalid Neovim source position." >&2
+  exit 1
+fi
 : "${HC_TERMINAL_ID:?Run this helper in a Herdr terminal}"
 
 own_pane() {
@@ -34,12 +44,16 @@ if [ -n "$preview" ]; then
   herdr-app do pane.close --pane "$preview" >/dev/null
 fi
 
-nvim -- "$file" || true
+if [ "$line" -gt 0 ]; then
+  nvim -c "call cursor(str2nr('$line'), str2nr('$column'))" -- "$file" || true
+else
+  nvim -- "$file" || true
+fi
 
 # The user might have closed the containing pane/tab while the editor exited.
 [ "$(own_pane)" = "$pane" ] || exit 0
-args=$(jq -cn --arg pane "$pane" --arg path "$file" \
-  '{pane:$pane,direction:"right",mod:"folio",props:{path:$path}}')
+args=$(jq -cn --arg pane "$pane" --arg path "$file" --arg line "$line" --arg column "$column" \
+  '{pane:$pane,direction:"right",mod:"folio",props:{path:$path,line:($line|tonumber),column:($column|tonumber)}}')
 replacement=$(herdr-app do pane.split "$args" | jq -er .pane)
 herdr-app do pane.swap --pane "$pane" --target "$replacement" >/dev/null
 # Exiting removes this terminal pane, leaving the preview in the same region.
