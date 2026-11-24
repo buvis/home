@@ -50,6 +50,7 @@
 import { buildItems } from "./items.js";
 import { tiered } from "./fuzzy.js";
 import { buildClues } from "./clues.js";
+import { closedItems } from "./closed.js";
 
 /**
  * The row to open on, typed or not: the first that isn't where you are now
@@ -67,7 +68,7 @@ export function listView(category, snap, query, options = {}) {
     const { rows, label } = buildClues(snap, options.clueData ?? NO_CLUES, query);
     return { rows, count: rows.length, total: null, selected: openingRow(rows), label, fitTo: rows.map((r) => r.item) };
   }
-  const items = buildItems(category, snap, { agentSort: options.agentSort });
+  const items = category === "closed" ? closedItems(snap.closed ?? [], snap.home) : buildItems(category, snap, { agentSort: options.agentSort });
   const rows = tiered(items, query, (i) => i.fields);
   const matched = rows.length;
   // All finds nothing: offer the search that looks deeper (Clues keeps the query).

@@ -51,7 +51,7 @@ function taskRow(view,task,cx,source,index) {
         .child(text(state==='idle'?(task.description||'Ready'):statusText(state,record.terminal),true).text_size(11).text_color(color).truncate()))
       .when(Boolean(record.terminal),e=>e.child(menu(view,cx,'console-'+task.name,icon('square-terminal'),consoleItems,'Console placement and output')))
       .child(button('options-'+task.name,icon('ellipsis'),(_e,cx)=>view.showDetail(task,cx),{tip:'Arguments and task details'}).w(26).px(0))
-      .child(button('run-'+task.name,busy?h_flex().gap(5).items_center().child(icon('loader-circle',12).spin(900)).child(pending?'Stopping':'Cancel'):'Run',(_e,cx)=>busy?view.cancel(task,cx):view.start(task,cx),{primary:!busy,disabled:pending||Boolean(source.error),tip:busy?`Cancel ${task.name}`:`Run ${task.name}`}).w(busy?82:59)));
+      .child(button('run-'+task.name,busy?h_flex().gap(5).items_center().child(svg('mods/workspace-chrome/spinner.svg').size(12).flex_none().text_color(theme().working).spin(900)).child(pending?'Stopping':'Cancel'):'Run',(_e,cx)=>busy?view.cancel(task,cx):view.start(task,cx),{primary:!busy,disabled:pending||Boolean(source.error),tip:busy?`Cancel ${task.name}`:`Run ${task.name}`}).w(busy?82:59)));
   if(!expanded)return row;
   return row.child(v_flex().px(10).pb(10).gap(7)
     .child(text(task.description||'No description',true))

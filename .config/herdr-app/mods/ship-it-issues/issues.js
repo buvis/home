@@ -147,7 +147,8 @@ export function taskFor(issue, branch) {
 // `agent` null: only open the space.
 export function openWorktree(path, on, trees, issue, branch, agent) {
   const s = spaceAt(path, places(on), Object.values(trees));
-  const task = agent ? { argv: agent.run, task: taskFor(issue, branch) } : {};
+  // copilot takes its first prompt after -i
+  const task = agent ? { argv: agent.key === "copilot" ? [...agent.run, "-i"] : agent.run, task: taskFor(issue, branch) } : {};
   const tab = agent ? `#${issue.number} ${agent.name}` : undefined;
   if (s) {
     run("space.select", { id: s.id });

@@ -8,27 +8,37 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, appHome, shared, setShared, notify, theme, nextCommand, checking } from "herdr";
-import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde, forgeOf } from "./data.js";
+import { exec, appHome, shared, setShared, notify, theme, nextCommand, knownAgents, run, checking, spaces, panes, machines } from "herdr";
+import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde, forgeOf, backTo } from "./data.js";
 import { checkState, checkCounts, localBranch, worktrees, addWorktree, places, spaceAt, showSpace, treeLook } from "./prs.js";
+import { queueTargets, readQueue } from "./pr-queue.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 const FIELDS = "number,title,author,isDraft,state,url,headRefName,isCrossRepository,labels,baseRefName,reviewDecision,reviewRequests,updatedAt,additions,deletions,statusCheckRollup";
+const QUEUE_FIELDS = "number,title,url,updatedAt,headRefOid,statusCheckRollup";
 const FILTERS = [["all", "All"], ["mine", "Mine"], ["review", "To review"]];
 const SEARCH = { all: "sort:updated-desc", mine: "author:@me sort:updated-desc", review: "review-requested:@me sort:updated-desc" };
 const PAGE = 10;
 // All open PRs, counted without fetching them (gh fills in {owner} and {repo}).
 const TOTAL = "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}}}";
 
+// What a review agent is told (local addition, as the Issues panel starts agents on issues).
+const reviewTask = (pr) => `Review pull request #${pr.number}: ${pr.title}\n${pr.url}\n\n` +
+  `You are in its checkout, on branch ${localBranch(pr)}; the base branch is ${pr.baseRefName}. Read the diff against the base (\`gh pr diff ${pr.number}\`) and the code around it. ` +
+  `Report findings by severity, each with file and line and a concrete failure. This is an independent review: do not change code, push, or post comments unless asked.`;
+
 const CHECK = { fail: ["circle-x", "ansi1", "Checks failing"], pending: ["circle-dot", "ansi3", "Checks running"], pass: ["circle-check", "ansi2", "Checks passed"] };
 
 export default class PullRequests extends View {
   init(_p, cx) {
     this.prs = []; this.filter = "all"; this.last = null; this.limit = PAGE; this.trees = {};
+    this.scope = "space"; this.queueFilter = "open"; this.queueRows = [];
     this.expanded = null; // the PR whose details show
+    this.agents = {}; // installed agents by machine
     // Last list per folder: switching back shows it at once.
     this.memo = new Recent(12);
+    this.bumpSeen = shared("ship-it.bump"); // the bar saw a PR or an issue appear, merge or close: ask again
     if (checking()) return;
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
@@ -42,6 +52,7 @@ export default class PullRequests extends View {
     else if (/^details[-:]\d+$/.test(c)) { const d = Number(c.split(/[-:]/)[1]); this.expanded = this.expanded === d ? null : d; }
     else if (c === "more") { if (this.more) this.loadMore(cx); }
     else if (c === "refresh") this.refresh(cx, true);
+    else if (c === "all-spaces" || c === "this-space") this.setScope(c === "all-spaces" ? "all" : "space", cx);
     else if (SEARCH[c]) this.pick(c, cx);
   }
 
@@ -57,6 +68,7 @@ export default class PullRequests extends View {
   // there is refused ("not allowed during the render phase").
   refresh(cx, force, rendering) {
     if (!this.shown()) { this.stale = true; return; }
+    if (this.scope === "all") return this.refreshQueue(cx, rendering);
     // A load that never came back (its task dropped) blocks for 30 s at most.
     if (this.loading && !force && Date.now() - this.loading < 30000) return;
     const context = this.key(), { cwd, on } = this.last;
@@ -98,6 +110,86 @@ export default class PullRequests extends View {
       } catch (e) { if (this.key() === context) this.error = String(e); }
       finally { if (this.loading === started) this.loading = 0; cx.notify(); }
     });
+    // The agents this machine has, once; Claude Code first.
+    if (this.agents[on ?? ""] === undefined) {
+      this.agents[on ?? ""] = [];
+      cx.spawn(async (cx) => {
+        try { this.agents[on ?? ""] = (await knownAgents({ on })).filter((a) => a.installed && a.run?.length).sort((a, b) => (b.key === "claude") - (a.key === "claude")); }
+        catch (e) { delete this.agents[on ?? ""]; notify({ title: "Couldn't list agents", body: String(e.message ?? e), level: "error", timeout: 8000 }); }
+        cx.notify();
+      });
+    }
+  }
+
+  setScope(scope, cx) {
+    if (scope === this.scope) return;
+    this.scope = scope;
+    this.queueRequest = null;
+    this.refresh(cx, true);
+    cx.notify();
+  }
+
+  refreshQueue(cx, rendering) {
+    const targets = queueTargets(spaces(), panes(), machines());
+    const key = JSON.stringify([this.queueFilter, targets]);
+    if (this.queueRequest?.key === key && Date.now() - this.queueRequest.started < 60_000) return;
+    if (key !== this.queueKey) { this.queueRows = []; this.queueErrors = []; this.queueLimited = false; this.gitLabSkipped = 0; }
+    const request = { key, started: Date.now() };
+    this.queueKey = key;
+    this.queueRequest = request;
+    this.stale = false;
+    if (!rendering) cx.notify();
+    const isCurrent = () => this.queueRequest === request && this.scope === "all" && this.shown();
+    cx.spawn(async (cx) => {
+      try {
+        const result = await readQueue(targets, this.queueFilter, { exec, ghx: GH(), fields: QUEUE_FIELDS, checkState, isCurrent });
+        if (!result || !isCurrent()) {
+          // Dropped because the panel or the window went out of sight mid-load, not
+          // because a newer request replaced it: ask again when it is back.
+          if (this.queueRequest === request && this.scope === "all") this.stale = true;
+          return;
+        }
+        this.queueRows = result.rows;
+        this.queueErrors = result.errors;
+        this.queueLimited = result.limited;
+        this.gitLabSkipped = result.gitLabSkipped;
+      } finally {
+        if (this.queueRequest === request) this.queueRequest = null;
+        cx.notify();
+      }
+    });
+  }
+
+  scopeButton(id, label, selected, click, t) {
+    return div().id(id).h(24).px(8).flex().items_center().rounded(6).cursor_pointer().text_size(12)
+      .when(selected, (e) => e.bg(t.selected).text_color(t.foreground)).when(!selected, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => click(cx)).child(label);
+  }
+
+  scopes(t) {
+    return h_flex().flex_none().px(10).py(6).gap(4).border_b(1).border_color(t.border)
+      .child(this.scopeButton("prs-this-space", "This space", this.scope === "space", (cx) => this.setScope("space", cx), t))
+      .child(this.scopeButton("prs-all-spaces", "All spaces", this.scope === "all", (cx) => this.setScope("all", cx), t));
+  }
+
+  queue(t) {
+    const empty = this.queueRequest ? "Loading pull requests…" : this.queueErrors?.length ? "No results from the repositories that loaded"
+      : { open: "No open pull requests", review: "No review requests found", failed: "No failing checks found" }[this.queueFilter];
+    const filters = [["open", "Open"], ["review", "To review"], ["failed", "Failing checks"]];
+    return v_flex().flex_1().min_h(0)
+      .child(h_flex().px(10).py(6).gap(4).border_b(1).border_color(t.border).children(filters.map(([filter, label]) =>
+        this.scopeButton(`queue-${filter}`, label, filter === this.queueFilter, (cx) => { this.queueFilter = filter; this.refreshQueue(cx); }, t))))
+      .child(v_flex().id("prs-queue").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(3)
+        .children(this.queueRows.map((pr) => h_flex().id(`queue-${pr.key}`).gap(6).px(8).py(5).rounded(5).items_center().hover((s) => s.bg(t.hover))
+          .child(v_flex().flex_1().min_w(0)
+            .child(div().id(`queue-link-${pr.key}`).truncate().cursor_pointer().tooltip("Open pull request").on_click((_e, cx) => cx.open_url(pr.url)).child(`#${pr.number} ${pr.title}`))
+            .child(div().truncate().text_size(11).text_color(t.dim).child([pr.repo.name, pr.repo.on, ago(pr.updatedAt)].filter(Boolean).join(" · "))))
+          .child(div().id(`queue-space-${pr.key}`).p(3).cursor_pointer().tooltip("Go to repository space").on_click(() => run("space.select", { id: pr.repo.space }))
+            .child(this.icon("folder", t.muted, 14)))))
+        .when(!this.queueRows.length, (e) => e.child(div().p(8).text_color(t.dim).child(empty)))
+        .when(Boolean(this.queueErrors?.length), (e) => e.child(div().p(8).text_color(t.blocked).child(`Incomplete results for ${this.queueErrors.join(", ")}`)))
+        .when(this.gitLabSkipped > 0, (e) => e.child(div().p(8).text_color(t.dim).child("This queue covers GitHub and Bitbucket. GitLab projects are excluded.")))
+        .when(this.queueLimited, (e) => e.child(div().p(8).text_color(t.dim).child("Limited to 50 results per repository."))));
   }
 
   memoKey() { return `${this.context}#${this.filter}`; }
@@ -123,21 +215,29 @@ export default class PullRequests extends View {
   }
 
   // Open the PR in its worktree space: the one there is, else a new checkout.
-  worktree(pr, cx) {
+  // With an agent: start it there on a review, in a new tab.
+  worktree(pr, cx, agent) {
     if (this.opening || !this.root) return;
-    const root = this.root, on = this.on, branch = localBranch(pr);
+    const root = this.root, on = this.on, branch = localBranch(pr), here = pr.headRefName === this.branch, back = backTo();
     this.opening = pr.number; cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const trees = await worktrees(root, on), path = trees[branch] ?? await addWorktree(root, on, pr);
-        if (this.root === root) this.trees = { ...trees, [branch]: path };
-        showSpace(path, on, Object.values(trees));
-      } catch (e) { notify({ title: `Couldn't open #${pr.number} in a worktree`, body: String(e.message ?? e), level: "error", timeout: 8000 }); }
+        const trees = await worktrees(root, on), path = here ? root : trees[branch] ?? await addWorktree(root, on, pr);
+        if (!here && this.root === root) this.trees = { ...trees, [branch]: path };
+        if (!agent) return showSpace(path, on, Object.values(trees));
+        const s = spaceAt(path, places(on), Object.values(trees)), tab = `#${pr.number} ${agent.name}`, task = { argv: agent.key === "copilot" ? [...agent.run, "-i"] : agent.run, task: reviewTask(pr) }; // copilot takes its first prompt after -i
+        if (s) { run("space.select", { id: s.id }); run("tab.new", { space: s.id, folder: path, name: tab, ...task }); }
+        else run("space.new", { folder: path, tab, ...(on ? { machine: on } : {}), ...task });
+      } catch (e) { notify({ title: `Couldn't open #${pr.number} in a worktree`, body: String(e.message ?? e), level: "error", timeout: 8000, ...back }); }
       finally { this.opening = null; cx.notify(); }
     });
   }
 
-  icon(name, color, size = 14) { return svg(ICON(name)).size(size).flex_none().text_color(color); }
+  // "loader" is the shared busy ring (same as the tab bar, agents list and Ship bar).
+  icon(name, color, size = 14) {
+    if (name === "loader") return svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(theme().working).spin(900);
+    return svg(ICON(name)).size(size).flex_none().text_color(color);
+  }
 
   row(pr, t, where) {
     const look = prLook(pr), review = reviewLook(pr.reviewDecision), check = CHECK[checkState(pr.statusCheckRollup)];
@@ -162,7 +262,7 @@ export default class PullRequests extends View {
           const path = this.trees[localBranch(pr)], look = treeLook(path, spaceAt(path, where, Object.values(this.trees))), busy = this.opening === pr.number;
           return e.child(div().id(`pr-tree-${pr.number}`).flex_none().rounded(4).p(2).hover((s) => s.bg(t.raised)).tooltip(look.tip)
             .on_click((_e, cx) => { cx.stop_propagation(); this.worktree(pr, cx); })
-            .child(this.icon(busy ? "loader" : look.icon, t[look.color], 12).when(busy, (i) => i.spin(800))));
+            .child(this.icon(busy ? "loader" : look.icon, t[look.color], 12)));
         })
         .when(Boolean(review) && pr.reviewDecision !== "REVIEW_REQUIRED", (e) => e.child(div().flex_none().text_color(t[review.color]).child(review.label)))
         .child(div().flex_none().text_color(t.ansi2).child(`+${pr.additions}`))
@@ -175,6 +275,7 @@ export default class PullRequests extends View {
     const n = checkCounts(pr.statusCheckRollup), review = reviewLook(pr.reviewDecision);
     const asked = (pr.reviewRequests ?? []).map((r) => r.login ?? r.name ?? r.slug).filter(Boolean);
     const path = this.trees[localBranch(pr)], space = spaceAt(path, where, Object.values(this.trees)), look = treeLook(path, space), busy = this.opening === pr.number;
+    const agents = this.agents[this.on ?? ""] ?? [];
     const line = (icon, ...kids) => h_flex().gap(6).items_center().min_w(0).child(this.icon(icon, t.dim, 12)).children(kids);
     const checks = [[n.fail, "failed", "ansi1"], [n.pending, "running", "ansi3"], [n.pass, "passed", "ansi2"]].filter(([k]) => k)
       .map(([k, what, color], i) => div().flex_none().text_color(t[color]).child(`${i ? "· " : ""}${k} ${what}`));
@@ -191,23 +292,32 @@ export default class PullRequests extends View {
       .when((pr.labels ?? []).length > 0, (e) => e.child(line("circle-dot", div().min_w(0).truncate().child(pr.labels.map((l) => l.name).join(", ")))))
       .child(line("folder", div().min_w(0).truncate().child(here ? "Checked out here" : path ? `${tilde(path)}${space ? "" : " · no space open"}` : "No worktree yet")))
       .child(h_flex().pt(3).gap(6).flex_wrap()
-        .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : look.icon, busy ? (path ? "Opening…" : "Creating…") : look.label, true, (cx) => this.worktree(pr, cx))))
+        .children(agents.map((a, i) => button(`agent-${a.key}`, busy ? "loader" : "rocket", i === 0 ? `Review with ${a.name}` : a.name, i === 0, (cx) => this.worktree(pr, cx, a))))
+        .when(!agents.length, (e) => e.child(button("agent", "rocket", "No agent installed", false, () => {})))
+        .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : look.icon, busy ? (path ? "Opening…" : "Creating…") : look.label, false, (cx) => this.worktree(pr, cx))))
         .child(button("github", "external-link", forgeOf(pr.url), false, (cx) => cx.open_url(pr.url)))
         .child(button("copy", "copy", "Copy link", false, (cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2000 }); })));
   }
 
   render(cx) {
-    if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx, false, true);
+    const bump = shared("ship-it.bump");
+    if (bump !== this.bumpSeen) { this.bumpSeen = bump; if (this.shown()) this.refresh(cx, true, true); else this.stale = true; }
+    if (this.shown() && (this.stale || (this.scope === "all"
+      ? JSON.stringify([this.queueFilter, queueTargets(spaces(), panes(), machines())]) !== this.queueKey
+      : this.key() !== this.context))) this.refresh(cx, false, true);
     const t = theme(), list = this.prs, where = list.length ? places(this.on) : [];
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.filter === "all" ? "No open pull requests" : this.filter === "mine" ? "No open pull requests of yours" : "Nothing waiting for your review");
     return v_flex().id("ship-it-prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().whitespace_nowrap().child("Pull requests"))
-        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).whitespace_nowrap().child(`${this.total ?? this.prs.length} open`))
+        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).whitespace_nowrap()
+          .child(this.scope === "all" ? String(this.queueRows.length) : `${this.total ?? this.prs.length} open`))
         .child(div().flex_1())
         .child(div().id("prs-refresh").size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("Refresh")
-          .on_click((_e, cx) => this.refresh(cx, true)).child(this.icon(this.loading ? "loader" : "refresh-cw", t.dim, 12))))
-      .child(h_flex().flex_none().px(10).py(8).gap(4).border_b(1).border_color(t.border).children(FILTERS.map(([id, label]) => {
+          .on_click((_e, cx) => this.refresh(cx, true)).child(this.icon((this.scope === "all" ? this.queueRequest : this.loading) ? "loader" : "refresh-cw", t.dim, 12))))
+      .child(this.scopes(t))
+      .when(this.scope === "all", (e) => e.child(this.queue(t)))
+      .when(this.scope === "space", (e) => e.child(h_flex().flex_none().px(10).py(8).gap(4).border_b(1).border_color(t.border).children(FILTERS.map(([id, label]) => {
         const on = this.filter === id;
         return div().id(`prs-filter-${id}`).h(24).px(9).flex().items_center().rounded(6).cursor_pointer().text_size(12)
           .when(on, (e) => e.bg(t.selected).text_color(t.foreground)).when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
@@ -218,6 +328,6 @@ export default class PullRequests extends View {
         .when(this.more && list.length > 0, (e) => e.child(div().id("prs-more").mx(4).my(6).h(28).flex_none().flex().items_center().justify_center().rounded(7)
           .border_1().border_color(t.border).text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.loadMore(cx)).child(this.loading ? "Loading…" : `Load ${PAGE} more`)))
-        .when(!list.length, (e) => e.child(div().p(8).text_color(t.dim).child(empty))));
+        .when(!list.length, (e) => e.child(div().p(8).text_color(t.dim).child(empty)))));
   }
 }

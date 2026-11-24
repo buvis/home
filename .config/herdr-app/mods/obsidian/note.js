@@ -1,16 +1,18 @@
 // The viewer pane: one note rendered as markdown, its [[links]] followed in place,
 // with the notes that link to it underneath. Redraws when the file changes. Edit
-// switches it to Herdr's editor in place; Send puts the note in an agent's prompt.
+// switches it to Herdr's editor in place; Path and Content copy the note's full path or its text.
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, TextView, EditorState, Editor } from "gpui-base";
+import { v_flex, h_flex, TextView, EditorState, Editor, InputState, Input } from "gpui-base";
 import { focused, nextCommand, notify, props, readTextFile, setShared, settings, shared, spaces, theme, watchFolder, window, writeTextFile } from "herdr";
 import * as vault from "./vault.js";
-import * as agent from "./agent.js";
+import { exportPdf } from "./export.js";
 
 const ICON = (name) => `mods/obsidian/${name}.svg`;
 // Wiki links become web links under a reserved host, the one kind of URL TextView
 // is sure to hand to on_link_click unchanged; follow() catches them first.
 const LINK = "https://obsidian-note.invalid/";
+// Link target the Dataview placeholder uses; follow() opens this note in Obsidian.
+const OPEN_IN_OBSIDIAN = "?open-in-obsidian";
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
 const saveKey = () => (window()?.platform === "macos" ? "⌘S" : "Ctrl+S");
 
@@ -28,8 +30,16 @@ export function toMarkdown(text) {
     }
   }
   const out = [];
-  let fence = false;
+  let fence = false, skip = false;
   for (let line of text.split("\n")) {
+    // Dataview blocks need Obsidian's plugin to run; leave one line saying so.
+    if (skip) { if (/^\s*(```|~~~)\s*$/.test(line)) skip = false; continue; }
+    const dv = !fence && line.match(/^\s*(?:```|~~~)\s*(dataview|dataviewjs)\b/i);
+    if (dv) {
+      skip = true;
+      out.push(`> ▸ **${dv[1].toLowerCase() === "dataviewjs" ? "DataviewJS" : "Dataview"} block hidden.** [Open in Obsidian](${LINK}${OPEN_IN_OBSIDIAN}) to see it.`, "");
+      continue;
+    }
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; out.push(line); continue; }
     if (fence) { out.push(line); continue; }
     line = line
@@ -50,8 +60,39 @@ export function toMarkdown(text) {
   return { markdown: out.join("\n"), front };
 }
 
+// Find in note: TextView can't highlight or scroll to a match, so while a search is
+// open the note shows only the blocks (paragraphs, list items, code fences) that
+// contain it, with each match highlighted (<mark>).
+export function filterBlocks(markdown, query) {
+  const q = query.toLowerCase();
+  if (!q) return { markdown, count: 0 };
+  const blocks = [];
+  let cur = [], fence = false, code = false;
+  const flush = () => { if (cur.length) blocks.push({ text: cur.join("\n"), code }); cur = []; code = false; };
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) { fence = !fence; code = true; cur.push(line); continue; }
+    if (!fence && !line.trim()) { flush(); continue; }
+    cur.push(line);
+  }
+  flush();
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  let count = 0;
+  const kept = [];
+  for (const b of blocks) {
+    // Highlight the match, but not inside link targets or inline code.
+    let n = 0;
+    const text = b.code ? b.text : b.text.split(/(\]\([^)]*\)|`[^`]*`)/).map((part, i) => (i % 2 ? part : part.replace(re, (m) => { n++; return `<mark>${m}</mark>`; }))).join("");
+    if (b.code) n = (b.text.match(re) ?? []).length;
+    if (!n) continue;
+    count += n;
+    kept.push(text);
+  }
+  return { markdown: kept.join("\n\n"), count };
+}
+
 export class Note {
   init(cx) {
+    this.find = null;
     this.history = [];
     this.links = [];
     // Edit in place: `editor` holds the draft, `base` the file as it was when
@@ -159,7 +200,10 @@ export class Note {
     const ask = shared("obsidian.show");
     if (ask && ask.n !== this.seen) {
       this.seen = ask.n;
-      if (ask.tab === this.tab && ask.note !== this.path) this.show(ask.note, cx);
+      if (ask.tab === this.tab) {
+        setShared("obsidian.shown", { n: ask.n });
+        if (ask.note !== this.path) this.show(ask.note, cx);
+      }
     }
   }
 
@@ -167,6 +211,7 @@ export class Note {
   async follow(url, cx) {
     try {
       const at = url.indexOf(LINK);
+      if (at >= 0 && url.slice(at + LINK.length) === OPEN_IN_OBSIDIAN) return vault.open(this.path, "obsidian");
       if (at < 0 && /^(https?|mailto|obsidian):/i.test(url)) return vault.openUrl(url);
       const target = at >= 0 ? decodeURIComponent(url.slice(at + LINK.length)) : decodeURIComponent(url.replace(/^file:\/\//, ""));
       const rel = await vault.resolve(target, this.path);
@@ -249,7 +294,24 @@ export class Note {
     }
   }
 
+  openFind(cx) {
+    this.find = InputState.new({ placeholder: "Find in this note…" });
+    this.found = "";
+    this.find.on("change", (_e, cx) => { this.found = this.find.value(); cx.notify(); });
+    this.find.focus();
+    cx.timer.after(150, () => this.find?.focus());
+  }
+
+  closeFind() {
+    this.find?.release?.();
+    this.find = null;
+    this.found = "";
+  }
+
   key(e, cx) {
+    const plain = !e.modifiers.platform && !e.modifiers.control && !e.modifiers.alt;
+    if (!this.editing && !this.find && e.key === "/" && plain) { this.openFind(cx); cx.stop_propagation(); cx.notify(); return; }
+    if (this.find && e.key === "escape") { this.closeFind(); cx.stop_propagation(); cx.notify(); return; }
     if (!this.editing) return;
     if (e.key === "escape") this.leave();
     else if (e.key === "s" && (e.modifiers.platform || e.modifiers.control) && !e.modifiers.shift && !e.modifiers.alt) cx.spawn((cx) => this.save(cx));
@@ -258,12 +320,36 @@ export class Note {
     cx.notify();
   }
 
-  // What Send puts in the agent's prompt: the draft while editing, else the file.
-  send(cx) {
+  // Copy buttons: the note's full path, or the file's text (the draft while editing).
+  async copyPath(cx) {
+    if (!this.path) return;
+    const { root } = await vault.config();
+    this.copy(cx, `${root}/${this.path}`);
+  }
+
+  copyContent(cx) {
     const body = this.editing && this.editor ? this.editor.value() : this.raw;
     if (body === null || body === undefined) return;
-    const path = this.path;
-    cx.spawn((cx) => agent.sendNote(path, body, cx));
+    this.copy(cx, body);
+  }
+
+  // Prints the note to ~/Downloads and opens it: images, callouts and embedded notes included.
+  async exportPdf(cx) {
+    if (!this.path || this.exporting) return;
+    this.exporting = true; cx.notify();
+    try {
+      const out = await exportPdf(this.path);
+      await vault.openUrl(`file://${encodeURI(out)}`);
+      notify({ title: "PDF saved", body: out, level: "success", timeout: 5000 });
+    } catch (e) {
+      notify({ title: "Couldn't make the PDF", body: String(e?.message ?? e), level: "error", timeout: 6000 });
+    }
+    this.exporting = false; cx.notify();
+  }
+
+  copy(cx, text) {
+    cx.write_to_clipboard(text);
+    notify({ title: "Copied", body: text.length > 120 ? `${text.slice(0, 120)}…` : text, level: "info", timeout: 2000 });
   }
 
   button(id, icon, label, onClick, tone) {
@@ -285,13 +371,14 @@ export class Note {
       .child(div().flex_none().max_w(320).truncate().text_size(13).font_semibold().text_color(t.foreground).child(vault.title(path)))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(
         editing ? (this.dirty ? `edited · ${saveKey()} saves · Esc views` : "editing · Esc views") : this.editor && this.dirty ? "unsaved edits" : vault.folderOf(path)))
-      .child(this.button("send", "send", "Send", (cx) => this.send(cx)))
+      .child(this.button("copy-path", "copy", "Path", (cx) => cx.spawn((cx) => this.copyPath(cx))))
+      .child(this.button("copy-content", "copy", "Content", (cx) => this.copyContent(cx)))
+      .child(this.button("pdf", "file-text", this.exporting ? "PDF…" : "PDF", (cx) => cx.spawn((cx) => this.exportPdf(cx))))
       .when(Boolean(editing), (el) => el
         .when(this.dirty, (el) => el
           .child(this.button("revert", "undo", "Revert", (cx) => this.discard(cx)))
           .child(this.button("save", "save", "Save", (cx) => cx.spawn((cx) => this.save(cx)), t.accent)))
         .child(this.button("view", "eye", "View", () => this.leave())))
-      .when(!editing, (el) => el.child(this.button("edit", "pencil", this.dirty ? "Edit •" : "Edit", () => this.edit())))
       .child(this.button("editor", "square-pen", "Editor", () => vault.open(path, "editor")))
       .child(this.button("app", "external", "Obsidian", () => vault.open(path, "obsidian")));
     if (editing) {
@@ -321,15 +408,24 @@ export class Note {
               .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.foreground).child(vault.title(p)))
               .child(div().flex_none().max_w(200).truncate().text_size(11.5).text_color(t.dim).child(vault.folderOf(p)))))
       : null;
+    const searching = Boolean(this.find && this.found);
+    const filtered = searching && this.text ? filterBlocks(this.text, this.found) : { markdown: "", count: 0 };
     const body = this.error
       ? div().p(16).text_color(t.blocked).child(this.error)
       : this.text === null
         ? div().p(16).text_color(t.muted).child("Loading…")
         : v_flex().id("note-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(22).py(16).gap(10)
-            .when(Boolean(tags), (el) => el.child(tags))
-            .child(TextView.markdown(`note-${this.gen}`, this.text).selectable(true).text_size(14).text_color(t.foreground)
+            .when(Boolean(tags) && !searching, (el) => el.child(tags))
+            .child(TextView.markdown(`note-${this.gen}-${searching ? this.found : ""}`, searching ? (filtered.markdown || "_No matches_") : this.text).selectable(true).text_size(14).text_color(t.foreground)
               .on_link_click((url, cx) => cx.spawn((cx) => this.follow(url, cx))))
-            .when(Boolean(links), (el) => el.child(links));
-    return v_flex().id("obsidian-note").size_full().min_h(0).bg(t.background).child(header).child(body);
+            .when(Boolean(links) && !searching, (el) => el.child(links));
+    return v_flex().id("obsidian-note").size_full().min_h(0).bg(t.background)
+      .on_key_down((e, cx) => this.key(e, cx))
+      .child(header)
+      .when(Boolean(this.find), (el) => el.child(h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b_1().border_color(t.border).bg(t.chrome)
+        .child(svg(ICON("search")).size(13).flex_none().text_color(t.dim))
+        .child(Input.new(this.find).flex_1().h_full().text_size(12.8).text_color(t.foreground))
+        .child(div().flex_none().text_size(11.5).text_color(t.dim).child(this.found ? `${filtered.count} match${filtered.count === 1 ? "" : "es"} · Esc closes` : "Esc closes"))))
+      .child(body);
   }
 }

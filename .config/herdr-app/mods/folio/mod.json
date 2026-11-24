@@ -2,6 +2,6 @@
   "place": "none",
   "title": "Markdown preview",
   "link_handlers": [
-    { "kind": "file", "pattern": "(?i)\\.(?:md|markdown|mdx)(?::[0-9]+(?::[0-9]+)?)?$" }
+    { "kind": "file", "pattern": "(?i)\\.(?:md|markdown|mdx)(?::[0-9]+(?:-[0-9]+)?(?::[0-9]+)?|#L[0-9]+(?:-L?[0-9]+)?)?$" }
   ]
 }

@@ -4,7 +4,8 @@
       "run": [
         "run-agent",
         "kiro-cli",
-        "chat"
+        "chat",
+        "--trust-all-tools"
       ]
     },
     "gemini": {

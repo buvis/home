@@ -1,7 +1,7 @@
 # Gallery mods: what is installed, from where, and what was declined
 
 Ledger for herdr.dev/gallery mods. Update it when a mod is added, removed or
-edited. Update tracking itself is hmod's: open Mod updates with `cmd-shift-u`,
+edited. Update tracking itself is hmod's: open Mod updates with Ctrl-Q `m` `u`,
 or run `bin/hmod check` (data in `~/.local/state/herdr-mod-updater`; the clone
 is `~/git/src/github.com/jonathan-fielding/herdr-mod-updater`).
 
@@ -11,23 +11,28 @@ before adding it.
 
 ## Installed 2026-11-08
 
+Keys corrected 2026-11-24: on 2026-11-15 the per-mod `cmd-`/`ctrl-shift-` keys
+left `keys.json`. Mods open from the Ctrl-Q popup (`mods/prefix/main.js`), and
+since 2026-11-24 by name from the command palette (Ctrl-Q `:`).
+
 | Mod folder | Source (gallery owner/repo, path) | Key | Local edits and notes |
 |---|---|---|---|
-| revive | dmazlum/herdr-revive 0.5.0 | cmd-alt-r | Key moved from cmd-shift-r (space.rename). `revive.mjs install` not run yet: it edits ~/.claude/settings.json, ~/.codex/hooks.json and the bash login file. Its dialog needs node on Herdr's PATH (see Setup). |
+| revive | dmazlum/herdr-revive 0.5.0 | Ctrl-Q `m` `r` | `revive.mjs install` not run yet: it edits ~/.claude/settings.json, ~/.codex/hooks.json and the bash login file. Its dialog needs node on Herdr's PATH (see Setup). |
 | reviewer | vytasgavelis/herdr-reviewer 0.4.0 | Changes slot (`changes` child of `panel-body`); no `mod:reviewer` keys, the panel's buttons do it | Inline diff comments sent to the space's agent with `hc send`. Lost the slot to ship-it-changes on 2026-11-08, got it back on 2026-11-09 (its agent comments are the point; ship-it-changes only fed the strip's file count). hmod can't link it (`cloned_from: changes`). |
-| obsidian | cunderw/herdr-obsidian | cmd-shift-n popup, cmd-alt-n panel | Keys moved from ctrl-b f / ctrl-b a. `obsidian.json` sets vault `~/bim`, editor nvim. mod:obsidian: ctrl-j/k, alt-enter send, cmd-s/ctrl-s save. |
-| markdown-panel | jlopezlira/herdr-kanso, markdown-panel/mods/markdown-panel | cmd-shift-m | Kanso Markdown `.md` handler app not installed. |
-| ciupaga | rgonek/Ciupaga | cmd-alt-t | No key shipped; cmd-alt-t chosen. |
-| copy-mode | zamonia500/herdr-copy-mode | ctrl-shift-x | Runs nvim and hc in a terminal tab. |
-| on-screen | kerembakir/herdr-mods, on-screen/mods/on-screen | cmd-shift-o, right-click | `terminal_menu: on-screen` on the buvis root (items match shipped `menu` 0.1.13). Local changes: Markdown defaults to Folio preview; Right/Below/Tab placement for previews and terminal editors; other paths use the default app. Editor detection includes mise shims. hmod can't link it (`cloned_from: path-menu`). |
-| folio | local | From on-screen's Markdown actions | Read-only native Markdown preview; Neovim replaces it in place and quitting restores the preview. Watches file changes. `nvim.sh` uses native pane commands and preserves sizing; see `mods/folio/README.md`. |
-| recall | shihyuho/herdr-recall | cmd-e | Opens a kept 2x2 tracker window `recall-tracker`. |
-| attn-next | iml885203/herdr-mods, attn-next/mods/attn-next | cmd-shift-j (J/K inside) | |
+| obsidian | cunderw/herdr-obsidian | Ctrl-Q `m` `o` popup, Ctrl-Q `m` `O` panel | `obsidian.json` sets vault `~/bim`, editor nvim. mod:obsidian: ctrl-j/k, alt-enter send, cmd-s/ctrl-s save. |
+| markdown-panel | jlopezlira/herdr-kanso, markdown-panel/mods/markdown-panel | Ctrl-Q `m` `m` | Kanso Markdown `.md` handler app not installed. |
+| ciupaga | rgonek/Ciupaga | Ctrl-Q `m` `t` | No key shipped. |
+| copy-mode | zamonia500/herdr-copy-mode | Ctrl-Q `m` `x` | Runs nvim and hc in a terminal tab. |
+| on-screen | kerembakir/herdr-mods, on-screen/mods/on-screen | Ctrl-Q `O`, right-click | `terminal_menu: on-screen` on the buvis root (items match shipped `menu` 0.1.13). Local changes: Markdown defaults to Folio preview; Right/Below/Tab placement for previews and terminal editors; other paths use the default app. Editor detection includes mise shims. hmod can't link it (`cloned_from: path-menu`). |
+| folio | local | Cmd-click a Markdown path in a terminal; on-screen's Markdown actions | Link handler (`link_handlers` on the buvis root) since 0.1.17; reads `link.line`/`link.column` since 0.1.18. Read-only native Markdown preview; Neovim replaces it in place and quitting restores the preview. Watches file changes. `nvim.sh` uses native pane commands and preserves sizing; see `mods/folio/README.md`. |
+| beeline | local (2026-11-24) | Cmd-click `file:line` in a terminal | Link handler after folio in `link_handlers`: opens the file in nvim at that line (and column), split right of the clicked pane. A link without a line stays with Herdr's default opener; remote terminals pass. `node --test mods/beeline/link.test.mjs`. |
+| recall | shihyuho/herdr-recall | Ctrl-Q `e` | Opens a kept 2x2 tracker window `recall-tracker`. |
+| attn-next | iml885203/herdr-mods, attn-next/mods/attn-next | Ctrl-Q `a` (cmd-shift-j/k inside) | |
 | last-pane | ohneda/herdr-last-pane | ctrl-q ; | Floating 0x0 block `last-pane` on the buvis root; `;` added to mods/prefix KEYS. |
-| worktreeinclude | madwire/herdr-worktreeinclude | cmd-alt-i, cmd-alt-shift-i | Writes `.git/hooks/post-checkout` into repos that have a `.worktreeinclude`. |
-| mod-updater | jonathan-fielding/herdr-mod-updater (clone-installed) | cmd-shift-u, ctrl-shift-u | Installed with `bin/hmod mod install`; `bin/hmod` shim sets HMOD_HOME. Update it from the dialog (pulls the clone). The CLI reads mod sources from api.github.com (source files, no binaries). |
-| filetree + file-icons | cybertron288/herdr-mods, filetree/mods/{filetree,file-icons} | Files slot; cmd-shift-e toggles the panel | `files` child of `panel-body` now shows filetree (file-icons is its icon store). config.json `open` -> `bin/open-in-nvim {path}` (double-click opens the file in nvim, split right), so hmod shows it Edited locally. Optional Claude Code hook (`bridge.ts`, bun) not registered. Runs git, sh, find, stat, du, open; reads `~/.local/state/herdr-filetree/activity.jsonl`. In dotfiles since 2026-11-09 with the upstream MIT `LICENSE`, `LICENSE-claude-code-filetree` (the port's source) and `LICENSE-lucide` added. |
-| file-picker | arjunmahishi/herdr-file-picker | cmd-o | `file-picker.json`: Enter opens the file in nvim (right split), ctrl-d git diff popup. picker.js lines 82 and 101: `/bin/sh -c` -> `-lc`, so the fzf and action shells read `~/.profile` (mise shims) whatever PATH herdr-core holds; hmod shows it Edited locally, redo after an update. Not in dotfiles (only `file-picker.json` is): the upstream repo has no license, so the code is not redistributable; reinstall with hmod. |
+| worktreeinclude | madwire/herdr-worktreeinclude | Ctrl-Q `m` `i` (its second key, cmd-alt-shift-i, is unbound) | Writes `.git/hooks/post-checkout` into repos that have a `.worktreeinclude`. |
+| mod-updater | jonathan-fielding/herdr-mod-updater (clone-installed) | Ctrl-Q `m` `u` | Installed with `bin/hmod mod install`; `bin/hmod` shim sets HMOD_HOME. Update it from the dialog (pulls the clone). The CLI reads mod sources from api.github.com (source files, no binaries). |
+| filetree + file-icons | cybertron288/herdr-mods, filetree/mods/{filetree,file-icons} | Files slot; Ctrl-Q `f` toggles the panel | `files` child of `panel-body` now shows filetree (file-icons is its icon store). config.json `open` -> `bin/open-in-nvim {path}` (double-click opens the file in nvim, split right), so hmod shows it Edited locally. Optional Claude Code hook (`bridge.ts`, bun) not registered. Runs git, sh, find, stat, du, open; reads `~/.local/state/herdr-filetree/activity.jsonl`. In dotfiles since 2026-11-09 with the upstream MIT `LICENSE`, `LICENSE-claude-code-filetree` (the port's source) and `LICENSE-lucide` added. |
+| file-picker | arjunmahishi/herdr-file-picker | Ctrl-Q `o` | `file-picker.json`: Enter opens the file in nvim (right split), ctrl-d git diff popup. picker.js lines 82 and 101: `/bin/sh -c` -> `-lc`, so the fzf and action shells read `~/.profile` (mise shims) whatever PATH herdr-core holds; hmod shows it Edited locally, redo after an update. Not in dotfiles (only `file-picker.json` is): the upstream repo has no license, so the code is not redistributable; reinstall with hmod. |
 | tab-notes | unknown (not in ashrodan/ship-it; hmod can't link it) | Notes child of `panel-body` | Per-tab notes in `~/.config/herdr-app/tab-notes/` (gitignored). Ships `LICENSE-lucide`. |
 
 Installed by another session the same evening, not through this ledger:
@@ -103,6 +108,44 @@ remain unchanged because these are partial ports. Regression command:
 
 Toast durations now use milliseconds. Check-mode startup skips background work.
 See `docs/dev/project-management/reviews/herdr-checker-closeout-2026-11-24.md`.
+
+2026-11-24: adapted four Mission Control ideas. Agent task titles appear in
+`my-pane` headers. Recall tracks recently closed tabs and uses Revive's
+session record to reopen an agent. Ship It PRs shows open pull requests,
+review requests and failing checks across GitHub and Bitbucket spaces. The Claude
+status line keeps Ponytail and sends the reported context reading and session
+ID to herdr-core for the agent list. Jira workstream queues are in project intake.
+
+## Herdr 0.1.18 round (2026-11-24)
+
+Report: `docs/dev/project-management/reviews/herdr-0.1.18-opportunities-2026-11-24.md`.
+
+- `my-worktree` is shipped `worktree` 0.1.18 plus the ring spinner (2 lines).
+  It stops the space's programs before git deletes the checkout, refuses a
+  locked worktree and the main checkout, reads `worktrees.directory` and gives
+  git 10 minutes. On each release: copy shipped `main.js` over it and redo the
+  spinner line. `node --test mods/my-worktree/remove.test.mjs`.
+- Polls wait while the window is hidden (minimized, covered, on another
+  Space). Local edits, redo after a merge: ship-it `data.js` (`windowHidden`
+  in `panelShown` and `modShown`; copy the file to the three other ship-it
+  folders), ship-it `main.js` (`back(cx)`, its three timers, one line in
+  `render`; after an absence of 30 s or more the first look refreshes git and
+  the PR; `watchAgents` still runs hidden, because it acts only when an agent
+  stops), ship-it-prs `main.js` (`refreshQueue` marks a load that was dropped
+  out of sight as stale), reviewer `main.js` (the 10 s timer). Also
+  my-space-folders (two 15 s timers). Not done: runway (another session was editing it), filetree
+  (merge lane), pager (it must alert while hidden).
+  `node --test tests/window-hidden.test.mjs`.
+- Links: folio reads `link.line` and `link.column`; the new local mod
+  `beeline` opens `file:line` in nvim (table above).
+- Look: `"veil": 0.3` on the pane frame in `layouts/buvis.json`. Herdr draws
+  the veil over the terminal area only, and for the same selected pane that
+  `my-pane` uses for its header fade (0.35), so the two do not stack.
+- Palette: the Ctrl-Q `m` list is mirrored in `mods/prefix/mod.json`
+  `palette`; `my-status` adds "Notification log".
+  `node --test mods/prefix/palette.test.mjs`.
+- tab-notes colors Markdown from the theme
+  (`node --test mods/tab-notes/colors.test.mjs`).
 
 ## Keeping mods current (2026-11-16)
 

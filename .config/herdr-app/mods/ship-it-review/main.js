@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, appHome, notify, watchFolder, nextCommand, checking } from "herdr";
-import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, forgeOf, modShown, panelShown, Recent, sharedPr, createPr } from "./data.js";
+import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, forgeOf, modShown, panelShown, Recent, sharedPr, createPr, backTo } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 
@@ -325,7 +325,7 @@ export default class Review extends View {
   openUrl(url, cx) { if (url) cx.open_url(url); }
 
   postComment(cx) {
-    const body = this.comment.trim(), pr = this.pr?.pr, root = this.root, on = this.on, gen = this.gen;
+    const body = this.comment.trim(), pr = this.pr?.pr, root = this.root, on = this.on, gen = this.gen, back = backTo();
     if (!body || !pr || this.posting) return;
     this.posting = "comment";
     cx.spawn(async (cx) => {
@@ -335,14 +335,14 @@ export default class Review extends View {
         if (gen === this.gen) { this.comment = ""; this.composer.set_value(""); }
         notify({ title: "Comment posted", body: `#${pr.number}`, level: "success", timeout: 3000 });
         this.refresh(cx, true);
-      } catch (e) { notify({ title: "Comment not posted", body: String(e?.message ?? e), level: "error" }); }
+      } catch (e) { notify({ title: "Comment not posted", body: String(e?.message ?? e), level: "error", ...back }); }
       finally { this.posting = null; cx.notify(); }
     });
     cx.notify();
   }
 
   postReply(cx) {
-    const body = this.reply.trim(), id = this.drawer?.replyTo, root = this.root, on = this.on, gen = this.gen;
+    const body = this.reply.trim(), id = this.drawer?.replyTo, root = this.root, on = this.on, gen = this.gen, back = backTo();
     if (!body || !id || this.posting) return;
     this.posting = "reply";
     cx.spawn(async (cx) => {
@@ -351,14 +351,14 @@ export default class Review extends View {
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         if (gen === this.gen) { this.reply = ""; this.replyBox.set_value(""); }
         await this.reloadThreads(gen);
-      } catch (e) { notify({ title: "Reply not posted", body: String(e?.message ?? e), level: "error" }); }
+      } catch (e) { notify({ title: "Reply not posted", body: String(e?.message ?? e), level: "error", ...back }); }
       finally { this.posting = null; cx.notify(); }
     });
     cx.notify();
   }
 
   resolve(th, cx) {
-    const root = this.root, on = this.on, gen = this.gen;
+    const root = this.root, on = this.on, gen = this.gen, back = backTo();
     if (this.posting) return;
     this.posting = th.id;
     cx.spawn(async (cx) => {
@@ -366,7 +366,7 @@ export default class Review extends View {
         const r = await gql(root, on, th.resolved ? UNRESOLVE : RESOLVE, { id: th.id });
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         await this.reloadThreads(gen);
-      } catch (e) { notify({ title: th.resolved ? "Not reopened" : "Not resolved", body: String(e?.message ?? e), level: "error" }); }
+      } catch (e) { notify({ title: th.resolved ? "Not reopened" : "Not resolved", body: String(e?.message ?? e), level: "error", ...back }); }
       finally { this.posting = null; cx.notify(); }
     });
     cx.notify();
@@ -406,7 +406,7 @@ export default class Review extends View {
 
   rerunFailed(cx) {
     const runs = [...new Set((this.checks ?? []).filter((c) => bucketOf(c) === "fail" && c.run).map((c) => c.run))];
-    const root = this.root, on = this.on;
+    const root = this.root, on = this.on, back = backTo();
     if (!runs.length || this.rerunning) return;
     this.rerunning = true;
     cx.spawn(async (cx) => {
@@ -416,7 +416,7 @@ export default class Review extends View {
         if (r.code !== 0) failed.push((r.stderr || "").trim().split("\n")[0]);
       }
       notify(failed.length
-        ? { title: "Re-run failed", body: failed[0], level: "error" }
+        ? { title: "Re-run failed", body: failed[0], level: "error", ...back }
         : { title: `Re-running ${runs.length} workflow run${runs.length > 1 ? "s" : ""}`, level: "success", timeout: 3000 });
       this.rerunning = false;
       this.refreshChecks(cx);
@@ -483,20 +483,24 @@ export default class Review extends View {
 
   icon(name, color, size = 14) { return svg(ICON(name)).size(size).flex_none().text_color(color); }
 
+  // The one busy indicator: the same ring as the tab bar, agents list and Ship bar.
+  spinner(t, size = 13) { return svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(t.working).spin(900); }
+
   iconButton(id, t, icon, tip, onClick, { spin = false, disabled = false } = {}) {
     return div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6)
       .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
       .tooltip(tip)
-      .child(svg(ICON(icon)).size(14).text_color(disabled ? t.dim : t.muted).when(spin, (e) => e.spin(900)));
+      .child(spin ? this.spinner(t, 14) : svg(ICON(icon)).size(14).text_color(disabled ? t.dim : t.muted));
   }
 
-  button(id, t, label, onClick, { icon, primary = false, disabled = false, tip } = {}) {
+  button(id, t, label, onClick, { icon, primary = false, disabled = false, tip, busy = false } = {}) {
     const bg = primary && !disabled ? t.solid : t.background, fg = disabled ? t.dim : primary ? t.solid_foreground : t.foreground;
     return h_flex().id(id).h(28).px(10).gap(6).flex_none().items_center().rounded(6).text_size(12).font_medium()
       .bg(bg).text_color(fg).when(!primary || disabled, (e) => e.border_1().border_color(t.border))
       .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(onClick))
       .when(Boolean(tip), (e) => e.tooltip(tip))
-      .when(Boolean(icon), (e) => e.child(this.icon(icon, fg, 13)))
+      .when(busy, (e) => e.child(this.spinner(t)))
+      .when(Boolean(icon) && !busy, (e) => e.child(this.icon(icon, fg, 13)))
       .child(label);
   }
 
@@ -508,7 +512,7 @@ export default class Review extends View {
 
   empty(t, icon, title, body, action) {
     return v_flex().flex_1().min_h(0).items_center().justify_center().gap(10).p(24)
-      .child(this.icon(icon, t.dim, 28))
+      .child(icon === "loader" ? this.spinner(t, 28) : this.icon(icon, t.dim, 28))
       .child(div().text_size(14).font_semibold().text_color(t.foreground).child(title))
       .when(Boolean(body), (e) => e.child(div().max_w(380).text_center().text_size(12).text_color(t.muted).child(body)))
       .when(Boolean(action), (e) => e.child(div().mt(6).child(action)));
@@ -736,7 +740,7 @@ export default class Review extends View {
         .cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .child(Textarea.new(this.composer).w_full().text_size(12.5).text_color(t.foreground)))
       .child(this.button("post-comment", t, this.posting === "comment" ? "Posting…" : "Comment", (_e, cx) => this.postComment(cx),
-        { icon: "send", primary: true, disabled: !enabled, tip: `Comment on #${pr.number} (⌘↵)` })));
+        { icon: "send", primary: true, disabled: !enabled, busy: this.posting === "comment", tip: `Comment on #${pr.number} (⌘↵)` })));
   }
 
   // ---- Files
@@ -881,8 +885,9 @@ export default class Review extends View {
             .child(div().flex_1())
             .child(div().id(`reply-${th.id}`).px(6).py(2).rounded(4).cursor_pointer().text_color(t.accent).hover((s) => s.bg(t.hover)).child("Reply")
               .on_click((_e, cx) => { this.drawer.replyTo = th.id; this.replyBox.focus(); cx.notify(); }))
-            .child(div().id(`resolve-${th.id}`).px(6).py(2).rounded(4).cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover))
-              .child(this.posting === th.id ? "…" : th.resolved ? "Reopen" : "Resolve").on_click((_e, cx) => this.resolve(th, cx))))
+            .child(h_flex().id(`resolve-${th.id}`).gap(6).items_center().px(6).py(2).rounded(4).cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover))
+              .when(this.posting === th.id, (e) => e.child(this.spinner(t, 12)))
+              .child(th.resolved ? "Reopen" : "Resolve").on_click((_e, cx) => this.resolve(th, cx))))
           .children(th.comments.map((cm, k) => v_flex().px(12).py(10).gap(6).when(k > 0, (e) => e.border_t(1).border_color(t.border))
             .child(h_flex().gap(6).items_center().text_size(11.5)
               .child(div().font_semibold().text_color(t.foreground).child(cm.author))
@@ -893,7 +898,7 @@ export default class Review extends View {
           .cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .child(Textarea.new(this.replyBox).w_full().text_size(12.5).text_color(t.foreground)))
         .child(this.button("post-reply", t, this.posting === "reply" ? "Replying…" : "Reply", (_e, cx) => this.postReply(cx),
-          { icon: "send", primary: true, disabled: !enabled, tip: target ? `Reply to the thread on line ${target.line ?? "?"} (⌘↵)` : "Reply" })));
+          { icon: "send", primary: true, disabled: !enabled, busy: this.posting === "reply", tip: target ? `Reply to the thread on line ${target.line ?? "?"} (⌘↵)` : "Reply" })));
   }
 
   // ---- Checks
@@ -935,7 +940,7 @@ export default class Review extends View {
       .when(Boolean(sel), (e) => e.bg(t.selected)).when(!sel, (e) => e.hover((s) => s.bg(t.hover)))
       .on_click((_e, cx) => { this.checkIndex = i; if (failed) this.showLog(x, cx); else this.openUrl(x.link, cx); cx.notify(); })
       .tooltip(failed ? (x.job ? "Show the failed log" : `Open on ${forgeOf(x.link)}`) : `Open on ${forgeOf(x.link)}`)
-      .child(svg(ICON(pending ? "loader" : icon)).size(15).flex_none().text_color(color).when(pending, (e) => e.spin(1200)))
+      .child(pending ? this.spinner(t, 15) : svg(ICON(icon)).size(15).flex_none().text_color(color))
       .child(h_flex().flex_1().min_w(0).gap(8).items_center().text_size(12.5)
         .child(div().min_w(0).truncate().text_color(t.foreground).font_medium().child(x.name))
         .when(Boolean(x.workflow), (e) => e.child(div().flex_none().max_w(220).truncate().text_size(11.5).text_color(t.dim).child(x.workflow))))

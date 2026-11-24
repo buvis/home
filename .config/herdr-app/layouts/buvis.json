@@ -125,6 +125,7 @@
                   },
                   "radius": 10,
                   "gap": 8,
+                  "veil": 0.3,
                   "lone": true
                 }
               }
@@ -216,7 +217,7 @@
               "id": "status",
               "type": "block",
               "content": {
-                "mod": "workspace-status"
+                "mod": "my-status"
               },
               "size": {
                 "weight": 1
@@ -286,6 +287,8 @@
   "preview": "layouts/buvis.svg",
   "terminal_menu": "on-screen",
   "link_handlers": [
-    "folio"
-  ]
+    "folio",
+    "beeline"
+  ],
+  "toast": "my-toast"
 }

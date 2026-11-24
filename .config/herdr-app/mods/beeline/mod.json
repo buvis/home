@@ -1,0 +1,7 @@
+{
+  "place": "none",
+  "title": "Open at line",
+  "link_handlers": [
+    { "kind": "file", "pattern": "." }
+  ]
+}

@@ -1,1 +1,1 @@
-{ "place": "none", "focusable": true, "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 760, "height": 560 } }
+{ "place": "none", "focusable": true, "title": "Obsidian", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 760, "height": 560 }, "app": { "icon": "mods/obsidian/icon.svg", "about": "Vault notes", "open": "tab", "props": { "view": "panel" } } }

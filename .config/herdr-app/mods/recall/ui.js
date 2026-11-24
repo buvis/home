@@ -34,6 +34,7 @@ const CATEGORY = {
   all: { label: "All", title: "Find Anywhere", icon: "all" },
   spaces: { label: "Spaces", title: "Recent Spaces", icon: "spaces" },
   tabs: { label: "Tabs", title: "Recent Tabs", icon: "tabs" },
+  closed: { label: "Closed", title: "Recently Closed", icon: "tabs" },
   panes: { label: "Panes", title: "Recent Panes", icon: "panes" },
   agents: { label: "Agents", title: "Agents", icon: "agents" },
   clues: { label: "Clues", title: "Find by Clue", icon: "search" },
@@ -41,7 +42,7 @@ const CATEGORY = {
 const SORT_LABEL = { mru: "Recent", priority: "Priority", grouped: "Grouped" };
 const CLUE_COLOR = { ssh: "ansi6", cmd: "ansi3", file: "ansi5", term: "ansi4", port: "ansi6", pid: "ansi5" };
 const CHIP_COLOR = { ".": "accent", port: "ansi6", pid: "ansi5" };
-const KIND_ICON = { space: "spaces", tab: "tabs", pane: "panes", agent: "agents", clue: "panes", hint: "search", "to-clues": "search" };
+const KIND_ICON = { space: "spaces", tab: "tabs", closed: "tabs", pane: "panes", agent: "agents", clue: "panes", hint: "search", "to-clues": "search" };
 const PREFIXES = "cmd ssh file term port pid";
 const SPINNER = "mods/workspace-chrome/spinner.svg";
 const ROW = 30;

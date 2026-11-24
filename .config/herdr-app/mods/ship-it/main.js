@@ -7,7 +7,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, exec, appHome, openOverlay, nextCommand, notify, checking } from "herdr";
+import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, exec, appHome, openOverlay, nextCommand, notify, checking, window } from "herdr";
 import { cleanupPlan, removeCheckout, checkTerminals } from "./cleanup.js";
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent, createPr } from "./data.js";
 const COUNT_TTL = 5 * 60 * 1000; // the badges' counts are re-asked at most this often per repo
@@ -52,15 +52,28 @@ export default class ShipIt extends View {
     if (checking()) return;
     this.refreshGit(cx);
     // A local repo's folder watch catches edits, so its poll is only a backstop.
-    cx.timer.every(5000, (cx) => { this.watchAgents(cx); if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });
+    // watchAgents only samples statuses and acts when an agent stops: it runs hidden too.
+    cx.timer.every(5000, (cx) => { this.watchAgents(cx); if (!this.back(cx)) return; if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });
     cx.timer.every(30000, (cx) => {
+      if (!this.back(cx)) return;
       // Pending checks move fast; settled ones are polled gently.
       const pending = tally(this.checks).pending > 0;
       if (pending || (this.tick = (this.tick ?? 0) + 1) % 4 === 0) this.refreshPr(cx);
     });
-    cx.timer.every(60000, (cx) => this.refreshCounts(cx)); // checks its own 5-minute age limit
+    cx.timer.every(60000, (cx) => { if (this.back(cx)) this.refreshCounts(cx); }); // checks its own 5-minute age limit
     // "ship-it.merge" comes back from the confirm dialog Ship opens.
     cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); if (c === "cleanup" || c === "ship-it.cleanup") this.cleanup(cx); if (c === "ask-cleanup" || c === "ship-it.ask-cleanup") this.tryAskCleanup(cx); cx.notify(); } });
+  }
+
+  // Local edit: polls wait while the window is hidden (minimized, covered, on another
+  // Space). After an absence longer than one PR poll, the first poll or render catches
+  // up at once; a shorter one missed nothing, so a quick app switch asks GitHub nothing.
+  back(cx) {
+    if (window()?.visible === false) { this.hiddenAt ??= Date.now(); return false; }
+    const away = this.hiddenAt ? Date.now() - this.hiddenAt : 0;
+    this.hiddenAt = null;
+    if (away >= 30000) { this.refreshGit(cx); this.refreshPr(cx); }
+    return true;
   }
 
   // Git facts for the focused folder; a new repo or branch also refreshes the PR.
@@ -623,6 +636,7 @@ export default class ShipIt extends View {
     // not at the next poll.
     const loc = location(this.loc);
     if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
+    this.back(cx);
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
     // Each is null when there is nothing to show (prButton while the PR loads).
     const signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);

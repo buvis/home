@@ -37,7 +37,7 @@
 //          base: the branch reviews are against (default: origin/HEAD, else main, else master) }.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, Scrollbar, v_virtual_list, VirtualListScrollHandle, Popover } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, nextCommand, props, shared, setShared } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, nextCommand, props, shared, setShared, window } from "herdr";
 import { tokenize, languageOf } from "./highlight.js";
 import { ask } from "./ask.js";
 import { palette } from "./palette.js";
@@ -159,7 +159,8 @@ export default class Changes extends View {
     this.note.on("change", (_e, cx) => { this.noteText = this.note.value(); if (this.composer?.editing) this.rebuild(); cx.notify(); });
     this.noteText = "";
     this.refresh(cx);
-    cx.timer.every(10000, (cx) => this.refresh(cx));
+    // Local edit: no git scan while the window is hidden (minimized, covered, on another Space).
+    cx.timer.every(10000, (cx) => { if (window()?.visible !== false) this.refresh(cx); });
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();

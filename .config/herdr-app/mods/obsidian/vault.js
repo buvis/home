@@ -82,13 +82,43 @@ export async function files(force = false) {
     out = r.stdout.replace(/^\.\//gm, "");
   }
   const list = out.split("\n").filter(Boolean).map((p) => p.replace(/\\/g, "/"));
+  await loadTitles(root);
   listed = { root, at: Date.now(), files: list };
   return list;
 }
 
+// Notes named by their Zettelkasten ID (all digits) are remembered by what they say,
+// not by the number: the front matter title, else the first "# " heading.
+const ID = /^\d{8,}$/;
+let titles = new Map();
+
+async function loadTitles(root) {
+  try {
+    const r = await exec("grep", ["-rEm", "3", "--exclude-dir=.[a-zA-Z0-9_]*", "--include=[0-9]*.md", "^(title:|# )", "."], { cwd: root });
+    const found = new Map();
+    for (const line of r.stdout.split("\n")) {
+      const m = line.match(/^\.\/(.+?\/)?(\d+\.md):(title:\s*(.*)|# (.*))$/i);
+      if (!m) continue;
+      const path = (m[1] ?? "") + m[2];
+      const fromFront = m[4] !== undefined;
+      const text = (fromFront ? m[4] : m[5]).trim().replace(/^(["'])(.*)\1$/, "$2").trim();
+      if (!text) continue;
+      const have = found.get(path);
+      if (!have || (fromFront && !have.front)) found.set(path, { text, front: fromFront });
+    }
+    titles = new Map([...found].map(([p, v]) => [p, v.text]));
+  } catch {
+    titles = new Map();
+  }
+}
+
 export const isNote = (p) => p.toLowerCase().endsWith(".md");
 export const notes = async (force) => (await files(force)).filter(isNote);
-export const title = (p) => p.split("/").pop().replace(/\.md$/i, "");
+// What a note is called: its file name, unless that is only a Zettelkasten ID.
+export function title(p) {
+  const name = p.split("/").pop().replace(/\.md$/i, "");
+  return ID.test(name) ? titles.get(p) ?? name : name;
+}
 export const folderOf = (p) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 
 // Title and path matching: every word must appear; a title that starts with the
@@ -100,7 +130,7 @@ export function match(list, query) {
   return list
     .map((p, i) => {
       const t = title(p).toLowerCase(), path = p.toLowerCase();
-      if (!words.every((w) => path.includes(w))) return null;
+      if (!words.every((w) => path.includes(w) || t.includes(w))) return null;
       const rank = t === q ? 0 : t.startsWith(q) ? 1 : t.includes(q) ? 2 : words.every((w) => t.includes(w)) ? 3 : 4;
       return { p, rank, i };
     })
@@ -138,7 +168,7 @@ export async function searchText(query) {
   try {
     r = await exec("rg", ["-n", "-i", "-F", "--max-count", "3", "--max-columns", "300", "--max-columns-preview", "-g", "*.md", "--", query], { cwd: root });
   } catch {
-    r = await exec("grep", ["-rniF", "--include=*.md", "--exclude-dir=.*", "-m", "3", "--", query, "."], { cwd: root });
+    r = await exec("grep", ["-rniF", "--include=*.md", "--exclude-dir=.[a-zA-Z0-9_]*", "-m", "3", "--", query, "."], { cwd: root });
   }
   if (r.code > 1) throw new Error(r.stderr.trim());
   return r.stdout.split("\n").flatMap((line) => {
@@ -158,7 +188,7 @@ export async function searchTag(tag) {
       "-e", `(?m)^tags:[^\\n]*\\b${t}\\b`,
       "-e", `(?m)^tags:[ \\t]*\\n([ \\t]+-[^\\n]*\\n)*?[ \\t]+-[ \\t]+#?${t}[ \\t]*$`], { cwd: root });
   } catch {
-    r = await exec("grep", ["-rliE", "--include=*.md", "--exclude-dir=.*", `(^|[[:space:]])#${t}([^[:alnum:]_/-]|/|$)`, "."], { cwd: root });
+    r = await exec("grep", ["-rliE", "--include=*.md", "--exclude-dir=.[a-zA-Z0-9_]*", `(^|[[:space:]])#${t}([^[:alnum:]_/-]|/|$)`, "."], { cwd: root });
   }
   if (r.code > 1) throw new Error(r.stderr.trim());
   const hits = new Set(r.stdout.split("\n").filter(Boolean).map((p) => p.replace(/^\.\//, "").replace(/\\/g, "/")));
@@ -172,7 +202,7 @@ export async function backlinks(path) {
   const pattern = `\\[\\[(${full}|([^\\]|#]*/)?${name})(\\.md)?([|#][^\\]]*)?\\]\\]`;
   let r;
   try { r = await exec("rg", ["-l", "-i", "-g", "*.md", "-e", pattern], { cwd: root }); }
-  catch { r = await exec("grep", ["-rliE", "--include=*.md", "--exclude-dir=.*", pattern, "."], { cwd: root }); }
+  catch { r = await exec("grep", ["-rliE", "--include=*.md", "--exclude-dir=.[a-zA-Z0-9_]*", pattern, "."], { cwd: root }); }
   if (r.code > 1) return [];
   return r.stdout.split("\n").filter(Boolean).map((p) => p.replace(/^\.\//, "").replace(/\\/g, "/")).filter((p) => p !== path);
 }
@@ -298,8 +328,10 @@ export async function openInEditor(rel, line) {
   const abs = `${c.root}/${rel}`;
   const at = line ? [`+${line}`] : [];
   // $VISUAL, else $EDITOR, else vi; +line only for editors that take it.
-  const script = 'e="${VISUAL:-${EDITOR:-vi}}"; case "${e##*/}" in vi|vim|nvim|nano|emacs|micro|kak|hx) ;; *) [ "$#" -gt 1 ] && shift ;; esac; exec $e "$@"';
-  const argv = c.editor ? [...c.editor, ...at, abs]
+  const script = 'export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"; e="${VISUAL:-${EDITOR:-vi}}"; case "${e##*/}" in vi|vim|nvim|nano|emacs|micro|kak|hx) ;; *) [ "$#" -gt 1 ] && shift ;; esac; exec $e "$@"';
+  // Herdr starts programs without the shell's PATH, so mise-installed editors (nvim) need it added.
+  const withPath = 'export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"; exec "$@"';
+  const argv = c.editor ? (platform() === "windows" ? [...c.editor, ...at, abs] : ["sh", "-c", withPath, "editor", ...c.editor, ...at, abs])
     : platform() === "windows" ? ["notepad", abs]
     : ["sh", "-c", script, "editor", ...at, abs];
   run("pane.split", { direction: "right", argv });
@@ -311,11 +343,16 @@ export function openInViewer(rel, line) {
   const tab = focused()?.tab;
   const registered = Object.values(shared("obsidian.viewers") ?? {}).includes(tab);
   const live = panes().some((p) => p.tab === tab && p.mod === "obsidian");
-  if (tab && registered && live) {
-    setShared("obsidian.show", { tab, note: rel, line: line ?? null, n: Date.now() });
-  } else {
-    run("pane.split", { direction: "right", mod: "obsidian", props: { note: rel, line: line ?? null } });
-  }
+  const split = () => run("pane.split", { direction: "right", mod: "obsidian", props: { note: rel, line: line ?? null } });
+  if (!(tab && registered && live)) return split();
+  const n = Date.now();
+  setShared("obsidian.show", { tab, note: rel, line: line ?? null, n });
+  // A viewer acks through "obsidian.shown"; no ack means the entry outlived its pane.
+  return exec("/bin/sleep", ["0.3"]).then(() => {
+    if ((shared("obsidian.shown")?.n ?? 0) >= n) return;
+    setShared("obsidian.viewers", Object.fromEntries(Object.entries(shared("obsidian.viewers") ?? {}).filter(([, t]) => t !== tab)));
+    split();
+  });
 }
 
 // how: "viewer" (Enter), "obsidian" (Cmd/Ctrl+Enter), "editor" (Shift+Enter).

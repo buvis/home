@@ -11,7 +11,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, shared, setShared, notify, theme, nextCommand, checking } from "herdr";
-import { READ, location, ago, panelShown, Recent, tilde } from "./data.js";
+import { READ, location, ago, panelShown, Recent, tilde, backTo } from "./data.js";
 import { forgeOf, FORGE_NAME, listIssues, worktrees, issueTree, places, spaceAt, ensureWorktree, installedAgents, openWorktree } from "./issues.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
@@ -78,7 +78,11 @@ export default class Issues extends View {
     // The agents this machine has, once.
     if (this.agents[on ?? ""] === undefined) {
       this.agents[on ?? ""] = [];
-      installedAgents(on).then((a) => { this.agents[on ?? ""] = a; cx.notify(); }).catch(() => { delete this.agents[on ?? ""]; });
+      cx.spawn(async (cx) => {
+        try { this.agents[on ?? ""] = await installedAgents(on); }
+        catch (e) { delete this.agents[on ?? ""]; this.error = this.error ?? `Agents: ${e}`; }
+        cx.notify();
+      });
     }
   }
 
@@ -105,7 +109,7 @@ export default class Issues extends View {
   // Make sure the issue's worktree exists, then show its space; with an agent, start it there.
   work(issue, agent, cx) {
     if (this.busy || !this.root) return;
-    const root = this.root, on = this.on;
+    const root = this.root, on = this.on, back = backTo();
     this.busy = { number: issue.number, step: "Checking out…" }; cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -113,12 +117,16 @@ export default class Issues extends View {
         if (this.root === root) this.trees = wt.trees;
         if (wt.created) notify({ title: `Worktree for #${issue.number}`, body: `${wt.branch} · ${tilde(wt.path)}`, level: "info", timeout: 3000 });
         openWorktree(wt.path, on, wt.trees, issue, wt.branch, agent);
-      } catch (e) { notify({ title: `Couldn't start #${issue.number}`, body: String(e.message ?? e), level: "error", timeout: 8000 }); }
+      } catch (e) { notify({ title: `Couldn't start #${issue.number}`, body: String(e.message ?? e), level: "error", timeout: 8000, ...back }); }
       finally { this.busy = null; cx.notify(); }
     });
   }
 
-  icon(name, color, size = 14) { return svg(ICON(name)).size(size).flex_none().text_color(color); }
+  // "loader" is the shared busy ring (same as the tab bar, agents list and Ship bar).
+  icon(name, color, size = 14) {
+    if (name === "loader") return svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(theme().working).spin(900);
+    return svg(ICON(name)).size(size).flex_none().text_color(color);
+  }
 
   row(issue, t, where) {
     const path = issueTree(this.trees, issue), space = spaceAt(path, where, Object.values(this.trees)), busy = this.busy?.number === issue.number;
@@ -138,7 +146,7 @@ export default class Issues extends View {
         .when(issue.labels.length > 0, (e) => e.child(div().min_w(0).truncate().child(issue.labels.slice(0, 2).join(", "))))
         .when(Boolean(path), (e) => e.child(div().flex_none().tooltip(space ? `Worktree open in a space: ${tilde(path)}` : `Worktree: ${tilde(path)}`)
           .child(this.icon(space ? "git-branch" : "folder", t.accent, 12))))
-        .when(busy, (e) => e.child(this.icon("loader", t.muted, 12).spin(800))))
+        .when(busy, (e) => e.child(this.icon("loader", t.muted, 12))))
       .when(open, (e) => e.child(this.details(issue, path, space, t)));
   }
 

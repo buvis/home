@@ -4,7 +4,7 @@
 // mods/ship-it-review/data.js is a copy (a mod can't import from another
 // mod's folder): edit this one and run scripts/install.sh.
 
-import { exec, spaces, panes, focused, home, appHome, layout, shared, notify, agents, knownAgents, hc, run } from "herdr";
+import { exec, spaces, panes, focused, home, appHome, layout, shared, notify, agents, knownAgents, hc, run, window } from "herdr";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
 // notify() args that lead back to what is focused now (my-toast's Go to terminal).
 // Capture it before the first await: by the time an error lands, focus may have moved.
@@ -104,6 +104,10 @@ export function sharedPr(root, on) {
 //
 // A mod pane doesn't know its own pane id, so "shown" means a pane of that mod
 // is in the tab on screen. Panels are shown when the panel is open on them.
+// A hidden window (minimized, covered, on another Space) shows nothing: polls
+// wait, and each copy catches up through its own "stale" path when it is back.
+
+const windowHidden = () => window()?.visible === false;
 
 export function shownTab() {
   const space = spaces().find((s) => s.active);
@@ -111,6 +115,7 @@ export function shownTab() {
 }
 
 export function modShown(mod) {
+  if (windowHidden()) return false;
   const tab = shownTab();
   return panes().some((p) => p.mod === mod && p.tab === tab);
 }
@@ -122,6 +127,7 @@ function findNode(node, id) {
 }
 
 export function panelShown(id) {
+  if (windowHidden()) return false;
   const root = layout(), panel = findNode(root, "panel"), body = findNode(root, "panel-body");
   return Boolean(panel && !panel.hidden && body?.active === id);
 }

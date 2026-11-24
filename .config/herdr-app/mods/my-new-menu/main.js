@@ -47,7 +47,7 @@ export default class NewMenu extends View {
     this.agents = shared(KNOWN)?.[where] ?? [];
     cx.spawn(async cx => {
       try {
-        this.agents = await knownAgents({ on: machine });
+        this.agents = (await knownAgents({ on: machine })).filter(a => a.run?.length); // programs.json `run: []` retires an agent
         setShared(KNOWN, { ...shared(KNOWN), [where]: this.agents });
       }
       catch { this.failed = true; }

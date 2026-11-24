@@ -34,6 +34,7 @@ function items(p, git) {
       const toProgram = term?.labels?.["herdr.right-click"] === "program";
       const here = panes().find((x) => x.pane === tg.pane);
       return [
+        ...(here ? [["Rename", "pane.rename", { pane: here.pane }]] : []),
         ["Split right", "pane.split", { direction: "right", pane: tg.pane }],
         ["Split down", "pane.split", { direction: "down", pane: tg.pane }],
         ["Zoom", "pane.zoom", { pane: tg.pane }],
@@ -44,13 +45,19 @@ function items(p, git) {
               toProgram
                 ? ["Use Herdr right-click menu", "terminal.right_click", { terminal: term.address, to: "menu" }]
                 : ["Send right-clicks to pane", "terminal.right_click", { terminal: term.address, to: "program" }],
-              ["Move to tab…", "move-pane", { terminal: term.address }],
+              ["Move to…", "move-pane", { terminal: term.address }],
             ]
           : []),
         ...(parent ? [[`Send back to ${parent.name || parent.address}`, "terminal.park", { terminal: term.address }]] : []),
         ["Close pane", "pane.close", { pane: tg.pane }],
       ];
     }
+    case "path":
+      // The ship-it bar's folder: exactly the path and branch it shows.
+      return [
+        ...(p.path ? [["Copy path", "copy", { text: p.path }]] : []),
+        ...(p.branch ? [["Copy branch name", "copy", { text: p.branch }]] : []),
+      ];
     case "tab":
       return [
         ["Rename", "tab.rename", { id: tg.id }],
@@ -115,7 +122,7 @@ export default class Menu extends View {
     closeOverlay(props()?.overlay);
     if (it[1] === "copy") { cx.write_to_clipboard(it[2].text); notify({ title: "Copied", body: it[2].text, level: "info", timeout: 2000 }); }
     else if (it[1] === "worktree") openOverlay({ mod: "my-worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
-    else if (it[1] === "move-pane") openOverlay({ mod: "move-pane", kind: "dialog", modal: true, width: 360, height: 320, props: it[2] });
+    else if (it[1] === "move-pane") openOverlay({ mod: "move-pane", kind: "dialog", modal: true, width: 460, height: 520, props: it[2] });
     else run(it[1], it[2]);
   }
 

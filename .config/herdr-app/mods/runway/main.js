@@ -1,7 +1,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { run, exec, appHome, notify, openOverlay, theme, watchFolder } from "herdr";
-import { home } from "herdr";
+import { run, exec, appHome, notify as notifyRaw, openOverlay, theme, watchFolder, focused } from "herdr";
+import { notify, home } from "herdr";
 import { ownItems, toCard, scanRefs, parseFrontmatter } from "./model.js";
 import { snapshot, texts, repos, location, panelShown, places, spaceAt, installedAgents, specflowHosts } from "./read.js";
 import { pickOf, startLabel, startFor } from "./start.js";
@@ -311,6 +311,9 @@ export default class Runway extends View {
   }
 
   openRef(chip, card, snap, cx) {
+    // Errors lead back to where the click came from (my-toast's Go to terminal).
+    const f = focused(), at = f?.terminal ? { terminal: f.terminal } : f?.pane ? { pane: f.pane } : null;
+    const notify = (n) => notifyRaw({ ...n, ...(at ? { action: { name: "pane.focus", args: at } } : {}) });
     cx.spawn(async () => {
       const val = String(chip.value);
       if (val.startsWith("http")) {

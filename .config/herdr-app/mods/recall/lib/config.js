@@ -18,7 +18,7 @@
 
 // "all" lists every space, tab, pane and agent; "clues" is the clue search,
 // which herdr-recent-navigator called "others" (see docs/adr/0001).
-export const CATEGORY_IDS = ["all", "spaces", "tabs", "panes", "agents", "clues"];
+export const CATEGORY_IDS = ["all", "spaces", "tabs", "closed", "panes", "agents", "clues"];
 const CATEGORY_ALIASES = { workspaces: "spaces", workspace: "spaces", ws: "spaces", others: "clues" };
 
 export const ACTIONS = ["next_category", "previous_category", "move_up", "move_down", "select", "dismiss", "force_quit", "backspace"];

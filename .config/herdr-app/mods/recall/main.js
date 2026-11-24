@@ -18,7 +18,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
 import {
   spaces, panes, agents, terminals, focused, theme, settings, fonts, props, run, shared, setShared,
-  openOverlay, closeOverlay, nextCommand, home, appHome, readTextFile, exec, hc,
+  openOverlay, closeOverlay, nextCommand, home, appHome, readTextFile, exec, hc, machines, knownAgents, notify,
 } from "herdr";
 import * as mru from "./lib/mru.js";
 import { listView } from "./lib/listview.js";
@@ -30,6 +30,7 @@ import { DESIGN_TEXT, pickFont, textScale } from "./lib/look.js";
 import { metricsFor } from "./lib/textwidth.js";
 import { isCurrentTracker, trackerWindow } from "./lib/tracker.js";
 import { navigator } from "./ui.js";
+import { CLOSED, loadClosed, rememberClosed, tabSnapshot } from "./lib/closed.js";
 
 const MOD = "recall";
 const HISTORY = "recall.history";
@@ -45,6 +46,7 @@ const TRACKER = trackerWindow(MOD);
 const DIALOG = { kind: "dialog", width: 0.74, height: 0.7 };
 
 const AGENT_SORTS = ["mru", "priority", "grouped"];
+const reopeningTabs = new Set();
 const KEY_CONTEXT = "RecallNavigator";
 const KEY_ACTIONS = {
   next_category: "recall::next_category",
@@ -81,6 +83,7 @@ export default class Recall extends View {
 
   initTracker(p, cx) {
     this.sig = null;
+    this.liveTabs = new Map();
     // Herdr reopens a kept window as it was last opened. One kept at another
     // size gives way to one at this size, which takes its place.
     if (!isCurrentTracker(p)) {
@@ -93,6 +96,11 @@ export default class Recall extends View {
   }
 
   renderTracker() {
+    const current = tabSnapshot(spaces(), panes(), terminals(), machines(), this.liveTabs);
+    const history = loadClosed(shared(CLOSED));
+    const closed = rememberClosed(this.liveTabs, current, history, Date.now());
+    this.liveTabs = current.tabs;
+    if (closed !== history) setShared(CLOSED, closed);
     const f = focused();
     if (f?.space && f?.tab) {
       const agent = agents().find((a) => a.focused)?.address ?? null;
@@ -108,6 +116,12 @@ export default class Recall extends View {
   }
 
   trackerCommand(command) {
+    if (command === "reopen-last") {
+      const tab = loadClosed(shared(CLOSED))[0];
+      if (tab) return this.reopenTab(tab);
+      notify({ title: "No recently closed tabs", level: "info" });
+      return;
+    }
     if (command === "open" || command.startsWith("open-")) {
       if (fresh(shared(OPEN))) return; // the open navigator takes it
       const { category, sort } = parseOpenCommand(command);
@@ -301,9 +315,56 @@ export default class Recall extends View {
   open(item) {
     if (!item || this.done) return;
     if (item.kind === "to-clues") return this.switchTo("clues"); // the query stays in the field
+    if (item.kind === "closed") return this.reopenTab(item.tab);
     if (!item.actions?.length) return this.dismiss();
     this.dismiss();
     for (const [name, args] of item.actions) run(name, args);
+  }
+
+  async reopenTab(tab) {
+    const key = `${tab.id}:${tab.at}`;
+    if (this.reopening || reopeningTabs.has(key)) return;
+    this.reopening = true;
+    reopeningTabs.add(key);
+    try {
+      if (!machines().some((m) => m.name === tab.machine && m.layout === "ready")) throw new Error("The original machine is unavailable.");
+      const session = tab.reviveLabels["revive.session"];
+      let argv;
+      let folder = tab.folder;
+      if (session) {
+        const live = terminals().find((t) => t.labels?.["revive.session"] === session && t.labels?.["revive.agent"] === tab.reviveLabels["revive.agent"] &&
+          (tab.machine ? t.address.startsWith(`${tab.machine}/`) : !t.address.includes("/")));
+        if (live) {
+          run("pane.focus", { terminal: live.address });
+          if (this.role === "navigator") this.dismiss();
+          return;
+        }
+        const result = await exec("node", [`${appHome()}/mods/recall/reopen-agent.mjs`, JSON.stringify(tab.reviveLabels)]);
+        if (result.code !== 0) throw new Error(result.stderr.trim() || "Revive could not read the saved session.");
+        const resume = JSON.parse(result.stdout);
+        if (resume) {
+          const launcher = (await knownAgents({ on: tab.machine })).find((a) => a.installed && a.run?.includes(resume[0]));
+          if (!launcher) throw new Error(`The configured ${resume[0]} launcher is unavailable.`);
+          argv = [...launcher.run, ...resume.slice(1)];
+          folder = tab.reviveLabels["revive.cwd"] || folder;
+        }
+      }
+      const space = spaces().find((s) => s.id === tab.space && s.machine === tab.machine);
+      const name = tab.tabNamed ? tab.title : undefined;
+      const args = space ? { space: space.id, name, folder, argv } : { machine: tab.machine ?? "", name: tab.named ? tab.spaceName : undefined, tab: name, folder, argv };
+      const result = await exec("herdr-app", ["do", space ? "tab.new" : "space.new", JSON.stringify(args)]);
+      if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "Herdr refused to reopen the tab.");
+      const opened = JSON.parse(result.stdout);
+      if (!opened.tab) throw new Error(opened.error || "Herdr did not confirm the new tab.");
+      setShared(CLOSED, loadClosed(shared(CLOSED)).filter((row) => row.id !== tab.id || row.at !== tab.at));
+      if (tab.agent && !argv) notify({ title: "Opened as a shell", body: "No exact session could be resumed with the current configuration.", level: "info" });
+      if (this.role === "navigator") this.dismiss();
+    } catch (error) {
+      notify({ title: "Could not reopen tab", body: String(error.message ?? error), level: "error" });
+    } finally {
+      reopeningTabs.delete(key);
+      this.reopening = false;
+    }
   }
 
   navigatorCommand(command) {
@@ -352,6 +413,7 @@ export default class Recall extends View {
       terminals: terminals(),
       focused: focused(),
       history: mru.load(shared(HISTORY)),
+      closed: loadClosed(shared(CLOSED)),
       home: home(),
       worktrees: this.worktrees,
     };

@@ -1004,9 +1004,11 @@ export default class FileTree extends View {
     }
 
     const q = this.query.trim();
+    // The one busy indicator: the same ring as the tab bar, agents list and Ship bar.
+    const busyNote = (text) => h_flex().gap(6).items_center().child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)).child(text);
     const note = this.error || (!this.root ? "No folder"
       : this.view === "recent" ? (rows.length ? null : q ? "No matches" : "Files Claude reads and writes here show up in this list")
-      : this.searching && !rows.length ? "Searching…" : this.hits ? (rows.length ? null : "No matches") : this.loading && !rows.length ? "Loading files…" : !rows.length ? "Empty folder" : null);
+      : this.searching && !rows.length ? busyNote("Searching…") : this.hits ? (rows.length ? null : "No matches") : this.loading && !rows.length ? busyNote("Loading files…") : !rows.length ? "Empty folder" : null);
     return root
       .child(this.summary(t))
       .child(h_flex().flex_none().mx(6).mt(6).mb(4).gap(2).items_center()

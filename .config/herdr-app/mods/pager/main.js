@@ -101,8 +101,9 @@ export default class Pager extends View {
       return [[key, e.blocked || e.done ? e.delivery : null]]
         .filter(([id, state]) => state && !state.sent && state.attempts > 0 && !this.pending.has(id));
     });
-    const label = this.pending.size ? "Alerts · sending…" : failures.length ? "Alerts · delivery failed · click to retry" : "Alerts · phone when away";
+    const label = this.pending.size ? "Alerts · sending…" : failures.length ? "Alerts · delivery failed · click to retry" : null;
     const t = theme();
+    if (!label) return div().id("pager").size_full().bg(t.chrome);
     return div().id("pager").size_full().px(12).flex().items_center().text_size(11)
       .bg(t.chrome).text_color(failures.length ? t.blocked : t.muted)
       .tooltip("Needs you or finished: desktop when present; phone after 5 minutes idle, with screensaver active, or lid below 70°. Active while this layout is open.")

@@ -1,1 +1,23 @@
-{ "place": "none", "title": "Prefix", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 300 } }
+{
+  "place": "none",
+  "title": "Prefix",
+  "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 640 },
+  "palette": [
+    { "title": "Obsidian", "command": "mod.open", "args": { "name": "obsidian" }, "words": "vault notes bim find" },
+    { "title": "Obsidian panel", "command": "pane.split", "args": { "direction": "right", "mod": "obsidian", "props": { "view": "panel" } }, "words": "vault notes bim" },
+    { "title": "Markdown", "command": "mod.open", "args": { "name": "markdown-panel" }, "words": "md preview panel" },
+    { "title": "Ciupaga", "command": "mod.open", "args": { "name": "ciupaga" }, "words": "tasks run" },
+    { "title": "Browse", "command": "pane.split", "args": { "direction": "right", "argv": ["/Users/bob/.config/herdr-app/bin/browse"] }, "words": "browser web" },
+    { "title": "Projects", "command": "tab.new", "args": { "name": "projects", "mod": "bim-projects" }, "words": "bim gtd notes" },
+    { "title": "Revive", "command": "mod.open", "args": { "name": "revive" }, "words": "resume agent sessions" },
+    { "title": "Mod updates", "command": "mod.open", "args": { "name": "mod-updater" }, "words": "updater hmod gallery" },
+    { "title": "Worktree include", "command": "mod.open", "args": { "name": "worktreeinclude" }, "words": "worktreeinclude" },
+    { "title": "Copy mode", "command": "mod.open", "args": { "name": "copy-mode" }, "words": "select scrollback" },
+    { "title": "Launcher", "command": "mod.open", "args": { "name": "launcher" }, "words": "apps" },
+    { "title": "Recall", "command": "mod.open", "args": { "name": "recall" }, "words": "recent closed tabs" },
+    { "title": "File picker", "command": "mod.open", "args": { "name": "file-picker" }, "words": "find open file fzf" },
+    { "title": "On screen", "command": "mod.open", "args": { "name": "on-screen" }, "words": "paths files" },
+    { "title": "Agent switcher", "command": "mod.open", "args": { "name": "attn-next" }, "words": "attention needs you" },
+    { "title": "Sudoku", "command": "tab.new", "args": { "name": "Sudoku", "mod": "sudoku" }, "words": "puzzle game" }
+  ]
+}

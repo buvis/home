@@ -1,7 +1,7 @@
 // App launcher. Lists every mod whose mod.json has an "app" entry:
 //   { "place": "none", "title": "Sudoku", "app": { "icon": "🧩", "about": "Number puzzle", "open": "tab" } }
 // "open": "tab" (default) | "right" | "down" (split). Keys: ↑/↓ or j/k move, Enter or 1-9 open, Esc closes.
-import { View, div } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, appHome, run, theme, props, closeOverlay } from "herdr";
 
@@ -19,7 +19,7 @@ export default class Launcher extends View {
           const nl = chunk.indexOf("\n"), f = chunk.slice(0, nl), mod = f.split("/").slice(-2)[0];
           try {
             const j = JSON.parse(chunk.slice(nl + 1));
-            if (j.app) list.push({ mod, name: j.title ?? mod, icon: j.app.icon ?? "▫", about: j.app.about ?? "", open: j.app.open ?? "tab" });
+            if (j.app) list.push({ mod, name: j.title ?? mod, icon: j.app.icon ?? "▫", about: j.app.about ?? "", open: j.app.open ?? "tab", props: j.app.props });
           } catch (e) { this.err = `${mod}: ${e?.message ?? e}`; }
         }
       } catch (e) { this.err = `scan failed: ${e?.message ?? e}`; }
@@ -30,8 +30,8 @@ export default class Launcher extends View {
 
   launch(a) {
     closeOverlay(props().overlay);
-    if (a.open === "tab") run("tab.new", { name: a.name, mod: a.mod });
-    else run("pane.split", { direction: a.open, mod: a.mod });
+    if (a.open === "tab") run("tab.new", { name: a.name, mod: a.mod, props: a.props });
+    else run("pane.split", { direction: a.open, mod: a.mod, props: a.props });
   }
 
   onKey(e, cx) {
@@ -58,7 +58,7 @@ export default class Launcher extends View {
           h_flex().id(`app-${a.mod}`).h(44).flex_none().px(10).gap(10).items_center().rounded(8).cursor_pointer()
             .when(i === this.sel, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
             .on_click(() => this.launch(a))
-            .child(div().w(26).flex_none().text_size(20).child(a.icon))
+            .child(div().w(26).flex_none().text_size(20).child(/\.(png|jpe?g|webp|svg)$/i.test(a.icon) ? image(a.icon).size(22) : a.icon))
             .child(v_flex().flex_1().min_w(0)
               .child(div().truncate().child(a.name))
               .child(div().truncate().text_size(11).text_color(t.dim).child(a.about)))

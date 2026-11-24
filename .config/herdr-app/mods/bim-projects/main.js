@@ -1,6 +1,6 @@
 // bim-projects: search the bim vault's project notes and run the GTD consistency checks
 // that were spread over dataview notes (20250121091528 "Check BIM consistency" and friends).
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { exec, readTextFile, writeTextFile, watchFolder, home, theme, run, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
@@ -138,7 +138,7 @@ export default class Projects extends View {
     // ponytail: a plain scroll list (a few hundred rows); switch to v_virtual_list if the vault grows past a few thousand projects.
     const list = div().flex_1().min_w(0).min_h(0).relative()
       .child(v_flex().id("projects").size_full().overflow_y_scroll().p(4).children(rows.map((p, i) => this.row(p, i, t)))
-        .when(!rows.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? "Reading project notes…" : "Nothing matches")))))
+        .when(!rows.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? h_flex().gap(6).items_center().child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)).child("Reading project notes…") : "Nothing matches")))))
       .child(Scrollbar.vertical("projects").absolute().inset_0());
     // h_flex centers its children vertically; stretch them so the two columns fill the body.
     const body = (wide ? h_flex().items_stretch() : v_flex()).flex_1().min_h(0).min_w(0)
@@ -151,7 +151,8 @@ export default class Projects extends View {
         .child(div().font_semibold().child("Projects"))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${openCount} open · ${this.projects.length} total`))
         .child(div().flex_1())
-        .when(this.loading, (e) => e.child(div().text_size(11).text_color(t.dim).child("Reading…")))
+        // The one busy indicator: the same ring as the tab bar, agents list and Ship bar.
+        .when(this.loading, (e) => e.child(svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(t.working).spin(900)))
         .child(div().id("search").flex_1().min_w(100).max_w(220).h(28).px(8).flex().items_center().rounded(6).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground))))
       .child(h_flex().flex_none().px(10).py(8).gap(6).items_center().flex_wrap().border_b(1).border_color(t.border)
         .child(this.chip("chip-open", "Open only", this.openOnly, () => { this.openOnly = !this.openOnly; }, t))

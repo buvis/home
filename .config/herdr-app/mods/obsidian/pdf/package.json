@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-pdf-converter",
+  "private": true,
+  "type": "module",
+  "description": "Source of convert.mjs. Rebuild: npm install && bun build convert.src.mjs --target node --outfile convert.mjs",
+  "dependencies": {
+    "highlight.js": "^11.12.0",
+    "markdown-it": "^15.0.3",
+    "markdown-it-container": "^4.0.0",
+    "markdown-it-deflist": "^4.0.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0"
+  }
+}

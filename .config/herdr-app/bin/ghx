@@ -187,10 +187,14 @@ def pr_view(ws, repo, args):
     print(json.dumps(shape(pr, ws, repo, detail="body" in fields.split(","))))
 
 
-def pr_checks(ws, repo, args):
-    pr = current_pr(ws, repo)
-    h = pr["source"]["commit"]["hash"]
-    sts = paged(f"/repositories/{ws}/{repo}/commit/{h}/statuses", {"pagelen": 100})
+def pr_checks(ws: str, repo: str, args: list[str]) -> None:
+    commit = opt(args, "--commit")
+    if "--commit" in args:
+        if not commit or not re.fullmatch(r"[a-fA-F0-9]{7,64}", commit):
+            raise Err("Invalid commit hash")
+    else:
+        commit = current_pr(ws, repo)["source"]["commit"]["hash"]
+    sts = paged(f"/repositories/{ws}/{repo}/commit/{commit}/statuses", {"pagelen": 100})
     bucket = {"SUCCESSFUL": "pass", "FAILED": "fail", "STOPPED": "cancel", "INPROGRESS": "pending"}
     out = [{"name": s.get("name") or s.get("key"), "workflow": s.get("key") or "", "bucket": bucket.get(s.get("state"), "pending"),
             "state": s.get("state"), "link": s.get("url") or "", "startedAt": s.get("created_on"),
@@ -216,6 +220,30 @@ def pr_list(ws, repo, args):
         params["q"] = q
     vals = paged(f"/repositories/{ws}/{repo}/pullrequests", params, limit)
     print(json.dumps([shape(p, ws, repo, full=False) for p in vals]))
+
+
+def issue_shape(i, full=True):
+    out = {"number": i["id"], "title": i.get("title", ""), "state": "OPEN" if i.get("state") in ("new", "open", "on hold") else "CLOSED",
+           "url": i["links"]["html"]["href"], "author": person(i.get("reporter")), "createdAt": i.get("created_on"),
+           "updatedAt": i.get("updated_on"), "labels": [{"name": x} for x in (i.get("kind"), i.get("priority")) if x],
+           "assignees": [person(i["assignee"])] if i.get("assignee") else []}
+    if full:
+        out["body"] = (i.get("content") or {}).get("raw") or ""
+    return out
+
+
+def issue_list(ws, repo, args):
+    limit = int(opt(args, "--limit") or 30)
+    q = '(state="new" OR state="open" OR state="on hold")'
+    if opt(args, "--assignee") == "@me":
+        q += ' AND assignee.uuid="%s"' % me()["uuid"]
+    try:
+        vals = paged(f"/repositories/{ws}/{repo}/issues", {"q": q, "sort": "-updated_on", "pagelen": min(limit, 50)}, limit)
+    except Err as e:
+        if "404" in str(e):
+            raise Err("Bitbucket: the issue tracker is disabled for this repository")
+        raise
+    print(json.dumps([issue_shape(i) for i in vals]))
 
 
 def pr_comment(ws, repo, args):
@@ -291,7 +319,7 @@ def graphql(ws, repo, args):
         raise Err("unsupported GraphQL call on Bitbucket")
 
 
-ROUTES = {("pr", "view"): pr_view, ("pr", "checks"): pr_checks, ("pr", "list"): pr_list, ("pr", "comment"): pr_comment,
+ROUTES = {("pr", "view"): pr_view, ("pr", "checks"): pr_checks, ("pr", "list"): pr_list, ("issue", "list"): issue_list, ("pr", "comment"): pr_comment,
           ("pr", "merge"): pr_merge, ("pr", "create"): pr_create, ("repo", "view"): repo_view, ("api", "graphql"): graphql}
 
 

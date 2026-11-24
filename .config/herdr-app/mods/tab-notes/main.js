@@ -67,8 +67,12 @@ export default class Notes extends View {
         }
       }
       if (this.gen !== gen) return;
+      // ponytail: Markdown colors are read from the theme when the note opens; a theme
+      // switch shows on the next tab change. Rebuild the editor on theme change if that matters.
+      const t = theme();
       this.editor = EditorState.new({ language: "md", value: text, line_numbers: false, folding: false, soft_wrap: true,
-        font_family: settings().font_family, font_size: 13 });
+        font_family: settings().font_family, font_size: 13,
+        syntax: { heading: t.accent, strong: t.foreground, code: t.ansi2, quote: t.muted, list: t.accent, link: t.ansi4 } });
       this.editor.on("change", () => { this.dirty = true; });
       this.dirty = this.unsaved.has(id);
       cx.notify();

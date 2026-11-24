@@ -1,4 +1,4 @@
-import { View, div, image } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { h_flex, v_flex, TextView, Editor, EditorState, ScrollHandle } from "gpui-base";
 import { props, readTextFile, writeTextFile, watchFolder, exec, focused, panes, appHome, notify, checking } from "herdr";
 import { contentParts } from "./content.js";
@@ -153,7 +153,7 @@ export default class Folio extends View {
         })]);
         if (result.code !== 0) throw new Error(result.stderr || result.stdout);
       } catch (error) {
-        notify({ title: "Could not open Neovim", body: String(error), level: "error" });
+        notify({ title: "Could not open Neovim", body: String(error), level: "error", action: { name: "pane.focus", args: { pane } } });
       } finally { this.busy = false; if (!this.closed) cx.notify(); }
     });
   }
@@ -231,7 +231,8 @@ export default class Folio extends View {
           cx.notify();
         })))
         .child(button("folio-refresh", "Reload", cx => this.load(cx)))
-        .child(button("folio-edit", this.busy ? "Opening…" : this.position.line ? `Neovim · ${this.position.line}` : "Neovim", cx => this.edit(cx))))
+        // The shared busy ring, in this viewer's own solarized blue.
+        .child(button("folio-edit", this.busy ? h_flex().gap(6).items_center().child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(SYNTAX.function).spin(900)).child("Opening…") : this.position.line ? `Neovim · ${this.position.line}` : "Neovim", cx => this.edit(cx))))
       .child(div().flex_none().px(16).py(5).text_size(11).text_color(t.dim).child("Read-only preview · Quit Neovim to return here"))
       .when(this.contentsOpen && !this.error, root => root.child(this.contents(t)))
       .child(v_flex().id("folio-scroll").flex_1().min_h(0).min_w(0).overflow_y_scrollbar()

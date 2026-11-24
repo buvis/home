@@ -1,1 +1,1 @@
-{ "place": "none", "title": "Sudoku", "focusable": true, "app": { "icon": "🧩", "about": "Number puzzle", "open": "tab" } }
+{ "place": "none", "title": "Sudoku", "focusable": true, "app": { "icon": "mods/sudoku/icon.svg", "about": "Number puzzle", "open": "tab" } }

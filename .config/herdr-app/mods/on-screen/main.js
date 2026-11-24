@@ -30,6 +30,7 @@ const DEFAULT_CONFIG = { paths: { home_only: true, ignore: ["/tmp", "/private/tm
 // popup near 418 px wide, so the two columns fit under that; a right-click popup is reopened
 // at the same width.
 const NARROW = 320, LEFT = 215, RIGHT = 180, WIDE = LEFT + RIGHT + 19;
+const CONTEXT_HEIGHT = 260;
 const TILES = ["#5b8def", "#22a99a", "#8b7cf6", "#e3814f", "#3fae6a", "#d9649a"];
 
 // Where a space is now: its first terminal's live folder, else where it was made.
@@ -64,6 +65,7 @@ function items(p, git) {
         ["Split right", "pane.split", { direction: "right", pane: tg.pane }],
         ["Split down", "pane.split", { direction: "down", pane: tg.pane }],
         ["Zoom", "pane.zoom", { pane: tg.pane }],
+        ...(here && here.pane === tg.pane ? [["Rename", "pane.rename", { pane: here.pane }]] : []),
         ...(here?.cwd ? [["Copy path", "copy", { text: here.cwd }]] : []),
         ...(here?.branch ? [["Copy branch name", "copy", { text: here.branch }]] : []),
         ...(term
@@ -228,18 +230,24 @@ export default class Menu extends View {
     // place, two columns wide and sized for them.
     const term = p.tab === "pane" && !p.paths && p.target?.terminal;
     const local = term && !String(term).includes("/");
-    if (local)
+    const needsRoom = p.tab === "pane" && !p.via && !p.paths
+      && leftHeight(items(p, null)) > CONTEXT_HEIGHT;
+    if (local || needsRoom)
       cx.spawn(async (cx) => {
-        const cwd = p.cwd ?? panes().find((x) => x.pane === p.target.pane)?.cwd;
-        await readConfig();
-        const [paths] = await Promise.all([pathsOnScreen(term, cwd, { allow: pathAllowed }).catch(() => []), shared(FOUND) ? null : detectEditors()]);
-        if (!paths.length) return;
+        let paths = [];
+        if (local) {
+          const cwd = p.cwd ?? panes().find((x) => x.pane === p.target.pane)?.cwd;
+          await readConfig();
+          [paths] = await Promise.all([pathsOnScreen(term, cwd, { allow: pathAllowed }).catch(() => []), shared(FOUND) ? null : detectEditors()]);
+        }
+        if (!paths.length && !needsRoom) return;
         // Opened by the key, the popup has no fixed size (mod.json names none), so it grows in
         // place and Herdr's mod.open keeps tracking it: the key pressed again closes it. A
         // right-click popup comes at Herdr's fixed size, so that one reopens, sized for its rows.
         if (p.via === "key") { this.paths = paths; cx.notify(); return; }
         const next = { ...p, paths };
-        reopen(p, next, WIDE, Math.max(leftHeight(items(next, null)), ...paths.map(path => rightHeight(actions(path)))));
+        reopen(p, next, paths.length ? WIDE : NARROW,
+          Math.max(leftHeight(items(next, null)), ...paths.map(path => rightHeight(actions(path)))));
       });
     const space = p.tab === "space" && spaces().find((s) => s.id === p.target?.id);
     const folder = space && place(space);

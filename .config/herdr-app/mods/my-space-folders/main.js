@@ -245,10 +245,11 @@ export default class Spaces extends View {
     this.seen = [];
     if (checking()) return;
     this.refreshMachines(cx);
-    cx.timer.every(15000, cx => this.refreshMachines(cx));
+    // No machine or folder reads while the window is hidden (minimized, covered, on another Space).
+    cx.timer.every(15000, cx => { if (window()?.visible !== false) this.refreshMachines(cx); });
     // Another screen may have changed them: read every machine's file again now and then.
     this.loadFolders(cx);
-    cx.timer.every(15000, cx => this.loadFolders(cx));
+    cx.timer.every(15000, cx => { if (window()?.visible !== false) this.loadFolders(cx); });
     // `git status` walks the whole tree, on another machine a process there:
     // only when its answer could have changed (see `due`).
     cx.timer.every(250, (cx) => this.checkNew(cx));
@@ -907,7 +908,10 @@ export default class Spaces extends View {
 
   loadingRow(m, t, collapsed) {
 
-    return div().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(8).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
+    // The one busy indicator: the same ring as the tab bar, agents list and Ship bar.
+    return h_flex().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(8).gap(6).items_center().text_size(12).text_color(t.dim)
+      .child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900))
+      .when(!collapsed, (e) => e.child("Loading…"));
   }
 
   // A machine's header and, unless it's folded, its folders and spaces. In a

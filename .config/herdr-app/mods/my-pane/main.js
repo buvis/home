@@ -1,12 +1,13 @@
 // A pane's header, for layouts that frame their panes:
 //   { "tab": "active", "pane": { "header": { "content": { "mod": "my-pane" } } } }
-// Shows the program's icon (the app's program table), the agent's name or
-// the terminal's title, the folder, and the agent's status; buttons split, zoom and close
+// Shows the program's icon (the app's program table), the pane name or
+// its program title, the folder, and the agent's status; buttons split, zoom and close
 // this pane. Props from the app: { pane, terminal }. Click: focus the pane.
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, props, run, theme, home, openOverlay } from "herdr";
+import { paneTitle } from "./task-title.js";
 
 function icon(p, size, color) {
   if (!p?.icon) return null;
@@ -44,7 +45,7 @@ export default class Pane extends View {
     const t = theme();
     const p = this.me();
     if (!p) return div();
-    const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
+    const name = paneTitle(p);
     const pic = icon(p.program, 14, t.dim);
     const st = p.status;
     const pane = p.pane;
@@ -62,7 +63,7 @@ export default class Pane extends View {
       .on_hover((hovered, cx) => { this.hovered = hovered; cx.notify(); })
       .on_click(() => run("pane.focus", { pane }))
       .when(Boolean(pic), (el) => el.child(pic))
-      .child(div().flex_none().truncate().max_w(260).font_medium().text_color(t.foreground).child(name))
+      .child(div().id(`ph-name-${pane}`).min_w(0).truncate().max_w(260).font_medium().text_color(t.foreground).tooltip(name).child(name))
       // Right-click: the pane menu (my-menu), with Copy path and Copy branch name.
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "my-menu", kind: "popup", width: 200, height: 320, props: { tab: "pane", target: { pane, terminal: p.terminal } } }); })
       .child(div().min_w(0).truncate().text_color(t.dim).child(folder(p.cwd)))

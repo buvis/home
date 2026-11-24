@@ -1,5 +1,8 @@
 {
   "place": "none",
+  "palette": [
+    { "title": "Notification log", "command": "my-status.log", "words": "alerts errors warnings toasts history" }
+  ],
   "cloned_from": {
     "name": "workspace-status",
     "version": "0.1.16"

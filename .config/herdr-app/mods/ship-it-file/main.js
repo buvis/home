@@ -2,7 +2,7 @@
 // Props: { root, on, path } (repo root, machine, path in the repo). A newer
 // shared("ship-it.file") for the same repo moves it to that file.
 
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor } from "gpui-base";
 import { theme, settings, props, shared, readTextFile, watchFolder, spaces, panes } from "herdr";
 
@@ -66,6 +66,9 @@ export default class FileView extends View {
         .child(div().min_w(0).truncate().text_color(t.dim).child(parts.length ? parts.join("/") + "/" : ""))
         .child(div().flex_none().font_semibold().child(name || "No file")))
       .child(this.code && !this.error ? Editor.new(this.code).flex_1().min_h(0)
-        : div().p(12).text_color(t.dim).child(this.error || (this.path ? "Loading file…" : "No file")));
+        : div().p(12).text_color(t.dim).child(this.error || (this.path
+          // The one busy indicator: the same ring as the tab bar, agents list and Ship bar.
+          ? h_flex().gap(6).items_center().child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)).child("Loading file…")
+          : "No file")));
   }
 }

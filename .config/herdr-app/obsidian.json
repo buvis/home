@@ -1,1 +1,1 @@
-{ "vault": "~/bim", "editor": ["nvim"] }
+{ "vault": "~/bim", "editor": ["nvim"], "dailyFolder": "notes/calendar/daily" }
