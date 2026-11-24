@@ -141,8 +141,8 @@ override when branch rules block, confetti mod `ship-it-confetti`) was NOT
 taken: it conflicts in 5 places with this fork's own Ship flow (fresh PR
 re-read, ghx/Bitbucket, Clean up, `say()` error log), and its GraphQL query
 needs GitHub. forks.json marks 1a9978d as seen; port it by hand if wanted.
-obsidian 0998781 (a stale viewer opens a new pane) waits: another session
-was editing the mod; the merge was dry-run clean on 2026-11-24 10:27.
+obsidian 0998781 (a stale viewer opens a new pane) merged over another
+session's local edits (export, copy) by 10:40 the same day; check passed.
 
 sysup `herdr-mods` (personal override in `~/.config/buvis/buvis-sysup.yaml`)
 runs `hmod update --all`, then `hmod-merge --auto`: edited mods past their
