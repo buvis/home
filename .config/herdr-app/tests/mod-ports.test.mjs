@@ -40,7 +40,8 @@ globalThis.modPortTest = {
 const modules = {
   herdr: functions.map(name => `export const ${name} = (...args) => globalThis.modPortTest.call("${name}", ...args);`).join("\n"),
   "gpui-kit": `export class View {};
-    export const div = () => globalThis.modPortTest.element("div"), svg = div, image = div;`,
+    export const div = () => globalThis.modPortTest.element("div"), image = div;
+    export const svg = path => globalThis.modPortTest.element("svg").asset(path);`,
   "gpui-base": `export const v_flex = () => globalThis.modPortTest.element("column"), h_flex = () => globalThis.modPortTest.element("row");
     export const InputState = {}, Input = {}, TextView = { markdown: (_id, text) => v_flex().child(text) };`,
 };
@@ -68,7 +69,7 @@ beforeEach(() => {
   data = { props: {}, checking: false, keys: [], agents: [], terminals: [], panes: [], spaces: [], machines: [],
     focused: {}, shared: {}, settings: { zoom: 1 }, window: { platform: "macos" },
     layout: { id: "sidebar", size: { px: 268 } },
-    theme: { done: "green", idle: "grey", dim: "dim", selected: "selected", muted: "muted", blocked: "red", working: "amber" } };
+    theme: { done: "green", idle: "grey", dim: "dim", selected: "selected", muted: "muted", blocked: "red", working: "amber", accent: "blue" } };
 });
 function start(Class) {
   const view = new Class();
@@ -245,17 +246,125 @@ test("history keeps the captured source and action after focus changes", () => {
   data.focused = { terminal: "t2" };
   data.props = { log: true, overlay: "log" };
   const root = start(Toast).render();
-  assert.equal(data.shared["alerts.log"][0].where, "Project / Task");
+  assert.equal(data.shared["alerts.log"][0].where, "Project / Task / t1");
   find(root, "act-0").events.on_click();
   assert.deepEqual(calls, [["run", "agent.focus", { terminal: "t1" }], ["closeOverlay", "log"]]);
 });
-test("status bar presents routine history neutrally and problems by severity", () => {
-  for (const [level, color] of [["info", "muted"], ["success", "muted"], ["warning", "amber"], ["error", "red"]]) {
-    data.shared["alerts.log"] = [{ level, title: "Notice" }];
-    const badge = find(start(Status).render(), "alerts");
+test("status shows one distinct severity icon and count per nonempty group", () => {
+  data.shared["alerts.log"] = ["error", "error", "warning", "success", "info", "info", "info"].map(level => ({ level }));
+  const root = start(Status).render();
+  const icons = new Set();
+  for (const [level, count, color] of [["error", 2, "red"], ["warning", 1, "amber"], ["success", 1, "green"], ["info", 3, "blue"]]) {
+    const badge = find(root, `alerts-${level}`);
+    assert.equal(text(badge).trim(), String(count));
     assert.deepEqual(badge.styles.text_color, [color]);
-    assert.ok(text(badge).includes("Notifications"));
+    assert.ok(badge.styles.tooltip[0].toLowerCase().includes(level));
+    icons.add(walk(badge).find(node => node.kind === "svg").styles.asset[0]);
+    badge.events.on_click();
   }
+  assert.equal(icons.size, 4);
+  assert.ok(!text(root).includes("Notifications"));
+  assert.equal(calls.filter(([name]) => name === "openOverlay").length, 4);
+});
+test("status hides empty severity groups and removes the final badge", () => {
+  data.shared["alerts.log"] = [{ level: "warning" }];
+  const root = start(Status).render();
+  for (const level of ["error", "success", "info"]) assert.equal(find(root, `alerts-${level}`), undefined);
+  data.shared["alerts.log"] = [];
+  assert.equal(find(start(Status).render(), "alerts-warning"), undefined);
+});
+test("dismiss removes only its notification despite newer arrivals and keeps history open", () => {
+  const first = { at: 1, level: "error", title: "First" }, second = { at: 2, level: "warning", title: "Second" };
+  data.shared["alerts.log"] = [first, second];
+  data.props = { log: true, overlay: "history" };
+  const root = start(Toast).render();
+  const newer = { at: 3, level: "info", title: "New" };
+  data.shared["alerts.log"] = structuredClone([newer, first, second]);
+  find(root, "dismiss-1").events.on_click();
+  assert.deepEqual(data.shared["alerts.log"], [newer, first]);
+  assert.deepEqual(calls, []);
+});
+test("dismiss removes just one duplicate and can leave an empty open history", () => {
+  const entry = { at: 1, level: "error", title: "Same" };
+  data.shared["alerts.log"] = [entry, structuredClone(entry)];
+  data.props = { log: true, overlay: "history" };
+  const view = start(Toast);
+  find(view.render(), "dismiss-1").events.on_click();
+  assert.deepEqual(data.shared["alerts.log"], [entry]);
+  find(view.render(), "dismiss-0").events.on_click();
+  assert.deepEqual(data.shared["alerts.log"], []);
+  assert.ok(text(view.render()).includes("No notifications"));
+  assert.deepEqual(calls, []);
+});
+for (const now of [new Date(2026, 0, 1, 0, 30), new Date(2026, 2, 30, 0, 30)]) {
+  test(`history dates use local calendar days across ${now.toDateString()}`, (t) => {
+    t.mock.method(Date, "now", () => now.getTime());
+    const today = new Date(now); today.setMinutes(5);
+    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1); yesterday.setHours(0, 15);
+    const older = new Date(now); older.setDate(now.getDate() - 2); older.setHours(23, 59);
+    data.props = { log: true };
+    data.shared["alerts.log"] = [today, yesterday, older].map(at => ({ at: +at, level: "info", title: "Notice" }));
+    const root = start(Toast).render();
+    assert.equal(text(find(root, "time-0")), "00:05:00");
+    assert.equal(text(find(root, "time-1")), "Yesterday 00:15:00");
+    assert.equal(text(find(root, "time-2")), `${older.toLocaleDateString()} 23:59:00`);
+    assert.equal(find(root, "time-2").styles.tooltip[0], `${older.toLocaleDateString()} 23:59:00`);
+  });
+}
+test("history actions use icons with labels and copying keeps the captured pane name", () => {
+  data.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", name: "Build", title: "bash" }];
+  data.spaces = [{ id: "s1", name: "Project", tabs: [{ id: "tab1", name: "Task" }] }];
+  data.props = { overlay: "notice", title: "Complete", action: { name: "agent.focus", args: { terminal: "t1" } } };
+  start(Toast);
+  data.panes[0] = { ...data.panes[0], name: "Renamed" };
+  data.props = { log: true };
+  const root = start(Toast).render();
+  assert.ok(text(root).includes("from Project / Task / Build"));
+  for (const id of ["copy-all", "clear", "close", "act-0", "go-0", "copy-0", "dismiss-0"]) {
+    const action = find(root, id);
+    assert.ok(walk(action).some(node => node.kind === "svg"), id);
+    assert.ok(action.styles.accessibility_label?.[0], id);
+    assert.ok(action.styles.tooltip?.[0], id);
+    assert.equal(text(action), "", id);
+  }
+  let copied;
+  find(root, "copy-0").events.on_click({}, { write_to_clipboard: value => { copied = value; }, notify() {} });
+  assert.ok(copied.includes("Project / Task / Build"));
+  assert.ok(!/\b(?:AM|PM)\b/.test(copied));
+});
+test("a gone terminal has a disabled crossed-out icon instead of text or navigation", () => {
+  data.props = { log: true };
+  data.shared["alerts.log"] = [{ at: 1, level: "info", title: "Notice", target: { terminal: "gone" } }];
+  const root = start(Toast).render(), action = find(root, "go-0");
+  assert.ok(action, "Keep the source action in its usual position");
+  assert.deepEqual(action.styles.disabled, [true]);
+  assert.deepEqual(action.styles.text_color, ["dim"]);
+  assert.deepEqual(action.styles.tooltip, ["Source terminal is no longer available"]);
+  assert.deepEqual(action.styles.accessibility_label, action.styles.tooltip);
+  assert.equal(action.events.on_click, undefined);
+  assert.equal(text(action), "");
+  assert.ok(walk(action).some(node => node.styles.asset?.[0] === "mods/my-toast/terminal-off.svg"));
+  assert.ok(!text(root).includes("terminal gone"));
+});
+test("legacy history can show the current pane name without changing saved entries", () => {
+  data.panes = [{ pane: "p1", terminal: "t1", name: "Build" }];
+  const entry = { at: 1, level: "info", title: "Old", where: "Project / Task", target: { terminal: "t1" } };
+  data.shared["alerts.log"] = [entry];
+  data.props = { log: true };
+  assert.ok(text(start(Toast).render()).includes("from Project / Task / Build"));
+  assert.equal(data.shared["alerts.log"][0], entry);
+});
+test("bulk routine dismissal keeps every error and warning, including new arrivals", () => {
+  const error = { at: 1, level: "error", title: "Error" }, warning = { at: 2, level: "warning", title: "Warning" };
+  data.shared["alerts.log"] = [error, { at: 3, level: "info" }, warning, { at: 4, level: "success" }];
+  data.props = { log: true };
+  const view = start(Toast), root = view.render();
+  const newWarning = { at: 5, level: "warning", title: "New warning" };
+  data.shared["alerts.log"] = [newWarning, ...data.shared["alerts.log"], { at: 6, level: "info" }];
+  find(root, "clear-routine").events.on_click();
+  assert.deepEqual(data.shared["alerts.log"], [newWarning, error, warning]);
+  assert.equal(find(view.render(), "clear-routine"), undefined);
+  assert.deepEqual(calls, []);
 });
 test("login toast keeps copy action without dismissing or navigating", () => {
   data.props = { fitHeight: true, body: "vps needs login; run hc machine login vps" };

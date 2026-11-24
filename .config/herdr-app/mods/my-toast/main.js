@@ -2,7 +2,7 @@
 // attention also show as toasts; other errors/warnings stay in the log.
 // my-status opens props {log: true}: full text, copy and source navigation.
 
-import { View, div, image } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { props, closeOverlay, run, theme, shared, setShared, focused, panes, spaces, checking } from "herdr";
 
@@ -10,19 +10,35 @@ const DOT = { error: "blocked", warning: "working", success: "done", info: "acce
 const LOG = "alerts.log";
 const KEEP = 50; // Routine notices only; errors/warnings remain until Clear.
 const problem = (level) => level === "error" || level === "warning";
-const text = (a) => `[${new Date(a.at).toLocaleString()}] ${a.level}: ${a.title}${a.where ? ` (from ${a.where})` : ""}${a.body ? `\n${a.body}` : ""}`;
+const clock = (date) => [date.getHours(), date.getMinutes(), date.getSeconds()].map(n => String(n).padStart(2, "0")).join(":");
+const timestamp = (at) => { const date = new Date(at); return `${date.toLocaleDateString()} ${clock(date)}`; };
+const text = (a) => `[${timestamp(a.at)}] ${a.level}: ${a.title}${where(a) ? ` (from ${where(a)})` : ""}${a.body ? `\n${a.body}` : ""}`;
 
 // Where a message came from, as pane.focus args ({terminal} or {pane}): what its
 // action names, else what was focused when it was posted. Mods that report after
 // an await capture it first: action {name: "pane.focus", args: {terminal} | {pane}}.
 const pick = (o) => o?.terminal ? { terminal: o.terminal } : o?.pane ? { pane: o.pane } : null;
 const find = (g) => g && panes().find((x) => (g.terminal && x.terminal === g.terminal) || (g.pane && x.pane === g.pane));
+const paneName = (p) => p?.name || p?.title || p?.terminal || p?.pane || null;
+// Older entries did not capture pane names; use their live target when available.
+const where = (a) => a.paneName ? a.where : [a.where, paneName(find(a.target))].filter(Boolean).join(" / ");
+function formatTime(at) {
+  const date = new Date(at), today = new Date(Date.now());
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const prefix = date >= today ? "" : date >= yesterday ? "Yesterday " : `${date.toLocaleDateString()} `;
+  return prefix + clock(date);
+}
 function source(p) {
   const target = pick(p.action?.args) ?? pick(focused());
   const pane = find(target);
   const space = pane ? spaces().find((s) => s.tabs.some((tb) => tb.id === pane.tab)) : null;
   const tab = space?.tabs.find((tb) => tb.id === pane.tab);
-  return { target, where: space ? `${space.name} / ${tab?.name ?? ""}` : target?.terminal ?? null };
+  const name = paneName(pane);
+  return { target, paneName: name, where: space
+    ? [space.name, tab?.name, name].filter(Boolean).join(" / ")
+    : [target?.terminal, name !== target?.terminal ? name : null].filter(Boolean).join(" / ") };
 }
 const live = (g) => Boolean(find(g));
 const go = (g) => run("pane.focus", g);
@@ -47,30 +63,46 @@ export default class Toast extends View {
     return p.log ? this.log(theme(), p) : this.toast(theme(), p);
   }
 
+  dismiss(entry) {
+    const list = shared(LOG) ?? [];
+    // Read current history: another toast may have arrived since this row rendered.
+    // Remove one match, including for older entries that have no unique ID.
+    const at = list.findIndex(a => JSON.stringify(a) === JSON.stringify(entry));
+    if (at >= 0) setShared(LOG, list.filter((_a, i) => i !== at));
+  }
+
   log(t, p) {
     const list = shared(LOG) ?? [];
-    const btn = (id, label, fn) => div().id(id).flex_none().px(8).py(3).rounded(4).bg(t.raised).text_size(12)
-      .text_color(t.foreground).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(fn).child(label);
-    const copy = (id, value) => btn(id, this.copied === id ? "Copied" : "Copy", (_e, cx) => { cx.write_to_clipboard(value); this.copied = id; cx.notify(); });
+    const btn = (id, icon, label, fn) => div().id(id).flex_none().size(26).flex().items_center().justify_center().rounded(4).bg(t.raised)
+      .text_color(t.foreground).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(fn)
+      .tooltip(label).accessibility_label(label).child(svg(`mods/my-toast/${icon}.svg`).size(14));
+    const copy = (id, value) => btn(id, this.copied === id ? "check" : "copy", this.copied === id ? "Copied" : id === "copy-all" ? "Copy all" : "Copy notification",
+      (_e, cx) => { cx.write_to_clipboard(value); this.copied = id; cx.notify(); });
     return v_flex().id("alerts").size_full().bg(t.popover).text_color(t.foreground)
       .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().font_semibold().text_size(14).child(list.length ? `Notifications (${list.length})` : "No notifications"))
         .when(list.length > 0, (e) => e.child(copy("copy-all", list.map(text).join("\n\n")))
-          .child(btn("clear", "Clear", () => { setShared(LOG, []); closeOverlay(p.overlay); })))
-        .child(btn("close", "Close", () => closeOverlay(p.overlay))))
-      .child(div().flex_none().px(16).py(6).text_size(11).text_color(t.dim).child("Latest 50 routine notices. Errors and warnings stay until Clear."))
+          .when(list.some(a => a.level === "info" || a.level === "success"), e => e.child(btn("clear-routine", "list-check", "Dismiss info and success", () => {
+            setShared(LOG, (shared(LOG) ?? []).filter(a => a.level !== "info" && a.level !== "success"));
+          })))
+          .child(btn("clear", "trash", "Clear all notifications", () => { setShared(LOG, []); closeOverlay(p.overlay); })))
+        .child(btn("close", "x", "Close history", () => closeOverlay(p.overlay))))
+      .child(div().flex_none().px(16).py(6).text_size(11).text_color(t.dim).child("Latest 50 routine notices. Errors and warnings stay until dismissed or cleared."))
       .child(v_flex().id("alerts-list").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(8).gap(12)
         .children(list.map((a, i) => v_flex().gap(4)
           .child(h_flex().gap(8).items_center()
             .child(div().size(8).rounded(4).flex_none().bg(t[DOT[a.level]]))
             .child(div().flex_1().min_w(0).font_semibold().text_size(13).child(a.title))
-            .child(div().flex_none().text_size(11).text_color(t.dim).child(new Date(a.at).toLocaleTimeString()))
-            .when(Boolean(a.action?.name), (e) => e.child(btn(`act-${i}`, "Open", () => { run(a.action.name, a.action.args ?? {}); closeOverlay(p.overlay); })))
+            .child(div().id(`time-${i}`).flex_none().text_size(11).text_color(t.dim).tooltip(timestamp(a.at)).child(formatTime(a.at)))
+            .when(Boolean(a.action?.name), (e) => e.child(btn(`act-${i}`, "external-link", "Open notification action", () => { run(a.action.name, a.action.args ?? {}); closeOverlay(p.overlay); })))
             .when(Boolean(a.target), (e) => e.child(live(a.target)
-              ? btn(`go-${i}`, a.target.terminal ? "Go to terminal" : "Go to pane", () => { go(a.target); closeOverlay(p.overlay); }).tooltip(a.where)
-              : div().flex_none().text_size(11).text_color(t.dim).child("terminal gone")))
-            .child(copy(`copy-${i}`, text(a))))
-          .when(Boolean(a.where), (e) => e.child(div().text_size(11).text_color(t.dim).child(`from ${a.where}`)))
+              ? btn(`go-${i}`, "terminal", `Go to ${where(a) || "source pane"}`, () => { go(a.target); closeOverlay(p.overlay); })
+              : div().id(`go-${i}`).flex_none().size(26).flex().items_center().justify_center().disabled(true)
+                .text_color(t.dim).tooltip("Source terminal is no longer available").accessibility_label("Source terminal is no longer available")
+                .child(svg("mods/my-toast/terminal-off.svg").size(14))))
+            .child(copy(`copy-${i}`, text(a)))
+            .child(btn(`dismiss-${i}`, "x", "Dismiss notification", () => this.dismiss(a))))
+          .when(Boolean(where(a)), (e) => e.child(div().text_size(11).text_color(t.dim).child(`from ${where(a)}`)))
           .when(Boolean(a.body), (e) => e.child(TextView.markdown(`body-${i}`, `~~~~\n${a.body}\n~~~~`).selectable(true))))));
   }
 

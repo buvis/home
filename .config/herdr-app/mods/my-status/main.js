@@ -3,6 +3,12 @@ import { h_flex } from "gpui-base";
 import { spaces, agents, theme, run, window, keys, shared, openOverlay, nextCommand, checking } from "herdr";
 
 const openLog = () => openOverlay({ mod: "my-toast", kind: "dialog", width: 760, height: 520, props: { log: true } });
+const SEVERITIES = [
+  ["error", "circle-x", "blocked", "Errors"],
+  ["warning", "triangle-alert", "working", "Warnings"],
+  ["success", "circle-check", "done", "Successes"],
+  ["info", "info", "accent", "Info"],
+];
 
 export default class WorkspaceStatus extends View {
   // my-status.log (a key, the palette, `herdr-app do`) opens notification history too.
@@ -28,7 +34,9 @@ export default class WorkspaceStatus extends View {
     const list = agents();
     const needs = list.filter(a => a.status === "blocked").length;
     const alerts = shared("alerts.log") ?? []; // written by my-toast
-    const errors = alerts.some(a => a.level === "error"), warnings = alerts.some(a => a.level === "warning");
+    const counts = SEVERITIES.map(([level, icon, color, label]) => ({
+      level, icon, color, label, count: alerts.filter(a => (a.level ?? "info") === level).length,
+    }));
     const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/workspace-chrome/${icon}.svg`).size(13)).child(text);
     return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
       .child(label(space?.machine ? "server" : "monitor", space?.machine ?? "This computer"))
@@ -36,12 +44,13 @@ export default class WorkspaceStatus extends View {
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .child(div().flex_1())
-      .when(alerts.length > 0, el => el.child(h_flex().id("alerts").gap(5).items_center().cursor_pointer()
-        .text_color(errors ? t.blocked : warnings ? t.working : t.muted).hover(s => s.text_color(t.foreground))
-        .tooltip(alerts[0].title)
+      .children(counts.filter(a => a.count > 0).map(a => h_flex().id(`alerts-${a.level}`).gap(5).items_center().cursor_pointer()
+        .text_color(t[a.color]).hover(s => s.text_color(t.foreground))
+        .tooltip(`${a.label}: ${a.count}. Open notification history`)
+        .accessibility_label(`${a.label}: ${a.count}. Open notification history`)
         .on_click(openLog)
-        .when(errors || warnings, e => e.child(svg("mods/my-status/triangle-alert.svg").size(13)))
-        .child(`Notifications (${alerts.length})`)))
+        .child(svg(`mods/my-status/${a.icon}.svg`).size(13))
+        .child(String(a.count))))
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }
