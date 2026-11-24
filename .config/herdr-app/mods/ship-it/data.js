@@ -28,7 +28,7 @@ export async function createPr(root, on, branch) {
     const free = agents().find((a) => (a.status === "idle" || a.status === "done") && machine(a.address) === (on ?? null) && inRoot(a.pane));
     // --if idle: it may have started a turn since the list was read.
     if (free && (await hc(["send", free.address, "--if", "idle", task])).code === 0) {
-      notify({ title: `Asked ${free.program?.name ?? "the agent"} to create the pull request`, body: "Click to watch it.", level: "info", timeout: 6, action: { name: "pane.focus", args: { pane: free.pane } } });
+      notify({ title: `Asked ${free.program?.name ?? "the agent"} to create the pull request`, body: "Click to watch it.", level: "info", timeout: 6000, action: { name: "pane.focus", args: { pane: free.pane } } });
       return true;
     }
     const agent = (await knownAgents({ on })).find((a) => a.installed && a.run?.length);
@@ -47,7 +47,7 @@ async function webForm(root, on) {
   const ok = (r) => { if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim()); };
   const up = await exec("git", ["rev-parse", "--abbrev-ref", "@{u}"], { cwd: root, on });
   if (up.code !== 0) {
-    notify({ title: "Pushing the branch…", level: "info", timeout: 3 });
+    notify({ title: "Pushing the branch…", level: "info", timeout: 3000 });
     ok(await exec("git", ["push", "-u", "origin", "HEAD"], { cwd: root, on, timeout: 120000 }));
   }
   ok(await exec(GH(), ["pr", "create", "--web"], { cwd: root, on }));

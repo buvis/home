@@ -6,7 +6,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, TextView, TextareaState, Textarea } from "gpui-base";
-import { theme, settings, props, shared, setShared, run, panes, focused, exec, appHome, notify, watchFolder, nextCommand } from "herdr";
+import { theme, settings, props, shared, setShared, run, panes, focused, exec, appHome, notify, watchFolder, nextCommand, checking } from "herdr";
 import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, forgeOf, modShown, panelShown, Recent, sharedPr, createPr } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
@@ -57,6 +57,7 @@ export default class Review extends View {
     this.reply = "";
     this.wire(this.replyBox, "reply", (cx) => this.postReply(cx));
 
+    if (checking()) return;
     this.refresh(cx);
     // Pending checks move; everything else waits for r, the strip or a file change.
     // Timers and watches only work while a review pane is on screen.
@@ -332,7 +333,7 @@ export default class Review extends View {
         const r = await exec(GH(),["pr", "comment", String(pr.number), "--body", body], { cwd: root, on });
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         if (gen === this.gen) { this.comment = ""; this.composer.set_value(""); }
-        notify({ title: "Comment posted", body: `#${pr.number}`, level: "success", timeout: 3 });
+        notify({ title: "Comment posted", body: `#${pr.number}`, level: "success", timeout: 3000 });
         this.refresh(cx, true);
       } catch (e) { notify({ title: "Comment not posted", body: String(e?.message ?? e), level: "error" }); }
       finally { this.posting = null; cx.notify(); }
@@ -416,7 +417,7 @@ export default class Review extends View {
       }
       notify(failed.length
         ? { title: "Re-run failed", body: failed[0], level: "error" }
-        : { title: `Re-running ${runs.length} workflow run${runs.length > 1 ? "s" : ""}`, level: "success", timeout: 3 });
+        : { title: `Re-running ${runs.length} workflow run${runs.length > 1 ? "s" : ""}`, level: "success", timeout: 3000 });
       this.rerunning = false;
       this.refreshChecks(cx);
       cx.notify();
@@ -606,7 +607,7 @@ export default class Review extends View {
             .child(this.icon(look.icon, color, 12)).child(look.label))
           .child(h_flex().id("pr-number").gap(4).items_center().px(4).rounded(4).cursor_pointer().text_size(12).text_color(t.dim)
             .hover((s) => s.text_color(t.accent)).tooltip("Copy link")
-            .on_click((_e, cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })
+            .on_click((_e, cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2000 }); })
             .child(`#${pr.number}`).child(this.icon("copy", t.dim, 11))))
         .child(div().text_size(17).font_semibold().line_height(1.3).text_color(t.foreground).child(pr.title))
         .child(h_flex().flex_wrap().gap(5).items_center().text_size(12).text_color(t.muted)
@@ -662,7 +663,7 @@ export default class Review extends View {
         .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(`Conflicts with ${base}`))
         .child(div().text_size(12).text_color(t.muted).child(files?.length ? `${files.length} file${files.length > 1 ? "s" : ""}` : files ? "" : "The host reports conflicts"))
         .child(div().flex_1())
-        .child(this.button("copy-conflicts", t, "Copy details", (_e, cx) => { cx.write_to_clipboard(details()); notify({ title: "Conflict details copied", level: "info", timeout: 2 }); }, { icon: "copy" })))
+        .child(this.button("copy-conflicts", t, "Copy details", (_e, cx) => { cx.write_to_clipboard(details()); notify({ title: "Conflict details copied", level: "info", timeout: 2000 }); }, { icon: "copy" })))
       .when(Boolean(files?.length), (e) => e.child(v_flex().px(12).py(8).gap(2).bg(t.background).font_family(settings().font_family ?? "JetBrains Mono").text_size(11.5)
         .children(files.map((f, i) => h_flex().id(`conflict-${i}`).h(22).px(6).gap(8).items_center().rounded(4).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => { this.tab = "files"; this.openFile(f, cx); cx.notify(); })
@@ -700,7 +701,7 @@ export default class Review extends View {
   branchChip(name, t) {
     return div().id(`branch-${name}`).h(20).px(6).flex().items_center().rounded(4).bg(t.raised).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("Copy the branch name")
       .font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.foreground).child(name ?? "")
-      .on_click((_e, cx) => { if (!name) return; cx.write_to_clipboard(name); notify({ title: "Branch copied", body: name, level: "info", timeout: 2 }); });
+      .on_click((_e, cx) => { if (!name) return; cx.write_to_clipboard(name); notify({ title: "Branch copied", body: name, level: "info", timeout: 2000 }); });
   }
 
   card(t, who, verb, at, content, accent) {

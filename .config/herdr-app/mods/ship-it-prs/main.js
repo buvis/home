@@ -8,7 +8,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, appHome, shared, setShared, notify, theme, nextCommand } from "herdr";
+import { exec, appHome, shared, setShared, notify, theme, nextCommand, checking } from "herdr";
 import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde, forgeOf } from "./data.js";
 import { checkState, checkCounts, localBranch, worktrees, addWorktree, places, spaceAt, showSpace, treeLook } from "./prs.js";
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support
@@ -29,6 +29,7 @@ export default class PullRequests extends View {
     this.expanded = null; // the PR whose details show
     // Last list per folder: switching back shows it at once.
     this.memo = new Recent(12);
+    if (checking()) return;
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
     cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
@@ -131,7 +132,7 @@ export default class PullRequests extends View {
         const trees = await worktrees(root, on), path = trees[branch] ?? await addWorktree(root, on, pr);
         if (this.root === root) this.trees = { ...trees, [branch]: path };
         showSpace(path, on, Object.values(trees));
-      } catch (e) { notify({ title: `Couldn't open #${pr.number} in a worktree`, body: String(e.message ?? e), level: "error", timeout: 8 }); }
+      } catch (e) { notify({ title: `Couldn't open #${pr.number} in a worktree`, body: String(e.message ?? e), level: "error", timeout: 8000 }); }
       finally { this.opening = null; cx.notify(); }
     });
   }
@@ -151,7 +152,7 @@ export default class PullRequests extends View {
         .when(Boolean(check), (e) => e.child(div().id(`pr-check-${pr.number}`).flex_none().tooltip(check[2]).child(this.icon(check[0], t[check[1]], 13)))))
       .child(h_flex().pl(21).gap(6).items_center().min_w(0).text_size(11).text_color(t.dim)
         .child(div().id(`pr-n-${pr.number}`).flex_none().text_color(t.muted).rounded(4).px(2).hover((s) => s.bg(t.raised)).tooltip("Copy link")
-          .on_click((_e, cx) => { cx.stop_propagation(); cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })
+          .on_click((_e, cx) => { cx.stop_propagation(); cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2000 }); })
           .child(`#${pr.number}`))
         .child(div().min_w(0).truncate().child(pr.author?.login ?? ""))
         .child(div().flex_none().child(`· ${ago(pr.updatedAt)}`))
@@ -192,7 +193,7 @@ export default class PullRequests extends View {
       .child(h_flex().pt(3).gap(6).flex_wrap()
         .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : look.icon, busy ? (path ? "Opening…" : "Creating…") : look.label, true, (cx) => this.worktree(pr, cx))))
         .child(button("github", "external-link", forgeOf(pr.url), false, (cx) => cx.open_url(pr.url)))
-        .child(button("copy", "copy", "Copy link", false, (cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })));
+        .child(button("copy", "copy", "Copy link", false, (cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2000 }); })));
   }
 
   render(cx) {

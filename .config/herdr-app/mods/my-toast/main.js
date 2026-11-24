@@ -1,16 +1,15 @@
-// Notifications. Info and success show as a toast, like the shipped `toast`.
-// Errors and warnings go to a log instead (shared "alerts.log"): the status
-// bar (my-status) shows a sign for them, and its click opens this mod with
-// props {log: true} as a dialog that shows each one in full, selectable and
-// copyable.
+// Every notification enters shared "alerts.log". Info, success and agent
+// attention also show as toasts; other errors/warnings stay in the log.
+// my-status opens props {log: true}: full text, copy and source navigation.
 
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { props, closeOverlay, run, theme, shared, setShared, focused, panes, spaces } from "herdr";
+import { props, closeOverlay, run, theme, shared, setShared, focused, panes, spaces, checking } from "herdr";
 
 const DOT = { error: "blocked", warning: "working", success: "done", info: "accent" };
 const LOG = "alerts.log";
-const KEEP = 50; // ponytail: newest 50 only; raise if older errors get lost
+const KEEP = 50; // Routine notices only; errors/warnings remain until Clear.
+const problem = (level) => level === "error" || level === "warning";
 const text = (a) => `[${new Date(a.at).toLocaleString()}] ${a.level}: ${a.title}${a.where ? ` (from ${a.where})` : ""}${a.body ? `\n${a.body}` : ""}`;
 
 // Where a message came from, as pane.focus args ({terminal} or {pane}): what its
@@ -33,11 +32,14 @@ export default class Toast extends View {
     const p = props() ?? {};
     if (p.log) return;
     this.src = source(p);
-    // Herdr's "needs you" toasts (agent.focus) stay toasts: they are attention, not errors.
-    if (p.action?.name === "agent.focus" || !["error", "warning"].includes(p.level)) return;
+    if (checking() || !p.overlay) return;
+    const level = p.level ?? "info";
     const action = p.action?.name && p.action.name !== "pane.focus" ? p.action : null;
-    setShared(LOG, [{ at: Date.now(), level: p.level, title: p.title ?? "", body: p.body ?? "", action, ...this.src }, ...(shared(LOG) ?? [])].slice(0, KEEP));
-    closeOverlay(p.overlay);
+    let notices = 0;
+    setShared(LOG, [{ at: Date.now(), level, title: p.title ?? "", body: p.body ?? "", action, ...this.src }, ...(shared(LOG) ?? [])]
+      .filter((a) => problem(a.level) || notices++ < KEEP));
+    // Agent attention stays visible; ordinary problems keep their durable log route.
+    if (problem(level) && p.action?.name !== "agent.focus") closeOverlay(p.overlay);
   }
 
   render() {
@@ -52,10 +54,11 @@ export default class Toast extends View {
     const copy = (id, value) => btn(id, this.copied === id ? "Copied" : "Copy", (_e, cx) => { cx.write_to_clipboard(value); this.copied = id; cx.notify(); });
     return v_flex().id("alerts").size_full().bg(t.popover).text_color(t.foreground)
       .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().flex_1().font_semibold().text_size(14).child(list.length ? `Errors and warnings (${list.length})` : "No errors"))
+        .child(div().flex_1().font_semibold().text_size(14).child(list.length ? `Notifications (${list.length})` : "No notifications"))
         .when(list.length > 0, (e) => e.child(copy("copy-all", list.map(text).join("\n\n")))
           .child(btn("clear", "Clear", () => { setShared(LOG, []); closeOverlay(p.overlay); })))
         .child(btn("close", "Close", () => closeOverlay(p.overlay))))
+      .child(div().flex_none().px(16).py(6).text_size(11).text_color(t.dim).child("Latest 50 routine notices. Errors and warnings stay until Clear."))
       .child(v_flex().id("alerts-list").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(8).gap(12)
         .children(list.map((a, i) => v_flex().gap(4)
           .child(h_flex().gap(8).items_center()
@@ -76,7 +79,8 @@ export default class Toast extends View {
     const command = login ? `hc machine login ${login[1]}` : null;
     return h_flex()
       .id("toast")
-      .size_full()
+      .when(p.fitHeight, (el) => el.w_full().min_h(70).flex_none().py(12))
+      .when(!p.fitHeight, (el) => el.size_full())
       .px(18)
       .gap(12)
       .items_center()
@@ -92,9 +96,11 @@ export default class Toast extends View {
       .child(
         v_flex()
           .flex_1()
-          .overflow_hidden()
-          .child(div().truncate().font_semibold().text_size(13).text_color(t.foreground).child(login ? `${login[1]} needs a login: run` : p.title ?? ""))
-          .when(!login && Boolean(p.body), (el) => el.child(div().truncate().text_size(12).text_color(t.muted).child(p.body ?? "")))
+          .min_w(0)
+          // 0.1.17 only gives the shipped toast automatic height; custom cards stay 72px.
+          .when(!p.fitHeight, (el) => el.id("toast-text").h_full().min_h(0).overflow_y_scrollbar().py(10))
+          .child(div().flex_none().font_semibold().text_size(13).text_color(t.foreground).child(login ? `${login[1]} needs a login: run` : p.title ?? ""))
+          .when(!login && Boolean(p.body), (el) => el.child(div().flex_none().text_size(12).text_color(t.muted).child(p.body)))
           .when(Boolean(login), (el) => el.child(h_flex().gap(8).items_center()
             .child(div().flex_1().min_w(0).truncate().tooltip(command).text_size(12).text_color(t.muted).child(command))
             .child(div().id("toast-login-copy").flex_none().px(6).py(3).rounded(4).bg(t.raised)

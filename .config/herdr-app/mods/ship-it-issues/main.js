@@ -10,7 +10,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, shared, setShared, notify, theme, nextCommand } from "herdr";
+import { exec, shared, setShared, notify, theme, nextCommand, checking } from "herdr";
 import { READ, location, ago, panelShown, Recent, tilde } from "./data.js";
 import { forgeOf, FORGE_NAME, listIssues, worktrees, issueTree, places, spaceAt, ensureWorktree, installedAgents, openWorktree } from "./issues.js";
 
@@ -24,6 +24,7 @@ export default class Issues extends View {
     this.expanded = null; this.agents = {}; // installed agents by machine
     this.memo = new Recent(12);
     this.bumpSeen = shared("ship-it.bump"); // the bar saw a PR or an issue appear, merge or close: ask again
+    if (checking()) return;
     this.refresh(cx);
     cx.timer.every(120000, (cx) => this.refresh(cx));
     cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
@@ -110,9 +111,9 @@ export default class Issues extends View {
       try {
         const wt = await ensureWorktree(root, on, issue);
         if (this.root === root) this.trees = wt.trees;
-        if (wt.created) notify({ title: `Worktree for #${issue.number}`, body: `${wt.branch} · ${tilde(wt.path)}`, level: "info", timeout: 3 });
+        if (wt.created) notify({ title: `Worktree for #${issue.number}`, body: `${wt.branch} · ${tilde(wt.path)}`, level: "info", timeout: 3000 });
         openWorktree(wt.path, on, wt.trees, issue, wt.branch, agent);
-      } catch (e) { notify({ title: `Couldn't start #${issue.number}`, body: String(e.message ?? e), level: "error", timeout: 8 }); }
+      } catch (e) { notify({ title: `Couldn't start #${issue.number}`, body: String(e.message ?? e), level: "error", timeout: 8000 }); }
       finally { this.busy = null; cx.notify(); }
     });
   }
@@ -143,7 +144,7 @@ export default class Issues extends View {
 
   copy(issue) {
     this.cx.write_to_clipboard(issue.url);
-    notify({ title: `#${issue.number} link copied`, body: issue.url, level: "info", timeout: 2 });
+    notify({ title: `#${issue.number} link copied`, body: issue.url, level: "info", timeout: 2000 });
   }
 
   details(issue, path, space, t) {

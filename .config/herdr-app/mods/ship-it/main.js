@@ -7,7 +7,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, exec, appHome, openOverlay, nextCommand, notify } from "herdr";
+import { theme, run, layout, agents, shared, setShared, spaces, panes, focused, watchFolder, exec, appHome, openOverlay, nextCommand, notify, checking } from "herdr";
 import { cleanupPlan, removeCheckout, checkTerminals } from "./cleanup.js";
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, forgeOf, Recent, createPr } from "./data.js";
 const COUNT_TTL = 5 * 60 * 1000; // the badges' counts are re-asked at most this often per repo
@@ -49,6 +49,7 @@ export default class ShipIt extends View {
     this.width = 1200; this.first = true;
     // Last facts per folder and per branch: a worktree you come back to shows at once.
     this.gits = new Recent(); this.prs = new Recent(); this.counts = new Recent(24); // open PRs and issues per repo
+    if (checking()) return;
     this.refreshGit(cx);
     // A local repo's folder watch catches edits, so its poll is only a backstop.
     cx.timer.every(5000, (cx) => { this.watchAgents(cx); if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });

@@ -93,3 +93,29 @@ Changes buttons again (`workspace.panels`).
 | Desktop notifications | mods/pager covers desktop and phone alerts. |
 | Automations, Automate everything, Task scheduler | Overlap the autoclaude loop and the sysup rule for recurring work. |
 | Linear, Jira, Sentry, Vercel, Cloudflare, Kubernetes, Pokémon family | Not used. |
+
+## Notification history (updated 2026-11-24)
+
+The buvis layout sets `"toast": "my-toast"` (clone of `toast`) and its status
+block shows `my-status` (clone of `workspace-status`). Every toast enters shared
+`alerts.log`: the newest 50 routine notices, plus all errors and warnings until
+Clear. The Notifications count opens full text (selectable, Copy, Copy all,
+Clear, Go to terminal/pane); `my-status.log` opens it too. The count is red for
+errors, amber for warnings, otherwise muted. Errors and warnings go straight
+to the log instead of popping up, except Herdr's `agent.focus` "needs you"
+toasts, which stay visible and are also logged. Info and success still pop up.
+Herdr 0.1.17 always expires native toasts; `timeout: 0` is not persistent.
+
+## Custom mod fixes (2026-11-24)
+
+2026-11-24: selectively ported 0.1.17 fixes into my-agents (kept-child Done
+status and parent priority), my-tabs/my-agents/my-space-folders/my-spaces
+(saved-state recovery), and my-toast (full text with scrolling). Herdr only
+auto-sizes its shipped toast, so the custom card keeps its fixed height.
+Local branch labels, hold-in-Done, and the error log remain. Provenance versions
+remain unchanged because these are partial ports. Regression command:
+`node --test tests/mod-ports.test.mjs`. See
+`docs/dev/project-management/reviews/herdr-mod-ports-2026-11-24.md`.
+
+Toast durations now use milliseconds. Check-mode startup skips background work.
+See `docs/dev/project-management/reviews/herdr-checker-closeout-2026-11-24.md`.

@@ -113,7 +113,7 @@ export default class Menu extends View {
     const it = items(props(), this.git)[i];
     if (!it) return;
     closeOverlay(props()?.overlay);
-    if (it[1] === "copy") { cx.write_to_clipboard(it[2].text); notify({ title: "Copied", body: it[2].text, level: "info", timeout: 2 }); }
+    if (it[1] === "copy") { cx.write_to_clipboard(it[2].text); notify({ title: "Copied", body: it[2].text, level: "info", timeout: 2000 }); }
     else if (it[1] === "worktree") openOverlay({ mod: "my-worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else if (it[1] === "move-pane") openOverlay({ mod: "move-pane", kind: "dialog", modal: true, width: 360, height: 320, props: it[2] });
     else run(it[1], it[2]);
