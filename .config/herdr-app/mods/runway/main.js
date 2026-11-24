@@ -427,7 +427,7 @@ export default class Runway extends View {
     // A held main spec is still a main spec; parked PRDs get Un-park, not a lane.
     const lane = local && card.main &&
       (card.kind === "spec" || (card.kind === "prd" && card.stage === "backlog" && card.group !== "parked"));
-    const loop = local && card.kind === "prd" && card.pick === card.file.split("/").pop();
+    const loop = local && card.main && card.kind === "prd" && card.pick === card.file.split("/").pop();
     const buttons = [
       lane && button("lane", "New worktree", (cx) => this.openLaneFor(card, snap, claude, key, cx)),
       loop && button("loop", "Run loop (whole queue)", () => this.startAgent(card, LOOP, snap)),

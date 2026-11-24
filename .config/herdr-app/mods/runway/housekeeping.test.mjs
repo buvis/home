@@ -68,6 +68,16 @@ test("Run loop shows only on a local raw-pick card and opens autoclaude in its c
   }
 });
 
+test("Run loop is hidden on the pick card of a local lane worktree", async () => {
+  const [main, lane] = LOCAL.checkouts;
+  world({...LOCAL, checkouts: [main, {...lane, wip: ["00012-gamma.md"]}], agents: WITH_CLAUDE});
+  const panel = await openPanel();
+  const tree = panel.render();
+  assert.ok(labelled(cardOf(tree, "Queue alpha"), LOOP));
+  assert.equal(labelled(cardOf(tree, "Gamma work"), LOOP), undefined);
+  clean();
+});
+
 // /work/app has no space: the focus is in the worktree's space, or (All repos) in a remote space.
 const NO_SPACE = [
   {name: "worktree space focused", fixture: {...LOCAL, focusedPane: "p3", spaces: [LOCAL.spaces[0],
