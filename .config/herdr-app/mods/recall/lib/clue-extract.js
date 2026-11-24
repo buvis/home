@@ -1,6 +1,6 @@
 // The Clues category: find a pane by what it runs, what it
-// printed, or the port or process it owns. Pure functions; main.js fetches
-// the data (herdr-core, ps, lsof) and hands it in.
+// printed, or the port or process it owns. Pure functions; clues-refresh.js
+// fetches the data (herdr-core, ps, lsof) and hands it in.
 //
 // Filter prefixes need one space after the label, `.` searches buffers.
 // The text after a prefix uses the query syntax of every list (fuzzy.js):

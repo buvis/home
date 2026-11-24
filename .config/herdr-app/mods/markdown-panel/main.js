@@ -1,3 +1,9 @@
+import { localService, serviceOn } from "./platform-host.js";
+import { paths } from "./platform-paths.js";
+import { clipboardApi } from "./platform-clipboard.js";
+import { fileApi } from "./platform-files.js";
+import { systemApi } from "./platform-system.js";
+import { markdownApi } from "./platform-markdown.js";
 // Markdown panel, by jlopezlira (https://github.com/jlopezlira/herdr-kanso). Apache-2.0.
 // Reviews (md-review and Done), Escape and "From this terminal" by Johannes Hund (https://github.com/h0ru5),
 // from his remix https://github.com/h0ru5/herdr-md-review.
@@ -8,19 +14,20 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, exec, watchFolder, focused, spaces, props, closeOverlay, theme, home } from "herdr";
 import { MarkdownDoc, tildePath } from "./doc.js";
+import { afterMount } from "./pure.js";
+import { pollStart, pollNext, takeStamp, ArmPoll, asOf } from "./remote-file.js";
 
 const ICONS = "mods/markdown-panel/icons";
 const isMarkdown = (path) => /\.(md|markdown|mdx)$/i.test(path);
-const folderOf = (path) => path.replace(/[\\/][^\\/]*$/, "") || "/";
-const nameOf = (path) => path.split(/[\\/]/).at(-1);
-const REMOTE_READ_MS = 3000;
+const folderOf = (path) => paths.dirname(path);
+const nameOf = (path) => paths.basename(path);
 const OPEN_DIR = "data/kanso-open", REVIEW_DIR = "data/markdown-review", WAITING_DIR = "data/markdown-review-waiting", DONE_DIR = "data/markdown-review-done";
 const RECENT_MAX = 15;
 
 // Reads and removes the paths waiting in the inbox, oldest first.
 export async function takeAllOpens(dir) {
-  const r = await exec("sh", ["-c", 'for f in "$1"/*.path; do [ -f "$f" ] || continue; cat "$f"; printf "\\0"; rm -f "$f"; done', "sh", dir]);
-  return (r.stdout ?? "").split("\0").map((p) => p.trim()).filter((p) => p.startsWith("/"));
+  const r = await localService(fileApi).drain(dir);
+  return (r.stdout ?? "").split("\0").map((p) => p.trim()).filter((p) => paths.isAbsolute(p));
 }
 // The newest of them.
 export async function takeOpens(dir) { return (await takeAllOpens(dir)).at(-1) ?? null; }
@@ -28,14 +35,14 @@ export async function takeOpens(dir) { return (await takeAllOpens(dir)).at(-1) ?
 // The reviews `md-review` still waits on, as [{ id, path }]: one file per waiting process,
 // named by its pid; one whose process is gone is removed.
 export async function waitingReviews(dir) {
-  const r = await exec("sh", ["-c", 'for f in "$1"/*.path; do [ -f "$f" ] || continue; id=$(basename "$f" .path); if kill -0 "$id" 2>/dev/null; then printf "%s\\t" "$id"; cat "$f"; printf "\\0"; else rm -f "$f"; fi; done', "sh", dir]);
+  const r = await localService(markdownApi).waiting(dir);
   return reviewsIn(r.stdout ?? "");
 }
-export const reviewsIn = (out) => out.split("\0").map((l) => l.split("\t")).filter(([id, path]) => /^\d+$/.test(id ?? "") && path?.startsWith("/")).map(([id, path]) => ({ id, path: path.trim() }));
+export const reviewsIn = (out) => out.split("\0").map((l) => l.split("\t")).filter(([id, path]) => /^\d+$/.test(id ?? "") && path && paths.isAbsolute(path)).map(([id, path]) => ({ id, path: path.trim() }));
 
 export function markdownIn(listing) {
   return listing.split("\n").map((l) => l.trim()).filter((l) => /\.(md|markdown|mdx)$/i.test(l))
-    .toSorted((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)).slice(0, 40);
+    .toSorted((a, b) => a.split(/[\\/]/).length - b.split(/[\\/]/).length || a.localeCompare(b)).slice(0, 40);
 }
 
 // The focused pane's machine (null: this one) and folder. A pane on an SSH
@@ -48,7 +55,7 @@ export function placeOf(focus, list, localHome) {
 
 // "From this terminal": what recent.sh printed, existing absolute Markdown paths, once each, best first.
 export function recentIn(listing) {
-  return [...new Set(listing.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("/") && isMarkdown(l)))].slice(0, RECENT_MAX);
+  return [...new Set(listing.split("\n").map((l) => l.trim()).filter((l) => paths.isAbsolute(l) && isMarkdown(l)))].slice(0, RECENT_MAX);
 }
 
 export default class MarkdownPanel extends View {
@@ -64,14 +71,13 @@ export default class MarkdownPanel extends View {
     this.watchOpens(cx, OPEN_DIR, false);
     this.watchOpens(cx, REVIEW_DIR, true);
     this.watchReviews(cx);
-    this.list(cx);
-    this.findRecent(focused()?.terminal ?? null, cx);
+    afterMount(cx, (cx) => { this.list(cx); this.findRecent(focused()?.terminal ?? null, cx); });
   }
 
   findRecent(terminal, cx) {
     if (this.on) return;
     cx.spawn(async (cx) => {
-      const r = await exec("sh", [`${appHome()}/mods/markdown-panel/recent.sh`, terminal ?? ""]).catch(() => null);
+      const r = await localService(markdownApi).recent(terminal, home(), appHome(), localService(clipboardApi).read(cx) ?? "").catch(() => null);
       this.recent = recentIn(r?.stdout ?? "");
       cx.notify();
     });
@@ -81,22 +87,23 @@ export default class MarkdownPanel extends View {
     const on = this.on;
     cx.spawn(async (cx) => {
       // A machine's home when its pane told no folder: where its commands start.
-      const folder = this.folder || (await exec("pwd", [], { on }).catch(() => null))?.stdout.trim() || "";
+      const files = await serviceOn(fileApi, on);
+      const folder = this.folder || await (await serviceOn(systemApi, on)).userHome();
       this.folder = folder;
       const where = { cwd: folder || undefined, on };
       const git = await exec("git", ["ls-files", "--", "*.md", "*.markdown", "*.mdx"], where).catch(() => null);
-      const out = git?.code === 0 && git.stdout.trim() ? git.stdout
-        : (await exec("find", [".", "-maxdepth", "3", "-name", "node_modules", "-prune", "-o", "-type", "f", "(", "-iname", "*.md", "-o", "-iname", "*.mdx", ")", "-print"], where).catch(() => null))?.stdout ?? "";
+      const fallback = git?.code === 0 && git.stdout.trim() ? null : await files.walk([folder], { depth: 3, skip: ["node_modules"] });
+      const out = fallback ? fallback.filter((file) => /\.(md|mdx)$/i.test(file)).map((file) => paths.relative(folder, file)).join("\n") : git.stdout;
       this.files = markdownIn(out.replace(/^\.\//gm, ""));
       cx.notify();
     });
   }
 
   watchOpens(cx, inbox, review) {
-    const dir = `${appHome()}/${inbox}`;
+    const dir = paths.join(appHome(), inbox);
     cx.spawn(async (cx) => {
       try {
-        await exec("mkdir", ["-p", dir]);
+        await localService(fileApi).mkdir(dir);
         for (;;) {
           const paths = (await takeAllOpens(dir)).filter(isMarkdown);
           if (paths.length) this.open(paths.at(-1), cx, null, review);
@@ -108,10 +115,10 @@ export default class MarkdownPanel extends View {
 
   // What waits is kept by md-review itself, so closing the window or many agents asking at once loses none.
   watchReviews(cx) {
-    const dir = `${appHome()}/${WAITING_DIR}`;
+    const dir = paths.join(appHome(), WAITING_DIR);
     cx.spawn(async (cx) => {
       try {
-        await exec("mkdir", ["-p", dir]);
+        await localService(fileApi).mkdir(dir);
         for (;;) {
           this.reviewing = await waitingReviews(dir);
           cx.notify();
@@ -144,12 +151,31 @@ export default class MarkdownPanel extends View {
     });
   }
 
-  // Another machine's folder can't be watched from here: read it every few seconds.
+  // Another machine's folder can't be watched from here: one stat, and a read only when it changed.
   watch(path, cx) {
     const doc = this.doc, dir = folderOf(path);
-    const next = () => (doc.on ? cx.sleep(REMOTE_READ_MS) : watchFolder(dir));
+    if (!doc?.on) {
+      cx.spawn(async (cx) => {
+        try { while (this.doc === doc) { await watchFolder(dir); if (this.doc === doc) doc.load(cx); } } catch {}
+      });
+      return;
+    }
+    this.poll = pollStart(); this.stamp = null; this.arm = null;
+    new ArmPoll(this).start(cx, (tick) => this.probeDoc(doc, path, tick));
+  }
+
+  probeDoc(doc, path, cx) {
+    if (this.doc !== doc) return;
     cx.spawn(async (cx) => {
-      try { while (this.doc === doc) { await next(); if (this.doc === doc) doc.load(cx); } } catch {}
+      const { outcome, next } = await takeStamp(async () => (await serviceOn(fileApi, doc.on)).stat(path), this.stamp);
+      if (this.doc !== doc) return;
+      if (outcome === "seen") this.stamp = next;
+      if (outcome === "changed") { this.stamp = next; doc.load(cx); }
+      if (outcome === "failed" && this.doc?.saved != null) this.doc.held = { at: this.doc.fresh ?? Date.now() };
+      this.poll = pollNext(this.poll, outcome);
+      this.arm = null;
+      if (this.doc === doc) new ArmPoll(this).start(cx, (tick) => this.probeDoc(doc, path, tick));
+      cx.notify();
     });
   }
 
@@ -172,7 +198,8 @@ export default class MarkdownPanel extends View {
       if (!(await doc.flush())) { cx.notify(); return; }
       // Every md-review waiting on this file is answered.
       const ids = this.reviewing.filter((x) => x.path === doc.path).map((x) => x.id);
-      const r = await exec("sh", ["-c", 'd=$1; shift; mkdir -p "$d" && for id in "$@"; do : > "$d/$id" || exit 1; done', "sh", `${appHome()}/${DONE_DIR}`, ...ids]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+      const dir = paths.join(appHome(), DONE_DIR);
+      const r = await localService(fileApi).mkdir(dir).then(() => localService(fileApi).touch(ids.map((id) => paths.join(dir, id)))).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
       if (r.code !== 0) { this.notice = `md-review was not told: ${(r.stderr || "the marker could not be written").trim()}`; cx.notify(); return; }
       this.reviewing = this.reviewing.filter((x) => x.path !== doc.path); this.notice = null;
       // Another review still waits: show it rather than close.
@@ -205,9 +232,9 @@ export default class MarkdownPanel extends View {
         .when(Boolean(doc), (el) => el.child(button("md-back", "chevron-left", "Markdown in this folder", (cx) => this.back(cx))))
         .child(v_flex().flex_1().min_w(0).pl(doc ? 0 : 4)
           .child(div().truncate().font_semibold().child(doc ? nameOf(doc.path) : "Markdown"))
-          .child(div().truncate().text_size(11).text_color(t.dim).child(tildePath(doc ? folderOf(doc.path) : this.folder, doc ? doc.on : this.on))))
+          .child(div().truncate().text_size(11).text_color(t.dim).child(`${tildePath(doc ? folderOf(doc.path) : this.folder, doc ? doc.on : this.on)}${doc?.held ? ` · ${asOf(doc.held.at, Date.now())}` : ""}`)))
         .children(doc ? doc.controls(t, "md") : [])
-        .when(Boolean(doc) && !doc.editing, (el) => el.child(button("md-refresh", "refresh", "Read again", (cx) => doc.load(cx))))
+        .when(Boolean(doc) && !doc.editing, (el) => el.child(button("md-refresh", "refresh", doc.held ? "Retry" : "Read again", (cx) => { this.poll = pollStart(); doc.load(cx); })))
         .when(reviewing, (el) => el.child(div().id("md-done").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
           .bg(t.raised).border_1().border_color(t.border).tooltip("Review done: tell the agent").hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.done(cx)).child("Done")))

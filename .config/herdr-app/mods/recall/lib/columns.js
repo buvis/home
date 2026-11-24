@@ -1,5 +1,6 @@
 // The navigator's columns past the title: what they say, the room each
-// needs for what it holds, and how wide they are drawn.
+// needs for what it holds, how wide the list they share is, and how wide
+// they are drawn.
 //
 // Every length here is in px on a dialog drawn at its design size; a larger
 // or smaller one draws them to scale.
@@ -111,6 +112,37 @@ export function loadKept(raw) {
  */
 export function dragWidth(start, dx, scale, least) {
   return Math.max(least, Math.min(MAX_WIDTH, Math.round(start - dx / scale)));
+}
+
+/** What a measure of the list was taken at, besides the width itself. */
+const MEASURED_AT = ["windowWidth", "zoom", "scale"];
+
+/**
+ * Herdr laid the list out `width` px wide (in the window's px) at `now`:
+ * { windowWidth, zoom, scale }. The measure to keep instead of `kept`, or
+ * null when it is `kept` again, or no width at all, and nothing changed.
+ */
+export function newMeasure(kept, width, now) {
+  if (!(width > 0)) return null;
+  const next = { width, ...Object.fromEntries(MEASURED_AT.map((key) => [key, now[key]])) };
+  return kept && ["width", ...MEASURED_AT].every((key) => kept[key] === next[key]) ? null : next;
+}
+
+/**
+ * How wide the list is, at its design size. Herdr reports the list's width
+ * once it has laid the dialog out (`measure`, from newMeasure), and the
+ * zoom and the text scale enlarge it from the design. Until it has, or when
+ * the window's width, the zoom or the scale changed since, the width is
+ * worked out from the window's: the dialog's `share` of it, less the 1px
+ * border on each side, less the category rail. A window that reports no
+ * width either puts no limit on the columns.
+ */
+export function drawnListWidth({ measure, windowWidth, zoom, scale, share }) {
+  const z = zoom > 0 ? zoom : 1;
+  const now = { windowWidth, zoom, scale };
+  if (measure && MEASURED_AT.every((key) => measure[key] === now[key])) return measure.width / z / scale;
+  if (!(windowWidth > 0)) return Infinity;
+  return ((share * windowWidth) / z - 2) / scale - LAYOUT.rail;
 }
 
 /** What a row has for its name and its `count` columns, on a list `listWidth` wide. */

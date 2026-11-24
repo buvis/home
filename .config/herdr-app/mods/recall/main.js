@@ -8,9 +8,11 @@
 // Opening the navigator (re)opens the tracker, so one open starts tracking;
 // `keep` brings the tracker back on every start.
 //
-// Copies of a mod share no memory, so the open navigator announces itself
-// in shared "recall.open" with a heartbeat: a second open within a beat is
-// a toggle, and a crash leaves nothing stuck.
+// The top of a mod's file runs once and is shared by its copies; each copy
+// has its own instance. The dialog and the tracker are separate instances,
+// and a crash loses module state, so the open navigator still announces
+// itself in shared "recall.open" with a heartbeat: a second open within a
+// beat is a toggle, and a crash leaves nothing stuck.
 
 import { View, div } from "gpui-kit";
 import { v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
@@ -21,9 +23,9 @@ import {
 import * as mru from "./lib/mru.js";
 import { listView } from "./lib/listview.js";
 import { actionFor, isPrintable, normalizeKey, normalizeLook, parseConfig, parseOpenCommand } from "./lib/config.js";
-import { cleanBuffer, parseLsof, parsePs, parseSshTarget } from "./lib/clue-extract.js";
+import { createCluesRefresh } from "./lib/clues-refresh.js";
 import { parseRevParse, resolveWorktrees } from "./lib/worktrees.js";
-import { LAYOUT, columnNeeds, dragWidth, fitColumns, headWidths, loadKept, shownColumns } from "./lib/columns.js";
+import { columnNeeds, dragWidth, drawnListWidth, fitColumns, headWidths, loadKept, newMeasure, shownColumns } from "./lib/columns.js";
 import { DESIGN_TEXT, pickFont, textScale } from "./lib/look.js";
 import { metricsFor } from "./lib/textwidth.js";
 import { isCurrentTracker, trackerWindow } from "./lib/tracker.js";
@@ -37,6 +39,8 @@ const KEPT = "recall.widths";
 const LOOK = "recall.look";
 const BEAT = 1500;
 const FRESH = 4000;
+// The git probe that groups worktrees is given this long (Herdr's default is 30 s), a budget of its own.
+const WORKTREE_PROBE_TIMEOUT = 5000;
 const TRACKER = trackerWindow(MOD);
 const DIALOG = { kind: "dialog", width: 0.74, height: 0.7 };
 
@@ -48,8 +52,6 @@ const KEY_ACTIONS = {
   dismiss: "recall::dismiss",
   force_quit: "recall::force_quit",
 };
-const PANE_STATE_EVERY = 10000;
-const CONTENT_EVERY = 30000;
 
 function fresh(open) {
   return open && typeof open.at === "number" && Date.now() - open.at < FRESH;
@@ -176,12 +178,16 @@ export default class Recall extends View {
     this.widths = {};
     this.heads = {};
     this.resizing = null;
+    // How wide Herdr laid the list out, in the window's px, and at what
+    // window width, zoom and scale; null until it has, after the first frame.
+    this.measure = null;
     this.query = "";
     this.at = null;
     this.follow = true;
     this.done = false;
     this.worktrees = null;
-    this.data = { paneState: new Map(), content: new Map(), procs: null, listeners: null };
+    this.refresh = createCluesRefresh({ exec, hc, terminalPanes: () => this.clueTargets() });
+    this.data = this.refresh.data;
     this.handle = cx.focus_handle();
     this.scroll = VirtualListScrollHandle.new();
     this.input = InputState.new({ placeholder: "Type to search" });
@@ -315,7 +321,7 @@ export default class Recall extends View {
     const local = spaces().filter((s) => !s.machine && s.folder);
     const probes = await Promise.all(local.map(async (s) => {
       try {
-        const r = await exec("git", ["-C", s.folder, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"]);
+        const r = await exec("git", ["-C", s.folder, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"], { timeout: WORKTREE_PROBE_TIMEOUT });
         const parsed = r.code === 0 ? parseRevParse(r.stdout) : null;
         return parsed ? { id: s.id, name: s.name, branch: s.branch, ...parsed } : null;
       } catch {
@@ -325,74 +331,17 @@ export default class Recall extends View {
     return resolveWorktrees(probes.filter(Boolean));
   }
 
-  /** While Clues shows: what panes run every 10 s, their buffers every 30 s (new panes only). */
+  /** While Clues shows: ask the refresh to run whatever round is due. */
   refreshClues(cx) {
     if (this.role !== "navigator" || this.category !== "clues" || this.done) return;
-    const now = Date.now();
-    if (!this.paneStateAt || now - this.paneStateAt >= PANE_STATE_EVERY) {
-      this.paneStateAt = now;
-      cx.spawn(async (cx) => {
-        await Promise.all([this.fetchPaneState(), this.fetchLocator()]);
-        cx.notify();
-      });
-    }
-    if (!this.contentAt || now - this.contentAt >= CONTENT_EVERY) {
-      this.contentAt = now;
-      cx.spawn(async (cx) => {
-        await this.fetchContent();
-        cx.notify();
-      });
-    }
+    if (!this.refresh.due(Date.now())) return;
+    cx.spawn(async (cx) => {
+      await this.refresh.run(Date.now(), () => cx.notify());
+    });
   }
 
   clueTargets() {
     return panes().filter((p) => p.terminal);
-  }
-
-  async fetchPaneState() {
-    await Promise.all(this.clueTargets().map(async (p) => {
-      try {
-        const r = await hc(["get", p.terminal, "--json"]);
-        if (r.code !== 0) return;
-        const j = JSON.parse(r.stdout);
-        const fg = j.foreground;
-        const command = fg?.argv?.length ? fg.argv.join(" ") : fg?.name ?? null;
-        this.data.paneState.set(p.pane, {
-          cwd: fg?.cwd ?? j.cwd ?? p.cwd ?? null,
-          command: command && command.trim() ? command : null,
-          ssh: command ? parseSshTarget(command) : null,
-          shellPid: j.pid ?? null,
-        });
-      } catch {}
-    }));
-  }
-
-  async fetchContent() {
-    const missing = this.clueTargets().filter((p) => !this.data.content.has(p.pane));
-    await Promise.all(missing.map(async (p) => {
-      try {
-        const r = await hc(["read", p.terminal, "--lines", "3000"]);
-        const text = r.code === 0 ? cleanBuffer(r.stdout) : null;
-        if (text) this.data.content.set(p.pane, text);
-      } catch {}
-    }));
-  }
-
-  async fetchLocator() {
-    try {
-      const ps = await exec("ps", ["-eo", "pid=,ppid=,command="]);
-      this.data.procs = ps.code === 0 ? parsePs(ps.stdout) : new Map();
-    } catch {
-      this.data.procs = new Map();
-    }
-    let lsof = null;
-    for (const bin of ["lsof", "/usr/sbin/lsof"]) {
-      try {
-        lsof = await exec(bin, ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"]);
-        break;
-      } catch {}
-    }
-    this.data.listeners = lsof && (lsof.code === 0 || lsof.code === 1) ? parseLsof(lsof.stdout) : [];
   }
 
   snapshot() {
@@ -529,19 +478,26 @@ export default class Recall extends View {
     setShared(KEPT, Object.keys(this.kept).length ? this.kept : null);
   }
 
+  /** What the list is laid out at now, besides its own width. */
+  layoutNow() {
+    return { windowWidth: window.viewport_size()?.width, zoom: settings()?.zoom, scale: this.scale };
+  }
+
+  /** Herdr laid the list out `width` px wide, in the window's px: true when the dialog should draw again. */
+  listMeasured(width) {
+    const measure = newMeasure(this.measure, width, this.layoutNow());
+    if (!measure) return false;
+    this.measure = measure;
+    return true;
+  }
+
   /**
-   * The list's width as designed: the dialog's share of the window, less
-   * its 1px border on each side, at the size the dialog is drawn, less the
-   * category rail. Herdr's zoom enlarges what is in the window and not the
-   * window, so a zoomed window holds fewer of the dialog's px. A window
-   * that reports no width puts no limit on the columns.
+   * The list's width as designed: as Herdr last measured it, or, in the
+   * first frame or right after the window, the zoom or the scale changed,
+   * worked out from the window's width.
    */
   listWidth() {
-    const zoom = settings()?.zoom;
-    const windowWidth = window.viewport_size()?.width;
-    if (!(windowWidth > 0)) return Infinity;
-    const dialog = (DIALOG.width * windowWidth) / (zoom > 0 ? zoom : 1) - 2;
-    return dialog / this.scale - LAYOUT.rail;
+    return drawnListWidth({ measure: this.measure, ...this.layoutNow(), share: DIALOG.width });
   }
 
   // ── Navigator: view ────────────────────────────────────────────────────

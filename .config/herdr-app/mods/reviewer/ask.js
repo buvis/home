@@ -24,6 +24,6 @@ export async function ask({ title, context, sent }) {
     if (sent) setShared(sent, Date.now());
     return "sent";
   }
-  notify({ title: "Send failed", body: (r.stderr || r.stdout).trim().slice(0, 200), level: "error" });
+  notify({ title: "Send failed", body: (r.stderr || r.stdout).trim().slice(0, 200), level: "error", action: { name: "pane.focus", args: { terminal: agent.address } } });
   return "none";
 }

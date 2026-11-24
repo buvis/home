@@ -1,7 +1,18 @@
-import { div, svg } from "gpui-kit";
+import { serviceOn } from "./platform-host.js";
+import { paths } from "./platform-paths.js";
+import { fileApi } from "./platform-files.js";
+import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView, Textarea, TextareaState } from "gpui-base";
-import { readTextFile, writeTextFile, theme, settings, home } from "herdr";
+import { readTextFile, writeTextFile, theme, settings, home, appHome } from "herdr";
 import { parseBlocks, joinBlocks, headingOf, headingLine, parseTable, tableLines } from "./blocks.js";
+import { skeleton, breathe, quietLink, tokens } from "./ui.js";
+import { bring, appRelative, markdownParts, staleView, bytesLabel, copyFailure } from "./remote-file.js";
+
+export function readingLines(t) {
+  const { line } = skeleton({ border: t.border });
+  return breathe(v_flex().id("kanso-skeleton").w_full().max_w(760).px(16).pt(14).gap(10))
+    .children([280, 200, 240, 120, 220, 160, 190].map((w) => line(w, 12)));
+}
 
 const MAX_TEXT = 400000;
 const AUTOSAVE_MS = 700;
@@ -16,12 +27,11 @@ export function readable(text) {
 
 export function linkTarget(url, docPath) {
   if (/^(https?:|mailto:)/i.test(url)) return { web: url };
-  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^file:/i.test(url)) return null;
-  const given = decodeURIComponent(url.replace(/^file:\/\//i, "").replace(/[?#].*$/, ""));
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^file:/i.test(url) && !/^[a-z]:[\\/]/i.test(url)) return null;
+  const raw = url.replace(/[?#].*$/, "");
+  const given = /^file:/i.test(raw) ? paths.fromFileUrl(raw) : decodeURIComponent(raw);
   if (!given) return null;
-  const p = given.startsWith("/") ? given : docPath.replace(/\/[^/]*$/, "") + "/" + given;
-  const out = p.split("/").reduce((parts, part) => (part === ".." ? parts.slice(0, -1) : part && part !== "." ? [...parts, part] : parts), []);
-  return { file: "/" + out.join("/") };
+  return { file: paths.isAbsolute(given) ? paths.normalize(given) : paths.join(paths.dirname(docPath), given) };
 }
 
 export class MarkdownDoc {
@@ -36,7 +46,7 @@ export class MarkdownDoc {
     this.cells = null;
     this.source = null;  // the whole file as Markdown, while "Source" is on
     this.conflict = false; this.saving = false; this.seq = 0;
-    this.error = null; this.big = false;
+    this.error = null; this.big = false; this.shots = new Map(); this.shotSeq = 0;
   }
 
   get canEdit() { return !this.on && this.saved !== null && !this.big; }
@@ -47,19 +57,30 @@ export class MarkdownDoc {
     const path = this.path;
     cx.spawn(async (cx) => {
       try {
-        const text = await readTextFile(path, { on: this.on });
+        const text = this.on
+          ? await (await serviceOn(fileApi, this.on)).read(path)
+          : await readTextFile(path);
         if (this.path !== path) return;
-        if (text === null) { this.error = "This file is no longer available"; return; }
-        if (text.includes("\0")) { this.error = "Binary file: nothing to show"; return; }
-        this.error = null;
-        if (text === this.saved) return;
+        if (text == null) { this.miss("This file is no longer available"); return; }
+        if (String(text).includes("\0")) { this.miss("Binary file: nothing to show"); return; }
+        this.error = null; this.held = null; this.fresh = Date.now();
+        if (text === this.saved) { if (this.on) this.pictures(cx); return; }
         // Yours, not saved yet, and the file moved on: you choose which stays.
         if (this.dirty) { this.conflict = true; this.disk = text; return; }
         this.saved = text; this.big = text.length > MAX_TEXT;
         this.setText(text);
-      } catch (e) { this.error = `Cannot read this file: ${e?.message ?? e}`; }
-      finally { cx.notify(); }
+        if (this.on) this.pictures(cx);
+      } catch (e) {
+        if (this.path === path) this.miss(this.on ? copyFailure(e, this.on) : `Cannot read this file: ${e?.message ?? e}`);
+      } finally { cx.notify(); }
     });
+  }
+
+  // A later miss keeps the document; the panel shows its age.
+  miss(message) {
+    const view = this.on ? staleView(this.saved != null, this.fresh, Date.now(), message) : null;
+    if (view?.keep) { this.held = view.hold; this.error = null; return; }
+    this.error = message;
   }
 
   setText(text) {
@@ -255,7 +276,7 @@ export class MarkdownDoc {
 
   body(t, id) {
     if (this.error) return div().p(16).text_color(t.dim).child(this.error);
-    if (this.text === null) return div().p(16).text_color(t.dim).child("Reading…");
+    if (this.text === null) return readingLines(t);
     const conflict = this.conflict ? h_flex().flex_none().px(16).py(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_1().min_w(0).text_size(12).text_color(t.blocked).child("The file changed on disk while you edited it."))
       .child(this.pill(`${id}-mine`, "Keep mine", t, (cx) => this.keepMine(cx), true))
@@ -288,10 +309,58 @@ export class MarkdownDoc {
         .when(mono, (el) => el.font_family(settings().font_family));
     }
     const md = b.kind === "front" ? readable(b.lines.join("\n")) : b.lines.join("\n");
+    const parts = this.on ? markdownParts(md) : null;
     return div().id(`${id}-b${i}`).w_full().px(8).py(2).rounded(6).text_size(13.5).text_color(t.foreground)
       .when(this.canEdit && !this.conflict, (el) => el.hover((s) => s.bg(t.hover))
         .on_mouse_down("left", (e, cx) => { if (e.click_count === 2) { this.open(i, cx); cx.stop_propagation(); } }))
-      .child(TextView.markdown(`${id}-v${i}`, md).on_link_click((url, cx) => this.follow(url, cx)));
+      .child(parts?.some((part) => part.kind === "image") ? this.pictureBlock(parts, i, t, id) : TextView.markdown(`${id}-v${i}`, md).on_link_click((url, cx) => this.follow(url, cx)));
+  }
+
+  pictureBlock(parts, i, t, id) {
+    return v_flex().w_full().gap(8).children(parts.map((part, k) => {
+      if (part.kind === "text") return part.text.trim() ? TextView.markdown(`${id}-v${i}-${k}`, part.text).on_link_click((url, cx) => this.follow(url, cx)) : null;
+      const file = linkTarget(part.url, this.path)?.file;
+      const shot = file && this.shots?.has(file) ? this.shots.get(file) : undefined;
+      if (shot === undefined) return breathe(div().id(`${id}-shot-${k}`)).child(skeleton({ border: t.border }).block(240, 140, 8));
+      if (shot?.deferred) return h_flex().id(`${id}-shot-${k}`).gap(8).items_center()
+        .child(div().text_size(12).text_color(t.foreground).child(paths.basename(file)))
+        .child(div().text_size(12).text_color(t.dim).child(bytesLabel(shot.size)))
+        .child(quietLink(`${id}-load-${k}`, "Load", (cx) => this.loadShot(file, cx), tokens(t)));
+      if (!shot) return div().id(`${id}-shot-${k}`).text_size(12).text_color(t.dim).child("Cannot show this picture");
+      return div().id(`${id}-shot-${k}`).w_full().child(image(shot).w_full());
+    }).filter(Boolean));
+  }
+
+  pictures(cx) {
+    const files = [...new Set(this.blocks.flatMap((b) => b.kind === "code" ? [] : markdownParts(b.lines.join("\n")).flatMap((part) => {
+      if (part.kind !== "image") return [];
+      const file = linkTarget(part.url, this.path)?.file;
+      return file ? [file] : [];
+    })))];
+    const prior = this.shots ?? new Map();
+    this.shots = new Map(files.map((file) => [file, prior.has(file) ? prior.get(file) : undefined]));
+    this.shotSeq = (this.shotSeq ?? 0) + 1;
+    const seq = this.shotSeq, path = this.path, on = this.on;
+    cx.spawn(async (cx) => {
+      await files.reduce(async (done, file) => {
+        await done;
+        if (this.shotSeq !== seq || this.path !== path) return;
+        const shot = await bring(file, on).then((got) => got.deferred ? { deferred: true, size: got.size, file } : appRelative(got.path, appHome())).catch(() => null);
+        if (this.shotSeq !== seq || this.path !== path) return;
+        this.shots = new Map([...this.shots, [file, shot]]);
+        cx.notify();
+      }, Promise.resolve());
+    });
+  }
+
+  loadShot(file, cx) {
+    const seq = this.shotSeq, path = this.path, on = this.on;
+    cx.spawn(async (cx) => {
+      const shot = await bring(file, on, { ask: true }).then((got) => appRelative(got.path, appHome())).catch(() => null);
+      if (this.shotSeq !== seq || this.path !== path) return;
+      this.shots = new Map([...this.shots, [file, shot]]);
+      cx.notify();
+    });
   }
 
   tableEditor(t, id) {
@@ -327,5 +396,5 @@ export class MarkdownDoc {
 export const tildePath = (dir, on) => {
   const h = home();
   if (on) return `${on}: ${dir}`;
-  return dir === h ? "~" : dir.startsWith(h + "/") ? "~" + dir.slice(h.length) : dir;
+  return paths.shorten(dir, h);
 };

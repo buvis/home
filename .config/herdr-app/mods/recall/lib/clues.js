@@ -1,4 +1,4 @@
-// Rows of the Clues category, from a snapshot plus what main.js fetched:
+// Rows of the Clues category, from a snapshot plus what clues-refresh.js fetched:
 //   data = { paneState: Map pane → { cwd, command, ssh, shellPid },
 //            content: Map pane → text, procs: Map | null, listeners: [] | null }
 // Clues covers every terminal pane, agents included, so `.text` finds the
@@ -25,7 +25,8 @@ function candidates(snap) {
     if (!at) continue;
     out.push({
       pane: p,
-      title: d.title,
+      // What Herdr reports, not the Pane name: an editor is told by it.
+      title: d.agent?.title || p.title,
       program: d.program,
       cwd: d.cwd,
       spaceId: at.space.id,

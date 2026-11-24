@@ -9,6 +9,7 @@
 // opened. All's rows also carry `crumb`, the path drawn before the name,
 // and an unnamed tab's row `paneList`, its panes' names drawn after it.
 
+import { isShellPromptTitle } from "./clue-extract.js";
 import * as mru from "./mru.js";
 
 const STATUS_RANK = { blocked: 0, done: 1, working: 2, idle: 3 };
@@ -54,23 +55,70 @@ export function index(snap) {
 }
 
 /**
+ * A title without the status mark in front of it: a leading run of
+ * characters that are neither letters, digits nor whitespace goes, with the
+ * whitespace after it, but only when whitespace does follow. `⠐ Fix` is
+ * `Fix`; `[WIP] fix`, `#123 fix` and `⠐Fix` stay as they are.
+ */
+export function cleanTitle(title) {
+  return (title ?? "").replace(/^[^\p{L}\p{N}\s]+\s+/u, "").trim();
+}
+
+/** Whether a cleaned title can be a Pane name, or is only noise a column already shows. */
+function usableTitle(title, program, terminal) {
+  if (!title || title === terminal) return false;
+  if (/^[~/]/.test(title) || /^[A-Za-z]:\\/.test(title)) return false; // a folder
+  const lower = title.toLowerCase();
+  if (lower === program?.name?.toLowerCase() || lower === program?.key?.toLowerCase()) return false;
+  // A prompt left in the title of a shell, or of an agent's pane once the agent
+  // has exited, says nothing; ssh's `deploy@db1: ~` does, so other programs keep it.
+  if ((program?.shell || program?.agent) && isShellPromptTitle(title)) return false;
+  return true;
+}
+
+/**
+ * A pane's Pane name, the one rule every category and every kind of row
+ * uses: its agent's title, else the title its program set, else its program,
+ * else its folder's last segment (only when Herdr doesn't know the program),
+ * else its mod. A title counts cleaned of its status mark, and only when
+ * usableTitle lets it. `last` is what a pane with nothing else goes by.
+ */
+export function paneNameOf({ agentTitle, paneTitle, terminal, program, cwd, mod, last = "" }) {
+  for (const raw of [agentTitle, paneTitle]) {
+    const title = cleanTitle(raw);
+    if (usableTitle(title, program, terminal)) return title;
+  }
+  return program?.name || (terminal ? lastSegment(cwd) : mod) || last;
+}
+
+/**
+ * The titles Herdr reported that aren't the Pane name: one more thing a row
+ * is searched by, never drawn.
+ */
+function otherTitles(name, terminal, ...titles) {
+  return [...new Set(titles.filter((t) => t && t !== terminal && t !== name))];
+}
+
+/**
  * What a pane shows, filled in from what Herdr knows elsewhere. A pane in a
  * tab the window hasn't drawn yet only has its terminal's address as title
  * and its shell as program; the agents list and herdr-core know better.
- * Its title is its Pane name: agent's title, else the title its program set,
- * else its program, else its folder, else (a mod's pane) the mod.
+ * Its `title` is its Pane name (paneNameOf); `raw` holds the titles Herdr
+ * reported that it isn't.
  */
 export function describePane(p, snap) {
   const agent = p.terminal ? snap.agents.find((a) => a.address === p.terminal) : null;
   const core = p.terminal ? snap.terminals?.find((x) => x.address === p.terminal) : null;
   const cwd = p.cwd ?? core?.cwd ?? null;
-  const bare = !p.title || p.title === p.terminal;
-  const title = agent?.title || (bare ? "" : p.title);
   const program = agent?.program ?? p.program ?? null;
+  const title = paneNameOf({
+    agentTitle: agent?.title, paneTitle: p.title, terminal: p.terminal, program, cwd, mod: p.mod, last: p.title || "",
+  });
   return {
     pane: p,
     agent,
-    title: title || program?.name || (p.terminal ? lastSegment(cwd) : p.mod) || p.title || "",
+    title,
+    raw: otherTitles(title, p.terminal, agent?.title, p.title),
     program,
     cwd,
     branch: p.branch ?? null,
@@ -212,6 +260,8 @@ function tabRows(snap, ix) {
           { key: "path", text: tildify(lead?.cwd, snap.home) },
           { key: "branch", text: lead?.branch ?? "" },
           { key: "status", text: STATUS_WORD[t.status] ?? "" },
+          // The titles its panes hide: found, never lit.
+          ...ps.flatMap((d) => d.raw).map((text) => ({ key: "raw", text })),
         ],
         actions: [["tab.select", { id: t.id }]],
       });
@@ -260,6 +310,7 @@ function paneRows(snap, ix) {
         { key: "detail", text: d.program?.name ?? "" },
         { key: "branch", text: d.branch ?? "" },
         { key: "status", text: STATUS_WORD[d.status] ?? "" },
+        ...d.raw.map((text) => ({ key: "raw", text })),
       ],
       actions: [["tab.select", { id: p.tab }], ["pane.focus", { pane: p.pane }]],
     });
@@ -277,9 +328,16 @@ function agentRows(snap, ix) {
     const at = ix.tab.get(a.tab);
     const spaceName = at ? spaceLabel(at.space, snap.worktrees) : a.space_name;
     const tab = at ? tabName(at.tab) : a.tab_name;
-    const title = a.title || a.program?.name || a.address;
-    const where = `${spaceName} › ${tab}`;
     const pane = ix.described.get(a.pane);
+    // An agent whose pane is listed goes by that pane's name; only one whose
+    // pane Herdr doesn't list works its own out.
+    const known = pane?.agent === a;
+    const title = known ? pane.title : paneNameOf({
+      agentTitle: a.title, paneTitle: pane?.pane.title, terminal: a.address, program: a.program,
+      cwd: pane?.cwd, mod: null, last: a.address,
+    });
+    const raw = known ? pane.raw : otherTitles(title, a.address, a.title, pane?.pane.title);
+    const where = `${spaceName} › ${tab}`;
     const path = tildify(pane?.cwd, snap.home);
     return {
       kind: "agent",
@@ -308,6 +366,7 @@ function agentRows(snap, ix) {
         { key: "path", text: path },
         { key: "branch", text: pane?.branch ?? "" },
         { key: "status", text: STATUS_WORD[a.status] ?? "" },
+        ...raw.map((text) => ({ key: "raw", text })),
       ],
       actions: [["agent.focus", { terminal: a.address }]],
     };

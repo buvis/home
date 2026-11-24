@@ -12,7 +12,7 @@
 //   reads  nav.{category, categories, rows, at, scroll, input, mode, query,
 //               agentSort, widths, resizing, keys, configError, scale}
 //   calls  nav.{switchTo, focusForMode, open,
-//               startResize, resizeTo, endResize}
+//               startResize, resizeTo, endResize, listMeasured}
 //   ctx  = { view, loading }  (view: what lib/listview.js's listView returned)
 //
 // Every length here is written as designed, for 13px text, and scaled by
@@ -123,6 +123,19 @@ function sortToggle(t, u, nav) {
       .child(SORT_LABEL[s])));
 }
 
+/**
+ * The Esc hint as Herdr's picker draws it: padding, rounding, dim text, and
+ * under the pointer the hover background with foreground text and a hand.
+ * A click closes the dialog the way Ctrl+C does, with or without a query.
+ */
+function escHint(t, u, nav, id, content) {
+  return h_flex().id(id).flex_none().gap(u(5)).items_center().px(u(6)).py(u(2)).rounded(u(5)).text_size(u(11))
+    .text_color(t.dim).cursor_pointer()
+    .hover((s) => s.bg(t.hover).text_color(t.foreground))
+    .on_click((_e, cx) => { nav.dismiss(); cx.notify(); })
+    .children(content);
+}
+
 function header(t, u, nav, view) {
   const label = view.label;
   const count = nav.query.trim() && view.total !== null ? `${view.count}/${view.total}` : String(view.count);
@@ -140,7 +153,7 @@ function header(t, u, nav, view) {
       div().w(u(150)).flex_none().text_size(u(14)).font_semibold().truncate().child(CATEGORY[nav.category].title),
       search,
       nav.category === "agents" ? sortToggle(t, u, nav) : null,
-      div().flex_none().text_size(u(11)).text_color(t.dim).child("Esc"),
+      escHint(t, u, nav, "recall-esc-header", ["Esc"]),
     ].filter(Boolean));
 }
 
@@ -282,18 +295,26 @@ function hints(nav) {
 }
 
 function footer(t, u, nav) {
+  const keyCap = (keys) => div().px(u(5)).rounded(u(4)).bg(t.raised).text_color(t.muted).child(keys);
   const chip = ([keys, label]) => h_flex().flex_none().gap(u(5)).items_center()
-    .child(div().px(u(5)).rounded(u(4)).bg(t.raised).text_color(t.muted).child(keys))
+    .child(keyCap(keys))
     .child(div().text_color(t.dim).child(label));
+  const escChip = ([keys, label]) => escHint(t, u, nav, "recall-esc-footer", [
+    keyCap(keys),
+    div().child(label),
+  ]);
   const all = hints(nav);
   const tail = all.pop();
+  // The tail is the Esc hint, and takes a click only while it reads "close":
+  // with a query typed it reads "clear", and while filtering it is Ctrl+C's.
+  const tailChip = nav.mode !== "filtering" && tail[1] === "close" ? escChip(tail) : chip(tail);
   return h_flex().h(u(28)).flex_none().px(u(14)).gap(u(14)).items_center().border_t(1).border_color(t.border).bg(t.chrome)
     .text_size(u(11)).overflow_hidden()
     .children([
       nav.configError ? div().flex_none().max_w(u(320)).truncate().text_color(t.blocked).child(nav.configError) : null,
       ...all.map(chip),
       div().flex_1(),
-      chip(tail),
+      tailChip,
     ].filter(Boolean));
 }
 
@@ -311,7 +332,9 @@ export function navigator(nav, { view, loading }) {
     .child(header(t, u, nav, view))
     .child(h_flex().flex_1().min_h(0).items_start()
       .child(rail(t, u, nav))
-      .child(v_flex().flex_1().min_w(0).h_full().py(u(4))
+      // The list's width, as Herdr laid it out: the columns are fitted to it.
+      .child(v_flex().id("recall-list").flex_1().min_w(0).h_full().py(u(4))
+        .on_size_change((size, cx) => { if (nav.listMeasured(size.width)) cx.notify(); })
         .child(columnHead(t, u, nav))
         .child(div().flex_1().min_h(0).pt(u(2)).child(list(t, u, nav, loading)))))
     .child(footer(t, u, nav));
