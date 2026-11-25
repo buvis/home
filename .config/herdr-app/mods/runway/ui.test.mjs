@@ -437,3 +437,82 @@ test("spec card starts specflow only where it is installed, and tells which agen
   clean();
 });
 
+test("PR chip publishes the jump before showing the panel and sends modified clicks to the browser", async (t) => {
+  t.mock.timers.enable({apis: ["Date"], now: 10_000});
+  world({...LOCAL, agents: () => []});
+  const events = [];
+  globalThis.__herdr.setShared = (...args) => events.push(["shared", ...args]);
+  globalThis.__herdr.run = (...args) => events.push(["run", ...args]);
+  const {default: Runway} = await import("./main.js");
+  const view = new Runway({});
+  view.scope = "this"; // The panel's This repo scope.
+  view.openRef = (chip) => events.push(["browser", chip]);
+  const chip = {type: "pr", value: "42", label: "PR #42"};
+  const node = expand(view.renderChip(chip, {id: "test"}, {root: "/work/app"}, {}));
+
+  node.on.on_click({}, makeCx());
+  assert.deepEqual(events.splice(0), [
+    ["shared", "runway.show", {kind: "pr", number: 42, at: 10_000}],
+    ["run", "layout.select", {stack: "panel-body", child: "ship-it-prs"}],
+    ["run", "layout.show", {id: "panel"}],
+  ]);
+
+  for (const modifiers of [{platform: true}, {control: true}]) {
+    node.on.on_click({modifiers}, makeCx());
+    assert.deepEqual(events.splice(0), [["browser", chip]]);
+  }
+});
+
+test("a fresh PR jump switches from All spaces to This space and expands the PR", async (t) => {
+  t.mock.timers.enable({apis: ["Date"], now: 10_000});
+  world({...LOCAL, agents: () => []});
+  globalThis.__herdr.checking = () => true;
+  globalThis.__herdr.shared = (key) => key === "runway.show" ? {kind: "pr", number: 42, at: 10_000} : undefined;
+  const {default: PullRequests} = await import("../ship-it-prs/main.js");
+  const view = new PullRequests({});
+  const cx = makeCx();
+  view.init({}, cx);
+  view.setScope("all", cx);
+  view.queueRequest = {key: "previous queue", started: 10_000};
+  view.context = view.key();
+  view.stale = false;
+  view.shown = () => true;
+  const refreshScopes = [];
+  view.refresh = () => refreshScopes.push(view.scope);
+
+  const tree = walk(expand(view.render(cx)));
+  const hasId = (id) => tree.some((n) => n.calls.some(([name, args]) => name === "id" && args[0] === id));
+  assert.ok(hasId("prs-filter-all"), "This space controls are visible");
+  assert.equal(hasId("prs-queue"), false);
+  assert.equal(view.queueRequest, null);
+  assert.equal(view.expanded, 42);
+  assert.deepEqual(refreshScopes, ["space"], "reload the repo list even if its key is unchanged");
+});
+
+test("both ship-it panels ignore expired, wrong-kind and already consumed requests", async (t) => {
+  t.mock.timers.enable({apis: ["Date"], now: 10_000});
+  world({...LOCAL, agents: () => []});
+  globalThis.__herdr.checking = () => true;
+  let request;
+  globalThis.__herdr.shared = (key) => key === "runway.show" ? request : undefined;
+  const {default: PullRequests} = await import("../ship-it-prs/main.js");
+  const {default: Issues} = await import("../ship-it-issues/main.js");
+  const cx = makeCx();
+
+  for (const [kind, other, Panel] of [["pr", "issue", PullRequests], ["issue", "pr", Issues]]) {
+    const view = new Panel({});
+    view.init({}, cx);
+    request = {kind: other, number: 42, at: 10_000};
+    view.render(cx);
+    assert.equal(view.expanded, null);
+    request = {kind, number: 42, at: 5_000};
+    view.render(cx);
+    assert.equal(view.expanded, null);
+    request = {kind, number: 42, at: 5_001};
+    view.render(cx);
+    assert.equal(view.expanded, 42);
+    view.expanded = null;
+    view.render(cx);
+    assert.equal(view.expanded, null);
+  }
+});
