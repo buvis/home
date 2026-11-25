@@ -76,6 +76,29 @@ test("walkthrough starts Claude generations through run-claude-pat, never a bare
   assert.equal(await programOf("claude"), "/app-home/bin/run-claude-pat");
 });
 
+// Its update strip hands out a prompt that has an agent replace the folder, which drops
+// the local edits. Updates come through sysup (bin/hmod-merge --auto), which also runs
+// this file, so the mod stays quiet.
+test("walkthrough never checks for a release itself and never offers its update prompt", async () => {
+  const view = readFileSync(join(MOD, "view.js"), "utf8");
+  assert.ok(view.includes("this.update = updater({ check: false,"), "view.js builds its updater with the check on");
+  assert.equal(view.split("updater(").length - 1, 1, "view.js builds a second updater");
+  // `check: false` must still mean "no request, no strip" after a merge of lib/update.js.
+  const { updater, REPO } = await import(pathToFileURL(join(MOD, "lib/update.js")).href);
+  let asked = 0;
+  // `wait` never resolves: the default one arms a real 15 s timer.
+  const waiting = { shared: () => ({ repo: REPO, latest: { tag: "v99.0.0" } }), setShared: () => {}, wait: () => new Promise(() => {}), fetch: () => { asked += 1; throw new Error("offline"); } };
+  const on = updater({ ...waiting, check: true });
+  await on.check();
+  assert.equal(asked, 1, "control: with the check on, this state asks GitHub");
+  assert.ok(on.available(), "control: with the check on, this state shows the strip");
+  asked = 0;
+  const off = updater({ ...waiting, check: false });
+  await off.check();
+  assert.equal(asked, 0, "it asked GitHub");
+  assert.equal(off.available(), null, "it offers the release");
+});
+
 test("walkthrough shows the shared ring for busy states, never braille frames", () => {
   const sources = readdirSync(MOD).filter((f) => f.endsWith(".js")).map((f) => [f, readFileSync(join(MOD, f), "utf8")]);
   // assert.ok on a boolean: a failed assert.match would print the whole source file.

@@ -206,7 +206,8 @@ export class Walkthrough {
     });
     cx.timer.every(1000, (cx) => this.tick(cx));
     // A newer release, at most once a day (lib/update.js); not under `herdr-app check`, which runs nothing.
-    this.update = updater({ shared, setShared, fetch: (url, options) => fetch(url, options), wait: (ms) => new Promise((done) => cx.timer.after(ms, () => done())) });
+    // local: check off. Its strip hands out a prompt that replaces this folder and drops the local edits; updates come through sysup (bin/hmod-merge).
+    this.update = updater({ check: false, shared, setShared, fetch: (url, options) => fetch(url, options), wait: (ms) => new Promise((done) => cx.timer.after(ms, () => done())) });
     if (!checking()) cx.spawn(async (cx) => { await this.update.check(); cx.notify(); });
     // Commands for keys.json: walkthrough.generate, .cancel, .next, .prev, .copy, .unread, .task, .recap (write your own).
     cx.spawn(async (cx) => {

@@ -139,6 +139,11 @@ panel in each space you touched.
   (`sandbox-exec` with the profile: "Operation not permitted"). A Claude hook
   of a mod that keeps its state there does nothing in agent sessions, and
   shows no message. `~/.local/state` is writable.
+- Agent's note, 2026-11-25. The rules for the local edits to a gallery mod
+  go in `tests/<mod>-local.test.mjs`. sysup runs `tests/*-local.test.mjs`
+  after `hmod-merge --auto`, so an unattended merge that breaks an edit fails
+  the step. A mod's own update prompt goes around the merge lanes: turn its
+  check off (walkthrough: `check: false` in `view.js`).
 
 ## Tests
 

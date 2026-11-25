@@ -60,6 +60,8 @@ commands:
   # forks.json. Anything that needs a decision (a first update, a fork whose
   # upstream moved, a merge conflict) goes to stderr with the command to run,
   # and the step fails, so sysup's attention shows it until it is handled.
+  # Last, the rules for the local edits to gallery mods run (Herdr home
+  # tests/*-local.test.mjs): an unattended merge that breaks one fails the step.
   # (The herdr-plugins step for the retired Herdr TUI was removed 2026-11-16:
   # ~/.config/herdr is gone since 2026-11-08, so it could only fail.)
   herdr-mods:
@@ -73,6 +75,7 @@ commands:
         rc=0
         "$bin/hmod" update --all || rc=1
         "$bin/hmod-merge" --auto || rc=1
+        node --test "$bin"/../tests/*-local.test.mjs || rc=1
         exit $rc
 
   # The dotfiles remote is public, so nothing gets tracked without a decision.
