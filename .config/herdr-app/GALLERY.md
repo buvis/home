@@ -19,7 +19,7 @@ since 2026-11-24 by name from the command palette (Ctrl-Q `:`).
 |---|---|---|---|
 | revive | dmazlum/herdr-revive 0.5.0 | Ctrl-Q `m` `r` | `revive.mjs install` not run yet: it edits ~/.claude/settings.json, ~/.codex/hooks.json and the bash login file. Its dialog needs node on Herdr's PATH (see Setup). |
 | reviewer | vytasgavelis/herdr-reviewer 0.4.0 | Changes slot (`changes` child of `panel-body`); no `mod:reviewer` keys, the panel's buttons do it | Inline diff comments sent to the space's agent with `hc send`. Lost the slot to ship-it-changes on 2026-11-08, got it back on 2026-11-09 (its agent comments are the point; ship-it-changes only fed the strip's file count). hmod can't link it (`cloned_from: changes`). |
-| obsidian | cunderw/herdr-obsidian | Ctrl-Q `m` `o` popup, Ctrl-Q `m` `O` panel | `obsidian.json` sets vault `~/bim`, editor nvim. mod:obsidian: ctrl-j/k, alt-enter send, cmd-s/ctrl-s save. |
+| obsidian | cunderw/herdr-obsidian | Ctrl-Q `m` `o` popup, Ctrl-Q `m` `O` panel | `obsidian.json` sets vault `~/bim`, editor nvim. mod:obsidian: ctrl-j/k, alt-enter send, cmd-s/ctrl-s save. PDF export needs two third-party bundles that are NOT in dotfiles (the repo is public; `.gitignore` lists them). On a new machine: `cd mods/obsidian/pdf && npm install && bun build convert.src.mjs --target node --outfile convert.mjs`, then `npm install --no-save mermaid && cp node_modules/mermaid/dist/mermaid.min.js .` (Mermaid diagrams print as source text without it). |
 | markdown-panel | jlopezlira/herdr-kanso, markdown-panel/mods/markdown-panel | Ctrl-Q `m` `m` | Kanso Markdown `.md` handler app not installed. |
 | ciupaga | rgonek/Ciupaga | Ctrl-Q `m` `t` | No key shipped. |
 | copy-mode | zamonia500/herdr-copy-mode | Ctrl-Q `m` `x` | Runs nvim and hc in a terminal tab. |
@@ -34,6 +34,7 @@ since 2026-11-24 by name from the command palette (Ctrl-Q `:`).
 | filetree + file-icons | cybertron288/herdr-mods, filetree/mods/{filetree,file-icons} | Files slot; Ctrl-Q `f` toggles the panel | `files` child of `panel-body` now shows filetree (file-icons is its icon store). config.json `open` -> `bin/open-in-nvim {path}` (double-click opens the file in nvim, split right), so hmod shows it Edited locally. Optional Claude Code hook (`bridge.ts`, bun) not registered. Runs git, sh, find, stat, du, open; reads `~/.local/state/herdr-filetree/activity.jsonl`. In dotfiles since 2026-11-09 with the upstream MIT `LICENSE`, `LICENSE-claude-code-filetree` (the port's source) and `LICENSE-lucide` added. |
 | file-picker | arjunmahishi/herdr-file-picker | Ctrl-Q `o` | `file-picker.json`: Enter opens the file in nvim (right split), ctrl-d git diff popup. picker.js lines 82 and 101: `/bin/sh -c` -> `-lc`, so the fzf and action shells read `~/.profile` (mise shims) whatever PATH herdr-core holds; hmod shows it Edited locally, redo after an update. Not in dotfiles (only `file-picker.json` is): the upstream repo has no license, so the code is not redistributable; reinstall with hmod. |
 | tab-notes | unknown (not in ashrodan/ship-it; hmod can't link it) | Notes child of `panel-body` | Per-tab notes in `~/.config/herdr-app/tab-notes/` (gitignored). Ships `LICENSE-lucide`. |
+| walkthrough | dmazlum/herdr-walkthrough 0.10.0 (8d35fd1), added 2026-11-24 | Ctrl-Q `m` `w`, palette "Walkthrough" (upstream's cmd-shift-k is not bound) | A model orders a diff into steps and explains each (Uncommitted, Staged, Branch, Commit, Pull request); it explains, it does not judge. Local edits, kept by `node --test tests/walkthrough-local.test.mjs`: `engine.js` `programOf` starts `bin/run-claude-pat` (claude with the setup token; a bare `claude` from Herdr has no token and its OAuth login expires); `view.js` shows the shared ring in its 5 busy states (helper `ring`); upstream MIT `LICENSE` added. Not installed: the "Last turn" hooks (the agent sandbox cannot write `~/.herdr`, and each prompt would snapshot the tree); Record stays off. On Generate it sends the diff, untracked files up to 1 MB, and up to 6,000 characters of the prompts typed to Claude, pi and codex in that repo (read from `~/.claude/projects`, `~/.pi`, `~/.codex`) to the model. The Pull request tab needs `gh` and GitHub. Its update strip: press "Stop checking" when it first shows, and never use its "Copy prompt" (an agent that follows it replaces the folder and drops the edits); update with `bin/hmod-merge walkthrough`. State: `~/.herdr/walkthrough/`. Audit 2026-11-24 (every file read): no download, no config edit; `find "$@"` in `lib/sources.js:188` and `hooks/turn.sh:47` reads an untracked file name that starts with `-` as an option (Last turn flows only). |
 
 Installed by another session the same evening, not through this ledger:
 ship-it, ship-it-changes, ship-it-file, ship-it-prs, ship-it-review
@@ -134,14 +135,15 @@ Report: `docs/dev/project-management/reviews/herdr-0.1.18-opportunities-2026-11-
   the PR; `watchAgents` still runs hidden, because it acts only when an agent
   stops), ship-it-prs `main.js` (`refreshQueue` marks a load that was dropped
   out of sight as stale), reviewer `main.js` (the 10 s timer). Also
-  my-space-folders (two 15 s timers). Not done: runway (another session was editing it), filetree
-  (merge lane), pager (it must alert while hidden).
+  my-space-folders (two 15 s timers) and runway (`onTick`). Not done on
+  purpose: filetree (merge lane), pager (it must alert while hidden).
   `node --test tests/window-hidden.test.mjs`.
 - Links: folio reads `link.line` and `link.column`; the new local mod
   `beeline` opens `file:line` in nvim (table above).
 - Look: `"veil": 0.3` on the pane frame in `layouts/buvis.json`. Herdr draws
   the veil over the terminal area only, and for the same selected pane that
-  `my-pane` uses for its header fade (0.35), so the two do not stack.
+  `my-pane` uses for its header fade, so the two do not stack. The header
+  fade went from 0.35 to 0.55, so the title stays readable beside the veil.
 - Palette: the Ctrl-Q `m` list is mirrored in `mods/prefix/mod.json`
   `palette`; `my-status` adds "Notification log".
   `node --test mods/prefix/palette.test.mjs`.
@@ -155,7 +157,7 @@ Three lanes; `bin/hmod-merge status` shows all of them.
 - **hmod** (linked, unedited): `hmod update --all` in sysup. A mod's first
   update is never automatic (`first_update_pending`): run `hmod update <mod>`.
 - **merge** (linked, edited: revive, file-picker, filetree, worktreeinclude,
-  ciupaga, file-icons): `bin/hmod-merge <mod>` 3-way merges upstream into the
+  ciupaga, file-icons, walkthrough): `bin/hmod-merge <mod>` 3-way merges upstream into the
   local files (base = hmod's recorded install commit), checks, backs up, and
   records the new baseline in hmod's sources.json. A conflict changes nothing.
   Never `hmod update --force` these: it replaces the edits.

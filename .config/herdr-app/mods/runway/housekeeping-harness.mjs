@@ -224,6 +224,7 @@ function host(spaces, focusedPane, on, home) {
     props: () => ({}), shared: () => undefined, setShared: () => null, setAgentOrder: () => null,
     nextCommand: () => new Promise(() => {}), watchFolder: () => Object.assign(new Promise(() => {}), {cancel() {}}),
     openOverlay: () => "o1", closeOverlay: () => null, setWindowTitle: () => null,
+    window: () => ({platform: "macos", active: true, visible: true}),
   };
 }
 const PANEL = {id: "root", children: [{id: "panel", hidden: false, children: [{id: "panel-body", active: "runway",

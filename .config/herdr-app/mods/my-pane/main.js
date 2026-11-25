@@ -56,7 +56,8 @@ export default class Pane extends View {
       .gap(8)
       .items_center()
       .bg(p.focused ? t.accent + "33" : t.background)
-      .opacity(p.focused ? 1 : 0.35)
+      // 0.55: the layout's veil (0.3) fades the terminal below; the title must stay readable beside it.
+      .opacity(p.focused ? 1 : 0.55)
       .border_b(1)
       .border_color(p.focused ? t.accent : t.border)
       .text_size(12)

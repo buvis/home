@@ -204,3 +204,82 @@ window screenshots).
 `loupe` reports `exec(GH(), [...])` in the ship-it files as shell injection.
 These are false positives: Herdr's `exec(program, args[])` starts no shell,
 and the lines are not part of this change.
+
+## Follow-ups (2026-11-24, after the first commit `ea0746f2`)
+
+The person agreed to all follow-ups and to both recommendations above.
+
+| Follow-up | Result |
+|---|---|
+| Decision 1, PDF bundles | The two bundles are in `.gitignore`. The rebuild commands are in the obsidian row of `GALLERY.md`. |
+| Decision 2, planning documents | Screened, not tracked yet. 55 text files: 35 clean, 1 firm flag, 19 unsure. See "Planning documents screen" below for the result, the reason for the wait, and the open decision. |
+| runway guard | Done in `Runway.onTick`. Runway's two test stubs got the missing `window` stand-in. 75 runway tests pass. |
+| Pane header | Unfocused opacity 0.35 to 0.55 in `mods/my-pane/main.js`; checked by eye beside the veil. |
+| loupe false positive | Fixed in `buvis/claude-loupe` `67c26d4`: a bare `exec` is reported only in a file that names `child_process`. 314 tests pass; the four flagged Herdr files scan clean. It reaches this machine with the next loupe release. |
+| Stray files | `not a tty` and `warrant-herdr.patch` deleted. |
+| Live clicks | Still for the person: open New worktree once; Cmd-click `README.md#L5` and a `file.rs:42` path. |
+
+The follow-up commit is an exact patch of this session's hunks (and the
+walkthrough row in `GALLERY.md`, which had no commit request). It applies
+only after the PRD 00006 commit: both change the same import line in
+`mods/runway/main.js`.
+
+## Planning documents screen (2026-11-25)
+
+A separate agent read all 55 untracked text files under
+`docs/dev/project-management/` in full (state of 2026-11-25 06:57 CET). The
+screenshots, run logs, lock files and state files were out of scope and stay
+untracked. Three flags were checked again by search; they hold.
+
+- **Not found:** token, password, key, email address, IP address, ticket key,
+  company or customer name, text from the notes vault.
+- **The repositories that the documents name** (`buvis/agent-plugins`,
+  `agent-skills`, `claude-autopilot`, `gems`) are public (checked with `gh`),
+  so their item names leak nothing.
+- **Firm flag, 1 file:** the intake idea 00004 under `intake/new/`. It is
+  day-job material by its own words. Keep it out.
+- **Unsure, 19 files.** These are identifiers and setup details, not secrets:
+  - Live machine state (host name, core id): `spikes/move-pane/sandbox.json`.
+  - Agent session and thread ids, 10 files: `reviews/00002-*-review-02.md`,
+    `reviews/00004-*-review-01.md` and `-review-02.md`,
+    `reviews/00005-*-review-01.md`; in `autopilot/reports/`:
+    `00004-*-finalize.md`, `00005-build-gate.md`, `00005-task-1-review.md`,
+    `00005-task-2-review-unit-{a,b,c}.json`.
+  - Warrant request ids, 10 files: `reviews/00004-*-review-01.md`; in
+    `autopilot/reports/`: `00004-*-finalize.md`, `00005-build-gate.md`,
+    `00005-review-budget-recovery.md`, `00005-task-1-review.md`,
+    `00005-task-2-adversarial.md`, `00005-task-2-implementation.md`,
+    `00005-task-2-tests.md`, `00005-task-7-rework.md`,
+    `runway-native-click-checks.md`.
+  - Agent login and sandbox details: `autopilot/reports/00005-replan-1-notes.md`,
+    `00005-review-budget-recovery.md`.
+  - A time zone that names a city: `autopilot/build-report.md`.
+- **Clean, 35 files:** all other text files.
+- **Not screened:** the two screenshots. Both are captures of the live window
+  and can show terminals of other projects.
+
+**Why nothing is tracked yet.** The recommendation was to wait for the Runway
+session. PRD 00005 is done, but the same batch now has PRD 00006 in review,
+and its capsule (`meta/project-capsule.md`, "Key Invariants") says the
+planning documents stay untracked. A commit of 35 documents in the middle of
+that review breaks a rule that the flow relies on, and a push to a public
+repository cannot be taken back. The wait costs nothing.
+
+**What closes it.** When PRD 00006 is closed: list the folder again, screen
+each file that changed after 2026-11-25 06:57 CET, commit the clean set as
+one exact patch through warrant, and correct the capsule line.
+
+**Open decision: the 19 unsure files.**
+
+1. **Recommended: keep them untracked.** They are run reports and review
+   records of closed work. Good: no identifier of the person's accounts,
+   machine or approval broker becomes public. Bad: 19 records live only on
+   this machine and in its backup. Ugly: the tracked set has gaps, so a
+   reader of a PRD cannot open each of its reviews.
+2. **Replace the identifiers, then track.** Put a short placeholder in place
+   of each id and the host name. Good: the full record is tracked. Bad: it
+   edits documents of other sessions, and `sandbox.json` loses its value as
+   evidence. Ugly: each new report needs the same pass before it is tracked.
+3. **Track them as they are.** Good: no work. Bad: session ids, request ids
+   and the host name are public for good. Ugly: the screen did not prove for
+   each vendor that a session id grants nothing without the login.

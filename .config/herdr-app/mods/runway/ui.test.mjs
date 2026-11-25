@@ -174,6 +174,7 @@ function world({on = null, checkouts, spaces, focusedPane, agents, specflowDirs 
     props: () => ({}), shared: () => undefined, setShared: () => null, setAgentOrder: () => null,
     nextCommand: () => new Promise(() => {}), watchFolder: () => Object.assign(new Promise(() => {}), {cancel() {}}),
     notify: () => null, openOverlay: () => "o1", closeOverlay: () => null, setWindowTitle: () => null,
+    window: () => ({platform: "macos", active: true, visible: true}),
   };
   return calls;
 }

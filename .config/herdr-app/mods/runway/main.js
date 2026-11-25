@@ -1,7 +1,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, exec, appHome, notify as notifyRaw, openOverlay, theme, watchFolder, focused } from "herdr";
-import { notify, home, setShared } from "herdr";
+import { notify, home, window, setShared } from "herdr";
 import { ownItems, toCard, scanRefs, parseFrontmatter, jumpFor } from "./model.js";
 import { snapshot, texts, repos, location, panelShown, places, spaceAt, installedAgents, specflowHosts } from "./read.js";
 import { pickOf, startLabel, startFor } from "./start.js";
@@ -99,6 +99,8 @@ export default class Runway extends View {
   }
 
   onTick(cx) {
+    // No poll while the window is hidden (minimized, covered, on another Space): render catches up.
+    if (window()?.visible === false) { this.stale = true; return; }
     this.ticks = (this.ticks + 1) % 4;
     const isRemote = Boolean(this.loc?.on);
     if (this.scope === "all" || isRemote) {

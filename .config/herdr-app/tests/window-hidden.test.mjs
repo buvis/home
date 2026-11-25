@@ -10,7 +10,7 @@ const MODS = new URL("../mods/", import.meta.url);
 const source = (path) => readFileSync(new URL(path, MODS), "utf8");
 const POLLERS = { "ship-it": ["refreshGit", "refreshPr", "refreshCounts"], reviewer: ["refresh"], "my-space-folders": ["refreshMachines", "loadFolders"] };
 const PANELS = ["ship-it", "ship-it-prs", "ship-it-review", "ship-it-issues"];
-const LOADED = [...Object.keys(POLLERS), "ship-it-prs"];
+const LOADED = [...Object.keys(POLLERS), "ship-it-prs", "runway"];
 
 // Stand-ins for the host modules: every name the mods import exists. UI parts do
 // nothing; herdr's functions answer from `data`.
@@ -122,6 +122,21 @@ test("ship-it-prs: an all-spaces load dropped while the window is hidden is aske
   view.refreshQueue(cx, true);
   await load(cx);
   assert.equal(view.stale, false, "an answer that arrives in sight is applied");
+});
+
+test("runway: a poll while the window is hidden only marks the panel stale", () => {
+  data.layout.children[0].children[0].active = "runway";
+  const view = new views.runway();
+  const cx = { timer: { every() {} }, spawn() {}, notify() {} };
+  view.init({}, cx);
+  assert.equal(view.loading, true, "shown: the first load starts");
+  view.loading = false; // that load is over
+  data.window.visible = false;
+  view.onTick(cx);
+  assert.deepEqual([view.loading, view.stale], [false, true], "hidden: no load, and render catches up later");
+  data.window.visible = true;
+  view.onTick(cx);
+  assert.equal(view.loading, true, "back: the poll loads again");
 });
 
 test("ship-it panels count as not shown while the window is hidden", () => {

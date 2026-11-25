@@ -4,3 +4,6 @@ __pycache__/
 /tab-notes/
 /mods/*/gpui-kit.d.ts
 /mods/*/pdf/node_modules/
+# Third-party bundles, rebuilt on each machine (see GALLERY.md, obsidian): this repo is public.
+/mods/obsidian/pdf/convert.mjs
+/mods/obsidian/pdf/mermaid.min.js
