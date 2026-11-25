@@ -80,6 +80,13 @@ switch, or a dialog, takes their keyboard: their next keys go to the wrong
 place. Look with `herdr-app shot`. To see a state that is not on screen,
 use a tab of your own and keep the switch as short as you can.
 
+Agent's note, checked 2026-11-25. A Claude session cannot click in the
+window: `osascript` has no assistive access (error -1719), and no Herdr
+command clicks a mod control. For a native click check, set up the state
+(a space of your own, `layout.select`/`layout.show`, test data), then ask
+the person to click. The side panel is remembered per space: restore the
+panel in each space you touched.
+
 ## Traps that `herdr-app check` does not catch
 
 - `h_flex()` centers its children vertically. A `flex_1` child with
