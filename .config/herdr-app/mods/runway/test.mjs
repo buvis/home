@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newestVersion, ownItems, parseFrontmatter, parseListing, parseWorktrees, scanRefs, titleOf, toCard } from "./model.js";
+import { jumpFor, newestVersion, ownItems, parseFrontmatter, parseListing, parseWorktrees, scanRefs, titleOf, toCard } from "./model.js";
 
 const stem = (names) => names.map((n) => n.replace(/\.md$/, ""));
 
@@ -739,4 +739,25 @@ test("planned_wave_lane_adds_lane_chip", () => {
 
   same(scanRefs(prdCard("00003-y.md"), "# Y\n", ctx(branches, trees, lanes)), [laneChip("eta", "blocked")]);
   same(scanRefs(prdCard("00002-x.md"), "# X\n", ctx(branches, trees, [])), [runway]);
+});
+
+test("jump_typed_number_chip_goes_to_its_panel", () => {
+  assert.deepEqual(jumpFor({ type: "pr", value: "7" }, "repo"), { panel: "ship-it-prs", kind: "pr", number: 7 });
+  assert.deepEqual(jumpFor({ type: "issue", value: "12" }, "this", {}), { panel: "ship-it-issues", kind: "issue", number: 12 });
+});
+
+test("jump_cmd_click_goes_to_browser", () => {
+  assert.equal(jumpFor({ type: "pr", value: "7" }, "repo", { platform: true }), "browser");
+  assert.equal(jumpFor({ type: "issue", value: "7" }, "repo", { control: true }), "browser");
+});
+
+test("jump_all_repos_scope_goes_to_browser", () => {
+  assert.equal(jumpFor({ type: "pr", value: "7" }, "all"), "browser");
+  assert.equal(jumpFor({ type: "issue", value: "7" }, "all", {}), "browser");
+});
+
+test("jump_ref_and_url_chips_go_to_browser", () => {
+  assert.equal(jumpFor({ type: "ref", value: "33" }, "repo"), "browser");
+  assert.equal(jumpFor({ type: "pr", value: "https://github.com/o/r/pull/7" }, "repo"), "browser");
+  assert.equal(jumpFor({ type: "issue", value: "https://github.com/o/r/issues/5" }, "repo"), "browser");
 });

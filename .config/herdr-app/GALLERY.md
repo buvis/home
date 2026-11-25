@@ -68,6 +68,7 @@ add `-i` before the task for Copilot (`copilot "<prompt>"` is rejected);
 Gemini with `"run": []` (CLI discontinued; ship-it and my-new-menu skip
 agents with an empty `run`). on-screen's pane
 menu gained Copy path and Copy branch name the same day.
+Local edit for PRD 00006: ship-it-prs and ship-it-issues read shared "runway.show" at the top of render and expand that PR or issue (the runway mod's chip jump).
 Local edit 2026-11-16: Ship ran `ship(cx)` straight from the click and used
 the click's `cx` after an await ("cx is no longer valid"); it now runs in
 `cx.spawn`. The strip's own message banner is gone: `say` posts `notify()`,

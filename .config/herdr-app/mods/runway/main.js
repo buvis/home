@@ -1,8 +1,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, exec, appHome, notify as notifyRaw, openOverlay, theme, watchFolder, focused } from "herdr";
-import { notify, home } from "herdr";
-import { ownItems, toCard, scanRefs, parseFrontmatter } from "./model.js";
+import { notify, home, setShared } from "herdr";
+import { ownItems, toCard, scanRefs, parseFrontmatter, jumpFor } from "./model.js";
 import { snapshot, texts, repos, location, panelShown, places, spaceAt, installedAgents, specflowHosts } from "./read.js";
 import { pickOf, startLabel, startFor } from "./start.js";
 import { planLane, openLane, actionFor } from "./lane.js";
@@ -340,7 +340,7 @@ export default class Runway extends View {
     });
   }
 
-  clickChip(chip, card, snap, cx) {
+  clickChip(chip, card, snap, cx, modifiers) {
     if ((chip.type === "branch" && chip.path) || chip.type === "worktree") {
       const allTrees = snap.checkouts.map((c) => c.path);
       const s = spaceAt(chip.path, places(snap.on), allTrees);
@@ -364,7 +364,14 @@ export default class Runway extends View {
       return;
     }
     if (chip.type === "issue" || chip.type === "pr" || chip.type === "ref") {
-      this.openRef(chip, card, snap, cx);
+      const jump = jumpFor(chip, this.scope, modifiers);
+      if (jump === "browser") {
+        this.openRef(chip, card, snap, cx);
+        return;
+      }
+      setShared("runway.show", { kind: jump.kind, number: jump.number, at: Date.now() });
+      run("layout.select", { stack: "panel-body", child: jump.panel });
+      run("layout.show", { id: "panel" });
     }
   }
 
@@ -376,9 +383,9 @@ export default class Runway extends View {
     }
     return div().id(chipId).px(6).py(2).rounded(4).text_size(10).cursor_pointer().border_1().border_color(t.border).bg(t.raised).text_color(t.muted)
       .hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => {
+      .on_click((e, cx) => {
         cx.stop_propagation();
-        this.clickChip(chip, card, snap, cx);
+        this.clickChip(chip, card, snap, cx, e?.modifiers);
       })
       .child(chip.label);
   }

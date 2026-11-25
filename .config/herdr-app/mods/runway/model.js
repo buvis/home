@@ -212,6 +212,15 @@ function laneChips(card, { branches, worktrees, lanes }) {
   });
 }
 
+// A chip click: the ship-it panel that lists the item, or the browser.
+export function jumpFor(chip, scope, modifiers) {
+  const value = String(chip.value);
+  if (modifiers?.platform || modifiers?.control || scope === "all" || chip.type === "ref" || !/^\d+$/.test(value)) return "browser";
+  if (chip.type === "pr") return { panel: "ship-it-prs", kind: "pr", number: Number(value) };
+  if (chip.type === "issue") return { panel: "ship-it-issues", kind: "issue", number: Number(value) };
+  return "browser";
+}
+
 export function scanRefs(card, text, ctx) {
   const fm = parseFrontmatter(text);
   const chips = [

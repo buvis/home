@@ -300,6 +300,7 @@ export default class PullRequests extends View {
   }
 
   render(cx) {
+    const show = shared("runway.show"); if (show?.kind === "pr" && show.at !== this.showSeen && Date.now() - show.at < 5000) { this.showSeen = show.at; this.expanded = show.number; }
     const bump = shared("ship-it.bump");
     if (bump !== this.bumpSeen) { this.bumpSeen = bump; if (this.shown()) this.refresh(cx, true, true); else this.stale = true; }
     if (this.shown() && (this.stale || (this.scope === "all"
