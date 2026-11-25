@@ -7,11 +7,11 @@ carries only what is true of this machine.
 
 ## Sources composed here
 
-One source today: `~/git/src/github.com/buvis/agent-skills`, recorded in
-`~/.config/agent-skills/sources.d/personal`. Every entry in `~/.agents/skills`
-is a symlink into it, and `~/.agents/bin/braid` is a symlink into its `bin/`.
-Add a work-machine-only `sources.d/work` file when a private employer checkout
-exists.
+One source today: `~/git/src/github.com/buvis/agent-skills`, listed under
+`sources` in `~/.config/buvis/buvis-braid.yaml`. Every entry in
+`~/.agents/skills` is a symlink into it. `braid` itself ships in buvis-gems
+(mise tool `pipx:buvis-gems`). On a work machine, list the private employer
+checkout under `sources` in `~/.local/.config/buvis/buvis-braid.yaml`.
 
 ## Policy files
 
