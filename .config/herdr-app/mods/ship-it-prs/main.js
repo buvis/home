@@ -306,6 +306,8 @@ export default class PullRequests extends View {
       if (this.scope === "all") this.stale = true;
       this.scope = "space";
       this.queueRequest = null;
+      // Mine / To review may not hold the item: list them all. No pick(), it notifies.
+      if (this.filter !== "all") { this.filter = "all"; this.limit = PAGE; this.recall(); this.stale = true; }
       this.expanded = show.number;
     }
     const bump = shared("ship-it.bump");

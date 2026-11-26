@@ -489,6 +489,31 @@ test("a fresh PR jump switches from All spaces to This space and expands the PR"
   assert.deepEqual(refreshScopes, ["space"], "reload the repo list even if its key is unchanged");
 });
 
+test("a fresh jump resets a narrowing filter so the item can be listed", async (t) => {
+  t.mock.timers.enable({apis: ["Date"], now: 10_000});
+  world({...LOCAL, agents: () => []});
+  globalThis.__herdr.checking = () => true;
+  let request;
+  globalThis.__herdr.shared = (key) => key === "runway.show" ? request : undefined;
+  const {default: PullRequests} = await import("../ship-it-prs/main.js");
+  const {default: Issues} = await import("../ship-it-issues/main.js");
+  const cx = makeCx();
+
+  for (const [kind, Panel, narrow, at] of [["pr", PullRequests, "review", 10_000], ["issue", Issues, "mine", 10_001]]) {
+    const view = new Panel({});
+    view.init({}, cx);
+    view.filter = narrow;
+    view.limit = 99;
+    view.shown = () => false;
+    request = {kind, number: 42, at};
+    view.render(cx);
+    assert.equal(view.filter, "all", `${kind} panel lists every item`);
+    assert.ok(view.limit < 99, `${kind} panel starts from the first page`);
+    assert.equal(view.stale, true, `${kind} panel reloads when shown`);
+    assert.equal(view.expanded, 42);
+  }
+});
+
 test("both ship-it panels ignore expired, wrong-kind and already consumed requests", async (t) => {
   t.mock.timers.enable({apis: ["Date"], now: 10_000});
   world({...LOCAL, agents: () => []});
