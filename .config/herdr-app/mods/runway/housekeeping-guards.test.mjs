@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {LANE, LOCAL, PM, SPECS, WITH_CLAUDE, cardOf, clean, labelled, mutations, openPanel,
-  press, runsOf, spec, status, unfoldParked, world} from "./housekeeping-harness.mjs";
+  press, confirmLane, runsOf, spec, status, unfoldParked, world} from "./housekeeping-harness.mjs";
 
 test("a held main spec still offers New worktree beside Resume", async () => {
   world({...SPECS, agents: WITH_CLAUDE, checkouts: [
@@ -49,7 +49,7 @@ test("an unreadable lane state guard stops before any PRD move or agent start", 
     command === "test" && args[0] === "-e" && args.at(-1).endsWith("/autopilot/state.json")
       ? status(2, "test: permission denied") : undefined});
   const panel = await openPanel();
-  await press(panel, "Queue alpha", LANE);
+  await confirmLane(panel, "Queue alpha");
   assert.deepEqual(mutations(calls), [], "unknown state must never be treated as absent");
   assert.deepEqual(runsOf(calls, "space.new"), []);
   assert.ok(calls.notify.some((n) => n.level === "error" && /permission denied/.test(n.body)));

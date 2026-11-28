@@ -78,13 +78,13 @@ function ownPrd(checkouts, name) {
     ?? find(() => true, ["wip"]) ?? find((c) => c.main, BUCKETS) ?? find(() => true, BUCKETS);
 }
 
-// Main's specs, each `feature/specflow-<n>` checkout replacing or adding its own `<n>-` entry.
+// A spec's lane takes ownership through its recorded name or standard branch name.
 function ownSpecs(checkouts) {
   const main = checkouts.find((c) => c.main);
   const owned = new Map((main?.specs?.specs ?? []).map((s) => [s.spec, { spec: s, checkout: main }]));
   for (const c of checkouts) {
-    const n = c.branch?.match(/^feature\/specflow-(.+)$/)?.[1];
-    const spec = n && c.specs?.specs?.find((s) => s.spec.startsWith(`${n}-`));
+    const n = c.spec?.split("-")[0] ?? c.branch?.match(/^feature\/specflow-(.+)$/)?.[1];
+    const spec = n && c.specs?.specs?.find((s) => c.spec ? s.spec === c.spec : s.spec.startsWith(`${n}-`));
     if (!spec) continue;
     for (const key of owned.keys()) if (key.startsWith(`${n}-`)) owned.delete(key);
     owned.set(spec.spec, { spec, checkout: c });

@@ -12,7 +12,8 @@ const HERDR = ["exec", "hc", "home", "appHome", "checking", "readTextFile", "wri
 const HERDR_SOURCE = HERDR.map((n) => `export function ${n}(...a) { return globalThis.__herdr.${n}(...a); }`).join("\n");
 const KIT_SOURCE = `const k = globalThis.__kit; export const View = k.View; export const div = k.div;
   export const svg = k.svg; export const image = k.image;`;
-const BASE_SOURCE = "const k = globalThis.__kit; export const v_flex = k.v_flex; export const h_flex = k.h_flex;";
+const BASE_SOURCE = `const k = globalThis.__kit; export const v_flex = k.v_flex; export const h_flex = k.h_flex;
+  export const Input = k.Input; export const InputState = k.InputState;`;
 const MODULES = {herdr: HERDR_SOURCE, "gpui-kit": KIT_SOURCE, "gpui-base": BASE_SOURCE};
 registerHooks({
   resolve(specifier, context, next) {
@@ -149,6 +150,9 @@ function world({on = null, checkouts, spaces, focusedPane, agents, specflowDirs 
       if (command === "git" && args.includes("worktree") && c) {
         return ok(checkouts.map((k) => `worktree ${k.path}\nHEAD ${"a".repeat(40)}\nbranch refs/heads/${k.branch}\n`).join("\n"));
       }
+      if (command === "git" && args.includes("config") && args.includes("--get-regexp")) {
+        return {code: 1, stdout: "", stderr: ""};
+      }
       if (c && command !== "git") return ok(listing(c));
       return {code: 128, stdout: "", stderr: `fatal: not handled: ${command} ${args.join(" ")}`};
     },
@@ -257,11 +261,20 @@ const clean = () => assert.deepEqual(TASK_ERRORS, [], "no task rejected");
 const plain = (number, title, rel, stage, label) => `Work on PRD ${number} "${title}" in ${rel}. Its stage is ` +
   `${stage}. Do only this next stage: ${label}. Follow the repository's workflow documents. Stop when that stage is done.`;
 
-test("labelled card shows its stage then one button per installed agent, Claude first, ungated marked", async () => {
+async function pickAgent(panel, title) {
+  const card = cardOf(panel.render(), title);
+  const trigger = walk(card).find((node) => node.on.on_click && norm(node) === "Send to agent…");
+  assert.ok(trigger, `${title} offers Send to agent`);
+  await click(trigger, card);
+  return cardOf(panel.render(), title);
+}
+
+test("Send to agent opens a picker of installed agents, Claude first, with ungated choices marked", async () => {
   const calls = world({...LOCAL, agents: AGENTS});
   const panel = await openPanel();
-  const tree = panel.render();
-  const alpha = cardOf(tree, "Queue alpha");
+  const closed = cardOf(panel.render(), "Queue alpha");
+  assert.deepEqual(agentButtons(closed), []);
+  const alpha = await pickAgent(panel, "Queue alpha");
   const text = norm(alpha);
   assert.match(text, /Start build/);
   assert.deepEqual(agentButtons(alpha), ["Claude", "Codex", "Gemini"], "not installed or no run: no button");
@@ -271,7 +284,7 @@ test("labelled card shows its stage then one button per installed agent, Claude 
   assert.equal(norm(buttonOf(alpha, "Codex")), "Codex", "local Codex is gated");
   assert.match(norm(buttonOf(alpha, "Gemini")), /^Gemini\W+ungated$/);
   // The other checkout's card gets its own row from the same, single discovery.
-  assert.deepEqual(agentButtons(cardOf(tree, "Gamma work")), ["Claude", "Codex", "Gemini"]);
+  assert.deepEqual(agentButtons(await pickAgent(panel, "Gamma work")), ["Claude", "Codex", "Gemini"]);
   assert.equal(calls.knownAgents.length, 1, "agents are listed once for this machine");
   assert.equal(calls.knownAgents[0]?.on ?? null, null);
   clean();
@@ -280,7 +293,7 @@ test("labelled card shows its stage then one button per installed agent, Claude 
 test("off-pick card dims gated buttons, shows the tip last and starts nothing on click", async () => {
   const calls = world({...LOCAL, agents: AGENTS});
   const panel = await openPanel();
-  const beta = cardOf(panel.render(), "Queue beta");
+  const beta = await pickAgent(panel, "Queue beta");
   const text = norm(beta);
   const tip = "autopilot 0.10.0 starts 00010-alpha.md first";
   assert.match(text, /Start build/);
@@ -315,7 +328,7 @@ test("idea, parked and finished cards get no stage buttons", async () => {
     assert.doesNotMatch(norm(card), /Start build|Resume|Finish|Could not list agents/);
   }
   // Their absence counts only once the labelled card shows the loaded agents.
-  assert.deepEqual(agentButtons(cardOf(tree, "Queue alpha")), ["Claude", "Codex", "Gemini"], "agents loaded");
+  assert.deepEqual(agentButtons(await pickAgent(panel, "Queue alpha")), ["Claude", "Codex", "Gemini"], "agents loaded");
   clean();
 });
 
@@ -323,7 +336,7 @@ test("agent row shows the shared busy ring while listing, then Could not list ag
   let fail;
   world({...LOCAL, agents: () => new Promise((_ok, no) => { fail = no; })});
   const panel = await openPanel();
-  const loading = cardOf(panel.render(), "Queue alpha");
+  const loading = await pickAgent(panel, "Queue alpha");
   assert.match(norm(loading), /Start build/);
   assert.ok(hasSpinner(loading), "busy ring while knownAgents is pending");
   assert.deepEqual(agentButtons(loading), []);
@@ -340,15 +353,15 @@ test("agent row shows the shared busy ring while listing, then Could not list ag
 test("button in a checkout with a space selects it and opens the agent tab there", async () => {
   const calls = world({...LOCAL, agents: AGENTS});
   const panel = await openPanel();
-  await click(buttonOf(cardOf(panel.render(), "Queue alpha"), "Claude"));
+  await click(buttonOf(await pickAgent(panel, "Queue alpha"), "Claude"));
   assert.deepEqual(calls.run, [
     ["space.select", {id: "s1"}],
-    ["tab.new", {space: "s1", folder: "/work/app", name: "00010 Claude", argv: ["claude"],
+    ["tab.new", {space: "s1", folder: "/work/app", name: "00010 Claude", argv: ["run-agent", "claude"],
       task: "/autopilot:run-autopilot 00010-alpha.md"}],
   ]);
   calls.run.length = 0;
   // Local Codex runs autocodex and sends no task at all.
-  await click(buttonOf(cardOf(panel.render(), "Queue alpha"), "Codex"));
+  await click(buttonOf(await pickAgent(panel, "Queue alpha"), "Codex"));
   assert.deepEqual(calls.run, [
     ["space.select", {id: "s1"}],
     ["tab.new", {space: "s1", folder: "/work/app", name: "00010 Codex", argv: ["autocodex", "--once"]}],
@@ -360,14 +373,14 @@ test("button in a checkout with a space selects it and opens the agent tab there
 test("stale done-on-main wip name still blocks gated starts, because autopilot reads the raw wip folder", async () => {
   const calls = world({...LOCAL, agents: AGENTS});
   const panel = await openPanel();
-  const gamma = cardOf(panel.render(), "Gamma work");
+  const gamma = await pickAgent(panel, "Gamma work");
   assert.match(norm(gamma), /Start build/);
   assert.match(norm(gamma), /autopilot 0\.10\.0 starts 00005-old\.md first/);
   assert.ok(dimmed(buttonOf(gamma, "Claude")), "Claude dimmed: autopilot in /wt/gamma enters 00005-old.md");
   await click(buttonOf(gamma, "Claude"), gamma);
   assert.deepEqual(calls.run, [], "a gated start off the raw pick runs nothing");
   await click(buttonOf(gamma, "Gemini"), gamma);
-  assert.deepEqual(calls.run, [["space.new", {folder: "/wt/gamma", tab: "00012 Gemini", machine: "", argv: ["gemini"],
+  assert.deepEqual(calls.run, [["space.new", {folder: "/wt/gamma", tab: "00012 Gemini", machine: "", argv: ["run-agent", "gemini"],
     task: plain("00012", "Gamma work", `${PM}/prds/wip/00012-gamma.md`, "wip", "Start build")}]]);
   assert.equal(calls.run[0][1].machine, "", "explicitly target this computer");
   clean();
@@ -376,19 +389,19 @@ test("stale done-on-main wip name still blocks gated starts, because autopilot r
 test("remote cards list agents on their machine and start there, Codex ungated", async () => {
   const calls = world({...REMOTE, agents: () => Promise.resolve([CODEX, CLAUDE])});
   const panel = await openPanel();
-  const main = cardOf(panel.render(), "Remote thing");
+  const main = await pickAgent(panel, "Remote thing");
   assert.match(norm(buttonOf(main, "Codex")), /^Codex\W+ungated$/);
   await click(buttonOf(main, "Codex"));
   const rel = `${PM}/prds/backlog/00020-remote.md`;
   assert.deepEqual(calls.run, [
     ["space.select", {id: "vps/r1"}],
-    ["tab.new", {space: "vps/r1", folder: "/srv/app", name: "00020 Codex", argv: ["codex", "--no-daemon"],
+    ["tab.new", {space: "vps/r1", folder: "/srv/app", name: "00020 Codex", argv: ["run-agent", "codex", "--no-daemon"],
       task: plain("00020", "Remote thing", rel, "backlog", "Start build")}],
   ]);
   calls.run.length = 0;
-  await click(buttonOf(cardOf(panel.render(), "Delta work"), "Claude"));
+  await click(buttonOf(await pickAgent(panel, "Delta work"), "Claude"));
   assert.deepEqual(calls.run, [["space.new", {folder: "/srv/wt/delta", tab: "00021 Claude", machine: "vps",
-    argv: ["claude"], task: "/autopilot:run-autopilot 00021-delta.md"}]]);
+    argv: ["run-agent", "claude"], task: "/autopilot:run-autopilot 00021-delta.md"}]]);
   assert.deepEqual(calls.knownAgents.map((o) => o?.on), ["vps"], "one listing, on vps");
   clean();
 });
@@ -403,13 +416,13 @@ test("All repos starts a local card locally while a remote space is focused", as
     name === "id" && args[0] === "runway-scope-chip"));
   assert.ok(scope, "scope control exists");
   await click(scope);
-  const alpha = cardOf(panel.render(), "Queue alpha");
+  const alpha = await pickAgent(panel, "Queue alpha");
   assert.deepEqual(agentButtons(alpha), ["Claude", "Codex", "Gemini"]);
   assert.equal(globalThis.__herdr.spaces().find((s) => s.active).machine, "vps");
   assert.deepEqual(calls.knownAgents, [{on: null}], "All repos discovers local agents");
   await click(buttonOf(alpha, "Claude"));
   assert.deepEqual(calls.run, [["space.new", {folder: "/work/app", tab: "00010 Claude", machine: "",
-    argv: ["claude"], task: "/autopilot:run-autopilot 00010-alpha.md"}]]);
+    argv: ["run-agent", "claude"], task: "/autopilot:run-autopilot 00010-alpha.md"}]]);
   clean();
 });
 
@@ -419,7 +432,7 @@ test("spec card starts specflow only where it is installed, and tells which agen
   const calls = world({...LOCAL, checkouts: [{...LOCAL.checkouts[0], specflow: [spec]}], agents: AGENTS,
     specflowDirs: ["/home/u/.claude/plugins/cache/buvis-agent-plugins/specflow"]});
   const panel = await openPanel();
-  const card = cardOf(panel.render(), "cross host validation");
+  const card = await pickAgent(panel, "cross host validation");
   const text = norm(card);
   assert.match(text, /Continue: design gate/);
   assert.ok(text.endsWith("specflow is not installed for Codex"), `tip is the row's last line: ${text}`);
@@ -431,7 +444,7 @@ test("spec card starts specflow only where it is installed, and tells which agen
   await click(buttonOf(card, "Claude"), card);
   assert.deepEqual(calls.run, [
     ["space.select", {id: "s1"}],
-    ["tab.new", {space: "s1", folder: "/work/app", name: "00009 Claude", argv: ["claude"],
+    ["tab.new", {space: "s1", folder: "/work/app", name: "00009 Claude", argv: ["run-agent", "claude"],
       task: "/specflow:spec-workflow Continue spec 00009-cross-host-validation"}],
   ]);
   clean();
@@ -540,4 +553,66 @@ test("both ship-it panels ignore expired, wrong-kind and already consumed reques
     view.render(cx);
     assert.equal(view.expanded, null);
   }
+});
+
+test("the Issues panel only shows agent choices after Send to agent", async () => {
+  world({...LOCAL, agents: () => []});
+  const {default: Issues} = await import("../ship-it-issues/main.js");
+  const issue = {number: 294, title: "Markup error", author: "bob", labels: [], assignees: []};
+  const agent = {key: "codex", name: "Codex", run: ["run-agent", "codex"]};
+  const cx = makeCx();
+  const sent = [];
+  const view = Object.assign(new Issues(), {
+    agents: {"": [agent]}, work: (...args) => sent.push(args),
+  });
+  const action = (id) => walk(expand(view.details(issue, null, null, {})))
+    .find((node) => node.calls.some(([method, args]) => method === "id" && args[0] === `issue-${id}-294`));
+
+  assert.equal(action("agent-codex"), undefined);
+  assert.match(textOf(action("send-to-agent")), /Send to agent/);
+  action("send-to-agent").on.on_click(null, cx);
+  assert.match(textOf(action("agent-codex")), /Codex/);
+  assert.deepEqual(sent, []);
+  action("send-to-agent").on.on_click(null, cx);
+  assert.equal(action("agent-codex"), undefined);
+  action("send-to-agent").on.on_click(null, cx);
+  action("agent-codex").on.on_click(null, cx);
+  assert.deepEqual(sent, [[issue, agent, cx]]);
+  assert.equal(action("agent-codex"), undefined);
+});
+
+test("the strip counts active Runway items while the panel is closed and orders its actions", async () => {
+  const calls = world({...LOCAL, agents: AGENTS});
+  const {default: Runway} = await import("./main.js");
+  const {default: Strip} = await import("../ship-it/main.js");
+  const cx = makeCx();
+  const layout = {id: "root", children: [{id: "panel", hidden: true, children: [{id: "panel-body",
+    children: ["runway", "ship-it-issues", "ship-it-prs"].map((id) => ({id}))}]}]};
+  const values = new Map();
+  Object.assign(globalThis.__herdr, {
+    layout: () => layout, props: () => ({countOnly: true}),
+    shared: (key) => values.get(key), setShared: (key, value) => values.set(key, value),
+  });
+  const counter = new Runway();
+  counter.init({}, cx);
+  counter.render(cx);
+  await settle();
+  const key = JSON.stringify(["/work/app/src", null]);
+  assert.deepEqual(values.get("runway.count"), {key, count: 5});
+  assert.equal(calls.knownAgents.length, 0);
+
+  const strip = Object.assign(new Strip(), {
+    git: {root: "/work/app", on: null, repo: "app"}, loc: {cwd: "/work/app/src", on: null}, locKey: key,
+    showPr: () => true, prSignals: () => null, checksButton: () => null, folder: () => null, countOf: () => 0,
+    prButton: () => globalThis.__kit.div().child("Create PR"), shipButton: () => globalThis.__kit.div().child("Ship"),
+  });
+  const tree = expand(strip.render(cx));
+  assert.match(norm(tree), /Runway 5 Issues 0 PRs 0 Create PR Ship$/);
+  const runway = walk(tree).find((node) => node.calls.some(([method, args]) => method === "id" && args[0] === "runway"));
+  await click(runway);
+  assert.deepEqual(calls.run, [
+    ["layout.select", {stack: "panel-body", child: "runway"}],
+    ["layout.show", {id: "panel"}],
+  ]);
+  clean();
 });

@@ -1,11 +1,11 @@
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
-import { run, exec, appHome, notify as notifyRaw, openOverlay, theme, watchFolder, focused } from "herdr";
-import { notify, home, window, setShared } from "herdr";
+import { v_flex, h_flex, Input, InputState } from "gpui-base";
+import { run, exec, appHome, readTextFile, notify as notifyRaw, openOverlay, theme, watchFolder, focused, checking } from "herdr";
+import { notify, home, window, props, shared, setShared } from "herdr";
 import { ownItems, toCard, scanRefs, parseFrontmatter, jumpFor } from "./model.js";
 import { snapshot, texts, repos, location, panelShown, places, spaceAt, installedAgents, specflowHosts } from "./read.js";
 import { pickOf, startLabel, startFor } from "./start.js";
-import { planLane, openLane, actionFor } from "./lane.js";
+import { laneBranch, planLane, openLane, actionFor } from "./lane.js";
 
 const GH = () => `${appHome()}/bin/ghx`; // gh, with Bitbucket Cloud support (fixed path; exec takes argv, no shell)
 const KIND_NAMES = { prd: "PRD", spec: "Spec", idea: "Idea" };
@@ -36,6 +36,13 @@ const LANE_IO = {
   remove: (path) => checked("rm", ["-f", "--", path]),
 };
 const failure = (e) => notify({ title: "Runway", body: String(e?.message ?? e), level: "error" });
+const countKey = ({ cwd, on }) => JSON.stringify([cwd, on ?? null]);
+
+function publishCount(loc, count) {
+  const key = countKey(loc);
+  const old = shared("runway.count");
+  if (old?.key !== key || old?.count !== count) setShared("runway.count", { key, count });
+}
 
 async function buildCards(snap) {
   const items = ownItems(snap.checkouts);
@@ -77,8 +84,34 @@ export default class Runway extends View {
     this.agentsBy = new Map(); // machine -> { loading } | { list, hosts } | { error }
     this.busy = new Set(); // `${root}:${card id}` while its lane or un-park runs
     this.laning = false;
+    this.countOnly = Boolean(props()?.countOnly);
+    if (checking()) return;
+    if (this.countOnly) {
+      cx.timer.every(30000, (cx) => this.refreshCount(cx));
+      return;
+    }
     this.refresh(cx);
     cx.timer.every(30000, (cx) => this.onTick(cx));
+  }
+
+  refreshCount(cx) {
+    if (checking() || window()?.visible === false) return;
+    const loc = this.loc = location(this.loc);
+    const key = countKey(loc), now = Date.now();
+    if (!loc.cwd || (this.countKey === key && now - this.countAt < (loc.on ? 120000 : 30000))) return;
+    this.countKey = key; this.countAt = now;
+    cx.spawn(async () => {
+      try {
+        const snap = await snapshot(loc.cwd, loc.on);
+        if (this.countKey !== key || this.countAt !== now) return;
+        const count = snap ? ownItems(snap.checkouts)
+          .filter((item) => toCard(item, "", item.checkout).group !== "parked").length : 0;
+        publishCount(loc, count);
+      } catch {
+        // A failed read is unknown until the next poll.
+        if (this.countKey === key && this.countAt === now) publishCount(loc, null);
+      }
+    });
   }
 
   toggleScope(cx) {
@@ -182,6 +215,7 @@ export default class Runway extends View {
       this.loadAgents(snap.on, cx);
       const cards = await buildCards(snap);
       this.thisData = { snap, cards, error: null };
+      if (countKey(location(this.loc)) === countKey(loc)) publishCount(loc, cards.filter((card) => card.group !== "parked").length);
       this.context = this.keyOf(loc);
       this.updateWatch(snap, cx);
     } catch (e) {
@@ -207,45 +241,62 @@ export default class Runway extends View {
     });
   }
 
-  startAgent(card, start, snap) {
+  startAgent(card, start, snap, agent) {
     const task = start.task ? { task: start.task } : {};
+    const argv = [...start.argv];
+    // autocodex and the whole-queue autoclaude are shell functions that call run-agent themselves.
+    const direct = agent && argv[0] !== "autocodex";
+    if (direct && !/(^|[/\\])run-agent$/.test(argv[0])) argv.unshift("run-agent");
+    if (direct && agent.key === "codex" && !argv.includes("--no-daemon")) {
+      argv.splice(argv[1] === "--no-sandbox" ? 3 : 2, 0, "--no-daemon");
+    }
     const s = spaceAt(card.checkout, places(snap.on), snap.checkouts.map((c) => c.path));
     if (s) {
       run("space.select", { id: s.id });
-      run("tab.new", { space: s.id, folder: card.checkout, name: start.name, argv: start.argv, ...task });
+      run("tab.new", { space: s.id, folder: card.checkout, name: start.name, argv, ...task });
     } else {
-      run("space.new", { folder: card.checkout, tab: start.name, machine: snap.on ?? "", argv: start.argv, ...task });
+      run("space.new", { folder: card.checkout, tab: start.name, machine: snap.on ?? "", argv, ...task });
     }
   }
 
-  // A new worktree from main; Claude starts there with the card's task, else a shell.
-  openLaneFor(card, snap, claude, key, cx) {
+  askLane(card, snap, key, cx) {
     if (this.laning) return;
-    const main = snap.checkouts.find((c) => c.main).path;
-    const plan = planLane(card, { name: snap.repo, main, branches: snap.branches, worktrees: snap.checkouts }, home());
-    if (plan.error) {
-      notify({ title: "Runway", body: plan.error, level: "error" });
-      return;
-    }
+    const input = InputState.new({ value: laneBranch(card), placeholder: "Branch name" });
+    const draft = this.laneDraft = { key, input };
+    this.pickingAgent = null;
+    input.on("submit", (_e, cx) => this.openLaneFor(card, snap, draft, cx));
+    cx.timer.after(0, () => { if (this.laneDraft === draft) input.focus(); });
+    cx.notify();
+  }
+
+  openLaneFor(card, snap, draft, cx) {
+    if (this.laning || this.laneDraft !== draft) return;
+    const branch = draft.input.value().trim();
     this.laning = true;
-    this.busy.add(key);
+    this.busy.add(draft.key);
     cx.notify();
     cx.spawn(async (cx) => {
       try {
+        const raw = await readTextFile(`${appHome()}/settings.json`);
+        const directory = (raw === null ? {} : JSON.parse(raw))?.worktrees?.directory ?? "~/.herdr/worktrees";
+        if (typeof directory !== "string" || !directory.trim()) throw new Error("worktrees.directory must be a non-empty path");
+        const pathRoot = directory === "~" || directory.startsWith("~/") ? home() + directory.slice(1) : directory;
+        if (!pathRoot.startsWith("/")) throw new Error("worktrees.directory must be absolute or start with ~/");
+        const main = snap.checkouts.find((c) => c.main).path;
+        const plan = planLane(card, { name: snap.repo, main, branches: snap.branches, worktrees: snap.checkouts },
+          home(), branch, pathRoot.replace(/\/+$/, ""));
+        if (plan.error) throw new Error(plan.error);
+        const check = await LANE_IO.git(["check-ref-format", "--branch", branch], main);
+        if (check.code !== 0 || check.stdout.trim() !== branch) throw new Error("Enter a valid Git branch name");
         const { path } = await openLane(plan, LANE_IO);
-        if (claude) {
-          const s = startFor(card, claude, { on: null, pick: card.file.split("/").pop(), specflow: this.agentsBy.get(null)?.hosts ?? {} });
-          run("space.new", { folder: path, tab: s.name, machine: "", argv: s.argv, task: s.task });
-          notify({ title: "Runway", body: `${card.file.split("/").pop()}: new worktree at ${path}` });
-        } else {
-          run("space.new", { folder: path, machine: "" });
-          notify({ title: "Runway", body: "Claude is not installed; the worktree is ready" });
-        }
+        this.laneDraft = null;
+        run("space.new", { folder: path, machine: "" });
+        notify({ title: "Runway", body: `${card.file.split("/").pop()}: new worktree at ${path}` });
       } catch (e) {
         failure(e);
       } finally {
         this.laning = false;
-        this.busy.delete(key);
+        this.busy.delete(draft.key);
         cx.notify();
         this.refresh(cx);
       }
@@ -416,12 +467,12 @@ export default class Runway extends View {
         e.child(h_flex().gap(4).flex_wrap().items_center().pt(2)
           .children(card.chips.map((chip) => this.renderChip(chip, card, snap, t)))))
       .when(Boolean(controls), (e) => e.child(controls))
-      .when(Boolean(startLabel(card)), (e) => e.child(this.renderStart(card, snap, t)));
+      .when(Boolean(startLabel(card)) && this.laneDraft?.key !== this.cardKey(card, snap), (e) => e.child(this.renderStart(card, snap, t)));
   }
 
-  // New worktree, the loop and the card's housekeeping action; the ring while one runs.
+  // Worktree and housekeeping actions, with a busy ring during changes.
   renderControls(card, snap, t) {
-    const key = `${snap.root}:${card.id}`;
+    const key = this.cardKey(card, snap);
     const claude = this.agentsBy.get(snap.on)?.list?.find((a) => a.key === "claude");
     const local = snap.on === null;
     const action = actionFor(card, card.fm, { specflow: card.config });
@@ -439,34 +490,59 @@ export default class Runway extends View {
     // A held main spec is still a main spec; parked PRDs get Un-park, not a lane.
     const lane = local && card.main &&
       (card.kind === "spec" || (card.kind === "prd" && card.stage === "backlog" && card.group !== "parked"));
-    const loop = local && card.main && card.kind === "prd" && card.pick === card.file.split("/").pop();
+    const draft = lane && this.laneDraft?.key === key ? this.laneDraft : null;
     const buttons = [
-      lane && button("lane", "New worktree", (cx) => this.openLaneFor(card, snap, claude, key, cx)),
-      loop && button("loop", "Run loop (whole queue)", () => this.startAgent(card, LOOP, snap)),
+      lane && !draft && button("lane", "Create worktree", (cx) => this.askLane(card, snap, key, cx), this.laning),
       action && button("action", action.label, (cx) => (action.kind === "move"
         ? this.unpark(card, snap, key, cx)
-        : this.startAgent(card, { name: `${card.number} ${claude.name}`, argv: claude.run, task: action.task }, snap)),
+        : this.startAgent(card, { name: `${card.number} ${claude.name}`, argv: claude.run, task: action.task }, snap, claude)),
       Boolean(action.disabled || needsClaude)),
     ].filter(Boolean);
-    if (!buttons.length) return null;
+    if (!buttons.length && !draft) return null;
     const tip = action?.tip ?? (needsClaude ? "Needs Claude Code" : null);
     return v_flex().gap(3).pt(2).text_size(11)
       .child(h_flex().gap(4).flex_wrap().items_center().children(buttons)
         .when(this.busy.has(key), (e) => e.child(ring(t))))
+      .when(Boolean(draft), (e) => e.child(v_flex().gap(4)
+        .on_click((_e, cx) => cx.stop_propagation())
+        .on_key_down((event, cx) => {
+          if (event.key !== "escape" || this.laning) return;
+          this.laneDraft = null; cx.stop_propagation(); cx.notify();
+        })
+        .child(div().text_color(t.muted).child("Branch name"))
+        .child(Input.new(draft.input).w_full().h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_color(t.foreground))
+        .child(h_flex().gap(4)
+          .child(button("cancel-lane", "Cancel", (cx) => { this.laneDraft = null; cx.notify(); }, this.laning))
+          .child(button("confirm-lane", "Create worktree", (cx) => this.openLaneFor(card, snap, draft, cx), this.laning)))))
       .when(Boolean(tip), (e) => e.child(div().text_color(t.dim).child(tip)));
   }
 
-  // The card's next stage, one button per installed agent, then why any button is off.
+  cardKey(card, snap) {
+    return JSON.stringify([snap.on, snap.root, card.checkout, card.id]);
+  }
+
   renderStart(card, snap, t) {
     const got = this.agentsBy.get(snap.on);
+    const key = this.cardKey(card, snap);
+    const picking = this.pickingAgent === key;
     const env = { on: snap.on, pick: card.pick, specflow: got?.hosts ?? {} };
     const starts = (got?.list ?? []).map((a) => [a, startFor(card, a, env)]);
-    const tips = [...new Set(starts.map(([, s]) => s.tip).filter(Boolean))];
+    const tips = picking ? [...new Set(starts.map(([, s]) => s.tip).filter(Boolean))] : [];
     return v_flex().gap(3).pt(2).text_size(11)
       .child(h_flex().gap(4).flex_wrap().items_center()
         .child(div().text_color(t.dim).child(startLabel(card)))
-        .when(!got || got.loading, (e) => e.child(ring(t)))
-        .when(Boolean(got?.error), (e) => e.child(div().text_color(t.dim).child("Could not list agents")))
+        .child(div().id(idOf(`send-${key}`)).px(6).py(2).rounded(4)
+          .border_1().border_color(t.border).bg(t.raised).text_color(t.foreground)
+          .cursor_pointer().hover((st) => st.bg(t.hover))
+          .on_click((_e, cx) => {
+            cx.stop_propagation();
+            this.pickingAgent = picking ? null : key; cx.notify();
+          }).child(picking ? "Cancel" : "Send to agent…")))
+      .when(picking, (e) => e.child(v_flex().gap(4).p(6).rounded(6).border_1().border_color(t.border).bg(t.popover)
+        .child(div().px(4).child("Choose an agent"))
+        .when(!got || got.loading, (list) => list.child(busy(t, "Checking installed agents…")))
+        .when(Boolean(got?.error), (list) => list.child(div().text_color(t.dim).child("Could not list agents")))
+        .when(got?.list?.length === 0, (list) => list.child(div().text_color(t.dim).child("No agents available")))
         .children(starts.map(([a, s]) =>
           div().id(idOf(`start-${snap.root}-${card.id}-${a.key}`)).px(6).py(2).rounded(4)
             .border_1().border_color(t.border).bg(t.raised).text_color(t.foreground)
@@ -474,9 +550,13 @@ export default class Runway extends View {
             .when(!s.disabled, (e) => e.cursor_pointer().hover((st) => st.bg(t.hover)))
             .on_click((_e, cx) => {
               cx.stop_propagation();
-              if (!s.disabled) this.startAgent(card, s, snap);
+              if (!s.disabled && this.pickingAgent === key) {
+                this.pickingAgent = null;
+                this.startAgent(card, s, snap, a);
+                cx.notify();
+              }
             })
-            .child(s.gated ? a.name : `${a.name} · ungated`))))
+            .child(s.gated ? a.name : `${a.name} · ungated`)))))
       .children(tips.map((tip) => div().text_color(t.dim).child(tip)));
   }
 
@@ -529,6 +609,19 @@ export default class Runway extends View {
     return elements;
   }
 
+  renderRepoHeader(snap, cards, t) {
+    const next = snap.on === null && cards.find((card) =>
+      card.main && card.kind === "prd" && card.pick === card.file.split("/").pop());
+    return h_flex().id(`repo-${idOf(snap.root)}`).px(10).pt(8).pb(2).gap(8).items_center()
+      .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(13).text_color(t.foreground).child(snap.repo))
+      .when(Boolean(next), (e) => e.child(div().id(`run-queue-${idOf(snap.root)}`).flex_none().px(6).py(2).rounded(4)
+        .border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.foreground)
+        .cursor_pointer().hover((st) => st.bg(t.hover))
+        .tooltip(`Resumes work in progress, then implements backlog PRDs in ${next.checkout}`)
+        .on_click(() => this.startAgent(next, LOOP, snap))
+        .child("Implement backlog")));
+  }
+
   renderContent(t) {
     if (this.scope === "all") {
       if (this.allData?.error) return [div().p(8).text_color(t.dim).child(this.allData.error)];
@@ -537,7 +630,7 @@ export default class Runway extends View {
       const repos = this.allData?.repos ?? [];
       if (!repos.length) return [div().p(8).text_color(t.dim).child("Nothing waiting")];
       return repos.flatMap((r) => [
-        div().id(`repo-${idOf(r.snap.root)}`).px(10).pt(8).pb(2).font_semibold().text_size(13).text_color(t.foreground).child(r.snap.repo),
+        this.renderRepoHeader(r.snap, r.cards, t),
         ...this.renderGroups(r.snap, r.cards, t),
       ]);
     }
@@ -548,10 +641,14 @@ export default class Runway extends View {
     const cards = this.thisData?.cards ?? [];
     // With no cards, renderGroups draws only the Specs "specflow not found" line, when it applies.
     if (!cards.length) return [...(snap ? this.renderGroups(snap, [], t) : []), div().p(8).text_color(t.dim).child("Nothing waiting")];
-    return this.renderGroups(snap, cards, t);
+    return [this.renderRepoHeader(snap, cards, t), ...this.renderGroups(snap, cards, t)];
   }
 
   render(cx) {
+    if (this.countOnly) {
+      this.refreshCount(cx);
+      return div();
+    }
     if (panelShown("runway")) {
       const key = this.locKey();
       if (this.stale || (this.scope === "this" && key !== this.context)) {

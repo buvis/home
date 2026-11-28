@@ -158,7 +158,7 @@ test("a parked main spec offers Resume, which starts Claude with the resume task
   await click(control, card);
   assert.deepEqual(calls.run, [
     ["space.select", {id: "s1"}],
-    ["tab.new", {space: "s1", folder: "/work/app", name: "00009 Claude", argv: CLAUDE.run,
+    ["tab.new", {space: "s1", folder: "/work/app", name: "00009 Claude", argv: ["run-agent", ...CLAUDE.run],
       task: "/specflow:spec-workflow Resume 00009-cross-host-validation"}],
   ]);
   assert.deepEqual(mutations(calls), [], "Resume moves no file");
@@ -177,7 +177,7 @@ async function startIdeas(fixture, label, taskOf) {
     await press(panel, title, label);
     assert.deepEqual(calls.run, [
       ["space.select", {id: "s1"}],
-      ["tab.new", {space: "s1", folder: "/work/app", name: `${name.slice(0, 5)} Claude`, argv: CLAUDE.run,
+      ["tab.new", {space: "s1", folder: "/work/app", name: `${name.slice(0, 5)} Claude`, argv: ["run-agent", ...CLAUDE.run],
         task: taskOf(name)}],
     ], `${title}: select then tab, card click stopped`);
   }
@@ -220,7 +220,7 @@ test("Resume, Elicit and Create spec without a space for main open a new space o
     const spaces = runsOf(calls, "space.new");
     assert.equal(spaces.length, 1, `${c.label}: one new space: ${JSON.stringify(calls.run)}`);
     const {folder, machine, argv, task} = spaces[0];
-    assert.deepEqual({folder, machine, argv, task}, {folder: "/work/app", machine: "", argv: CLAUDE.run, task: c.task});
+    assert.deepEqual({folder, machine, argv, task}, {folder: "/work/app", machine: "", argv: ["run-agent", ...CLAUDE.run], task: c.task});
     assert.deepEqual(runsOf(calls, "tab.new"), [], `${c.label}: no tab in another space`);
     notBubbled(calls);
     clean();

@@ -1,18 +1,17 @@
 // Issues: every open issue of the repo, in the side panel (GitHub, GitLab and
 // Bitbucket). A row opens to its details and actions: start an agent on it, open
 // its worktree, the host's page, copy link. Starting an agent first makes sure
-// the issue has a worktree (a new branch <number>-<title> from the default
-// branch, unless it has one) and opens it as a space; the agent starts only
-// when that checkout exists.
+// the issue has a worktree and asks which branch to use before creating one. The agent
+// starts only once the checkout exists and opens as a space.
 //
 // Its logic (forge, worktrees, agents) is in issues.js. data.js is a copy of
 // ship-it-prs's.
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, Input, InputState } from "gpui-base";
 import { exec, shared, setShared, notify, theme, nextCommand, checking } from "herdr";
 import { READ, location, ago, panelShown, Recent, tilde, backTo } from "./data.js";
-import { forgeOf, FORGE_NAME, listIssues, worktrees, issueTree, places, spaceAt, ensureWorktree, installedAgents, openWorktree } from "./issues.js";
+import { forgeOf, FORGE_NAME, listIssues, checkoutState, issueTree, branchFor, places, spaceAt, ensureWorktree, installedAgents, openWorktree } from "./issues.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 const FILTERS = [["all", "All"], ["mine", "Assigned to me"]];
@@ -20,7 +19,7 @@ const PAGE = 15;
 
 export default class Issues extends View {
   init(_p, cx) {
-    this.issues = []; this.filter = "all"; this.last = null; this.limit = PAGE; this.trees = {};
+    this.issues = []; this.filter = "all"; this.last = null; this.limit = PAGE; this.trees = {}; this.links = {};
     this.expanded = null; this.agents = {}; // installed agents by machine
     this.memo = new Recent(12);
     this.bumpSeen = shared("ship-it.bump"); // the bar saw a PR or an issue appear, merge or close: ask again
@@ -63,12 +62,12 @@ export default class Issues extends View {
         const root = top.stdout.trim();
         const forge = await forgeOf(root, on);
         if (!forge) { this.root = root; this.issues = []; this.error = "No supported remote"; return; }
-        const [list, trees] = await Promise.all([listIssues(forge, root, on, filter === "mine", limit), worktrees(root, on)]);
+        const [list, { trees, links }] = await Promise.all([listIssues(forge, root, on, filter === "mine", limit), checkoutState(root, on)]);
         if (this.key() !== context || this.filter !== filter) return;
-        this.root = root; this.on = on; this.forge = forge; this.trees = trees;
+        this.root = root; this.on = on; this.forge = forge; this.trees = trees; this.links = links;
         if (list.error) { this.error = list.error; this.issues = []; return; }
         this.issues = list.issues; this.more = this.issues.length >= limit; this.error = null;
-        this.memo.set(memo, { root, on, forge, trees, issues: this.issues, more: this.more, limit });
+        this.memo.set(memo, { root, on, forge, trees, links, issues: this.issues, more: this.more, limit });
         // Shared state redraws every mod: write it only when it changes.
         const count = this.issues.length, was = shared("ship-it.issues");
         if (filter === "all" && (was?.root !== root || (was?.on ?? null) !== (on ?? null) || was?.count !== count || was?.more !== this.more)) setShared("ship-it.issues", { root, on: on ?? null, count, more: this.more });
@@ -89,7 +88,8 @@ export default class Issues extends View {
   memoKey() { return `${this.context}#${this.filter}`; }
 
   recall() {
-    this.root = null; this.issues = []; this.error = null; this.more = false; this.trees = {}; this.forge = null;
+    this.root = null; this.issues = []; this.error = null; this.more = false; this.trees = {}; this.links = {}; this.forge = null;
+    this.draft = null; this.pickingAgent = null;
     const m = this.memo.get(this.memoKey());
     if (m) Object.assign(this, m);
   }
@@ -107,19 +107,40 @@ export default class Issues extends View {
   }
 
   // Make sure the issue's worktree exists, then show its space; with an agent, start it there.
-  work(issue, agent, cx) {
+  work(issue, agent, cx, name) {
     if (this.busy || !this.root) return;
-    const root = this.root, on = this.on, back = backTo();
-    this.busy = { number: issue.number, step: "Checking out…" }; cx.notify();
+    const root = this.root, on = this.on, context = this.context, back = backTo();
+    this.busy = { number: issue.number, step: name === undefined ? "Checking worktree…" : "Checking out…" }; cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const wt = await ensureWorktree(root, on, issue);
-        if (this.root === root) this.trees = wt.trees;
+        const wt = await ensureWorktree(root, on, issue, name);
+        const current = this.context === context && this.root === root && this.on === on;
+        if (!wt.path) {
+          if (current && this.expanded === issue.number) this.askBranch(issue, agent, wt.existing, cx);
+          return;
+        }
+        if (current) {
+          this.trees = wt.trees;
+          this.links = wt.links;
+          this.draft = null;
+        }
         if (wt.created) notify({ title: `Worktree for #${issue.number}`, body: `${wt.branch} · ${tilde(wt.path)}`, level: "info", timeout: 3000 });
         openWorktree(wt.path, on, wt.trees, issue, wt.branch, agent);
       } catch (e) { notify({ title: `Couldn't start #${issue.number}`, body: String(e.message ?? e), level: "error", timeout: 8000, ...back }); }
       finally { this.busy = null; cx.notify(); }
     });
+  }
+
+  askBranch(issue, agent, existing, cx) {
+    const input = InputState.new({ value: branchFor(issue), placeholder: "Branch name" });
+    const draft = this.draft = { number: issue.number, input, agent, existing };
+    input.on("submit", (_e, cx) => this.confirmBranch(issue, draft, cx));
+    cx.timer.after(0, () => { if (this.draft === draft) input.focus(); });
+  }
+
+  confirmBranch(issue, draft, cx) {
+    if (this.draft !== draft || this.expanded !== issue.number) return;
+    this.work(issue, draft.agent, cx, draft.input.value().trim());
   }
 
   // "loader" is the shared busy ring (same as the tab bar, agents list and Ship bar).
@@ -129,11 +150,11 @@ export default class Issues extends View {
   }
 
   row(issue, t, where) {
-    const path = issueTree(this.trees, issue), space = spaceAt(path, where, Object.values(this.trees)), busy = this.busy?.number === issue.number;
+    const path = issueTree(this.trees, issue, this.links), space = spaceAt(path, where, Object.values(this.trees)), busy = this.busy?.number === issue.number;
     const open = this.expanded === issue.number;
     return v_flex().id(`issue-${issue.number}`).flex_none().px(10).py(7).gap(3).rounded(7).cursor_pointer()
       .hover((s) => s.bg(t.hover)).when(open, (e) => e.bg(t.hover))
-      .on_click((_e, cx) => { this.expanded = open ? null : issue.number; cx.notify(); })
+      .on_click((_e, cx) => { this.expanded = open ? null : issue.number; this.draft = null; this.pickingAgent = null; cx.notify(); })
       .child(h_flex().gap(8).items_center().min_w(0)
         .child(this.icon("circle-dot", t.ansi2, 13))
         .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(issue.title)))
@@ -157,6 +178,8 @@ export default class Issues extends View {
 
   details(issue, path, space, t) {
     const busy = this.busy?.number === issue.number, agents = this.agents[this.on ?? ""] ?? [];
+    const draft = this.draft?.number === issue.number ? this.draft : null;
+    const picking = this.pickingAgent === issue.number;
     const body = (issue.body || "").replace(/\r/g, "").replace(/<!--[\s\S]*?-->/g, "").trim();
     const line = (icon, ...kids) => h_flex().gap(6).items_center().min_w(0).child(this.icon(icon, t.dim, 12)).children(kids);
     const button = (id, icon, label, primary, click) => h_flex().id(`issue-${id}-${issue.number}`).h(26).px(9).gap(6).items_center().flex_none().rounded(6).cursor_pointer().text_size(12)
@@ -171,16 +194,46 @@ export default class Issues extends View {
       .when(issue.labels.length > 0, (e) => e.child(line("square", div().min_w(0).truncate().child(issue.labels.join(", ")))))
       .child(line("folder", div().min_w(0).truncate().child(path ? `${tilde(path)}${space ? "" : " · no space open"}` : "No worktree yet")))
       .when(Boolean(body), (e) => e.child(div().whitespace_normal().text_color(t.dim).max_h(120).overflow_hidden().child(body.length > 500 ? body.slice(0, 500).trimEnd() + "…" : body)))
-      .child(h_flex().pt(3).gap(6).flex_wrap()
-        .children(agents.map((a, i) => button(`agent-${a.key}`, busy ? "loader" : "rocket", busy ? this.busy.step : i === 0 ? `Start ${a.name}` : a.name, i === 0, (cx) => this.work(issue, a, cx))))
-        .when(!agents.length, (e) => e.child(button("agent", "rocket", "No agent installed", false, () => {})))
-        .child(button("tree", path ? "folder" : "git-branch-plus", path ? (space ? "Go to space" : "Open worktree") : "Create worktree", false, (cx) => this.work(issue, null, cx)))
+      .when(Boolean(draft), (e) => e.child(v_flex().gap(5)
+        .on_click((_e, cx) => cx.stop_propagation())
+        .on_key_down((event, cx) => {
+          if (event.key !== "escape" || this.busy) return;
+          this.draft = null; cx.stop_propagation(); cx.notify();
+        })
+        .child(div().child("Branch name"))
+        .child(Input.new(draft.input).w_full().h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_color(t.foreground))
+        .when(draft.existing && draft.existing !== branchFor(issue), (e) => e.child(
+          button("existing-branch", "git-branch", "Use existing branch", false, () => {
+            if (!this.busy) { draft.input.set_value(draft.existing); draft.input.focus(); }
+          }).tooltip(draft.existing)))
+        .child(h_flex().gap(6).flex_wrap()
+          .child(button("cancel-branch", "x", "Cancel", false, (cx) => {
+            if (!this.busy) { this.draft = null; cx.notify(); }
+          }))
+          .child(button("confirm-branch", busy ? "loader" : "git-branch-plus",
+            busy ? this.busy.step : draft.agent ? `Create and start ${draft.agent.name}` : "Create worktree", true,
+            (cx) => this.confirmBranch(issue, draft, cx))))))
+      .when(!draft, (e) => e.child(h_flex().pt(3).gap(6).flex_wrap()
+        .child(button("send-to-agent", busy ? "loader" : picking ? "x" : "rocket", busy ? this.busy.step : picking ? "Cancel" : "Send to agent…", !picking, (cx) => {
+          if (this.busy) return;
+          this.pickingAgent = picking ? null : issue.number; cx.notify();
+        }))
+        .child(button("tree", path ? "folder" : "git-branch-plus", path ? (space ? "Go to space" : "Open worktree") : "Create worktree", false, (cx) => {
+          this.pickingAgent = null; this.work(issue, null, cx);
+        }))
         .child(button("host", "external-link", FORGE_NAME[this.forge] ?? "Open", false, (cx) => cx.open_url(issue.url)))
-        .child(button("copy", "copy", "Copy link", false, () => this.copy(issue))));
+        .child(button("copy", "copy", "Copy link", false, () => this.copy(issue)))))
+      .when(!draft && picking, (e) => e.child(v_flex().gap(4).p(6).rounded(6).border_1().border_color(t.border).bg(t.popover)
+        .child(div().px(4).child("Choose an agent"))
+        .children(agents.map((agent) => button(`agent-${agent.key}`, "rocket", agent.name, false, (cx) => {
+          if (this.busy || this.pickingAgent !== issue.number) return;
+          this.pickingAgent = null; this.work(issue, agent, cx);
+        })))
+        .when(!agents.length, (list) => list.child(div().px(4).child("No agents available")))));
   }
 
   render(cx) {
-    const show = shared("runway.show"); if (show?.kind === "issue" && show.at !== this.showSeen && Date.now() - show.at < 5000) { this.showSeen = show.at; if (this.filter !== "all") { this.filter = "all"; this.limit = PAGE; this.recall(); this.stale = true; } this.expanded = show.number; }
+    const show = shared("runway.show"); if (show?.kind === "issue" && show.at !== this.showSeen && Date.now() - show.at < 5000) { this.showSeen = show.at; if (this.filter !== "all") { this.filter = "all"; this.limit = PAGE; this.recall(); this.stale = true; } this.expanded = show.number; this.draft = null; this.pickingAgent = null; }
     const bump = shared("ship-it.bump");
     if (bump !== this.bumpSeen) { this.bumpSeen = bump; if (this.shown()) this.refresh(cx, true, true); else this.stale = true; }
     this.cx = cx;

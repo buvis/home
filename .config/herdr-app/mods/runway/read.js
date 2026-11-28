@@ -32,7 +32,7 @@ async function specflowScript(on) {
 
 async function checkout(t, l, on, script) {
   const dir = `${t.path}/${PM}/autopilot`;
-  const runs = script && l.specflow?.trim() && (t.main || t.branch?.startsWith("feature/specflow-"));
+  const runs = script && l.specflow?.trim() && (t.main || t.spec || t.branch?.startsWith("feature/specflow-"));
   // python3 exits 1 when specs have problems; its stdout still holds the JSON.
   const [state, wave, specs, conf] = await Promise.all([
     json(readTextFile(`${dir}/state.json`, { on })),
@@ -41,7 +41,7 @@ async function checkout(t, l, on, script) {
     json(l.specflow),
   ]);
   const { backlog, wip, hold, done } = l;
-  return { path: t.path, branch: t.branch, main: t.main, buckets: { backlog, wip, hold, done }, intake: l.intake,
+  return { path: t.path, branch: t.branch, main: t.main, spec: t.spec, buckets: { backlog, wip, hold, done }, intake: l.intake,
     state, wave, specs, specsDir: conf?.specsDir ?? null };
 }
 
@@ -61,7 +61,16 @@ export async function snapshot(cwd, on) {
   const listed = found.map(({ t, out }) => ({ t, l: parseListing(out) }));
   const wanted = listed.some(({ l }) => l.specflow?.trim());
   const script = wanted ? await specflowScript(on) : null;
-  const checkouts = await Promise.all(listed.map(({ t, l }) => checkout(t, l, on, script)));
+  const links = new Map();
+  if (script && listed.some(({ t, l }) => !t.main && t.branch && l.specflow?.trim())) {
+    const config = await exec("git", [...READ, "config", "--local", "--null", "--get-regexp", "^branch\\..*\\.herdr-spec$"], { cwd, on });
+    if (config.code !== 0 && config.code !== 1) throw new Error(config.stderr.trim() || "Could not read spec branch links");
+    for (const item of config.stdout.split("\0")) {
+      const match = /^branch\.(.+)\.herdr-spec\n(.+)$/.exec(item);
+      if (match) links.set(match[1], match[2]);
+    }
+  }
+  const checkouts = await Promise.all(listed.map(({ t, l }) => checkout({ ...t, spec: links.get(t.branch) }, l, on, script)));
   return { ...base, checkouts, specflow: !wanted ? "none" : script ? "ok" : "missing" };
 }
 

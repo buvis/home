@@ -4,20 +4,23 @@ const STATE = "docs/dev/project-management/autopilot/state.json";
 
 const itemName = (card) => card.id.slice(card.id.indexOf(":") + 1);
 
-export function planLane(card, repo, home) {
-  let slug;
+export function laneBranch(card) {
+  return card.kind === "prd"
+    ? `feature/${card.file.split("/").pop().replace(/\.md$/, "").replace(/-v\d+$/, "")}`
+    : `feature/specflow-${card.number}`;
+}
+
+export function planLane(card, repo, home, branch = laneBranch(card), directory = `${home}/git/src/worktrees`) {
   let name;
   if (card.kind === "prd") {
     name = card.file.slice(card.file.lastIndexOf("/") + 1);
     if (card.checkout !== repo.main || card.file !== `${repo.main}/${PRDS}/backlog/${name}`) {
       return { error: "Only a backlog PRD in the main checkout can move" };
     }
-    slug = name.replace(/\.md$/, "").replace(/-v\d+$/, "");
-  } else {
-    slug = `specflow-${card.number}`;
   }
-  const branch = `feature/${slug}`;
-  const path = `${home}/git/src/worktrees/${repo.name}/${branch.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+  const slug = branch.replace(/[^\p{L}\p{M}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "");
+  if (!slug || slug === "." || slug === "..") return { error: "Enter a valid branch name" };
+  const path = `${directory}/${repo.name}/${slug}`;
   if (repo.branches.includes(branch)) return { error: `Branch ${branch} exists; use its chip` };
   if (repo.worktrees.some((w) => w.path === path)) return { error: `Worktree ${path} exists` };
   const plan = { branch, path, main: repo.main };
@@ -25,6 +28,8 @@ export function planLane(card, repo, home) {
     plan.from = card.file;
     plan.to = `${path}/${PRDS}/wip/${name}`;
     plan.stale = `${path}/${PRDS}/backlog/${name}`;
+  } else if (branch !== laneBranch(card)) {
+    plan.spec = itemName(card);
   }
   return plan;
 }
@@ -36,7 +41,7 @@ export async function openLane(plan, io) {
   if (busy) throw new Error("A lane is already opening");
   busy = true;
   try {
-    const { branch, path, from, to, stale } = plan;
+    const { branch, path, from, to, stale, spec } = plan;
     if (from && !(await io.exists(from))) {
       throw new Error("The PRD is no longer in the backlog; nothing changed");
     }
@@ -47,6 +52,10 @@ export async function openLane(plan, io) {
     }
     if (await io.exists(`${path}/${STATE}`)) {
       throw new Error(`The new worktree has a tracked state.json. The PRD did not move. Worktree: ${path}`);
+    }
+    if (spec) {
+      const r = await io.git(["config", "--local", `branch.${branch}.herdr-spec`, spec], plan.main);
+      if (r.code !== 0) throw new Error(`Created ${path}, but couldn't link it to spec ${spec}: ${r.stderr.trim()}`);
     }
     if (from) {
       await io.mkdir(`${path}/${PRDS}/wip`);

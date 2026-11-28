@@ -97,6 +97,15 @@
           }
         },
         {
+          "id": "runway-count",
+          "type": "block",
+          "content": {
+            "mod": "runway",
+            "props": { "countOnly": true }
+          },
+          "size": { "px": 0 }
+        },
+        {
           "id": "work-body",
           "type": "row",
           "children": [

@@ -553,24 +553,34 @@ export default class ShipIt extends View {
     return h_flex().id(id).h(26).px(9).gap(6).flex_none().items_center().rounded(6)
       .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
       .when(Boolean(click), (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(tip).on_click(click))
-      .child(this.icon(icon, on ? t.accent : t.muted, 13))
+      .child(icon?.includes("/") ? svg(icon).size(13).flex_none().text_color(on ? t.accent : t.muted) : this.icon(icon, on ? t.accent : t.muted, 13))
       .children(kids);
   }
 
-  // First on the left: the open PRs; a click toggles the PRs panel.
+  // Open PRs; a click toggles the PRs panel.
   repoButton(t) {
     const g = this.git, p = this.panel(), prs = p.has("ship-it-prs") && this.showPrs(), on = prs && p.open("ship-it-prs");
     return this.repoPill("repo", t, { icon: "git-pull-request", on, tip: `Open pull requests in ${g.repo}`, click: prs ? () => { this.togglePanel("ship-it-prs"); this.refreshCounts(this.cx, true); } : null,
       kids: [div().font_semibold().text_color(t.foreground).whitespace_nowrap().child("PRs"), this.badge(t, prs ? this.countOf("prs") : null)].filter(Boolean) });
   }
 
-  // Next to it: the open issues; a click toggles the Issues panel.
+  // Open issues; a click toggles the Issues panel.
   issuesButton(t) {
     const p = this.panel();
     if (!p.has("ship-it-issues") || !this.showPrs()) return null;
     const on = p.open("ship-it-issues"), g = this.git;
     return this.repoPill("issues", t, { icon: "circle-dot", on, tip: `Open issues in ${g.repo}`, click: () => { this.togglePanel("ship-it-issues"); this.refreshCounts(this.cx, true); },
       kids: [div().font_semibold().text_color(t.foreground).whitespace_nowrap().child("Issues"), this.badge(t, this.countOf("issues"))].filter(Boolean) });
+  }
+
+  runwayButton(t) {
+    const p = this.panel();
+    if (!p.has("runway")) return null;
+    const count = shared("runway.count");
+    return this.repoPill("runway", t, { icon: "mods/runway/runway.svg", on: p.open("runway"),
+      tip: "Open Runway", click: () => this.togglePanel("runway"),
+      kids: [div().font_semibold().text_color(t.foreground).whitespace_nowrap().child("Runway"),
+        this.badge(t, count?.key === this.locKey ? count?.count : null)].filter(Boolean) });
   }
 
   // CI on the right, between the changes and PRs buttons: the PR's checks
@@ -637,7 +647,7 @@ export default class ShipIt extends View {
     const loc = location(this.loc);
     if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
     this.back(cx);
-    const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
+    const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel(), runway = this.runwayButton(t);
     // Each is null when there is nothing to show (prButton while the PR loads).
     const signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
@@ -651,11 +661,12 @@ export default class ShipIt extends View {
         .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
         .when(Boolean(g) && p.has("changes"), (e) => e.child(this.workStat(t)))
         .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals.flex_none())))
-      .when(Boolean(g), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
-        .child(this.repoButton(t))
-        .when(Boolean(this.issuesButton(t)), (e) => e.child(this.issuesButton(t)))
-        .when(Boolean(prButton), (e) => e.child(prButton))
+      .when(Boolean(g || runway), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
         .when(Boolean(checks), (e) => e.child(checks))
+        .when(Boolean(runway), (e) => e.child(runway))
+        .when(Boolean(g), (e) => e.when(Boolean(this.issuesButton(t)), (e) => e.child(this.issuesButton(t)))
+          .child(this.repoButton(t)))
+        .when(Boolean(prButton), (e) => e.child(prButton))
         .when(this.showPr(), (e) => e.child(this.shipButton(t)))));
   }
 }

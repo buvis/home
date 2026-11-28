@@ -70,6 +70,10 @@ Gemini with `"run": []` (CLI discontinued; ship-it and my-new-menu skip
 agents with an empty `run`). on-screen's pane
 menu gained Copy path and Copy branch name the same day.
 Local edit for PRD 00006: ship-it-prs and ship-it-issues read shared "runway.show" at the top of render and expand that PR or issue (the runway mod's chip jump).
+Ship-it-issues asks for an editable Git Flow branch name before creating a worktree. It offers any existing issue branch as a choice, uses the configured worktree directory, and saves the issue link in local Git config so edited names reopen from the issue.
+Send to agent opens one picker for installed agents. The Issues panel launches the chosen agent through run-agent with its configured arguments.
+Runway opens from the repository strip, before Issues and PRs. Its badge counts the current repository's items outside Parked. Create worktree asks for a branch name and opens a shell. Send to agent opens the agent picker and uses run-agent for the chosen workflow.
+Implement backlog runs the repository queue from the Runway header.
 On a fresh Runway jump from All spaces, ship-it-prs switches to This space, drops the queue request and refreshes the repo list. On a jump, both panels also reset a Mine, To review or Assigned to me filter to All.
 Local edit 2026-11-16: Ship ran `ship(cx)` straight from the click and used
 the click's `cx` after an await ("cx is no longer valid"); it now runs in

@@ -11,7 +11,14 @@ const HERDR = ["exec", "hc", "home", "appHome", "checking", "readTextFile", "wri
 const HERDR_SOURCE = HERDR.map((n) => `export function ${n}(...a) { return globalThis.__herdr.${n}(...a); }`).join("\n");
 const KIT_SOURCE = `const k = globalThis.__kit; export const View = k.View; export const div = k.div;
   export const svg = k.svg; export const image = k.image;`;
-const BASE_SOURCE = "const k = globalThis.__kit; export const v_flex = k.v_flex; export const h_flex = k.h_flex;";
+const BASE_SOURCE = `
+  const k = globalThis.__kit;
+  export const v_flex = k.v_flex, h_flex = k.h_flex;
+  export const Input = { new: (state) => k.div().input(state) };
+  export const InputState = { new: ({ value }) => ({
+    text: value, value() { return this.text; }, focus() {}, on() {},
+  }) };
+`;
 const MODULES = {herdr: HERDR_SOURCE, "gpui-kit": KIT_SOURCE, "gpui-base": BASE_SOURCE};
 registerHooks({
   resolve(specifier, context, next) {
@@ -169,6 +176,14 @@ function git(w, args, c) {
     return ok(w.checkouts.map((k) => `worktree ${k.path}\nHEAD ${"a".repeat(40)}\nbranch refs/heads/${k.branch}\n`).join("\n"));
   }
   if (args.includes("for-each-ref")) return branchList(w, args);
+  if (args.includes("check-ref-format")) return /\s/.test(args.at(-1)) ? status(1) : ok(args.at(-1));
+  if (args.includes("config")) {
+    if (args.includes("--get-regexp")) {
+      return w.specLinks.size ? ok([...w.specLinks].map(([key, value]) => `${key}\n${value}\0`).join("")) : status(1);
+    }
+    w.specLinks.set(args.at(-2), args.at(-1));
+    return ok();
+  }
   if (args.includes("show-ref") || (args.includes("rev-parse") && args.includes("--verify"))) {
     return status(args.some(named) ? 0 : 1);
   }
@@ -232,9 +247,10 @@ const PANEL = {id: "root", children: [{id: "panel", hidden: false, children: [{i
 
 // `intercept({command, args, options, real, fs})` may answer an exec instead of the machine.
 export function world({on = null, checkouts, spaces, focusedPane, agents, specflowDirs = [], branches = [],
-  home = "/home/u", intercept}) {
-  const w = {on, home, specflowDirs, branches, unknownGit: [], checkouts: checkouts.map((c) => ({...c}))};
+  home = "/home/u", worktreeDirectory = "~/git/src/worktrees", intercept}) {
+  const w = {on, home, specflowDirs, branches, specLinks: new Map(), unknownGit: [], checkouts: checkouts.map((c) => ({...c}))};
   w.fs = seed(w.checkouts, specflowDirs);
+  w.fs.set(`${home}/.config/herdr-app/settings.json`, JSON.stringify({worktrees: {directory: worktreeDirectory}}));
   const calls = {exec: [], run: [], notify: [], unknownGit: w.unknownGit};
   globalThis.__herdr = {
     ...host(spaces, focusedPane, on, home),
@@ -313,8 +329,8 @@ export function cardOf(tree, title) {
   assert.ok(found.length, `card "${title}" is rendered and clickable in: ${norm(tree)}`);
   return found.sort((a, b) => norm(b).length - norm(a).length)[0];
 }
-export const LANE = "New worktree";
-export const LOOP = "Run loop (whole queue)";
+export const LANE = "Create worktree";
+export const LOOP = "Implement backlog";
 export const labelled = (card, label) => walk(card).slice(1).find((n) => norm(n) === label);
 // A control click that is not stopped reaches its card; this run makes that visible in calls.run.
 export const BUBBLED = "test.card-click-bubbled";
@@ -337,6 +353,11 @@ export async function press(panel, title, label) {
   const button = labelled(card, label);
   assert.ok(button, `${title} offers ${label}: ${norm(card)}`);
   await click(button, card);
+}
+export async function confirmLane(panel, title) {
+  const card = cardOf(panel.render(), title);
+  if (!norm(card).includes("Branch name")) await press(panel, title, LANE);
+  await press(panel, title, LANE);
 }
 export async function unfoldParked(panel) {
   const header = walk(panel.render()).filter((n) => n.on.on_click && /Parked \(\d+\)/.test(norm(n)))
