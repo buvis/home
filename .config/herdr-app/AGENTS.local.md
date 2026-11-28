@@ -74,6 +74,10 @@ you rename or replace one of them.
 
 ## The live window
 
+After every live test, restore the person's view and release mouse and keyboard
+control. Submit the completion summary and reset the computer-use session.
+If the control indicator persists, flag it immediately and stop sending input.
+
 This is an agent's note, not a rule from the person. The window is the
 person's display, and they work in it while agents run. A space or tab
 switch, or a dialog, takes their keyboard: their next keys go to the wrong
